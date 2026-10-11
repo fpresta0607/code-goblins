@@ -175,7 +175,7 @@ func ConfigFromEnv(h home.Home) Config {
 		// harness's own record of its process still can.
 		session, _ := fleettree.OwnedSession(h.State, meta)
 		return session
-	}, Owner: lifecycle.TerminalOf(h.State)}
+	}, Owner: lifecycle.OwnerOf(h)}
 	transcripts := &monitor.HostProgress{
 		Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 		StateDir: h.State,

@@ -66,8 +66,8 @@ for (const width of [1707, 390]) {
 test("an answered question reopens with its answer checked, and who chose it and when", async ({ page }, testInfo) => {
   for (const [asker, chosen, who] of [
     [/^Change the answer to The CFO:/, "Merge it", "You chose this · 40m ago"],
-    [/^Change the answer to cg-verify-fast:/, "Wait for the running test step to end", "The CFO chose this · 2m ago"],
-    [/^Change the answer to cg-board-theme:/, "Mint", "The CFO chose this while you were away · 3h ago"],
+    [/^Change the answer to Bernie - Gate Keeper:/, "Wait for the running test step to end", "The CFO chose this · 2m ago"],
+    [/^Change the answer to Lucy - Pixel Polisher:/, "Mint", "The CFO chose this while you were away · 3h ago"],
   ] as const) {
     // Arrange
     const dialog = await reopen(page, asker);
@@ -112,7 +112,7 @@ test("he changes an answer and the card shows it on the frame he makes it, with 
 test("he writes his own answer in place of the one chosen", async ({ page }) => {
   // Arrange
   const posted = await actions(page);
-  const dialog = await reopen(page, /^Change the answer to cg-verify-fast:/);
+  const dialog = await reopen(page, /^Change the answer to Bernie - Gate Keeper:/);
   await dialog.getByRole("radio", { name: /^Other/ }).check();
   await dialog.getByRole("textbox", { name: "Your written answer" }).fill("Start it once the test step ends");
 
@@ -202,7 +202,7 @@ test("a change the supervisor refuses puts the answer back as it stood and says 
 test("a merged goblin's question says in one line that the change goes as a new instruction", async ({ page }, testInfo) => {
   // Arrange
   const posted = await actions(page);
-  const dialog = await reopen(page, /^Change the answer to pd-pilot-sweep:/);
+  const dialog = await reopen(page, /^Change the answer to Marge - Tenant Wrangler:/);
 
   // Act
   await dialog.getByRole("radio", { name: "Wait for Prometheus" }).check();

@@ -12,7 +12,7 @@ import (
 const openMessage = "open:"
 
 // linksScript runs in the board's page after each load. The board opens a
-// pull request, a review's page, a handoff and a delivered file in a new
+// pull request, a review's page, a delivered file's page and a handoff in a new
 // browser tab. In the window a new tab would be a bare WebView2 window that
 // holds none of the Overlord's sign-ins, so the page hands the address to the
 // window instead, which opens it in his default browser.

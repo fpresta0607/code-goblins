@@ -19,11 +19,11 @@ test("a goblin's wait with a page says its words once and opens the page from on
   await expect(card.getByText(SAYS)).toHaveCount(1);
   await expect(card.locator('a[href="http://127.0.0.1:4387/session/f26e"]')).toHaveCount(1);
   await expect(card.getByRole("link", { name: "Open review" })).toHaveCount(1);
-  await expect(card.locator(".page-preview")).toHaveCount(0);
+  await expect(card.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/waiting-pd-agent-context-7/preview");
   await expect(card.getByRole("button", { name: "Dismiss" })).toBeVisible();
 });
 
-test("another review with a page names it as the Scrawl page it opens, never its title again", async ({ page }) => {
+test("another review with a page opens it from one button and never names it Scrawl page", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/wait-card-once.html");
 
@@ -34,6 +34,6 @@ test("another review with a page names it as the Scrawl page it opens, never its
   const card = page.getByRole("dialog").locator(".question-card");
   await expect(card.getByText("Do the proof screenshots read well?")).toHaveCount(1);
   await expect(card.locator('a[href="http://127.0.0.1:4387/session/a1b2"]')).toHaveCount(1);
-  await expect(card.locator(".page-preview")).toHaveAccessibleName("Open review: Do the proof screenshots read well?");
-  await expect(card.locator(".page-shot")).toHaveText("Scrawl page");
+  await expect(card.getByRole("link", { name: "Open review: Do the proof screenshots read well?" })).toHaveCount(1);
+  await expect(card.getByText("Scrawl page")).toHaveCount(0);
 });

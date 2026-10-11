@@ -11,6 +11,7 @@ import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { goblinName } from "./task-words";
 
 // An answered question, opened again from History: its choices with the
 // answer checked, who chose it and when, and Change answer for another
@@ -25,7 +26,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
-  const asker = question.task ? task?.title || question.task : "The CFO";
+  const asker = question.task ? task ? goblinName(task) : question.task : "The CFO";
   const standing = standingAnswer(question, draft, snapshot.actions);
   const shown = draft.selection ? { selection: draft.selection, written: draft.written } : standing;
   const payload = questionAnswer(question, shown.selection, shown.written);

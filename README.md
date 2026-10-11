@@ -500,6 +500,7 @@ A live goblin with no real progress for 20 minutes says for how long on its card
 After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
 Any of them resets it, and intentional pauses do not raise it.
 A goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and the clock a harness redraws by itself on its screen is not output.
+So is a goblin whose test run, started by a script in the background, runs cut off from its harness, as everything Git Bash starts in the background is: such a run is the goblin's by its terminal's mark or by the task's folders it works in or runs a program from, while a server, a browser or a machine service it left running never counts as its work.
 A goblin waiting on its no-mistakes run is working while the run's step runs within the time nine in ten rounds of that step have taken on this machine, and a run stuck past that, or parked on an answer, raises one `gate_stuck` or `gate_parked` wake naming the run and the step instead.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
 A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
@@ -655,8 +656,10 @@ Choices are a plain list of the answers themselves, the recommended one first an
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
 Answers you give to several of the CFO's questions in one go reach the CFO as one message that lists each question and your answer in the order you gave them, and an answer to its only question goes at once.
 Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
-A review page shows as a preview named Scrawl page you click to open it (**Open review**), and a goblin's wait with a page opens it from its one **Open review** button, so a card says its words once; a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
-When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, **Open review**, and where the review stands (waiting for your answer, or when its window closed; nothing you send there is lost).
+A card says each thing once: the goblin's name and title, such as Tad - Report Fixer, then the item's own title, never the task's title again.
+A card for a Scrawl page shows the page itself, live and scaled down, with one **Open review** button and no line that explains how to answer. A page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
+When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, the page and **Open review**.
+The Command Center keeps the lantern box, its stepped frame, hard shadow and pixel type, in SIQstack's own look: its dark card, its mint and its green button, never all yellow.
 An answer you send on the page finishes its card within a second, with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows. History lists it as answered, never as withdrawn.
 A pick or a note you send just before **Send & End** is part of that one answer, never a revision first.
 
@@ -665,7 +668,7 @@ A pick or a note you send just before **Send & End** is part of that one answer,
 </p>
 
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
-A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
+A file the CFO or a goblin hands you with `cfo deliver` opens as a Scrawl page that shows it: a picture inline, a PDF page by page and plain text as text, under the title it was given. What you write there goes back to whoever delivered it. The page offers **Download** only for a generated asset or a file you asked to keep.
 Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
 An item shows no toast and opens no dialog by itself.
 Only an open Command Center item that asks you something alerts you: a question the CFO asks you, a goblin's wait or page addressed to you, a command to run, a credential request or a new release.
@@ -896,7 +899,7 @@ cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
-cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
+cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--download] [--task <id>]
 cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 cfo run-request --withdraw <id> --reason "<why>"
 ```

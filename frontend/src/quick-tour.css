@@ -4,7 +4,7 @@
 .quick-tour { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; background: transparent; color: inherit; }
 .quick-tour::backdrop { background: transparent; }
 .quick-tour.unlit::backdrop { background: #02070abd; }
-.quick-tour-light { position: fixed; box-shadow: 0 0 0 200vmax #02070abd; outline: 2px solid #F2B447; outline-offset: 2px; pointer-events: none; }
+.quick-tour-light { position: fixed; box-shadow: 0 0 0 200vmax #02070abd; outline: 2px solid var(--lantern); outline-offset: 2px; pointer-events: none; }
 .quick-tour .quick-tour-card { position: fixed; width: min(460px, calc(100vw - 32px)); }
 .quick-tour-card .dialogue-box { grid-template-columns: auto minmax(0, 1fr); align-items: start; padding-right: 64px; }
 .quick-tour-card .dialogue-text { display: grid; gap: 6px; padding-top: 4px; }

@@ -3,7 +3,7 @@ import { credentialAsk } from "./credentials.ts";
 import { publishedAt } from "./item-state.ts";
 import { messageBlocks, plainMessage } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
-import { withoutHarness } from "./task-words.ts";
+import { goblinName } from "./task-words.ts";
 
 // An alert tells the Overlord that a Command Center item asks him something,
 // and nothing else does (the Overlord, 2026-10-07: "alerts should only be
@@ -29,7 +29,8 @@ const shortened = (text: string, limit = TEXT_LIMIT) => text.length > limit ? te
 
 // A goblin speaks by its title, as its card and the Command Center inbox name
 // it, falling back to its id.
-const nameOf = (tasks: Task[], id: string) => withoutHarness(tasks.find((task) => task.id === id)?.title || "") || id;
+// A goblin is named by its name and title, as every card names it.
+const nameOf = (tasks: Task[], id: string) => { const task = tasks.find((candidate) => candidate.id === id); return task ? goblinName(task) : id; };
 
 // An item's alert is keyed by its id and the publishing it stands for: the
 // supervisor takes an ID again once it has dropped the record that used it,

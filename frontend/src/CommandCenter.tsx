@@ -20,10 +20,10 @@ import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
 import { countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
-import { DocumentCard } from "./DocumentCard";
 import { AnswerMark } from "./AnswerMark";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
+import { goblinName } from "./task-words";
 
 // A sent item's check shows this long before the next item.
 const DONE_MS = 750;
@@ -243,8 +243,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // published its item for the same release again: retryItem is that item,
   // which the press shows and starts at once.
   const retryItem = (target: Run) => target.state === "failed" ? (snapshot.runs || []).find((other) => other.id !== target.id && other.state === "ready" && other.update?.to === target.update?.to) : undefined;
-  // A document leaves the queue once he opens or downloads it, and says so.
-  const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
+  const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
   // His change of an answer shows as the answer on its card the moment he
   // makes it. It goes under one request ID until the supervisor has it, so a
@@ -286,7 +285,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
   // An Update item is Code Goblins' own, not the CFO's or a goblin's.
   const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
-  const askerOf = (candidate: Item) => release(candidate) ? "Code Goblins" : taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
+  const askerOf = (candidate: Item) => {
+    const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
+    return release(candidate) ? "Code Goblins" : taskOf(candidate) ? goblin ? goblinName(goblin) : taskOf(candidate) : "The CFO";
+  };
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : "play";
@@ -294,7 +296,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
+  const presenter = (event: BoardActivity) => {
+    const goblin = snapshot.tasks.find((task) => task.id === event.task_id);
+    return event.cfo_identity ? "The CFO" : goblin ? goblinName(goblin) : event.task_id;
+  };
   const settled = settledItems(snapshot).slice(0, 20);
   // Reset before committing this render, including IDs absent between publications.
   // Registration changes identity but keeps created_at, so unfinished answers survive.
@@ -394,8 +399,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"
               ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
-              : item.review.document
-              ? <DocumentCard key={shownKey} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
