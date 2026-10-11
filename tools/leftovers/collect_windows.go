@@ -190,7 +190,9 @@ var watchedKeys = []struct {
 	{registry.CURRENT_USER, "HKCU", `Software\Microsoft\Windows\CurrentVersion\RunOnce`},
 	{registry.CURRENT_USER, "HKCU", `Software\Microsoft\Windows\CurrentVersion\Uninstall`},
 	{registry.CURRENT_USER, "HKCU", `Software\Microsoft\Windows\CurrentVersion\Notifications\Settings`},
-	{registry.CURRENT_USER, "HKCU", `Software\Classes\AppUserModelId`},
+	// Every file type, link and class registered for the user, with what
+	// each runs, notification senders among them.
+	{registry.CURRENT_USER, "HKCU", `Software\Classes`},
 	{registry.CURRENT_USER, "HKCU", `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`},
 	{registry.LOCAL_MACHINE, "HKLM", `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`},
 	{registry.LOCAL_MACHINE, "HKLM", `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`},

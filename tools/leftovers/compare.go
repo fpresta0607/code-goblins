@@ -55,13 +55,15 @@ type rule struct {
 	kind    string
 	change  string
 	pattern *regexp.Regexp
-	why     string
+	// unless names what under pattern the rule never passes over.
+	unless *regexp.Regexp
+	why    string
 }
 
 // matches reports whether the rule passes over d. A rule with no change
 // passes over every change of its kind.
 func (r rule) matches(d difference) bool {
-	return r.kind == d.Kind && (r.change == "" || r.change == d.Change) && r.pattern.MatchString(d.Identity)
+	return r.kind == d.Kind && (r.change == "" || r.change == d.Change) && r.pattern.MatchString(d.Identity) && (r.unless == nil || !r.unless.MatchString(d.Identity))
 }
 
 // passed is a difference a rule or a kept folder passed over, with why.
@@ -111,7 +113,7 @@ func compare(before, after Snapshot, kept []string, rules []rule) ([]difference,
 			over = append(over, passed{difference: d, Why: "the uninstall named " + folder + " as kept"})
 			continue
 		}
-		if index := slices.IndexFunc(rules, func(r rule) bool { return r.matches(d) }); index >= 0 && (d.Change == changeGone || !excepted.MatchString(d.Identity)) {
+		if index := slices.IndexFunc(rules, func(r rule) bool { return r.matches(d) }); index >= 0 && (d.Change == changeGone || !excepted.MatchString(d.Identity) && !excepted.MatchString(d.After)) {
 			over = append(over, passed{difference: d, Why: rules[index].why})
 			continue
 		}

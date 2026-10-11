@@ -249,8 +249,8 @@ func TestNoisePassesOverWhatWindowsProvisionsForItsPackagedApps(t *testing.T) {
 	near := []difference{
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\WindowsApps\goblins.exe`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppXCodeGoblins`},
-		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppX0123`},
-		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.fhx`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{0123}`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\Windows\WindowsAppsX\x.exe`},
 	}
 
 	// Act
@@ -328,6 +328,62 @@ func TestNoisePassesOverWhatWindowsTasksWrite(t *testing.T) {
 			// Assert
 			if (len(remaining) == 1) != tc.isNamed {
 				t.Errorf("named %v, want named %v", remaining, tc.isNamed)
+			}
+		})
+	}
+}
+
+// The rule for HKCU\Software\Classes, and why. Windows registers each of
+// its own packaged apps' file types, links and classes there as it
+// provisions the app for a profile, at times of its own, under names of the
+// app's, such as .all and windowsdefender on a clean runner, so a new key or
+// value there, or a changed value, is passed over. Code Goblins registers
+// nothing there but its notification registration and its click handlers,
+// so everything in AppUserModelId and CLSID is compared. A new key or value
+// whose name, or whose value, names Code Goblins, goblins, cfo.exe or
+// goblins-window is named wherever it sits under Classes, and so is
+// anything that went.
+func TestNoisePassesOverWindowsClassesButNeverOurs(t *testing.T) {
+	cases := []struct {
+		name string
+		difference
+		isNamed bool
+	}{
+		{"a packaged app's file type", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.all\OpenWithProgids`}, false},
+		{"a packaged app's link", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\windowsdefender`}, false},
+		{"a packaged app's link's value", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\windowsdefender\URL Protocol`}, false},
+		{"a value Windows changed", difference{Change: changeChanged, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\OpenWithProgids\AppXb5yxv86nkhp530y0y50yxe69c1qwad1x`, Before: "", After: "x"}, false},
+		{"a key named for Code Goblins", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CodeGoblins.Brief`}, true},
+		{"a link that runs the window", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `"C:\Users\a\AppData\Local\CodeGoblins\bin\goblins-window.exe" "%1"`}, true},
+		{"a link that runs cfo.exe", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\brief\shell\open\command\`, After: `C:\tools\cfo.exe open "%1"`}, true},
+		{"a value changed to name the goblins", difference{Change: changeChanged, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\shell\open\command\`, Before: "notepad.exe %1", After: `goblins.exe %1`}, true},
+		{"a class", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}`}, true},
+		{"a class's value", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\CLSID\{675d0139-5ced-40b2-8c52-7ff0dca6fc9d}\LocalServer32\`, After: "x"}, true},
+		{"a notification sender", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppUserModelId\Some App`}, true},
+		{"a file type that went", difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\.txt`}, true},
+		{"a value that went", difference{Change: changeGone, Kind: kindRegistryValue, Identity: `HKCU\Software\Classes\.txt\Content Type`, Before: "text/plain"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			before := snapshotOf(map[string]map[string]string{tc.Kind: {}})
+			after := snapshotOf(map[string]map[string]string{tc.Kind: {}})
+			switch tc.Change {
+			case changeLeft:
+				after = snapshotOf(map[string]map[string]string{tc.Kind: {tc.Identity: tc.After}})
+			case changeChanged:
+				before = snapshotOf(map[string]map[string]string{tc.Kind: {tc.Identity: tc.Before}})
+				after = snapshotOf(map[string]map[string]string{tc.Kind: {tc.Identity: tc.After}})
+			case changeGone:
+				before = snapshotOf(map[string]map[string]string{tc.Kind: {tc.Identity: tc.Before}})
+			}
+
+			// Act
+			remaining, _ := compare(before, after, nil, noise())
+
+			// Assert
+			if (len(remaining) == 1) != tc.isNamed {
+				t.Errorf("%s: named %v, want named %v", tc.difference, remaining, tc.isNamed)
 			}
 		})
 	}
