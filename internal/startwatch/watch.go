@@ -263,9 +263,9 @@ func (w *Watch) left(reading Reading) []Finding {
 }
 
 // Named names processes as a wake names them: each one whose parent is not
-// among them, with its pid, its program and its command line, and the
-// programs that run under it, the first three by name, so a shell left
-// holding a server says what the server is.
+// among them, the first namedTrees, with its pid, its program and its
+// command line, and the programs that run under it, the first three by
+// name, so a shell left holding a server says what the server is.
 func Named(processes []fleettree.Placed) string {
 	byPID := map[int]fleettree.Placed{}
 	children := map[int][]int{}
@@ -294,8 +294,14 @@ func Named(processes []fleettree.Placed) string {
 		}
 		names = append(names, name)
 	}
+	if len(names) > namedTrees {
+		names = append(names[:namedTrees], fmt.Sprintf("and %d more", len(names)-namedTrees))
+	}
 	return strings.Join(names, ", ")
 }
+
+// namedTrees is how many trees of processes one wake names.
+const namedTrees = 5
 
 func ownerName(owner, cfo string) string {
 	if owner == cfo {

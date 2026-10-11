@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -164,6 +165,9 @@ type commandRuntime struct {
 	// processPlan reads what the fleet's process sweeps would end now, and
 	// ends nothing.
 	processPlan func(context.Context, home.Home) (processPlan, error)
+	// leftRunning reads what a task's goblin started that still runs, for
+	// its done or failed report to name.
+	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
 	// goblins is true when this binary runs under the name goblins, where no
@@ -400,6 +404,7 @@ func defaultCommandRuntime() commandRuntime {
 		taskLifecycle: defaultTaskLifecycle,
 		reap:          defaultReap,
 		processPlan:   defaultProcessPlan,
+		leftRunning:   defaultLeftRunning,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},

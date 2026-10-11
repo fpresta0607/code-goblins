@@ -173,4 +173,11 @@ func TestNamedNamesEachTreeOnce(t *testing.T) {
 	if got, want := Named(processes), `pid 10 p1.exe "p1" (under it p2.exe pid 20, p3.exe pid 30, p4.exe pid 40 and 1 more), pid 99 other.exe "other --flag"`; got != want {
 		t.Errorf("Named = %q, want %q", got, want)
 	}
+	var many []fleettree.Placed
+	for pid := 1; pid <= 7; pid++ {
+		many = append(many, fleettree.Placed{Process: fleettree.Process{PID: pid, ParentPID: 900, Exe: "sleep.exe"}, Command: "sleep 30"})
+	}
+	if got := Named(many); !strings.HasSuffix(got, `pid 5 sleep.exe "sleep 30", and 2 more`) {
+		t.Errorf("Named = %q, want five trees and how many more", got)
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -856,5 +857,52 @@ func TestAHelpersWorkingReportStaysOnTheBoard(t *testing.T) {
 
 	if exit != 0 || len(*typed) != 0 {
 		t.Errorf("exit = %d, typed = %q; want a working report recorded and typed nowhere", exit, *typed)
+	}
+}
+
+// A goblin's done report names what it left running, so the CFO reads it in
+// the wake that tells it the goblin is done, and the goblin is told to end
+// what it no longer needs by its pid.
+func TestNotifyDoneNamesWhatTheGoblinLeftRunning(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if err := state.WriteTaskMeta(filepath.Join(dir, "state"), state.TaskMeta{ID: "g1", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := defaultCommandRuntime()
+	runtime.leftRunning = func(_ home.Home, id string) ([]fleettree.Placed, error) {
+		if id != "g1" {
+			t.Errorf("read what %s left, want g1", id)
+		}
+		return []fleettree.Placed{
+			{Process: fleettree.Process{PID: 400, ParentPID: 1, Exe: "node.exe"}, Owner: "g1", Command: "node server.js --port 3000"},
+			{Process: fleettree.Process{PID: 401, ParentPID: 400, Exe: "chrome.exe"}, Owner: "g1", Command: "chrome.exe --headless=new"},
+		}, nil
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runNotify([]string{"g1", "--done", "--pr", "https://github.com/o/r/pull/9"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	want := `done: PR https://github.com/o/r/pull/9 (left running: pid 400 node.exe "node server.js --port 3000" (under it chrome.exe pid 401))`
+	lines, err := state.TailStatus(filepath.Join(dir, "state"), "g1", 1)
+	if err != nil || len(lines) != 1 || !strings.HasSuffix(lines[0], want) {
+		t.Errorf("status = %q (%v), want it to end %q", lines, err, want)
+	}
+	records, err := wake.Pending(filepath.Join(dir, "state"))
+	if err != nil || len(records) != 1 || records[0].Detail != want {
+		t.Errorf("wakes = %+v (%v), want one saying %q", records, err, want)
+	}
+	if output := stdout.String(); !strings.Contains(output, "You left running pid 400 node.exe") || !strings.Contains(output, "Stop-Process -Id <pid>") {
+		t.Errorf("stdout = %q, want the goblin told what it left and how to end it by its pid", output)
 	}
 }
