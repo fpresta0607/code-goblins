@@ -300,8 +300,8 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 // takeGateTurn waits in the machine's common line, for cfo gate test and for
 // cfo gate turn alike, each under its own label. Both physical and commit
 // availability must reach the floor before a run starts. It writes to says
-// what the run waits for as it
-// starts to wait, whenever its place in line changes and once a minute:
+// what the run waits for as it starts to wait, whenever its place in line
+// changes and once a minute:
 // which run holds the turn, for how long and under what budget, and where
 // this run stands in line. An unavailable or expired floor reading, a store
 // failure, or a wait that ctx ended, prevents execution, and is written to
