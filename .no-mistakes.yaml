@@ -31,8 +31,17 @@ disable_project_settings: true
 # whole suite here, where supervisor alone takes about 22 minutes, and hit
 # the 30-minute test agent limit with no failing test. It runs the installed
 # cfo, so it works once the CFO installs a build that has `cfo gate test`.
+#
+# The lint step's command is the Go check CI runs, `go vet ./...`, in the
+# go (rest) job of .github/workflows/go.yml, where it took 44 seconds on
+# 2026-10-10. With no command named an agent worked out what to lint, in the
+# same pass that edits the docs. CI's frontend job also runs `npm run
+# typecheck` and `npm run lint` in frontend, which need the node_modules a
+# gate's worktree does not have, so those two stay CI's, and the gate's ci
+# step waits for that run.
 commands:
   test: "cfo gate test"
+  lint: "go vet ./..."
 
 # This repository does not override the primary pipeline agent.
 # Under pipeline policy version 5 every gate role runs the owned global chain,

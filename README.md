@@ -97,6 +97,7 @@ It says which level a change requires: `affected`, the Go packages the change re
 It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
+Any other heavy command stands in the same line behind `cfo gate turn -- <command>`, which waits while another run holds the turn or free memory is under 4 GiB, says which run it waits for, and then runs the command with its output and exit code untouched.
 Before each push a goblin runs `cfo gate prepush`, which picks what the change can break and runs it one check at a time, so CI is not the first to run a test the change broke.
 It runs what the fast level runs and more: the tests that read the whole tree whatever changed, the slow packages without their slowest tests, the board's checks for a change under `frontend`, and the packages that import what changed, nearest first.
 It stops at the first failure with one plain line, starts no check after its time limit, and names what it left to CI.
@@ -757,7 +758,10 @@ It opens on a headline in plain words, how long you were away, how many things w
 **For you** lists what was held or left for you that still waits on you in the Command Center, each as it stands now, with its recommendation, the CFO's answer to a decision it made itself, and its goblin's progress.
 What no longer waits, answered or settled with what became of it, folds under **Settled**.
 **What the CFO did** follows, a drawer for each heading that holds something, closed until you open it: what merged, deployed, migrated and installed, each with its link and its verification, what it answered for goblins, the goblins paused at a floor and what each goblin finished.
-Merge words with no merge stay open because they still need you.
+What merged is one **Merged** drawer, each pull request with what the CFO wrote of it riding on it.
+A merge that did not land is the report's one warning, under **Not merged**, which stays open.
+Each of its rows says in one sentence what the CFO did about it, then what happened.
+One the CFO left for you has **Answer it**, which opens its question in the Command Center.
 **Spent** and the short **Not read** section stay open too.
 **Go through them** opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has.
 A decision the CFO answered opens with its answer checked and marked as the CFO's: **Keep the CFO's answer** keeps it, and another choice tells the CFO, which undoes or redoes what its answer started.
@@ -862,6 +866,7 @@ cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
 cfo gate prepush [--plan] [--limit <duration>]
+cfo gate turn [--as <name>] -- <program> [<argument>...]
 cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]

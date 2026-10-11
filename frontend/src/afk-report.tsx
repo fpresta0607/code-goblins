@@ -4,7 +4,7 @@ import { Disclosure } from "./Disclosure";
 import { Icon, type IconName } from "./Icon";
 import { ShowMore } from "./ShowMore";
 import { AfkHeldList } from "./afk-held";
-import { afkHeadline, afkTime, decisionSays, parseAfkReport, safeLink, settled, shownUnder, stillWaiting, switchedBy, type AfkDecision, type AfkReport } from "./afk";
+import { afkHeadline, afkTime, decisionSays, notLanded, parseAfkReport, safeLink, settled, shownUnder, stillWaiting, switchedBy, type AfkReport } from "./afk";
 import { AfkSpent } from "./afk-spent";
 import { useResource } from "./api";
 import { pullRequestLabel } from "./workflow";
@@ -15,18 +15,14 @@ import "./afk.css";
 // the report.
 const MARKS: Record<string, IconName> = { left: "clock", merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause", strike: "close" };
 
-// What still waits on the Overlord among what the CFO did: a merge word with
-// no merge made. A line the CFO struck waits on nobody.
-const waitsOnHim = (entry: AfkDecision): boolean => !entry.struck && entry.kind === "merge" && entry.outcome !== "merged";
-
 // The report of the last stretch of AFK mode, as one page over the board. Its
 // headline says in plain words how long he was away, how many things wait on
 // him and what the CFO merged, deployed, migrated and installed, beside Go
 // through them, which steps through what still waits on him in the Command
 // Center. Then For you lists what was held or left for him that still waits,
 // each as it stands now, and what was settled folds under it. What the CFO did
-// follows, a drawer for each heading that holds something, a merge word with
-// no merge open since it needs him, then what each goblin finished, what was
+// follows, a drawer for each heading that holds something, a merge that did
+// not land open since it needs him, then what each goblin finished, what was
 // spent and what could not be read. It opens when AFK mode turns off, and
 // again from the CFO panel's header.
 export function AfkReportPage({ tasks, now, onClose, onGoThrough }: { tasks: Task[]; now: number; onClose: () => void; onGoThrough: (keys: string[]) => void }) {
@@ -71,19 +67,21 @@ export function AfkReportPage({ tasks, now, onClose, onGoThrough }: { tasks: Tas
           const heading = <>{section.title} <span className="column-count">{section.entries.length}</span></>;
           const list = <ul className="inbox-list afk-decisions">{section.entries.map((entry) => {
             const says = decisionSays(entry);
-            const unmerged = entry.kind === "merge" && entry.outcome !== "merged";
+            const left = entry.asked ? data.held.find((one) => one.item === entry.asked) : undefined;
             const said = <>{says.href ? <a href={says.href} target="_blank" rel="noreferrer">{says.text}</a> : says.text}{says.outcome && ": " + says.outcome}</>;
             return <li key={entry.at + entry.kind + entry.what} className={entry.struck ? "struck" : undefined}>
-              <span className={"delivery " + (waitsOnHim(entry) ? "uncertain" : "succeeded")}><Icon name={entry.struck ? "close" : unmerged ? "warning" : MARKS[entry.kind] || "check"} /></span>
+              <span className={"delivery " + (notLanded(entry) ? "uncertain" : "succeeded")}><Icon name={entry.struck ? "close" : notLanded(entry) ? "warning" : MARKS[entry.kind] || "check"} /></span>
               <div className="inbox-text">
                 <strong>{entry.struck ? <s>{said}</s> : said}</strong>
+                {says.happened && <small className="afk-not-landed">{says.happened}</small>}
+                {notLanded(entry) && entry.asked && <small className="afk-not-landed">Left for you{left ? ": " + left.what : ""}{left?.waiting && <> <button className="text-button" onClick={() => onGoThrough([left.item])}>Answer it</button></>}</small>}
                 <ShowMore text={says.basis} className="afk-evidence" />
               </div>
               <time dateTime={entry.at}>{afkTime(entry.at, now)}</time>
             </li>;
           })}</ul>;
           return <section key={section.title} aria-label={section.title}>
-            {section.entries.some(waitsOnHim) ? <><h4>{heading}</h4>{list}</> : <Disclosure kind="afk-drawer" title={heading}>{list}</Disclosure>}
+            {section.entries.some(notLanded) ? <><h4>{heading}</h4>{list}</> : <Disclosure kind="afk-drawer" title={heading}>{list}</Disclosure>}
           </section>;
         })}
         {data.finished.length > 0 && <section aria-label="Goblins finished">

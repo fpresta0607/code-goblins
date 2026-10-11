@@ -149,6 +149,12 @@ type Entry struct {
 	// the log.
 	Struck  string `json:"struck,omitempty"`
 	Settled string `json:"settled,omitempty"`
+	// Noted is what the CFO wrote of a merge in lines of its own, and Asked
+	// the Command Center item a line it left for the Overlord about a merge
+	// that did not land is asked as, each set on the merge they name as the
+	// report folds them in, and never written to the log.
+	Noted string `json:"noted,omitempty"`
+	Asked string `json:"asked,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -327,7 +333,7 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 			return Entry{}, err
 		}
 	}
-	entry.Struck, entry.Settled = "", ""
+	entry.Struck, entry.Settled, entry.Noted, entry.Asked = "", "", "", ""
 	return record(stateDir, entry, now)
 }
 
@@ -439,6 +445,12 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 	}
 	settle := Entry{At: now.UTC(), Session: state.Session, Kind: KindSettle, What: target.What, Item: stamp, Evidence: how}
 	return settle, appendEntry(stateDir, settle)
+}
+
+// LeftQuestionID is the ID of the Command Center question a line left for the
+// Overlord is asked as.
+func LeftQuestionID(left Entry) string {
+	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
 }
 
 // Hold records an item that waits on the Overlord, in the stretch that is on.
