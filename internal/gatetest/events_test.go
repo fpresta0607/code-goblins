@@ -436,3 +436,52 @@ func TestEventsReportsAClosedOutputWhileFlushingTheLastLine(t *testing.T) {
 		})
 	}
 }
+
+// A run keeps how long each top-level test that passed took, by its package:
+// the record a push reads to leave a slow package's slowest tests to CI. A
+// test that failed, was skipped or is a subtest says nothing of how long the
+// test takes when it passes.
+func TestEventsKeepHowLongEachPassingTestTook(t *testing.T) {
+	// Arrange
+	events := NewEvents(io.Discard, io.Discard)
+	run := `{"Action":"run","Package":"example.com/lab/a","Test":"TestQuick"}
+{"Action":"pass","Package":"example.com/lab/a","Test":"TestQuick","Elapsed":0.25}
+{"Action":"run","Package":"example.com/lab/a","Test":"TestSlow"}
+{"Action":"run","Package":"example.com/lab/a","Test":"TestSlow/sub"}
+{"Action":"pass","Package":"example.com/lab/a","Test":"TestSlow/sub","Elapsed":40}
+{"Action":"pass","Package":"example.com/lab/a","Test":"TestSlow","Elapsed":41.5}
+{"Action":"run","Package":"example.com/lab/a","Test":"TestFails"}
+{"Action":"fail","Package":"example.com/lab/a","Test":"TestFails","Elapsed":0.01}
+{"Action":"run","Package":"example.com/lab/a","Test":"TestSkips"}
+{"Action":"skip","Package":"example.com/lab/a","Test":"TestSkips","Elapsed":0}
+{"Action":"run","Package":"example.com/lab/a","Test":"TestHangs"}
+{"Action":"fail","Package":"example.com/lab/a","Elapsed":50}
+{"Action":"run","Package":"example.com/lab/b","Test":"TestOK"}
+{"Action":"pass","Package":"example.com/lab/b","Test":"TestOK","Elapsed":3}
+`
+
+	// Act
+	if _, err := io.WriteString(events, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.End(); err != nil {
+		t.Fatal(err)
+	}
+	times := events.Times()
+
+	// Assert
+	want := Times{"example.com/lab/a": {"TestQuick": 0.25, "TestSlow": 41.5}, "example.com/lab/b": {"TestOK": 3}}
+	if len(times) != len(want) {
+		t.Fatalf("Times = %v, want %v", times, want)
+	}
+	for importPath, tests := range want {
+		if len(times[importPath]) != len(tests) {
+			t.Errorf("Times[%s] = %v, want %v", importPath, times[importPath], tests)
+		}
+		for test, seconds := range tests {
+			if times[importPath][test] != seconds {
+				t.Errorf("Times[%s][%s] = %v, want %v", importPath, test, times[importPath][test], seconds)
+			}
+		}
+	}
+}

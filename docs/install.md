@@ -184,6 +184,8 @@ Rerunning the install still updates the tools it pins, such as no-mistakes, whic
 ## On a fresh PC
 
 A release says at the top of its notes whether its programs are code-signed, and by whom.
+A signed release signs its `install.ps1` too, with the same certificate.
+The one-line install runs the script as text, where the signature is a block of comment lines at its end and changes nothing the script does.
 Until Code Goblins has a signing identity they are not: such a release says that it is unsigned, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
 A signed release's `install.ps1` names its publisher, and refuses a download that publisher did not sign.
 Windows knows an unsigned program only as an unknown program from an unknown publisher.

@@ -45,6 +45,15 @@ func SaveQueuedTask(h home.Home, id, revision, text string) error {
 	return changeQueuedTask(h, id, revision, strings.TrimSpace(title), strings.TrimSpace(detail), false)
 }
 
+// BriefVerification is what the Verification section of task id's brief
+// says: what its goblin runs before each push. That is the fast tier of the
+// project's record, by the command the CFO runs it by, in place of tests the
+// goblin would pick by name, which left CI the first to run a test the
+// change broke.
+func BriefVerification(id string) string {
+	return "Before each push run `cfo verify " + id + "`. It runs the check this project's record names for a change, the one the CFO runs, and when the check fails it prints the line that says what failed and the file that holds the rest. Fix that before you push. Do not pick tests to run by name in its place: what the check leaves to CI it says, and CI is the check of that."
+}
+
 // WriteQueuedBrief writes data/<id>/brief.md from a queued row and every
 // detail line under it, and never replaces a brief that already exists.
 func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
@@ -65,7 +74,7 @@ func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
 	if kind == "" {
 		kind = "ship"
 	}
-	_, writeErr := fmt.Fprintf(file, "# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, kind, mode, row.Harness, row.Model, row.Effort)
+	_, writeErr := fmt.Fprintf(file, "# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefVerification(row.ID), kind, mode, row.Harness, row.Model, row.Effort)
 	if err := errors.Join(writeErr, file.Close()); err != nil {
 		return errors.Join(err, os.Remove(brief))
 	}

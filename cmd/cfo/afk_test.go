@@ -486,6 +486,36 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 	}
 }
 
+// A line the CFO wrote for a landing is with the merge it names in what
+// status lists, as it is in the report, never a decision of its own.
+func TestAFKStatusListsALandingTheCFOWroteOfWithItsMerge(t *testing.T) {
+	// Arrange
+	runtime, h := afkRuntime(t)
+	if exit, _, stderr := afkCommand(runtime, "on"); exit != 0 {
+		t.Fatal(stderr)
+	}
+	pr := "https://github.com/acme/api/pull/12"
+	for i, entry := range []afk.Entry{
+		{Kind: afk.KindMerge, What: pr, Link: pr, Evidence: "merge train api-20261010-120000: CI passed on https://github.com/acme/api/pull/900 at abcdef1, built on main at 1234567", Outcome: afk.OutcomeMerged},
+		{Kind: afk.KindMerge, What: "PR 12 landed on merge train 900", Link: "https://github.com/acme/api/pull/900", Evidence: "One CI run, all checks passed."},
+	} {
+		if _, err := afk.Log(h.State, entry, time.Now().Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	exit, stdout, stderr := afkCommand(runtime, "status")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr)
+	}
+	if !strings.Contains(stdout, "Decided so far (1)\n- merge: "+pr+" (merged)\n") || strings.Contains(stdout, "PR 12 landed") {
+		t.Errorf("status does not list the landing once, with its merge:\n%s", stdout)
+	}
+}
+
 func TestAFKReportSaysWhenNoStretchHasEnded(t *testing.T) {
 	// Arrange
 	runtime, _ := afkRuntime(t)
