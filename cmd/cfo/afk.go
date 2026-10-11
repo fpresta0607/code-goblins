@@ -74,7 +74,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintf(stdout, "AFK mode %s on since %s, turned on %s.\n", is, switched.Since.UTC().Format("2006-01-02 15:04 UTC"), afk.SwitchedBy(switched.From, switched.Asked))
 		if asked != "" {
 			// The CFO reads this, having made the switch at his ask.
-			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You decide everything its authority covers and log each decision. What only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it.")
+			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You decide everything its authority covers and log each decision. What only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer.")
 			fmt.Fprintln(stdout, "His own switch, on the board or in a terminal of his own, turns it off at any time. cfo afk status shows what was decided and held.")
 			return 0
 		}

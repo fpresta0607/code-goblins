@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -178,16 +179,58 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
-// link, is polled by the supervisor for his feedback.
+// link, is polled by the supervisor for his feedback. While AFK mode is on a
+// goblin's item with a page is that goblin's question to the CFO instead,
+// which answers it in his place.
 func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
 	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
 		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
+	}
+	if switched, err := afk.Read(h.State); taskID != "" && lavish != "" && err == nil && switched.On {
+		return askCFOOnPage(h, taskID, id, title, lavish, page, images)
 	}
 	return publishItem(h, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
 		sums, err := stageReviewImages(h, taskID, images, dir)
 		r.ImageSums = sums
 		return len(images) > 0, err
 	}, nil)
+}
+
+// askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
+// goblin's question while AFK mode is on, once for the item: a notify that
+// wakes the CFO with the item's title, the page's link and the choices the
+// page declares, and the question on the board, which is the CFO's to answer
+// and never waits on the Overlord. The item's images, which his card would
+// show, are named for the CFO, which answers in his place; the goblin writes
+// no status line, as for any item.
+func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []string) error {
+	meta, err := goblinAsker(h.State, taskID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if err := validReview(Review{ID: id, Identity: goblinIdentity(meta), Task: taskID, Title: title, Lavish: link, LavishPage: page, CreatedAt: now}); err != nil {
+		return err
+	}
+	asked := strings.TrimSpace(title)
+	if len(images) > 0 {
+		named := make([]string, len(images))
+		for i, image := range images {
+			if named[i], err = filepath.Abs(image); err != nil {
+				return err
+			}
+		}
+		asked += " (images " + strings.Join(named, ", ") + ")"
+	}
+	detail := "blocked: " + asked + " (page " + link + ")" + PageOptions(page)
+	record, isNew, err := wake.AppendFirst(h.State, "review/"+taskID+"/"+id, "notify", taskID, state.NormalizeStatusDetail(detail))
+	if err != nil || !isNew {
+		return err
+	}
+	if _, err := wake.PublishEpisode(h.State); err != nil {
+		return err
+	}
+	return SurfaceNotify(h.State, taskID, record, detail, nil)
 }
 
 // publishItem records r for its reporter, proven the way reviewReporter does.

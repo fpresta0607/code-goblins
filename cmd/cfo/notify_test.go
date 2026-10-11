@@ -571,6 +571,65 @@ func TestNotifyWaitNamesTheLavishPageTheOverlordAnswersOn(t *testing.T) {
 	}
 }
 
+// While AFK mode is on the CFO answers a goblin's page in the Overlord's
+// place: the same wait reaches the CFO as the goblin's question, with the
+// page's link and the choices it declares, and puts no item in his Command
+// Center. While AFK mode is off it is his wait, as before.
+func TestNotifyPageWaitIsTheCFOsDecisionWhileAFKModeIsOn(t *testing.T) {
+	for name, isAFKOn := range map[string]bool{"on": true, "off": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			stateDir := filepath.Join(dir, "state")
+			if err := os.Mkdir(stateDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_HOME", dir)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			page := filepath.Join(dir, "mockups.html")
+			choices := `<script type="application/json" data-lavish-choices>{"id": "mockups", "question": "Build all three?", "options": ["Build it as shown", "Change it"], "recommended": "Build it as shown"}</script>`
+			if err := os.WriteFile(page, []byte("<html><body>"+choices+"</body></html>"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			fakeLavish(t)
+			if isAFKOn {
+				if _, _, err := afk.TurnOn(stateDir, "the board", nil, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--waiting-on", "overlord", "approve the mockups", "--lavish", page}, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			want := "waiting on overlord: approve the mockups (page http://127.0.0.1:4387/session/f26e)"
+			if isAFKOn {
+				want = "blocked: approve the mockups (page http://127.0.0.1:4387/session/f26e) options: Build it as shown (Recommended) | Change it"
+			}
+			lines, err := state.TailStatus(stateDir, "g1", 1)
+			if _, event := state.SplitStatus(lines[0]); err != nil || event != want {
+				t.Fatalf("status = %q %v, want %q", lines, err, want)
+			}
+			if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != want {
+				t.Fatalf("wake records = %+v %v, want %q", records, err, want)
+			}
+			// g1 runs in no native terminal, so the board takes nothing from it.
+			// His wait cannot go unwatched, so it fails; the CFO's decision
+			// does not need the board, so it does not.
+			if isAFKOn != (exit == 0) || isAFKOn == strings.Contains(stderr.String(), "nothing watches the page") {
+				t.Errorf("exit=%d stderr=%q, want the wait refused only while AFK mode is off", exit, stderr.String())
+			}
+			if entries, _ := os.ReadDir(filepath.Join(stateDir, "reviews-inbox")); len(entries) != 0 {
+				t.Errorf("review inbox = %d files, want no item for him", len(entries))
+			}
+			if isAFKOn && strings.Contains(stdout.String(), "AFK mode is on") {
+				t.Errorf("stdout = %q, want the goblin told nothing of AFK mode: the CFO answers its page", stdout.String())
+			}
+		})
+	}
+}
+
 // Without lavish-axi the page cannot be shown, so the notify is refused before
 // anything is recorded and the goblin asks in text instead.
 func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
