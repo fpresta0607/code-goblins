@@ -79,10 +79,16 @@ func checkoutOf(worktree string) (string, bool) {
 	return common, true
 }
 
+// noOptionalLocks keeps git from taking the locks it needs for no command of
+// the uninstall's, such as the index lock git status takes to refresh the
+// index, which a goblin at work in the same worktree would meet as a failed
+// git add or commit.
+const noOptionalLocks = "--no-optional-locks"
+
 // git runs git in dir and returns what it printed, or an error that says
 // what failed.
 func (m Machine) git(ctx context.Context, dir string, args ...string) (string, error) {
-	result, err := m.Commands.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: args})
+	result, err := m.Commands.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: append([]string{noOptionalLocks}, args...)})
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +133,7 @@ func plural(n int, noun string) string {
 // unlandedIn reads the work of worktree w that is on no remote.
 func (m Machine) unlandedIn(ctx context.Context, w goblinWorktree) (unlanded, error) {
 	var u unlanded
-	branch, err := m.Commands.Run(ctx, execx.Request{Dir: w.Path, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
+	branch, err := m.Commands.Run(ctx, execx.Request{Dir: w.Path, Name: "git", Args: []string{noOptionalLocks, "symbolic-ref", "--quiet", "--short", "HEAD"}})
 	if err != nil {
 		return u, err
 	}

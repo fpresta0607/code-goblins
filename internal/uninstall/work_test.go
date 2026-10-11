@@ -174,6 +174,36 @@ func TestTheGoblinsWorkIsKeptThenTheirRecordsLeaveTheCheckout(t *testing.T) {
 	}
 }
 
+// Making the plan, as a dry run does while the goblins work, writes nothing
+// in a goblin's worktree: git's index is left to the goblin, so the goblin
+// never meets a lock of the plan's.
+func TestMakingThePlanLeavesAGoblinsIndexAlone(t *testing.T) {
+	// Arrange
+	w := newGoblinWork(t)
+	g1 := filepath.Join(w.machine.Home.Root, "worktrees", "demo", "g1")
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(g1, "README.md"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(w.checkout, ".git", "worktrees", "g1", "index")
+	before, err := os.Stat(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	w.plan(t, Choices{})
+
+	// Assert
+	after, err := os.Stat(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+		t.Errorf("making the plan rewrote g1's index: %s, %d bytes, was %s, %d bytes", after.ModTime(), after.Size(), before.ModTime(), before.Size())
+	}
+}
+
 // A person who chose to remove the work too gets nothing kept, and the
 // worktrees say what they held as they go.
 func TestTheGoblinsWorkGoesWhenThePersonChoseSo(t *testing.T) {
