@@ -367,23 +367,10 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	facts := jobFacts{commands: map[int]string{}}
 	listens, err := listeners()
 	facts.listens = listens
-	commandLine := r.CommandLine
-	if commandLine == nil {
-		commandLine = proc.CommandLine
-	}
-	if r.commands == nil {
-		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
-	}
 	var nodes []Node
 	for _, job := range harness.jobs {
 		for _, member := range job.members {
-			key := processKey{member.PID, member.Created}
-			command, ok := r.commands[key]
-			if !ok {
-				command, _ = commandLine(member.PID)
-				r.commands[key] = command
-			}
-			facts.commands[member.PID] = command
+			facts.commands[member.PID] = r.command(member)
 		}
 		group, label, detail := classify(job, facts)
 		key := processKey{job.root.PID, job.root.Created}
@@ -427,13 +414,31 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	return nodes, err
 }
 
+// command is a process's command line, read once in its life.
+func (r *Reader) command(process Process) string {
+	if r.commands == nil {
+		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
+	}
+	key := processKey{process.PID, process.Created}
+	command, isRead := r.commands[key]
+	if !isRead {
+		commandLine := r.CommandLine
+		if commandLine == nil {
+			commandLine = proc.CommandLine
+		}
+		command, _ = commandLine(process.PID)
+		r.commands[key] = command
+	}
+	return command
+}
+
 // ownerReads bounds how many processes of one detached tree are asked whose
 // they are at one read; the tree's other processes are asked at the next.
 const ownerReads = 8
 
 // detachedJobs are the jobs of task that reach no harness: each a process
-// whose parent has exited, with everything under it, that is task's by one
-// of its processes. A tree is the task's by the first answer its processes
+// whose parent has exited, that started after the harness, with everything
+// under it, that is task's by one of its processes. A tree is the task's by the first answer its processes
 // give, top down. A Git Bash tool carries no mark of its own, and a script
 // can unset the mark for what it starts, so a tree whose processes have
 // said nothing yet is asked again as processes join it, each process once
@@ -472,6 +477,11 @@ func (r *Reader) detachedJobs(task string, processes []Process, harness harnessP
 			continue
 		}
 		if parent, isRunning := byPID[process.ParentPID]; isRunning && parent.PID != process.PID && !process.Started.Before(parent.Started) {
+			continue
+		}
+		// A tree that began before the harness was not started by it,
+		// whatever its newest processes do, so nothing of it is asked.
+		if process.Started.Before(harness.top.Started) {
 			continue
 		}
 		members := []Process{process}

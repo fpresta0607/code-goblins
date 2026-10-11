@@ -851,7 +851,7 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // then report outcomes through cfo notify so the CFO is woken with the real
 // payload rather than a guess from its screen.
 func spawnInstruction(briefPath string, meta state.TaskMeta, install []string) string {
-	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + heavyRunInstruction() + notifyInstruction(meta)
+	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the
@@ -868,6 +868,20 @@ func heavyRunInstruction() string {
 	return " One heavy run goes at a time on this machine. Start a whole test suite, a full build, a browser suite or any other heavy local run as " + exe + " gate turn -- <command>: it waits while another such run holds the turn or free memory is under 4 GiB, with no time limit of its own, says on standard error which run it waits for, then runs your command and exits with its code (125 means it took no turn and ran nothing)." +
 		" Start it where your tool's time limit cannot cut the wait short, such as in the background. A test you run by name needs no turn." +
 		" A WSL or Docker run, and a load or stress run, still need the CFO's word first, since no turn covers them."
+}
+
+// processInstruction tells a goblin that what it starts is its own to end:
+// in tests browsers run headless and programs hidden unless a picture needs
+// a window, every start is tracked by its pid and ended by that pid, and no
+// retry or poll runs without a cap. The Overlord on 2026-10-11 asked that
+// what goblins open to run or check tests finishes and is cleaned up, and
+// that nothing is forgotten or runs in loops, which the supervisor's start
+// watch tells the CFO of.
+func processInstruction() string {
+	return " Every process you start is yours to end. In tests run browsers headless and programs with their windows hidden, unless a picture needs a window." +
+		" Note the pid of each process you start in the background and end it by that pid, never by its name, once you no longer need it and before you report done." +
+		" Give every retry and every polling loop a cap." +
+		" The supervisor tells the CFO of a window you show on the Overlord's screen, a command you start again and again, and anything you leave running."
 }
 
 // dependencyInstruction tells a goblin to install its worktree's dependencies
