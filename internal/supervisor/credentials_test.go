@@ -671,6 +671,7 @@ func TestCredentialRequestTakesNamesNeverValues(t *testing.T) {
 		{"a plain http link", func(r *CredentialRequest) { r.Link = "http://example.com/keys" }},
 		{"a scope that walks", func(r *CredentialRequest) { r.Project = ".." }},
 		{"a task that is no task ID", func(r *CredentialRequest) { r.Task = "../task" }},
+		{"a task shaped like a key", func(r *CredentialRequest) { r.Task = "sk" + "_live_" + random }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

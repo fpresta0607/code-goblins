@@ -107,12 +107,7 @@ func (r AuthRefresher) GrantMCP(id string, servers []string) ([]string, error) {
 		return nil, fmt.Errorf("spawn: no MCP server was granted to %s: %s", id, undefined)
 	}
 	var named []string
-	lockName := state.MetadataLockName(id)
-	if _, err := lock.AcquireExclusiveNamed(r.StateDir, lockName); err != nil {
-		return nil, fmt.Errorf("spawn: the record of task %s is being changed by another command, as a switch or a resume of it does, so run the grant again once that has ended: %w", id, err)
-	}
-	err = func() (err error) {
-		defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(r.StateDir, lockName)) }()
+	err = r.recordLocked(id, func() error {
 		current, err := state.ReadTaskMeta(r.StateDir, id)
 		if err != nil {
 			return fmt.Errorf("spawn: read task metadata: %w", err)
@@ -130,9 +125,12 @@ func (r AuthRefresher) GrantMCP(id string, servers []string) ([]string, error) {
 		if err := state.WriteTaskMCPServers(r.StateDir, id, named); err != nil {
 			return fmt.Errorf("spawn: name the granted MCP servers in the record of %s: %w", id, err)
 		}
-		return state.AppendStatus(r.StateDir, id, "credentials: the CFO granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
-	}()
-	return named, err
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return named, r.statusAfterChange(id, "credentials: the CFO granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
 }
 
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
@@ -264,12 +262,7 @@ func (r AuthRefresher) Grant(ctx context.Context, id string, services []string) 
 		return Refreshed{}, nil, fmt.Errorf("spawn: no service was granted to %s: %s", id, auth.UnknownLine(scope, asked))
 	}
 	var recorded []string
-	lockName := state.MetadataLockName(id)
-	if _, err := lock.AcquireExclusiveNamed(r.StateDir, lockName); err != nil {
-		return Refreshed{}, nil, fmt.Errorf("spawn: the record of task %s is being changed by another command, as a switch or a resume of it does, so run the grant again once that has ended: %w", id, err)
-	}
-	err = func() (err error) {
-		defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(r.StateDir, lockName)) }()
+	err = r.recordLocked(id, func() error {
 		current, err := state.ReadTaskMeta(r.StateDir, id)
 		if err != nil {
 			return fmt.Errorf("spawn: read task metadata: %w", err)
@@ -289,13 +282,178 @@ func (r AuthRefresher) Grant(ctx context.Context, id string, services []string) 
 		if err := state.WriteTaskCredentials(r.StateDir, id, recorded); err != nil {
 			return fmt.Errorf("spawn: name the granted services in the record of %s: %w", id, err)
 		}
-		return state.AppendStatus(r.StateDir, id, "credentials: the CFO granted "+strings.Join(services, ", ")+", so the task carries "+strings.Join(recorded, ", "))
-	}()
+		return nil
+	})
 	if err != nil {
 		return Refreshed{}, nil, err
 	}
+	statusErr := r.statusAfterChange(id, "credentials: the CFO granted "+strings.Join(services, ", ")+", so the task carries "+strings.Join(recorded, ", "))
+	item, scriptErr := r.scriptAfterChange(ctx, id)
+	return item, recorded, errors.Join(statusErr, scriptErr)
+}
+
+// Revoke takes services out of the ones task id carries: out of its record,
+// so no later terminal of the task carries them, and out of its credential
+// script, which it rewrites for the services the task still carries. A
+// terminal running now keeps what it already holds of them until it ends,
+// since nothing takes a variable back out of a running process, so the
+// running terminal is told nothing: loading the script takes no service's
+// variable away. It changes no other task, and returns the script it wrote
+// and the services the record names afterwards.
+//
+// A service the task does not carry is refused before anything is written,
+// whether or not the manifest declares it, and the record is changed under
+// the lock a switch and a resume hold from start to end.
+func (r AuthRefresher) Revoke(ctx context.Context, id string, services []string) (Refreshed, []string, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return Refreshed{}, nil, err
+	}
+	meta, err := state.ReadTaskMeta(r.StateDir, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Refreshed{}, nil, fmt.Errorf("spawn: %s is not a running task, so it carries no service to revoke. A queued task carries the services its brief names", id)
+	}
+	if err != nil {
+		return Refreshed{}, nil, fmt.Errorf("spawn: read task metadata: %w", err)
+	}
+	scope := auth.ProjectName(meta.Project)
+	if scope == "" {
+		return Refreshed{}, nil, fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
+	}
+	source, err := r.source(scope)
+	if err != nil {
+		return Refreshed{}, nil, err
+	}
+	var recorded []string
+	err = r.recordLocked(id, func() error {
+		current, err := state.ReadTaskMeta(r.StateDir, id)
+		if err != nil {
+			return fmt.Errorf("spawn: read task metadata: %w", err)
+		}
+		if auth.ProjectName(current.Project) != scope {
+			return fmt.Errorf("spawn: task %s now records project %s, so nothing was revoked from it", id, auth.ProjectName(current.Project))
+		}
+		// What the task carries now: what its record names, or, for a task an
+		// older build spawned, what its next terminal would be given.
+		carried := recordedServices(source.manifest.Grant(taskNeed(current)))
+		if line := notHeldLine(services, carried); line != "" {
+			return fmt.Errorf("spawn: %s does not carry %s, so nothing was revoked. It carries %s", id, line, namesOr(carried, "no service's credentials"))
+		}
+		recorded = slices.DeleteFunc(carried, func(service string) bool { return slices.Contains(services, service) })
+		if err := state.WriteTaskCredentials(r.StateDir, id, recorded); err != nil {
+			return fmt.Errorf("spawn: take the revoked services out of the record of %s: %w", id, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return Refreshed{}, nil, err
+	}
+	statusErr := r.statusAfterChange(id, "credentials: the CFO revoked "+strings.Join(services, ", ")+", so the task's later terminals carry "+namesOr(recorded, "no service's credentials")+". A terminal of the task running now keeps what it already holds of them until it ends")
+	item, scriptErr := r.scriptAfterChange(ctx, id)
+	return item, recorded, errors.Join(statusErr, scriptErr)
+}
+
+// RevokeMCP takes MCP servers out of the ones task id's record names, so its
+// next terminal is given none of them whose entry in the project's .mcp.json
+// holds a value. A harness reads its MCP servers when it starts, so the one
+// running now keeps them until it ends. It changes no other task, and returns
+// the servers the record names afterwards.
+//
+// A server the record does not name is refused before anything is written,
+// whether or not the project's .mcp.json defines it, and the record is
+// changed under the lock a switch and a resume hold from start to end.
+func (r AuthRefresher) RevokeMCP(id string, servers []string) ([]string, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return nil, err
+	}
+	if _, err := state.ReadTaskMeta(r.StateDir, id); errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("spawn: %s is not a running task, so it is given no MCP server to revoke. A queued task is given the servers its brief names", id)
+	} else if err != nil {
+		return nil, fmt.Errorf("spawn: read task metadata: %w", err)
+	}
+	var named []string
+	err := r.recordLocked(id, func() error {
+		current, err := state.ReadTaskMeta(r.StateDir, id)
+		if err != nil {
+			return fmt.Errorf("spawn: read task metadata: %w", err)
+		}
+		if line := notHeldLine(servers, current.MCPServers); line != "" {
+			return fmt.Errorf("spawn: %s's record names no MCP server %s, so nothing was revoked. It names %s", id, line, namesOr(current.MCPServers, "none"))
+		}
+		named = slices.DeleteFunc(current.MCPServers, func(server string) bool { return slices.Contains(servers, server) })
+		if err := state.WriteTaskMCPServers(r.StateDir, id, named); err != nil {
+			return fmt.Errorf("spawn: take the revoked MCP servers out of the record of %s: %w", id, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return named, r.statusAfterChange(id, "credentials: the CFO revoked the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+namesOr(named, "no server whose entry holds a value")+". The harness running now keeps them until it ends")
+}
+
+// statusAfterChange writes line, which says what a command just changed in
+// task id's record, into the task's status log. A failure is said as one that
+// follows a change that stands, since the same command run again finds
+// nothing left to change.
+func (r AuthRefresher) statusAfterChange(id, line string) error {
+	if err := state.AppendStatus(r.StateDir, id, line); err != nil {
+		return fmt.Errorf("spawn: the record of %s changed as asked, but no record of the change reached its status log: %w", id, err)
+	}
+	return nil
+}
+
+// scriptAfterChange rewrites task id's credential script once a command has
+// changed the services its record names. A failure is said as one that
+// follows a change that stands, with the command that rewrites the script,
+// since until then the script holds what the record no longer names or lacks
+// what it now names.
+func (r AuthRefresher) scriptAfterChange(ctx context.Context, id string) (Refreshed, error) {
 	item, err := r.RefreshTask(ctx, id)
-	return item, recorded, err
+	if err != nil {
+		return item, fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh %s: %w", id, id, err)
+	}
+	return item, nil
+}
+
+// notHeldLine names those of named that held does not hold, or is empty when
+// it holds them all. A name shaped like a credential value is counted and
+// never repeated: a command names a service or a server, never a value.
+func notHeldLine(named, held []string) string {
+	var names []string
+	valueShaped := 0
+	for _, name := range named {
+		switch {
+		case slices.Contains(held, name):
+		case auth.SecretShape(name) != "":
+			valueShaped++
+		default:
+			names = append(names, name)
+		}
+	}
+	if valueShaped > 0 {
+		names = append(names, fmt.Sprintf("%d shaped like a credential value, which a record never holds", valueShaped))
+	}
+	return strings.Join(names, ", ")
+}
+
+// namesOr joins names, or says none in the words given.
+func namesOr(names []string, none string) string {
+	if len(names) == 0 {
+		return none
+	}
+	return strings.Join(names, ", ")
+}
+
+// recordLocked runs fn while holding the lock a switch and a resume hold on
+// task id's record from start to end, so neither publishes the record as it
+// read it before fn changed it.
+func (r AuthRefresher) recordLocked(id string, fn func() error) (err error) {
+	name := state.MetadataLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(r.StateDir, name); err != nil {
+		return fmt.Errorf("spawn: the record of task %s is being changed by another command, as a switch or a resume of it does, so run this again once that has ended: %w", id, err)
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(r.StateDir, name)) }()
+	return fn()
 }
 
 // credentialSource is where a project's credential scripts are generated
