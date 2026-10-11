@@ -437,6 +437,84 @@ func TestTheWordsHaveNoSemicolonAndNoDash(t *testing.T) {
 	}
 }
 
+// However many records of conversations go, the plan before the yes and the
+// window give each agent one line, naming whose they are, the first three
+// by name, while the dry run names every record.
+func TestTheRecordsGoInALineForEachAgent(t *testing.T) {
+	// Arrange
+	plan := Plan{Home: `C:\Users\you\AppData\Local\CodeGoblins`, Kept: `C:\Users\you\Code Goblins kept`}
+	for _, owner := range []string{"the CFO", "the CFO", "the CFO", "g1", "g2", "g3", "g4"} {
+		plan.Items = append(plan.Items, Item{Action: Remove, Group: GroupHarnesses, What: "Codex's record of " + owner + "'s conversations", Where: `C:\Users\you\.codex\sessions\` + owner})
+	}
+	plan.Items = append(plan.Items, Item{Action: Remove, Group: GroupHarnesses, What: "Claude Code's record of g1's conversations", Where: `C:\Users\you\.claude\projects\g1`})
+	want := []string{"Codex's records of the conversations of the CFO, g1, g2 and 2 more", "Claude Code's record of g1's conversations"}
+	var summary, dry bytes.Buffer
+
+	// Act
+	plan.WriteSummary(&summary)
+	plan.WriteDryRun(&dry)
+	screen := plan.Screen()
+
+	// Assert
+	if got := strings.Count(summary.String(), "'s record"); got != len(want) {
+		t.Errorf("the summary names records on %d lines, want %d:\n%s", got, len(want), summary.String())
+	}
+	for _, line := range want {
+		if !strings.Contains(summary.String(), line) {
+			t.Errorf("the summary does not say %q:\n%s", line, summary.String())
+		}
+	}
+	if strings.Join(screen.Records, "\n") != strings.Join(want, "\n") {
+		t.Errorf("the window shows the records %q, want %q", screen.Records, want)
+	}
+	if got := strings.Count(dry.String(), "record of"); got != len(plan.Items) {
+		t.Errorf("the dry run names %d records, want each of the %d", got, len(plan.Items))
+	}
+}
+
+// A home in a checkout keeps the checkout's code, data and config, so the
+// plan names only the home's own folders in it and counts only what they
+// hold.
+func TestAHomeInACheckoutNamesOnlyItsOwnFolders(t *testing.T) {
+	cases := []struct {
+		name       string
+		isCheckout bool
+		wantWhat   string
+		wantBytes  int64
+	}{
+		{name: "a home of its own", isCheckout: false, wantWhat: "the app and its folder", wantBytes: 12},
+		{name: "a home in a checkout", isCheckout: true, wantWhat: "its own folders bin, state, worktrees, scratch and caches in your checkout", wantBytes: 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := testMachine(t)
+			m.Checkout = tc.isCheckout
+			t.Setenv(install.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
+			m.Install.Env = install.NewEnvStore(execx.OSRunner{})
+			write(t, filepath.Join(m.Home.Root, "bin", "cfo.exe"), "abc")
+			write(t, filepath.Join(m.Home.Root, "worktrees", "g1", "x"), "abc")
+			write(t, filepath.Join(m.Home.Root, "data", "backlog.md"), "abc")
+			write(t, filepath.Join(m.Home.Root, "go.mod"), "abc")
+			write(t, filepath.Join(m.Home.Root, home.InstalledMarker), "")
+			if err := os.RemoveAll(m.Home.State); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			items, err := m.home(new(string))(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 1 || items[0].What != tc.wantWhat || items[0].Bytes != tc.wantBytes || items[0].Where != m.Home.Root {
+				t.Errorf("the plan has\n%s\nwant %q of %d bytes in %s", whats(items), tc.wantWhat, tc.wantBytes, m.Home.Root)
+			}
+		})
+	}
+}
+
 func TestTheKeptFolderNeverGoesOverOneThatIsThere(t *testing.T) {
 	// Arrange
 	profile := t.TempDir()

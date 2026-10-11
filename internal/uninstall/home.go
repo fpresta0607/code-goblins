@@ -40,14 +40,23 @@ func (m Machine) home(aside *string) func(context.Context) ([]Item, error) {
 		if err != nil {
 			return nil, err
 		}
+		what, bytes := homeWhat, int64(0)
 		if m.Checkout {
 			isThere, err = there(filepath.Join(m.Home.Root, home.InstalledMarker))
 			if err != nil {
 				return nil, err
 			}
+			// Only the home's own folders go, and the checkout keeps its code,
+			// data and config, so the plan says no more than that.
+			what = "its own folders " + list(checkoutHomeFolders[:len(checkoutHomeFolders)-1]) + " in your checkout"
+			for _, folder := range checkoutHomeFolders {
+				bytes += sizeOf(filepath.Join(m.Home.Root, folder))
+			}
+		} else if isThere {
+			bytes = sizeOf(m.Home.Root)
 		}
 		if isThere {
-			items = append(items, Item{Action: Remove, Group: GroupHome, What: "the app and its folder", Where: m.Home.Root, Bytes: sizeOf(m.Home.Root), do: func(context.Context) error {
+			items = append(items, Item{Action: Remove, Group: GroupHome, What: what, Where: m.Home.Root, Bytes: bytes, do: func(context.Context) error {
 				moved, err := m.removeHome()
 				*aside = moved
 				return err
@@ -98,8 +107,13 @@ func (m Machine) removeHome() (string, error) {
 }
 
 // checkoutHomeFolders are what a home keeps in a checkout an older build
-// made the home, none of which git tracks.
+// made the home, none of which git tracks: its folders, then the file that
+// marks it installed.
 var checkoutHomeFolders = []string{home.BinDir, "state", home.WorktreesDir, home.ScratchDir, home.CachesDir, home.InstalledMarker}
+
+// homeWhat is the home's own item in words, where the home is a folder of
+// its own.
+const homeWhat = "the app and its folder"
 
 // Asides are the folders earlier uninstalls moved their program to beside
 // the home and could not remove, which goes with this one.
