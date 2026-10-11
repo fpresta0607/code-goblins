@@ -43,6 +43,23 @@ type Volume struct {
 	Trust Trust
 	Free  uint64
 	Total uint64
+	// Image is the file a Dev Drive lives in, the zero Image for one on a
+	// disk of its own.
+	Image Image
+}
+
+// Image is the virtual disk file a drive lives in, such as the
+// CodeGoblins.vhdx a Dev Drive Code Goblins made is, and what that file takes
+// on its own drive. A dynamically expanding file grows as the drive fills and
+// never shrinks by itself, so space freed on the drive stays taken there.
+type Image struct {
+	// Path is the file, such as C:\DevDrives\CodeGoblins.vhdx, empty when
+	// Windows did not name it.
+	Path string
+	// Size is the bytes the file takes on its drive, and Unread says why it
+	// or the file could not be read.
+	Size   uint64
+	Unread string
 }
 
 // Letter is the volume's drive, such as D:.
@@ -163,12 +180,15 @@ const (
 
 // Report is a home's Dev Drive state, the volume it concerns, one line
 // saying it, with the fix when there is one, and the short note the board
-// shows under its Dev Drive row.
+// shows under its Dev Drive row. File says how much of its drive the file the
+// volume lives in holds, or why that could not be read, and the note says it
+// too. It is "" for a volume on a disk of its own.
 type Report struct {
 	State  State
 	Volume Volume
 	Line   string
 	Note   string
+	File   string
 }
 
 // Untrusted is a report on a Dev Drive Windows does not trust or did not say
@@ -186,6 +206,29 @@ const Explain = "A Dev Drive is a drive Windows 11 formats for developer work: M
 
 // Describe reports h's Dev Drive on machine m.
 func Describe(m Machine, h home.Home) Report {
+	report := describe(m, h)
+	if report.File = describeImage(report.Volume); report.File != "" {
+		report.Note += " " + strings.ToUpper(report.File[:1]) + report.File[1:] + "."
+	}
+	return report
+}
+
+// describeImage says how much of its drive the file v lives in holds, which
+// space goblins free on v does not give back, or why that could not be read.
+func describeImage(v Volume) string {
+	image := v.Image
+	switch {
+	case image.Path == "" && image.Unread == "":
+		return ""
+	case image.Path == "":
+		return fmt.Sprintf("whether %s lives in a file on another drive could not be read: %s", v.Letter(), image.Unread)
+	case image.Unread != "":
+		return fmt.Sprintf("%s holds space on %s that stays taken when goblins free space on %s, and how much could not be read: %s", image.Path, filepath.VolumeName(image.Path), v.Letter(), image.Unread)
+	}
+	return fmt.Sprintf("%s holds %.1f GB of %s, and stays that size when goblins free space on %s", image.Path, disk.GB(image.Size), filepath.VolumeName(image.Path), v.Letter())
+}
+
+func describe(m Machine, h home.Home) Report {
 	if h.DevDrive != "" {
 		v, found := m.VolumeOf(h.DevDrive)
 		switch {

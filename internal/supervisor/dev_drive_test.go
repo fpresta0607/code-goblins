@@ -98,6 +98,28 @@ func TestAnUnreadableMachineIsOnePlainNote(t *testing.T) {
 	}
 }
 
+// The panel's note under the Dev Drive row says how much of the system drive
+// the drive's file holds and that space goblins free stays taken there.
+func TestTheNoteSaysHowMuchOfTheSystemDriveTheDevDriveFileHolds(t *testing.T) {
+	// Arrange
+	machine := devDriveMachine()
+	machine.Volumes = append(machine.Volumes, devdrive.Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Free: 188 << 30, Total: 200 << 30,
+		Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Size: 142 << 30 / 10}})
+	s := devDriveService(t, &machine)
+	if err := home.WriteDevDriveConfig(s.Store.Home.Root, home.DevDriveConfig{Root: `D:\CodeGoblins`, VHD: `C:\DevDrives\CodeGoblins.vhdx`, MovedAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.keepDevDrive(context.Background())
+
+	// Assert
+	want := `The worktrees and caches are on D:\CodeGoblins. C:\DevDrives\CodeGoblins.vhdx holds 14.2 GB of C:, and stays that size when goblins free space on D:.`
+	if view := s.devDriveViewNow(); view == nil || view.State != "on" || view.Note != want {
+		t.Errorf("view = %+v, want on with the note %q", view, want)
+	}
+}
+
 // Set up makes one item at a time, in order: the create step as
 // administrator, then, once it ran and the drive is there, the move.
 func TestSetUpMakesTheCreateItemThenTheMoveItem(t *testing.T) {

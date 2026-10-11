@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,10 +17,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
+var (
+	getCompressedFileSize           = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetCompressedFileSizeW")
+	getStorageDependencyInformation = windows.NewLazySystemDLL("virtdisk.dll").NewProc("GetStorageDependencyInformation")
+)
+
 // Read reads this machine without administrator rights: the Windows build
 // from the registry, Defender's real-time protection from Get-MpComputerStatus,
-// and every fixed drive's file system, Dev Drive flag and trust from the drive
-// itself.
+// every fixed drive's file system, Dev Drive flag and trust from the drive
+// itself, and the file each Dev Drive lives in, with what that file takes on
+// its drive where this process may read it.
 func Read(ctx context.Context, commands execx.Runner) (Machine, error) {
 	var m Machine
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
@@ -105,6 +112,9 @@ func volumes() ([]Volume, uint32, error) {
 		if strings.EqualFold(v.FileSystem, "ReFS") {
 			v.Dev, v.Trust = persistentState(root)
 		}
+		if v.Dev {
+			v.Image = readImage(v.Letter())
+		}
 		found = append(found, v)
 	}
 	return found, mask, nil
@@ -162,4 +172,116 @@ func persistentFlag(root string, flag uint32) (bool, error) {
 		return false, errors.New("devdrive: the drive answered with less than its volume state")
 	}
 	return out.VolumeFlags&flag != 0, nil
+}
+
+// readImage reads the file the drive letter lives in and what that file
+// takes on its drive, the zero Image for a drive on a disk of its own.
+func readImage(letter string) Image {
+	path, err := imagePath(letter)
+	switch {
+	case err != nil:
+		return Image{Unread: strings.TrimSuffix(err.Error(), ".")}
+	case path == "":
+		return Image{}
+	}
+	return sizeOf(path)
+}
+
+// The storage dependency query for the volumes a virtual disk lives on, from
+// virtdisk.h, and the size GetCompressedFileSizeW answers when it fails.
+const (
+	storageDependencyInfoVersion2   = 2
+	getStorageDependencyHostVolumes = 0x1
+	invalidFileSize                 = 0xFFFFFFFF
+)
+
+// storageDependencyInfoType2 is STORAGE_DEPENDENCY_INFO_TYPE_2.
+type storageDependencyInfoType2 struct {
+	DependencyTypeFlags         uint32
+	ProviderSpecificFlags       uint32
+	VirtualStorageDeviceID      uint32
+	VirtualStorageVendorID      windows.GUID
+	AncestorLevel               uint32
+	DependencyDeviceName        *uint16
+	HostVolumeName              *uint16
+	DependentVolumeName         *uint16
+	DependentVolumeRelativePath *uint16
+}
+
+// imagePath asks Windows which file the drive letter lives in, through the
+// storage dependency of its volume, which a handle that may neither read nor
+// write the volume gets without administrator rights. It is "" for a drive on
+// a disk of its own.
+func imagePath(letter string) (string, error) {
+	name, err := windows.UTF16PtrFromString(`\\.\` + letter)
+	if err != nil {
+		return "", err
+	}
+	handle, err := windows.CreateFile(name, 0, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		return "", err
+	}
+	defer windows.CloseHandle(handle)
+	buffer := make([]byte, 1024)
+	for {
+		*(*uint32)(unsafe.Pointer(&buffer[0])) = storageDependencyInfoVersion2
+		var used uint32
+		result, _, _ := getStorageDependencyInformation.Call(uintptr(handle), getStorageDependencyHostVolumes, uintptr(len(buffer)), uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&used)))
+		errno := windows.Errno(result)
+		if errno == windows.ERROR_INSUFFICIENT_BUFFER && int(used) > len(buffer) {
+			buffer = make([]byte, used)
+			continue
+		}
+		if errno == windows.ERROR_VIRTDISK_NOT_VIRTUAL_DISK {
+			return "", nil
+		}
+		if errno != 0 {
+			return "", errno
+		}
+		break
+	}
+	if *(*uint32)(unsafe.Pointer(&buffer[4])) == 0 {
+		return "", nil
+	}
+	dependency := (*storageDependencyInfoType2)(unsafe.Pointer(&buffer[8]))
+	host := windows.UTF16PtrToString(dependency.HostVolumeName) + `\`
+	relative := windows.UTF16PtrToString(dependency.DependentVolumeRelativePath)
+	hostName, err := windows.UTF16PtrFromString(host)
+	if err != nil {
+		return "", err
+	}
+	var mounts [windows.MAX_PATH + 1]uint16
+	var length uint32
+	if err := windows.GetVolumePathNamesForVolumeName(hostName, &mounts[0], uint32(len(mounts)), &length); err != nil {
+		return "", err
+	}
+	if mount := windows.UTF16ToString(mounts[:]); mount != "" {
+		host = mount
+	}
+	return filepath.Join(host, relative), nil
+}
+
+// sizeOf reads what the file at path takes on its drive, which for a sparse
+// or compressed file is less than its length. Windows tells it only to a
+// process that may open the file, and the folder of the Dev Drive Code
+// Goblins made is open to administrators and Windows alone.
+func sizeOf(path string) Image {
+	image := Image{Path: path}
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		image.Unread = err.Error()
+		return image
+	}
+	var high uint32
+	low, _, lastErr := getCompressedFileSize.Call(uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&high)))
+	errno, _ := lastErr.(windows.Errno)
+	switch {
+	case uint32(low) != invalidFileSize || errno == 0:
+		image.Size = uint64(high)<<32 | uint64(uint32(low))
+	case errno == windows.ERROR_ACCESS_DENIED && !windows.GetCurrentProcessToken().IsElevated():
+		image.Unread = "only a process run as administrator may read it"
+	default:
+		image.Unread = strings.TrimSuffix(errno.Error(), ".")
+	}
+	return image
 }

@@ -40,7 +40,11 @@ func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stderr, "cfo dev-drive: "+err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, "dev drive: "+devdrive.Describe(m, h).Line)
+	report := devdrive.Describe(m, h)
+	fmt.Fprintln(stdout, "dev drive: "+report.Line)
+	if report.File != "" {
+		fmt.Fprintln(stdout, "file: "+report.File)
+	}
 	fmt.Fprintln(stdout, devdrive.Explain)
 	for _, v := range m.Volumes {
 		kind := v.FileSystem
