@@ -424,6 +424,43 @@ func TestRenderSaysWhenADecisionOfferedNoOptions(t *testing.T) {
 	}
 }
 
+// A goblin's page that declares no choices is a decision the CFO answers in
+// its own words with cfo answer, which the walk-through after AFK mode asks
+// the Overlord, so the renderer never sends it to cfo send.
+func TestRenderSaysToAnswerAPageWithNoChoicesInWords(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 11, 4, 2, 0, 0, time.UTC)
+	records := []Record{
+		{Seq: 9, Time: now.Add(-time.Minute), Kind: "notify", Key: "cg-dot", Detail: "blocked: approve the mockups (page http://127.0.0.1:4387/session/f26e)"},
+	}
+	var out bytes.Buffer
+
+	// Act
+	err := Render(&out, records, Episode{}, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); !strings.Contains(got, `cfo answer 9 --option "<your answer>"`) || strings.Contains(got, "cfo send") {
+		t.Errorf("render = %q, want the page answered in words with cfo answer", got)
+	}
+}
+
+// Page is the Scrawl page a decision's question carries at its end, as cfo
+// notify writes it, and nothing for a question that only mentions a page.
+func TestPageIsThePageAQuestionCarriesAtItsEnd(t *testing.T) {
+	for question, want := range map[string]string{
+		"approve the mockups (page http://127.0.0.1:4387/session/f26e)":        "http://127.0.0.1:4387/session/f26e",
+		"approve the mockups (page http://127.0.0.1:4387/session/f26e) first?": "",
+		"which tokenizer?": "",
+	} {
+		if got := Page(question); got != want {
+			t.Errorf("Page(%q) = %q, want %q", question, got, want)
+		}
+	}
+}
+
 func TestWaitedReadsToTheMinuteAndNeverNegative(t *testing.T) {
 	for _, tc := range []struct {
 		in   time.Duration

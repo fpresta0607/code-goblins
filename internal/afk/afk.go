@@ -143,6 +143,7 @@ type Entry struct {
 	// and acted on under the authority, which he keeps or changes once back,
 	// and is empty for what only he can do.
 	Answer string `json:"answer,omitempty"`
+	Question string `json:"question,omitempty"`
 	// Struck is the CFO's reason for striking a decision through, and Settled
 	// what became of a line left for the Overlord that the CFO settled, each
 	// set on the decision as the report folds the log, and never written to
@@ -452,6 +453,10 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 func LeftQuestionID(left Entry) string {
 	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
 }
+
+func PageQuestionID(answer Entry) string { return "" }
+
+func OnPage(entry Entry) bool { return false }
 
 // Hold records an item that waits on the Overlord, in the stretch that is on.
 func Hold(stateDir string, entry Entry, now time.Time) error {

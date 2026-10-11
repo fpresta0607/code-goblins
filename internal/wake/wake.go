@@ -700,6 +700,8 @@ func ProseAsk(rec Record, id string) (string, bool) {
 	return strings.TrimSuffix(question, `"`), ok
 }
 
+func Page(question string) string { return "" }
+
 // Question is a blocked notify's question and the options it offered. A
 // failed notify is still a decision for the CFO, but it is not a question.
 func Question(rec Record) (string, []string, bool) {
