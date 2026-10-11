@@ -79,7 +79,10 @@ func RunAsAdministrator(ctx context.Context, script string) ([]string, error) {
 func RemoveOnceEnded(folder string) error {
 	quoted := `"` + folder + `"`
 	shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
-	loop := "for /l %i in (1,1,60) do (rd /s /q " + quoted + " 2>nul & if not exist " + quoted + " exit /b 0 & ping -n 2 127.0.0.1 >nul)"
+	// The if has parentheses of its own, since cmd.exe takes every command
+	// after an if on its line as the if's, and would then wait a second only
+	// once the folder had gone.
+	loop := "for /l %i in (1,1,60) do (rd /s /q " + quoted + " 2>nul & (if not exist " + quoted + " exit /b 0) & ping -n 2 127.0.0.1 >nul)"
 	start := func(flags uint32) (*exec.Cmd, error) {
 		cmd := execx.Command(shell)
 		// cmd.exe reads its command line as it is, not as Go would quote its
