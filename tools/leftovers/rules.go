@@ -7,11 +7,11 @@ import (
 )
 
 // noise are the differences no install makes, each with why: what Windows,
-// PowerShell, .NET and the runner's own tools write by themselves while the
-// install, the session and the uninstall run. Each is written as narrowly as
+// PowerShell, .NET, git and the runner's own programs write by themselves
+// while the install, the session and the uninstall run. Each is as narrow as
 // it can be, since a rule that passes over too much passes over a leftover
-// too. Anything under a folder of the profile whose name holds "goblin" is
-// never noise.
+// too. Nothing whose path names Code Goblins or cfo is ever noise, wherever
+// it is.
 func noise() []rule {
 	local, roaming, profile := os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"), os.Getenv("USERPROFILE")
 	files := func(folder, why string) rule {
@@ -21,25 +21,50 @@ func noise() []rule {
 		return rule{kind: kindRegistryKey, pattern: regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(path) + `(\\|$)`), why: why}
 	}
 	return []rule{
-		{kind: kindFile, pattern: regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(filepath.Join(local, "Temp")) + `\\[^\\]*$`), why: "a file of the temp folder whose name does not hold goblin, which the runner's steps and their tools write"},
+		files(filepath.Join(local, "Temp"), "the temp folder, which the runner's steps and the programs they start write to, where anything of Code Goblins' names it"),
 		files(filepath.Join(local, "Microsoft", "Windows", "PowerShell"), "PowerShell's module and startup caches"),
 		files(filepath.Join(local, "Microsoft", "Windows", "INetCache"), "Windows' internet cache"),
 		files(filepath.Join(local, "Microsoft", "Windows", "INetCookies"), "Windows' internet cookies"),
 		files(filepath.Join(local, "Microsoft", "Windows", "WebCache"), "Windows' web cache"),
 		files(filepath.Join(local, "Microsoft", "Windows", "Explorer"), "Explorer's icon and thumbnail caches"),
 		files(filepath.Join(local, "Microsoft", "Windows", "History"), "Windows' history"),
+		files(filepath.Join(local, "Microsoft", "Windows", "Caches"), "Windows' own caches"),
 		files(filepath.Join(local, "Microsoft", "Windows", "Notifications"), "Windows' own store of notifications"),
+		files(filepath.Join(local, "Microsoft", "Credentials"), "Windows' encrypted store of the credentials it holds for the user, which keeps its file when an entry goes"),
+		files(filepath.Join(local, "Microsoft", "TokenBroker"), "Windows' sign-in token cache"),
 		files(filepath.Join(local, "Microsoft", "CLR_v4.0"), ".NET's usage logs"),
 		files(filepath.Join(local, "Microsoft", "CLR_v4.0_32"), ".NET's usage logs"),
+		files(filepath.Join(local, "Packages"), "the state of Windows' own packaged apps, such as winget's logs"),
 		files(filepath.Join(local, "D3DSCache"), "the graphics driver's shader cache"),
 		files(filepath.Join(local, "CrashDumps"), "Windows' crash dumps"),
 		files(filepath.Join(local, "npm-cache"), "npm's own download cache, which npm manages"),
+		files(filepath.Join(local, "GitHub CLI"), "the GitHub CLI's own record of this machine, which it writes the first time it runs, for any caller"),
+		files(filepath.Join(local, "Mozilla"), "the default browser's own profile, which opening the board in it writes, as opening any page does"),
+		files(filepath.Join(roaming, "Mozilla"), "the default browser's own profile, which opening the board in it writes, as opening any page does"),
 		files(filepath.Join(roaming, "Microsoft", "Windows", "Recent"), "Windows' list of recent files"),
+		files(filepath.Join(roaming, "Microsoft", "Crypto"), "Windows' own keys for the credentials it encrypts"),
+		files(filepath.Join(roaming, "Microsoft", "Protect"), "Windows' own keys for the credentials it encrypts"),
+		files(filepath.Join(profile, "AppData", "LocalLow", "Microsoft", "CryptnetUrlCache"), "Windows' cache of the certificates it checked"),
 		{kind: kindFile, pattern: regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(profile) + `\\ntuser\.(dat|ini|pol)`), why: "the profile's registry hive and its logs"},
+		{kind: kindFile, pattern: regexp.MustCompile(`(?i)\\\.git\\FETCH_HEAD$`), why: "git's record of the last fetch, which every fetch rewrites"},
+		{kind: kindFile, change: changeLeft, pattern: regexp.MustCompile(`(?i)\\\.git\\objects\\`), why: "objects a goblin's commits added, which no ref reaches once its branch is gone and git removes by itself, and which the uninstall kept in its bundle"},
 		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer`, "Explorer's own state"),
 		keys(`HKCU\Software\Microsoft\Windows\Shell`, "Explorer's folder views"),
 		keys(`HKCU\Software\Classes\Local Settings`, "Windows' per-user caches of program names and folder views"),
 		keys(`HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags`, "Windows' program compatibility records"),
+		keys(`HKCU\Software\Microsoft\Windows NT\CurrentVersion\HostActivityManager`, "Windows' records of the packaged apps it ran, such as winget"),
+		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager`, "Windows' privacy records of which programs asked for the microphone, the camera or the location"),
+		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\CloudStore`, "Windows' own settings store"),
+		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\Security and Maintenance`, "Windows' own security checks"),
+		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\RunNotification`, "Windows' note that it told the user a program starts at login"),
+		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.StartupApp`, "Windows' own notification that a program starts at login"),
+		{kind: kindRegistryValue, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\Windows\.SystemToast\.StartupApp\\`), why: "Windows' own notification that a program starts at login"},
+		{kind: kindRegistryKey, change: changeLeft, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run$`), why: "the key where Windows keeps what starts at login, which every profile comes to have, while each entry in it is compared"},
+		keys(`HKCU\Software\Microsoft\input`, "Windows' typing records"),
+		keys(`HKCU\Software\Microsoft\IdentityCRL`, "Windows' sign-in records"),
+		keys(`HKCU\Software\Microsoft\EdgeWebView`, "the WebView2 runtime's own state, which every program that shows a web page writes"),
+		keys(`HKCU\Software\Microsoft\EdgeUpdate`, "the WebView2 runtime's own update state"),
+		keys(`HKCU\Software\Mozilla`, "the default browser's own settings, which opening the board in it writes, as opening any page does"),
 		{kind: kindProcess, change: changeGone, pattern: regexp.MustCompile(`.`), why: "a process that ended is nothing left behind"},
 		{kind: kindProcess, change: changeLeft, pattern: regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(os.Getenv("SystemRoot")) + `\\`), why: "a program of Windows, which starts its own on demand"},
 		{kind: kindTask, pattern: regexp.MustCompile(`(?i)^\\Microsoft\\`), why: "a task of Windows' own"},
@@ -47,5 +72,5 @@ func noise() []rule {
 }
 
 // excepted reports a difference no rule may pass over: anything whose path
-// names Code Goblins.
-var excepted = regexp.MustCompile(`(?i)goblin`)
+// names Code Goblins or its program.
+var excepted = regexp.MustCompile(`(?i)goblin|cfo`)

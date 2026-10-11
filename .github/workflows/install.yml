@@ -25,6 +25,8 @@ on:
       - internal/install/**
       - internal/nativehook/**
       - internal/doctor/**
+      - internal/uninstall/**
+      - cmd/cfo/uninstall.go
       - tools/leftovers/**
       - tests/uninstall/**
       - .github/workflows/install.yml
@@ -49,6 +51,8 @@ on:
       - internal/install/**
       - internal/nativehook/**
       - internal/doctor/**
+      - internal/uninstall/**
+      - cmd/cfo/uninstall.go
       - tools/leftovers/**
       - tests/uninstall/**
       - .github/workflows/install.yml
@@ -139,17 +143,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The person's own checkout, which the goblin works in, is theirs
           # before Code Goblins is installed and stays theirs after.
+          # A clone, as a person's checkout is, of a repository beside it,
+          # since a goblin's worktree starts from origin's default branch.
+          $origin = Join-Path $env:USERPROFILE "source\demo-origin.git"
+          $seed = Join-Path $env:RUNNER_TEMP "demo-seed"
+          git init -q --bare -b main $origin
+          git init -q -b main $seed
+          Set-Content -LiteralPath (Join-Path $seed "README.md") -Value "demo"
+          git -C $seed add README.md
+          git -C $seed -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          git -C $seed push -q $origin main
           $project = Join-Path $env:USERPROFILE "source\demo"
-          New-Item -ItemType Directory -Force -Path $project | Out-Null
-          git -C $project init -q -b main
-          Set-Content -LiteralPath (Join-Path $project "README.md") -Value "demo"
-          git -C $project add README.md
-          git -C $project -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
-          # A goblin's worktree starts from origin's default branch, so the
-          # checkout has one, a bare repository beside it.
-          git init -q --bare -b main (Join-Path $env:USERPROFILE "source\demo-origin.git")
-          git -C $project remote add origin (Join-Path $env:USERPROFILE "source\demo-origin.git")
-          git -C $project push -q -u origin main
+          git clone -q $origin $project
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install with the one-line command
@@ -302,36 +307,20 @@ jobs:
           .\tests\uninstall\one_goblin_session.ps1 -Project (Join-Path $env:USERPROFILE "source\demo")
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Uninstall
+      - name: Uninstall and compare the profile with the one before the install
+        shell: powershell
         run: |
-          $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
-          $bin = Join-Path $cfoHome "bin"
-          # From a neutral folder, as a user would.
-          Set-Location $env:RUNNER_TEMP
-          # As in a new terminal, CFO_HOME names the home whose supervisor
-          # stop ends.
-          $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
-          & (Join-Path $bin "goblins.exe") stop
-          if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
-          & (Join-Path $bin "goblins.exe") uninstall
-          if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
-          if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk")) { throw "the Start-menu shortcut survived the uninstall" }
-          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
-          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin) { throw "$bin is still on the user PATH" }
-          $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
-          $left = @(@($settings.hooks.PSObject.Properties.Value.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " }) -match "cfo\.exe hook |cfo-native-hook\.ps1")
-          if ($left.Count -gt 0) { throw "hooks survived the uninstall: $($left -join '; ')" }
-          if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
-          if (Test-Path -LiteralPath (Join-Path $cfoHome "caches\voice")) { throw "dictation's engine and model survived the uninstall" }
-          $global:LASTEXITCODE = 0
-      - name: Compare the profile with the one before the install
-        shell: pwsh
-        run: |
-          # Nothing the install, the session or the uninstall made is left,
-          # and nothing of the person's is taken or changed.
-          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-after.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$env:RUNNER_TEMP\leftovers.exe" compare "$env:RUNNER_TEMP\leftovers-before.json" "$env:RUNNER_TEMP\leftovers-after.json" --report "$env:RUNNER_TEMP\leftovers-report.json"
+          # The uninstall stops the board, the window, the CFO and the goblin
+          # itself, keeps the goblin's work and the fleet data at the person's
+          # choice, and leaves nothing else: the profile matches the snapshot
+          # before the install, apart from what its plan named as kept. The
+          # PowerShell 7 job chooses to remove the work and the tools too, so
+          # nothing may differ there, and the setup job runs the uninstall
+          # Installed apps runs.
+          $arguments = @{ Leftovers = "$env:RUNNER_TEMP\leftovers.exe"; Project = (Join-Path $env:USERPROFILE "source\demo") }
+          if ("${{ matrix.shell }}" -eq "pwsh") { $arguments.RemoveAll = $true }
+          if ("${{ matrix.via }}" -eq "setup") { $arguments.FromInstalledApps = $true }
+          .\tests\uninstall\uninstall_and_compare.ps1 @arguments
           exit $LASTEXITCODE
       # The snapshots and the comparison say what the uninstall left, which
       # the job's output names only in part.
@@ -378,17 +367,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The person's own checkout, which the goblin works in, is theirs
           # before Code Goblins is installed and stays theirs after.
+          # A clone, as a person's checkout is, of a repository beside it,
+          # since a goblin's worktree starts from origin's default branch.
+          $origin = Join-Path $env:USERPROFILE "source\demo-origin.git"
+          $seed = Join-Path $env:RUNNER_TEMP "demo-seed"
+          git init -q --bare -b main $origin
+          git init -q -b main $seed
+          Set-Content -LiteralPath (Join-Path $seed "README.md") -Value "demo"
+          git -C $seed add README.md
+          git -C $seed -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          git -C $seed push -q $origin main
           $project = Join-Path $env:USERPROFILE "source\demo"
-          New-Item -ItemType Directory -Force -Path $project | Out-Null
-          git -C $project init -q -b main
-          Set-Content -LiteralPath (Join-Path $project "README.md") -Value "demo"
-          git -C $project add README.md
-          git -C $project -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
-          # A goblin's worktree starts from origin's default branch, so the
-          # checkout has one, a bare repository beside it.
-          git init -q --bare -b main (Join-Path $env:USERPROFILE "source\demo-origin.git")
-          git -C $project remote add origin (Join-Path $env:USERPROFILE "source\demo-origin.git")
-          git -C $project push -q -u origin main
+          git clone -q $origin $project
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install from the clone
@@ -452,30 +442,13 @@ jobs:
           .\tests\uninstall\one_goblin_session.ps1 -Project (Join-Path $env:USERPROFILE "source\demo")
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Uninstall
+      - name: Uninstall and compare the profile with the one before the install
+        shell: powershell
         run: |
-          # Run in the clone, uninstall unwires the per-user home, keeps its
-          # files and leaves the clone as it was.
-          $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
-          $bin = Join-Path $cfoHome "bin"
-          $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
-          & (Join-Path $bin "goblins.exe") stop
-          if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
-          & (Join-Path $bin "goblins.exe") uninstall
-          if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
-          if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk")) { throw "the Start-menu shortcut survived the uninstall" }
-          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
-          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin) { throw "$bin is still on the user PATH" }
-          if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
-          $global:LASTEXITCODE = 0
-      - name: Compare the profile with the one before the install
-        shell: pwsh
-        run: |
-          # Nothing the install, the session or the uninstall made is left,
-          # and nothing of the person's is taken or changed.
-          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-after.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$env:RUNNER_TEMP\leftovers.exe" compare "$env:RUNNER_TEMP\leftovers-before.json" "$env:RUNNER_TEMP\leftovers-after.json" --report "$env:RUNNER_TEMP\leftovers-report.json"
+          # Run from the clone's build, the uninstall leaves the clone as it
+          # was and the profile as it was before the install, apart from what
+          # its plan named as kept.
+          .\tests\uninstall\uninstall_and_compare.ps1 -Leftovers "$env:RUNNER_TEMP\leftovers.exe" -Project (Join-Path $env:USERPROFILE "source\demo")
           exit $LASTEXITCODE
       # The snapshots and the comparison say what the uninstall left, which
       # the job's output names only in part.

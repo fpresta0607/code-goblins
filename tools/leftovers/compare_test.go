@@ -178,6 +178,8 @@ func TestNoiseNeverPassesOverCodeGoblins(t *testing.T) {
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\CodeGoblinsSetup`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\code-goblins-1234`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\Windows\Explorer\goblins-window.png`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Temp\jiti\extensions-cfo-native.291f97c5.mjs`},
+		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\cfo\conpty\OpenConsole.exe`},
 		{Change: changeLeft, Kind: kindProcess, Identity: `C:\Windows\goblins.exe`},
 	}
 
