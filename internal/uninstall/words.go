@@ -84,7 +84,11 @@ func (p Plan) WriteSummary(out io.Writer) {
 			line("In your checkouts", plural(len(worktrees), "thing")+" it made: worktrees, goblin branches and ignore lines")
 		}
 		if folders := p.itemsWhere(Remove, inGroup(GroupFolders)); len(folders) > 0 {
-			line("Its other folders", plural(len(folders), "folder and file")+", such as "+folders[0].What)
+			detail := folders[0].What
+			if len(folders) > 1 {
+				detail += " and " + fmt.Sprint(len(folders)-1) + " more"
+			}
+			line("Its other folders", detail)
 		}
 		if running := p.itemsWhere(Stop, inGroup(GroupRunning)); len(running) > 0 {
 			line("What runs now", runningWords(running))
@@ -240,4 +244,85 @@ func capital(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// Screen is the plan as the uninstall window shows it before the yes, each
+// field one row of it, empty for a row it does not show.
+type Screen struct {
+	// Home is the home's folder and HomeSize what it holds.
+	Home     string `json:"home"`
+	HomeSize string `json:"home_size"`
+	// DevDrive names the Dev Drive Code Goblins made, such as E:, and its
+	// file.
+	DevDrive     string `json:"dev_drive"`
+	DevDriveFile string `json:"dev_drive_file"`
+	// Also says what else goes, in a line.
+	Also string `json:"also"`
+	// Records name the agents' records of conversations that go.
+	Records []string `json:"records"`
+	// Kept is the folder the work and data go to, when anything is kept.
+	Kept string `json:"kept"`
+	// Tools names the tools it leaves, when it leaves any.
+	Tools string `json:"tools"`
+	// Acts says the plan does anything at all.
+	Acts bool `json:"acts"`
+}
+
+// Screen is the plan for the window.
+func (p Plan) Screen() Screen {
+	s := Screen{Acts: p.Acts()}
+	for _, item := range p.itemsWhere(Remove, inGroup(GroupHome)) {
+		if item.Where == p.Home {
+			s.Home, s.HomeSize = item.Where, Size(item.Bytes)
+		}
+	}
+	for _, item := range p.itemsWhere(Remove, inGroup(GroupDevDrive)) {
+		if drive, ok := strings.CutPrefix(item.What, "the Dev Drive "); ok {
+			s.DevDrive, s.DevDriveFile = drive, item.Where
+		}
+	}
+	var also []string
+	if n := len(p.itemsWhere(Remove, inGroup(GroupCredentials))); n > 0 {
+		also = append(also, plural(n, "saved credential"))
+	}
+	if len(p.itemsWhere(Remove, inGroup(GroupShortcuts))) > 0 {
+		also = append(also, "its shortcuts and start at login")
+	}
+	if len(p.itemsWhere(Remove, func(item Item) bool { return item.Group == GroupHarnesses && !isRecord(item) })) > 0 {
+		also = append(also, "what it added to Claude Code, Codex and pi")
+	}
+	if len(p.itemsWhere(Remove, inGroup(GroupCheckouts))) > 0 {
+		also = append(also, "its worktrees and branches in your checkouts")
+	}
+	s.Also = list(also)
+	for _, record := range p.itemsWhere(Remove, func(item Item) bool { return item.Group == GroupHarnesses && isRecord(item) }) {
+		s.Records = append(s.Records, capital(record.What))
+	}
+	if len(p.itemsWhere(Keep, func(Item) bool { return true })) > 0 {
+		s.Kept = p.Kept
+	}
+	s.Tools = toolWords(p.itemsWhere(Leave, inGroup(GroupTools)))
+	return s
+}
+
+// The steps the window shows, in order.
+const (
+	StepStop = iota
+	StepKeep
+	StepDevDrive
+	StepRemove
+	StepCheck
+)
+
+// StepOf is the step of the window a group's work shows under.
+func StepOf(group Group) int {
+	switch group {
+	case GroupRunning:
+		return StepStop
+	case GroupWork, GroupFleetData:
+		return StepKeep
+	case GroupDevDrive:
+		return StepDevDrive
+	}
+	return StepRemove
 }

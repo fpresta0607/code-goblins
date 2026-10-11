@@ -8,12 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/uninstall"
 )
 
@@ -45,7 +41,7 @@ func runUninstall(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stderr, "goblins uninstall: this terminal is Code Goblins' own and stops with it, so run the uninstall in a terminal of your own")
 		return 1
 	}
-	machine, err := uninstallMachine()
+	machine, err := uninstall.ThisMachine()
 	if err != nil {
 		fmt.Fprintln(stderr, "goblins uninstall: "+err.Error())
 		return 1
@@ -132,63 +128,4 @@ func runUninstall(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	fmt.Fprintln(stdout, "Checked: nothing of Code Goblins is left on this PC.")
 	fmt.Fprintln(stdout, "Open a new terminal for the PATH to update.")
 	return 0
-}
-
-// uninstallMachine is this machine, with the home an install wires in.
-func uninstallMachine() (uninstall.Machine, error) {
-	target, err := installTarget()
-	if err != nil {
-		return uninstall.Machine{}, err
-	}
-	service, err := installService(target.Root)
-	if err != nil {
-		return uninstall.Machine{}, err
-	}
-	service.Checkout = target.Checkout
-	service.HarnessDirs = map[string]string{}
-	for _, harness := range []string{"claude", "codex", "pi"} {
-		if service.HarnessDirs[harness], err = harnessConfigDir(harness); err != nil {
-			return uninstall.Machine{}, fmt.Errorf("find the %s configuration: %w", harness, err)
-		}
-	}
-	service.StartMenuShortcut = install.StartMenuShortcutPath()
-	service.DesktopShortcut = install.DesktopShortcutPath()
-	service.EarlierWindow = install.EarlierWindowDir()
-	profile, err := os.UserHomeDir()
-	if err != nil {
-		return uninstall.Machine{}, err
-	}
-	config, err := home.ReadDevDriveConfig(target.Root)
-	if err != nil {
-		return uninstall.Machine{}, err
-	}
-	self, err := os.Executable()
-	if err != nil {
-		return uninstall.Machine{}, err
-	}
-	machine := uninstall.Machine{
-		Home:         home.Home{Root: target.Root, State: filepath.Join(target.Root, "state"), Data: filepath.Join(target.Root, "data"), DevDrive: config.Root},
-		Checkout:     target.Checkout,
-		Profile:      profile,
-		LocalAppData: os.Getenv("LOCALAPPDATA"),
-		AppData:      os.Getenv("APPDATA"),
-		Temp:         os.TempDir(),
-		Install:      service,
-		Commands:     execx.OSRunner{},
-		Self:         self,
-		Admin:        uninstall.RunAsAdministrator,
-		Vault:        uninstall.CredentialManager{},
-		Registry:     true,
-	}
-	// A machine whose user environment is a file stands in for this one, as
-	// a test's does: its uninstall reaches none of this machine's own
-	// credentials, registry, temp folder or administrator.
-	if os.Getenv(install.UserEnvFileVariable) != "" {
-		machine.Vault, machine.Registry = uninstall.NoVault{}, false
-		machine.Temp = filepath.Join(machine.LocalAppData, "Temp")
-		machine.Admin = func(context.Context, string) ([]string, error) {
-			return nil, fmt.Errorf("a stand-in machine has no administrator")
-		}
-	}
-	return machine, nil
 }
