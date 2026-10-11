@@ -20,6 +20,7 @@ var (
 	procCredWriteW     = advapi32.NewProc("CredWriteW")
 	procCredFree       = advapi32.NewProc("CredFree")
 	procCredEnumerateW = advapi32.NewProc("CredEnumerateW")
+	procCredDeleteW    = advapi32.NewProc("CredDeleteW")
 )
 
 const (
@@ -217,4 +218,77 @@ func restrictToOwner(path string) error {
 		return fmt.Errorf("auth: restrict %s: %w: %s", path, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// VaultTargets lists every Windows Credential Manager entry Code Goblins
+// stored: each credential and each fingerprint of what a .env last offered.
+// An entry counts only as this package writes it, a generic credential for
+// the user cfo whose target is a key this package could have written, so an
+// uninstall that removes them never reaches another program's entry.
+func VaultTargets() ([]string, error) {
+	filter, err := syscall.UTF16PtrFromString(credentialTarget + "*")
+	if err != nil {
+		return nil, err
+	}
+	var count uint32
+	var credentials **credentialW
+	ret, _, callErr := procCredEnumerateW.Call(uintptr(unsafe.Pointer(filter)), 0, uintptr(unsafe.Pointer(&count)), uintptr(unsafe.Pointer(&credentials)))
+	if ret == 0 {
+		if errors.Is(callErr, errorNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("auth: CredEnumerate: %w", callErr)
+	}
+	defer procCredFree.Call(uintptr(unsafe.Pointer(credentials)))
+	var targets []string
+	for _, credential := range unsafe.Slice(credentials, count) {
+		if credential == nil || credential.TargetName == nil || credential.UserName == nil || credential.Type != credTypeGeneric {
+			continue
+		}
+		if syscall.UTF16ToString(unsafe.Slice(credential.UserName, targetNameLen(credential.UserName))) != "cfo" {
+			continue
+		}
+		target := syscall.UTF16ToString(unsafe.Slice(credential.TargetName, targetNameLen(credential.TargetName)))
+		scoped, _ := strings.CutPrefix(target, credentialTarget)
+		if seen, isSeen := strings.CutPrefix(scoped, seenScope+"/"); isSeen {
+			scoped = seen
+		}
+		if _, ok := parseVaultKey(scoped); ok {
+			targets = append(targets, target)
+		}
+	}
+	return targets, nil
+}
+
+// DeleteVaultTarget removes the Credential Manager entry target, one
+// VaultTargets named. One already gone is no error.
+func DeleteVaultTarget(target string) error {
+	name, err := syscall.UTF16PtrFromString(target)
+	if err != nil {
+		return err
+	}
+	ret, _, callErr := procCredDeleteW.Call(uintptr(unsafe.Pointer(name)), uintptr(credTypeGeneric), 0)
+	if ret == 0 && !errors.Is(callErr, errorNotFound) {
+		return fmt.Errorf("auth: CredDelete %s: %w", target, callErr)
+	}
+	return nil
+}
+
+// VaultHolds reports whether Credential Manager still holds target, which is
+// how a removal is read back.
+func VaultHolds(target string) (bool, error) {
+	name, err := syscall.UTF16PtrFromString(target)
+	if err != nil {
+		return false, err
+	}
+	var credential *credentialW
+	ret, _, callErr := procCredReadW.Call(uintptr(unsafe.Pointer(name)), uintptr(credTypeGeneric), 0, uintptr(unsafe.Pointer(&credential)))
+	if ret == 0 {
+		if errors.Is(callErr, errorNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("auth: CredRead %s: %w", target, callErr)
+	}
+	procCredFree.Call(uintptr(unsafe.Pointer(credential)))
+	return true, nil
 }

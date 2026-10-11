@@ -135,6 +135,11 @@ func TestProvisionGivesTheWorktreeItsOwnReadOnlyCopyOfAConfigFile(t *testing.T) 
 	if !strings.Contains(string(exclude), ".env") {
 		t.Errorf("info/exclude = %q, want .env registered so goblin git status stays clean", exclude)
 	}
+	// The marker above it is how an uninstall removes this line and no line
+	// of the person's own.
+	if !strings.Contains(string(exclude), ExcludeMarker+"\n.env\n") {
+		t.Errorf("info/exclude = %q, want .env under the line %q", exclude, ExcludeMarker)
+	}
 }
 
 func TestProvisionRespectsExistingIgnoreRules(t *testing.T) {

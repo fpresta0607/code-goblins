@@ -240,8 +240,11 @@ The home is outside every repository: goblins work in git worktrees of your chec
 The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](../AGENTS.md#the-cfo-home) describes each folder.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
-`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu and desktop shortcuts the install set, the desktop window's Start at login entry where it starts a program in that home, and dictation's speech engine and model in `caches\voice`, and keeps the home folder, with its state and data, until you delete it.
-While the board has the engine loaded it cannot be removed, so the uninstall changes nothing and says to quit Code Goblins with `goblins stop` first.
+`goblins uninstall`, or Uninstall on Code Goblins in Windows' Installed apps, which both installs add it to, removes everything Code Goblins made and leaves your PC as the install found it.
+It shows its whole plan first, and `goblins uninstall --dry-run` prints every item of it and changes nothing.
+It keeps the goblins' work that has not landed and your fleet data, the home's `data` and `config`, in `Code Goblins kept` in your user folder, unless you choose to remove them too.
+It leaves the tools the install fetched, which the install records in the home's `state\fetched.json`, unless you choose to remove them too.
+[Uninstall](../README.md#uninstall) says exactly what it removes, keeps and leaves.
 
 ## Your projects folder
 

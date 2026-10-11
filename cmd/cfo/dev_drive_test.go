@@ -34,6 +34,8 @@ func TestRunDoctorSaysWhatTheDevDriveIs(t *testing.T) {
 		"Windows 10":         {devdrive.Machine{Build: 19045, Revision: 5000, Defender: true, SystemDrive: "C:", SystemFree: 374 << 30}, "dev drive: not available here: this Windows (build 19045.5000) is older than Windows 11 build 22621.2338"},
 		"a machine that can": {machineWith(), "dev drive: absent: this machine can have one"},
 		"an untrusted one":   {machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Untrusted}), "dev drive: present, not used yet: E: is a Dev Drive Windows does not trust"},
+		"one in a file": {machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Unread: "only a process run as administrator may read it"}}),
+			`Command Center (file: C:\DevDrives\CodeGoblins.vhdx holds space on C: that stays taken when goblins free space on E:, and how much could not be read: only a process run as administrator may read it)` + "\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -78,6 +80,25 @@ func TestDevDriveMovePutsNewWorkOnTheDrive(t *testing.T) {
 	stdout.Reset()
 	if exit := runWithRuntime([]string{"dev-drive"}, &stdout, &stderr, runtime); exit != 0 || !strings.Contains(stdout.String(), "dev drive: on: the home's worktrees, scratch and caches are on "+folder) {
 		t.Errorf("cfo dev-drive = %d, %q; want it on", exit, stdout.String())
+	}
+}
+
+// cfo dev-drive names the file a Dev Drive lives in and how much of the
+// system drive it holds, on a line of its own under the dev drive line.
+func TestDevDriveSaysHowMuchOfTheSystemDriveItsFileHolds(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	runtime := runtimeOn(machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Size: 142 << 30 / 10}}))
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"dev-drive"}, &stdout, &stderr, runtime)
+
+	// Assert
+	lines := strings.Split(stdout.String(), "\n")
+	if exit != 0 || len(lines) < 2 || !strings.HasPrefix(lines[0], "dev drive: present, not used yet: E:") || lines[1] != `file: C:\DevDrives\CodeGoblins.vhdx holds 14.2 GB of C:, and stays that size when goblins free space on E:` {
+		t.Errorf("cfo dev-drive = %d, %q, %q; want the file line under the dev drive line", exit, stdout.String(), stderr.String())
 	}
 }
 

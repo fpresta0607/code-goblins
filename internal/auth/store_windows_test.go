@@ -3,14 +3,14 @@
 package auth
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
 // selfTestKey is written to the real vault under the cfo: namespace, in a
-// scope no project uses. There is no delete path in this package, so the round
-// trip deliberately uses one stable, obviously-named entry rather than leaving
-// a trail of new ones.
+// scope no project uses, one stable, obviously-named entry that each test
+// removes again.
 var selfTestKey = Scoped("cfo-selftest", "CFO_CREDENTIAL_SELFTEST")
 
 func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
@@ -25,6 +25,7 @@ func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
 	if err := store.Set(selfTestKey, want); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
+	t.Cleanup(func() { _ = DeleteVaultTarget(credentialTarget + selfTestKey.String()) })
 	got, found, err := store.Get(selfTestKey)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -111,5 +112,58 @@ func TestCredentialManagerRefusesAKeyThatIsNotAnEnvironmentName(t *testing.T) {
 	}
 	if err := store.Set(Key{Project: "../escaped", Name: "TOKEN"}, "value"); err == nil {
 		t.Error("Set with an invalid scope = nil, want a refusal")
+	}
+}
+
+// An uninstall removes what Code Goblins stored and nothing else: the vault
+// lists the entry, a delete removes it, a read back finds it gone, and a
+// second delete of what is gone is no error.
+func TestAStoredCredentialIsListedDeletedAndReadBackGone(t *testing.T) {
+	// Arrange
+	store, err := openCredentialManager()
+	if err != nil {
+		t.Skipf("Windows Credential Manager unavailable: %v", err)
+	}
+	key := Scoped("cfo-selftest", "CFO_CREDENTIAL_DELETE_SELFTEST")
+	target := credentialTarget + key.String()
+	seen := credentialTarget + seenScope + "/" + key.String()
+	if err := store.Set(key, "a value"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := store.Seen().Set(key, "sha256:00"); err != nil {
+		t.Fatalf("Seen().Set: %v", err)
+	}
+	t.Cleanup(func() { _, _ = DeleteVaultTarget(target), DeleteVaultTarget(seen) })
+
+	// Act
+	listed, listErr := VaultTargets()
+	deleteErr := DeleteVaultTarget(target)
+	deleteSeenErr := DeleteVaultTarget(seen)
+	holds, holdsErr := VaultHolds(target)
+	holdsSeen, holdsSeenErr := VaultHolds(seen)
+	againErr := DeleteVaultTarget(target)
+
+	// Assert
+	if listErr != nil {
+		t.Fatalf("VaultTargets: %v", listErr)
+	}
+	for _, want := range []string{target, seen} {
+		if !slices.Contains(listed, want) {
+			t.Errorf("VaultTargets() does not list %s", want)
+		}
+	}
+	for _, listedTarget := range listed {
+		if !strings.HasPrefix(listedTarget, credentialTarget) {
+			t.Errorf("VaultTargets() listed %s, which is not one of cfo's", listedTarget)
+		}
+	}
+	if deleteErr != nil || deleteSeenErr != nil {
+		t.Fatalf("DeleteVaultTarget: %v, %v", deleteErr, deleteSeenErr)
+	}
+	if holds || holdsErr != nil || holdsSeen || holdsSeenErr != nil {
+		t.Errorf("after the delete the vault holds %s: %v (%v), %s: %v (%v)", target, holds, holdsErr, seen, holdsSeen, holdsSeenErr)
+	}
+	if againErr != nil {
+		t.Errorf("deleting what is gone = %v, want nil", againErr)
 	}
 }

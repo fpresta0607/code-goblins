@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Uninstall Code Goblins</title>
+<style>
+  /* The setup window's look, which the uninstall shares. */
+  :root {
+    color-scheme: dark;
+    --ground: #03050a;
+    --text: #edf4f3;
+    --muted: #a3b3c2;
+    --green: #00e59b;
+    --green-deep: #00c97f;
+    --ink: #03130c;
+    --red: #ef8e83;
+    --hairline: rgba(163, 179, 194, 0.14);
+    --edge: rgba(0, 229, 155, 0.16);
+    --edge-strong: rgba(0, 229, 155, 0.32);
+    --surface: linear-gradient(135deg, rgba(0, 229, 155, 0.05) 0%, rgba(3, 5, 10, 0.8) 50%, rgba(0, 140, 255, 0.03) 100%), #04060a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse at 0 0, rgba(0, 229, 155, 0.07), transparent 50%), radial-gradient(ellipse at 100% 0, rgba(0, 140, 255, 0.05), transparent 50%), var(--ground);
+    color: var(--text);
+    font: 400 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  main { display: flex; flex-direction: column; gap: 18px; height: 100%; padding: 26px 32px 22px; }
+  header { display: flex; align-items: center; gap: 16px; }
+  .mark { width: 52px; height: 52px; flex: none; }
+  h1 { margin: 0; font: 600 22px/1.25 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; }
+  body.left h1 { color: var(--red); }
+  #lead { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+  .path { display: block; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; user-select: text; }
+  /* A long plan scrolls in its own box, so the buttons stay in view. */
+  #plan { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .facts { display: grid; margin: 0; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
+  .facts div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 16px; padding: 10px 16px; }
+  .facts div + div { border-top: 1px solid var(--hairline); }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; min-width: 0; }
+  .facts small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
+  .facts ul { margin: 2px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .choice { display: flex; gap: 10px; align-items: flex-start; margin-top: 6px; cursor: pointer; }
+  .choice input { flex: none; width: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--green); }
+  .note { display: flex; gap: 10px; margin: 0; padding: 10px 14px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(0, 229, 155, 0.06); color: #c9f2e2; overflow-wrap: anywhere; user-select: text; }
+  .note::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; background: var(--green); }
+  body.left .note { border-color: rgba(239, 142, 131, 0.35); background: rgba(239, 142, 131, 0.08); color: #f6d3ce; white-space: pre-line; }
+  body.left .note::before { background: var(--red); }
+  .steps { display: grid; gap: 14px; margin: 0; padding: 4px 0 0; list-style: none; }
+  .steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 14px; align-items: center; color: var(--muted); }
+  .steps li.done, .steps li.now, .steps li.failed { color: var(--text); }
+  .steps li.now .name { font-weight: 600; }
+  .steps .doing { grid-column: 2; color: var(--muted); font-size: 13.5px; min-height: 20px; overflow-wrap: anywhere; }
+  .steps li:not(.now):not(.failed) .doing { display: none; }
+  .icon { width: 24px; height: 24px; }
+  .icon * { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon .ring { stroke: rgba(163, 179, 194, 0.35); }
+  .icon .arc, .icon .tick, .icon .cross { display: none; }
+  li.now .icon .ring { stroke: rgba(0, 229, 155, 0.22); }
+  li.now .icon .arc { display: inline; stroke: var(--green); stroke-dasharray: 18 100; transform-origin: 12px 12px; animation: turn 0.9s linear infinite; }
+  li.done .icon .ring { stroke: var(--green); fill: var(--green); }
+  li.done .icon .tick { display: inline; stroke: var(--ink); stroke-width: 2.4; }
+  li.failed .icon .ring { stroke: var(--red); fill: var(--red); }
+  li.failed .icon .cross { display: inline; stroke: var(--ink); stroke-width: 2.4; }
+  @keyframes turn { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { li.now .icon .arc { animation: none; stroke-dasharray: none; } }
+  footer { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+  footer .push { flex: 1; }
+  button { min-height: 38px; padding: 0 20px; border: 1px solid var(--edge-strong); border-radius: 999px; background: rgba(3, 5, 10, 0.5); color: #dff7ee; font: 600 14px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+  button:hover { border-color: var(--green); background: rgba(0, 229, 155, 0.08); }
+  button:focus-visible { outline: 3px solid #008cff; outline-offset: 2px; }
+  button.primary { border-color: var(--green); background: var(--green); color: var(--ink); font-weight: 700; }
+  button.primary:hover { border-color: var(--green-deep); background: var(--green-deep); }
+  [hidden] { display: none !important; }
+
+  /* Each screen shows only what is its own. */
+  body:not([data-screen="plan"]) #plan,
+  body[data-screen="plan"] .steps,
+  body:not([data-screen="plan"]) .on-plan,
+  body:not([data-screen="finished"]) .on-finished,
+  body:not(.left) .on-left,
+  body:not([data-screen="finished"]) #note,
+  #note:empty { display: none; }
+</style>
+</head>
+<body data-screen="plan">
+<main>
+  <header>
+    <img class="mark" src="goblin.png" alt="">
+    <div>
+      <h1 id="title">Uninstall Code Goblins</h1>
+      <p id="lead" role="status">It stops Code Goblins and removes it from this PC.</p>
+    </div>
+  </header>
+
+  <section id="plan">
+    <dl class="facts">
+      <div id="home-row"><dt>Removes</dt><dd><span id="home-size"></span><span class="path" id="home"></span></dd></div>
+      <div id="drive-row" hidden><dt>Dev Drive</dt><dd><span id="drive"></span><span class="path" id="drive-file"></span><small>Windows asks once for an administrator to remove it.</small></dd></div>
+      <div id="also-row" hidden><dt>Also</dt><dd id="also"></dd></div>
+      <div id="records-row" hidden><dt>Records</dt><dd>The agents' records of these conversations<ul id="records"></ul></dd></div>
+      <div id="keeps-row" hidden><dt>Keeps</dt><dd>Work not landed and your fleet data<span class="path" id="kept"></span><label class="choice"><input type="checkbox" id="remove-work"><span>Remove these too</span></label></dd></div>
+      <div id="tools-row" hidden><dt>Leaves</dt><dd>The tools it installed, which other programs may use: <span id="tools"></span><label class="choice"><input type="checkbox" id="remove-tools"><span>Remove these too</span></label></dd></div>
+    </dl>
+  </section>
+
+  <ol class="steps" aria-label="Steps">
+    <li data-step="0"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Stop Code Goblins</span><span class="doing"></span></li>
+    <li data-step="1"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Keep your work</span><span class="doing"></span></li>
+    <li data-step="2"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Remove the Dev Drive</span><span class="doing"></span></li>
+    <li data-step="3"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Remove Code Goblins</span><span class="doing"></span></li>
+    <li data-step="4"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Check that nothing is left</span><span class="doing"></span></li>
+  </ol>
+
+  <p id="note" class="note"></p>
+
+  <footer>
+    <span class="push"></span>
+    <button class="on-plan" type="button" data-send="cancel">Cancel</button>
+    <button class="on-plan primary" id="uninstall" type="button" data-send="run">Uninstall</button>
+    <button class="on-finished" id="open-kept" type="button" data-send="open-kept" hidden>Open the folder</button>
+    <button class="on-finished" id="close" type="button" data-send="close">Close</button>
+    <button class="on-finished on-left primary" type="button" data-send="run">Try again</button>
+  </footer>
+</main>
+<script>
+  // The window calls these as it goes, and hears each button through the
+  // window's message channel.
+  const body = document.body;
+  const text = (id, value) => { document.getElementById(id).textContent = value; };
+  const show = (id, shown) => { document.getElementById(id).hidden = !shown; };
+  let kept = "";
+
+  // uninstallPlan shows what the uninstall will do, before anything changes.
+  function uninstallPlan(screen) {
+    body.dataset.screen = "plan";
+    body.classList.remove("left");
+    text("title", "Uninstall Code Goblins");
+    text("lead", "It stops Code Goblins and removes it from this PC.");
+    show("home-row", !!screen.home);
+    text("home-size", screen.home_what + ", " + screen.home_size);
+    text("home", screen.home);
+    show("drive-row", !!screen.dev_drive);
+    text("drive", screen.dev_drive + " and its file");
+    text("drive-file", screen.dev_drive_file);
+    show("also-row", !!screen.also);
+    text("also", screen.also ? screen.also[0].toUpperCase() + screen.also.slice(1) : "");
+    const records = document.getElementById("records");
+    records.replaceChildren(...(screen.records || []).map((name) => { const item = document.createElement("li"); item.textContent = name; return item; }));
+    show("records-row", (screen.records || []).length > 0);
+    kept = screen.kept;
+    show("keeps-row", !!screen.kept);
+    text("kept", screen.kept);
+    show("tools-row", !!screen.tools);
+    text("tools", screen.tools);
+    document.querySelector('[data-step="1"]').hidden = !screen.kept;
+    document.querySelector('[data-step="2"]').hidden = !screen.dev_drive;
+    if (!screen.acts) {
+      text("lead", "Code Goblins is not installed here, so there is nothing to remove.");
+      document.getElementById("uninstall").hidden = true;
+    }
+  }
+
+  function uninstallStarted(keeps) {
+    body.dataset.screen = "running";
+    body.classList.remove("left");
+    text("title", "Uninstalling Code Goblins");
+    text("lead", "Please leave this window open until it is done.");
+    document.querySelector('[data-step="1"]').hidden = !keeps;
+    for (const step of document.querySelectorAll(".steps li")) {
+      step.className = "";
+      step.querySelector(".doing").textContent = "";
+    }
+  }
+
+  // uninstallStep marks step number as the one under way and those before
+  // it done, and says what it is doing.
+  function uninstallStep(number, doing) {
+    for (const step of document.querySelectorAll(".steps li")) {
+      const at = Number(step.dataset.step);
+      if (step.className === "failed") continue;
+      step.className = at < number ? "done" : at === number ? "now" : "";
+    }
+    const now = document.querySelector('.steps li.now .doing');
+    if (now) now.textContent = doing || "";
+  }
+
+  // uninstallFailed marks a step as one that left something.
+  function uninstallFailed(number, sentence) {
+    const step = document.querySelector('[data-step="' + number + '"]');
+    step.className = "failed";
+    step.querySelector(".doing").textContent = sentence;
+  }
+
+  // uninstallDone ends the run: nothing is left, or what is, one sentence
+  // each, with how to finish.
+  function uninstallDone(note, left) {
+    body.dataset.screen = "finished";
+    for (const step of document.querySelectorAll(".steps li")) {
+      if (step.className !== "failed") step.className = "done";
+    }
+    if (left.length === 0) {
+      body.classList.remove("left");
+      text("title", "Code Goblins is uninstalled");
+      text("lead", "Nothing of it is left on this PC.");
+      text("note", note);
+    } else {
+      body.classList.add("left");
+      text("title", left.length === 1 ? "One thing is left" : left.length + " things are left");
+      text("lead", "Everything else of Code Goblins is removed.");
+      text("note", left.join("\n"));
+    }
+    show("open-kept", !!kept);
+  }
+
+  const removeWork = document.getElementById("remove-work");
+  const removeTools = document.getElementById("remove-tools");
+  for (const button of document.querySelectorAll("[data-send]")) {
+    button.addEventListener("click", () => {
+      const send = button.dataset.send === "run" ? "run:" + (removeWork.checked ? "on" : "off") + ":" + (removeTools.checked ? "on" : "off") : button.dataset.send;
+      window.chrome?.webview?.postMessage("uninstall:" + send);
+    });
+  }
+</script>
+</body>
+</html>

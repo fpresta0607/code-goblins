@@ -374,6 +374,11 @@ func (s Service) returnWorktree(ctx context.Context, git worktree.Git, project, 
 		if tag, err = git.ArchiveTag(ctx, path, landing, filepath.Base(path)); err != nil {
 			return "", err
 		}
+		// The record is what lets an uninstall keep this work and remove
+		// the tag, and no tag of the person's own.
+		if err := state.RecordArchiveTag(s.StateDir, state.ArchiveTag{Checkout: project, Tag: tag}); err != nil {
+			return "", err
+		}
 	}
 	return tag, s.Worktrees.Return(ctx, project, path)
 }

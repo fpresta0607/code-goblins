@@ -94,6 +94,12 @@ type Service struct {
 	// Checkout says Root is a code-goblins checkout an older build made the
 	// home, which carries the contract itself, as files git tracks.
 	Checkout bool
+	// AppsEntryKey is the key under HKEY_CURRENT_USER of Code Goblins' entry
+	// in Windows' Installed apps, which an install makes and an uninstall
+	// removes; empty for none, as a test's machine has.
+	AppsEntryKey string
+	// Version is the build the entry names.
+	Version string
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -151,6 +157,9 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.keepStartAtLogin(report); err != nil {
 		return err
 	}
+	if err := s.keepAppsEntry(report); err != nil {
+		return err
+	}
 	return s.finish(report, "cfo install: already installed - nothing changed")
 }
 
@@ -195,6 +204,12 @@ func (s Service) Uninstall(out io.Writer) error {
 	}
 	if err := s.removeSkills(report); err != nil {
 		return err
+	}
+	if s.AppsEntryThere() {
+		if err := s.RemoveAppsEntry(); err != nil {
+			return err
+		}
+		report.change("apps", "took Code Goblins out of Installed apps")
 	}
 	report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
