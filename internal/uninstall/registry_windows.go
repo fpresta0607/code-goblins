@@ -42,15 +42,12 @@ func (m Machine) registered() ([]Item, error) {
 		return false
 	}
 	var items []Item
+	// Each key goes with what is under it. The keys above it, such as CLSID
+	// and NotifyIconSettings, are Windows' own, which a profile may have held
+	// empty before, so they stay.
 	remove := func(what, key string) {
 		items = append(items, Item{Action: Remove, Group: GroupShortcuts, What: what, Where: `HKCU\` + key, do: func(context.Context) error {
-			if err := deleteTree(key); err != nil {
-				return err
-			}
-			for _, parent := range []string{filepath.Dir(key), classesKey} {
-				removeEmptyKey(parent)
-			}
-			return nil
+			return deleteTree(key)
 		}})
 	}
 	if keyThere(appUserModelKey) {
@@ -133,18 +130,4 @@ func deleteTree(path string) error {
 		return err
 	}
 	return nil
-}
-
-// removeEmptyKey deletes a key that holds no value and no key, which one the
-// window's registration made holds once its own key is gone.
-func removeEmptyKey(path string) {
-	key, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
-	if err != nil {
-		return
-	}
-	info, err := key.Stat()
-	key.Close()
-	if err == nil && info.SubKeyCount == 0 && info.ValueCount == 0 {
-		_ = registry.DeleteKey(registry.CURRENT_USER, path)
-	}
 }

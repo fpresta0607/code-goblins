@@ -268,3 +268,40 @@ func TestNoisePassesOverWhatWindowsProvisionsForItsPackagedApps(t *testing.T) {
 		}
 	}
 }
+
+// A key where Windows lists entries, which the uninstall leaves since the
+// profile may have held it empty before, is passed over when it is left,
+// while an entry in it, or the key gone, is still named. So is a program of
+// Defender's own running at the snapshot.
+func TestNoisePassesOverWindowsListsButNotWhatIsInThem(t *testing.T) {
+	// Arrange
+	t.Setenv("ProgramData", `C:\ProgramData`)
+	t.Setenv("SystemRoot", `C:\Windows`)
+	cases := []struct {
+		difference
+		isNamed bool
+	}{
+		{difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall`}, false},
+		{difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Control Panel\NotifyIconSettings`}, false},
+		{difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID`}, false},
+		{difference{Change: changeLeft, Kind: kindProcess, Identity: `C:\ProgramData\Microsoft\Windows Defender\Platform\4.18.26080.4-0\MpCmdRun.exe`}, false},
+		{difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodeGoblins`}, true},
+		{difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Control Panel\NotifyIconSettings\1234567890`}, true},
+		{difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall`}, true},
+		{difference{Change: changeLeft, Kind: kindProcess, Identity: `C:\ProgramData\Microsoft\Windows Defender Advanced\other.exe`}, true},
+	}
+
+	// Act
+	rules := noise()
+
+	// Assert
+	for _, tc := range cases {
+		before, after := snapshotOf(map[string]map[string]string{tc.Kind: {}}), snapshotOf(map[string]map[string]string{tc.Kind: {tc.Identity: ""}})
+		if tc.Change == changeGone {
+			before, after = after, before
+		}
+		if remaining, _ := compare(before, after, nil, rules); (len(remaining) == 1) != tc.isNamed {
+			t.Errorf("%s: named %v, want named %v", tc.difference, remaining, tc.isNamed)
+		}
+	}
+}

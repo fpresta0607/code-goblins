@@ -98,18 +98,10 @@ func (s Service) RemoveAppsEntry() error {
 	if s.AppsEntryKey == "" {
 		return nil
 	}
+	// The list's own key is Windows', which a profile may have held empty
+	// before the install, so it stays.
 	if err := registry.DeleteKey(registry.CURRENT_USER, s.AppsEntryKey); err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return fmt.Errorf("install: take Code Goblins out of Installed apps: %w", err)
-	}
-	// A profile whose first installed app Code Goblins was has the list's
-	// own key only because of it, empty once its entry goes.
-	parent := filepath.Dir(s.AppsEntryKey)
-	if key, err := registry.OpenKey(registry.CURRENT_USER, parent, registry.QUERY_VALUE); err == nil {
-		info, err := key.Stat()
-		key.Close()
-		if err == nil && info.SubKeyCount == 0 && info.ValueCount == 0 {
-			_ = registry.DeleteKey(registry.CURRENT_USER, parent)
-		}
 	}
 	return nil
 }
