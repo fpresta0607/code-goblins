@@ -18,9 +18,9 @@ import (
 
 // startWatchEvery is how often the supervisor reads what each goblin and the
 // CFO's terminal have started: often enough to see one command started again
-// and again, and cheap. Measured on 2026-10-11 with nine terminals at work, a
-// reading took 37 ms at the median and 101 ms at the 90th percentile, about
-// a third of a percent of one processor.
+// and again, and cheap. A dry run on the live machine on 2026-10-11, with
+// seven terminals at work, took 58 ms a reading at the median and 188 ms at
+// the 90th percentile, 0.9 percent of one processor.
 const startWatchEvery = 5 * time.Second
 
 // startWatchOwnersEvery is how often the start watch reads again whose
