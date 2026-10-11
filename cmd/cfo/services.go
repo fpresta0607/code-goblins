@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 const servicesUsage = `usage: cfo services up <project> --task <id> [--wait <duration>]
@@ -20,11 +21,23 @@ const servicesUsage = `usage: cfo services up <project> --task <id> [--wait <dur
 
 up starts the local services the project declares in
 data/projects/<project>/services.json for the task's full-stack check, or
-shares them with the tasks that already hold them up. It starts the Docker
-engine first when the engine is not running, and starts anything only while
+shares them with the tasks that already hold them up. A start first takes the
+machine's one turn for heavy runs, the line cfo gate turn stands in, and
+waits for it with no limit of its own. Then it starts anything only while
 free memory and commit stay above the 4 GB floor with the stack's measured
 cost added. Until they would, it says why and waits, for up to --wait (30m by
 default, 0 refuses at once).
+
+It starts the Docker engine first when the engine is not running. Docker
+Desktop opens its dashboard window as it starts while its setting "Open the
+Docker Dashboard when Docker Desktop starts" is on, so cfo closes that one
+window, found by the process that start started, before it shows, and
+Docker Desktop runs on in the tray. cfo changes no Docker Desktop setting.
+
+While compose up builds and starts the stack, cfo reads memory and commit
+every 2 seconds and hands the engine's file cache back every 10 seconds. The
+first reading under the 4 GB floor ends compose up with everything it
+started, and nothing else, and the start then stops what it started.
 
 down releases the task's hold. The last release stops what cfo started, and
 the engine when cfo started it. cfo runtime shows each stack, who holds it and
@@ -107,14 +120,17 @@ func runServices(args []string, stdout, stderr io.Writer, runtime commandRuntime
 }
 
 // defaultProjectServices is the production services of a home: the docker
-// command, the machine's memory beside the fleet's floor, and the home's
-// task records.
+// command and this machine's desktop, the machine's memory beside the
+// fleet's floor, the machine's one line for heavy runs, and the home's task
+// records. A start reads memory every 2 seconds while it builds and hands
+// the engine's file cache back every 10, as cg-services-pd-build's watch did
+// on 2026-10-11.
 func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
 	commands := execx.OSRunner{}
 	return services.Service{
 		StateDir: h.State,
 		DataDir:  h.Data,
-		Docker:   services.CLI{Commands: commands},
+		Docker:   services.CLI{Commands: commands, Desktop: services.WindowsDesktop, Out: progress},
 		Commands: commands,
 		Memory: func() (services.Memory, error) {
 			memory, err := supervisor.MachineMemory()
@@ -126,5 +142,11 @@ func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
 		Sleep:  time.Sleep,
 		Poll:   15 * time.Second,
 		Out:    progress,
+		Turn: func(ctx context.Context, who string) (func(), error) {
+			turn, err := takeGateTurn(ctx, "cfo services", progress, progress, supervisor.MachineMemory, who, 0, verify.NoLimit)
+			return turn.Release, err
+		},
+		FloorEvery:  2 * time.Second,
+		ReliefEvery: 10 * time.Second,
 	}
 }

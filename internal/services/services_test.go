@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,9 +31,45 @@ type fakeDocker struct {
 	engineCost  uint64
 	serviceCost uint64
 	upErr       error
-	// upHook runs as compose up begins, such as a build taking memory.
+	// upHook runs as compose up begins, such as a build taking memory, and
+	// upWait then holds compose up while its build runs, ending it with
+	// what it returns.
 	upHook func()
+	upWait func(ctx context.Context) error
 	calls  []string
+	// isBuilding is true while compose up runs, and reliefs are when each
+	// relief ran and whether a build was running then.
+	isBuilding  atomic.Bool
+	reliefMu    sync.Mutex
+	reliefs     []relief
+	relieving   int
+	mostAtOnce  int
+	reliefDelay time.Duration
+	reliefErr   error
+}
+
+type relief struct {
+	at         time.Time
+	isBuilding bool
+}
+
+func (f *fakeDocker) Relieve(context.Context) error {
+	f.reliefMu.Lock()
+	f.reliefs = append(f.reliefs, relief{at: time.Now(), isBuilding: f.isBuilding.Load()})
+	f.relieving++
+	f.mostAtOnce = max(f.mostAtOnce, f.relieving)
+	f.reliefMu.Unlock()
+	time.Sleep(f.reliefDelay)
+	f.reliefMu.Lock()
+	f.relieving--
+	f.reliefMu.Unlock()
+	return f.reliefErr
+}
+
+func (f *fakeDocker) reliefsSoFar() []relief {
+	f.reliefMu.Lock()
+	defer f.reliefMu.Unlock()
+	return slices.Clone(f.reliefs)
 }
 
 func newFakeDocker(machine *fakeMachine) *fakeDocker {
@@ -80,13 +118,20 @@ func (f *fakeDocker) Running(_ context.Context, compose Compose) ([]string, erro
 	return f.names(), nil
 }
 
-func (f *fakeDocker) Up(_ context.Context, _ Compose, services []string) error {
+func (f *fakeDocker) Up(ctx context.Context, _ Compose, services []string) error {
 	f.calls = append(f.calls, "up "+strings.Join(services, ","))
 	if !f.engine {
 		return errors.New("the engine is not running")
 	}
+	f.isBuilding.Store(true)
+	defer f.isBuilding.Store(false)
 	if f.upHook != nil {
 		f.upHook()
+	}
+	if f.upWait != nil {
+		if err := f.upWait(ctx); err != nil {
+			return err
+		}
 	}
 	if f.upErr != nil {
 		f.start("redis")
@@ -134,16 +179,55 @@ func (f *fakeDocker) names() []string {
 	return names
 }
 
+// fakeMachine is the machine's memory, read by a start's floor watch while
+// its build takes memory on another goroutine.
 type fakeMachine struct {
+	mu                sync.Mutex
 	available, commit uint64
 }
 
 func (m *fakeMachine) read() (Memory, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return Memory{Available: m.available, CommitAvailable: m.commit}, nil
 }
 
-func (m *fakeMachine) take(bytes uint64) { m.available -= bytes; m.commit -= bytes }
-func (m *fakeMachine) give(bytes uint64) { m.available += bytes; m.commit += bytes }
+func (m *fakeMachine) take(bytes uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.available -= bytes
+	m.commit -= bytes
+}
+
+func (m *fakeMachine) give(bytes uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.available += bytes
+	m.commit += bytes
+}
+
+// fakeTurn is the machine's line for heavy runs, which records each turn
+// taken and given back, and with inCalls records them among the docker
+// calls too, so a test reads the turn's place among them.
+type fakeTurn struct {
+	docker   *fakeDocker
+	inCalls  bool
+	taken    []string
+	released int
+}
+
+func (f *fakeTurn) take(_ context.Context, who string) (func(), error) {
+	f.taken = append(f.taken, who)
+	if f.inCalls {
+		f.docker.calls = append(f.docker.calls, "take the turn")
+	}
+	return func() {
+		f.released++
+		if f.inCalls {
+			f.docker.calls = append(f.docker.calls, "give the turn back")
+		}
+	}, nil
+}
 
 type fakeCheck struct {
 	exit  int
@@ -165,6 +249,7 @@ type harness struct {
 	out      *bytes.Buffer
 	checkout string
 	clock    *time.Time
+	turn     *fakeTurn
 }
 
 const testManifest = `{
@@ -186,7 +271,8 @@ func newHarness(t *testing.T) *harness {
 	live := map[string]bool{"task-a": true, "task-b": true}
 	out := &bytes.Buffer{}
 	clock := time.Date(2026, 10, 8, 14, 0, 0, 0, time.UTC)
-	h := &harness{docker: docker, machine: machine, check: check, live: live, out: out, checkout: `C:\dev\PrecisionDocs-AI`, clock: &clock}
+	turn := &fakeTurn{docker: docker}
+	h := &harness{docker: docker, machine: machine, check: check, live: live, out: out, checkout: `C:\dev\PrecisionDocs-AI`, clock: &clock, turn: turn}
 	h.service = Service{
 		StateDir: t.TempDir(),
 		DataDir:  dataDir,
@@ -199,6 +285,11 @@ func newHarness(t *testing.T) *harness {
 		Sleep:    func(d time.Duration) { *h.clock = h.clock.Add(d) },
 		Poll:     15 * time.Second,
 		Out:      out,
+		Turn:     turn.take,
+		// The floor is read often, so a test's build ends at once, and the
+		// relief runs only where a test sets its interval.
+		FloorEvery:  time.Millisecond,
+		ReliefEvery: time.Hour,
 	}
 	return h
 }
@@ -756,11 +847,20 @@ func TestTheLastReleaseAfterTheEngineWasQuitMarksTheStackStopped(t *testing.T) {
 // start's mark). The stop measures from the memory read before the start.
 func TestAStopAfterAStartCutShortRecordsWhatTheStartTook(t *testing.T) {
 	// Arrange: 12 GB free, the engine takes 2 GB, the build 7 GB more before
-	// its process ends, and the build's memory is not given back at once.
+	// cfo's process is ended from outside at its first look at memory, and
+	// the build's memory is not given back at once.
 	h := newHarness(t)
+	var isBuilt atomic.Bool
 	h.docker.upHook = func() {
 		h.machine.take(7 * gigabyte)
-		runtime.Goexit()
+		isBuilt.Store(true)
+	}
+	h.docker.upWait = buildUntilEnded
+	h.service.Memory = func() (Memory, error) {
+		if isBuilt.Load() {
+			runtime.Goexit()
+		}
+		return h.machine.read()
 	}
 	cutShort := make(chan struct{})
 	go func() {
@@ -768,7 +868,7 @@ func TestAStopAfterAStartCutShortRecordsWhatTheStartTook(t *testing.T) {
 		_, _ = h.service.Up(context.Background(), h.checkout, "task-a", 0)
 	}()
 	<-cutShort
-	h.docker.upHook = nil
+	h.docker.upHook, h.docker.upWait, h.service.Memory = nil, nil, h.machine.read
 
 	// Act
 	h.down(t, "task-a")
@@ -797,5 +897,155 @@ func TestAStopAfterAFinishedStartMeasuresOnlyItsOwnRise(t *testing.T) {
 	// Assert
 	if cost := h.record(t).Stacks["PrecisionDocs-AI"].Cost.Bytes; cost != 3*gigabyte {
 		t.Errorf("cost = %.1f GB, want the 3 GB the start measured", float64(cost)/float64(gigabyte))
+	}
+}
+
+// buildUntilEnded is a build that runs until it is ended. It gives up after
+// ten seconds, so a start that never ends it fails rather than hangs.
+func buildUntilEnded(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(10 * time.Second):
+		return errors.New("the build ran ten seconds and nothing ended it")
+	}
+}
+
+// A start takes the machine's one turn for heavy runs before it starts
+// anything and gives it back once it has started, and a task that shares
+// the running stack takes none, since it starts nothing.
+func TestAStartTakesTheMachinesTurnAndASharerTakesNone(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.turn.inCalls = true
+
+	// Act
+	h.up(t, "task-a")
+	h.up(t, "task-b")
+
+	// Assert
+	want := []string{"take the turn", "start-engine", "up backend,worker-light", "give the turn back"}
+	if !slices.Equal(h.docker.calls, want) {
+		t.Errorf("calls = %q, want %q", h.docker.calls, want)
+	}
+	if want := []string{"cfo services up PrecisionDocs-AI for task-a"}; !slices.Equal(h.turn.taken, want) {
+		t.Errorf("turns taken = %q, want %q", h.turn.taken, want)
+	}
+}
+
+// A build that takes the machine under the floor is ended at the first
+// reading under it, and the start then stops what it started, the engine
+// cfo started included, so the memory comes back. The start says why, and
+// what it took is kept as the stack's cost for the next start's mark.
+func TestABuildThatReachesTheFloorIsEndedAndWhatItStartedStopped(t *testing.T) {
+	// Arrange: 12 GB free, the engine takes 2 GB and the build 7 GB, which
+	// leaves 3 GB, under the 4 GB floor.
+	h := newHarness(t)
+	h.turn.inCalls = true
+	h.docker.upHook = func() { h.machine.take(7 * gigabyte) }
+	var wasEnded atomic.Bool
+	h.docker.upWait = func(ctx context.Context) error {
+		err := buildUntilEnded(ctx)
+		wasEnded.Store(ctx.Err() != nil)
+		return err
+	}
+
+	// Act
+	_, err := h.service.Up(context.Background(), h.checkout, "task-a", 0)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "the 4 GB floor ended it") || !strings.Contains(err.Error(), "3.0 GB of memory") {
+		t.Fatalf("err = %v, want the floor named with the memory read under it", err)
+	}
+	if !wasEnded.Load() {
+		t.Error("the build was not ended")
+	}
+	want := []string{"take the turn", "start-engine", "up backend,worker-light", "down ", "stop-engine", "give the turn back"}
+	if !slices.Equal(h.docker.calls, want) {
+		t.Errorf("calls = %q, want %q", h.docker.calls, want)
+	}
+	record := h.record(t)
+	stack := record.Stacks["PrecisionDocs-AI"]
+	if stack.IsUp() || stack.Owned || record.Engine.StartedByCFO {
+		t.Errorf("holders %v, owned %t, engine cfo's %t, want nothing left held or cfo's", stack.HolderIDs(), stack.Owned, record.Engine.StartedByCFO)
+	}
+	if stack.Cost.Bytes != 9*gigabyte {
+		t.Errorf("cost = %.1f GB, want the 9 GB the start took", float64(stack.Cost.Bytes)/float64(gigabyte))
+	}
+	if said := h.out.String(); !strings.Contains(said, "under the 4 GB floor, so cfo ended its start of PrecisionDocs-AI's services") {
+		t.Errorf("said %q, want the floor and what it ended", said)
+	}
+}
+
+// While a build runs, the engine's file cache is handed back every
+// ReliefEvery, one relief at a time, from one interval after the start
+// began until the build ends, and never after.
+func TestTheReliefRunsOnItsIntervalWhileABuildRuns(t *testing.T) {
+	// Arrange: each relief takes longer than its interval, and the build
+	// runs until three have run.
+	h := newHarness(t)
+	every := 20 * time.Millisecond
+	h.service.ReliefEvery = every
+	h.docker.reliefDelay = every * 3 / 2
+	h.docker.upWait = func(context.Context) error {
+		for deadline := time.Now().Add(10 * time.Second); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				return errors.New("three reliefs did not run in ten seconds")
+			}
+		}
+		return nil
+	}
+	began := time.Now()
+
+	// Act
+	h.up(t, "task-a")
+	atEnd := len(h.docker.reliefsSoFar())
+	time.Sleep(5 * every)
+
+	// Assert
+	reliefs := h.docker.reliefsSoFar()
+	if atEnd < 3 {
+		t.Fatalf("%d reliefs ran while the build ran, want at least 3", atEnd)
+	}
+	if len(reliefs) != atEnd {
+		t.Errorf("%d reliefs ran after the build ended, want none", len(reliefs)-atEnd)
+	}
+	for index, each := range reliefs {
+		if !each.isBuilding {
+			t.Errorf("relief %d ran with no build running", index)
+		}
+	}
+	if first := reliefs[0].at.Sub(began); first < every {
+		t.Errorf("the first relief ran %s after the start began, within its %s interval", first, every)
+	}
+	if h.docker.mostAtOnce != 1 {
+		t.Errorf("%d reliefs ran at once, want one at a time", h.docker.mostAtOnce)
+	}
+}
+
+// A relief that fails is said once, and the build and its floor watch go on.
+func TestAFailedReliefIsSaidOnceAndTheStartGoesOn(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.service.ReliefEvery = time.Millisecond
+	h.docker.reliefErr = errors.New("wsl.exe exited 1: There is no distribution with the supplied name.")
+	h.docker.upWait = func(context.Context) error {
+		for deadline := time.Now().Add(10 * time.Second); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				return errors.New("three reliefs did not run in ten seconds")
+			}
+		}
+		return nil
+	}
+
+	// Act
+	line, err := h.service.Up(context.Background(), h.checkout, "task-a", 0)
+
+	// Assert
+	if err != nil || !strings.Contains(line, "started PrecisionDocs-AI's services") {
+		t.Fatalf("line %q err %v, want the stack started", line, err)
+	}
+	if said := strings.Count(h.out.String(), "the cache relief failed"); said != 1 {
+		t.Errorf("said the relief failed %d times in %q, want once", said, h.out.String())
 	}
 }
