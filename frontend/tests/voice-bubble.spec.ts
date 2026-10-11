@@ -15,8 +15,10 @@ test.use({
 
 declare global {
   interface Window {
-    voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number; replies: number; recognitions: { hear: (words: string) => void; silence: () => void }[] };
+    voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number; replies: number; recognitions: { hear: (words: string) => void; silence: () => void }[]; firstFrame?: string };
     voiceSignal?: { context: AudioContext; gain: GainNode };
+    // How long the phrase said from the next press lasts, in seconds.
+    voicePhrase?: number;
     voiceContexts?: AudioContext[];
   }
 }
@@ -29,19 +31,26 @@ const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 
 const OLD_VOICE_REPLY = { state: "running", entries: [{ text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }], has_skipped: false };
 
 // A sound the page posted to the supervisor, as its WAV header and samples
-// say, when, and how many seconds pass in it before anything loud.
-interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number; lead: number; at: number }
+// say, when, how many seconds pass in it before anything loud, and how many
+// of its seconds are loud, judged by each 10 ms as the board judges speech.
+interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number; lead: number; loud: number; at: number }
 
 function posted(body: Buffer, headers: Record<string, string>): Posted {
-  let peak = 0, lead = -1;
+  let peak = 0, lead = -1, loud = 0;
+  const rate = body.readUInt32LE(24), frame = rate / 100;
   for (let at = 44; at + 1 < body.length; at += 2) {
     peak = Math.max(peak, Math.abs(body.readInt16LE(at)));
-    if (lead < 0 && Math.abs(body.readInt16LE(at)) > 3000) lead = (at - 44) / 2 / body.readUInt32LE(24);
+    if (lead < 0 && Math.abs(body.readInt16LE(at)) > 3000) lead = (at - 44) / 2 / rate;
+  }
+  for (let start = 44; start + frame * 2 <= body.length; start += frame * 2) {
+    let sum = 0;
+    for (let at = start; at < start + frame * 2; at += 2) sum += (body.readInt16LE(at) / 32768) ** 2;
+    if (Math.sqrt(sum / frame) >= .01) loud += .01;
   }
   return {
     token: headers["x-cfo-token"] || "", type: headers["content-type"] || "",
     tags: [0, 8, 12, 36].map((at) => body.toString("latin1", at, at + 4)).join(" "),
-    channels: body.readUInt16LE(22), rate: body.readUInt32LE(24), bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak, lead, at: Date.now(),
+    channels: body.readUInt16LE(22), rate, bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak, lead, loud, at: Date.now(),
   };
 }
 
@@ -131,29 +140,36 @@ async function releaseShortcut(page: Page) {
   await page.keyboard.up("Control");
 }
 
-// dictate holds the shortcut until the bubble says it listens, which takes a
-// busy machine longer than a short hold, speaks for ms and lets go.
+// dictate holds the shortcut until the microphone is open, which takes a busy
+// machine longer than a short hold at the first press, speaks for ms and lets
+// go.
 async function dictate(page: Page, ms = 1200) {
   await holdShortcut(page, 0);
-  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
   await expect(page.locator(".voice-bubble")).toHaveClass(/recording/);
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.at(-1)?.readyState)).toBe("live");
   await page.waitForTimeout(ms);
   await releaseShortcut(page);
 }
+
+// recording waits until the bubble's bars move with the voice, which they do
+// only once the recorder hears the microphone: the bubble itself listens from
+// the press, before either is ready.
+async function recording(page: Page) {
+  await page.waitForFunction(() => [...document.querySelectorAll(".voice-bubble .voice-bars span")].some((bar) => new DOMMatrix(getComputedStyle(bar).transform).d > .2));
+}
+
+// The microphone tracks the page opened, oldest first, each live or ended.
+const microphones = (page: Page) => page.evaluate(() => window.voiceProbe!.captures.map((track) => track.readyState));
 
 test("overlapping dictations reach the same terminal in capture order", async ({ page }) => {
   const replies: Route[] = [];
   const { bubble, posts } = await openPane(page, { app: true, replies });
   for (const count of [1, 2]) {
-    await holdShortcut(page, 0);
-    await expect(bubble).toHaveClass(/recording/);
-    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(count);
-    await page.waitForTimeout(1200);
-    await releaseShortcut(page);
+    await dictate(page);
     await expect(bubble).not.toHaveClass(/recording/);
-    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.every((track) => track.readyState === "ended"))).toBe(true);
     await expect.poll(() => replies.length).toBe(count);
   }
+  expect(await microphones(page), "both presses record through the one microphone the first opened").toEqual(["live"]);
   await replies[1].fulfill({ json: { text: "then run the tests" } });
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.replies)).toBe(1);
   await expect.poll(() => page.locator("output").textContent()).toBe("");
@@ -169,10 +185,7 @@ test("a dictation typed right after another starts with a space, and one after a
   const replies: Route[] = [];
   const { bubble } = await openPane(page, { app: true, replies });
   const say = async (count: number, words: string) => {
-    await holdShortcut(page, 0);
-    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(count);
-    await page.waitForTimeout(1200);
-    await releaseShortcut(page);
+    await dictate(page);
     await expect.poll(() => replies.length).toBe(count);
     await replies[count - 1].fulfill({ json: { text: words } });
   };
@@ -230,7 +243,6 @@ test("a set-up of the speech model that fails stays shown until the next dictati
   setup = { state: "ready" };
   await holdShortcut(page, 0);
   await expect(pane.getByText(failure)).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(2);
   await expect(page.locator(".voice-bubble")).toHaveClass(/recording/);
   await page.waitForTimeout(1200);
   await releaseShortcut(page);
@@ -269,13 +281,8 @@ test("a stalled dictation is canceled without blocking later words, and goes to 
   page.on("requestfailed", (request) => failed.push(request));
   await page.clock.pauseAt(new Date("2026-10-04T21:00:00Z"));
   for (const count of [1, 2]) {
-    await holdShortcut(page, 0);
-    await expect(bubble).toHaveClass(/recording/);
-    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(count);
-    await page.waitForTimeout(1200);
-    await releaseShortcut(page);
+    await dictate(page);
     await expect(bubble).not.toHaveClass(/recording/);
-    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.every((track) => track.readyState === "ended"))).toBe(true);
     await expect.poll(() => replies.length).toBe(count);
   }
   await replies[1].fulfill({ json: { text: "after the stalled capture" } });
@@ -493,7 +500,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   await holdShortcut(page, 0);
   await expect(bubble).toHaveClass(/recording/);
   await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
-  expect(await page.evaluate(() => window.voiceSignal!.context.state)).toBe("running");
+  await expect.poll(() => page.evaluate(() => window.voiceSignal?.context.state)).toBe("running");
   const bars = bubble.locator(".voice-bars span");
   await expect(bars).toHaveCount(9);
   const heights = () => bars.evaluateAll((bars) => bars.map((bar) => new DOMMatrix(getComputedStyle(bar).transform).d));
@@ -524,7 +531,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   expect(posts).toHaveLength(1);
   expect(posts[0].peak).toBeGreaterThan(300);
   await expect(bubble).not.toHaveClass(/recording/);
-  expect(await page.evaluate(() => window.voiceProbe!.captures[0].readyState)).toBe("ended");
+  expect(await microphones(page), "the microphone stays open for the next press").toEqual(["live"]);
   await page.evaluate(() => window.voiceSignal!.context.close());
 
   // Idle, the bubble asks for no frames and runs no animation.
@@ -538,8 +545,10 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   await expect(recent.locator(".voice-text").first()).toHaveText("ship the voice bubble");
 });
 
-for (const stop of ["release outside the terminal", "window blur"]) {
-  test(`during microphone setup, ${stop} cancels capture before the bubble invites speech`, async ({ page }) => {
+// A window that loses the focus closes the microphone; a release that leaves
+// the focus in the board leaves it open for the next press.
+for (const [stop, kept] of [["release outside the terminal", "live"], ["window blur", "ended"]] as const) {
+  test(`during microphone setup, ${stop} ends the hold, and nothing is typed or sent`, async ({ page }) => {
     const { bubble, posts } = await openPane(page, { app: true });
     await page.evaluate(() => {
       const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -549,14 +558,15 @@ for (const stop of ["release outside the terminal", "window blur"]) {
       };
     });
     await holdShortcut(page, 0);
-    await expect(bubble).not.toHaveClass(/recording/);
+    await expect(bubble, "the bubble listens from the press, while the microphone opens").toHaveClass(/recording/);
     if (stop === "window blur") await page.evaluate(() => window.dispatchEvent(new Event("blur")));
     else {
       await bubble.focus();
       await releaseShortcut(page);
     }
+    await expect(bubble).not.toHaveClass(/recording/);
     await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));
-    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures[0]?.readyState)).toBe("ended");
+    await expect.poll(() => microphones(page)).toEqual([kept]);
     await expect(bubble).not.toHaveClass(/recording/);
     await expect(page.locator("output")).toHaveText("");
     expect(posts).toHaveLength(0);
@@ -584,6 +594,22 @@ for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED]
     });
   }
 }
+
+test("a page with no microphone to ask for, as the board reached over plain HTTP from another PC, says so and leaves the bubble idle", async ({ page }) => {
+  // Arrange: such a page has no navigator.mediaDevices at all.
+  const { bubble, pane, posts } = await openPane(page, { app: true });
+  await page.evaluate(() => Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: undefined }));
+
+  // Act
+  await holdShortcut(page, 0);
+
+  // Assert: the bubble lit on the press goes idle again with the reason.
+  await expect(pane.getByRole("status")).toHaveText("Dictation stopped: the microphone could not be opened.");
+  await expect(bubble).not.toHaveClass(/recording/);
+  await releaseShortcut(page);
+  await expect(page.locator("output")).toHaveText("");
+  expect(posts).toHaveLength(0);
+});
 
 // The Overlord, 2026-10-09: "there's still some type of random alert, even
 // though dictation is working. It'll say nothing was heard when it was in
@@ -616,7 +642,8 @@ async function speakAt(page: Page, volume: number) {
 // busyPC makes a suspended audio context take ms longer to run again, as the
 // Overlord's PC does with the fleet busy: resuming the context dictation
 // records through took 0.4 to 0.7 s there, measured in this browser on
-// 2026-10-09. It also keeps each context the page makes, for a test to read.
+// 2026-10-09, and 0.1 to 0.3 s on 2026-10-10. It also keeps each context the
+// page makes, for a test to read.
 async function busyPC(page: Page, ms: number) {
   await page.addInitScript((ms) => {
     window.voiceContexts = [];
@@ -632,22 +659,16 @@ async function busyPC(page: Page, ms: number) {
   }, ms);
 }
 
-// rested passes the half minute after a dictation in which the context it
-// records through is kept running, and waits for that context to be
-// suspended. The page's clock must be installed.
-async function rested(page: Page) {
-  await page.clock.fastForward(31_000);
-  await page.waitForFunction(() => window.voiceContexts!.some((context) => context.state === "suspended"));
-}
 
 test("the first dictation after the page opens, a few words long, is typed and never told as nothing heard", async ({ page }) => {
   // Arrange: the context it records through is made at this very press.
   const { bubble, pane, posts } = await openPane(page, { app: true });
   await speakAt(page, .3);
 
-  // Act: a few words, let go 400 ms after the bubble says it listens.
+  // Act: a few words, let go 400 ms after the recording runs.
   await holdShortcut(page, 0);
   await expect(bubble).toHaveClass(/recording/);
+  await recording(page);
   await page.waitForTimeout(400);
   await releaseShortcut(page);
 
@@ -658,66 +679,61 @@ test("the first dictation after the page opens, a few words long, is typed and n
   expect(posts[0].peak, "what he said while the bubble listened was recorded").toBeGreaterThan(3000);
 });
 
-test("a short dictation on a busy PC is typed and never told as nothing heard, because the bubble says it listens only once it records", async ({ page }) => {
-  // Arrange: a first dictation, after which the recording rests.
+test("a press half a minute after the last finds the recorder running, so a short dictation on a busy PC is typed whole", async ({ page }) => {
+  // Arrange: a first dictation, then more than the half minute after which
+  // the recorder used to rest.
   test.setTimeout(60000);
   await page.clock.install();
   await busyPC(page, 700);
-  const { bubble, pane, posts } = await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
+  const { pane, posts } = await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
   await speakAt(page, .3);
   await dictate(page, 2500);
   await expect(page.locator("output")).toHaveText("dictation 1");
-  await rested(page);
+  await page.clock.fastForward(31_000);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.voiceContexts!.map((context) => context.state)), "nothing rests while the board has the focus").not.toContain("suspended");
 
-  // Act: a few words, let go 400 ms after the bubble says it listens.
-  await holdShortcut(page, 0);
-  await expect(bubble).toHaveClass(/recording/);
-  await page.waitForTimeout(400);
+  // Act: a few words, let go 400 ms after the keys went down.
+  await holdShortcut(page, 400);
   await releaseShortcut(page);
 
   // Assert
   await expect.poll(() => page.locator("output").textContent()).toBe("dictation 1\n dictation 2");
   await expect(pane.getByRole("status")).toHaveCount(0);
   expect(posts).toHaveLength(2);
-  expect(posts[1].peak, "what he said while the bubble listened was recorded").toBeGreaterThan(3000);
+  expect(posts[1].loud, "every moment of the hold was recorded").toBeGreaterThan(.35);
 });
 
-test("a hold let go before the bubble listens types nothing and says nothing", async ({ page }) => {
-  // Arrange: a recording that takes far longer to begin than the hold lasts.
+test("a hold let go before its recording runs types nothing and says nothing", async ({ page }) => {
+  // Arrange: the recorder, made while the page was idle and resting since,
+  // takes far longer to wake at the first press than the hold lasts.
   test.setTimeout(60000);
-  await page.clock.install();
   await busyPC(page, 8000);
-  const { bubble, pane, posts } = await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
+  const { bubble, pane, posts } = await openPane(page, { app: true });
   await speakAt(page, .3);
-  await dictate(page, 2500);
-  await expect(page.locator("output")).toHaveText("dictation 1");
-  await rested(page);
+  await page.waitForFunction(() => window.voiceContexts!.some((context) => context.state === "suspended"));
 
-  // Act: the microphone is open, and nothing records yet.
+  // Act: the microphone opens, and nothing records yet.
   await holdShortcut(page, 0);
-  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(2);
+  await expect.poll(() => microphones(page)).toEqual(["live"]);
+  await expect(bubble).toHaveClass(/recording/);
   await page.waitForTimeout(300);
-  await expect(bubble, "the bubble does not invite speech it cannot record").not.toHaveClass(/recording/);
   await releaseShortcut(page);
 
-  // Assert: nothing is told of a hold that never listened, and nothing typed.
+  // Assert: nothing is told of a hold that recorded nothing, and nothing typed.
   await page.waitForTimeout(1500);
   await expect(pane.getByRole("status")).toHaveCount(0);
-  await expect(page.locator("output")).toHaveText("dictation 1");
-  expect(posts).toHaveLength(1);
-  expect(await page.evaluate(() => window.voiceProbe!.captures.every((track) => track.readyState === "ended"))).toBe(true);
+  await expect(page.locator("output")).toHaveText("");
+  expect(posts).toHaveLength(0);
 });
 
 test("a hold with nothing said in it says Nothing was heard", async ({ page }) => {
   // Arrange
-  const { bubble, pane } = await openPane(page, { app: true, words: () => "" });
+  const { pane } = await openPane(page, { app: true, words: () => "" });
   await speakAt(page, 0);
 
   // Act
-  await holdShortcut(page, 0);
-  await expect(bubble).toHaveClass(/recording/);
-  await page.waitForTimeout(800);
-  await releaseShortcut(page);
+  await dictate(page, 800);
 
   // Assert
   await expect(pane.getByRole("status")).toHaveText("Nothing was heard.");
@@ -730,10 +746,7 @@ test("a silent hold he has already dictated past is never told as nothing heard 
   const replies: Route[] = [];
   const { bubble, pane } = await openPane(page, { app: true, replies });
   await speakAt(page, 0);
-  await holdShortcut(page, 0);
-  await expect(bubble).toHaveClass(/recording/);
-  await page.waitForTimeout(800);
-  await releaseShortcut(page);
+  await dictate(page, 800);
   await expect.poll(() => replies.length).toBe(1);
 
   // Act: he is dictating again when the engine answers that it heard nothing.
@@ -759,6 +772,7 @@ test("with the browser's speech recognition, a silence it gives up over while th
   const { bubble, pane } = await openPane(page, { browser: true });
   await holdShortcut(page, 0);
   await expect(bubble).toHaveClass(/recording/);
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.recognitions.length)).toBe(1);
   await page.evaluate(() => window.voiceProbe!.recognitions[0].hear("first the board"));
 
   // Act: past the time a recognizer must have listened to be started again.
@@ -827,4 +841,143 @@ test("a long dictation is recognised in pieces while it is said, through the cap
     await browser.close();
     rmSync(sound, { force: true });
   }
+});
+
+// The Overlord, 2026-10-10: "control [shift] space to start the dictation.
+// There's a little bit glitchy. It doesn't happen instantly on the key press.
+// It takes a second for it to open." The tests below hold the real page to a
+// start that shows at once and keeps what is said from the press.
+
+// phraseAtPress makes the microphone a tone that is silent until a press of
+// the shortcut while window.voicePhrase is set, and loud for that many seconds
+// from the very moment the keys go down, as a phrase begun with the press. The
+// microphone takes openMs to open, as a real one does, and each opening hands
+// over a track of its own.
+async function phraseAtPress(page: Page, openMs: number) {
+  await page.evaluate((openMs) => {
+    const context = new AudioContext();
+    const tone = context.createOscillator();
+    tone.frequency.value = 440;
+    const gain = context.createGain();
+    gain.gain.value = 0;
+    tone.connect(gain);
+    tone.start();
+    window.voiceSignal = { context, gain };
+    window.addEventListener("keydown", (event) => {
+      if (event.code !== "Space" || !event.ctrlKey || !event.shiftKey || event.repeat || !window.voicePhrase) return;
+      const at = context.currentTime;
+      gain.gain.setValueAtTime(.3, at);
+      gain.gain.setValueAtTime(0, at + window.voicePhrase);
+    }, true);
+    navigator.mediaDevices.getUserMedia = async () => {
+      await new Promise((resolve) => setTimeout(resolve, openMs));
+      await context.resume();
+      const microphone = context.createMediaStreamDestination();
+      gain.connect(microphone);
+      window.voiceProbe!.captures.push(microphone.stream.getAudioTracks()[0]);
+      return microphone.stream;
+    };
+  }, openMs);
+}
+
+test.describe("at his window's size", () => {
+  // The Overlord's window: maximized on a 2560 by 1600 screen at 150 percent.
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  for (const [where, app] of [["the desktop app", true], ["a browser", false]] as const) {
+    test(`in ${where}, the bubble listens on the frame the keys go down, while the microphone is still opening`, async ({ page }) => {
+      // Arrange: a microphone that opens only when the test says, and a note
+      // of what the first frame after the press shows.
+      const { bubble, posts } = await openPane(page, { app });
+      await page.evaluate(() => {
+        const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (constraints) => {
+          await new Promise<void>((resolve) => window.addEventListener("allow-microphone", () => resolve(), { once: true }));
+          return capture(constraints);
+        };
+        window.addEventListener("keydown", (event) => {
+          if (event.code !== "Space" || !event.ctrlKey || !event.shiftKey || event.repeat) return;
+          requestAnimationFrame(() => { window.voiceProbe!.firstFrame = document.querySelector(".voice-bubble")!.className; });
+        }, true);
+      });
+
+      // Act
+      await holdShortcut(page, 0);
+
+      // Assert
+      await expect.poll(() => page.evaluate(() => window.voiceProbe!.firstFrame)).toMatch(/\brecording\b/);
+      await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
+      await releaseShortcut(page);
+      await expect(bubble).not.toHaveClass(/recording/);
+      await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));
+      await page.waitForTimeout(500);
+      await expect(page.locator("output"), "a hold let go before the microphone opened types nothing").toHaveText("");
+      await expect(page.locator(".terminal-note"), "and says nothing").toHaveCount(0);
+      expect(posts).toHaveLength(0);
+    });
+  }
+});
+
+test("from the second press on, a phrase begun as the keys go down is recorded whole", async ({ page }) => {
+  // Arrange: a first dictation opens the microphone, which takes 400 ms.
+  const { posts } = await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
+  await phraseAtPress(page, 400);
+  await page.evaluate(() => { window.voicePhrase = 1; });
+  await dictate(page);
+  await expect(page.locator("output")).toHaveText("dictation 1");
+  await page.waitForTimeout(1000);
+
+  // Act: a phrase of 0.6 s begun on the press, and the keys held 1.5 s.
+  await page.evaluate(() => { window.voicePhrase = .6; });
+  await holdShortcut(page, 1500);
+  await releaseShortcut(page);
+
+  // Assert
+  await expect.poll(() => page.locator("output").textContent()).toBe("dictation 1\n dictation 2");
+  expect(posts).toHaveLength(2);
+  expect(posts[1].lead, "the recording reaches back to the press").toBeLessThan(.25);
+  expect(posts[1].loud, "the whole phrase was recorded").toBeGreaterThan(.55);
+  expect(await microphones(page), "both presses used the one microphone").toEqual(["live"]);
+});
+
+test("the microphone opens at the first press and stays open for the next while the board has the focus, and closes when the window loses it, the page is hidden or 30 minutes pass without a dictation", async ({ page }) => {
+  // Arrange
+  test.setTimeout(60000);
+  await page.clock.install();
+  await openPane(page, { app: true, words: (count) => `dictation ${count + 1}` });
+  await speakAt(page, .3);
+  await page.waitForTimeout(500);
+  expect(await microphones(page), "nothing is opened before the first press").toEqual([]);
+
+  // Act and assert: two presses, one microphone.
+  await dictate(page);
+  await dictate(page);
+  await expect.poll(() => page.locator("output").textContent()).toBe("dictation 1\n dictation 2");
+  expect(await microphones(page)).toEqual(["live"]);
+
+  // The window loses the focus.
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect.poll(() => microphones(page)).toEqual(["ended"]);
+
+  // The next press opens it again, and the page being hidden closes it.
+  await dictate(page);
+  await expect.poll(() => page.locator("output").textContent()).toBe("dictation 1\n dictation 2\n dictation 3");
+  expect(await microphones(page)).toEqual(["ended", "live"]);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => microphones(page)).toEqual(["ended", "ended"]);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  // Half an hour with no dictation closes it too.
+  await dictate(page);
+  await expect.poll(() => page.locator("output").textContent()).toBe("dictation 1\n dictation 2\n dictation 3\n dictation 4");
+  await page.clock.fastForward(30 * 60_000 - 5000);
+  expect(await microphones(page)).toEqual(["ended", "ended", "live"]);
+  await page.clock.fastForward(5000);
+  await expect.poll(() => microphones(page)).toEqual(["ended", "ended", "ended"]);
 });
