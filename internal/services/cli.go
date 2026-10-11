@@ -101,10 +101,12 @@ func (c CLI) StartEngine(ctx context.Context) error {
 	switch {
 	case result.err != nil:
 		fmt.Fprintf(c.Out, "cfo services: could not look for the dashboard window Docker Desktop opens as it starts: %v\n", result.err)
+	case result.isClosed && !result.wasShown:
+		fmt.Fprintf(c.Out, "cfo services: closed the dashboard window Docker Desktop made as its engine started (pid %d) before it showed, and Docker Desktop runs on in the tray\n", result.pid)
 	case result.isClosed:
-		fmt.Fprintf(c.Out, "cfo services: closed the dashboard window Docker Desktop opened as its engine started (pid %d), and Docker Desktop runs on in the tray\n", result.pid)
+		fmt.Fprintf(c.Out, "cfo services: closed the dashboard window Docker Desktop opened as its engine started (pid %d), which had shown before cfo found it, and Docker Desktop runs on in the tray\n", result.pid)
 	case result.pid != 0:
-		fmt.Fprintf(c.Out, "cfo services: Docker Desktop's window process (pid %d) showed no dashboard while cfo looked, so cfo closed no window\n", result.pid)
+		fmt.Fprintf(c.Out, "cfo services: Docker Desktop's window process (pid %d) made no dashboard window while cfo looked, so cfo closed no window\n", result.pid)
 	}
 	return err
 }

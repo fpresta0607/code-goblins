@@ -435,9 +435,11 @@ Until they would, it says why once a minute and waits, for up to `--wait` (30 mi
 Docker Desktop 4.86 opens its dashboard window as it starts while its setting "Open the Docker Dashboard when Docker Desktop starts" is on, and the Overlord's settings leave it at Docker Desktop's default, which opened the dashboard on every start on record.
 `docker desktop start` takes no other word for it, and neither does Docker Desktop's launcher or the window process its backend starts with `--name=dashboard`.
 That setting is the Overlord's, and cfo changes no Docker Desktop setting.
-So an engine start looks every 50 ms, from before the start, for the window process that start started: `Docker Desktop.exe` started after the start began, with a `--reason=` and no `--type=`, which tells it from the launcher and from Electron's helpers.
-Once a window of it shows, cfo asks that window to close as its close button would, which leaves Docker Desktop in the tray and its engine running, and says the pid it closed.
-It closes no other window and ends no process, and it looks for at most 30 seconds after the engine answers.
+So an engine start looks every 20 ms, from before the start, for the window process that start started: `Docker Desktop.exe` started after the start began, with a `--reason=` and no `--type=`, which tells it from the launcher and from Electron's helpers.
+Its dashboard is the top-level window of that process made with Electron's window class and titled `Docker Desktop`, and cfo asks that window to close as its close button would, which leaves Docker Desktop in the tray and its engine running.
+Docker Desktop makes that window hidden and shows it once it has drawn it, 200 ms later on 2026-10-11, so cfo closes it before it ever shows, or as soon as it finds it if it has shown, and says which, with the pid.
+The process's other windows, which keep it in the tray and carry no title, are never asked, no other process's window is, and no process is ended.
+It looks for at most 30 seconds after the engine answers.
 With the setting turned off the window process starts with no `--name=dashboard`, and cfo closes nothing.
 
 While compose up builds and starts the stack, the start holds the floor itself, as cg-services-pd-build's watch beside it did on 2026-10-11.

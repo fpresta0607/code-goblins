@@ -109,18 +109,20 @@ func TestCLIStartsTheEngineAndChecksItAnswers(t *testing.T) {
 
 // fakeDesktop is the desktop as an engine start sees it. Processes running
 // before the start are there from the first look, and the ones Docker
-// Desktop starts appear once docker desktop start runs. The dashboard
-// process shows its window from the look showsAt, and never with 0.
+// Desktop starts appear once docker desktop start runs. The window process
+// dashboard makes its dashboard window at the look madeAt and shows it from
+// the look showsAt, and never with 0.
 type fakeDesktop struct {
-	mu        sync.Mutex
-	before    []fakeProcess
-	started   []fakeProcess
-	isRun     bool
-	dashboard int
-	showsAt   int
-	looks     int
-	asked     []int
-	closed    []int
+	mu              sync.Mutex
+	before          []fakeProcess
+	started         []fakeProcess
+	isRun           bool
+	dashboard       int
+	madeAt, showsAt int
+	looks           int
+	isClosed        bool
+	listed          []int
+	asked           []proc.Window
 }
 
 type fakeProcess struct {
@@ -129,7 +131,7 @@ type fakeProcess struct {
 }
 
 func (d *fakeDesktop) desktop(grace time.Duration) Desktop {
-	return Desktop{Processes: d.processes, Arguments: d.arguments, CloseWindows: d.closeWindows, Every: time.Millisecond, Grace: grace}
+	return Desktop{Processes: d.processes, Arguments: d.arguments, Windows: d.windows, CloseWindow: d.closeWindow, Every: time.Millisecond, Grace: grace}
 }
 
 // run is docker desktop start: Docker Desktop's processes start.
@@ -170,19 +172,34 @@ func (d *fakeDesktop) arguments(pid int) ([]string, error) {
 	return nil, errors.New("no such process")
 }
 
-func (d *fakeDesktop) closeWindows(pid int) (int, error) {
+// windows are the window process's windows at each look: the two that keep
+// it in the tray, which carry no title, from the first, and its dashboard
+// window, made hidden at the look madeAt and shown from the look showsAt,
+// until it is closed.
+func (d *fakeDesktop) windows(pid int) ([]proc.Window, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.asked = append(d.asked, pid)
+	d.listed = append(d.listed, pid)
 	if pid != d.dashboard {
-		return 0, nil
+		return nil, nil
 	}
 	d.looks++
-	if d.showsAt == 0 || d.looks < d.showsAt || slices.Contains(d.closed, pid) {
-		return 0, nil
+	owned := []proc.Window{
+		{Handle: 1, Owner: pid, Class: "Electron_NotifyIconHostWindow"},
+		{Handle: 2, Owner: pid, Class: "Chrome_WidgetWin_0"},
 	}
-	d.closed = append(d.closed, pid)
-	return 1, nil
+	if d.madeAt != 0 && d.looks >= d.madeAt && !d.isClosed {
+		owned = append(owned, proc.Window{Handle: 3, Owner: pid, Class: "Chrome_WidgetWin_1", Title: "Docker Desktop", IsShown: d.showsAt != 0 && d.looks >= d.showsAt})
+	}
+	return owned, nil
+}
+
+func (d *fakeDesktop) closeWindow(window proc.Window) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.asked = append(d.asked, window)
+	d.isClosed = d.isClosed || window.Handle == 3
+	return true, nil
 }
 
 // startingDocker is docker as Docker Desktop starts: desktop start starts
@@ -219,23 +236,27 @@ func TestCLIStartEngineClosesOnlyTheDashboardItsStartOpened(t *testing.T) {
 	renderer := fakeProcess{proc.Entry{PID: 103, ExeBase: "Docker Desktop.exe"}, []string{dockerDesktopProgram, "--type=renderer", "--reason=open-tray", "--name=dashboard"}}
 	earlier := fakeProcess{proc.Entry{PID: 90, ExeBase: "Docker Desktop.exe", Start: time.Now().Add(-time.Hour)}, []string{dockerDesktopProgram, "--reason=open-tray", "--name=dashboard"}}
 	editor := fakeProcess{proc.Entry{PID: 91, ExeBase: "notepad.exe", Start: time.Now().Add(-time.Hour)}, []string{"notepad.exe"}}
+	hidden := proc.Window{Handle: 3, Owner: 102, Class: "Chrome_WidgetWin_1", Title: "Docker Desktop"}
+	shown := hidden
+	shown.IsShown = true
 	cases := []struct {
-		name       string
-		started    []fakeProcess
-		showsAt    int
-		wantClosed []int
-		wantAsked  []int
-		wantSaid   string
+		name            string
+		started         []fakeProcess
+		madeAt, showsAt int
+		wantAsked       []proc.Window
+		wantListed      bool
+		wantSaid        string
 	}{
-		{"the dashboard shows after a few looks", []fakeProcess{launcher, backend, renderer, dashboard}, 3, []int{102}, []int{102}, "closed the dashboard window Docker Desktop opened as its engine started (pid 102)"},
-		{"the dashboard never shows", []fakeProcess{launcher, backend, dashboard}, 0, nil, []int{102}, "Docker Desktop's window process (pid 102) showed no dashboard"},
-		{"his setting shows no dashboard", []fakeProcess{launcher, backend, tray}, 1, nil, nil, ""},
-		{"no window process starts", []fakeProcess{launcher, backend}, 1, nil, nil, ""},
+		{"the dashboard is closed before it shows", []fakeProcess{launcher, backend, renderer, dashboard}, 3, 6, []proc.Window{hidden}, true, "closed the dashboard window Docker Desktop made as its engine started (pid 102) before it showed"},
+		{"a dashboard shown as it is made is closed once shown", []fakeProcess{launcher, backend, dashboard}, 3, 3, []proc.Window{shown}, true, "closed the dashboard window Docker Desktop opened as its engine started (pid 102), which had shown before cfo found it"},
+		{"the dashboard is never made", []fakeProcess{launcher, backend, dashboard}, 0, 0, nil, true, "Docker Desktop's window process (pid 102) made no dashboard window while cfo looked"},
+		{"his setting shows no dashboard", []fakeProcess{launcher, backend, tray}, 1, 1, nil, false, ""},
+		{"no window process starts", []fakeProcess{launcher, backend}, 1, 1, nil, false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			desktop := &fakeDesktop{before: []fakeProcess{earlier, editor}, started: slices.Clone(tc.started), dashboard: 102, showsAt: tc.showsAt}
+			desktop := &fakeDesktop{before: []fakeProcess{earlier, editor}, started: slices.Clone(tc.started), dashboard: 102, madeAt: tc.madeAt, showsAt: tc.showsAt}
 			var said strings.Builder
 			cli := CLI{Commands: startingDocker{desktop: desktop}, Desktop: desktop.desktop(200 * time.Millisecond), Out: &said}
 
@@ -248,13 +269,16 @@ func TestCLIStartEngineClosesOnlyTheDashboardItsStartOpened(t *testing.T) {
 			}
 			desktop.mu.Lock()
 			defer desktop.mu.Unlock()
-			if !slices.Equal(desktop.closed, tc.wantClosed) {
-				t.Errorf("closed the windows of %v, want %v", desktop.closed, tc.wantClosed)
+			if !slices.Equal(desktop.asked, tc.wantAsked) {
+				t.Errorf("asked %+v to close, want %+v", desktop.asked, tc.wantAsked)
 			}
-			for _, pid := range desktop.asked {
-				if !slices.Contains(tc.wantAsked, pid) {
-					t.Errorf("asked pid %d to close its windows, want only %v asked", pid, tc.wantAsked)
+			for _, pid := range desktop.listed {
+				if pid != 102 {
+					t.Errorf("listed the windows of pid %d, want only the start's window process's", pid)
 				}
+			}
+			if isListed := len(desktop.listed) > 0; isListed != tc.wantListed {
+				t.Errorf("listed the window process's windows = %t, want %t", isListed, tc.wantListed)
 			}
 			if tc.wantSaid == "" && said.Len() != 0 || !strings.Contains(said.String(), tc.wantSaid) {
 				t.Errorf("said %q, want %q", said.String(), tc.wantSaid)
@@ -268,7 +292,7 @@ func TestCLIStartEngineClosesOnlyTheDashboardItsStartOpened(t *testing.T) {
 func TestCLIStartEngineWaitsForNoDashboardWhenNoneWillShow(t *testing.T) {
 	// Arrange
 	tray := fakeProcess{proc.Entry{PID: 102, ExeBase: "Docker Desktop.exe"}, []string{dockerDesktopProgram, "--reason=open-tray"}}
-	desktop := &fakeDesktop{started: []fakeProcess{tray}, dashboard: 102, showsAt: 1}
+	desktop := &fakeDesktop{started: []fakeProcess{tray}, dashboard: 102, madeAt: 1, showsAt: 1}
 	cli := CLI{Commands: startingDocker{desktop: desktop}, Desktop: desktop.desktop(time.Minute), Out: io.Discard}
 	began := time.Now()
 

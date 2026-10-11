@@ -31,7 +31,7 @@ default, 0 refuses at once).
 It starts the Docker engine first when the engine is not running. Docker
 Desktop opens its dashboard window as it starts while its setting "Open the
 Docker Dashboard when Docker Desktop starts" is on, so cfo closes that one
-window as soon as it shows, found by the process that start started, and
+window, found by the process that start started, before it shows, and
 Docker Desktop runs on in the tray. cfo changes no Docker Desktop setting.
 
 While compose up builds and starts the stack, cfo reads memory and commit

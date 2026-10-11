@@ -3,6 +3,7 @@ package proc
 import (
 	"os"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 	"unsafe"
@@ -36,8 +37,12 @@ func hiddenWindow(t *testing.T) windows.HWND {
 	if err != nil {
 		t.Fatal(err)
 	}
+	title, err := windows.UTF16PtrFromString(hiddenWindowTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
 	position := uintptr(uint32(offScreen))
-	window, _, createErr := procCreateWindow.Call(toolWindow|noActivate, uintptr(unsafe.Pointer(class)), 0, popup, position, position, 1, 1, 0, 0, 0, 0)
+	window, _, createErr := procCreateWindow.Call(toolWindow|noActivate, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)), popup, position, position, 1, 1, 0, 0, 0, 0)
 	if window == 0 {
 		t.Skipf("this session has no desktop to make a window on: %v", createErr)
 	}
@@ -66,9 +71,13 @@ func TestWindowOwnersLeaveOutAWindowThatDoesNotShow(t *testing.T) {
 	}
 }
 
-// CloseWindows asks only windows that show, so a process's hidden windows,
-// such as those that keep Docker Desktop in the tray, are never asked.
-func TestCloseWindowsLeavesAWindowThatDoesNotShow(t *testing.T) {
+// hiddenWindowTitle is the title the tests' window is made with.
+const hiddenWindowTitle = "cg proc test window"
+
+// Windows lists a process's windows that do not show as well as those that
+// do, each with its class and title, which is how a window is told apart
+// before it shows.
+func TestWindowsListsAWindowThatDoesNotShowWithItsClassAndTitle(t *testing.T) {
 	// Arrange
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -76,20 +85,27 @@ func TestCloseWindowsLeavesAWindowThatDoesNotShow(t *testing.T) {
 	defer procDestroyWindow.Call(uintptr(window))
 
 	// Act
-	asked, err := CloseWindows(os.Getpid())
-	pump()
+	owned, err := Windows(os.Getpid())
+	others, othersErr := Windows(os.Getpid() + 4)
 
 	// Assert
-	if err != nil || asked != 0 || !windows.IsWindow(window) {
-		t.Errorf("CloseWindows asked %d, err %v, and the hidden window is open = %t; want 0, nil, true", asked, err, windows.IsWindow(window))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Window{Handle: window, Owner: os.Getpid(), IsShown: false, Class: "Static", Title: hiddenWindowTitle}
+	if !slices.Contains(owned, want) {
+		t.Errorf("windows = %+v, want %+v among them", owned, want)
+	}
+	if othersErr != nil || slices.ContainsFunc(others, func(each Window) bool { return each.Handle == window }) {
+		t.Errorf("another process's windows = %+v, err %v, want this window not among them", others, othersErr)
 	}
 }
 
-// A window is asked to close by its handle only while the process named
-// owns it: a handle can pass to another program's window once its own
-// closed, and that window is left alone. The window closes as its close
-// button closes it, once its thread reads the message.
-func TestCloseWindowAsksAWindowOnlyWhileTheProcessNamedOwnsIt(t *testing.T) {
+// A window is asked to close by its handle only while the process it was
+// listed with owns it: a handle can pass to another program's window once
+// its own closed, and that window is left alone. The window closes as its
+// close button closes it, once its thread reads the message.
+func TestCloseWindowAsksAWindowOnlyWhileItsOwnerOwnsIt(t *testing.T) {
 	// Arrange
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -99,10 +115,10 @@ func TestCloseWindowAsksAWindowOnlyWhileTheProcessNamedOwnsIt(t *testing.T) {
 	other := os.Getpid() + 4
 
 	// Act
-	askedOther, otherErr := closeWindow(window, other)
+	askedOther, otherErr := CloseWindow(Window{Handle: window, Owner: other})
 	pump()
 	isOpenAfterOther := windows.IsWindow(window)
-	asked, err := closeWindow(window, os.Getpid())
+	asked, err := CloseWindow(Window{Handle: window, Owner: os.Getpid()})
 	for deadline := time.Now().Add(2 * time.Second); windows.IsWindow(window) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		pump()
 	}

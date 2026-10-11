@@ -10,36 +10,50 @@ import (
 )
 
 // Desktop is the Windows desktop as an engine start sees it: the processes
-// running, the arguments one was started with, and the windows one shows.
+// running, the arguments one was started with, and the windows one owns.
 type Desktop struct {
-	Processes    func() ([]proc.Entry, error)
-	Arguments    func(pid int) ([]string, error)
-	CloseWindows func(pid int) (int, error)
-	// Every is how often a start looks for the dashboard window, and so the
-	// most it shows before it is closed, and Grace how long after the start
-	// returned it keeps looking.
+	Processes   func() ([]proc.Entry, error)
+	Arguments   func(pid int) ([]string, error)
+	Windows     func(pid int) ([]proc.Window, error)
+	CloseWindow func(window proc.Window) (bool, error)
+	// Every is how often a start looks for the dashboard window, and Grace
+	// how long after the start returned it keeps looking.
 	Every time.Duration
 	Grace time.Duration
 }
 
-// WindowsDesktop is this machine's desktop.
+// WindowsDesktop is this machine's desktop. On 2026-10-11 Docker Desktop
+// made its dashboard window 200 ms before it showed it, so a look every
+// 20 ms finds it hidden.
 var WindowsDesktop = Desktop{
-	Processes:    proc.Processes,
-	Arguments:    proc.Arguments,
-	CloseWindows: proc.CloseWindows,
-	Every:        50 * time.Millisecond,
-	Grace:        30 * time.Second,
+	Processes:   proc.Processes,
+	Arguments:   proc.Arguments,
+	Windows:     proc.Windows,
+	CloseWindow: proc.CloseWindow,
+	Every:       20 * time.Millisecond,
+	Grace:       30 * time.Second,
 }
 
 // dockerDesktopImage is the program Docker Desktop's launcher, its window
 // process and that process's Electron helpers all run as.
 const dockerDesktopImage = "Docker Desktop.exe"
 
+// The dashboard window is the one top-level window of the window process
+// made with Electron's window class and titled as Docker Desktop titles its
+// dashboard. The process's other windows, which keep it in the tray and
+// carry no title, are never asked to close.
+const (
+	dashboardClassPrefix = "Chrome_WidgetWin_"
+	dashboardTitle       = "Docker Desktop"
+)
+
 // dashboardLook is what a look for the dashboard found: the start's window
-// process, when it found one, and whether it closed the dashboard.
+// process, when it found one, whether it closed the dashboard, and whether
+// the dashboard had shown by then.
 type dashboardLook struct {
 	pid      int
 	isClosed bool
+	wasShown bool
 	err      error
 }
 
@@ -54,10 +68,11 @@ type dashboardLook struct {
 // docker desktop start, the launcher nor the window process takes any other
 // word for it. The setting is the Overlord's, and cfo leaves it alone. So this
 // finds the window process the start started, by its program, its arguments
-// and its start, and once a window of it shows asks that window to close,
-// as its close button would, which leaves Docker Desktop in the tray and
-// its engine running. With the setting off the window process starts with
-// no --name=dashboard, and the look ends there.
+// and its start, and asks its dashboard window to close, as its close button
+// would, which leaves Docker Desktop in the tray and its engine running.
+// Docker Desktop makes that window hidden and shows it once it has drawn it,
+// and a window closed before then never shows. With the setting off the
+// window process starts with no --name=dashboard, and the look ends there.
 func (d Desktop) closeDashboard(ctx context.Context, began time.Time) dashboardLook {
 	look := time.NewTicker(d.Every)
 	defer look.Stop()
@@ -74,14 +89,24 @@ func (d Desktop) closeDashboard(ctx context.Context, began time.Time) dashboardL
 			found.pid = pid
 		}
 		if found.pid != 0 {
-			asked, err := d.CloseWindows(found.pid)
+			owned, err := d.Windows(found.pid)
 			if err != nil {
 				found.err = err
 				return found
 			}
-			if asked > 0 {
-				found.isClosed = true
-				return found
+			for _, window := range owned {
+				if !strings.HasPrefix(window.Class, dashboardClassPrefix) || window.Title != dashboardTitle {
+					continue
+				}
+				isAsked, err := d.CloseWindow(window)
+				if err != nil {
+					found.err = err
+					return found
+				}
+				if isAsked {
+					found.isClosed, found.wasShown = true, window.IsShown
+					return found
+				}
 			}
 		}
 		select {
