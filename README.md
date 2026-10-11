@@ -98,6 +98,10 @@ It says why each package is in the plan and which changed files no Go check read
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
 Any other heavy command stands in the same line behind `cfo gate turn -- <command>`, which waits while another run holds the turn or free memory is under 4 GiB, says which run it waits for, and then runs the command with its output and exit code untouched.
+Before each push a goblin runs `cfo gate prepush`, which picks what the change can break and runs it one check at a time, so CI is not the first to run a test the change broke.
+It runs what the fast level runs and more: the tests that read the whole tree whatever changed, the slow packages without their slowest tests, the board's checks for a change under `frontend`, and the packages that import what changed, nearest first.
+It stops at the first failure with one plain line, starts no check after its time limit, and names what it left to CI.
+See [Before a push](docs/pipeline.md#before-a-push).
 See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
@@ -850,6 +854,7 @@ cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo runtime [--json]
 cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
+cfo defender [--since <time|day|length>] [--json]
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent-file <file>
@@ -857,6 +862,7 @@ cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructi
 cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
+cfo gate prepush [--plan] [--limit <duration>]
 cfo gate turn [--as <name>] -- <program> [<argument>...]
 cfo gate turns
 cfo pr check <id> <url>
@@ -1147,11 +1153,11 @@ cd frontend
 npm ci
 npm run build
 cd ..
-go run ./cmd/cfo gate test
+go run ./cmd/cfo gate prepush
 go build ./cmd/cfo
 ```
 
-`cfo gate test` vets what your change reaches and tests the changed packages that are quick to test; CI runs on `windows-latest` as parallel jobs that take about 8 minutes together: a pull request's own run starts the jobs its change can alter, and its merge train's run tests every package and the board's browser tests before the change reaches `main`. A test that fails there runs once more: one that passes on its second try is named as a Failed once warning on the `test` check, and one that fails twice fails the run. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+`cfo gate prepush` picks what your change can break and runs it one check at a time, stopping at the first failure. CI runs on `windows-latest` as parallel jobs that take about 8 minutes together: a pull request's own run starts the jobs its change can alter, and its merge train's run tests every package and the board's browser tests before the change reaches `main`. A test that fails there runs once more: one that passes on its second try is named as a Failed once warning on the `test` check, and one that fails twice fails the run. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
 
 ## Project lineage
 

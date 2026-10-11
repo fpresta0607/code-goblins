@@ -28,14 +28,16 @@ import (
 // test, which parks the run with an ask-user finding instead of letting the
 // deletion through unseen, and leaves out the gate commits a person already
 // let through at an earlier park. test is the repository's local test step,
-// turn runs any command in the line that step takes its turns in, and turns
-// shows which runs hold the machine's turns and which wait.
+// prepush what a goblin runs before it pushes, turn runs any command in the
+// line those two take their turns in, and turns shows which runs hold the
+// machine's turns and which wait.
 func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) > 0 && args[0] == "turn" {
 		return runGateTurn(args[1:], stdout, stderr, runtime)
 	}
-	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "turns"}, args[0]) || (args[0] != "test" && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], turn [--as <name>] -- <program> [<argument>...] and turns")
+	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "prepush")
+	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns")
 		return 2
 	}
 	if args[0] == "turns" {
@@ -48,6 +50,9 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	}
 	if args[0] == "test" {
 		return runGateTest(args[1:], dir, stdout, stderr, runtime)
+	}
+	if args[0] == "prepush" {
+		return runGatePrepush(args[1:], dir, stdout, stderr, runtime)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -242,6 +247,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)
 				}
+				// What this run timed is what cfo gate prepush goes by when
+				// it leaves a slow package's slowest tests to CI.
+				if keepErr := verify.KeepTimes(report.Project, events.Times()); keepErr != nil {
+					fmt.Fprintf(stderr, "cfo gate test: this run's test times are not kept: %v\n", keepErr)
+				}
 			}
 			check.ExitCode = exit
 			if err != nil || exit != 0 {
@@ -376,8 +386,8 @@ func gateBudget(level gatetest.Level) time.Duration {
 	return 90 * time.Minute
 }
 
-// runGateTurns shows the line that cfo gate test and cfo gate turn runs take
-// their turns in:
+// runGateTurns shows the line that cfo gate test, cfo gate prepush and cfo
+// gate turn runs take their turns in:
 // each run that holds a turn, with how long it has and its budget, the runs
 // that wait, in the order they asked, and the machine's memory when it is
 // under the floor a run waits for. A gate shows a step's output only once
