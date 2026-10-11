@@ -204,7 +204,7 @@ func RemoveSkills(m Map, names []string) ([]string, error) {
 				}
 			}
 		}
-		if err := os.RemoveAll(shared); err != nil {
+		if err := fsx.RemoveAll(shared); err != nil {
 			return removed, err
 		}
 		removed = append(removed, name)

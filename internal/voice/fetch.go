@@ -99,7 +99,7 @@ func (v *Voice) fetch(ctx context.Context, part Part, progress func(done int64))
 	if err := fsx.AtomicWriteFile(filepath.Join(unpacked, verifiedName), record); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(v.folder(part)); err != nil {
+	if err := fsx.RemoveAll(v.folder(part)); err != nil {
 		return err
 	}
 	if err := os.Rename(unpacked, v.folder(part)); err != nil {
@@ -129,7 +129,7 @@ func (v *Voice) removeSuperseded() {
 	for _, entry := range entries {
 		// Moved aside by a fetch that could not finish removing it.
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), supersededPrefix) {
-			_ = os.RemoveAll(filepath.Join(v.Dir, entry.Name()))
+			_ = fsx.RemoveAll(filepath.Join(v.Dir, entry.Name()))
 		}
 	}
 	for _, name := range v.superseded() {
@@ -141,7 +141,7 @@ func (v *Voice) removeSuperseded() {
 			_ = os.Remove(aside)
 			continue
 		}
-		_ = os.RemoveAll(aside)
+		_ = fsx.RemoveAll(aside)
 	}
 }
 

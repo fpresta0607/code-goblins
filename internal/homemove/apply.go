@@ -165,7 +165,7 @@ func moveTree(from, to string) error {
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(from)
+	return fsx.RemoveAll(from)
 }
 
 // readBack hashes every planned file in the new home and counts its caches.

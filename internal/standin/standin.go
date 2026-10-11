@@ -5,11 +5,12 @@ package standin
 
 import (
 	"errors"
-	"os"
 	"runtime"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // releaseWait is how long a cleanup waits for Windows to let go of a program
@@ -52,7 +53,7 @@ const (
 func removeAll(dir string, wait time.Duration) error {
 	deadline := time.Now().Add(wait)
 	for {
-		err := os.RemoveAll(dir)
+		err := fsx.RemoveAll(dir)
 		var refusal syscall.Errno
 		isReleasable := runtime.GOOS == "windows" && errors.As(err, &refusal) && (refusal == windowsAccessDenied || refusal == windowsSharingViolation)
 		if !isReleasable || !time.Now().Before(deadline) {

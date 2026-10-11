@@ -335,7 +335,7 @@ func (s *Store) acceptRun(r Run) error {
 		if done < 0 {
 			return ErrDeferred
 		}
-		if err := os.RemoveAll(runDir(s.Home.State, s.db.Runs[done])); err != nil {
+		if err := fsx.RemoveAll(runDir(s.Home.State, s.db.Runs[done])); err != nil {
 			return err
 		}
 		s.db.Runs = slices.Delete(s.db.Runs, done, done+1)
@@ -430,7 +430,7 @@ func (s *Store) pruneRuns(now time.Time) error {
 			kept = append(kept, r)
 			continue
 		}
-		if err := os.RemoveAll(runDir(s.Home.State, r)); err != nil {
+		if err := fsx.RemoveAll(runDir(s.Home.State, r)); err != nil {
 			return err
 		}
 	}

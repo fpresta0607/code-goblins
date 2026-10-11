@@ -83,7 +83,7 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 	if err != nil {
 		return ProvisionResult{}, err
 	}
-	git := RunnerGit{Commands: s.Commands, Sleep: s.Sleep}
+	git := RunnerGit{Commands: s.Commands}
 	result := ProvisionResult{Env: manifest.Env}
 
 	for _, name := range manifest.Link {
@@ -147,7 +147,7 @@ func (s Service) WriteMCP(ctx context.Context, plan MCPPlan, worktreePath, taskT
 	if s.Commands == nil {
 		return nil, errors.New("worktree: command runner is required to write the MCP configuration")
 	}
-	written, err := s.writeMCP(ctx, RunnerGit{Commands: s.Commands, Sleep: s.Sleep}, plan, worktreePath, taskTmp)
+	written, err := s.writeMCP(ctx, RunnerGit{Commands: s.Commands}, plan, worktreePath, taskTmp)
 	return written.taken, err
 }
 

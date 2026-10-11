@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -132,7 +133,7 @@ func (cfg Config) keepTextRecord(folder, what string, processes []string, record
 		bytes += size
 	}
 	for _, path := range doomed {
-		if err := os.RemoveAll(path); err != nil {
+		if err := fsx.RemoveAll(path); err != nil {
 			record.Kept = append(record.Kept, Item{Kind: "retired", Path: path, Detail: "something still holds it open: " + err.Error()})
 		}
 	}
@@ -189,7 +190,7 @@ func (cfg Config) removeBackup(path string, processes []string, record *Record) 
 		record.Notes = append(record.Notes, "left "+path+": what it holds could not all be read")
 		return
 	}
-	if err := os.RemoveAll(path); err != nil {
+	if err := fsx.RemoveAll(path); err != nil {
 		record.Kept = append(record.Kept, Item{Kind: "backup", Path: path, Detail: "something still holds it open: " + err.Error()})
 		return
 	}

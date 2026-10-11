@@ -712,5 +712,5 @@ func (s Service) worktreeGit() (worktree.Git, error) {
 	if s.Worktrees.Commands == nil {
 		return nil, errors.New("cleanup: worktree Git dependency is required")
 	}
-	return worktree.RunnerGit{Commands: s.Worktrees.Commands, Sleep: s.Worktrees.Sleep}, nil
+	return worktree.RunnerGit{Commands: s.Worktrees.Commands}, nil
 }

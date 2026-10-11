@@ -46,7 +46,7 @@ func (cfg Config) removeStaleBrowserSessions(record *Record) {
 		if err != nil || cfg.Now.Sub(newest) < tempAge {
 			continue
 		}
-		if err := os.RemoveAll(path); err != nil {
+		if err := fsx.RemoveAll(path); err != nil {
 			record.Notes = append(record.Notes, "a stale browser session could not be removed, so the next sweep tries again: "+err.Error())
 			continue
 		}
