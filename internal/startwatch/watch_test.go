@@ -153,7 +153,7 @@ func TestAGoblinThatRestsWithAProcessLeftRunningIsToldOnceAReport(t *testing.T) 
 	if len(findings) != 0 || len(told) != 1 || len(again) != 1 {
 		t.Fatalf("findings = %q, then %q at a minute, then %q for the next report, want one at a minute and one for the next report", details(findings), details(told), details(again))
 	}
-	want := `left_running: cg-a reported done at 04:00Z and rests with 2 processes it started still running: pid 400 node.exe "node node_modules/vite/bin/vite.js --port 5173" with 1 process under it. Next: tell cg-a to end each it no longer needs by its pid`
+	want := `left_running: cg-a reported done at 04:00Z and rests with 2 processes it started still running: pid 400 node.exe "node node_modules/vite/bin/vite.js --port 5173" (under it chrome.exe pid 401). Next: tell cg-a to end each it no longer needs by its pid`
 	if !strings.HasPrefix(told[0].Detail, want) {
 		t.Errorf("detail = %q, want it to start %q", told[0].Detail, want)
 	}
@@ -163,14 +163,14 @@ func TestAGoblinThatRestsWithAProcessLeftRunningIsToldOnceAReport(t *testing.T) 
 }
 
 // Named names each process whose parent is not among those named, with
-// how many run under it.
+// the programs that run under it.
 func TestNamedNamesEachTreeOnce(t *testing.T) {
 	var processes []fleettree.Placed
-	for pid := 1; pid <= 4; pid++ {
+	for pid := 1; pid <= 5; pid++ {
 		processes = append(processes, fleettree.Placed{Process: fleettree.Process{PID: pid * 10, ParentPID: (pid - 1) * 10, Exe: fmt.Sprintf("p%d.exe", pid)}, Command: fmt.Sprintf("p%d", pid)})
 	}
 	processes = append(processes, fleettree.Placed{Process: fleettree.Process{PID: 99, ParentPID: 5, Exe: "other.exe"}, Command: "other --flag"})
-	if got, want := Named(processes), `pid 10 p1.exe "p1" with 3 processes under it, pid 99 other.exe "other --flag"`; got != want {
+	if got, want := Named(processes), `pid 10 p1.exe "p1" (under it p2.exe pid 20, p3.exe pid 30, p4.exe pid 40 and 1 more), pid 99 other.exe "other --flag"`; got != want {
 		t.Errorf("Named = %q, want %q", got, want)
 	}
 }

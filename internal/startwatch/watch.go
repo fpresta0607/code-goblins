@@ -263,30 +263,34 @@ func (w *Watch) left(reading Reading) []Finding {
 }
 
 // Named names processes as a wake names them: each one whose parent is not
-// among them, with its pid, its program and its command line, and how many
-// of the others run under it.
+// among them, with its pid, its program and its command line, and the
+// programs that run under it, the first three by name, so a shell left
+// holding a server says what the server is.
 func Named(processes []fleettree.Placed) string {
-	among := map[int]bool{}
+	byPID := map[int]fleettree.Placed{}
 	children := map[int][]int{}
 	for _, process := range processes {
-		among[process.PID] = true
+		byPID[process.PID] = process
 		children[process.ParentPID] = append(children[process.ParentPID], process.PID)
 	}
 	var names []string
 	for _, process := range processes {
-		if among[process.ParentPID] && process.ParentPID != process.PID {
+		if _, isAmong := byPID[process.ParentPID]; isAmong && process.ParentPID != process.PID {
 			continue
 		}
-		under := 0
+		var under []string
 		for queue := slices.Clone(children[process.PID]); len(queue) > 0; queue = queue[1:] {
 			if queue[0] != process.PID {
-				under++
+				under = append(under, fmt.Sprintf("%s pid %d", filepath.Base(byPID[queue[0]].Exe), queue[0]))
 				queue = append(queue, children[queue[0]]...)
 			}
 		}
 		name := fmt.Sprintf("pid %d %s %q", process.PID, filepath.Base(process.Exe), shownCommand(process.Command))
-		if under > 0 {
-			name += fmt.Sprintf(" with %s under it", count(under, "process", "processes"))
+		switch {
+		case len(under) > 3:
+			name += fmt.Sprintf(" (under it %s and %d more)", strings.Join(under[:3], ", "), len(under)-3)
+		case len(under) > 0:
+			name += " (under it " + strings.Join(under, ", ") + ")"
 		}
 		names = append(names, name)
 	}
