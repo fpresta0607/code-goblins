@@ -37,6 +37,7 @@ func (d *commandDocker) Up(_ context.Context, _ services.Compose, names []string
 	d.running = append(d.running, names...)
 	return nil
 }
+func (d *commandDocker) Relieve(context.Context) error { return nil }
 func (d *commandDocker) Down(_ context.Context, _ services.Compose, names []string) error {
 	d.calls = append(d.calls, "down "+strings.Join(names, ","))
 	d.running = nil
@@ -72,6 +73,8 @@ func servicesFixture(t *testing.T, docker *commandDocker) (commandRuntime, strin
 				},
 				Floor: 4 << 30, IsLive: services.LiveIn(h.State),
 				Now: time.Now, Sleep: func(time.Duration) {}, Poll: time.Second, Out: progress,
+				Turn:       func(context.Context, string) (func(), error) { return func() {}, nil },
+				FloorEvery: time.Millisecond, ReliefEvery: time.Hour,
 			}
 		},
 	}
