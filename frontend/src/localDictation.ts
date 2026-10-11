@@ -184,17 +184,18 @@ export class DictationSetUp extends Error {}
 const RETRY_MS = [500, 2000];
 
 // localRecognizer is a recognizer the board's dictation drives as it drives
-// the browser's: start records the track it is handed with open, which hands
-// on each piece as it is said, and each piece's words are asked of recognise
+// the browser's: start records the page's microphone, whose track it is
+// handed, with open, from the moment the keys went down, and open hands on
+// each piece as it is said, and each piece's words are asked of recognise
 // at once, in order. It says it has started once the recording runs, which a
 // busy PC takes a while to begin, and a recording that cannot run is passed on
-// at once. stop ends the recording before it returns, so the
-// microphone can close at once, then delivers the words of every piece, once.
+// at once. stop ends the recording before it returns, so the hold can hand the
+// microphone back at once, then delivers the words of every piece, once.
 // What recognise refuses with, after asking again, is passed on as the
 // supervisor wrote it, at once when the model is being set up; words that never came for a dictation with speech in
 // it are "unheard", never "no-speech". warm is called as the recording
 // begins, so the supervisor loads its engine while the words are being said.
-export function localRecognizer(open: (track: MediaStreamTrack, piece: (sound: Sound) => void) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string>, warm: () => void): new () => Recognizer {
+export function localRecognizer(open: (piece: (sound: Sound) => void, since: number) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string>, warm: () => void): new () => Recognizer {
   return class implements Recognizer {
     continuous = false;
     interimResults = false;
@@ -249,11 +250,11 @@ export function localRecognizer(open: (track: MediaStreamTrack, piece: (sound: S
       }
     }
 
-    start(track?: MediaStreamTrack): void {
+    start(track?: MediaStreamTrack, since = performance.now()): void {
       if (!track) { this.end({ error: "audio-capture" }); return; }
       let recording: Recording;
       try {
-        recording = open(track, (piece) => this.take(piece));
+        recording = open((piece) => this.take(piece), since);
       } catch {
         this.end({ error: "audio-capture" });
         return;

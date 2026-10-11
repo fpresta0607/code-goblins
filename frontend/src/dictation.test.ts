@@ -141,7 +141,8 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 class TrackRecognizer extends FakeRecognizer {
   heardFrom: unknown = "nothing";
-  start(track?: unknown) { this.heardFrom = track; this.started = true; this.onstart?.(); }
+  since: number | undefined;
+  start(track?: unknown, since?: number) { this.heardFrom = track; this.since = since; this.started = true; this.onstart?.(); }
 }
 
 function listened(recognition: new () => Recognizer = TrackRecognizer) {
@@ -152,16 +153,35 @@ function listened(recognition: new () => Recognizer = TrackRecognizer) {
   return { subject, mic, heard, listening, problems };
 }
 
+// The Overlord, 2026-10-10: "It doesn't happen instantly on the key press. It
+// takes a second for it to open."
+test("the bubble listens from the press itself, before the microphone opens, and the recording reaches back to the press", async () => {
+  // Arrange
+  const { subject, mic, listening } = listened();
+
+  // Act: the keys go down at 1234.5 ms, and the microphone takes a while.
+  subject.start(1234.5);
+
+  // Assert: the bubble says it listens on that same press.
+  assert.deepEqual(listening, [true]);
+  mic.allow();
+  await settle();
+  const recognizer = FakeRecognizer.made[0] as TrackRecognizer;
+  assert.equal(recognizer.heardFrom, mic.opened[0].track);
+  assert.equal(recognizer.since, 1234.5, "the recognizer records from the moment the keys went down");
+  assert.deepEqual(listening, [true], "the bubble never flickers as the recording begins");
+});
+
 test("the recognizer hears the one microphone track whose level the waveform shows", async () => {
   const { subject, mic, heard, listening } = listened();
   subject.start();
-  assert.deepEqual(listening, [], "the bubble must not invite speech before capture is ready");
+  assert.deepEqual(listening, [true], "the bubble listens from the press");
   assert.equal(subject.level(), 0, "no level before the microphone opens");
   mic.allow();
   await settle();
   const recognizer = FakeRecognizer.made[0] as TrackRecognizer;
   assert.equal(recognizer.started, true);
-  assert.deepEqual(listening, [true], "listening begins once the recognizer takes the track");
+  assert.deepEqual(listening, [true], "the recognizer taking the track changes nothing the press showed");
   assert.equal(mic.opened.length, 1, "one capture, never a second");
   assert.equal(recognizer.heardFrom, mic.opened[0].track, "the recognizer listens to that same track");
   assert.equal(subject.level(), .6);
@@ -426,7 +446,7 @@ test("releasing the keys before the microphone opens starts nothing and keeps no
   const { subject, mic, heard, listening } = listened();
   subject.start();
   subject.stop();
-  assert.deepEqual(listening, [false]);
+  assert.deepEqual(listening, [true, false]);
   mic.allow();
   await settle();
   assert.equal((FakeRecognizer.made[0] as TrackRecognizer).started, false);
@@ -441,7 +461,7 @@ test("a microphone the browser refuses is explained and nothing listens", async 
   subject.start();
   mic.refuse("NotAllowedError");
   await settle();
-  assert.deepEqual(listening, [false]);
+  assert.deepEqual(listening, [true, false], "the bubble goes idle as the refusal is explained");
   assert.match(problems.at(-1) || "", /microphone is blocked/);
   const missing = listened();
   missing.subject.start();
@@ -473,10 +493,10 @@ test("closing the terminal while the microphone opens leaves nothing open", asyn
   mic.allow();
   await settle();
   assert.equal(mic.opened[0].closed, true);
-  assert.deepEqual(listening, []);
+  assert.deepEqual(listening, [true], "a terminal going away takes its bubble with it");
 });
 
-test("a recognizer that fails to start never invites speech", async () => {
+test("a recognizer that fails to start ends the hold at once and says why", async () => {
   class FailedRecognizer extends TrackRecognizer {
     start() { this.onerror?.({ error: "audio-capture" }); this.onend?.(); }
   }
@@ -484,7 +504,7 @@ test("a recognizer that fails to start never invites speech", async () => {
   subject.start();
   mic.allow();
   await settle();
-  assert.deepEqual(listening, [false]);
+  assert.deepEqual(listening, [true, false]);
   assert.equal(mic.opened[0].closed, true);
   assert.deepEqual(heard, []);
   assert.match(problems.at(-1) || "", /No microphone/);
@@ -499,11 +519,11 @@ test("a recognizer that fails to start never invites speech", async () => {
 // A recognizer that listens only when told to, as the board's own does while
 // its recording is still getting under way on a busy PC.
 class LateRecognizer extends SlowRecognizer {
-  start(track?: unknown) { this.heardFrom = track; this.started = true; }
+  start(track?: unknown, since?: number) { this.heardFrom = track; this.since = since; this.started = true; }
   listen() { this.onstart?.(); }
 }
 
-test("the bubble says it listens only once the recognizer does, and a hold let go before that is dropped without a note", async () => {
+test("a hold let go before its recording runs is dropped without a note, and the next one that records is typed", async () => {
   // Arrange
   const { subject, mic, heard, listening, problems } = listened(LateRecognizer);
 
@@ -514,7 +534,7 @@ test("the bubble says it listens only once the recognizer does, and a hold let g
   await settle();
   const early = FakeRecognizer.made[0] as LateRecognizer;
   assert.equal(early.started, true);
-  assert.deepEqual(listening, [], "a recognizer handed the track is not yet listening");
+  assert.deepEqual(listening, [true], "the bubble listens from the press");
   subject.stop();
   early.silence();
 
@@ -525,14 +545,13 @@ test("the bubble says it listens only once the recognizer does, and a hold let g
   assert.deepEqual(heard, []);
   assert.equal(mic.opened[0].closed, true);
 
-  // Act: the next hold is kept until the recognizer listens.
+  // Act: the next hold records once the recognizer listens.
   subject.start();
   mic.allow();
   await settle();
   const late = FakeRecognizer.made[1] as LateRecognizer;
-  assert.deepEqual(listening, [false]);
   late.listen();
-  assert.deepEqual(listening, [false, true]);
+  assert.deepEqual(listening, [true, false, true], "the recording beginning changes nothing the press showed");
   subject.stop();
   late.answer("ship it");
 
@@ -559,9 +578,9 @@ test("a recognizer that never comes to listen ends the hold and the CFO is told,
     assert.equal(stuck.abortCount, 1);
     assert.deepEqual(failures, ["Dictation did not begin recording within 5 seconds of the microphone opening, so nothing was typed."]);
     assert.deepEqual(problems.filter(Boolean), []);
-    assert.deepEqual(listening, [false]);
+    assert.deepEqual(listening, [true, false]);
     subject.stop();
-    assert.deepEqual(listening, [false], "letting go afterwards changes nothing");
+    assert.deepEqual(listening, [true, false], "letting go afterwards changes nothing");
 
     // Act: a recognizer that listens in time has no such deadline.
     subject.start();
@@ -570,7 +589,7 @@ test("a recognizer that never comes to listen ends the hold and the CFO is told,
     context.mock.timers.tick(60_000);
 
     // Assert
-    assert.deepEqual(listening, [false, true]);
+    assert.deepEqual(listening, [true, false, true]);
     assert.equal(next.abortCount, 0);
     assert.equal(failures.length, 1);
     assert.deepEqual(heard, []);
