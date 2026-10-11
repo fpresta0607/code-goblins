@@ -77,7 +77,7 @@ func TestAGoblinRestsOnlyOnceItDeliveredAndSitsAtItsPrompt(t *testing.T) {
 			}
 
 			// Act
-			got := atRestSince(stateDir, "g1")
+			got := AtRestSince(stateDir, "g1")
 
 			// Assert
 			if !got.Equal(test.want) {

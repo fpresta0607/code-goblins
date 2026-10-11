@@ -143,7 +143,7 @@ func Owners(h home.Home) ([]Owner, []string) {
 			// A record that names folders that are not the task's own names
 			// none, and the terminal's mark still says what is its own.
 			owner.Directories, _ = lifecycle.TaskDirectories(h, meta)
-			owner.AtRestSince = atRestSince(h.State, id)
+			owner.AtRestSince = AtRestSince(h.State, id)
 		}
 		owner.IsChanging = slices.ContainsFunc(changeLocks(id), func(name string) bool {
 			held, err := lock.ReadNamed(h.State, name)
@@ -158,7 +158,7 @@ func Owners(h home.Home) ([]Owner, []string) {
 // latest report, past the records the CFO writes into the log after it.
 const statusTail = 50
 
-// atRestSince is when task id's goblin was last seen at work, once it has
+// AtRestSince is when task id's goblin was last seen at work, once it has
 // delivered and rests, and zero while it works or waits. A goblin rests when
 // both hold: the last outcome it reported is done or failed, and the monitor
 // reads it at its prompt with no turn in progress and nothing asked. The
@@ -167,7 +167,7 @@ const statusTail = 50
 // goblin that reported working, blocked or waiting-on, one in a turn however
 // long, one whose harness is refused or still starting, and one that asks
 // the CFO something in prose.
-func atRestSince(stateDir, id string) time.Time {
+func AtRestSince(stateDir, id string) time.Time {
 	lines, err := state.TailStatus(stateDir, id, statusTail)
 	if err != nil {
 		return time.Time{}

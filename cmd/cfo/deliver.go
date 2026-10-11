@@ -96,6 +96,8 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 {CONSTRAINTS - things not to touch, boundaries, non-goals}
 
+%s
+
 ## Verification
 
 %s
@@ -116,7 +118,7 @@ exist.
 
 kind: %s
 mode: %s
-`, id, *project, fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
+`, id, *project, fleet.BriefProcesses(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

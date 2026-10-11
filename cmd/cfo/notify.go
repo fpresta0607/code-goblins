@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/startwatch"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -234,6 +235,19 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	if *run != "" {
 		line += " (runs " + filepath.Base(*run) + ")"
+	}
+	// A done or failed report names what the goblin left running, so the
+	// CFO reads it where it learns the goblin finished, and the goblin is
+	// told to end what it no longer needs.
+	if (verb == "done" || verb == "failed") && runtime.leftRunning != nil {
+		switch left, err := runtime.leftRunning(h, id); {
+		case err != nil:
+			line += " (what it left running could not be read: " + state.NormalizeStatusDetail(err.Error()) + ")"
+		case len(left) > 0:
+			named := state.NormalizeStatusDetail(startwatch.Named(left))
+			line += " (left running: " + named + ")"
+			defer fmt.Fprintf(stdout, "You left running %s. End each you no longer need by its pid now, with Stop-Process -Id <pid>, or taskkill /PID <pid> /T /F to end one with what runs under it, and never by its name.\n", named)
+		}
 	}
 	// Images are checked before anything is recorded, so a bad path fails the
 	// whole notify instead of waking the CFO with a question the Overlord

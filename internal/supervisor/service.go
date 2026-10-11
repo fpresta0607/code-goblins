@@ -115,8 +115,13 @@ type Options struct {
 	DevDrive *DevDrive
 	// Tree reads each live goblin's family tree for its card; Start gives it
 	// the board's record of each goblin's conversation. Without it no card
-	// shows one.
+	// shows one, and nothing watches what the fleet starts.
 	Tree *fleettree.Reader
+	// Windows lists the processes that show a window on the desktop, and
+	// ConsoleShown says the console a process is attached to shows in one,
+	// for the start watch; nil reads the desktop.
+	Windows      func() (map[int]bool, error)
+	ConsoleShown func(pid int, windowOwners map[int]bool) (bool, error)
 	// Releases is where the board looks for a newer release of Code
 	// Goblins; without it the board never looks and makes no Update item.
 	Releases *Releases
@@ -501,6 +506,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-treesDone }()
+	startsDone := make(chan struct{})
+	go func() {
+		defer close(startsDone)
+		if s.Options.Tree != nil {
+			s.keepStartWatch(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-startsDone }()
 	releasesDone := make(chan struct{})
 	go func() {
 		defer close(releasesDone)
