@@ -25,6 +25,8 @@ on:
       - internal/install/**
       - internal/nativehook/**
       - internal/doctor/**
+      - tools/leftovers/**
+      - tests/uninstall/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   push:
@@ -47,6 +49,8 @@ on:
       - internal/install/**
       - internal/nativehook/**
       - internal/doctor/**
+      - tools/leftovers/**
+      - tests/uninstall/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   # A merge queue run checks both installs too. GitHub applies no path
@@ -126,6 +130,23 @@ jobs:
             try { Invoke-WebRequest http://127.0.0.1:8765/SHA256SUMS -UseBasicParsing | Out-Null; break }
             catch { if ((Get-Date) -gt $deadline) { throw "the release server did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
           }
+      - name: Snapshot the profile before the install
+        shell: pwsh
+        run: |
+          # What the uninstall at the end is compared with: the profile and
+          # the machine as they are before Code Goblins is installed.
+          go build -o "$env:RUNNER_TEMP\leftovers.exe" ./tools/leftovers
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The person's own checkout, which the goblin works in, is theirs
+          # before Code Goblins is installed and stays theirs after.
+          $project = Join-Path $env:USERPROFILE "source\demo"
+          New-Item -ItemType Directory -Force -Path $project | Out-Null
+          git -C $project init -q -b main
+          Set-Content -LiteralPath (Join-Path $project "README.md") -Value "demo"
+          git -C $project add README.md
+          git -C $project -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install with the one-line command
         if: ${{ matrix.via == 'one-line' }}
         env:
@@ -270,6 +291,12 @@ jobs:
           $log = Get-Content -Raw (Join-Path $env:TEMP "CodeGoblinsInstall.log")
           if ($log -notmatch "dictation: ready: .*, already in .*, so nothing was downloaded") { throw "the second install did not find dictation already set up" }
           $global:LASTEXITCODE = 0
+      - name: Use it with one goblin
+        shell: powershell
+        run: |
+          .\tests\uninstall\one_goblin_session.ps1 -Project (Join-Path $env:USERPROFILE "source\demo")
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Uninstall
         run: |
           $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
@@ -292,6 +319,25 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
           if (Test-Path -LiteralPath (Join-Path $cfoHome "caches\voice")) { throw "dictation's engine and model survived the uninstall" }
           $global:LASTEXITCODE = 0
+      - name: Compare the profile with the one before the install
+        shell: pwsh
+        run: |
+          # Nothing the install, the session or the uninstall made is left,
+          # and nothing of the person's is taken or changed.
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-after.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\leftovers.exe" compare "$env:RUNNER_TEMP\leftovers-before.json" "$env:RUNNER_TEMP\leftovers-after.json" --report "$env:RUNNER_TEMP\leftovers-report.json"
+          exit $LASTEXITCODE
+      # The snapshots and the comparison say what the uninstall left, which
+      # the job's output names only in part.
+      - name: Keep the snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leftovers-${{ matrix.via }}-${{ matrix.shell }}
+          path: ${{ runner.temp }}/leftovers-*.json
+          if-no-files-found: ignore
+          retention-days: 14
       # The install keeps every detail it does not print in its log, which
       # the job's output never shows; keep it, so a failed install can be
       # read after the runner is gone.
@@ -318,6 +364,23 @@ jobs:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Snapshot the profile before the install
+        shell: pwsh
+        run: |
+          # What the uninstall at the end is compared with: the profile and
+          # the machine as they are before Code Goblins is installed.
+          go build -o "$env:RUNNER_TEMP\leftovers.exe" ./tools/leftovers
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The person's own checkout, which the goblin works in, is theirs
+          # before Code Goblins is installed and stays theirs after.
+          $project = Join-Path $env:USERPROFILE "source\demo"
+          New-Item -ItemType Directory -Force -Path $project | Out-Null
+          git -C $project init -q -b main
+          Set-Content -LiteralPath (Join-Path $project "README.md") -Value "demo"
+          git -C $project add README.md
+          git -C $project -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install from the clone
         run: |
           .\install.cmd -Dev
@@ -373,6 +436,12 @@ jobs:
           if ($shortcut.TargetPath -ne (Join-Path $bin "goblins-window.exe") -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's goblins-window.exe alone" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins Window.lnk")) { throw "the install made a second Start-menu entry for the window" }
           $global:LASTEXITCODE = 0
+      - name: Use it with one goblin
+        shell: powershell
+        run: |
+          .\tests\uninstall\one_goblin_session.ps1 -Project (Join-Path $env:USERPROFILE "source\demo")
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-in-use.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Uninstall
         run: |
           # Run in the clone, uninstall unwires the per-user home, keeps its
@@ -389,6 +458,25 @@ jobs:
           if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $bin) { throw "$bin is still on the user PATH" }
           if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
           $global:LASTEXITCODE = 0
+      - name: Compare the profile with the one before the install
+        shell: pwsh
+        run: |
+          # Nothing the install, the session or the uninstall made is left,
+          # and nothing of the person's is taken or changed.
+          & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-after.json" --content (Join-Path $env:USERPROFILE "source\demo\.git")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\leftovers.exe" compare "$env:RUNNER_TEMP\leftovers-before.json" "$env:RUNNER_TEMP\leftovers-after.json" --report "$env:RUNNER_TEMP\leftovers-report.json"
+          exit $LASTEXITCODE
+      # The snapshots and the comparison say what the uninstall left, which
+      # the job's output names only in part.
+      - name: Keep the snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leftovers-dev
+          path: ${{ runner.temp }}/leftovers-*.json
+          if-no-files-found: ignore
+          retention-days: 14
       # The install keeps every detail it does not print in its log, which
       # the job's output never shows; keep it, so a failed install can be
       # read after the runner is gone.
