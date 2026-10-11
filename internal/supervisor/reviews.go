@@ -944,9 +944,13 @@ func (s *Store) markReviewDelivered(id, answerID string) error {
 
 // reviewImage serves image n of a review at /api/reviews/<id>/images/<n>,
 // from the copy made when it was published and checked again on every
-// request.
+// request, and a review's page at /api/reviews/<id>/preview.
 func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/reviews/"), "/")
+	if len(parts) == 2 && parts[1] == "preview" {
+		h.reviewPreview(w, r, parts[0])
+		return
+	}
 	n, err := -1, error(nil)
 	if len(parts) == 3 && parts[1] == "images" {
 		n, err = strconv.Atoi(parts[2])
