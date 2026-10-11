@@ -92,7 +92,7 @@ When the page asks him to pick, declare the question as data and Scrawl draws it
 Nobody polls a page themselves, and a goblin least of all: the poll takes the Overlord's feedback where only that goblin sees it, and nobody else learns that a question is waiting.
 When a goblin needs his answer on a page, it opens the page with `lavish-axi <file> --no-open` and registers the wait with `cfo notify <id> --waiting-on overlord "<why>" --lavish <file>`.
 The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CFO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `cfo send`.
-While AFK mode is on the same wait is instead the goblin's question to the CFO, with the page's link and its declared choices, and the CFO answers it in his place with `cfo answer`; the goblin does nothing differently.
+While AFK mode is on the same wait is instead the goblin's question to the CFO, with the page's link and its declared choices, and the CFO answers it in his place with `cfo answer`. The goblin does nothing differently.
 A goblin's page that needs no answer is reported with `cfo present` instead.
 
 ## The supervisor's poll
