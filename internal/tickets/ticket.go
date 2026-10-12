@@ -47,12 +47,20 @@ type PullRequestLink struct {
 	URL    string
 }
 
-// Ticket is everything a task's issue may say: its title, where it stands,
-// who is on it and its links. Nothing else of the task reaches GitHub: never
-// the brief's text, a path on this machine, a secret or an internal note.
+// Ticket is everything a task's issue may say: its title, what it changes
+// and where, where it stands, who is on it and its links. Nothing else of the
+// task reaches GitHub: never the brief's text beyond its Ticket section, a
+// path on this machine, a secret or an internal note.
 type Ticket struct {
-	TaskID      string
-	Title       string
+	TaskID string
+	Title  string
+	// What is the Ticket section of the task's brief: the two or three
+	// sentences the CFO wrote there for teammates, and the one text of a
+	// brief a ticket carries.
+	What string
+	// Area is the repository paths the brief's work names that the
+	// project's checkout has.
+	Area        []string
 	State       State
 	Harness     string
 	PullRequest PullRequestLink
@@ -127,11 +135,18 @@ func (t Ticket) CloseReason() string {
 	}
 }
 
-// Body is the body of an issue cfo opened for the task: its state, who is on
-// it and its pull request, rewritten in place as the state changes. The
-// title is the issue's own, so the body does not repeat it.
+// Body is the body of an issue cfo opened for the task: what it changes and
+// where, its state, who is on it and its pull request, rewritten in place as
+// the state changes. The title is the issue's own, so the body does not
+// repeat it.
 func (t Ticket) Body() string {
 	var body strings.Builder
+	if t.What != "" {
+		fmt.Fprintf(&body, "**What:** %s\n", t.What)
+	}
+	if len(t.Area) > 0 {
+		fmt.Fprintf(&body, "**Area:** `%s`\n", strings.Join(t.Area, "`, `"))
+	}
 	fmt.Fprintf(&body, "**State:** %s\n", t.StatusLine())
 	if t.Harness != "" {
 		fmt.Fprintf(&body, "**On it:** %s\n", t.onIt())

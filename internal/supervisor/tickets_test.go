@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -65,7 +66,7 @@ func TestTicketForFollowsTheTaskLifecycle(t *testing.T) {
 			if ok != tc.wantOK {
 				t.Fatalf("ok = %v, want %v (ticket %+v)", ok, tc.wantOK, got)
 			}
-			if ok && got != tc.want {
+			if ok && !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("ticket = %+v, want %+v", got, tc.want)
 			}
 		})
@@ -153,6 +154,7 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 				return &next, nil
 			}
 			next.State, next.Status, next.Labels, next.IsDone = ticket.State, ticket.StatusLine(), ticket.Labels(), !ticket.IsOpen()
+			next.What, next.Area = ticket.What, ticket.Area
 			if ticket.Title != "" {
 				next.Title = ticket.Title
 			}
@@ -1338,5 +1340,56 @@ func TestKeeperShortensTheTitleOfAnOpenIssueAndKeepsItsWords(t *testing.T) {
 	// Assert
 	if want := "No pilots left in PrecisionDocs: no pilot email, access, payment link or admin control, and free to…"; len(github.applied) != 1 || github.applied[0].ticket.Title != want {
 		t.Fatalf("applied = %+v, want the issue's own title cut to %q", github.applied, want)
+	}
+}
+
+func TestKeeperPutsTheBriefsTicketSectionAndAreaOnTheTicketAndNothingElse(t *testing.T) {
+	// Arrange: the brief names a file of the checkout, a file the checkout
+	// does not have and a note on this machine, and says more than its
+	// Ticket section.
+	h, checkout, github := ticketHome(t)
+	writeFile(t, filepath.Join(checkout, "billing", "sync.py"), "")
+	writeFile(t, filepath.Join(checkout, "billing", "export", "totals.py"), "")
+	secret := "The customer's database password rotates on Fridays"
+	writeFile(t, filepath.Join(h.Data, "nw-sync", "brief.md"), "## Project\n\n"+checkout+"\n\n## Task\n\nMake billing/sync.py say why it fails, and billing/export too. "+secret+". See data/nw-sync/notes.md and billing/new_module.py.\n\n## Ticket\n\nThe billing sync says why it failed.\nIt names the invoice it stopped on.\n\n## Constraints\n\nKeep off billing/ledger.py.\n")
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 {
+		t.Fatalf("applied = %+v, want one ticket", github.applied)
+	}
+	ticket := github.applied[0].ticket
+	if ticket.What != "The billing sync says why it failed. It names the invoice it stopped on." {
+		t.Fatalf("what = %q, want the brief's Ticket section", ticket.What)
+	}
+	if !slices.Equal(ticket.Area, []string{"billing/export", "billing/sync.py"}) {
+		t.Fatalf("area = %q, want only the paths the checkout has, outside Constraints", ticket.Area)
+	}
+	if body := ticket.Body(); strings.Contains(body, secret) || strings.Contains(body, "data/nw-sync") || strings.Contains(body, "new_module") {
+		t.Fatalf("body carries more of the brief than its Ticket section and area:\n%s", body)
+	}
+}
+
+func TestKeeperKeepsAGoneTasksWhatAndAreaWhenItClosesItsTicket(t *testing.T) {
+	// Arrange: the task left the fleet and its brief was filed away.
+	h, checkout, github := ticketHome(t)
+	github.pulls = map[string]string{ticketPull: "MERGED"}
+	record := orphanRecord(ticketPull)
+	record.What, record.Area = "The billing sync says why it failed.", []string{"billing/sync.py"}
+	if err := tickets.WriteRecord(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), nil, ticketNow)
+	keeper.reconcile(context.Background(), nil, ticketNow.Add(ticketGoneGrace))
+
+	// Assert
+	if len(github.applied) != 1 || github.applied[0].ticket.What != record.What || !slices.Equal(github.applied[0].ticket.Area, record.Area) {
+		t.Fatalf("applied = %+v, want the ticket closed with the what and area it had", github.applied)
 	}
 }

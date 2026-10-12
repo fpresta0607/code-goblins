@@ -20,7 +20,8 @@ import (
 // claim when the task names one, and opens nothing for a ticket that is
 // already closed. With one it writes only what changed: the labels that
 // differ, the body of an issue it opened (and its title, when the task's
-// changed) or the status comment of one it claimed, and the close. A pull
+// changed), which says what the task changes and where, or the status
+// comment of one it claimed, and the close. A pull
 // request the record does not hold yet is a change too, so the record keeps
 // it. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
@@ -124,7 +125,8 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 	}
 	isRetitled := !record.IsClaimed && ticket.Title != "" && ticket.Title != record.Title
 	isLinked := ticket.PullRequest.URL != "" && ticket.PullRequest.URL != record.PullRequest
-	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap && !isRetitled && !isLinked {
+	isDescribed := !record.IsClaimed && (ticket.What != record.What || !slices.Equal(ticket.Area, record.Area))
+	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap && !isRetitled && !isLinked && !isDescribed {
 		return record, nil
 	}
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, record.Number)
@@ -191,6 +193,9 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 	if isRetitled {
 		next.Title = ticket.Title
 	}
+	if !record.IsClaimed {
+		next.What, next.Area = ticket.What, ticket.Area
+	}
 	if ticket.PullRequest.URL != "" {
 		next.PullRequest = ticket.PullRequest.URL
 	}
@@ -211,7 +216,7 @@ func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Re
 	if err := json.Unmarshal(out, &opened); err != nil || opened.Number == 0 {
 		return nil, fmt.Errorf("read the issue GitHub opened in %s: %v", repository, err)
 	}
-	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Title: ticket.Title, PullRequest: ticket.PullRequest.URL, Overlap: ticket.Overlap}, nil
+	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Title: ticket.Title, PullRequest: ticket.PullRequest.URL, Overlap: ticket.Overlap, What: ticket.What, Area: ticket.Area}, nil
 }
 
 // claim takes over issue number for a task: it labels the issue and gives it

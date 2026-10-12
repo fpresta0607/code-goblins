@@ -25,18 +25,23 @@ var trailingHarness = regexp.MustCompile(`(?i)(?:\s*;\s*(?:claude code|claude|co
 // ellipsis when it is longer.
 func ShortTitle(title string) string {
 	title = strings.Join(strings.Fields(title), " ")
-	title = strings.TrimSpace(trailingHarness.ReplaceAllString(title, ""))
-	characters := []rune(title)
-	if len(characters) <= MaxTitle {
-		return title
+	return cut(strings.TrimSpace(trailingHarness.ReplaceAllString(title, "")), MaxTitle)
+}
+
+// cut is text of at most limit characters: the text itself, or when it is
+// longer, cut at a word with an ellipsis.
+func cut(text string, limit int) string {
+	characters := []rune(text)
+	if len(characters) <= limit {
+		return text
 	}
-	cut := string(characters[:MaxTitle])
-	if space := strings.LastIndex(cut, " "); space >= len(cut)/2 {
-		cut = cut[:space]
+	kept := string(characters[:limit])
+	if space := strings.LastIndex(kept, " "); space >= len(kept)/2 {
+		kept = kept[:space]
 	} else {
-		cut = string(characters[:MaxTitle-1])
+		kept = string(characters[:limit-1])
 	}
-	return strings.TrimRight(cut, " ,;:-") + "…"
+	return strings.TrimRight(kept, " ,;:-") + "…"
 }
 
 // A title note is the title the CFO gave a task with cfo title. cfo title
