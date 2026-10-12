@@ -248,13 +248,14 @@ export function elbows(points: Point[]): string {
 
 // Branches are a goblin's running children laid out under its card: where
 // each baby goblin sits, the branch from the card to each, which ends at the
-// middle of the baby's top, and where each line that runs down sits from the
-// card's middle. passes are the routes, outermost first, of the connectors
-// to goblins under them, from the card down beside every baby goblin to the
-// block's bottom. Every point is from the top left of the block, which is
-// centred under the card, as wide as the card at least, with its top at the
-// card's bottom.
-export interface Branches { width: number; height: number; places: Point[]; lines: string[]; ends: Point[]; passes: Point[][]; drops: number[] }
+// middle of the baby's top, as the points it turns at (routes) and as a line
+// with its turns rounded (lines), and where each line that runs down sits
+// from the card's middle. passes are the routes, outermost first, of the
+// connectors to goblins under them, from the card down beside every baby
+// goblin to the block's bottom. Every point is from the top left of the
+// block, which is centred under the card, as wide as the card at least, with
+// its top at the card's bottom.
+export interface Branches { width: number; height: number; places: Point[]; routes: Point[][]; lines: string[]; ends: Point[]; passes: Point[][]; drops: number[] }
 
 // branchLayout hangs count baby goblins under a card in about as many
 // columns as rows, up to four columns, centred under it, so a big family
@@ -312,12 +313,12 @@ export function branchLayout(count: number, cardWidth: number, passes = 0): Bran
   const leave = (line: number) => [{ x: ports[line], y: 0 }, ...turnsAt[line] === undefined ? [] : [{ x: ports[line], y: turnsAt[line] }, { x: descents[line], y: turnsAt[line] }]];
   const places = Array.from({ length: count }, (_, i) => ({ x: first + lefts[i % columns], y: top + Math.floor(i / columns) * (BABY_HEIGHT + ROW_GAP) }));
   const ends = places.map((place) => ({ x: place.x + BABY_WIDTH / 2, y: place.y }));
-  const lines = places.map((place, i) => {
+  const routes = places.map((place, i) => {
     const gap = place.y - ROW_GAP / 2;
-    return elbows([...leave(passes + i), ...i < columns ? [] : [{ x: lanes[i], y: gap }, { x: ends[i].x, y: gap }], ends[i]]);
+    return [...leave(passes + i), ...i < columns ? [] : [{ x: lanes[i], y: gap }, { x: ends[i].x, y: gap }], ends[i]];
   });
   const middles = widths.map((gap, after) => first + lefts[after] + BABY_WIDTH + gap / 2 - centre);
-  return { width, height, places, lines, ends, drops: [0, sideLane(passes - 1) - centre, ...middles],
+  return { width, height, places, routes, lines: routes.map(elbows), ends, drops: [0, sideLane(passes - 1) - centre, ...middles],
     passes: Array.from({ length: passes }, (_, pass) => [...leave(pass), { x: descents[pass], y: height }]) };
 }
 
