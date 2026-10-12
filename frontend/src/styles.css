@@ -304,6 +304,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-canvas { position: relative; display: flex; flex-direction: column; height: 100%; overflow: clip; touch-action: none; cursor: grab; background: radial-gradient(circle, #51716675 1px, transparent 1px) 0 0 / 24px 24px; }
 .flow-canvas:active { cursor: grabbing; }
 .flow-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+/* While the canvas fits itself, a baby goblin born or gone eases the frame
+   to its new fit rather than snapping to it. A pan or a zoom by hand, and
+   every other refit, moves it at once. */
+.flow-world.settling { transition: transform .38s cubic-bezier(.2, .8, .2, 1); }
 .flow-connections { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connection-line path { fill: none; stroke: #637b8c; stroke-width: 2; }
 .connection-line circle { fill: #bad4ec; }
@@ -721,6 +725,9 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .activity-glow { pointer-events: none; position: absolute; inset: -2px; border: 2px solid #81edc0; border-radius: inherit; box-shadow: 0 0 16px #67e8b755; animation: received 3s ease-out both; }
 @keyframes received { from { opacity: 1; } to { opacity: 0; } }
 .node-enter { animation: entered .5s ease-out; }
+/* A goblin at work glows, still, in the board's green: nothing plays while
+   nothing changes. */
+.flow-node.is-working::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 1px #00e59b55, 0 0 28px #00e59b2e; pointer-events: none; }
 @keyframes entered { from { opacity: .3; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* The goblin panel: a top row with the Task and Terminal pill, a header that

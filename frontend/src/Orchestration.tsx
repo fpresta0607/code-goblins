@@ -13,6 +13,11 @@ import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { CardFacts } from "./card-facts";
 import { CfoCardFacts } from "./cfo-card-facts";
+import { withDepartures } from "./tree-traffic";
+import { travel, useGlide, useTreeMotion, type Point as Place } from "./use-tree-motion";
+
+// The phases a goblin is at work in, whose card glows.
+const WORKING = new Set(["working", "busy", "active", "started"]);
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
@@ -71,11 +76,18 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     const tree = node.task && ownsTaskSession(node.session, node.task) ? node.task.tree : undefined;
     return tree && hasRunningChildren(tree) ? [[node.id, tree]] : [];
   })), [nodes]);
+  // A baby goblin that finished or went keeps its place on its branch while
+  // it reports back and fades, so the others hold still until it has gone.
+  const motion = useTreeMotion(trees, connected);
+  const shownChildren = useMemo(() => {
+    const goblins = new Set([...Object.keys(trees), ...motion.leaving.map((gone) => gone.goblin)]);
+    return Object.fromEntries([...goblins].map((id) => [id, withDepartures(trees[id] ? running(trees[id]) : [], motion.leaving.filter((gone) => gone.goblin === id))]));
+  }, [trees, motion.leaving]);
   // The connectors to the goblins under a goblin's baby goblins run down
   // beside them, each on a line of its own.
-  const branches = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]) => [id, branchLayout(running(tree).length, NODE_WIDTH, nodes.filter((node) => node.parent === id).length)])), [trees, nodes]);
-  const extents = useMemo(() => Object.fromEntries(Object.keys(trees).map((id): [string, Extent] => collapsed.has(id)
-    ? [id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT, drops: [0] }] : [id, { width: branches[id].width, below: branches[id].height, drops: branches[id].drops }])), [trees, branches, collapsed]);
+  const branches = useMemo(() => Object.fromEntries(Object.entries(shownChildren).map(([id, children]) => [id, branchLayout(children.length, NODE_WIDTH, nodes.filter((node) => node.parent === id).length)])), [shownChildren, nodes]);
+  const extents = useMemo(() => Object.fromEntries(Object.keys(shownChildren).flatMap((id): [string, Extent][] => !collapsed.has(id)
+    ? [[id, { width: branches[id].width, below: branches[id].height, drops: branches[id].drops }]] : trees[id] ? [[id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT, drops: [0] }]] : [])), [shownChildren, trees, branches, collapsed]);
   const below = useMemo(() => Object.fromEntries(Object.entries(extents).map(([id, extent]) => [id, extent.below])), [extents]);
   // The graph fills the visible canvas, centered, and Arrange lays it out in
   // the rows that show it largest there, until a zoom or a pan by hand takes
@@ -131,6 +143,13 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     return false;
   };
   const visible = nodes.filter((node) => !hidden(node));
+  // Where each baby goblin hangs from its goblin's card, where it slides to
+  // when one beside it comes or goes.
+  const places = new Map(visible.flatMap((node) => {
+    const block = branches[node.id];
+    return !block || collapsed.has(node.id) ? [] : shownChildren[node.id].map((child, i): [string, Place] => [child.id, { x: (NODE_WIDTH - block.width) / 2 + block.places[i].x, y: block.places[i].y }]);
+  }));
+  const glide = useGlide(places, connected);
   const point = (id: string) => positions[id];
   // Each card's left and right with what hangs under it, centred on the card.
   const lefts = visible.map((node) => point(node.id).x + (NODE_WIDTH - (extents[node.id]?.width || NODE_WIDTH)) / 2);
@@ -255,7 +274,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         panned.current = false;
       }}>
       {!nodes.length && <div className="empty-state"><h2>No sessions reported yet</h2><p>Native parent relationships will appear here as work starts.</p></div>}
-      <div className="flow-world" style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
+      <div className={"flow-world" + (motion.isSettling && !view && !held ? " settling" : "")} style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
         <svg className="flow-connections" width={fitLeft + fitWidth} height={fitTop + fitHeight} aria-hidden="true">
           {visible.map((node) => {
             if (!node.parent || !visible.some((other) => other.id === node.parent)) return null;
@@ -342,21 +361,28 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         {/* Branches come before the cards, so a card and its chevron lie
             over the branches hanging from it. */}
         {visible.flatMap((node) => {
-          const tree = trees[node.id], task = node.task;
-          if (!tree || !task) return [];
+          const tree = trees[node.id], task = node.task, children = shownChildren[node.id];
+          if (!children || !task) return [];
           const p = point(node.id);
-          if (collapsed.has(node.id)) return [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
+          if (collapsed.has(node.id)) return tree ? [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
             <TreeCount tree={tree} title={node.title} expanded={false} onToggle={() => toggle(node.id)} />
-          </div>];
+          </div>] : [];
           const block = branches[node.id];
+          // A baby goblin being born grows in on its branch, one leaving fades
+          // out, and a pulse runs along a branch at each exchange.
+          const motionOf = (child: string) => motion.born.has(child) ? " born" : motion.leaving.some((gone) => gone.node.id === child) ? " leaving" : "";
           return [<ul key={"tree:" + node.id} className="tree-branches" aria-label={"What runs under " + node.title}
             style={{ left: p.x + (NODE_WIDTH - block.width) / 2, top: p.y + NODE_HEIGHT, width: block.width, height: block.height }}>
             <svg className="branch-lines" width={block.width} height={block.height} aria-hidden="true">
-              {running(tree).map((child, i) => <g key={child.id} className={lit === "child:" + child.id ? "lit" : undefined}>
+              {children.map((child, i) => <g key={child.id} className={(lit === "child:" + child.id ? "lit" : "") + motionOf(child.id)}>
                 <path d={block.lines[i]} /><circle cx={block.ends[i].x} cy={block.ends[i].y} r={3} />
               </g>)}
             </svg>
-            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y, width: BABY_WIDTH, height: BABY_HEIGHT }} {...lights("child:" + child.id)}>
+            {motion.pulses.filter((pulse) => pulse.goblin === node.id).map((pulse) => {
+              const route = block.routes[children.findIndex((child) => child.id === pulse.child)];
+              return route && <span key={pulse.key} className="branch-pulse" ref={travel(pulse.isUp ? [...route].reverse() : route)} aria-hidden="true" />;
+            })}
+            {children.map((child, i) => <li key={child.id} ref={glide(child.id)} className={motionOf(child.id).trim() || undefined} style={{ left: block.places[i].x, top: block.places[i].y, width: BABY_WIDTH, height: BABY_HEIGHT }} {...lights("child:" + child.id)}>
               <TreeChild node={child} name={babyName(task, child)} now={now} isSelected={selected === "child:" + child.id} onOpen={(source) => onChild(task, child, source)} />
             </li>)}
           </ul>];
@@ -369,7 +395,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const { text: status, phase } = owner && node.task ? taskStatus(node.task, snapshot) : { text: nodeStatus(node, false, snapshot.tasks, snapshot.merge_trains), phase: node.session?.runtime?.state || node.session?.phase };
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
           const hasCfoFacts = (!!node.cfo || node.session?.role === "cfo") && snapshot.cfo_runs && !snapshot.cfo_closed;
-          return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
+          return <article key={node.id} className={"flow-node" + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
             <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
               onKeyDown={(event) => {
