@@ -136,7 +136,7 @@ func TestWhileAFKModeIsOnAGoblinsPageIsTheCFOsDecision(t *testing.T) {
 // The CFO answers the page with cfo answer: the goblin gets the answer once,
 // the notify reads answered, the question closes as the CFO's answer while he
 // was away, the goblin's page items still open close with it, and the AFK log
-// keeps the answer with the page, its choices and the CFO's choice.
+// keeps the answer with the page, the question and the CFO's choice.
 func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
@@ -177,21 +177,24 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 	}
 	entries := afkEntries(t, h.State)
 	logged := entries[len(entries)-1]
-	if logged.Kind != afk.KindAnswer || logged.What != q.ID || logged.Task != meta.ID || logged.Link != mockupsPage || logged.Question != q.Text ||
-		!slices.Equal(logged.Options, q.Options) || logged.Recommendation != "Build it as shown" || logged.Answer != "Build it as shown" || !strings.Contains(logged.Evidence, "the grid reads") {
-		t.Errorf("logged = %+v, want the answer with its page, its question, its choices and the CFO's choice", logged)
+	if logged.Kind != afk.KindAnswer || logged.What != q.ID || logged.Task != meta.ID || logged.Link != mockupsPage || !strings.Contains(logged.Evidence, "asked: "+q.Text+" answered: Build it as shown. the grid reads") {
+		t.Errorf("logged = %+v, want the answer with its page, its question and the CFO's choice", logged)
 	}
 }
 
-// When AFK mode turns off, each page the CFO answered in his place is asked in
-// the Command Center as the CFO's question with its answer checked, for him to
-// keep or change, and the report lists it for him beside what was left for
-// him. His answer there tells the CFO whether he kept it.
-func TestTheWalkThroughAfterAFKAsksEachPageWithTheCFOsAnswerChecked(t *testing.T) {
+// A page the CFO answered in his place is settled once AFK mode turns off, as
+// the Overlord asked on 2026-10-12: it stays in History as the goblin's
+// question with the CFO's answer, given while he was away, where he can
+// change it, and it is never asked of him again, nor listed under For you.
+// The report recaps it under Answered for goblins.
+func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	// Arrange
 	s, h, _, _, connection := pageFixture(t)
 	q, record := awayPage(t, s, h, pageFile(t, mockupsChoices))
 	if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Build it as shown", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.ingestAnswers(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -205,30 +208,26 @@ func TestTheWalkThroughAfterAFKAsksEachPageWithTheCFOsAnswerChecked(t *testing.T
 	if err != nil || readErr != nil || !found {
 		t.Fatalf("his off = %v, report = %v, %v", err, found, readErr)
 	}
-	var asked []Question
-	for _, one := range s.Store.Snapshot().Questions {
-		if one.Task == "" && one.Status == "pending" {
-			asked = append(asked, one)
-		}
+	questions := s.Store.Snapshot().Questions
+	if len(questions) != 1 {
+		t.Fatalf("questions = %+v, want only the goblin's, asked nothing more", questions)
 	}
-	if len(asked) != 1 {
-		t.Fatalf("questions asked of him = %+v, want the page", asked)
+	if got := questions[0]; got.ID != q.ID || got.Status != "succeeded" || got.AnsweredBy != "cfo" || !got.AnsweredAway || got.AnsweredOption != "Build it as shown" {
+		t.Errorf("the goblin's question = %+v, want it in History as the CFO's answer while he was away", got)
 	}
-	walk := asked[0]
-	if !strings.HasPrefix(walk.ID, "afk-page-") || walk.Decided != "Build it as shown" || !slices.Equal(walk.Options, q.Options) || walk.Recommended != "Build it as shown" ||
-		!strings.HasPrefix(walk.Text, q.Text) || !strings.Contains(walk.Text, "task-1") {
-		t.Errorf("the walk-through question = %+v, want the page with its choices and the CFO's answer checked", walk)
+	if len(report.Held) != 0 {
+		t.Errorf("For you = %+v, want nothing: the CFO answered the page", report.Held)
 	}
-	i := slices.IndexFunc(report.Held, func(one afk.Held) bool { return one.Item == "question:"+walk.ID })
-	if i < 0 || !report.Held[i].Waiting || report.Held[i].Task != "task-1" || report.Held[i].Now != "the CFO answered it: Build it as shown, yours to keep or change" {
-		t.Errorf("the report holds %+v, want the page waiting on him with the CFO's answer", report.Held)
+	i := slices.IndexFunc(report.Sections(), func(section afk.Section) bool { return section.Title == "Answered for goblins" })
+	if i < 0 || len(report.Sections()[i].Entries) != 1 || report.Sections()[i].Entries[0].What != q.ID {
+		t.Errorf("the report's sections = %+v, want the page's answer under Answered for goblins", report.Sections())
 	}
 }
 
 // A page that declares no choices still reaches the CFO as a decision, which
-// it answers in its own words, and the walk-through asks him that answer,
-// checked. A goblin's question without choices and without a page is
-// answered with cfo send, as before.
+// it answers in its own words, and History keeps that answer as the goblin's
+// question's, written. A goblin's question without choices and without a
+// page is answered with cfo send, as before.
 func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
@@ -262,11 +261,10 @@ func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
 		t.Fatal(offErr)
 	}
 	questions := s.Store.Snapshot().Questions
-	if q := questions[0]; q.Status != "succeeded" || q.AnswerKind != "other" || q.AnsweredOption != "" || q.Answer != "Ship the three mockups as shown" {
-		t.Errorf("the page's question = %+v, want the CFO's written answer", q)
+	if len(questions) != 1 {
+		t.Fatalf("questions = %+v, want only the page's, asked nothing more", questions)
 	}
-	i := slices.IndexFunc(questions, func(q Question) bool { return strings.HasPrefix(q.ID, "afk-page-") })
-	if i < 0 || questions[i].Decided != "Ship the three mockups as shown" || !slices.Equal(questions[i].Options, []string{"Ship the three mockups as shown"}) {
-		t.Errorf("questions = %+v, want the walk-through to ask the CFO's words, checked", questions)
+	if q := questions[0]; q.Status != "succeeded" || q.AnswerKind != "other" || q.AnsweredOption != "" || q.Answer != "Ship the three mockups as shown" || !q.AnsweredAway {
+		t.Errorf("the page's question = %+v, want the CFO's written answer, given while he was away", q)
 	}
 }

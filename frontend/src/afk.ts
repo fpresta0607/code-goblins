@@ -15,8 +15,9 @@ export interface AfkDecision {
   // logged by mistake, empty for a line it stands by. noted is what the CFO
   // wrote of a merge in lines of its own, which the report folds into it, and
   // asked the Command Center item of a line it left for him about a merge
-  // that did not land.
-  diagnosis: string; tried: string; struck: string; noted: string; asked: string;
+  // that did not land. answer is the CFO's answer to a decision it answered
+  // for him, settled in his History.
+  diagnosis: string; tried: string; struck: string; noted: string; asked: string; answer: string;
 }
 // AfkSection is one heading of the report with the decisions under it.
 export interface AfkSection {
@@ -76,7 +77,7 @@ export function parseAfkReport(value: unknown): AfkReport | null {
         title: string(s.title),
         entries: array(s.entries).map((value) => {
           const e = object(value);
-          return { at: string(e.at), kind: string(e.kind), what: string(e.what), link: string(e.link), evidence: string(e.evidence), outcome: string(e.outcome), task: string(e.task), diagnosis: string(e.diagnosis), tried: string(e.tried), struck: string(e.struck), noted: string(e.noted), asked: string(e.asked) };
+          return { at: string(e.at), kind: string(e.kind), what: string(e.what), link: string(e.link), evidence: string(e.evidence), outcome: string(e.outcome), task: string(e.task), diagnosis: string(e.diagnosis), tried: string(e.tried), struck: string(e.struck), noted: string(e.noted), asked: string(e.asked), answer: string(e.answer) };
         }),
       };
     }),
@@ -299,8 +300,12 @@ export const safeLink = (url: string): string => /^https:\/\/[^\s]+$/i.test(url)
 // since a word given is not a merge made. A line left for him adds what was
 // found wrong and what was tried, and a struck line leads with why the CFO
 // struck it; a strike of an earlier stretch's line carries only that reason.
-export function decisionSays(entry: AfkDecision): { text: string; href: string; outcome: string; happened: string; basis: string } {
+// A decision the CFO answered for him is a short recap, answered: its answer
+// and where he changes it, with nothing of what it stood on, which its
+// question in History carries.
+export function decisionSays(entry: AfkDecision): { text: string; href: string; outcome: string; happened: string; answered: string; basis: string } {
   const answered = entry.kind === "answer" && entry.task !== "";
+  const isForHim = entry.kind === "left" && entry.answer !== "" && !entry.struck;
   const what = safeLink(entry.what) && /\/pull\/\d+/.test(entry.what) ? pullRequestLabel(entry.what) : entry.what;
   const isNotLanded = notLanded(entry);
   return {
@@ -308,8 +313,9 @@ export function decisionSays(entry: AfkDecision): { text: string; href: string; 
     href: safeLink(entry.link) || safeLink(entry.what),
     outcome: isNotLanded ? "" : entry.outcome,
     happened: isNotLanded ? didSays(entry) : "",
+    answered: isForHim ? "The CFO answered: " + entry.answer.replace(/\.$/, "") + ". You can change it in History." : "",
     // The log words an answer as "asked: ... answered: ...".
-    basis: answered ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : isNotLanded ? notLandedSays(entry.outcome) + " Evidence: " + entry.evidence : basisOf(entry),
+    basis: answered ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : isNotLanded ? notLandedSays(entry.outcome) + " Evidence: " + entry.evidence : isForHim ? "" : basisOf(entry),
   };
 }
 

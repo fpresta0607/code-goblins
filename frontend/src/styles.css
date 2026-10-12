@@ -412,7 +412,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-modal .from-afk { margin: -8px 0 14px; color: var(--muted); font-size: .9375rem; }
 .command-center-updates h3 .go-through { margin-left: auto; min-height: 36px; padding: 0 14px; font-size: .9375rem; }
 .stack-pager > button { padding: 0 16px; }
-.cfo-answer { color: var(--mint); border: 1px solid var(--glass-border-hover); padding: 1px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; white-space: nowrap; }
 .written-answer textarea { width: 100%; background: var(--field-bg); }
 @media (max-width: 40rem) {
   .question-modal { padding: 24px 18px; }

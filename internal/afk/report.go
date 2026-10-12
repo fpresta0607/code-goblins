@@ -211,8 +211,9 @@ var trainLanding = regexp.MustCompile(`^merge train \S+: CI passed on (\S+) at `
 // else to every merge it names. A line the CFO wrote that links a pull request
 // that did not merge goes the same way to that merge, as what the CFO did about
 // it, and a line left for the Overlord that links it gives it the Command
-// Center question he is asked. A struck line, and one that names no merge,
-// stays as it was.
+// Center question he is asked, or, for a decision the CFO answered itself,
+// its words and the CFO's answer, staying a decision of its own. A struck
+// line, and one that names no merge, stays as it was.
 func Noted(decisions []Entry) []Entry {
 	names := func(line, merge Entry) bool {
 		train := trainLanding.FindStringSubmatch(merge.Evidence)
@@ -263,8 +264,12 @@ func Noted(decisions []Entry) []Entry {
 	}
 	for _, left := range decisions {
 		for j, merge := range noted {
-			if left.Kind == KindLeft && left.Struck == "" && left.Link != "" && !folded[j] && open(merge) && merge.What == left.Link {
+			switch {
+			case left.Kind != KindLeft || left.Struck != "" || left.Link == "" || folded[j] || !open(merge) || merge.What != left.Link:
+			case left.Answer == "":
 				noted[j].Asked = "question:" + LeftQuestionID(left)
+			default:
+				noted[j].Noted = strings.TrimSpace(noted[j].Noted + " " + said(left, merge) + " It answered: " + strings.TrimSuffix(left.Answer, ".") + ".")
 			}
 		}
 	}
@@ -284,7 +289,10 @@ func said(line, merge Entry) string {
 	var parts []string
 	for _, part := range []string{line.What, line.Evidence} {
 		if part = strings.TrimSuffix(strings.TrimSpace(part), "."); part != "" && part != merge.What {
-			parts = append(parts, part+".")
+			if !strings.HasSuffix(part, "?") {
+				part += "."
+			}
+			parts = append(parts, part)
 		}
 	}
 	if line.Outcome != "" {
@@ -329,12 +337,14 @@ type Section struct {
 
 // Sections sorts what the CFO decided under its headings, in the order the
 // report lists them, the goblins paused at a floor after them, and last what
-// the CFO struck. A heading is there only when it holds something. A line the
-// CFO wrote for a landing is with the merge it names, and Not merged holds
-// only what did not land. What it left for him is not among them: it is with
-// what was held for him, as it stands now. A struck line is under Struck by
-// the CFO alone, so it is never taken for something left for him or decided.
-// The CFO's text and the board's page are both written from these.
+// the CFO struck. A heading is there only when it holds something. First is
+// each decision the CFO answered itself in his place, settled in his History
+// once AFK mode turned off. A line the CFO wrote for a landing is with the
+// merge it names, and Not merged holds only what did not land. What it left
+// for him, and a line it settled, is not among them: it is with what was held
+// for him, as it stands now. A struck line is under Struck by the CFO alone,
+// so it is never taken for something left for him or decided. The CFO's text
+// and the board's page are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
 	decisions := Noted(r.Decisions)
@@ -350,6 +360,7 @@ func (r Report) Sections() []Section {
 		}
 	}
 	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
+	decided("Answered for you", AnsweredForHim)
 	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
 	decided("Not merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged })
 	decided("Deployed", kind(KindDeploy))
@@ -365,6 +376,13 @@ func (r Report) Sections() []Section {
 		sections = append(sections, Section{Title: "Struck by the CFO", Entries: struck})
 	}
 	return sections
+}
+
+// AnsweredForHim reports whether a line left for the Overlord is a decision the
+// CFO answered itself in his place and did not settle later: once AFK mode
+// turns off it is in his History with the CFO's answer, never asked of him.
+func AnsweredForHim(left Entry) bool {
+	return left.Kind == KindLeft && left.Answer != "" && left.Settled == ""
 }
 
 // Lasted says how long the stretch lasted, to the minute.
@@ -567,6 +585,12 @@ func Render(w io.Writer, r Report) error {
 			}
 			if entry.Noted != "" && !notLanded {
 				say("  The CFO: %s", entry.Noted)
+			}
+			// A decision the CFO answered for him is recapped: what it stood on
+			// is in History with it.
+			if AnsweredForHim(entry) && entry.Struck == "" {
+				say("  The CFO answered: %s. You can change it in History.", strings.TrimSuffix(entry.Answer, "."))
+				continue
 			}
 			// A strike of an earlier stretch's line carries the reason as its
 			// evidence, and names the line by when it was logged.
