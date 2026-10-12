@@ -73,14 +73,21 @@ func newCredentialBoardFor(t *testing.T, filed CredentialRequest) *credentialBoa
 }
 
 // newCanary is a value no file, log or response holds unless the code under
-// test put it there.
+// test put it there. It has a Stripe test secret key's shape, so the board's
+// shape check takes it for a Stripe secret key or a name of no known kind.
 func newCanary(t *testing.T) string {
 	t.Helper()
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		t.Fatal(err)
 	}
-	return "canary" + hex.EncodeToString(random[:])
+	return "sk" + "_test_canary" + hex.EncodeToString(random[:])
+}
+
+// newWebhookCanary is a canary with a Stripe webhook signing secret's shape.
+func newWebhookCanary(t *testing.T) string {
+	t.Helper()
+	return "whsec" + "_" + newCanary(t)
 }
 
 // body is a save of values for the board's request, confirming replace.
@@ -186,8 +193,10 @@ func filesHolding(t *testing.T, root, text string) []string {
 }
 
 // The Overlord's value goes into the project's scope of the credential
-// store and nowhere else, and the request it answered closes.
-func TestCredentialSaveStoresTheValueInTheProjectScopeAndClosesTheRequest(t *testing.T) {
+// store and nowhere else, one row at a time: a save of one name stores it and
+// leaves the request open for the rest, and the CFO hears which names the
+// card still asks for.
+func TestCredentialSaveStoresOneRowAndKeepsTheRequestOpenForTheRest(t *testing.T) {
 	// Arrange
 	b := newCredentialBoard(t, "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
 	canary := newCanary(t)
@@ -214,11 +223,69 @@ func TestCredentialSaveStoresTheValueInTheProjectScopeAndClosesTheRequest(t *tes
 		State string   `json:"state"`
 		Saved []string `json:"saved"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.ID != b.request.ID || result.State != "saved" || !slices.Equal(result.Saved, []string{"STRIPE_SECRET_KEY"}) {
-		t.Fatalf("response = %s, want the request saved with the one name", response.Body)
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.ID != b.request.ID || result.State != "open" || !slices.Equal(result.Saved, []string{"STRIPE_SECRET_KEY"}) {
+		t.Fatalf("response = %s, want the one name stored and the request still open", response.Body)
 	}
-	if request := b.stored(); request.State != "saved" || !slices.Equal(request.Saved, []string{"STRIPE_SECRET_KEY"}) || request.ClosedAt == nil {
-		t.Fatalf("request after the save = %+v, want it closed as saved", request)
+	if request := b.stored(); request.State != "open" || !slices.Equal(request.Saved, []string{"STRIPE_SECRET_KEY"}) || request.ClosedAt != nil {
+		t.Fatalf("request after one row = %+v, want it open with the one name saved", request)
+	}
+	pending, err := wake.Pending(b.home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || !strings.Contains(pending[0].Detail, "STRIPE_SECRET_KEY stored for throwaway") || !strings.Contains(pending[0].Detail, "the card still asks for STRIPE_WEBHOOK_SECRET") {
+		t.Fatalf("wakes = %+v, want one naming the stored name and the one still asked for", pending)
+	}
+}
+
+// A request closes as saved once every name it asks for is in the vault:
+// stored by its rows, or held by the scope before it was filed.
+func TestCredentialRequestClosesOnceEveryNameIsInTheVault(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		held  []string
+		saves []string
+	}{
+		{"each row saved in turn", nil, []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}},
+		{"the last name the scope did not hold", []string{"STRIPE_WEBHOOK_SECRET"}, []string{"STRIPE_SECRET_KEY"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			b := newCredentialBoard(t, "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
+			store, err := auth.OpenStore()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range test.held {
+				if err := store.Set(auth.Key{Project: "throwaway", Name: name}, newCanary(t)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var states []string
+
+			// Act
+			for _, name := range test.saves {
+				value := newCanary(t)
+				if name == "STRIPE_WEBHOOK_SECRET" {
+					value = newWebhookCanary(t)
+				}
+				response := b.post(b.handler, b.body(map[string]string{name: value}), nil)
+				if response.Code != http.StatusOK {
+					t.Fatalf("save of %s = %d %s", name, response.Code, response.Body)
+				}
+				states = append(states, b.stored().State)
+			}
+			b.service.credentialWork.Wait()
+
+			// Assert
+			want := slices.Repeat([]string{"open"}, len(test.saves)-1)
+			if !slices.Equal(states, append(want, "saved")) {
+				t.Fatalf("states after each save = %v, want open until the last and then saved", states)
+			}
+			if request := b.stored(); !slices.Equal(request.Saved, test.saves) || request.ClosedAt == nil || len(request.Replaced) != 0 {
+				t.Fatalf("request = %+v, want it closed with the saved names and nothing replaced", request)
+			}
+		})
 	}
 }
 
@@ -323,11 +390,12 @@ func TestCredentialSaveRefusesEverythingButAnOpenRequestFromThisMachine(t *testi
 	}
 }
 
-// A request takes one save: the same save sent again, or another value for
-// the same name, is refused and the first value stays.
-func TestCredentialRequestTakesOneSave(t *testing.T) {
+// A row takes one save: the same save sent again, or another value for the
+// same name, is refused and the first value stays, while the request still
+// takes its other rows.
+func TestCredentialRowTakesOneSave(t *testing.T) {
 	// Arrange
-	b := newCredentialBoard(t, "STRIPE_SECRET_KEY")
+	b := newCredentialBoard(t, "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
 	first, second := newCanary(t), newCanary(t)
 	if response := b.post(b.handler, b.body(map[string]string{"STRIPE_SECRET_KEY": first}), nil); response.Code != http.StatusOK {
 		t.Fatalf("first save = %d %s", response.Code, response.Body)
@@ -336,13 +404,57 @@ func TestCredentialRequestTakesOneSave(t *testing.T) {
 	// Act
 	replayed := b.post(b.handler, b.body(map[string]string{"STRIPE_SECRET_KEY": first}), nil)
 	changed := b.post(b.handler, b.body(map[string]string{"STRIPE_SECRET_KEY": second}, "STRIPE_SECRET_KEY"), nil)
+	other := b.post(b.handler, b.body(map[string]string{"STRIPE_WEBHOOK_SECRET": newWebhookCanary(t)}), nil)
 
 	// Assert
 	if replayed.Code != http.StatusConflict || changed.Code != http.StatusConflict {
 		t.Fatalf("replay = %d, second value = %d, want both refused", replayed.Code, changed.Code)
 	}
+	if strings.Contains(replayed.Body.String()+changed.Body.String(), first) || strings.Contains(changed.Body.String(), second) {
+		t.Fatal("a refusal repeats a value")
+	}
 	if got, _ := b.vaultValue("STRIPE_SECRET_KEY"); got != first {
 		t.Fatal("a second save changed the stored value")
+	}
+	if other.Code != http.StatusOK {
+		t.Fatalf("the other row's save = %d %s, want it taken", other.Code, other.Body)
+	}
+}
+
+// A value that cannot be the credential its name names is refused before
+// anything is stored, saying why and never repeating the value, and its row
+// stays open: the Overlord's STRIPE_TEST_SECRET_KEY once arrived as a single
+// character and still showed stored.
+func TestCredentialSaveRefusesAValueOfTheWrongShape(t *testing.T) {
+	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	for _, test := range []struct {
+		name, value, says string
+	}{
+		{"one character", "s", "STRIPE_TEST_SECRET_KEY does not start with sk_test_ or rk_test_"},
+		{"a publishable key", "pk" + "_test_" + random, "STRIPE_TEST_SECRET_KEY does not start with sk_test_ or rk_test_"},
+		{"a cut-off key", "sk" + "_test_" + "4eC3", "STRIPE_TEST_SECRET_KEY is too short"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			b := newCredentialBoard(t, "STRIPE_TEST_SECRET_KEY")
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{"STRIPE_TEST_SECRET_KEY": test.value}), nil)
+
+			// Assert
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), test.says) || !strings.Contains(response.Body.String(), "Nothing was stored") {
+				t.Fatalf("save = %d %s, want it refused saying %q", response.Code, response.Body, test.says)
+			}
+			if len(test.value) > 1 && strings.Contains(response.Body.String(), test.value) {
+				t.Fatal("the refusal repeats the value")
+			}
+			if _, found := b.vaultValue("STRIPE_TEST_SECRET_KEY"); found {
+				t.Fatal("a value of the wrong shape was stored")
+			}
+			if request := b.stored(); request.State != "open" || len(request.Saved) != 0 {
+				t.Fatalf("request = %+v, want it open with nothing saved", request)
+			}
+		})
 	}
 }
 
@@ -672,6 +784,11 @@ func TestCredentialRequestTakesNamesNeverValues(t *testing.T) {
 		{"a scope that walks", func(r *CredentialRequest) { r.Project = ".." }},
 		{"a task that is no task ID", func(r *CredentialRequest) { r.Task = "../task" }},
 		{"a task shaped like a key", func(r *CredentialRequest) { r.Task = "sk" + "_live_" + random }},
+		{"a step holding a key", func(r *CredentialRequest) { r.Steps = []string{"Paste " + "sk" + "_test_" + random + " here"} }},
+		{"an empty step", func(r *CredentialRequest) { r.Steps = []string{"Copy the secret key", " "} }},
+		{"a step over two lines", func(r *CredentialRequest) { r.Steps = []string{"Copy the\nsecret key"} }},
+		{"a step over 200 characters", func(r *CredentialRequest) { r.Steps = []string{strings.Repeat("Copy the key ", 16)} }},
+		{"nine steps", func(r *CredentialRequest) { r.Steps = slices.Repeat([]string{"Copy the key"}, 9) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -696,6 +813,34 @@ func TestCredentialRequestTakesNamesNeverValues(t *testing.T) {
 				t.Fatal("the refusal repeats the value")
 			}
 		})
+	}
+}
+
+// A request carries the asker's steps for getting its values, in order, to
+// the card's header, and a retry with other steps is another request.
+func TestCredentialRequestCarriesItsStepsToTheBoard(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	t.Setenv(auth.StoreDirEnv, t.TempDir())
+	s := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
+	steps := []string{"Sign in to the PrecisionDocs Stripe account", "Reveal the test secret key and copy it"}
+	filed := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/test/apikeys", Steps: steps}
+
+	// Act
+	_, err := s.acceptCredentialRequest(filed)
+	retried := filed
+	retried.Steps = steps[:1]
+	_, retryErr := s.acceptCredentialRequest(retried)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credentials := store.Snapshot().Credentials; len(credentials) != 1 || !slices.Equal(credentials[0].Steps, steps) {
+		t.Fatalf("credentials = %+v, want the one request with its steps in order", credentials)
+	}
+	if retryErr == nil {
+		t.Fatal("a filing of the same ID with other steps was taken as the same request")
 	}
 }
 

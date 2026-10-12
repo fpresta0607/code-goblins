@@ -8,8 +8,9 @@ declare global {
   interface Window { board?: { request: (id: string, changes: Record<string, unknown>) => void; runs: (runs: Record<string, unknown>[]) => void } }
 }
 
-// A goblin asks for two Stripe credentials for precisiondocs, one of which the
-// scope already holds, and the CFO asks for a database URL. board.request
+// A goblin asks for two Stripe credentials for precisiondocs, with the steps
+// for getting them, one of which the scope already holds, and the CFO asks
+// for a database URL. board.request
 // changes a request and board.runs sets the board's runs, as the supervisor's
 // snapshot does after a save or while a request's terminal is open.
 const at = "2026-10-01T03:00:00Z";
@@ -18,6 +19,7 @@ const requests: Record<string, unknown>[] = [
     id: "cred-0123456789abcdef", generation: "f".repeat(32), identity: "a".repeat(64), by: "goblin", task: "add-billing",
     project: "precisiondocs", repository: "C:\\dev\\precisiondocs", names: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
     why: "Charge test cards in the billing tests", link: "https://dashboard.stripe.com/test/apikeys",
+    steps: ["sign in to the shop's Stripe account", "Reveal the test secret key and copy it"],
     existing: ["STRIPE_WEBHOOK_SECRET"], services: { STRIPE_SECRET_KEY: ["stripe"], STRIPE_WEBHOOK_SECRET: ["stripe"] },
     hints: [{ name: "STRIPE_SECRET_KEY", prefixes: ["sk_", "rk_"], warn: [{ prefix: "sk_live_", say: "A live secret key can do anything on the account; use a restricted rk_live_ key." }] }],
     state: "open", created_at: at, expires_at: "2026-10-02T03:00:00Z",
