@@ -46,7 +46,10 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // The exit code is the command's. The turn is held until the command has
 // ended, through an interrupt too, which the command is sent as well and
 // answers for itself; an interrupt while the run waits takes it out of the
-// line.
+// line. The command runs as a tree (execx.StartTree): a run that is ended,
+// as its caller's time limit ends it, ends with everything its command
+// started, and an interrupted run, once its command has ended, ends what
+// the command left running and names it.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	as, command, err := parseGateTurn(args)
 	if err != nil {
@@ -82,13 +85,28 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	process := execx.Command(command[0], command[1:]...)
 	process.Stdin, process.Stdout, process.Stderr = os.Stdin, stdout, stderr
 	process.Env = append(os.Environ(), verify.TurnVariable+"="+turn.Token())
-	if err := process.Start(); err != nil {
+	tree, err := execx.StartTree(process)
+	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %v\n", err)
 		return exitNotStarted
 	}
 	// What Wait returns for a command that ended is its exit status, which
 	// the run passes on as it is.
 	process.Wait()
+	select {
+	case <-signals:
+		ended, err := tree.End()
+		if len(ended) > 0 {
+			fmt.Fprintf(stderr, "cfo gate turn: the run was interrupted, so it ended what its command left running: %s\n", execx.Names(ended))
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo gate turn: the run was interrupted, and what its command left running may not all have ended: %v\n", err)
+		}
+	default:
+		if err := tree.Release(); err != nil {
+			fmt.Fprintf(stderr, "cfo gate turn: what its command left running may have ended with it, since it could not be let go: %v\n", err)
+		}
+	}
 	return process.ProcessState.ExitCode()
 }
 

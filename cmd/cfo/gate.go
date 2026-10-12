@@ -296,11 +296,21 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 
 // runGateCommand runs one of the step's commands as a process in dir with
 // env and returns its exit code, -1 when it did not start, with an error
-// unless it passed.
+// unless it passed. The command runs as a tree (execx.StartTree), so a step
+// that is ended, as its gate's time limit or an interrupt ends it, ends with
+// everything its command started, a test's helper whose parent already
+// exited included.
 func runGateCommand(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error) {
 	process := execx.Command(command[0], command[1:]...)
 	process.Dir, process.Env, process.Stdout, process.Stderr = dir, env, stdout, stderr
-	err := process.Run()
+	tree, err := execx.StartTree(process)
+	if err != nil {
+		return -1, err
+	}
+	err = process.Wait()
+	if releaseErr := tree.Release(); releaseErr != nil {
+		err = errors.Join(err, releaseErr)
+	}
 	if process.ProcessState == nil {
 		return -1, err
 	}

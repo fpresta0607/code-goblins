@@ -5,10 +5,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
-	"runtime"
-	"strconv"
 	"time"
 )
 
@@ -18,9 +17,12 @@ type Request struct {
 	Env  []string
 	Name string
 	Args []string
-	// KillTree makes a cancelled Run end the process and everything it
-	// started, since killing a shim such as an npm .cmd alone leaves its real
-	// child running.
+	// KillTree starts the process as a tree (StartTree), so a run its
+	// context ends is ended with everything the process started: the real
+	// child of a shim such as an npm .cmd, which ending the shim alone leaves
+	// running, and a helper whose parent already exited, which nothing that
+	// follows parents can reach. The run's error then names what was ended
+	// (Ended).
 	KillTree bool
 }
 
@@ -61,12 +63,16 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Start(); err != nil {
+	tree, err := start(cmd, req.KillTree)
+	if err != nil {
 		return Result{}, err
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
-		return Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, err
+		return Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, cut(tree, err)
+	}
+	if err := release(tree); err != nil {
+		return Result{}, err
 	}
 
 	result := Result{
@@ -96,11 +102,15 @@ func (OSRunner) Stream(ctx context.Context, req Request, stdout, stderr io.Write
 	cmd := command(ctx, req)
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Start(); err != nil {
+	tree, err := start(cmd, req.KillTree)
+	if err != nil {
 		return -1, err
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
+		return -1, cut(tree, err)
+	}
+	if err := release(tree); err != nil {
 		return -1, err
 	}
 	var exitErr *exec.ExitError
@@ -146,12 +156,36 @@ func CommandContext(ctx context.Context, name string, arg ...string) *exec.Cmd {
 func command(ctx context.Context, req Request) *exec.Cmd {
 	cmd := CommandContext(ctx, req.Name, req.Args...)
 	configure(cmd, req)
-	if req.KillTree && runtime.GOOS == "windows" {
-		cmd.Cancel = func() error {
-			return Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run()
-		}
-	}
 	return cmd
+}
+
+// start starts cmd, as a tree when isTree says so (Request.KillTree).
+func start(cmd *exec.Cmd, isTree bool) (*Tree, error) {
+	if !isTree {
+		return nil, cmd.Start()
+	}
+	return StartTree(cmd)
+}
+
+// cut is the error of a run its context ended with err: a run started as a
+// tree is ended with all of it, and the error names what that ended.
+func cut(tree *Tree, err error) error {
+	if tree == nil {
+		return err
+	}
+	ended, endErr := tree.End()
+	if endErr != nil {
+		return errors.Join(&Ended{Err: err, Processes: ended}, fmt.Errorf("execx: what the run started may not all have ended: %w", endErr))
+	}
+	return &Ended{Err: err, Processes: ended}
+}
+
+// release lets go of the tree of a run whose process ended by itself.
+func release(tree *Tree) error {
+	if tree == nil {
+		return nil
+	}
+	return tree.Release()
 }
 
 func startCommand(req Request) *exec.Cmd {
