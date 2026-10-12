@@ -414,6 +414,42 @@ func TestTheReportIsKeptForTheStretchItEnds(t *testing.T) {
 	}
 }
 
+func TestAReportedDecisionAlreadyInTheCommandCenterAppearsOnlyOnce(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		isWaiting bool
+		now       string
+		settled   string
+	}{
+		{name: "waiting", isWaiting: true, now: "still waiting on you"},
+		{name: "answered", now: "you answered it: Leave it parked"},
+		{name: "settled", now: "settled by the CFO: the existing token works", settled: "the existing token works"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			decision := Entry{At: night, Kind: KindLeft, What: "Sign in to Fly again?", Evidence: "the token was refused", Settled: scenario.settled}
+			report := Report{
+				Since: night, Ended: night.Add(time.Hour), Decisions: []Entry{decision},
+				Held: []Held{{Item: "question:" + LeftQuestionID(decision), What: decision.What, At: night, Waiting: scenario.isWaiting, Now: scenario.now, Settled: scenario.settled}},
+			}
+
+			sections, text := report.Sections(), rendered(t, report)
+
+			if len(sections) != 0 {
+				t.Errorf("sections = %+v, want the held question alone to report its current state", sections)
+			}
+			if strings.Count(text, decision.What) != 1 || !strings.Contains(text, scenario.now) {
+				t.Errorf("report = %s, want the question once with its current state", text)
+			}
+			if !scenario.isWaiting && strings.Contains(text, "NEEDS YOU") {
+				t.Errorf("report = %s, want no Needs you after the question was handled", text)
+			}
+			if len(report.Decisions) != 1 || !reflect.DeepEqual(report.Decisions[0], decision) {
+				t.Fatal("rendering changed the saved decision")
+			}
+		})
+	}
+}
+
 // The report's lines sit under the same headings in the CFO's text and on the
 // board's page, each heading in its part of the recap, in the order he reads
 // them: what was done, leading with what did not land and then what changed

@@ -576,25 +576,42 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
   });
 }
 
-test("with nothing that needs him the recap has no Go through them and no Needs you, what was settled folds, and with nothing used it has no Spent", async ({ page }) => {
+for (const isOnlySettled of [false, true]) {
+  test(`with ${isOnlySettled ? "only settled items" : "nothing that needs him"} the recap has no Go through them and no Needs you, what was settled folds, and with nothing used it has no Spent`, async ({ page }) => {
+    await open(page, snapshot({ afk: KEPT }));
+    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: isOnlySettled ? [] : REPORT.sections.filter((section) => section.group !== "needs"), finished: isOnlySettled ? [] : REPORT.finished, held: [REPORT.held[1]], spent: [] } }));
+    await openCfoPanel(page);
+    await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+    await expect(report(page).locator(".afk-headline")).toContainText("Nothing needs you.");
+    await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveCount(0);
+    await expect(report(page).getByRole("region", { name: "Needs you" })).toHaveCount(0);
+    const settledGroup = report(page).getByRole("region", { name: "Settled" });
+    await expect(settledGroup.locator("summary")).toHaveText("Settled 1");
+    await expect(settledGroup.locator("li")).toHaveCount(0);
+    await settledGroup.locator("summary").click();
+    await expect(settledGroup.locator("li .afk-row-detail")).toHaveText("You answered it: Keep it for now. Meanwhile: working: moved on to the refund path.");
+    await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
+    await report(page).getByRole("button", { name: "Close the recap" }).click();
+    await expect(report(page)).toHaveCount(0);
+    await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+    await page.keyboard.press("Escape");
+    await expect(report(page)).toHaveCount(0);
+  });
+}
+
+test("a malformed link leaves the recap readable with its evidence", async ({ page }) => {
   await open(page, snapshot({ afk: KEPT }));
-  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: REPORT.sections.filter((section) => section.group !== "needs"), held: [REPORT.held[1]], spent: [] } }));
+  const entry = { at: "2026-10-02T04:40:00Z", kind: "deploy", what: "Deployed northwind-api", link: "https://[", evidence: "The health check passed" };
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: [{ title: "Deployed", group: "done", entries: [entry] }] } }));
   await openCfoPanel(page);
+
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-  await expect(report(page).locator(".afk-headline")).toContainText("Nothing needs you.");
-  await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveCount(0);
-  await expect(report(page).getByRole("region", { name: "Needs you" })).toHaveCount(0);
-  const settledGroup = report(page).getByRole("region", { name: "Settled" });
-  await expect(settledGroup.locator("summary")).toHaveText("Settled 1");
-  await expect(settledGroup.locator("li")).toHaveCount(0);
-  await settledGroup.locator("summary").click();
-  await expect(settledGroup.locator("li .afk-row-detail")).toHaveText("You answered it: Keep it for now. Meanwhile: working: moved on to the refund path.");
-  await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
-  await report(page).getByRole("button", { name: "Close the recap" }).click();
-  await expect(report(page)).toHaveCount(0);
-  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-  await page.keyboard.press("Escape");
-  await expect(report(page)).toHaveCount(0);
+
+  const row = report(page).getByRole("region", { name: "Deployed", exact: true });
+  await expect(row.locator(".afk-row-what")).toHaveText(entry.what);
+  await expect(row.getByRole("link")).toHaveCount(0);
+  await row.getByRole("button", { name: "Evidence" }).click();
+  await expect(row.locator(".afk-row-evidence")).toContainText(entry.evidence);
 });
 
 // The Overlord, 2026-10-09: "disk free I think would be a good one to include

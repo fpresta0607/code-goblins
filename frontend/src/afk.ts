@@ -347,7 +347,7 @@ export function offerFor(afk: Afk, lastTouch: number, now: number): Occasion {
 
 // safeLink is url when it is a web link the board may open, and empty for
 // anything else: the log's words are an agent's, never a script to run.
-export const safeLink = (url: string): string => /^https:\/\/[^\s]+$/i.test(url) ? url : "";
+export const safeLink = (url: string): string => /^https:\/\/[^\s]+$/i.test(url) && URL.canParse(url) ? url : "";
 
 // decisionSays is what a line of the recap opens and what it stood on, which
 // its Evidence shows. A merge that did not land says what the CFO did about

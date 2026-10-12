@@ -24,6 +24,7 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
   const alsoFinished = [...finishedBy.values()].filter((finish) => !merged.has(finish.pr));
   const spent = report.spent.filter(shownUnder);
   const done = inGroup(report, "done");
+  const settledItems = settled(report.held);
   // A pull request is named by its number on its repository's line, a link,
   // and what stood behind each is under the line's one Evidence.
   const pulls = (urls: string[], says: (url: string) => string, mark: IconName) => byRepository(urls).map((line) =>
@@ -48,7 +49,7 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
   const needs = inGroup(report, "needs");
   const change = (entry: AfkDecision) => entry.item ? <button className="text-button" onClick={() => onChange(entry.item)}>Change</button> : undefined;
   return <>
-    {(done.length > 0 || alsoFinished.length > 0 || spent.length > 0 || report.disk) && <section className="afk-part" aria-label="Done">
+    {(done.length > 0 || alsoFinished.length > 0 || spent.length > 0 || report.disk || settledItems.length > 0) && <section className="afk-part" aria-label="Done">
       <h3>Done</h3>
       {done.filter((section) => !section.entries.every((entry) => entry.struck)).map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length}>{doneRows(section)}</AfkRecapGroup>)}
       {alsoFinished.length > 0 && <AfkRecapGroup title="Also finished" count={alsoFinished.length}>{pulls(alsoFinished.map((finish) => finish.pr), by, "pull-request")}</AfkRecapGroup>}
@@ -56,7 +57,7 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
         <h4>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />While AFK <i className="left" />Left</span></h4>
         <AfkSpent spent={spent} disk={report.disk} />
       </section>}
-      {settled(report.held).length > 0 && <AfkRecapGroup title="Settled" count={settled(report.held).length} folded>{settled(report.held).map((one) =>
+      {settledItems.length > 0 && <AfkRecapGroup title="Settled" count={settledItems.length} folded>{settledItems.map((one) =>
         <AfkRecapRow key={one.item + one.at} mark={avatar(one.task)} what={one.what} detail={heldSays(one)} tone="answered" at={one.at} now={now} />)}</AfkRecapGroup>}
       {done.filter((section) => section.entries.every((entry) => entry.struck)).map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length} folded>{doneRows(section)}</AfkRecapGroup>)}
     </section>}

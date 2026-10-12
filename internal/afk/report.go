@@ -362,7 +362,14 @@ type Section struct {
 // still open. The CFO's text and the board's page are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
-	decisions := Noted(r.Decisions)
+	// A decision already represented by a held question takes that question's
+	// current state, rather than appearing again with its saved state.
+	decisions := slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool {
+		return entry.Kind == KindLeft && slices.ContainsFunc(r.Held, func(held Held) bool {
+			return held.Item == "question:"+LeftQuestionID(entry)
+		})
+	})
+	decisions = Noted(decisions)
 	for i, entry := range decisions {
 		switch {
 		case AnsweredForHim(entry):

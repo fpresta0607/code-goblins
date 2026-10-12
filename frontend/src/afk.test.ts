@@ -98,7 +98,7 @@ test("a line opens only a web link, and an answer's evidence is its question and
   assert.deepEqual(decisionSays(decision({ kind: "deploy", what: "northwind-api to production", link: "https://northwind.example/deploys/88", outcome: "" })), { href: "https://northwind.example/deploys/88", happened: "", basis: "Evidence: gate run 41 passed" });
   assert.deepEqual(decisionSays(decision({ kind: "answer", what: "notify-pd-billing-admin-41", task: "pd-billing-admin", evidence: "asked: Which CSV dialect? answered: RFC 4180", outcome: "" })),
     { href: "", happened: "", basis: "Asked: Which CSV dialect? Answered: RFC 4180" });
-  for (const unsafe of ["javascript:alert(1)", "http://plain.example/x", "file:///C:/secret", "https://two words.example", ""]) assert.equal(safeLink(unsafe), "", unsafe);
+  for (const unsafe of ["javascript:alert(1)", "http://plain.example/x", "file:///C:/secret", "https://two words.example", "https://[", "https://example.com:bad", "https://?query", ""]) assert.equal(safeLink(unsafe), "", unsafe);
   assert.equal(decisionSays(decision({ kind: "other", what: "note", link: "javascript:alert(1)" })).href, "");
 });
 
