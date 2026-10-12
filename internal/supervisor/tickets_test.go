@@ -195,7 +195,7 @@ func ticketHome(t *testing.T) (home.Home, string, *fakeTicketWriter) {
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "nw-sync", Project: checkout, Worktree: checkout, Harness: "claude", SpawnGen: "s1"}); err != nil {
 		t.Fatal(err)
 	}
-	return h, checkout, &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true}}
+	return h, checkout, &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, Viewer: "fpresta0607"}}
 }
 
 func liveTask(phase, pull string) Task {
@@ -223,6 +223,20 @@ func TestKeeperOpensATicketForATaskInACollaborativeRepository(t *testing.T) {
 	}
 	if issues := keeper.Issues(); len(issues) != 0 {
 		t.Fatalf("issues = %v, want none", issues)
+	}
+}
+
+func TestKeeperAssignsANewTicketToTheAccountTheFleetWritesAs(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || github.applied[0].ticket.Assignee != "fpresta0607" {
+		t.Fatalf("applied = %+v, want the new ticket assigned to the account gh is signed in as", github.applied)
 	}
 }
 

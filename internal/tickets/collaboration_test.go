@@ -51,8 +51,8 @@ func TestCollaborationReadsWhoWorksThereInOneRound(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Repository != "fpresta0607/northwind-api" || got.IsCollaborative != tc.wantCollaborative || got.IsPrivate != tc.wantPrivate {
-				t.Fatalf("collaboration = %+v, want collaborative %v, private %v", got, tc.wantCollaborative, tc.wantPrivate)
+			if got.Repository != "fpresta0607/northwind-api" || got.IsCollaborative != tc.wantCollaborative || got.IsPrivate != tc.wantPrivate || got.Viewer != "fpresta0607" {
+				t.Fatalf("collaboration = %+v, want collaborative %v, private %v, and the account the fleet writes as", got, tc.wantCollaborative, tc.wantPrivate)
 			}
 			if !slices.Equal(got.People, tc.wantPeople) {
 				t.Fatalf("people = %+v, want %+v: the teammates who worked there, bots and the Overlord aside", got.People, tc.wantPeople)

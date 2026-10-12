@@ -988,7 +988,9 @@ Overlaps with api/routes_orders.py, tasks/billing_sync.py
 In such a repository the supervisor also keeps a ticket, a GitHub issue, for each task, so your teammates see what the fleet has under way without asking.
 It opens the issue when the task is queued, or claims the existing issues the task's brief names, and moves it by itself as the task moves.
 A brief names an issue to take up by its URL or as "issue #N", or lists it in its Task as a line that opens with its number, as in `- #1343 Project Home reads an unfinished search as a miss`.
-The task claims every one GitHub says is an open issue, each with a status comment of its own, and opens a new issue only when it can claim none:
+The task claims every one GitHub says is an open issue and nobody else has, each with a status comment of its own, and opens a new issue only when it can claim none.
+Each issue a task opens or claims is assigned to you, the account `gh` is signed in as, so GitHub says who has it.
+An issue assigned to someone else, or one another person's fleet holds, is never claimed, and `cfo spawn` stops when a brief names one:
 
 | The task | Its ticket |
 |---|---|

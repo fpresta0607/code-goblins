@@ -30,10 +30,13 @@ import (
 // posted again, and an issue that is deleted (410, or 404 while the
 // repository still answers) ends the ticket, or that one of the issues it
 // claimed: Apply returns it done, without an error. An issue the task named
-// that cannot be claimed (missing, closed, or a pull request) is left alone,
-// and a new one is opened when no named issue could be: Apply returns the
-// refusal as a ClaimRefused. A number the brief only lists that GitHub says
-// is no open issue is passed over without one.
+// that cannot be claimed (missing, closed, a pull request, or someone else's:
+// assigned to another account or held by another fleet) is left alone, and a
+// new one is opened when no named issue could be: Apply returns the refusal
+// as a ClaimRefused. A number the brief only lists that GitHub says is no
+// open issue is passed over without one. An issue the task opens or claims
+// is assigned to ticket.Assignee, the account the fleet writes as, and a
+// claimed issue it releases is unassigned again.
 //
 // GitHub answers 404 both for an issue that is gone and for a repository gh
 // can no longer see, so a 404 ends or refuses nothing until the repository
@@ -193,6 +196,11 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 			return record, err
 		}
 	}
+	if isReleased && record.Assignee != "" {
+		if _, err := g.api(ctx, "DELETE", issue+"/assignees", "assignees[]="+record.Assignee); err != nil {
+			return record, err
+		}
+	}
 	commentID := record.CommentID
 	if !record.IsClaimed {
 		fields := []string{"body=" + ticket.Body()}
@@ -244,14 +252,21 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		next.PullRequest = ticket.PullRequest.URL
 	}
 	next.PullRequests = pulls
+	if isReleased {
+		next.Assignee = ""
+	}
 	return &next, nil
 }
 
-// open opens an issue for a task that has none.
+// open opens an issue for a task that has none, assigned to the fleet's
+// account.
 func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Record, error) {
 	fields := []string{"title=" + ticket.Title, "body=" + ticket.Body()}
 	for _, label := range ticket.Labels() {
 		fields = append(fields, "labels[]="+label)
+	}
+	if ticket.Assignee != "" {
+		fields = append(fields, "assignees[]="+ticket.Assignee)
 	}
 	out, err := g.api(ctx, "POST", "repos/"+repository+"/issues", fields...)
 	if err != nil {
@@ -261,12 +276,15 @@ func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Re
 	if err := json.Unmarshal(out, &opened); err != nil || opened.Number == 0 {
 		return nil, fmt.Errorf("read the issue GitHub opened in %s: %v", repository, err)
 	}
-	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Title: ticket.Title, PullRequest: ticket.PullRequest.URL, PullRequests: ticket.pullRequestURLs(), Overlap: ticket.Overlap, What: ticket.What, Area: ticket.Area}, nil
+	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Title: ticket.Title, PullRequest: ticket.PullRequest.URL, PullRequests: ticket.pullRequestURLs(), Overlap: ticket.Overlap, What: ticket.What, Area: ticket.Area, Assignee: ticket.Assignee}, nil
 }
 
-// claim takes over the issues a task names: it reads each first, then labels
-// every one it can take and gives each a status comment, and leaves their
-// titles and bodies to whoever filed them. Once the issues are labelled, the
+// claim takes over the issues a task names: it reads each first, then
+// assigns the fleet's account to every one it can take, labels it and gives
+// it a status comment, and leaves their titles and bodies to whoever filed
+// them. It never takes an issue someone else has: one assigned to another
+// account, or one another fleet holds, is refused even when the brief only
+// lists it. Once the issues are labelled, the
 // claim is a record Apply finishes with those comments, so a failed comment
 // still leaves the labels on record. When it can take none, it opens an
 // issue for the task instead.
@@ -274,13 +292,13 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, nam
 	refused := &ClaimRefused{}
 	var taken []githubIssue
 	for _, issue := range named {
-		read, why, err := g.readClaim(ctx, repository, issue.Number)
+		read, why, isHeld, err := g.readClaim(ctx, repository, issue.Number, ticket.Assignee)
 		switch {
 		case err != nil:
 			return nil, err
 		case why == "":
 			taken = append(taken, read)
-		case !issue.IsListed:
+		case !issue.IsListed || isHeld:
 			refused.Refused = append(refused.Refused, RefusedIssue{Number: issue.Number, Why: why})
 		}
 	}
@@ -295,6 +313,11 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, nam
 	labels := ticket.Labels()
 	var issues []Record
 	for _, issue := range taken {
+		if ticket.Assignee != "" && !slices.ContainsFunc(issue.Assignees, func(assignee githubAccount) bool { return strings.EqualFold(assignee.Login, ticket.Assignee) }) {
+			if _, err := g.api(ctx, "POST", fmt.Sprintf("repos/%s/issues/%d/assignees", repository, issue.Number), "assignees[]="+ticket.Assignee); err != nil {
+				return nil, err
+			}
+		}
 		if len(labels) > 0 {
 			var fields []string
 			for _, label := range labels {
@@ -304,7 +327,7 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, nam
 				return nil, err
 			}
 		}
-		issues = append(issues, Record{TaskID: ticket.TaskID, Repository: repository, Number: issue.Number, URL: issue.URL, IsClaimed: true, State: ticket.State, Labels: labels})
+		issues = append(issues, Record{TaskID: ticket.TaskID, Repository: repository, Number: issue.Number, URL: issue.URL, IsClaimed: true, State: ticket.State, Labels: labels, Assignee: ticket.Assignee})
 	}
 	labelled := issues[0]
 	labelled.Issues = issues
@@ -316,33 +339,42 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, nam
 	return next, refused
 }
 
-// readClaim reads issue number before a task claims it, and says why it
-// cannot be claimed: it does not exist, is a pull request or is closed. A
-// read GitHub did not answer is an error, and so is a repository gh cannot
-// see.
-func (g GitHub) readClaim(ctx context.Context, repository string, number int) (githubIssue, string, error) {
+// readClaim reads issue number before a task claims it for account, and says
+// why it cannot be claimed: it does not exist, is a pull request or is
+// closed, or, with isHeld, someone else has it. A read GitHub did not answer
+// is an error, and so is a repository gh cannot see.
+func (g GitHub) readClaim(ctx context.Context, repository string, number int, account string) (issue githubIssue, why string, isHeld bool, err error) {
 	out, err := g.api(ctx, "GET", fmt.Sprintf("repos/%s/issues/%d", repository, number))
 	if err != nil {
 		isGone, goneErr := g.isGone(ctx, repository, err)
 		if goneErr != nil {
-			return githubIssue{}, "", goneErr
+			return githubIssue{}, "", false, goneErr
 		}
 		if !isGone {
-			return githubIssue{}, "", err
+			return githubIssue{}, "", false, err
 		}
-		return githubIssue{}, "it does not exist", nil
+		return githubIssue{}, "it does not exist", false, nil
 	}
-	var claimed githubIssue
-	if err := json.Unmarshal(out, &claimed); err != nil {
-		return githubIssue{}, "", fmt.Errorf("read issue #%d in %s: %w", number, repository, err)
+	if err := json.Unmarshal(out, &issue); err != nil {
+		return githubIssue{}, "", false, fmt.Errorf("read issue #%d in %s: %w", number, repository, err)
 	}
 	switch {
-	case claimed.PullRequest != nil:
-		return claimed, "it is a pull request", nil
-	case claimed.State != "open":
-		return claimed, "it is closed", nil
+	case issue.PullRequest != nil:
+		return issue, "it is a pull request", false, nil
+	case issue.State != "open":
+		return issue, "it is closed", false, nil
 	}
-	return claimed, "", nil
+	var assignees, labels []string
+	for _, assignee := range issue.Assignees {
+		assignees = append(assignees, assignee.Login)
+	}
+	for _, label := range issue.Labels {
+		labels = append(labels, label.Name)
+	}
+	if held := HeldElsewhere(assignees, labels, account); held != "" {
+		return issue, held, true, nil
+	}
+	return issue, "", false, nil
 }
 
 // ClaimRefused says why issues a task named could not be claimed, and
@@ -380,6 +412,14 @@ type githubIssue struct {
 	URL         string          `json:"html_url"`
 	State       string          `json:"state"`
 	PullRequest json.RawMessage `json:"pull_request"`
+	Assignees   []githubAccount `json:"assignees"`
+	Labels      []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+}
+
+type githubAccount struct {
+	Login string `json:"login"`
 }
 
 // EnsureLabels creates the labels tickets use in a repository: one per open
