@@ -139,6 +139,15 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		}
 		verb, detail = "waiting on "+target, positional[0]
 	}
+	// The record joins the question's lines, so its choices are put last
+	// while its line breaks still show where they end.
+	if verb == "blocked" || verb == "failed" {
+		var err error
+		if detail, err = wake.ChoicesLast(detail); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: %v, as in: cfo notify %s --%s \"<one short question> options: <answer> (Recommended) | <answer>\"\n", err, id, verb)
+			return 2
+		}
+	}
 	if _, options, asked := wake.Question(wake.Record{Kind: "notify", Detail: verb + ": " + detail}); asked {
 		if err := choicesAreAnswers(options); err != nil {
 			fmt.Fprintln(stderr, "cfo notify: "+err.Error())
@@ -301,18 +310,25 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if verb == "done" && *pr != "" && worktree != "" {
 		head, _ = gitOutput(execx.OSRunner{}, worktree, "rev-parse", "HEAD")
 	}
-	if head != "" {
+	switch {
+	case head != "":
 		link, _, _ := strings.Cut(strings.TrimSpace(*pr), " ")
 		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+link+"@"+head, "notify", id, line)
-	} else {
+	case verb == "blocked" || verb == "failed":
+		record, isNew, err = wake.AppendDecision(h.State, id, line)
+	default:
 		record, err = wake.Append(h.State, "notify", id, line)
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
 		return 1
 	}
-	if !isNew {
+	if !isNew && verb == "done" {
 		fmt.Fprintf(stdout, "%s already reported %s done at %s, so the CFO was not woken again\n", id, *pr, head)
+		return 0
+	}
+	if !isNew {
+		fmt.Fprintf(stdout, "%s already asked this as notify %d, which still waits for the CFO, so the CFO was not woken again\n", id, record.Seq)
 		return 0
 	}
 	if _, err := wake.PublishEpisode(h.State); err != nil {

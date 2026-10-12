@@ -402,6 +402,58 @@ func TestAQuestionThatNamesTheMarkerInItsWordsKeepsItsChoices(t *testing.T) {
 	}
 }
 
+// ChoicesLast takes the choices off the marker's own line, wherever that line
+// is, and records every other line before the marker, so the record reads
+// the same whichever way round the goblin typed it.
+func TestChoicesLastPutsEveryDetailBeforeTheChoices(t *testing.T) {
+	for name, c := range map[string]struct{ typed, want string }{
+		"no choices":                       {"Should I merge this?\n- CI is green.", "Should I merge this?\n- CI is green."},
+		"choices already last":             {"Merge now?\n- CI is green. options: Merge it | Hold it", "Merge now?\n- CI is green. options: Merge it | Hold it"},
+		"choices on a detail line":         {"Merge now?\n- CI is green. options: Merge it|Hold it\n- Main moved.", "Merge now?\n- CI is green.\n- Main moved. options: Merge it | Hold it"},
+		"windows line breaks":              {"Merge now? options: Merge it | Hold it\r\n- CI is green.", "Merge now?\n- CI is green. options: Merge it | Hold it"},
+		"a hyphen in a choice's own words": {"Merge now? options: Merge it - then deploy | Hold it", "Merge now? options: Merge it - then deploy | Hold it"},
+	} {
+		// Act
+		got, err := ChoicesLast(c.typed)
+
+		// Assert
+		if err != nil || got != c.want {
+			t.Errorf("%s: ChoicesLast = %q, %v; want %q", name, got, err, c.want)
+		}
+	}
+}
+
+// A goblin's page is put to the CFO as its question with the page's link at
+// its end and the choices the page declares after it. A page that declares
+// none ends the question with its link, so the goblin's own words before it,
+// such as a title that names the options marker, offer no choice.
+func TestAQuestionThatEndsWithItsPageOffersNoChoices(t *testing.T) {
+	for name, c := range map[string]struct {
+		detail   string
+		question string
+		options  []string
+	}{
+		"the marker in its words": {
+			"blocked: Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e)",
+			"Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e)",
+			nil,
+		},
+		"the choices its page declares": {
+			"blocked: Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e) options: Build it as shown (Recommended) | Change it",
+			"Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e)",
+			[]string{"Build it as shown (Recommended)", "Change it"},
+		},
+	} {
+		// Act
+		question, options, asked := Question(Record{Kind: "notify", Detail: c.detail})
+
+		// Assert
+		if !asked || question != c.question || !slices.Equal(options, c.options) {
+			t.Errorf("%s: Question = %q, %q, %v; want %q, %q", name, question, options, asked, c.question, c.options)
+		}
+	}
+}
+
 // A goblin that offered no options still gets a decision block: the renderer
 // says none were offered rather than inventing choices it never named.
 func TestRenderSaysWhenADecisionOfferedNoOptions(t *testing.T) {

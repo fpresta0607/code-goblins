@@ -1299,7 +1299,10 @@ It never appears in the Overlord's waiting count, alerts him or opens the Comman
 Once the CFO answers or acknowledges it, its notify still holds the task, blocked or failed with its words, until the goblin reports again.
 The CFO publishes a decision that needs the Overlord with `cfo question`.
 A question's first choice that ends with `(Recommended)` is shown first and marked, and the mark is stripped from every choice.
-The choices follow the last `options:` marker, so a question that names the marker in its own words, such as in a detail line, keeps its choices.
+`cfo notify` records a question with its choices last: the choices are what follows `options:` on its line, and a detail on a line after them is recorded before the marker, so it never joins a choice.
+A question that writes `options:` more than once, such as in a detail, or has fewer than two choices after it on its line, is refused before anything is recorded, since no reader could tell its choices from its words.
+The same question sent again while its notify still waits unanswered wakes the CFO once: the goblin is told it already asked it, and once it is answered the same words are a new ask.
+Every reader takes the choices after the last marker, so one named in a detail of a notify recorded before that refusal stays part of its question.
 The card shows the choices as a plain list of radio buttons, each the answer's own text with no A, B or C, because the Overlord picks an answer, not a letter.
 `cfo notify` and `cfo question` refuse, recording nothing, a choice that is only a letter or number, such as `a`, `B)`, `(c)` or `2`, and say to write the answer itself as the choice.
 When every choice starts with the goblin's own letter in order, such as `A) `, `b. `, `(c) ` or `D: `, the card drops those letters from what it shows; the answer is still the goblin's choice word for word.
@@ -1796,6 +1799,7 @@ A goblin's question waits on the CFO, which answers it, as the Command Center ha
 A goblin's Scrawl page filed while it is on is such a question: `cfo notify --waiting-on overlord --lavish` records its wait as `blocked: <why> (page <link>) options: <choices>` in the goblin's status and the CFO's wake queue, and `cfo review --task --lavish` puts the same notify in the queue once for each item ID, with the item's title, and writes no status line.
 Neither publishes an item for him, and the goblin's command and what it is told back are the same whether it is on or off.
 The choices are the one question the page's `data-lavish-choices` blocks declare, the recommended one marked `(Recommended)`. A page that declares none, several, or choices a question cannot offer (more than eight, one twice, an empty one, one over 500 characters, or one holding `|` or `options:`) is asked with none, and the question still reaches the board, since the page is the question.
+A question that ends with its page, `(page <link>)`, offers no choices, so a title or reason that names `options:` in its words offers none either.
 `cfo answer` takes the CFO's own words, at most 500 characters, for a question that ends with `(page <link>)` and offers no choices, records it with `answer_kind` `other`, and `cfo drain` says so in place of `cfo send`.
 Its `answer` line in `afk.audit` carries the page as `link`, with the goblin's question and the CFO's answer as its evidence.
 A page item a goblin filed before it turned on stays his and is held, and the CFO's answer to that goblin's question closes it, as any answer to a goblin's question closes the goblin's page items.
