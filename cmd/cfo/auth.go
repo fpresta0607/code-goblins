@@ -27,7 +27,7 @@ import (
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin, hidden when typed at a console)
-       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--env-file <file>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
+       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--env-file <file>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
@@ -328,6 +328,12 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprintln(stderr, "cfo auth store: refusing to store an empty value")
 		return 2
 	}
+	// A value that cannot be the credential its name names, such as the
+	// single Ctrl+V a paste with nothing to paste types, is never stored.
+	if problem := auth.ValueProblem(key.Name, value); problem != "" {
+		fmt.Fprintf(stderr, "cfo auth store: %s. Nothing was stored.\n", problem)
+		return 2
+	}
 	store, err := auth.OpenStore()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -393,6 +399,11 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	task := flags.String("task", "", "the goblin that needs the values; a goblin names its own task")
 	why := flags.String("why", "", "what the values are for, in one line")
 	link := flags.String("link", "", "the https page the Overlord gets the values from")
+	var steps []string
+	flags.Func("step", "one step of getting the values on that page, shown as a bullet in the card's header; repeat it for each, in order", func(value string) error {
+		steps = append(steps, value)
+		return nil
+	})
 	envFile := flags.String("env-file", "", "a gitignored env file at the root of the project's checkout, such as .env.docker.local, where each value is also set")
 	names, err := parseAuthArgs(flags, args)
 	if err != nil {
@@ -402,7 +413,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	request, err := credentialRequest(runtime, *project, *task, *why, *link, *envFile, names)
+	request, err := credentialRequest(runtime, *project, *task, *why, *link, steps, *envFile, names)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 2
@@ -443,7 +454,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 // scope cfo auth store would write, and the checkout that scope is named for
 // when it is on this machine. It refuses anything shaped like a value without
 // repeating it.
-func credentialRequest(runtime commandRuntime, project, task, why, link, envFile string, names []string) (supervisor.CredentialRequest, error) {
+func credentialRequest(runtime commandRuntime, project, task, why, link string, steps []string, envFile string, names []string) (supervisor.CredentialRequest, error) {
 	// A path is judged by the scope it names: a checkout's parent folders
 	// are no part of the request.
 	shaped := func(text string) error {
@@ -464,7 +475,7 @@ func credentialRequest(runtime commandRuntime, project, task, why, link, envFile
 	if err := shaped(scope); err != nil {
 		return supervisor.CredentialRequest{}, err
 	}
-	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link, EnvFile: envFile}
+	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link, Steps: steps, EnvFile: envFile}
 	if resolved, err := runtime.resolveProject(project); err == nil {
 		if checkout, err := filepath.Abs(resolved); err == nil && auth.ProjectName(checkout) == scope {
 			if _, err := os.Stat(filepath.Join(checkout, ".git")); err == nil {

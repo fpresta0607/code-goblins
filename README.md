@@ -754,17 +754,20 @@ A goblin can hand you a command the same way, on a run card that names the gobli
 </p>
 
 When the CFO or a goblin needs a secret, such as `STRIPE_SECRET_KEY`, it files `cfo auth request` with the names only, and a credential card arrives with an alert.
-Each row says where its value goes (the repository, the credential scope, and the goblins and services that read it), what it is for and where to get it, and has a hidden field you paste the value into; Ctrl+V and right-click Paste work in every field.
+Its header says what the values are for and how to get them, as bullets: the page to open, from `--link`, then each `--step` the asker gave.
+Below it a table has two columns, Name and Value, and nothing else, so it fits your window and a phone with no sideways scrolling: each row is a name and a hidden field you paste the value into, and Ctrl+V and right-click Paste work in every field.
 The field shows a dot for each character and never holds the value itself, so the browser has nothing to remember, sync or offer to save as a password.
 A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place. A goblin's worktree holds that file only when the project's `worktree.json` names it in `link`, as its own copy made when the worktree was.
-**Save** sends the values to the board on this PC, which stores them in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only; the fields empty after every save, and each saved row shows a check.
-A name the scope already holds is replaced only once you confirm **Replace and save**, and a value of the wrong kind, such as a live Stripe key where a restricted one is advised, shows a warning without blocking the save.
-Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell window on this PC where you type or paste each value without it being shown.
+A paste stores its row at once, and a typed value stores on Enter: the board on this PC stores it in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only, and the row shows a check beside Stored.
+Before anything says stored, the board checks the value's shape without showing it: no control character, a plausible length, and the known prefix when the name says the kind of key, such as `sk_test_` or `rk_test_` for `STRIPE_TEST_SECRET_KEY`. A refused value's reason shows under its row, which stays open.
+A name the scope already holds is replaced only once you confirm **Replace and save**, and a value the project's format hint warns about, such as a live Stripe key where a restricted one is advised, shows a warning and waits for your Enter.
+Once every value is stored, by the card or its terminal, the card says **Stored** and the Command Center moves on to your next item by itself.
+Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell terminal on the card where you type or paste each value without it being shown, and it asks again, three times at most, for a value of the wrong shape.
 Values are typed only on the board on this PC: a board opened through Tailscale or from another machine shows the card read-only, with the commands to copy.
-A request takes one save and expires after 24 hours.
+Each name takes one save, and a request nobody finishes expires after 24 hours.
 
 <p align="center">
-  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export needs two credentials for acme-api; each row shows its name, where it is saved (the repository, the credential scope, and the goblins' auth.ps1 and stripe service), what it is for, the page to get it from, and a hidden value field, one noting a stored value that saving replaces; below, the cfo auth store command with Copy and Run, and Save" width="640" />
+  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export asks for two credentials for acme-api. Its header says what they are for and gives three bulleted steps, the first opening dashboard.stripe.com/test/apikeys. A table with a Name and a Value column has a row per name, each a hidden field to paste into with an empty ring at its end, the stored one with a dashed check and a field to paste a replacement. Below, the cfo auth store command with Copy and Run" width="640" />
 </p>
 
 ### AFK mode

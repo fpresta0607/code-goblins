@@ -510,18 +510,20 @@ export interface CredentialRequest {
   id: string; generation: string; identity: string;
   // by is "cfo" or "goblin"; task is the goblin that needs the values.
   by: string; task: string;
-  project: string; repository: string;
-  // env_file is a local env file at the root of the repository where each
+  project: string;
+  // env_file is a local env file at the root of the project's checkout where each
   // saved value is also set; written are the names set there.
   env_file: string;
   names: string[]; why: string; link: string;
+  // steps say how to get the values, in order, for the card's header.
+  steps: string[];
   // existing are the names the scope already held when the board last looked.
   existing: string[];
   hints: CredentialHint[];
   // services are the auth.json services that read each name.
   services: Record<string, string[]>;
   // state is open, saved or expired; typed are the saved names typed in its terminal.
-  state: string; saved: string[]; replaced: string[]; typed: string[]; written: string[]; told: string[]; reason: string;
+  state: string; saved: string[]; replaced: string[]; typed: string[]; written: string[]; reason: string;
   created_at: string; expires_at: string; closed_at: string;
 }
 // A name's format hint from its project's auth.json: how its value should
@@ -667,13 +669,13 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
   for (const [name, users] of Object.entries(c.services == null ? {} : object(c.services))) services[name] = strings(users);
   return {
     id: string(c.id), generation: string(c.generation), identity: string(c.identity), by: string(c.by), task: string(c.task),
-    project: string(c.project), repository: string(c.repository), env_file: string(c.env_file), names: strings(c.names), why: string(c.why), link: string(c.link),
+    project: string(c.project), env_file: string(c.env_file), names: strings(c.names), why: string(c.why), link: string(c.link), steps: strings(c.steps),
     existing: strings(c.existing), services,
     hints: array(c.hints).map((hint) => {
       const h = object(hint);
       return { name: string(h.name), prefixes: strings(h.prefixes), warn: array(h.warn).map((warning) => { const w = object(warning); return { prefix: string(w.prefix), say: string(w.say) }; }) };
     }),
-    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), written: strings(c.written), told: strings(c.told), reason: string(c.reason),
+    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), written: strings(c.written), reason: string(c.reason),
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
   };
 }

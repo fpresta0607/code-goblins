@@ -1581,14 +1581,15 @@ A window moved from the tray starts in the tray, which `state/window-move.json` 
 When the CFO or a goblin needs a secret the project's scope does not hold, such as `STRIPE_SECRET_KEY`, it asks for it by name and the Overlord pastes the value on the board; nobody asks for a value in chat or puts one in a brief:
 
 ```powershell
-cfo auth request --project acme-shop --why "Charge test cards in the checkout tests" --link https://dashboard.stripe.com/apikeys STRIPE_SECRET_KEY
+cfo auth request --project acme-shop --why "Charge test cards in the checkout tests" --link https://dashboard.stripe.com/test/apikeys --step "Sign in to the shop's Stripe account" --step "Reveal the test secret key and copy it" STRIPE_TEST_SECRET_KEY
 cfo auth request --project acme-shop --task add-billing --why "Check webhook signatures" STRIPE_WEBHOOK_SECRET
 ```
 
 A request takes names only, at most ten, each an environment variable name, with one line saying what they are for and optionally the https page they come from, with no credentials, query or fragment in its link.
-Anything shaped like a value is refused before anything is filed: a known key prefix (such as `sk_`, `rk_`, `ghp_`, `xox`, `AKIA` or `eyJ`), an equals sign, or long random text, in a name, in the reason or in the link, and no refusal repeats what it refused.
+It may also give up to eight steps for getting the values on that page, each one line of at most 200 characters, one `--step` each, in order.
+Anything shaped like a value is refused before anything is filed: a known key prefix (such as `sk_`, `rk_`, `ghp_`, `xox`, `AKIA` or `eyJ`), an equals sign, or long random text, in a name, the reason, a step or the link, and no refusal repeats what it refused.
 The registered CFO files over the supervisor's pipe, proven the way run items prove it; a goblin files for its own task with `--task <its id>`, from its own terminal, proven the way its questions are, through `state/credential-requests-inbox`, and a request in that inbox that claims to be the CFO's is refused and named among the board's issues.
-The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason and link, the names the scope already holds, each name's format hint, and its state, open, saved or expired.
+The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason, link and steps, the names the scope already holds, each name's format hint, and its state, open, saved or expired.
 It also says where each value goes: the repository, which is the checkout the scope is named for when it is on this machine, the credential scope, and every service of the project's `auth.json` that reads the name, beside the project's goblins, whose `auth.ps1` carries the whole scope.
 It never holds a value.
 A project's `auth.json` may declare format hints, which the request carries for the card to warn with and never to refuse a value:
@@ -1608,13 +1609,17 @@ The board rewrites the file in place and never replaces it, because a goblin wor
 A value is written as it is when it is plain and in single quotes otherwise, which docker compose and the board's own env reader both read literally; a value with a single quote, a line break or another control character stays in the scope only, and the card and the CFO say why.
 A value typed in the card's terminal reaches the file the same way, read back from the scope for each name the terminal provably stored.
 
-The save is `POST /api/credentials/save` with the request's ID and generation, a value for each name the Overlord filled, and the names he confirmed replacing.
+The save is `POST /api/credentials/save` with the request's ID and generation, a value for each name it stores, which from the card is one row's name, and the names he confirmed replacing.
 It is the one board endpoint that takes a secret value.
 Every other endpoint that changes anything still refuses one, as the connection repairs always have: each reads a fixed request shape and refuses a body that carries a value, secret, password, token or credential field, as text, an object or a list, before it reads anything else, and `internal/supervisor/value_guard_test.go` reads the board's route table and fails the moment any other endpoint starts reading such a field.
 The save is taken only from the board's own page on this machine: its Host must name 127.0.0.1, localhost or ::1 with the board's port, its peer must be this machine, and any forwarding or Tailscale identity header (`X-Forwarded-*`, `Forwarded`, `Via`, `X-Real-Ip` or any `Tailscale-*` header) refuses it, so a board shared through `tailscale serve`, which reaches the same port on this machine, never takes a value.
 It also passes every check other actions pass: POST only, the exact Host and Origin, and the per-session `X-CFO-Token`.
-It must name an open request and its current generation, and only names that request asks for, each with a non-empty value of one line and at most 16 KiB.
-A request takes one save: the same save sent again, or another value for it, is refused, and a request nobody saves expires after 24 hours, when the CFO is told the names still unsaved so it can ask again.
+It must name an open request and its current generation, and only names that request asks for and has not stored yet, each with a non-empty value of one line and at most 16 KiB.
+Each value must also have the shape of the credential its name names, the check `cfo auth store` makes too (`auth.ValueProblem`): no control character, at least four characters, at least eight for a name ending in KEY, SECRET or TOKEN, and for a name that says its kind, the prefix that kind starts with and at least 20 characters.
+The kinds a name says are Stripe secret and restricted keys (`sk_` or `rk_`, with `test_` or `live_` when the name says TEST or LIVE), Stripe publishable keys (`pk_`), Stripe webhook secrets (`whsec_`), GitHub tokens (`ghp_`, `github_pat_`, `gho_`, `ghu_` or `ghs_`), and OpenRouter (`sk-or-`), Anthropic (`sk-ant-`), OpenAI (`sk-`) and Resend (`re_`) keys.
+A refusal names the name and why, never any of the value, and ends `Nothing was stored.`: the Overlord's `STRIPE_TEST_SECRET_KEY` once arrived as the single Ctrl+V character a paste with nothing to paste types into a terminal, and still showed stored.
+Each name takes one save: a save of a name the request already stored is refused.
+A request closes as saved once every name it asks for is in the scope, stored by its saves or held before, so it takes its names one row at a time, and a request nobody finishes expires after 24 hours, when the CFO is told the names still unsaved so it can ask again.
 While the request's terminal is open, its save is refused and it does not expire; it expires on the first check after the terminal ends.
 A name the project's scope already holds is replaced only when the save confirms it; otherwise the save is refused naming the names to confirm, and nothing is stored.
 Every refusal stores nothing and leaves the request open.
@@ -1628,26 +1633,34 @@ Beside that, and the env file a request names, the value is nowhere else: not in
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
 
 The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
+It refuses a value of the wrong shape with exit code 2, saying why and storing nothing, by the same check as the save.
 `POST /api/credentials/terminal` with the request's ID and generation opens that fallback for the Overlord: a PowerShell terminal on the request's card, a run item the board makes itself, that runs `cfo auth store` for each name the request does not have yet that the scope does not hold, and for each name the scope holds that the request confirms replacing, so he types or pastes each value there.
+A value `cfo auth store` refuses is asked for again, three times at most, and a third refusal ends the terminal with that name unstored.
 His keys travel from the board's own page on this PC through the supervisor to that terminal, as they do into every terminal the board draws, and are stored nowhere: `cfo auth store` does not show them, so the screen the item keeps when it ends holds none of them.
 It takes the save's checks (this machine only, the open request and its generation), its terminal's view opens only on the board's own page on this PC, and it opens one terminal at a time per request; with nothing left to type but names the scope holds, it is refused naming them to confirm.
 When the terminal finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
 A clean finish closes the request as saved, like a save; a terminal that failed or was stopped leaves it open with what it stored recorded, unless every name is stored.
 
 On the board each open request is a card in the Command Center, counted under Open Command Center and eligible for a Windows notification only while the tab is hidden or the window is minimized.
-The card says who asks and for which project, and has a row per name: where its value goes (the repository, the credential scope, the env file the request names, shown as `File .env.docker.local · gitignored, checked · local dev`, and the goblins' `auth.ps1` and each `auth.json` service that reads it), what it is for, the page to get it from, and a hidden field to paste it into.
+The card says who asks, and its header says what the values are for and how to get them: the page to open, then each step, as bullets that start with a capital.
+Below it a table has two columns, Name and Value, and nothing else, so it fits the Overlord's window and a phone's width with no sideways scrolling: a long name wraps after an underscore and a field narrows.
+Each row is a name and a hidden field to paste its value into, with a mark at the field's end: an empty ring until the value is stored, a lock that stores a typed value, then a check beside Stored.
+Where a value goes, the project's vault, its goblins and each `auth.json` service that reads it, and the env file the request names, is the ring's tip, and how it was stored, pasted on the card or typed in the terminal, saved or replaced, is the check's tip.
 A field never holds its value: what is pasted or typed is taken from the edit before it reaches the field and kept by the card in the page's memory, and the field is given one dot for each character, so copying out of it copies dots.
 Pasting those dots back into a field is refused: the field stays as it was and a note under it says to copy the value again from where it came from.
 It is a plain text field with no name or id and with autocomplete and spell check off, not a password field, because a browser keeps, or offers to keep, what a field held.
 Edge and Chrome offer to save what a password field held, whatever its autocomplete says: with one, Edge showed **Save your password?** after a save on the card and named the Microsoft account it would go to.
 Edge also keeps what any other text field held, even one drawn as dots with autocomplete off, in its profile's `Web Data`.
 With only dots in the field, neither browser offers anything or stores anything.
-Nothing blocks pasting into a field, and its value is in neither the field nor the page's markup; **Save** sends it once from the card's memory.
-Every field empties once a save is answered, taken or refused, except while the card asks **Replace a stored credential?** about a name the scope holds: **Cancel** sends nothing and keeps the pasted value, and **Replace and save** sends the same values with that name confirmed.
-A value that does not start the way its format hint expects, or starts the way a hint warns about, shows a warning icon beside its field with the hint's words in its tip, and **Save** still takes it.
+Nothing blocks pasting into a field, and its value is in neither the field nor the page's markup.
+A paste stores its row at once, and a typed value stores when he presses Enter or the row's lock: the card sends it once from its memory, in a save of that one name.
+A row's field empties once its save is answered, taken or refused, except while the card asks **Replace a stored credential?** about a name the scope holds: **Cancel** sends nothing and keeps the pasted value, and **Replace and save** sends the same value with that name confirmed.
+A refused value's reason shows under its row, which stays open with no check.
+A value that does not start the way its format hint expects, or starts the way a hint warns about, shows a warning icon beside its field with the hint's words in its tip: a paste of it waits for his Enter or the lock instead of storing at once, and either still stores it.
 Below the table the exact `cfo auth store` lines have **Copy** and **Run**: Run opens the terminal for the names the scope does not hold, and asks the same question before a terminal that would type a stored one; while that terminal is open it runs on the card, where he types each value, and Save and Run wait for it to end.
 A board opened from anywhere but 127.0.0.1, localhost or ::1, such as through `tailscale serve`, shows the card read-only: no field, no Save and no Run, only the commands to copy, which a page without the clipboard selects for Ctrl+C.
-A request that closes while its card is open stays on screen with a check on each saved row, how it was stored (pasted on the card or typed in the terminal, saved or replaced), where it went and who was told, and History lists it as saved or expired.
+A request that closes as saved while its card is open finishes as every other Command Center item does, whether its values were pasted on the card or typed in its terminal: the card gives way to **Stored** with the names saved, and the next item follows by itself, so no card is left whose only way on is Skip.
+History lists it as saved or expired.
 
 `tests/acceptance/credential_canary_windows.ps1 -Binary <cfo.exe>` proves the path end to end on a scratch home, with a random canary under a throwaway credential scope it deletes at its end.
 A stand-in goblin files the request from its own terminal, a browser on a throwaway profile enters the canary on the real card, and the proof counts the files that hold it: none in the browser's profile, `state/`, `data/`, the logs, the snapshot, the event stream or the agent transcripts it is given, and one, the goblin's owner-only `auth.ps1`, which `cfo cleanup` then removes.

@@ -10,7 +10,7 @@ import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CredentialCard } from "./credential-card";
-import { credentialAsk } from "./credentials";
+import { credentialAsk, credentialSettled } from "./credentials";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
@@ -103,11 +103,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // card sent nothing: answered on another board, or taken back by its asker
   // or the CFO. A command finishes once it ends without trouble, by its exit
   // code whatever its output says, or is withdrawn; one that failed keeps its
-  // card, with its output, and an update keeps its own card.
+  // card, with its output, and an update keeps its own card. A credential
+  // request finishes once every value it asks for is stored, by its card or
+  // its terminal.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
   const ranClean = item?.kind === "run" && !item.run.update && !isOpen(item) && !runMark(item.run).trouble;
-  const finishing = !!item && (item.kind === "run" ? ranClean : elsewhere || !!sending && !sending.failed);
+  const stored = item?.kind === "credential" && item.request.state === "saved";
+  const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
@@ -387,6 +390,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : ranClean
               ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
+              : item.kind === "credential" && stored
+              ? <DoneCard key={shownKey} heading="Stored" label={credentialSettled(item.request)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />

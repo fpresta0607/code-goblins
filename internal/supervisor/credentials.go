@@ -39,9 +39,16 @@ const (
 	maxCredentialRequests = 64
 	// maxCredentialNames is the most names one request asks for.
 	maxCredentialNames = 10
+	// maxCredentialSteps is the most steps a request gives for getting its
+	// values, and maxCredentialStep the longest one.
+	maxCredentialSteps = 8
+	maxCredentialStep  = 200
 	// maxCredentialValue bounds one value and maxCredentialBody one save.
 	maxCredentialValue = 16 << 10
 	maxCredentialBody  = 64 << 10
+	// credentialTerminalTries is how many times a request's terminal asks for
+	// a value cfo auth store refuses.
+	credentialTerminalTries = 3
 	// credentialRefreshTimeout bounds the refresh a save starts.
 	credentialRefreshTimeout = 2 * time.Minute
 	// credentialInbox is where a goblin's request waits for the supervisor.
@@ -54,7 +61,8 @@ var credentialID = regexp.MustCompile(`^cred-[0-9a-f]{16}$`)
 // CredentialRequest asks the Overlord for credential values by name. It never
 // holds a value: he pastes each one on the request's card on the board, and
 // the board stores it straight into the project's scope of the credential
-// store, the way cfo auth store does. A request takes one save and expires
+// store, the way cfo auth store does. Each name takes one save, and the
+// request closes once every name it asks for is in the scope, or expires
 // after a day.
 type CredentialRequest struct {
 	ID string `json:"id"`
@@ -78,6 +86,8 @@ type CredentialRequest struct {
 	Names   []string `json:"names"`
 	Why     string   `json:"why"`
 	Link    string   `json:"link,omitempty"`
+	// Steps say how to get the values, in order, for the card's header.
+	Steps []string `json:"steps,omitempty"`
 	// Existing are the names the scope already held a value for when the
 	// board last looked, which a save replaces only once confirmed.
 	Existing []string         `json:"existing,omitempty"`
@@ -111,7 +121,7 @@ type CredentialHint struct {
 }
 
 func (r CredentialRequest) clone() CredentialRequest {
-	r.Names, r.Existing, r.Hints = slices.Clone(r.Names), slices.Clone(r.Existing), slices.Clone(r.Hints)
+	r.Names, r.Steps, r.Existing, r.Hints = slices.Clone(r.Names), slices.Clone(r.Steps), slices.Clone(r.Existing), slices.Clone(r.Hints)
 	r.Saved, r.Replaced, r.Told, r.Typed, r.Written = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told), slices.Clone(r.Typed), slices.Clone(r.Written)
 	if r.Services != nil {
 		services := make(map[string][]string, len(r.Services))
@@ -130,7 +140,7 @@ func (r CredentialRequest) clone() CredentialRequest {
 // sameCredentialRequest reports whether two filings ask the same thing, so a
 // retry of one changes nothing.
 func sameCredentialRequest(a, b CredentialRequest) bool {
-	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link
+	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link && slices.Equal(a.Steps, b.Steps)
 }
 
 // validCredentialRequest refuses a request without its ID and asker, and
@@ -149,9 +159,10 @@ func validCredentialRequest(r CredentialRequest) error {
 	return CredentialRequestProblem(r)
 }
 
-// CredentialRequestProblem refuses anything but names, a reason and a page to
-// get them from. A name, a reason or a link shaped like a credential value is
-// refused, and no refusal repeats what it refused.
+// CredentialRequestProblem refuses anything but names, a reason, a page to
+// get them from and the steps for getting them. A name, a reason, a link or a
+// step shaped like a credential value is refused, and no refusal repeats what
+// it refused.
 func CredentialRequestProblem(r CredentialRequest) error {
 	switch {
 	case r.Task != "" && state.ValidTaskID(r.Task) != nil:
@@ -187,6 +198,19 @@ func CredentialRequestProblem(r CredentialRequest) error {
 	for index, word := range strings.Fields(why) {
 		if shape := auth.SecretShape(word); shape != "" {
 			return fmt.Errorf("word %d of the reason looks like a credential value: %s", index+1, shape)
+		}
+	}
+	if len(r.Steps) > maxCredentialSteps {
+		return fmt.Errorf("a credential request gives at most %d steps", maxCredentialSteps)
+	}
+	for index, step := range r.Steps {
+		if strings.TrimSpace(step) == "" || len(step) > maxCredentialStep || strings.ContainsFunc(step, unicode.IsControl) {
+			return fmt.Errorf("step %d is not one line of at most %d characters", index+1, maxCredentialStep)
+		}
+		for word, text := range strings.Fields(step) {
+			if shape := auth.SecretShape(text); shape != "" {
+				return fmt.Errorf("word %d of step %d looks like a credential value: %s", word+1, index+1, shape)
+			}
 		}
 	}
 	if r.Link != "" {
@@ -547,16 +571,17 @@ func (h *HTTP) saveCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// saveCredentials stores one save's values into its request's project scope
-// through the store cfo auth store writes, closes the request so it takes no
-// other save, and then, after answering, refreshes the project's running
-// goblins and tells the CFO the names.
+// saveCredentials stores one save's values, usually one row's, into its
+// request's project scope through the store cfo auth store writes, closes
+// the request once every name it asks for is in the scope, and then, after
+// answering, refreshes the project's running goblins and tells the CFO the
+// names.
 func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, error) {
 	refuse := func(status int, message string) (credentialOutcome, error) {
 		return credentialOutcome{}, credentialRefusal{status: status, Message: message}
 	}
 	if s.Options.Credentials == nil {
-		return refuse(http.StatusServiceUnavailable, "This board cannot store credentials; use the terminal command on the card.")
+		return refuse(http.StatusServiceUnavailable, "This board cannot store credentials. Use the terminal command on the card.")
 	}
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
@@ -570,7 +595,10 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	names := make([]string, 0, len(input.Values))
 	for name := range input.Values {
 		if !slices.Contains(request.Names, name) {
-			return refuse(http.StatusBadRequest, "The save names something this request does not ask for; refresh the board.")
+			return refuse(http.StatusBadRequest, "The save names something this request does not ask for. Refresh the board.")
+		}
+		if slices.Contains(request.Saved, name) {
+			return refuse(http.StatusConflict, name+" is already stored by this request. Ask for a new one to store it again.")
 		}
 		names = append(names, name)
 	}
@@ -582,8 +610,10 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, name+" is empty.")
 		case len(value) > maxCredentialValue:
 			return refuse(http.StatusBadRequest, fmt.Sprintf("%s is longer than %d KiB.", name, maxCredentialValue>>10))
-		case strings.ContainsFunc(value, unicode.IsControl):
-			return refuse(http.StatusBadRequest, name+" holds a line break or another control character; paste it as one line.")
+		case strings.ContainsAny(value, "\r\n\t"):
+			return refuse(http.StatusBadRequest, name+" holds a line break or a tab. Paste it as one line. Nothing was stored.")
+		case auth.ValueProblem(name, value) != "":
+			return refuse(http.StatusBadRequest, auth.ValueProblem(name, value)+". Nothing was stored.")
 		}
 	}
 	store, existing, err := s.confirmReplacing(request, names, input.Replace)
@@ -611,8 +641,7 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		written, unwritten = writeEnvFile(request, input.Values, saved)
 	}
 	now := time.Now().UTC()
-	closed, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) {
-		r.State, r.ClosedAt = "saved", &now
+	updated, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) {
 		for _, name := range saved {
 			if !slices.Contains(r.Saved, name) {
 				r.Saved = append(r.Saved, name)
@@ -638,17 +667,22 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		if len(reasons) > 0 {
 			r.Reason = strings.Join(reasons, "; ")
 		}
+		// It closes once every name is in the scope: stored by its rows, or
+		// held before this save.
+		if !slices.ContainsFunc(r.Names, func(name string) bool { return !slices.Contains(r.Saved, name) && !slices.Contains(existing, name) }) {
+			r.State, r.ClosedAt = "saved", &now
+		}
 	})
 	if err != nil {
 		return credentialOutcome{}, fmt.Errorf("stored %s, but the board could not record it: %w", strings.Join(saved, ", "), err)
 	}
 	s.credentialWork.Add(1)
-	go s.afterCredentialSave(closed, saved)
+	go s.afterCredentialSave(updated, saved)
 	s.notify()
 	if failure != nil {
-		return credentialOutcome{}, fmt.Errorf("stored %s, then %w; the request is closed and the CFO is told", strings.Join(saved, ", "), failure)
+		return credentialOutcome{}, fmt.Errorf("stored %s, then %w; the CFO is told", strings.Join(saved, ", "), failure)
 	}
-	return credentialOutcome{ID: closed.ID, State: closed.State, Saved: saved, Replaced: replaced}, nil
+	return credentialOutcome{ID: updated.ID, State: updated.State, Saved: saved, Replaced: replaced}, nil
 }
 
 // openCredential finds the open request a card names, under its current
@@ -657,13 +691,13 @@ func (s *Service) openCredential(id, generation string) (CredentialRequest, erro
 	request, found := s.Store.credential(id)
 	switch {
 	case !found || generation == "" || generation != request.Generation:
-		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request is not on the board; refresh the board."}
+		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request is not on the board. Refresh the board."}
 	case request.State != "open":
-		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request was already " + request.State + "; ask for a new one to store again."}
+		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request was already " + request.State + ". Ask for a new one to store again."}
 	case !time.Now().Before(request.ExpiresAt):
-		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request expired; ask for a new one."}
+		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request expired. Ask for a new one."}
 	case credentialTerminalOpen(s.Store.Snapshot().Runs, request.ID):
-		return request, credentialRefusal{status: http.StatusConflict, Message: "A terminal for this request is open; finish it there first."}
+		return request, credentialRefusal{status: http.StatusConflict, Message: "A terminal for this request is open. Finish it there first."}
 	}
 	return request, nil
 }
@@ -705,7 +739,7 @@ func (s *Service) confirmReplacing(request CredentialRequest, names, replace []s
 // unconfirmedReplacing refuses storing names the scope already holds, naming
 // them for the card to ask about.
 func unconfirmedReplacing(request CredentialRequest, names []string) credentialRefusal {
-	return credentialRefusal{status: http.StatusConflict, Message: strings.Join(names, ", ") + " already holds a value for " + request.Project + "; confirm replacing it.", Existing: names}
+	return credentialRefusal{status: http.StatusConflict, Message: strings.Join(names, ", ") + " already holds a value for " + request.Project + ". Confirm replacing it.", Existing: names}
 }
 
 // heldNames reads which of a request's names its scope holds from the
@@ -772,7 +806,7 @@ func (h *HTTP) openCredentialTerminal(w http.ResponseWriter, r *http.Request) {
 // one replace confirms, and queues it to run at once.
 func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error) {
 	if s.Options.Credentials == nil || s.Options.Runs == nil {
-		return Run{}, credentialRefusal{status: http.StatusServiceUnavailable, Message: "This board cannot open a terminal; copy the command instead."}
+		return Run{}, credentialRefusal{status: http.StatusServiceUnavailable, Message: "This board cannot open a terminal. Copy the command instead."}
 	}
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
@@ -809,8 +843,10 @@ func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error)
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(s.Store.Home.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n" +
 		"Write-Host " + quote("Type or paste each value for "+request.Project+", then press Enter. Nothing you type is shown.") + "\n"
+	// cfo auth store refuses a value of the wrong shape with exit code 2,
+	// saying why, and the terminal asks for it again, three times at most.
 	for _, name := range names {
-		command += "& " + quote(executable) + " auth store --project " + quote(request.Project) + " " + quote(name) + "\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+		command += "$tries = 0\ndo { $tries++; & " + quote(executable) + " auth store --project " + quote(request.Project) + " " + quote(name) + "; $code = $LASTEXITCODE } while ($code -eq 2 -and $tries -lt " + fmt.Sprint(credentialTerminalTries) + ")\nif ($code -ne 0) { exit $code }\n"
 	}
 	command += "exit 0\n"
 	var nonce [16]byte
@@ -940,6 +976,10 @@ func (s *Service) afterCredentialSave(request CredentialRequest, saved []string)
 	}
 	if request.Reason != "" {
 		detail += "; " + request.Reason
+	}
+	if request.State == "open" {
+		remaining := slices.DeleteFunc(slices.Clone(request.Names), func(name string) bool { return slices.Contains(request.Saved, name) })
+		detail += "; the card still asks for " + strings.Join(remaining, ", ")
 	}
 	if refreshErr != nil {
 		detail += "; the refresh reported: " + bounded(refreshErr.Error(), 500)

@@ -24,13 +24,16 @@ export function credentialAsk(request: CredentialRequest): string {
   return "Paste " + listNames(asked(request)) + " for " + request.project;
 }
 
-// The card's heading: a single credential by name, several by count.
+// The card's heading: a single credential by name, several by count. It
+// stays the same while he stores row after row.
 export function credentialHeading(request: CredentialRequest): string {
-  const names = asked(request);
-  return names.length > 1 ? "Paste " + names.length + " credentials for " + request.project : credentialAsk(request);
+  return "Paste " + (request.names.length > 1 ? request.names.length + " credentials" : request.names[0]) + " for " + request.project;
 }
 
-// A request's link as its row shows it: the site and page, without the scheme.
+// A step of the card's header as he reads it, starting with a capital.
+export const stepText = (step: string) => step.trim().charAt(0).toUpperCase() + step.trim().slice(1);
+
+// A request's link as its step shows it: the site and page, without the scheme.
 export function linkLabel(link: string): string {
   const url = new URL(link);
   return url.host + url.pathname.replace(/\/+$/, "");
@@ -60,14 +63,24 @@ export function valueWarnings(hint: CredentialHint | undefined, value: string): 
   return warnings;
 }
 
-// Where a row's value goes: the repository the request is for (empty when it
-// has no checkout on this machine), the credential scope, the env file at the
-// repository's root it is also set in (empty when none), and who reads it:
-// every goblin of the project, through its auth.ps1, and each auth.json
-// service that declares the name.
-export function destination(request: CredentialRequest, name: string): { repository: string; scope: string; file: string; usedBy: string[] } {
-  const repository = request.repository.split(/[\\/]/).filter(Boolean).pop() || "";
-  return { repository, scope: request.project, file: request.env_file, usedBy: ["Goblins' auth.ps1", ...(request.services[name] || []).map((service) => service + " service")] };
+// Where a row's value goes, for the tip on its empty mark: the project's
+// vault, which its goblins and each auth.json service that declares the name
+// read, and the env file it is also set in.
+export function whereItGoes(request: CredentialRequest, name: string): string {
+  const services = request.services[name] || [];
+  const readers = services.length ? " and the " + listNames(services) + (services.length > 1 ? " services" : " service") : "";
+  return "Goes to the " + request.project + " vault for its goblins" + readers + (request.env_file ? ", and into " + request.env_file : "");
+}
+
+// How a stored row's value was stored, for the tip on its check.
+export function storedTip(request: CredentialRequest, name: string): string {
+  return (request.replaced.includes(name) ? "Replaced" : "Stored") + " in the " + request.project + " vault, " + (request.typed.includes(name) ? "typed in the terminal" : "pasted on the card") +
+    (request.written.includes(name) ? ", and set in " + request.env_file : "");
+}
+
+// The tip on the check of a name the vault held before the request.
+export function heldTip(request: CredentialRequest): string {
+  return "Already in the " + request.project + " vault";
 }
 
 // The board takes values only on this PC: a board opened over the tailnet

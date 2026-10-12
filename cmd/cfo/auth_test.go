@@ -41,7 +41,7 @@ func TestAuthStoreAndListKeepTwoProjectsApart(t *testing.T) {
 	for _, args := range [][]string{
 		{"store", "--project", "precisiondocs", "DATABASE_URL", "postgres://precisiondocs"},
 		{"store", "--project", "clock-in", "DATABASE_URL", "postgres://clock-in"},
-		{"store", "GITHUB_TOKEN", "gho_shared_value"},
+		{"store", "GITHUB_TOKEN", "gho_shared_value_0123456789"},
 	} {
 		if code, _, stderr := runCLI(t, args...); code != 0 {
 			t.Fatalf("cfo auth %v = %d: %s", args, code, stderr)
@@ -82,6 +82,59 @@ func TestAuthStoreRedactsWhatItConfirms(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "precisiondocs/STRIPE_SECRET_KEY") {
 		t.Errorf("confirmation = %q, want the scoped key named", stdout)
+	}
+}
+
+// A value that cannot be the credential its name names is refused before
+// anything is stored, by an argument, a pipe or the console alike, saying why
+// and never repeating it: the Overlord's STRIPE_TEST_SECRET_KEY once arrived
+// as the single Ctrl+V a paste with nothing to paste types.
+func TestAuthStoreRefusesAValueOfTheWrongShapeWithoutRepeatingIt(t *testing.T) {
+	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	for _, test := range []struct {
+		name, value, stdin, says string
+	}{
+		{"one character as an argument", "s", "", "STRIPE_TEST_SECRET_KEY does not start with sk_test_ or rk_test_"},
+		{"a publishable key as an argument", "pk" + "_test_" + random, "", "STRIPE_TEST_SECRET_KEY does not start with sk_test_ or rk_test_"},
+		{"a Ctrl+V on stdin", "", "\x16\r\n", "STRIPE_TEST_SECRET_KEY holds a control character"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			storeDir := useFileStore(t)
+			args := []string{"store", "--project", "precisiondocs", "STRIPE_TEST_SECRET_KEY"}
+			if test.value != "" {
+				args = append(args, test.value)
+			} else {
+				input, err := os.CreateTemp(t.TempDir(), "stdin")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { input.Close() })
+				if _, err := input.WriteString(test.stdin); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := input.Seek(0, 0); err != nil {
+					t.Fatal(err)
+				}
+				originalStdin := os.Stdin
+				os.Stdin = input
+				t.Cleanup(func() { os.Stdin = originalStdin })
+			}
+
+			// Act
+			code, stdout, stderr := runCLI(t, args...)
+
+			// Assert
+			if code != 2 || !strings.Contains(stderr, test.says) || !strings.Contains(stderr, "Nothing was stored") {
+				t.Fatalf("cfo auth store = %d %q, want 2 saying %q", code, stderr, test.says)
+			}
+			if len(test.value) > 1 && strings.Contains(stdout+stderr, test.value) {
+				t.Fatal("the refusal repeats the value")
+			}
+			if _, err := os.Stat(filepath.Join(storeDir, "precisiondocs", "STRIPE_TEST_SECRET_KEY")); !os.IsNotExist(err) {
+				t.Fatal("a value of the wrong shape was stored")
+			}
+		})
 	}
 }
 

@@ -8,12 +8,17 @@ const DOT = "•";
 // the card, and the field is given one dot for each character. A browser
 // offers to save what a password field held, and Edge keeps what any text
 // field held, even one drawn as dots with autocomplete off: here neither has
-// anything but dots to keep. Copying out of the field copies dots.
-export function CredentialField({ label, onValue }: { label: string; onValue: (value: string) => void }) {
+// anything but dots to keep. Copying out of the field copies dots. The card
+// hears whether a value came from a paste, which it stores at once, and Enter
+// asks it to store what was typed.
+export function CredentialField({ label, placeholder, disabled, onValue, onCommit }: {
+  label: string; placeholder: string; disabled: boolean; onValue: (value: string, pasted: boolean) => void; onCommit: () => void;
+}) {
   const field = useRef<HTMLInputElement>(null);
   const hand = useRef(onValue);
+  const commit = useRef(onCommit);
   const [refused, setRefused] = useState(false);
-  useEffect(() => { hand.current = onValue; });
+  useEffect(() => { hand.current = onValue; commit.current = onCommit; });
 
   useEffect(() => {
     const input = field.current;
@@ -21,11 +26,11 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
     let value = "";
     // Where a composition began: its text reaches the field, and is taken out when it ends.
     let composing: { start: number; end: number } | null = null;
-    const set = (next: string, caret: number) => {
+    const set = (next: string, caret: number, pasted = false) => {
       value = next;
       input.value = DOT.repeat(next.length);
       input.setSelectionRange(caret, caret);
-      hand.current(next);
+      hand.current(next, pasted);
       setRefused(false);
     };
     // A field takes no line breaks; one pasted with a value is left out.
@@ -47,7 +52,7 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
         else if (kind.endsWith("Backward")) from = 0;
         else if (kind.endsWith("Forward")) to = value.length;
       }
-      set(value.slice(0, from) + text + value.slice(to), from + text.length);
+      set(value.slice(0, from) + text + value.slice(to), from + text.length, kind === "insertFromPaste" || kind === "insertFromDrop");
     };
     // Text that reached the field itself, from a composition or from
     // something that filled it, is taken out of it at once. A fill replaces
@@ -66,12 +71,15 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
       set(value.slice(0, start) + text + value.slice(end), start + text.length);
     };
     const begin = () => { composing = { start: input.selectionStart ?? 0, end: input.selectionEnd ?? 0 }; };
+    const enter = (event: KeyboardEvent) => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); commit.current(); } };
     input.addEventListener("beforeinput", edit);
+    input.addEventListener("keydown", enter);
     input.addEventListener("input", settle);
     input.addEventListener("compositionstart", begin);
     input.addEventListener("compositionend", settle);
     return () => {
       input.removeEventListener("beforeinput", edit);
+      input.removeEventListener("keydown", enter);
       input.removeEventListener("input", settle);
       input.removeEventListener("compositionstart", begin);
       input.removeEventListener("compositionend", settle);
@@ -79,7 +87,7 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
   }, []);
 
   return <>
-    <input ref={field} className="credential-input" type="text" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" data-1p-ignore="" data-lpignore="true" aria-label={label} />
+    <input ref={field} className="credential-input" type="text" placeholder={placeholder} disabled={disabled} autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" data-1p-ignore="" data-lpignore="true" aria-label={label} />
     <ClickFeedback text={refused ? "That paste was the hidden dots, not the value." : ""} />
   </>;
 }

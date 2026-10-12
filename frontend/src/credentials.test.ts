@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { credentialAsk, credentialHeading, credentialSettled, destination, linkLabel, onThisMachine, stillNeeded, storeCommand, terminalNames, valueWarnings } from "./credentials.ts";
+import { credentialAsk, credentialHeading, credentialSettled, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
 import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
 import { waitingItems } from "./commandQueue.ts";
@@ -8,8 +8,8 @@ import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 
 const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
-  project: "precisiondocs", repository: "C:\\dev\\precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], why: "Charge test cards", link: "",
-  env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], written: [], told: [], reason: "",
+  project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], why: "Charge test cards", link: "", steps: [],
+  env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], written: [], reason: "",
   created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", ...changes,
 });
 
@@ -34,10 +34,16 @@ test("a request says what it asks in one line, naming its names and its project"
   assert.equal(credentialAsk(request({ saved: ["STRIPE_SECRET_KEY"] })), "Paste DATABASE_URL for precisiondocs");
 });
 
-test("the card's heading names a single credential and counts several, and keeps what it asked once it closes", () => {
+test("the card's heading names a single credential and counts several, and stays the same as he stores row after row", () => {
   assert.equal(credentialHeading(request({ names: ["STRIPE_SECRET_KEY"] })), "Paste STRIPE_SECRET_KEY for precisiondocs");
   assert.equal(credentialHeading(request()), "Paste 2 credentials for precisiondocs");
+  assert.equal(credentialHeading(request({ saved: ["STRIPE_SECRET_KEY"] })), "Paste 2 credentials for precisiondocs");
   assert.equal(credentialHeading(request({ state: "saved", saved: ["STRIPE_SECRET_KEY", "DATABASE_URL"] })), "Paste 2 credentials for precisiondocs");
+});
+
+test("a step in the card's header starts with a capital", () => {
+  assert.equal(stepText("reveal the test secret key and copy it"), "Reveal the test secret key and copy it");
+  assert.equal(stepText("  Sign in to the PrecisionDocs account "), "Sign in to the PrecisionDocs account");
 });
 
 test("a request's link shows its site and page, without the scheme", () => {
@@ -70,11 +76,12 @@ test("a format hint warns about a value of the wrong kind and advises on one it 
   assert.deepEqual(valueWarnings(undefined, "anything"), []);
 });
 
-test("each row says where its value goes: the repository, the credential scope, the env file it is also set in, and who reads it", () => {
-  const where = destination(request({ services: { STRIPE_SECRET_KEY: ["stripe", "billing"] } }), "STRIPE_SECRET_KEY");
-  assert.deepEqual(where, { repository: "precisiondocs", scope: "precisiondocs", file: "", usedBy: ["Goblins' auth.ps1", "stripe service", "billing service"] });
-  assert.deepEqual(destination(request({ repository: "" }), "DATABASE_URL"), { repository: "", scope: "precisiondocs", file: "", usedBy: ["Goblins' auth.ps1"] });
-  assert.deepEqual(destination(request({ env_file: ".env.docker.local" }), "DATABASE_URL"), { repository: "precisiondocs", scope: "precisiondocs", file: ".env.docker.local", usedBy: ["Goblins' auth.ps1"] });
+test("a row's tips say where its value goes and how it was stored, naming the vault, its readers and the env file", () => {
+  assert.equal(whereItGoes(request({ services: { STRIPE_SECRET_KEY: ["stripe", "billing"] } }), "STRIPE_SECRET_KEY"), "Goes to the precisiondocs vault for its goblins and the stripe and billing services");
+  assert.equal(whereItGoes(request({ env_file: ".env.docker.local" }), "DATABASE_URL"), "Goes to the precisiondocs vault for its goblins, and into .env.docker.local");
+  assert.equal(storedTip(request({ saved: ["DATABASE_URL"] }), "DATABASE_URL"), "Stored in the precisiondocs vault, pasted on the card");
+  assert.equal(storedTip(request({ saved: ["DATABASE_URL"], replaced: ["DATABASE_URL"], typed: ["DATABASE_URL"], written: ["DATABASE_URL"], env_file: ".env" }), "DATABASE_URL"), "Replaced in the precisiondocs vault, typed in the terminal, and set in .env");
+  assert.equal(heldTip(request()), "Already in the precisiondocs vault");
 });
 
 test("values are typed only on the board on this PC", () => {
