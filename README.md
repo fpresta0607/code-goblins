@@ -1002,7 +1002,7 @@ A ticket carries the task's title, its state, who is on it, its pull request and
 Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
 A title is at most 100 characters, cut at a word, and a harness named at its end, such as `; Claude Code`, is left off, since the `goblin:` label says it.
 A task gets that title from its backlog row or from `cfo spawn --title "<short title>"`.
-Once the issue is open it keeps that title, so a backlog row you rewrite later never renames it.
+Once the issue is open it keeps that title, cut the same way, so a backlog row you rewrite later never renames it.
 `cfo title <id> "<short title>"` is the one way to change it, for a running task or for one whose ticket is already closed, and the supervisor then writes it to the issue it opened.
 Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.

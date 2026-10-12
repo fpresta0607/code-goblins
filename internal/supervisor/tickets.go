@@ -584,29 +584,29 @@ func (k *ticketKeeper) project(id string) string {
 	return ""
 }
 
-// title is the title a task's ticket carries: the one the CFO gave it with
-// cfo title, else the one its issue was opened under, else the one the task
-// was dispatched under, else, before its issue opens, its backlog row's, else
-// its id. An open issue keeps its title, so a backlog row the CFO rewrites
-// into a note, or a respawn copies from one, never reaches it; only an issue
-// still named by the task's bare id takes the task's title. The board's own
-// title is never used: it falls back to the first line of the brief, and a
-// brief's text must not reach GitHub. A title the issue does not have yet is
-// cut to a ticket's short title.
+// title is the title a task's ticket carries, cut to a ticket's short title:
+// the one the CFO gave it with cfo title, else the one its issue was opened
+// under, else the one the task was dispatched under, else, before its issue
+// opens, its backlog row's, else its id. An open issue keeps its title, so a
+// backlog row the CFO rewrites into a note, or a respawn copies from one,
+// never reaches it; only an issue still named by the task's bare id takes the
+// task's title. The board's own title is never used: it falls back to the
+// first line of the brief, and a brief's text must not reach GitHub.
 func (k *ticketKeeper) title(id string, record *tickets.Record) string {
-	if title := k.namedTitle(id); title != "" {
-		return title
-	}
-	if record != nil && record.Title != "" && record.Title != id {
-		return record.Title
+	candidates := []string{k.namedTitle(id)}
+	if record != nil && record.Title != id {
+		candidates = append(candidates, record.Title)
 	}
 	if meta, err := state.ReadTaskMeta(k.home.State, id); err == nil {
-		if title := tickets.ShortTitle(meta.Title); title != "" {
+		candidates = append(candidates, meta.Title)
+	}
+	if record == nil {
+		candidates = append(candidates, k.rowTitles[id])
+	}
+	for _, candidate := range candidates {
+		if title := tickets.ShortTitle(candidate); title != "" {
 			return title
 		}
-	}
-	if title := tickets.ShortTitle(k.rowTitles[id]); title != "" && record == nil {
-		return title
 	}
 	return id
 }

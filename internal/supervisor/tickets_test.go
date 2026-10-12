@@ -1323,3 +1323,20 @@ func TestKeeperPutsTheTitleTheCFOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
 		})
 	}
 }
+
+func TestKeeperShortensTheTitleOfAnOpenIssueAndKeepsItsWords(t *testing.T) {
+	// Arrange: an issue opened before titles were short.
+	h, checkout, github := ticketHome(t)
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "No pilots left in PrecisionDocs: no pilot email, access, payment link or admin control, and free to paid works; Claude Code"}); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	if want := "No pilots left in PrecisionDocs: no pilot email, access, payment link or admin control, and free to…"; len(github.applied) != 1 || github.applied[0].ticket.Title != want {
+		t.Fatalf("applied = %+v, want the issue's own title cut to %q", github.applied, want)
+	}
+}
