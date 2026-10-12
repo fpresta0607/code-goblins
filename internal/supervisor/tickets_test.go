@@ -248,9 +248,10 @@ func TestKeeperMovesTheTicketAsTheTaskMovesAndAsksGitHubWhoWorksThereOnceAnHour(
 	// Act
 	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
 	keeper.reconcile(context.Background(), []Task{liveTask("ready", ticketPull)}, ticketNow.Add(time.Minute))
+	keeper.reconcile(context.Background(), []Task{liveTask("ready", ticketPull)}, ticketNow.Add(time.Minute+ticketSettle))
 	merged := liveTask("merged", ticketPull)
-	keeper.reconcile(context.Background(), []Task{merged}, ticketNow.Add(2*time.Minute))
-	keeper.reconcile(context.Background(), []Task{merged}, ticketNow.Add(3*time.Minute))
+	keeper.reconcile(context.Background(), []Task{merged}, ticketNow.Add(2*time.Minute+ticketSettle))
+	keeper.reconcile(context.Background(), []Task{merged}, ticketNow.Add(3*time.Minute+ticketSettle))
 
 	// Assert
 	var states []tickets.State
@@ -268,6 +269,117 @@ func TestKeeperMovesTheTicketAsTheTaskMovesAndAsksGitHubWhoWorksThereOnceAnHour(
 	}
 	if github.collaborationReads != 1 || len(github.labelled) != 1 {
 		t.Fatalf("collaboration reads = %d, label passes = %d, want one each: a task with a record asks nothing more", github.collaborationReads, len(github.labelled))
+	}
+}
+
+func TestKeeperWritesNothingForAStateThatFlipsTwiceInsideTenMinutes(t *testing.T) {
+	// Arrange: the task's ticket opened in progress.
+	h, checkout, github := ticketHome(t)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Act: blocked on a question, answered three minutes later.
+	keeper.reconcile(context.Background(), []Task{liveTask("blocked", "")}, ticketNow.Add(time.Minute))
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow.Add(4*time.Minute))
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow.Add(15*time.Minute))
+
+	// Assert: every move after the opening carries the state the issue
+	// already shows, which writes nothing to it.
+	for _, applied := range github.applied {
+		if applied.ticket.State != tickets.InProgress {
+			t.Fatalf("applied = %+v, want no other state written", github.applied)
+		}
+	}
+	if record, _ := tickets.ReadRecord(h.State, "nw-sync"); record.State != tickets.InProgress {
+		t.Fatalf("record = %+v, want it still in progress", record)
+	}
+}
+
+func TestKeeperWritesANewStateOnceItHasHeldTenMinutes(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+	pass := func(phase string, after time.Duration) int {
+		keeper.reconcile(context.Background(), []Task{liveTask(phase, "")}, ticketNow.Add(after))
+		return len(github.applied)
+	}
+
+	// Act: blocked, then paused before blocked settled, then paused long
+	// enough.
+	blocked := pass("blocked", time.Minute)
+	paused := pass("paused", 5*time.Minute)
+	pausedNineMinutes := pass("paused", 14*time.Minute)
+	pausedTenMinutes := pass("paused", 15*time.Minute)
+
+	// Assert
+	if blocked != 1 || paused != 1 || pausedNineMinutes != 1 {
+		t.Fatalf("writes after each pass = %d, %d, %d, want nothing written before a state held ten minutes", blocked, paused, pausedNineMinutes)
+	}
+	if pausedTenMinutes != 2 || github.applied[1].ticket.State != tickets.Paused {
+		t.Fatalf("applied = %+v, want paused written once it held ten minutes", github.applied)
+	}
+	if keeper.isSettleDue(ticketNow.Add(16 * time.Minute)) {
+		t.Fatal("a written state is still due")
+	}
+}
+
+func TestKeeperSaysWhenAHeldStateIsDue(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("blocked", "")}, ticketNow.Add(time.Minute))
+
+	// Assert
+	if keeper.isSettleDue(ticketNow.Add(10*time.Minute)) || !keeper.isSettleDue(ticketNow.Add(11*time.Minute)) {
+		t.Fatal("want the held state due exactly once it has held ten minutes")
+	}
+}
+
+func TestKeeperForgetsAHeldStateOnceItsTaskLeavesTheBoard(t *testing.T) {
+	// Arrange: blocked a minute ago, which has not settled.
+	h, checkout, github := ticketHome(t)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+	keeper.reconcile(context.Background(), []Task{liveTask("blocked", "")}, ticketNow.Add(time.Minute))
+
+	// Act
+	keeper.reconcile(context.Background(), nil, ticketNow.Add(2*time.Minute))
+
+	// Assert
+	if keeper.isSettleDue(ticketNow.Add(time.Hour)) {
+		t.Fatal("a state held for a task no longer on the board is still due, which would keep the keeper passing every watch")
+	}
+}
+
+func TestKeeperWritesACloseAtOnce(t *testing.T) {
+	cases := []struct {
+		name string
+		task Task
+		want tickets.State
+	}{
+		{name: "merged", task: liveTask("merged", ticketPull), want: tickets.Merged},
+		{name: "stopped", task: liveTask("stopped", ""), want: tickets.Closed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: blocked a minute ago, which has not settled.
+			h, checkout, github := ticketHome(t)
+			keeper := newTicketKeeper(h, github.writer(checkout))
+			keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+			keeper.reconcile(context.Background(), []Task{liveTask("blocked", "")}, ticketNow.Add(time.Minute))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow.Add(2*time.Minute))
+
+			// Assert
+			if len(github.applied) != 2 || github.applied[1].ticket.State != tc.want {
+				t.Fatalf("applied = %+v, want the close written at once", github.applied)
+			}
+		})
 	}
 }
 
@@ -1329,8 +1441,9 @@ func TestKeeperKeepsAnOpenIssuesTitleWhenItsRowIsRewritten(t *testing.T) {
 			writeFile(t, filepath.Join(h.Data, "backlog.md"), tc.backlog)
 			keeper := newTicketKeeper(h, github.writer(checkout))
 
-			// Act
+			// Act: a respawn's new state settles before it is written.
 			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow)
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow.Add(ticketSettle))
 
 			// Assert
 			if len(github.applied) != 1 || github.applied[0].ticket.Title != "Say why a billing sync fails" {

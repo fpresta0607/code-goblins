@@ -177,22 +177,8 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		return record, nil
 	}
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, record.Number)
-	for _, label := range record.Labels {
-		if slices.Contains(labels, label) {
-			continue
-		}
-		if _, err := g.api(ctx, "DELETE", issue+"/labels/"+url.PathEscape(label)); err != nil && !hasStatus(err, 404) {
-			return record, err
-		}
-	}
-	var added []string
-	for _, label := range labels {
-		if !slices.Contains(record.Labels, label) {
-			added = append(added, "labels[]="+label)
-		}
-	}
-	if len(added) > 0 {
-		if _, err := g.api(ctx, "POST", issue+"/labels", added...); err != nil {
+	if !slices.Equal(labels, record.Labels) {
+		if err := g.relabel(ctx, issue, record.Labels, labels); err != nil {
 			return record, err
 		}
 	}
@@ -256,6 +242,44 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		next.Assignee = ""
 	}
 	return &next, nil
+}
+
+// relabel reads an issue's labels before it changes them, then removes each
+// the ticket wrote that it no longer wants and adds each it wants that the
+// issue lacks. So a label someone else removed comes back, and a label the
+// ticket never wrote, or one someone else already removed, is never removed.
+func (g GitHub) relabel(ctx context.Context, issue string, written, wanted []string) error {
+	out, err := g.api(ctx, "GET", issue)
+	if err != nil {
+		return err
+	}
+	var read githubIssue
+	if err := json.Unmarshal(out, &read); err != nil {
+		return fmt.Errorf("read the labels of %s: %w", issue, err)
+	}
+	var live []string
+	for _, label := range read.Labels {
+		live = append(live, label.Name)
+	}
+	for _, label := range written {
+		if slices.Contains(wanted, label) || !slices.Contains(live, label) {
+			continue
+		}
+		if _, err := g.api(ctx, "DELETE", issue+"/labels/"+url.PathEscape(label)); err != nil && !hasStatus(err, 404) {
+			return err
+		}
+	}
+	var added []string
+	for _, label := range wanted {
+		if !slices.Contains(live, label) {
+			added = append(added, "labels[]="+label)
+		}
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	_, err = g.api(ctx, "POST", issue+"/labels", added...)
+	return err
 }
 
 // open opens an issue for a task that has none, assigned to the fleet's
