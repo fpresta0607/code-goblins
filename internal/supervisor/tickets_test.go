@@ -148,6 +148,10 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 			if record != nil {
 				next = *record
 			}
+			if next.IsDone {
+				next.Title = ticket.Title
+				return &next, nil
+			}
 			next.State, next.Status, next.Labels, next.IsDone = ticket.State, ticket.StatusLine(), ticket.Labels(), !ticket.IsOpen()
 			if ticket.Title != "" {
 				next.Title = ticket.Title
@@ -1189,5 +1193,133 @@ func TestKeeperPutsTheOverlapTheCFOAcceptedOnTheTicket(t *testing.T) {
 	// Assert
 	if len(github.applied) != 1 || github.applied[0].ticket.Overlap != "PR #412: it only adds a log line" {
 		t.Fatalf("applied = %+v, want the ticket to carry the accepted overlap", github.applied)
+	}
+}
+
+func TestKeeperOpensATicketUnderAShortTitle(t *testing.T) {
+	longRow := "The agent API rows left after area A: row 26 and row 27, starting now with the read-only histogram check and the D3 proposal, while its brief holds row 26's deletions"
+	cases := []struct {
+		name      string
+		task      Task
+		arrange   func(t *testing.T, h home.Home, checkout string)
+		wantTitle string
+	}{
+		{name: "a backlog row title over 100 characters", task: Task{ID: "nw-queued", Title: "Queued work", Evaluation: Evaluation{Phase: "queued"}},
+			arrange: func(t *testing.T, h home.Home, checkout string) {
+				writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] nw-queued - "+longRow+" (repo: northwind-api)\n")
+			}, wantTitle: "The agent API rows left after area A: row 26 and row 27, starting now with the read-only histogram…"},
+		{name: "a backlog row title ending with the harness", task: Task{ID: "nw-queued", Title: "Queued work", Evaluation: Evaluation{Phase: "queued"}},
+			arrange: func(t *testing.T, h home.Home, checkout string) {
+				writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] nw-queued - Refund totals in the export; Claude Code (repo: northwind-api)\n")
+			}, wantTitle: "Refund totals in the export"},
+		{name: "a dispatch title ending with the harness", task: liveTask("working", ""),
+			arrange: func(t *testing.T, h home.Home, checkout string) {
+				if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "nw-sync", Project: checkout, Worktree: checkout, Harness: "claude", SpawnGen: "s1", Title: "Say why a billing sync fails; Claude Code, max"}); err != nil {
+					t.Fatal(err)
+				}
+			}, wantTitle: "Say why a billing sync fails"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the keeper has already run once, with nothing queued.
+			h, checkout, github := ticketHome(t)
+			keeper := newTicketKeeper(h, github.writer(checkout))
+			keeper.reconcile(context.Background(), nil, ticketNow)
+			tc.arrange(t, h, checkout)
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow.Add(time.Minute))
+
+			// Assert
+			if len(github.applied) != 1 || github.applied[0].hadRecord || github.applied[0].ticket.Title != tc.wantTitle {
+				t.Fatalf("applied = %+v, want one ticket opened titled %q", github.applied, tc.wantTitle)
+			}
+		})
+	}
+}
+
+func TestKeeperKeepsAnOpenIssuesTitleWhenItsRowIsRewritten(t *testing.T) {
+	// The CFO rewrites a row into a running note once its task moves on, and
+	// a respawn copies whatever the row says then.
+	note := "DONE 2026-10-06 12:29Z: PR 1493 merged (main 756c67205), goblin retired; deploy run 37462939864"
+	cases := []struct {
+		name    string
+		backlog string
+		meta    string
+		task    Task
+	}{
+		{name: "the task cleaned up and its row rewritten under Done", backlog: "## Done\n- [x] nw-sync - " + note + " (repo: northwind-api)\n",
+			task: Task{ID: "finished:nw-sync", Title: "Say why", Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}},
+		{name: "the task respawned under a rewritten row", backlog: "## Queued\n- [ ] nw-sync - " + note + " (repo: northwind-api)\n", meta: note,
+			task: liveTask("working", "")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the issue was opened under the task's short title.
+			h, checkout, github := ticketHome(t)
+			if tc.meta == "" {
+				if err := state.RemoveTaskMeta(h.State, "nw-sync"); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "nw-sync", Project: checkout, Worktree: checkout, Harness: "claude", SpawnGen: "s2", Title: tc.meta}); err != nil {
+				t.Fatal(err)
+			}
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: ticketPull}); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), tc.backlog)
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow)
+
+			// Assert
+			if len(github.applied) != 1 || github.applied[0].ticket.Title != "Say why a billing sync fails" {
+				t.Fatalf("applied = %+v, want the ticket written under the title its issue opened with", github.applied)
+			}
+		})
+	}
+}
+
+func TestKeeperPutsTheTitleTheCFOGaveOnTheTicketEvenOnceItIsDone(t *testing.T) {
+	cases := []struct {
+		name   string
+		isDone bool
+		tasks  []Task
+	}{
+		{name: "an open ticket of a running task", tasks: []Task{liveTask("working", "")}},
+		{name: "a done ticket of a task gone from the board", isDone: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the issue carries a dispatch note; cfo title then names it.
+			h, checkout, github := ticketHome(t)
+			record := tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "RESTARTED on Claude Code 2026-10-06 about 21:55Z"}
+			if tc.isDone {
+				record.State, record.Status, record.Labels, record.IsDone, record.PullRequest = tickets.Merged, "Merged in #412", []string{"goblin: claude"}, true, ticketPull
+			}
+			if err := tickets.WriteRecord(h.State, record); err != nil {
+				t.Fatal(err)
+			}
+			if err := tickets.WriteTitleNote(h.State, "nw-sync", "Show the map inside the chat; Claude Code"); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), tc.tasks, ticketNow)
+
+			// Assert
+			if len(github.applied) != 1 || !github.applied[0].hadRecord || github.applied[0].ticket.Title != "Show the map inside the chat" {
+				t.Fatalf("applied = %+v, want the issue retitled", github.applied)
+			}
+			if keeper.reconcile(context.Background(), tc.tasks, ticketNow.Add(ticketRetry)); tc.isDone && len(github.applied) != 1 {
+				t.Fatalf("applied = %+v, want a done issue retitled once", github.applied)
+			}
+			kept, err := tickets.ReadRecord(h.State, "nw-sync")
+			if err != nil || kept.Title != "Show the map inside the chat" || kept.IsDone != tc.isDone {
+				t.Fatalf("record = %+v, %v, want the new title kept and the ticket as done as it was", kept, err)
+			}
+		})
 	}
 }

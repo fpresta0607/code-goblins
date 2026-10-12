@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
 // runningTask writes the record of a task that was dispatched with no title,
@@ -150,6 +151,43 @@ func TestRunSpawnRefusesATitleThatIsNotOneBeforeAnythingStarts(t *testing.T) {
 			// Assert
 			if exit != 2 || called || !strings.Contains(stderr.String(), "--title") {
 				t.Fatalf("exit = %d, spawn called = %v, stderr = %q; want the title refused before any spawn", exit, called, stderr.String())
+			}
+		})
+	}
+}
+
+func TestTitleNamesTheTicketOfATaskEvenOnceItFinished(t *testing.T) {
+	cases := []struct {
+		name      string
+		isRunning bool
+	}{
+		{name: "a running task", isRunning: true},
+		{name: "a finished task whose record is gone"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if tc.isRunning {
+				runningTask(t, h, "nw-sync")
+			}
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: "fpresta0607/northwind-api", Number: 501, State: tickets.Merged, IsDone: true, Title: "DONE 2026-10-06: PR 412 merged"}); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime([]string{"title", "nw-sync", "Say why a billing sync fails"}, &stdout, &stderr, testCommandRuntimeForHome(h))
+
+			// Assert
+			if exit != 0 || stdout.String() != "titled nw-sync: Say why a billing sync fails\n" {
+				t.Fatalf("exit = %d, stdout=%q, stderr=%q, want the title taken", exit, stdout.String(), stderr.String())
+			}
+			if note, err := tickets.ReadTitleNote(h.State, "nw-sync"); err != nil || note != "Say why a billing sync fails" {
+				t.Fatalf("title for the ticket = %q, %v, want the new title for the supervisor to write", note, err)
+			}
+			if meta, err := state.ReadMeta(filepath.Join(h.State, "nw-sync.meta")); tc.isRunning && (err != nil || meta["title"] != "Say why a billing sync fails") {
+				t.Fatalf("record = %v, %v, want the board's title changed too", meta, err)
 			}
 		})
 	}

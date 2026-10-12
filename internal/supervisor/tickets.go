@@ -363,7 +363,12 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 		if ctx.Err() != nil {
 			return
 		}
-		if record.IsDone || onTheBoard[record.TaskID] {
+		if record.IsDone {
+			delete(k.offTheBoardSince, record.TaskID)
+			k.retitleDone(ctx, record, now)
+			continue
+		}
+		if onTheBoard[record.TaskID] {
 			delete(k.offTheBoardSince, record.TaskID)
 			continue
 		}
@@ -381,7 +386,7 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 			k.noteOf(&record)
 			continue
 		}
-		ticket := tickets.Ticket{TaskID: record.TaskID, Title: record.Title, Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest), Overlap: record.Overlap}
+		ticket := tickets.Ticket{TaskID: record.TaskID, Title: k.title(record.TaskID, &record), Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest), Overlap: record.Overlap}
 		if ticket.PullRequest.Number == 0 {
 			ticket.State, ticket.Reason = tickets.Closed, tickets.LeftTheFleet
 		} else {
@@ -396,6 +401,17 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 			}
 		}
 		k.move(ctx, record.TaskID, &record, ticket, false, now)
+	}
+}
+
+// retitleDone writes the title the CFO gave a task with cfo title to its
+// done ticket, the one write a done ticket still takes.
+func (k *ticketKeeper) retitleDone(ctx context.Context, record tickets.Record, now time.Time) {
+	if record.IsClaimed {
+		return
+	}
+	if title := k.namedTitle(record.TaskID); title != "" && title != record.Title {
+		k.move(ctx, record.TaskID, &record, tickets.Ticket{TaskID: record.TaskID, Title: title, State: record.State}, false, now)
 	}
 }
 
@@ -568,21 +584,41 @@ func (k *ticketKeeper) project(id string) string {
 	return ""
 }
 
-// title is the title a task's ticket carries: the one it was dispatched
-// under, else its backlog row's, else the one its ticket already has, else
-// its id. The board's own title is never used: it falls back to the first
-// line of the brief, and a brief's text must not reach GitHub.
+// title is the title a task's ticket carries: the one the CFO gave it with
+// cfo title, else the one its issue was opened under, else the one the task
+// was dispatched under, else, before its issue opens, its backlog row's, else
+// its id. An open issue keeps its title, so a backlog row the CFO rewrites
+// into a note, or a respawn copies from one, never reaches it; only an issue
+// still named by the task's bare id takes the task's title. The board's own
+// title is never used: it falls back to the first line of the brief, and a
+// brief's text must not reach GitHub. A title the issue does not have yet is
+// cut to a ticket's short title.
 func (k *ticketKeeper) title(id string, record *tickets.Record) string {
-	if meta, err := state.ReadTaskMeta(k.home.State, id); err == nil && meta.Title != "" {
-		return meta.Title
-	}
-	if title := k.rowTitles[id]; title != "" {
+	if title := k.namedTitle(id); title != "" {
 		return title
 	}
-	if record != nil && record.Title != "" {
+	if record != nil && record.Title != "" && record.Title != id {
 		return record.Title
 	}
+	if meta, err := state.ReadTaskMeta(k.home.State, id); err == nil {
+		if title := tickets.ShortTitle(meta.Title); title != "" {
+			return title
+		}
+	}
+	if title := tickets.ShortTitle(k.rowTitles[id]); title != "" && record == nil {
+		return title
+	}
 	return id
+}
+
+// namedTitle is the title the CFO gave a task with cfo title, cut to a
+// ticket's short title, or "" when he gave none.
+func (k *ticketKeeper) namedTitle(id string) string {
+	named, err := tickets.ReadTitleNote(k.home.State, id)
+	if err != nil {
+		k.note("task:"+id, fmt.Sprintf("The title cfo title gave %s cannot be read: %v", id, err))
+	}
+	return tickets.ShortTitle(named)
 }
 
 // claimedIssue is the issue a task's brief, or its backlog row, names as
