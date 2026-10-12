@@ -1011,6 +1011,8 @@ A task gets that title from its backlog row or from `cfo spawn --title "<short t
 Once the issue is open it keeps that title, cut the same way, so a backlog row you rewrite later never renames it.
 `cfo title <id> "<short title>"` is the one way to change it, for a running task or for one whose ticket is already closed, and the supervisor then writes it to the issue it opened.
 Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
+A new state is written once it has held ten minutes, so a task that flips between states writes nothing until one stands, and a close is written at once.
+Before it changes an issue's labels it reads them: it removes only the labels it wrote, and puts back one it wants that someone else removed.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
 An issue a task claimed keeps its author's title and body, and its state lives in one comment that is edited in place.
 An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.

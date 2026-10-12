@@ -54,6 +54,10 @@ const (
 	ticketBackOff = time.Hour
 	// ticketWatch is how often the keeper looks for a task that moved.
 	ticketWatch = 15 * time.Second
+	// ticketSettle is how long a ticket's new state must hold before it is
+	// written, so a task that flips between states writes nothing until one
+	// stands. A close is written at once.
+	ticketSettle = 10 * time.Minute
 	// ticketGoneGrace is how long a task must stay off the board before its
 	// ticket is moved as a gone task's. The board's finished tasks come from
 	// a history that is rebuilt on its own schedule and is empty when the
@@ -97,6 +101,13 @@ type ticketKeeper struct {
 	// offTheBoardSince is when each task with an open ticket was first seen
 	// off the board, for as long as it stays off it.
 	offTheBoardSince map[string]time.Time
+	// unsettled is the state each ticket's task moved to that its issue does
+	// not show yet, and since when it has held, as the last pass found it;
+	// stillUnsettled is the same as the pass under way finds it. A state
+	// holds only while every pass finds it, so a task that leaves the board
+	// or stops moving its ticket leaves nothing held.
+	unsettled      map[string]unsettledState
+	stillUnsettled map[string]unsettledState
 	// rowTitles and queuedIDs are the backlog as the pass under way read it.
 	rowTitles map[string]string
 	queuedIDs map[string]bool
@@ -127,6 +138,15 @@ type repositoryAnswer struct {
 	again       time.Time
 }
 
+// unsettledState is a state a task moved to, when it moved there, and
+// whether it has settled, after which every pass writes it until its issue
+// shows it.
+type unsettledState struct {
+	state     tickets.State
+	since     time.Time
+	isSettled bool
+}
+
 // ticketWait is a wait the keeper holds, a repository GitHub asked it to
 // leave alone or a pull request it asks about again later, and the line the
 // board shows while it lasts, if any.
@@ -136,7 +156,7 @@ type ticketWait struct {
 }
 
 func newTicketKeeper(h home.Home, writer *Tickets) *ticketKeeper {
-	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]ticketWait{}, askPullAfter: map[string]ticketWait{}, offTheBoardSince: map[string]time.Time{}, people: map[string]ProjectPeople{}}
+	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]ticketWait{}, askPullAfter: map[string]ticketWait{}, offTheBoardSince: map[string]time.Time{}, unsettled: map[string]unsettledState{}, people: map[string]ProjectPeople{}}
 }
 
 // Issues are the lines the board shows for tickets that wait or failed, as
@@ -172,7 +192,7 @@ func (s *Service) keepTickets(ctx context.Context, retry, watch time.Duration) {
 	var reconciled time.Time
 	for {
 		if snapshot, err := s.boardSnapshot(); err == nil {
-			if next := ticketMark(snapshot.Tasks); next != mark || time.Since(reconciled) >= retry {
+			if next := ticketMark(snapshot.Tasks); next != mark || time.Since(reconciled) >= retry || s.tickets.isSettleDue(time.Now().UTC()) {
 				mark, reconciled = next, time.Now()
 				before := s.tickets.shownVersion()
 				s.tickets.reconcile(ctx, snapshot.Tasks, time.Now().UTC())
@@ -222,6 +242,7 @@ func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Tim
 		return
 	}
 	onTheBoard := map[string]bool{}
+	k.stillUnsettled = map[string]unsettledState{}
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return
@@ -233,6 +254,7 @@ func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Tim
 		onTheBoard[id] = true
 		k.reconcileTask(ctx, id, task, slices.Contains(queuedBefore, id), now)
 	}
+	k.unsettled = k.stillUnsettled
 	k.reconcileGone(ctx, onTheBoard, now)
 	k.readPeople(ctx, tasks, now)
 	k.readBoardTickets()
@@ -371,8 +393,42 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 	if ticket.What, ticket.Area, hasBrief = k.description(id); !hasBrief && record != nil {
 		ticket.What, ticket.Area = record.What, record.Area
 	}
+	if !k.isSettled(id, record, ticket, now) {
+		k.noteOf(record)
+		return
+	}
 	k.move(ctx, id, record, ticket, wasQueuedBefore, now)
 	k.tellGoblin(id)
+}
+
+// isSettled reports whether a ticket may be written: it has no issue yet, it
+// closes, its state is the one its issue shows, or its new state has held
+// for ticketSettle. A state that flips back before then leaves nothing to
+// write.
+func (k *ticketKeeper) isSettled(id string, record *tickets.Record, ticket tickets.Ticket, now time.Time) bool {
+	if record == nil || !ticket.IsOpen() || ticket.State == record.State {
+		return true
+	}
+	held, isHeld := k.unsettled[id]
+	if !isHeld || held.state != ticket.State {
+		held = unsettledState{state: ticket.State, since: now}
+	} else if !now.Before(held.since.Add(ticketSettle)) {
+		held.isSettled = true
+	}
+	k.stillUnsettled[id] = held
+	return held.isSettled
+}
+
+// isSettleDue reports whether some ticket's new state has held long enough
+// to be written, so the keeper writes it then rather than at its next retry.
+// One already settled waits for the retry like any write GitHub did not take.
+func (k *ticketKeeper) isSettleDue(now time.Time) bool {
+	for _, held := range k.unsettled {
+		if !held.isSettled && !now.Before(held.since.Add(ticketSettle)) {
+			return true
+		}
+	}
+	return false
 }
 
 // taskRepository is the GitHub repository a task's ticket is in, or would
