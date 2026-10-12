@@ -402,6 +402,37 @@ func TestAQuestionThatNamesTheMarkerInItsWordsKeepsItsChoices(t *testing.T) {
 	}
 }
 
+// A goblin's page is put to the CFO as its question with the page's link at
+// its end and the choices the page declares after it. A page that declares
+// none ends the question with its link, so the goblin's own words before it,
+// such as a title that names the options marker, offer no choice.
+func TestAQuestionThatEndsWithItsPageOffersNoChoices(t *testing.T) {
+	for name, c := range map[string]struct {
+		detail   string
+		question string
+		options  []string
+	}{
+		"the marker in its words": {
+			"blocked: Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e)",
+			"Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e)",
+			nil,
+		},
+		"the choices its page declares": {
+			"blocked: Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e) options: Build it as shown (Recommended) | Change it",
+			"Pick one of the layout options: on the page (page http://127.0.0.1:4387/session/f26e)",
+			[]string{"Build it as shown (Recommended)", "Change it"},
+		},
+	} {
+		// Act
+		question, options, asked := Question(Record{Kind: "notify", Detail: c.detail})
+
+		// Assert
+		if !asked || question != c.question || !slices.Equal(options, c.options) {
+			t.Errorf("%s: Question = %q, %q, %v; want %q, %q", name, question, options, asked, c.question, c.options)
+		}
+	}
+}
+
 // A goblin that offered no options still gets a decision block: the renderer
 // says none were offered rather than inventing choices it never named.
 func TestRenderSaysWhenADecisionOfferedNoOptions(t *testing.T) {

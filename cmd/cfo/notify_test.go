@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -388,6 +389,177 @@ func TestNotifyRefusesAChoiceThatIsOnlyALetterOrNumber(t *testing.T) {
 	}
 	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "blocked: "+question {
 		t.Fatalf("wake records = %+v %v, want the question", records, err)
+	}
+}
+
+// questionHome is a scratch home for a goblin's questions, with the home,
+// its state and the projects root all pointed at scratch paths, and returns
+// its state directory.
+func questionHome(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
+	t.Setenv("CFO_PROJECTS_ROOT", filepath.Join(dir, "projects"))
+	return stateDir
+}
+
+// clemsQuestion is wake 1001093 of 2026-10-12: a goblin's question with its
+// details on lines after the choices.
+const clemsQuestion = "May I restart my capped poll of the PR 1564 deploy, so I merge PR 1565 right after it ends? options: Restart the capped poll (Recommended) | Message me when the deploy ends\n" +
+	"- PR 1565 is green in CI and mergeable.\n" +
+	"- Deploy to Production run 38280093670 for PR 1564 is mid-rollout, and a merge now would cancel it.\n" +
+	"- **Claude Code stopped my background deploy poll because the machine ran low on memory**."
+
+// On 2026-10-12 a goblin put its details on lines after its choices, the
+// notify joined its lines, and every reader took the details as the end of
+// the last choice: cfo drain showed them inside choice 2 and cfo answer
+// refused "Message me when the deploy ends" as no choice. The notify reads
+// the choices off their own line, so the details stay the question's and
+// each choice is only its answer, a hyphen in its own words included.
+func TestNotifyKeepsDetailsAfterTheChoicesOutOfThem(t *testing.T) {
+	for name, c := range map[string]struct {
+		question string
+		details  []string
+		options  []string
+	}{
+		"details after the choices": {
+			clemsQuestion,
+			[]string{"May I restart my capped poll", "PR 1565 is green in CI", "a merge now would cancel it", "ran low on memory"},
+			[]string{"Restart the capped poll (Recommended)", "Message me when the deploy ends"},
+		},
+		"a choice with a hyphen in its own words": {
+			"Which timeout should the gate keep? options: Re-run the gate (Recommended) | Keep 300 s - for now\n- The gate timed out twice at 300 s.",
+			[]string{"Which timeout should the gate keep?", "The gate timed out twice at 300 s."},
+			[]string{"Re-run the gate (Recommended)", "Keep 300 s - for now"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--blocked", c.question}, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the question recorded", exit, stderr.String())
+			}
+			records, err := wake.Pending(stateDir)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("wake records = %+v %v, want the one question", records, err)
+			}
+			// cfo answer and the board read the choices this way.
+			question, options, asked := wake.Question(records[0])
+			if !asked || !slices.Equal(options, c.options) {
+				t.Errorf("choices = %q, want %q", options, c.options)
+			}
+			for _, detail := range c.details {
+				if !strings.Contains(question, detail) {
+					t.Errorf("question = %q, want it to keep %q", question, detail)
+				}
+			}
+			var drained bytes.Buffer
+			if exit := runDrain(home.Home{State: stateDir}, nil, &drained, &stderr); exit != 0 {
+				t.Fatalf("drain exit=%d stderr=%q", exit, stderr.String())
+			}
+			if want := "2) " + c.options[1] + "\n"; !strings.Contains(drained.String(), want) {
+				t.Errorf("drain = %q, want choice %q on a line of its own", drained.String(), want)
+			}
+		})
+	}
+}
+
+// A question that writes the options marker twice cannot be read one way
+// once details may follow the choices: a detail that names the marker after
+// them took over the choices, as on 2026-10-01 one before them nearly did.
+// A marker with no choice after it on its line offers nothing to pick. The
+// notify refuses each at once, recording nothing, and says how to ask.
+func TestNotifyRefusesAQuestionWhoseChoicesCannotBeTold(t *testing.T) {
+	for name, question := range map[string]string{
+		"the marker in a detail after the choices":  "Should a second marker be refused? options: Refuse it (Recommended) | Take the last\n- Today the options: marker is matched once.",
+		"the marker in a detail before the choices": "Should a second marker be refused?\n- Today the options: marker is matched once.\n- **Blocking:** the choice list. options: Refuse it (Recommended) | Take the last",
+		"no choice after the marker on its line":    "Should a second marker be refused? options:\n- Refuse it\n- Take the last",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), `every detail before "options:"`) {
+				t.Errorf("exit=%d stderr=%q, want it refused with how to ask", exit, stderr.String())
+			}
+			if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+				t.Errorf("a refused notify recorded status %q", lines)
+			}
+			if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+				t.Errorf("a refused notify woke the CFO: %+v %v", records, err)
+			}
+		})
+	}
+}
+
+// On 2026-10-12 a goblin sent its question again with its details first, to
+// correct the choices the first one showed, and the CFO got two decisions
+// for one question. The same question, sent while the first still waits
+// unanswered, is that one decision: the goblin is told, and the CFO is not
+// woken again. Once answered it is a new ask, and another question from the
+// same goblin is always its own decision.
+func TestNotifyAQuestionSentTwiceIsOneDecision(t *testing.T) {
+	// Arrange
+	stateDir := questionHome(t)
+	corrected := "May I restart my capped poll of the PR 1564 deploy, so I merge PR 1565 right after it ends?\n" +
+		"- PR 1565 is green in CI and mergeable.\n" +
+		"- Deploy to Production run 38280093670 for PR 1564 is mid-rollout, and a merge now would cancel it.\n" +
+		"- **Claude Code stopped my background deploy poll because the machine ran low on memory**. options: Restart the capped poll (Recommended) | Message me when the deploy ends"
+	notify := func(question string) string {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
+			t.Fatalf("exit=%d stderr=%q, want the question taken", exit, stderr.String())
+		}
+		return stdout.String()
+	}
+	decisions := func() []wake.Record {
+		t.Helper()
+		records, err := wake.Pending(stateDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.DeleteFunc(records, func(record wake.Record) bool {
+			_, isDecision := wake.BlockingNotify(record)
+			return !isDecision || record.Answered != ""
+		})
+	}
+	notify(clemsQuestion)
+
+	// Act
+	said := notify(corrected)
+
+	// Assert
+	first := decisions()
+	if len(first) != 1 {
+		t.Fatalf("decisions = %+v, want the one question", first)
+	}
+	if want := fmt.Sprintf("already asked this as notify %d", first[0].Seq); !strings.Contains(said, want) {
+		t.Errorf("stdout = %q, want the goblin told %q", said, want)
+	}
+	if err := wake.MarkAnswered(stateDir, first[0].Seq, wake.AnsweredByCFO, "Restart the capped poll"); err != nil {
+		t.Fatal(err)
+	}
+	notify(corrected)
+	notify("Should I update PR 1565 to current main now? options: Update it now (Recommended) | Wait for the deploy")
+	if got := decisions(); len(got) != 2 || got[0].Seq <= first[0].Seq {
+		t.Errorf("decisions = %+v, want the answered question asked again and the other question, each its own", got)
 	}
 }
 
