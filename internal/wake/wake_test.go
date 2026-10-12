@@ -402,6 +402,27 @@ func TestAQuestionThatNamesTheMarkerInItsWordsKeepsItsChoices(t *testing.T) {
 	}
 }
 
+// ChoicesLast takes the choices off the marker's own line, wherever that line
+// is, and records every other line before the marker, so the record reads
+// the same whichever way round the goblin typed it.
+func TestChoicesLastPutsEveryDetailBeforeTheChoices(t *testing.T) {
+	for name, c := range map[string]struct{ typed, want string }{
+		"no choices":                       {"Should I merge this?\n- CI is green.", "Should I merge this?\n- CI is green."},
+		"choices already last":             {"Merge now?\n- CI is green. options: Merge it | Hold it", "Merge now?\n- CI is green. options: Merge it | Hold it"},
+		"choices on a detail line":         {"Merge now?\n- CI is green. options: Merge it|Hold it\n- Main moved.", "Merge now?\n- CI is green.\n- Main moved. options: Merge it | Hold it"},
+		"windows line breaks":              {"Merge now? options: Merge it | Hold it\r\n- CI is green.", "Merge now?\n- CI is green. options: Merge it | Hold it"},
+		"a hyphen in a choice's own words": {"Merge now? options: Merge it - then deploy | Hold it", "Merge now? options: Merge it - then deploy | Hold it"},
+	} {
+		// Act
+		got, err := ChoicesLast(c.typed)
+
+		// Assert
+		if err != nil || got != c.want {
+			t.Errorf("%s: ChoicesLast = %q, %v; want %q", name, got, err, c.want)
+		}
+	}
+}
+
 // A goblin's page is put to the CFO as its question with the page's link at
 // its end and the choices the page declares after it. A page that declares
 // none ends the question with its link, so the goblin's own words before it,

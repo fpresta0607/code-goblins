@@ -478,12 +478,14 @@ func TestNotifyKeepsDetailsAfterTheChoicesOutOfThem(t *testing.T) {
 // A question that writes the options marker twice cannot be read one way
 // once details may follow the choices: a detail that names the marker after
 // them took over the choices, as on 2026-10-01 one before them nearly did.
-// A marker with no choice after it on its line offers nothing to pick. The
-// notify refuses each at once, recording nothing, and says how to ask.
+// A marker with fewer than two choices after it on its line is a detail
+// that names it or offers nothing to pick. The notify refuses each at once,
+// recording nothing, and says how to ask.
 func TestNotifyRefusesAQuestionWhoseChoicesCannotBeTold(t *testing.T) {
 	for name, question := range map[string]string{
 		"the marker in a detail after the choices":  "Should a second marker be refused? options: Refuse it (Recommended) | Take the last\n- Today the options: marker is matched once.",
 		"the marker in a detail before the choices": "Should a second marker be refused?\n- Today the options: marker is matched once.\n- **Blocking:** the choice list. options: Refuse it (Recommended) | Take the last",
+		"the marker in a detail with no choices":    "Why does gh refuse the flag?\n- It says options: --watch is unknown.",
 		"no choice after the marker on its line":    "Should a second marker be refused? options:\n- Refuse it\n- Take the last",
 	} {
 		t.Run(name, func(t *testing.T) {
