@@ -63,7 +63,8 @@ var kinds = map[string]bool{
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
 // floor only ever moves forward, matching upstream's --ack-through contract.
 // Key identifies the subject of the wake (a goblin id, a window id, a
-// heartbeat). It is NOT a dedup key and records are never folded: Render
+// heartbeat). It is NOT a dedup key and records are never folded (only
+// AppendDecision declines to add a copy of a question still waiting): Render
 // prints every unacknowledged record, omitting the `key: ` segment only when
 // Key equals Kind, and Key is the identifying column in drain's blocked-notify
 // refusal listing. Old lines without a key unmarshal with it empty.
@@ -190,19 +191,56 @@ func Append(dir, kind, key, detail string) (Record, error) {
 		if err != nil {
 			return err
 		}
-		floor, err := readAckFloor(dir)
+		rec, err = appendTo(dir, records, kind, key, detail)
+		return err
+	})
+	return rec, err
+}
+
+// AppendDecision appends goblin key's blocked or failed notify, unless the
+// same notify still waits unanswered in the queue: a goblin that sends its
+// question again, such as to correct how it showed (wake 1001094,
+// 2026-10-12), still asks one question, so that record is returned, with
+// false, and the CFO is not woken twice for it. Once it is answered, the
+// same words are a new ask, and any other notify is its own record.
+func AppendDecision(dir, key, detail string) (Record, bool, error) {
+	var rec Record
+	isNew := false
+	err := withLock(dir, func() error {
+		records, err := readAll(dir)
 		if err != nil {
 			return err
 		}
-		next := floor + 1
-		if n := len(records); n > 0 {
-			next = records[n-1].Seq + 1
+		same := slices.DeleteFunc(slices.Clone(records), func(prior Record) bool {
+			return prior.Kind != "notify" || prior.Key != key || prior.Detail != detail
+		})
+		if same, err = attachAnswers(dir, same); err != nil {
+			return err
 		}
-		rec = Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail}
-		records = append(records, rec)
-		return writeQueue(dir, records)
+		if i := slices.IndexFunc(same, func(prior Record) bool { return prior.Answered == "" }); i >= 0 {
+			rec = same[i]
+			return nil
+		}
+		isNew = true
+		rec, err = appendTo(dir, records, "notify", key, detail)
+		return err
 	})
-	return rec, err
+	return rec, isNew && err == nil, err
+}
+
+// appendTo appends one record to records, the queue read under the wake
+// lock, and writes the queue.
+func appendTo(dir string, records []Record, kind, key, detail string) (Record, error) {
+	floor, err := readAckFloor(dir)
+	if err != nil {
+		return Record{}, err
+	}
+	next := floor + 1
+	if n := len(records); n > 0 {
+		next = records[n-1].Seq + 1
+	}
+	rec := Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail}
+	return rec, writeQueue(dir, append(records, rec))
 }
 
 // Pending returns every unacknowledged record in sequence order, each with
@@ -731,8 +769,10 @@ func Question(rec Record) (string, []string, bool) {
 // `cfo notify <id> --blocked "<question> options: <answer> | <answer>"` produces. A question
 // with no marker offered no options, and the rendering says so rather than
 // inventing choices the goblin never named. The choices end the question, so
-// they follow the last marker: one the goblin names earlier in its words,
-// such as in a detail line, is part of the question.
+// they follow the last marker: one named earlier, such as in a detail line
+// a notify recorded before this build refused it, is part of the question.
+// A question that ends with its page offers no choices, whatever its words
+// before the page say: a page's choices always follow its link.
 func decision(rec Record) (verb, question string, options []string, ok bool) {
 	verb, ok = BlockingNotify(rec)
 	if !ok {
@@ -742,22 +782,56 @@ func decision(rec Record) (verb, question string, options []string, ok bool) {
 	return verb, question, options, true
 }
 
+// optionsMarker is matched literally rather than by lowercasing the whole
+// string, because a case fold can change byte length and the index is used
+// to slice the original.
+const optionsMarker = "options:"
+
 func splitOptions(detail string) (string, []string) {
-	// The marker is matched literally rather than by lowercasing the whole
-	// string, because a case fold can change byte length and the index is
-	// used to slice the original.
-	const marker = "options:"
-	at := strings.LastIndex(detail, marker)
-	if at < 0 {
+	at := strings.LastIndex(detail, optionsMarker)
+	if at < 0 || pageAtEnd.MatchString(detail) {
 		return detail, nil
 	}
+	return strings.TrimSpace(detail[:at]), choices(detail[at+len(optionsMarker):])
+}
+
+// choices are the answers a list separated by "|" offers.
+func choices(list string) []string {
 	var options []string
-	for _, option := range strings.Split(detail[at+len(marker):], "|") {
+	for _, option := range strings.Split(list, "|") {
 		if option = strings.TrimSpace(option); option != "" {
 			options = append(options, option)
 		}
 	}
-	return strings.TrimSpace(detail[:at]), options
+	return options
+}
+
+// ChoicesLast is a goblin's question, as it typed it with its line breaks,
+// in the form every reader takes its choices from: its words and every
+// detail, then the marker and the choices last. The record joins the
+// question's lines, so a detail on a line after the choices was read as the
+// end of the last one (wake 1001093, 2026-10-12). The choices are what
+// follows the marker on its own line, and every line after it is a detail
+// that goes before the marker. A question that writes the marker more than
+// once is refused, since a detail that names the marker can no longer be
+// told from the choices, and so is one with fewer than two choices after
+// it, which is a detail that names the marker or no choice at all.
+func ChoicesLast(text string) (string, error) {
+	const howToAsk = `Write every detail before "options:", the choices after it on its line, separated by "|", and the word without its colon anywhere else`
+	at := strings.Index(text, optionsMarker)
+	if at < 0 {
+		return text, nil
+	}
+	if times := strings.Count(text, optionsMarker); times > 1 {
+		return "", fmt.Errorf("the question writes %q %d times, so its choices cannot be told from its words. %s", optionsMarker, times, howToAsk)
+	}
+	list, details, _ := strings.Cut(text[at+len(optionsMarker):], "\n")
+	options := choices(list)
+	if len(options) < 2 {
+		return "", fmt.Errorf("a question offers two or more choices after %q on its line, and this one offers %d. %s", optionsMarker, len(options), howToAsk)
+	}
+	question := strings.TrimSpace(strings.TrimSpace(text[:at]) + "\n" + details)
+	return question + " " + optionsMarker + " " + strings.Join(options, " | "), nil
 }
 
 // renderDecision prints an outstanding decision as a decision rather than as
