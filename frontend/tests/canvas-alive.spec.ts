@@ -15,7 +15,11 @@ async function open(page: Page) {
 const step = (page: Page, name: Step, goblin: string) => page.evaluate(([name, goblin]) => (window as Window & { canvasStep?: (name: string, goblin: string) => void }).canvasStep!(name, goblin), [name, goblin]);
 // The animations running anywhere on the page.
 const running = (page: Page) => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length);
-const settled = async (page: Page) => expect.poll(() => running(page), { timeout: 3000 }).toBe(0);
+const settled = async (page: Page, timeout = 3000) => expect.poll(() => running(page), { timeout }).toBe(0);
+// The properties the running animations on the page move.
+const animated = (page: Page) => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running")
+  .flatMap((animation) => animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes().flatMap((frame) => Object.keys(frame)) : [])
+  .filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)));
 
 test("a working goblin glows and a waiting one does not", async ({ page }) => {
   // Arrange
@@ -88,6 +92,36 @@ test("a baby goblin that finishes reports back, fades where it hung and goes", a
   await expect(page.locator(".tree-branches > li.leaving, .branch-pulse")).toHaveCount(0);
 });
 
+test("a goblin's report pulses its connector from the CFO, and nothing runs once the pulse ends", async ({ page }) => {
+  // Arrange
+  await open(page);
+
+  // Act
+  await step(page, "goblin", "cg-tests");
+
+  // Assert
+  await expect(page.locator(".connector-effect.communicating")).toHaveCount(1);
+  await expect(page.locator(".connector-effect .communication-pulse").first()).toBeAttached();
+  expect(await running(page)).toBeGreaterThan(0);
+  await settled(page, 9000);
+  await expect(page.locator(".connector-effect")).toHaveCount(0);
+});
+
+test("every motion on the canvas moves only transforms and opacity", async ({ page }) => {
+  // Arrange
+  await open(page);
+  const moved = new Set<string>();
+
+  // Act: each exchange the canvas shows, read while it plays.
+  for (const [name, goblin] of [["goblin", "cg-tests"], ["birth", "pd-email"], ["report", "cg-tests"], ["finish", "pd-email"]] as [Step, string][]) {
+    await step(page, name, goblin);
+    for (const property of await animated(page)) moved.add(property);
+  }
+
+  // Assert
+  expect([...moved].sort()).toEqual(["opacity", "transform"]);
+});
+
 test("with reduced motion a baby goblin appears and goes at once, with no pulse", async ({ page }) => {
   // Arrange
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -97,6 +131,7 @@ test("with reduced motion a baby goblin appears and goes at once, with no pulse"
   await step(page, "birth", "cg-tests");
   await step(page, "report", "pd-email");
   await step(page, "finish", "pd-email");
+  await step(page, "goblin", "cg-tests");
 
   // Assert
   await expect(page.locator(".tree-child")).toHaveCount(4);

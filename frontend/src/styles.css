@@ -316,16 +316,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connection-line.relation-delegated path { stroke-dasharray: 7 4; }
 /* A pulse or birth highlight lays over its connector for its whole life,
    which the board sets as the animation's duration, and fades out before it
-   is removed. Its dash travels one full dash pattern per loop, so it keeps
-   moving without a jump until the fade ends. */
-.connector-effect { animation: effect-life ease-in-out forwards; }
+   is removed. Its dashes travel by transform and it fades by opacity, apart
+   from the connectors, so nothing under it repaints while it plays. A dash
+   is unseen until it travels. */
+.connector-effect { position: absolute; left: 0; top: 0; pointer-events: none; animation: effect-life ease-in-out forwards; }
+.connector-effect svg { position: absolute; inset: 0; overflow: visible; }
+.connector-effect path { fill: none; stroke-width: 2; }
+.connector-effect.delegated path { stroke-dasharray: 7 4; }
 .connector-effect.communicating path { stroke: #57e5bf; }
 .connector-effect.communicating circle { fill: #86ffe0; }
 .connector-effect.creating path { stroke: #70bfa9; stroke-width: 3; }
 .connector-effect.creating circle { fill: #9adbc9; }
+.connector-effect .communication-pulse { position: absolute; left: -7px; top: -2.5px; width: 14px; height: 5px; background: #57e5bf; opacity: 0; }
 .connection-line text { fill: #bcffe9; font-size: 15px; }
-.connection-line .communication-pulse { stroke-width: 5; stroke-dasharray: 14 230; animation: guidance 2.5s linear infinite; }
-@keyframes guidance { to { stroke-dashoffset: -244; } }
 @keyframes effect-life { 0%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
 .flow-node { position: absolute; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease; }
 /* A canvas card is a fixed 292 by 166 box, so the column of text in it never
