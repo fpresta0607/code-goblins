@@ -10,18 +10,25 @@ import { pullRequestLabel } from "./workflow.ts";
 // the evidence it stands on.
 export interface AfkDecision {
   at: string; kind: string; what: string; link: string; evidence: string; outcome: string; task: string;
-  // diagnosis and tried are what a line left for him found wrong and what the
-  // CFO already tried, and struck the CFO's reason for striking a line it
-  // logged by mistake, empty for a line it stands by. noted is what the CFO
-  // wrote of a merge in lines of its own, which the report folds into it, and
-  // asked the Command Center item of a line it left for him about a merge
-  // that did not land. answer is the CFO's answer to a decision it answered
-  // for him, settled in his History.
-  diagnosis: string; tried: string; struck: string; noted: string; asked: string; answer: string;
+  // diagnosis and tried are what a decision the CFO answered in his place
+  // found wrong and what the CFO already tried, and answer its answer,
+  // settled in his History. struck is the CFO's reason for striking a line it
+  // logged by mistake, empty for a line it stands by, and settled what became
+  // of a step only he could take that the CFO saw to later. noted is what the
+  // CFO wrote of a merge in lines of its own, which the report folds into it.
+  diagnosis: string; tried: string; struck: string; settled: string; noted: string; answer: string;
+  // item is the Command Center question a decision the CFO answered is in
+  // History as, where he changes its answer, and empty for any other line.
+  item: string;
 }
+// AfkGroup is the part of the recap a heading is in: what was done, what the
+// CFO decided for him and the goblins, and what needs him, in that order.
+export type AfkGroup = "done" | "decided" | "needs";
+const GROUPS: readonly string[] = ["done", "decided", "needs"] satisfies AfkGroup[];
+const isGroup = (value: string): value is AfkGroup => GROUPS.includes(value);
 // AfkSection is one heading of the report with the decisions under it.
 export interface AfkSection {
-  title: string; entries: AfkDecision[];
+  title: string; group: AfkGroup; entries: AfkDecision[];
 }
 export interface AfkFinish {
   task: string; pr: string; at: string;
@@ -73,11 +80,13 @@ export function parseAfkReport(value: unknown): AfkReport | null {
     session: string(v.session), since: string(v.since), ended: string(v.ended), lasted: string(v.lasted), from: string(v.from), asked: string(v.asked), ended_from: string(v.ended_from), ended_asked: string(v.ended_asked),
     sections: array(v.sections).map((value) => {
       const s = object(value);
+      const group = string(s.group);
+      if (!isGroup(group)) throw new Error("Invalid AFK report group");
       return {
-        title: string(s.title),
+        title: string(s.title), group,
         entries: array(s.entries).map((value) => {
           const e = object(value);
-          return { at: string(e.at), kind: string(e.kind), what: string(e.what), link: string(e.link), evidence: string(e.evidence), outcome: string(e.outcome), task: string(e.task), diagnosis: string(e.diagnosis), tried: string(e.tried), struck: string(e.struck), noted: string(e.noted), asked: string(e.asked), answer: string(e.answer) };
+          return { at: string(e.at), kind: string(e.kind), what: string(e.what), link: string(e.link), evidence: string(e.evidence), outcome: string(e.outcome), task: string(e.task), diagnosis: string(e.diagnosis), tried: string(e.tried), struck: string(e.struck), settled: string(e.settled), noted: string(e.noted), answer: string(e.answer), item: string(e.item) };
         }),
       };
     }),
@@ -174,8 +183,9 @@ export function afkTime(at: string, now: number, zone?: string, locale?: string)
   return day(date) === day(new Date(now)) ? time : date.toLocaleDateString(locale, { month: "short", day: "numeric", timeZone: zone }) + ", " + time;
 }
 
-// stillWaiting are the items held or left for him that still wait on the
-// Overlord, and settled those that no longer do, each with what became of it.
+// stillWaiting are the items held for him in the Command Center that still
+// wait on the Overlord, and settled those that no longer do, each with what
+// became of it.
 export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => one.waiting);
 export const settled = (held: AfkHeld[]): AfkHeld[] => held.filter((one) => !one.waiting);
 
@@ -194,22 +204,71 @@ const HEADLINED: [string, (count: number) => string][] = [
   ["Installed", (count) => "installed " + counted(count, "build", "builds")],
 ];
 
+// inGroup is every line under the report's headings in group, in order.
+export const inGroup = (report: AfkReport, group: AfkGroup): AfkSection[] => report.sections.filter((section) => section.group === group);
+const countOf = (sections: AfkSection[]): number => sections.reduce((count, section) => count + section.entries.length, 0);
+
+// needsHim counts what needs him: each step only he could take, and each
+// item that still waits on him in the Command Center.
+export const needsHim = (report: AfkReport): number => countOf(inGroup(report, "needs")) + stillWaiting(report.held).length;
+
 // afkHeadline is the report's first words, in place of a count for every
-// heading: how long he was away, how many things wait on him, and what the
-// CFO merged, deployed, migrated and installed, which is empty when it did
-// none of those. zone and locale are the reader's own unless a test names
+// heading: how long he was away, how many things need him, and what the CFO
+// merged, deployed, migrated, installed and answered, which is empty when it
+// did none of those. zone and locale are the reader's own unless a test names
 // them.
-export function afkHeadline(report: AfkReport, now: number, zone?: string, locale?: string): { away: string; waiting: string; did: string } {
-  const open = stillWaiting(report.held).length;
-  const did = HEADLINED.flatMap(([title, says]) => {
+export function afkHeadline(report: AfkReport, now: number, zone?: string, locale?: string): { away: string; needs: string; did: string } {
+  const open = needsHim(report);
+  const answered = countOf(inGroup(report, "decided"));
+  const did = [...HEADLINED.flatMap(([title, says]) => {
     const count = report.sections.find((section) => section.title === title)?.entries.length ?? 0;
     return count ? [says(count)] : [];
-  });
+  }), ...answered ? ["answered " + counted(answered, "question", "questions")] : []];
   return {
     away: "You were away " + report.lasted + ", from " + afkTime(report.since, now, zone, locale) + " to " + afkTime(report.ended, now, zone, locale) + ".",
-    waiting: open ? counted(open, "thing waits", "things wait") + " on you." : "Nothing waits on you.",
+    needs: open ? counted(open, "thing needs", "things need") + " you." : "Nothing needs you.",
     did: did.length ? "The CFO " + listed(did) + "." : "",
   };
+}
+
+// askedAndAnswered is a goblin's question the CFO answered as the recap says
+// it, from the log's words for it, "asked: <question> answered: <answer>":
+// the question without its details, which start at its first "- " line, the
+// page it names or the bold its asker marked, and the first sentence of the
+// answer, which leads with the choice.
+export function askedAndAnswered(evidence: string): { question: string; answer: string } {
+  const said = evidence.replace(/^asked: /, "");
+  const at = said.indexOf(" answered: ");
+  const asked = at < 0 ? said : said.slice(0, at);
+  const answered = at < 0 ? "" : said.slice(at + " answered: ".length).trim();
+  return {
+    question: asked.split(/\s- /)[0].replace(/\s*\(page \S+\)\s*$/, "").replaceAll("**", "").trim(),
+    answer: /^.*?[.!?](?=\s|$)/.exec(answered)?.[0] ?? answered,
+  };
+}
+
+// byRepository is pull requests as the recap lists them, one line to a
+// repository in the order each first came, each pull request by its number.
+// A link that is no pull request is a line of its own, with none.
+export function byRepository(urls: string[]): { repository: string; pulls: { url: string; number: string }[] }[] {
+  const lines: { repository: string; pulls: { url: string; number: string }[] }[] = [];
+  for (const url of urls) {
+    const match = /\/([^/]+)\/pull\/(\d+)/.exec(url);
+    const line = match && lines.find((one) => one.repository === match[1] && one.pulls.length > 0);
+    if (!match) lines.push({ repository: url, pulls: [] });
+    else if (line) line.pulls.push({ url, number: "#" + match[2] });
+    else lines.push({ repository: match[1], pulls: [{ url, number: "#" + match[2] }] });
+  }
+  return lines;
+}
+
+// linkLabel is what a link in the recap says: a pull request by its
+// repository and number, a workflow run, a Scrawl page, or the site.
+export function linkLabel(url: string): string {
+  if (/\/pull\/\d+/.test(url)) return pullRequestLabel(url);
+  if (/\/actions\/runs\/\d+/.test(url)) return "Run";
+  if (/\/session\/[0-9a-f]+/.test(url)) return "Scrawl page";
+  return new URL(url).hostname;
 }
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
@@ -290,32 +349,21 @@ export function offerFor(afk: Afk, lastTouch: number, now: number): Occasion {
 // anything else: the log's words are an agent's, never a script to run.
 export const safeLink = (url: string): string => /^https:\/\/[^\s]+$/i.test(url) ? url : "";
 
-// decisionSays is one decision as the report lists it: whose and what, the
-// link it opens, how it ended, and what it stood on. A pull request logged by
-// its link is named the way a person would say it. An answer is logged under
-// its question's id, which tells a reader nothing, so its goblin names it and
-// the question and the answer, which are its evidence, follow as two
-// sentences. A merge that did not land says what the CFO did about it in a
-// sentence of its own, happened, and what became of it before its evidence,
-// since a word given is not a merge made. A line left for him adds what was
-// found wrong and what was tried, and a struck line leads with why the CFO
-// struck it; a strike of an earlier stretch's line carries only that reason.
-// A decision the CFO answered for him is a short recap, answered: its answer
-// and where he changes it, with nothing of what it stood on, which its
-// question in History carries.
-export function decisionSays(entry: AfkDecision): { text: string; href: string; outcome: string; happened: string; answered: string; basis: string } {
-  const answered = entry.kind === "answer" && entry.task !== "";
-  const isForHim = entry.kind === "left" && entry.answer !== "" && !entry.struck;
-  const what = safeLink(entry.what) && /\/pull\/\d+/.test(entry.what) ? pullRequestLabel(entry.what) : entry.what;
+// decisionSays is what a line of the recap opens and what it stood on, which
+// its Evidence shows. A merge that did not land says what the CFO did about
+// it in a sentence of its own, happened, and what became of it before its
+// evidence, since a word given is not a merge made. An answer to a goblin's
+// question has the question and the answer as its evidence, as two
+// sentences. A decision the CFO answered in his place adds what was found
+// wrong and what was tried, and a struck line leads with why the CFO struck
+// it: a strike of an earlier stretch's line carries only that reason.
+export function decisionSays(entry: AfkDecision): { href: string; happened: string; basis: string } {
   const isNotLanded = notLanded(entry);
   return {
-    text: answered ? entry.task : (entry.task ? entry.task + ": " : "") + what,
     href: safeLink(entry.link) || safeLink(entry.what),
-    outcome: isNotLanded ? "" : entry.outcome,
     happened: isNotLanded ? didSays(entry) : "",
-    answered: isForHim ? "The CFO answered: " + entry.answer.replace(/\.$/, "") + ". You can change it in History." : "",
     // The log words an answer as "asked: ... answered: ...".
-    basis: answered ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : isNotLanded ? notLandedSays(entry.outcome) + " Evidence: " + entry.evidence : isForHim ? "" : basisOf(entry),
+    basis: entry.kind === "answer" ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : isNotLanded ? notLandedSays(entry.outcome) + " Evidence: " + entry.evidence : basisOf(entry),
   };
 }
 
@@ -324,10 +372,9 @@ export function decisionSays(entry: AfkDecision): { text: string; href: string; 
 export const notLanded = (entry: AfkDecision): boolean => !entry.struck && entry.kind === "merge" && entry.outcome !== "merged";
 
 // didSays is what the CFO did about a merge that did not land: what it wrote
-// of it, or that it logged nothing. One it left for him says so beside the
-// question he is asked, and a line the CFO wrote that names no merge is its
-// own and says nothing more.
-const didSays = (entry: AfkDecision): string => entry.noted ? "The CFO: " + entry.noted : entry.asked || entry.link && entry.link !== entry.what ? "" : "The CFO logged nothing about it.";
+// of it, or that it logged nothing. A line the CFO wrote that names no merge
+// is its own and says nothing more.
+const didSays = (entry: AfkDecision): string => entry.noted ? "The CFO: " + entry.noted : entry.link && entry.link !== entry.what ? "" : "The CFO logged nothing about it.";
 
 // notLandedSays is what became of a merge that did not land, in one sentence:
 // how it ended, as the log holds it, or that no merge was recorded.
@@ -337,8 +384,8 @@ function notLandedSays(outcome: string): string {
 }
 
 // basisOf is what a decision stood on, as sentences: why it was struck, what
-// the CFO wrote of a merge, its evidence, and for a line left for him what was
-// found and tried.
+// the CFO wrote of a merge, its evidence, and for a decision the CFO answered
+// in his place what was found and tried.
 function basisOf(entry: AfkDecision): string {
   const sentence = (label: string, text: string) => text ? label + ": " + text.replace(/\.$/, "") + "." : "";
   if (entry.kind === "strike") return sentence("Struck", entry.struck);

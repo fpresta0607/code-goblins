@@ -17,22 +17,15 @@ const HELD = [
   { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it" },
   { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path", recommendation: "Hold it" },
 ];
-// What the stretch left for him, each the CFO's question in the Command
-// Center once AFK mode turned off: his own sign-in, and one the CFO settled,
-// which was never asked.
-const left = (id: string, what: string, fields: Record<string, unknown> = {}) => ({ item: "question:" + id, task: "", what, at: "2026-10-02T06:12:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "", settled: "", ...fields });
-const LEFT = [
-  left("afk-left-20261002T061200.000000000Z", "Sign in to Vercel for nw-search-index", { recommendation: "I will sign in" }),
-  left("afk-left-20261002T064000.000000000Z", "Finish or abort the parked gate run", { at: "2026-10-02T06:40:00Z", waiting: false, now: "settled by the CFO: the run finished on its own", settled: "the run finished on its own" }),
-];
 // A decision the CFO answered itself while he was away: settled when AFK mode
-// turned off, so it is in History with the CFO's answer, the report recaps it
-// under Answered for you, and it never waits on him.
-const DECIDED = { at: "2026-10-02T05:00:00Z", kind: "left", what: "Which fallback does the gate policy take?", evidence: "the machine config and the policy disagree", diagnosis: "the two name different models", tried: "read both", answer: "Drop it from the machine config" };
+// turned off, so it is in History with the CFO's answer, the recap lists it
+// under Decided for you with Change, and it never waits on him.
+const DECIDED = { at: "2026-10-02T05:00:00Z", kind: "left", what: "Which fallback does the gate policy take?", evidence: "the machine config and the policy disagree", diagnosis: "the two name different models", tried: "read both", answer: "Drop it from the machine config", item: "question:afk-left-20261002T050000.000000000Z" };
 const LEFT_QUESTIONS = [
   { id: "afk-left-20261002T050000.000000000Z", text: "Which fallback does the gate policy take?\n- Evidence: the machine config and the policy disagree", options: ["Drop it from the machine config", "Take it into the policy"], recommended: "", status: "succeeded", answer: "Drop it from the machine config", answer_kind: "option", answered_option: "Drop it from the machine config", answered_by: "cfo", answered_away: true, answered_at: "2026-10-02T05:00:00Z", task: "", generation: "", created_at: "2026-10-02T05:00:00Z" },
-  { id: "afk-left-20261002T061200.000000000Z", text: "Sign in to Vercel for nw-search-index\n- Why it is yours: his own sign-in", options: ["I will sign in", "Skip Vercel for now"], recommended: "I will sign in", status: "pending", task: "", generation: "", created_at: new Date(Date.now() - 60_000).toISOString() },
 ];
+// A step only he can take, which the CFO logged as one plain line for him.
+const HIS_STEP = { at: "2026-10-02T06:12:00Z", kind: "his", what: "Sign in to Vercel for nw-search-index", evidence: "Vercel asks for his own sign-in in a browser. Backlog row nw-vercel-sign-in" };
 let revision = 0;
 const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: ++revision, attention: [], tasks: TASKS, sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }], ...fields });
 // AFK mode on since a moment ago unless ago says how long, so a test that is
@@ -42,15 +35,17 @@ const KEPT = { state: "off", report: "afk-20261002T034000.000Z" };
 const REPORT = {
   found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
   sections: [
-    { title: "Answered for you", entries: [DECIDED] },
-    { title: "Merged", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
-    { title: "Not merged", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
-    { title: "Answered for goblins", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180" }] },
-    { title: "Other decisions", entries: [{ at: "2026-10-02T05:00:00Z", kind: "other", what: "Restarted the dev server", link: "javascript:alert(1)", evidence: "it had stopped answering" }] },
-    { title: "Paused at a floor", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
+    { title: "Not merged", group: "done", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
+    { title: "Deployed", group: "done", entries: [{ at: "2026-10-02T04:40:00Z", kind: "deploy", what: "northwind-api production at 3f9c2ab: pull request 412, a login is rate limited", link: "https://github.com/northwind/northwind-api/actions/runs/38270621823", evidence: "Deploy to Production run 38270621823 passed, and /health reads 3f9c2ab" }] },
+    { title: "Merged", group: "done", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
+    { title: "Other", group: "done", entries: [{ at: "2026-10-02T05:00:00Z", kind: "other", what: "Restarted the dev server", link: "javascript:alert(1)", evidence: "it had stopped answering" }] },
+    { title: "Paused at a floor", group: "done", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
+    { title: "For you", group: "decided", entries: [DECIDED] },
+    { title: "For the goblins", group: "decided", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180", item: "question:notify-nw-invoice-export-12" }] },
+    { title: "Needs you", group: "needs", entries: [HIS_STEP] },
   ],
-  finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }],
-  held: [LEFT[0], HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }, LEFT[1]],
+  finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }, { task: "nw-checkout-tax", pr: "https://github.com/northwind/northwind-api/pull/420", at: "2026-10-02T11:30:00Z" }],
+  held: [HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }],
   spent: [
     { provider: "claude", window: "week", on: 41, off: 49 },
     { provider: "claude", window: "session", on: 42, off: 3, reset: true },
@@ -248,7 +243,7 @@ test("Turn AFK off says it is working until the supervisor answers", async ({ pa
   await expect(working.locator(".card-start-spinner")).toBeVisible();
   answer();
   await expect(offer(page)).toHaveCount(0);
-  await expect(report(page)).toContainText("AFK report");
+  await expect(report(page)).toContainText("AFK recap");
 });
 
 // The Overlord, 2026-10-08: "held for you in afk mode not needed it should
@@ -387,7 +382,7 @@ test("his first click after he has been gone still does what he meant and offers
   // The supervisor keeps the report before it answers, so the report shows
   // as soon as it answers, whenever the board's next snapshot comes.
   await expect(offer(page)).toHaveCount(0);
-  await expect(report(page)).toContainText("AFK report");
+  await expect(report(page)).toContainText("AFK recap");
   await expect(report(page)).toContainText("8h25m");
   await push(page, snapshot({ questions: QUESTIONS, afk: KEPT }));
   await expect(report(page)).toHaveCount(1);
@@ -409,7 +404,7 @@ test("turning AFK off from the toggle shows the report as soon as the supervisor
   // when the snapshot says so.
   await push(page, snapshot({ afk: on() }));
   await push(page, snapshot({ afk: { ...KEPT, report: "afk-20261002T130000.000Z" } }));
-  await expect(report(page)).toContainText("AFK report");
+  await expect(report(page)).toContainText("AFK recap");
 });
 
 test("a press on the toggle itself is his answer, so it offers nothing", async ({ page }) => {
@@ -493,128 +488,109 @@ test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it o
   supervisor.refuses = false;
   await switched.getByRole("button", { name: "Turn AFK off" }).click();
   await expect(switched).toHaveCount(0);
-  await expect(report(page)).toContainText("AFK report");
+  await expect(report(page)).toContainText("AFK recap");
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([false, false]);
 });
 
-// The Overlord, 2026-10-09: "at the top of the report I don't like all these
-// little grid boxes" and "all these left for you should be presented basically
-// the same as held for you". The report opens on a headline in plain words
-// beside Go through them, then For you lists what was held or left for him
-// that still waits, each as it stands now, and what was settled folds under
-// it. What the CFO did follows, a drawer to a heading that holds something.
-test("the report opens on a plain headline and Go through them, lists what was held or left for him as it stands now, and folds what the CFO did into drawers", async ({ page }) => {
-  await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
-  // A page that opens after AFK mode turned off shows no report by itself.
-  await expect(report(page)).toHaveCount(0);
-  await openCfoPanel(page);
-  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-  const title = report(page).locator(".afk-report-title");
-  await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 2 things wait on you\. The CFO merged 1 pull request\.$/);
-  await expect(title).toContainText("Turned on from your board, off from your terminal.");
-  // No grid of counts: the few that matter are in the headline.
-  await expect(report(page).locator(".afk-tally")).toHaveCount(0);
-  await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveClass(/primary/);
-  // Coming back he reads what is for him before what was done.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["For you", "Settled", "Answered for you", "Merged", "Not merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
-  await expect(report(page).getByRole("group", { name: "What the CFO did" }).locator("h3")).toHaveText("What the CFO did");
+// The Overlord, 2026-10-12: "I think in AFK mode, you should just answer
+// everything and then just tell me what you've done. Like a very clean, easy
+// to understand ... recap. Almost like a [Scrawl] page ... inside that little
+// modal", approved as shown on its page. The recap opens on a headline in
+// plain words, then reads Done, Decided for you and, last, Needs you. Each
+// line says what was done or decided in plain words with its link, and what
+// it stood on opens under it at a tap on its Evidence, never inline.
+for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }], ["on a phone", { width: 390, height: 844 }]] as const) {
+  test(`${where} the recap reads Done, Decided for you and Needs you in order, each line in plain words with its evidence behind a tap`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize(viewport);
+    await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
+    // A page that opens after AFK mode turned off shows no recap by itself.
+    await expect(report(page)).toHaveCount(0);
+    await openCfoPanel(page);
 
-  // What was held and what was left for him are one list, each as it stands
-  // now: his own sign-in waits with what the CFO recommends, and a question
-  // held from before still waits. A decision the CFO answered itself is not
-  // for him (the Overlord, 2026-10-12).
-  const forYou = report(page).getByRole("region", { name: "For you", exact: true }).locator("li");
-  await expect(forYou.locator(".inbox-summary")).toHaveText(["Sign in to Vercel for nw-search-index", "Migration 0042 drops the legacy_invoices table. Apply it?"]);
-  await expect(forYou.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: I will sign in.");
-  await expect(forYou.locator(".delivery.uncertain")).toHaveCount(2);
-  await expect(report(page).getByRole("region", { name: "For you", exact: true })).not.toContainText(/The CFO answered|keep or change/);
-  // What became of the rest folds under it, closed until he opens it.
-  const settledSection = report(page).getByRole("region", { name: "Settled" });
-  await expect(settledSection.locator("details.afk-drawer")).not.toHaveAttribute("open");
-  await settledSection.locator("summary").click();
-  await expect(settledSection.locator("li .afk-settled")).toHaveText(["You answered it: Keep it for now. Meanwhile: working: moved on to the refund path.", "Settled by the CFO: the run finished on its own."]);
-  await expect(settledSection.locator("li .delivery.succeeded")).toHaveCount(2);
+    // Act
+    await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
 
-  // The Overlord, 2026-10-08: "really long merged and goblins completed rows
-  // should be collapsed in panel like drawer". Every heading of what the CFO
-  // did is a drawer, closed until he opens it, but what did not merge, which
-  // still needs him.
-  for (const name of ["Answered for you", "Merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished"]) {
-    const section = report(page).getByRole("region", { name, exact: true });
-    await expect(section.locator("details.afk-drawer")).not.toHaveAttribute("open");
-    await expect(section.locator("li")).toHaveCount(0);
-    await section.locator("summary").click();
-    await expect(section.locator("li")).toHaveCount(1);
-  }
-  // What the CFO answered for him is recapped with its answer and where he
-  // changes it, and nothing of what it stood on, which History keeps.
-  const recap = report(page).getByRole("region", { name: "Answered for you" }).locator("li");
-  await expect(recap.locator("strong")).toHaveText("Which fallback does the gate policy take?");
-  await expect(recap.locator(".afk-answered")).toHaveText("The CFO answered: Drop it from the machine config. You can change it in History.");
-  await expect(recap.locator(".afk-evidence")).toHaveCount(0);
-  const notMerged = report(page).getByRole("region", { name: "Not merged" });
-  await expect(notMerged.locator("details")).toHaveCount(0);
-  await expect(notMerged.locator("li strong")).toHaveText("northwind-api #417");
-  await expect(notMerged.locator("li .afk-not-landed")).toHaveText("The CFO logged nothing about it.");
-  await expect(notMerged.locator("li .afk-evidence")).toHaveText("No merge was recorded. Evidence: head 77aa01c; 5 checks completed green");
-  await expect(report(page).getByRole("region", { name: "Goblins finished" })).toContainText("nw-login-rate");
-  const merged = report(page).getByRole("region", { name: "Merged", exact: true }).locator("li");
-  await expect(merged).toContainText("northwind-api #412: merged");
-  await expect(merged).toContainText("Evidence: head 3f9c2ab; 5 checks completed green");
-  await expect(merged.getByRole("link", { name: "northwind-api #412" })).toHaveAttribute("href", "https://github.com/northwind/northwind-api/pull/412");
-  await expect(merged.getByRole("link")).toHaveAttribute("target", "_blank");
-  const answered = report(page).getByRole("region", { name: "Answered for goblins" }).locator("li");
-  await expect(answered.locator("strong")).toHaveText("nw-invoice-export");
-  await expect(answered).toContainText("Asked: Which CSV dialect? Answered: RFC 4180");
-  // A link that is no web link is words, never something to open.
-  const other = report(page).getByRole("region", { name: "Other decisions" });
-  await expect(other).toContainText("Restarted the dev server");
-  await expect(other.getByRole("link")).toHaveCount(0);
-  // A goblin the supervisor paused at the memory floor wears the pause mark,
-  // with the readings the pause stood on.
-  const paused = report(page).getByRole("region", { name: "Paused at a floor" }).locator("li");
-  await expect(paused.locator("strong")).toHaveText("nw-search-index: at the memory floor: paused");
-  await expect(paused).toContainText("Evidence: 3.1 GB of memory and 8.0 GB of commit free on two readings in a row");
-  await expect(paused.locator(".delivery path")).toHaveAttribute("d", "M8 5v14M16 5v14");
+    // Assert: the headline, then the three parts in order.
+    const title = report(page).locator(".afk-report-title");
+    await expect(title.locator("h2")).toHaveText("AFK recap");
+    await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 2 things need you\. The CFO merged 1 pull request, made 1 deploy and answered 2 questions\.$/);
+    await expect(title).toContainText("Turned on from your board, off from your terminal.");
+    await expect(report(page).locator(".afk-part > h3")).toHaveText(["Done", "Decided for you", "Needs you"]);
+    const groups = (part: string) => report(page).getByRole("region", { name: part, exact: true }).locator(".afk-group").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
+    expect(await groups("Done")).toEqual(["Not merged", "Deployed", "Merged", "Other", "Paused at a floor", "Also finished", "Spent", "Settled"]);
+    expect(await groups("Decided for you")).toEqual(["For you", "For the goblins"]);
+    // Nothing of what a line stood on shows until he asks for it.
+    await expect(report(page).locator(".afk-row-evidence")).toHaveCount(0);
+    await expect(report(page).locator(".afk-evidence-toggle[aria-expanded='true']")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`recap-${viewport.width}.png`) });
 
-  // The Overlord, 2026-10-08: "dont need to show 5 hour limit make it simpler
-  // like how much is left in weekly limits only and credits only iff used".
-  // Spent is a row for each weekly limit and each credit balance spent: its
-  // mark, its name, a bar with what was used before AFK in gray and what AFK
-  // used in green under a green arrow from where it stood to where it ended,
-  // what is left, and how much AFK used. Claude's five-hour session is not
-  // shown, and a reading not taken shows no line saying it was not.
-  const spentSection = report(page).getByRole("region", { name: "Spent" });
-  await expect(spentSection.locator("h3 .afk-spent-legend")).toHaveText("Before AFK While AFK Left");
-  const spent = spentSection.locator("li");
-  await expect(spent).toHaveText(["Claude weekly limit51% leftAFK used 8%", "Codex weekly limit96% left", "Codex credits12.5 credits spent"]);
-  await expect(spent.nth(0).getByRole("img", { name: "Claude weekly limit: 51% left, from 41% to 49% used while AFK was on" })).toBeVisible();
-  await expect(spent.nth(0).locator(".afk-spent-before")).toHaveAttribute("style", "width: 41%;");
-  await expect(spent.nth(0).locator(".afk-spent-used")).toHaveAttribute("style", "left: 41%; width: 8%;");
-  await expect(spent.nth(0).locator(".afk-spent-arrow")).toHaveAttribute("style", "left: 41%; width: 8%;");
-  await expect(spent.nth(0).locator(".afk-spent-change.used")).toHaveText("AFK used 8%");
-  // Read only when AFK turned off, the Codex limit shows what is left and no
-  // bar: what it used before AFK and while it was on cannot be told apart.
-  await expect(spent.nth(1).getByRole("img")).toHaveCount(0);
-  await expect(spent.nth(1).locator(".afk-spent-change")).toHaveCount(0);
-  await expect(spent.nth(2).getByRole("img")).toHaveCount(0);
-  expect(await spentSection.evaluate((section) => section.textContent)).not.toMatch(/not read|session|5-hour|five/i);
-  // Go through them is the report's one button: nothing sits at its bottom.
-  await expect(report(page).locator(".afk-report-actions")).toHaveCount(0);
-  await expect(report(page).getByRole("button", { name: /Command Center|Back to the board/ })).toHaveCount(0);
-});
+    // Done, in plain words with each line's link: what went live in the
+    // CFO's words with its run, what merged on its repository's line with
+    // each pull request a link, and what a goblin finished that did not merge.
+    const done = report(page).getByRole("region", { name: "Done", exact: true });
+    const deployed = done.getByRole("region", { name: "Deployed" }).locator("li");
+    await expect(deployed.locator(".afk-row-what")).toHaveText("northwind-api production at 3f9c2ab: pull request 412, a login is rate limited");
+    await expect(deployed.getByRole("link", { name: "Run" })).toHaveAttribute("href", "https://github.com/northwind/northwind-api/actions/runs/38270621823");
+    const merged = done.getByRole("region", { name: "Merged", exact: true }).locator("li");
+    await expect(merged.locator(".afk-row-what")).toHaveText("northwind-api");
+    await expect(merged.getByRole("link", { name: "#412" })).toHaveAttribute("href", "https://github.com/northwind/northwind-api/pull/412");
+    await expect(merged.getByRole("link", { name: "#412" })).toHaveAttribute("target", "_blank");
+    await expect(done.getByRole("region", { name: "Also finished" }).getByRole("link", { name: "#420" })).toBeVisible();
+    const notMerged = done.getByRole("region", { name: "Not merged" }).locator("li");
+    await expect(notMerged.locator(".afk-row-detail")).toHaveText("The CFO logged nothing about it.");
+    // A link that is no web link is words, never something to open.
+    await expect(done.getByRole("region", { name: "Other" }).getByRole("link")).toHaveCount(0);
+    await expect(done.getByRole("region", { name: "Paused at a floor" }).locator(".afk-row-what")).toHaveText("nw-search-index paused at the memory floor");
 
-test("with nothing for him still waiting, the report has no Go through them and no For you, what was settled folds, and with nothing used it has no Spent", async ({ page }) => {
+    // Decided for you: each answer with Change, which opens it in History.
+    const decided = report(page).getByRole("region", { name: "Decided for you" });
+    const forYou = decided.getByRole("region", { name: "For you", exact: true }).locator("li");
+    await expect(forYou.locator(".afk-row-what")).toHaveText("Which fallback does the gate policy take?");
+    await expect(forYou.locator(".afk-row-detail")).toHaveText("The CFO answered: Drop it from the machine config");
+    await expect(forYou.getByRole("button", { name: "Change" })).toBeVisible();
+    const forGoblins = decided.getByRole("region", { name: "For the goblins" }).locator("li");
+    await expect(forGoblins.locator(".afk-row-what")).toHaveText("Which CSV dialect?");
+    await expect(forGoblins.locator(".afk-row-detail")).toHaveText("The CFO answered nw-invoice-export: RFC 4180");
+
+    // Needs you, last: the step only he can take, then what still waits on
+    // him in the Command Center, each one line in the box of what waits.
+    const needs = report(page).getByRole("region", { name: "Needs you" }).locator("li");
+    await expect(needs.locator(".afk-row-what")).toHaveText(["Sign in to Vercel for nw-search-index", "Migration 0042 drops the legacy_invoices table. Apply it?"]);
+    await expect(needs.nth(1).getByRole("button", { name: "Answer" })).toBeVisible();
+    await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveClass(/primary/);
+
+    // Act: he taps a line's Evidence, then taps it again.
+    const toggle = merged.getByRole("button", { name: "Evidence" });
+    await toggle.click();
+
+    // Assert: what the line stood on opens under it, and only there.
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(merged.locator(".afk-row-evidence")).toHaveText("#412 by nw-login-rate: Evidence: head 3f9c2ab; 5 checks completed green");
+    await expect(report(page).locator(".afk-row-evidence")).toHaveCount(1);
+    await toggle.click();
+    await expect(merged.locator(".afk-row-evidence")).toHaveCount(0);
+    await needs.first().getByRole("button", { name: "Evidence" }).click();
+    await expect(needs.first().locator(".afk-row-evidence")).toHaveText("Vercel asks for his own sign-in in a browser. Backlog row nw-vercel-sign-in");
+    expect(await fits(page)).toBe(true);
+  });
+}
+
+test("with nothing that needs him the recap has no Go through them and no Needs you, what was settled folds, and with nothing used it has no Spent", async ({ page }) => {
   await open(page, snapshot({ afk: KEPT }));
-  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [REPORT.held[2], LEFT[1]], spent: [] } }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: REPORT.sections.filter((section) => section.group !== "needs"), held: [REPORT.held[1]], spent: [] } }));
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-  await expect(report(page).locator(".afk-headline")).toContainText("Nothing waits on you.");
+  await expect(report(page).locator(".afk-headline")).toContainText("Nothing needs you.");
   await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveCount(0);
-  await expect(report(page).getByRole("region", { name: "For you", exact: true })).toHaveCount(0);
-  await expect(report(page).getByRole("region", { name: "Settled" }).locator("summary")).toHaveText("Settled 2");
+  await expect(report(page).getByRole("region", { name: "Needs you" })).toHaveCount(0);
+  const settledGroup = report(page).getByRole("region", { name: "Settled" });
+  await expect(settledGroup.locator("summary")).toHaveText("Settled 1");
+  await expect(settledGroup.locator("li")).toHaveCount(0);
+  await settledGroup.locator("summary").click();
+  await expect(settledGroup.locator("li .afk-row-detail")).toHaveText("You answered it: Keep it for now. Meanwhile: working: moved on to the refund path.");
   await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
-  await report(page).getByRole("button", { name: "Close the report" }).click();
+  await report(page).getByRole("button", { name: "Close the recap" }).click();
   await expect(report(page)).toHaveCount(0);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await page.keyboard.press("Escape");
@@ -683,7 +659,7 @@ test("free disk is the only row under Spent when no allowance was used, and has 
 
   // Assert
   await expect(report(page).getByRole("region", { name: "Spent" }).locator("li")).toHaveText(["Disk (C:)337.0 GB freeAFK used 3.5 GB"]);
-  await report(page).getByRole("button", { name: "Close the report" }).click();
+  await report(page).getByRole("button", { name: "Close the recap" }).click();
   // A report with no disk reading, as the supervisor sends one read at one end.
   await page.route("**/api/afk/report", (route) => route.fulfill({ json: REPORT }));
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
@@ -692,17 +668,13 @@ test("free disk is the only row under Spent when no allowance was used, and has 
   expect(await spent.evaluate((section) => section.textContent)).not.toMatch(/disk/i);
 });
 
-// The Overlord, 2026-10-09: "If I have all these left for me, why are they not
-// presented in the Command Center?", and 2026-10-12: "Anything the CFO has
-// already answered should not appear as a [line] for you ... It should just be
-// something that was already ... settled in history, the command center".
-// Go through them opens the Command Center on what still waits from the
-// stretch, and only that, in the report's order: his own sign-in opens with
-// nothing checked, an answer sent moves on to the next, and Back shows it again
-// with his answer checked. The decision the CFO answered itself is not among
-// them: it is in History as the CFO's answer while he was away, where Change
-// answer sends his change once.
-test("Go through them steps through only what still waits from the stretch, and what the CFO answered is in History to change", async ({ page }, testInfo) => {
+// The Overlord, 2026-10-12: "Anything the CFO has already answered should not
+// appear as a [line] for you ... It should just be something that was already
+// ... settled in history, the command center". Go through them opens the
+// Command Center on what still waits on him from the stretch, and only that.
+// Change on a decision the CFO answered opens it in History, marked as given
+// while he was away, where Change answer sends his change once.
+test("Go through them steps through only what still waits from the stretch, and Change opens the CFO's answer in History to change", async ({ page }) => {
   const sent: Record<string, unknown>[] = [];
   // A question the CFO asked him after AFK mode ended waits beside the
   // stretch's, and is not among them.
@@ -720,48 +692,29 @@ test("Go through them steps through only what still waits from the stretch, and 
   // Act: he goes through them.
   await report(page).getByRole("button", { name: "Go through them" }).click();
 
-  // Assert: the Command Center opens on his sign-in, with only the stretch's
-  // two that wait in its stack: not the CFO's answer, and not the question
-  // asked after the stretch.
+  // Assert: the Command Center opens on the question held from before, the
+  // only one of the stretch's that waits: not the CFO's answer, and not the
+  // question asked after the stretch.
   await expect(report(page)).toHaveCount(0);
   const dialog = page.locator("dialog.question-modal");
   await expect(dialog.locator(".from-afk")).toHaveText("From your AFK stretch");
-  await expect(dialog.locator(".stack-count")).toHaveText("1 of 2");
-  await expect(dialog.locator(".question-body")).toContainText("Sign in to Vercel for nw-search-index");
-  await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Send decision" })).toBeDisabled();
-
-  // Act: he answers it.
-  await dialog.getByRole("radio", { name: /I will sign in/ }).check();
-  await dialog.getByRole("button", { name: "Send decision" }).click();
-
-  // Assert: his answer is sent to the CFO and the last of the two follows.
-  // Back shows his answer checked, with the other choice open to choose.
-  await expect.poll(posted).toEqual([["cfo_answer", LEFT_QUESTIONS[1].id, "I will sign in"]]);
+  await expect(dialog.locator(".stack-pager")).toHaveCount(0);
   await expect(dialog.locator(".question-body")).toContainText("Migration 0042 drops the legacy_invoices table. Apply it?");
-  await expect(dialog.locator(".stack-count")).toHaveText("2 of 2");
-  await dialog.getByRole("button", { name: "Back" }).click();
-  await expect(dialog.locator(".done-card")).toHaveCount(0);
-  await expect(dialog.getByRole("radio", { name: /I will sign in/ })).toBeChecked();
-  await expect(dialog.getByRole("radio", { name: /Skip Vercel for now/ })).toBeEnabled();
-
-  // History holds the CFO's answer, marked as given while he was away, and
-  // takes his change once.
+  await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
-  await page.locator(".command-center-menu > summary").click();
-  const inbox = page.locator(".command-center-updates");
-  await expect(inbox.getByRole("region", { name: "Waiting on you" })).not.toContainText("Which fallback does the gate policy take?");
-  await inbox.getByText("History").click();
-  const row = inbox.locator(".inbox-history li").filter({ hasText: "Which fallback does the gate policy take?" });
-  await expect(row.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
-  await expect(row).toContainText("The CFO chose Drop it from the machine config");
-  await inbox.screenshot({ path: testInfo.outputPath("history-after-afk.png") });
-  await row.getByRole("button", { name: /^Change the answer to The CFO: Which fallback does the gate policy take\?/ }).click();
+
+  // Act: he changes the CFO's answer from the recap.
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await report(page).getByRole("region", { name: "For you", exact: true }).getByRole("button", { name: "Change" }).click();
+
+  // Assert: its card in History opens with the CFO's answer checked, given
+  // while he was away, and takes his change once.
+  await expect(report(page)).toHaveCount(0);
   await expect(dialog.getByRole("radio", { name: "Drop it from the machine config" })).toBeChecked();
   await expect(dialog.locator(".answered-by")).toHaveText(/^The CFO chose this while you were away · /);
   await dialog.getByRole("radio", { name: "Take it into the policy" }).check();
   await dialog.getByRole("button", { name: "Change answer" }).dblclick();
-  await expect.poll(posted).toEqual([["cfo_answer", LEFT_QUESTIONS[1].id, "I will sign in"], ["answer_change", LEFT_QUESTIONS[0].id, "Take it into the policy"]]);
+  await expect.poll(posted).toEqual([["answer_change", LEFT_QUESTIONS[0].id, "Take it into the policy"]]);
 });
 
 test("a switch that cannot be read is shown off, its tip says how to reset it, and what waits on him still leads", async ({ page }) => {
@@ -837,62 +790,46 @@ test.describe("in the desktop window", () => {
 
   // The Overlord, 2026-10-10, of his report's second merge group, whose 36
   // rows had all merged: "is this an error why is emrged nto one group
-  // category". A line the CFO wrote for a landing is with the merge it names,
-  // so what merged is one Merged group with no warning, each pull request with
-  // what the CFO wrote of it, and the one warning is a merge that did not land,
-  // open under Not merged. Before 01:47Z, when he approved the pictures, he
-  // asked: "if any issues exists like not merged that would be somethign cheif
-  // would solve?? or for overlord to decie on". It is the CFO's to see to, so
-  // each says what the CFO did about it, and one it left for him opens his
-  // question in the Command Center.
-  test("what merged is one Merged group with no warning, and only a merge that did not land warns, saying what the CFO did about it", async ({ page }, testInfo) => {
+  // category". What merged is one line to its repository with no warning, and
+  // the one warning is a merge that did not land, which the CFO sees to, so
+  // each says what the CFO did about it, and one only he can take says it
+  // needs him.
+  test("what merged is one line to its repository with no warning, and only a merge that did not land warns, saying what the CFO did about it", async ({ page }, testInfo) => {
     // Arrange
     const pull = (number: number) => "https://github.com/fpresta0607/code-goblins/pull/" + number;
     const wrote = "PR 561 (the CFO's home goes to the CFO's own session alone) and PR 560 (his own window and browser always switch AFK) landed on merge train 567. Each was green on its own run (15 of 15) and both were tested together on the train branch in one CI run.";
     const landed = (number: number) => ({ at: "2026-10-10T01:47:40Z", kind: "merge", what: pull(number), link: pull(number), evidence: "merge train code-goblins-20261010-012749: CI passed on " + pull(567) + " at a1380d3, built on main at e349d37", outcome: "merged", noted: wrote });
     const failed = { at: "2026-10-10T19:30:00Z", kind: "merge", what: pull(672), link: pull(672), evidence: "verified: 15 of 15 CI checks green at 4b1c2d3 on current main", outcome: "not merged: gh exited 1: GraphQL: Pull Request is not mergeable (mergePullRequest)" };
     const sentBack = { ...failed, what: pull(673), link: pull(673), noted: "Sent it back to Kiki to merge main in. Its head was behind main." };
-    const leftFor = { ...failed, what: pull(674), link: pull(674), asked: "question:afk-left-20261010T193500.000000000Z" };
-    const asked = { id: "afk-left-20261010T193500.000000000Z", text: "Merge code-goblins #674 past its failing check?\n- Evidence: the check fails on main too", options: ["Hold it", "Merge it"], recommended: "Hold it", status: "pending", task: "", generation: "", created_at: new Date(Date.now() - 60_000).toISOString() };
-    const held = { item: "question:" + asked.id, task: "", what: "Merge code-goblins #674 past its failing check?", at: "2026-10-10T19:35:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it", settled: "" };
-    await open(page, snapshot({ questions: [asked], afk: KEPT }));
-    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [held], sections: [{ title: "Merged", entries: [landed(561), landed(560)] }, { title: "Not merged", entries: [failed, sentBack, leftFor] }, REPORT.sections.find((section) => section.title === "Answered for goblins")!] } }));
+    const teammates = { ...failed, what: pull(674), link: pull(674), noted: "It needs you: Merge code-goblins #674, a teammate's pull request." };
+    await open(page, snapshot({ afk: KEPT }));
+    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [], sections: [{ title: "Not merged", group: "done", entries: [failed, sentBack, teammates] }, { title: "Merged", group: "done", entries: [landed(561), landed(560)] }, REPORT.sections.find((section) => section.title === "For the goblins")!] } }));
     await openCfoPanel(page);
 
     // Act
     await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-    const merged = report(page).getByRole("region", { name: "Merged", exact: true });
-    await merged.locator("summary").click();
 
     // Assert
-    await expect(merged.locator("li")).toHaveCount(2);
-    await expect(merged.locator(".delivery.uncertain")).toHaveCount(0);
-    await expect(merged.locator("li .afk-not-landed")).toHaveCount(0);
-    await expect(merged.locator("li strong")).toHaveText(["code-goblins #561: merged", "code-goblins #560: merged"]);
-    for (const row of await merged.locator("li .afk-evidence").all()) await expect(row).toContainText(/^The CFO: PR 561 \(the CFO's home goes to the CFO's own session alone\) and PR 560 .+ Evidence: merge train code-goblins-20261010-012749/);
+    const merged = report(page).getByRole("region", { name: "Merged", exact: true });
+    await expect(merged.locator("li")).toHaveCount(1);
+    await expect(merged.locator(".afk-row.warning")).toHaveCount(0);
+    await expect(merged.locator(".afk-row-what")).toHaveText("code-goblins");
+    await expect(merged.locator(".afk-pulls a")).toHaveText(["#561", "#560"]);
+    await merged.getByRole("button", { name: "Evidence" }).click();
+    await expect(merged.locator(".afk-row-evidence")).toContainText(/^#561 The CFO: PR 561 \(the CFO's home goes to the CFO's own session alone\) and PR 560 .+ Evidence: merge train code-goblins-20261010-012749/);
     const notMerged = report(page).getByRole("region", { name: "Not merged" });
-    await expect(notMerged.locator("details")).toHaveCount(0);
-    await expect(notMerged.locator("li strong")).toHaveText(["code-goblins #672", "code-goblins #673", "code-goblins #674"]);
-    await expect(notMerged.locator("li .afk-not-landed")).toHaveText(["The CFO logged nothing about it.", "The CFO: Sent it back to Kiki to merge main in. Its head was behind main.", "Left for you: Merge code-goblins #674 past its failing check? Answer it"]);
-    await expect(notMerged.locator("li .afk-evidence").first()).toHaveText("Not merged: gh exited 1: GraphQL: Pull Request is not mergeable (mergePullRequest). Evidence: verified: 15 of 15 CI checks green at 4b1c2d3 on current main");
-    await expect(report(page).locator(".afk-decisions .delivery.uncertain")).toHaveCount(3);
-    await expect(notMerged.locator(".delivery.uncertain")).toHaveCount(3);
-    for (const text of await notMerged.locator("li .inbox-text").all()) expect(await text.evaluate((element) => {
+    await expect(notMerged.locator("li .afk-row-what")).toHaveText(["code-goblins #672", "code-goblins #673", "code-goblins #674"]);
+    await expect(notMerged.locator("li .afk-row-detail")).toHaveText(["The CFO logged nothing about it.", "The CFO: Sent it back to Kiki to merge main in. Its head was behind main.", "The CFO: It needs you: Merge code-goblins #674, a teammate's pull request."]);
+    await expect(notMerged.locator(".afk-row.warning")).toHaveCount(3);
+    await notMerged.locator("li").first().getByRole("button", { name: "Evidence" }).click();
+    await expect(notMerged.locator("li .afk-row-evidence")).toHaveText("Not merged: gh exited 1: GraphQL: Pull Request is not mergeable (mergePullRequest). Evidence: verified: 15 of 15 CI checks green at 4b1c2d3 on current main");
+    for (const text of await notMerged.locator("li .afk-row-text").all()) expect(await text.evaluate((element) => {
       const box = element.getBoundingClientRect();
       return [...element.children].every((child) => { const part = child.getBoundingClientRect(); return part.left >= box.left - 0.5 && part.right <= box.right + 0.5; });
     })).toBe(true);
     expect(await fits(page)).toBe(true);
-    await merged.locator("li").first().evaluate((element) => element.scrollIntoView({ block: "center" }));
-    await page.screenshot({ path: testInfo.outputPath("afk-report-merged-1707.png") });
     await notMerged.evaluate((element) => element.scrollIntoView({ block: "center" }));
-    await page.screenshot({ path: testInfo.outputPath("afk-report-not-merged-1707.png") });
-
-    // Act: he answers the one left for him.
-    await notMerged.getByRole("button", { name: "Answer it" }).click();
-
-    // Assert: the Command Center opens on its question.
-    await expect(report(page)).toHaveCount(0);
-    await expect(page.locator("dialog.question-modal .question-body")).toContainText("Merge code-goblins #674 past its failing check?");
+    await page.screenshot({ path: testInfo.outputPath("afk-recap-not-merged-1707.png") });
   });
 
   test("the toggle sits on the header's first row", async ({ page }) => {

@@ -5,17 +5,17 @@
    SIQstack card, stepped frame, hard shadow, lantern and type. The stepped frames
    are drawn behind each part, never clipping it, so focus rings and tooltips
    show in full. */
-.question-card, .run-card, .update-card, .inbox-list.waiting li, .inbox-list.afk-held li {
+.question-card, .run-card, .update-card, .inbox-list.waiting li, .afk-rows.needs > li {
   position: relative; isolation: isolate; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone);
   filter: drop-shadow(3px 3px 0 var(--soot));
 }
-:is(.question-card, .run-card, .update-card, .inbox-list.waiting li, .inbox-list.afk-held li)::before {
+:is(.question-card, .run-card, .update-card, .inbox-list.waiting li, .afk-rows.needs > li)::before {
   content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge);
 }
 .inbox-list.waiting li.release-row { border: 0; box-shadow: none; }
 
 /* Who asks is named in lantern, as the box's tab names the CFO. */
-:is(.question-card, .run-card) .asker strong, :is(.inbox-list.waiting, .inbox-list.afk-held) .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
+:is(.question-card, .run-card) .asker strong, .inbox-list.waiting .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
 
 /* The one action of an item is the lantern button. */
 :is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page) {
@@ -28,10 +28,10 @@
 :is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):hover:not(:disabled)::before { background: var(--lantern-hover); }
 
 /* A row's Answer is the box's stepped icon button. */
-:is(.inbox-list.waiting, .inbox-list.afk-held) li .icon-button { position: relative; isolation: isolate; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); }
-:is(.inbox-list.waiting, .inbox-list.afk-held) li .icon-button::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); box-shadow: inset 0 0 0 2px var(--bone); }
-:is(.inbox-list.waiting, .inbox-list.afk-held) li .icon-button:hover { background: transparent; transform: none; }
-:is(.inbox-list.waiting, .inbox-list.afk-held) li .icon-button:hover::before { background: #ffffff12; }
+.inbox-list.waiting li .icon-button { position: relative; isolation: isolate; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); }
+.inbox-list.waiting li .icon-button::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); box-shadow: inset 0 0 0 2px var(--bone); }
+.inbox-list.waiting li .icon-button:hover { background: transparent; transform: none; }
+.inbox-list.waiting li .icon-button:hover::before { background: #ffffff12; }
 
 /* How many wait: a lantern chip with stepped corners, on the Command Center's
    button, over its list and on Held for you. */
