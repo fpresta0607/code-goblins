@@ -23,7 +23,9 @@ import (
 // that was incomplete never passes for a complete one.
 //
 // The issues the task itself is for are not overlaps: the ones its ticket is
-// on, and the ones its brief names. A runtime with no repository read (a
+// on, and the ones its brief names. One its brief names that someone else
+// has, assigned to another account or held by another account's fleet, is
+// one, since the task's claim would be refused. A runtime with no repository read (a
 // test's) checks nothing. The read runs under overlapTimeout, so one that
 // hangs is a failed read.
 func teammateOverlap(runtime commandRuntime, h home.Home, id, checkout, brief string, now time.Time) (tickets.Overlaps, []string, error) {
@@ -45,19 +47,27 @@ func teammateOverlap(runtime commandRuntime, h home.Home, id, checkout, brief st
 	if !report.Collaborative {
 		return tickets.Overlaps{}, nil, nil
 	}
-	own := map[int]bool{}
-	for _, issue := range tickets.NamedIssues(brief, activity.Repository) {
-		own[issue.Number] = true
-	}
+	own, claimed := map[int]bool{}, map[int]bool{}
 	if record, err := tickets.ReadRecord(h.State, id); err == nil {
 		for _, number := range record.IssueNumbers() {
-			own[number] = true
+			own[number], claimed[number] = true, true
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return tickets.Overlaps{}, nil, err
 	}
 	theirs := report.TeammateOverlaps()
-	theirs.Issues = slices.DeleteFunc(theirs.Issues, func(match tickets.IssueMatch) bool { return own[match.Number] })
+	for _, named := range tickets.NamedIssues(brief, activity.Repository) {
+		own[named.Number] = true
+		index := slices.IndexFunc(report.Issues, func(issue tickets.Issue) bool { return issue.Number == named.Number })
+		if claimed[named.Number] || index < 0 {
+			continue
+		}
+		issue := report.Issues[index]
+		if held := tickets.HeldElsewhere(issue.Assignees, issue.Labels, activity.Viewer.Login); held != "" {
+			theirs.Issues = append(theirs.Issues, tickets.IssueMatch{Number: issue.Number, Title: issue.Title, URL: issue.URL, Author: issue.Author, Held: held})
+		}
+	}
+	theirs.Issues = slices.DeleteFunc(theirs.Issues, func(match tickets.IssueMatch) bool { return own[match.Number] && match.Held == "" })
 	return theirs, report.Unread, nil
 }
 

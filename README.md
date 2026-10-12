@@ -988,7 +988,9 @@ Overlaps with api/routes_orders.py, tasks/billing_sync.py
 In such a repository the supervisor also keeps a ticket, a GitHub issue, for each task, so your teammates see what the fleet has under way without asking.
 It opens the issue when the task is queued, or claims the existing issues the task's brief names, and moves it by itself as the task moves.
 A brief names an issue to take up by its URL or as "issue #N", or lists it in its Task as a line that opens with its number, as in `- #1343 Project Home reads an unfinished search as a miss`.
-The task claims every one GitHub says is an open issue, each with a status comment of its own, and opens a new issue only when it can claim none:
+The task claims every one GitHub says is an open issue and nobody else has, each with a status comment of its own, and opens a new issue only when it can claim none.
+Each issue a task opens or claims is assigned to you, the account `gh` is signed in as, so GitHub says who has it.
+An issue assigned to someone else, or one another person's fleet holds, is never claimed, and `cfo spawn` stops when a brief names one:
 
 | The task | Its ticket |
 |---|---|
@@ -1009,6 +1011,8 @@ A task gets that title from its backlog row or from `cfo spawn --title "<short t
 Once the issue is open it keeps that title, cut the same way, so a backlog row you rewrite later never renames it.
 `cfo title <id> "<short title>"` is the one way to change it, for a running task or for one whose ticket is already closed, and the supervisor then writes it to the issue it opened.
 Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
+A new state is written once it has held ten minutes, so a task that flips between states writes nothing until one stands, and a close is written at once.
+Before it changes an issue's labels it reads them: it removes only the labels it wrote, and puts back one it wants that someone else removed.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
 An issue a task claimed keeps its author's title and body, and its state lives in one comment that is edited in place.
 An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.

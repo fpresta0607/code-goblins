@@ -44,3 +44,30 @@ func TestNamedIssuesReadsEveryIssueTheTaskTakesUp(t *testing.T) {
 		})
 	}
 }
+
+func TestHeldElsewhereSaysWhenSomeoneElseHasAnIssue(t *testing.T) {
+	cases := []struct {
+		name      string
+		assignees []string
+		labels    []string
+		want      string
+	}{
+		{name: "assigned to someone else", assignees: []string{"nreid1609"}, want: "it is assigned to nreid1609"},
+		{name: "assigned to the account and someone else", assignees: []string{"fpresta0607", "nreid1609"}, want: "it is assigned to nreid1609"},
+		{name: "another fleet's state label with nobody assigned", labels: []string{"bug", "cfo: pr open"}, want: "another Code Goblins fleet holds it (cfo: pr open)"},
+		{name: "assigned to the account, its name in another case", assignees: []string{"FPresta0607"}, labels: []string{"cfo: in progress"}},
+		{name: "a harness label alone", labels: []string{"goblin: claude"}},
+		{name: "free"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got := HeldElsewhere(tc.assignees, tc.labels, "fpresta0607")
+
+			// Assert
+			if got != tc.want {
+				t.Fatalf("HeldElsewhere = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

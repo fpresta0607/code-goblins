@@ -10,7 +10,8 @@ import type { CardStarter } from "./useStart";
 // The queue in the order the supervisor starts it, top first, as the Tasks
 // column and the CFO's Task tab both show it: free memory against the mark at which the CFO starts the next task, free
 // disk against its floor, and each queued task with its rank, its drag and
-// its Start. The subscription dials are on the CFO's bar, not here.
+// its Start. The subscription dials are on the CFO's bar, not here. An empty
+// queue shows its meters and no words: its count already says it is empty.
 export function QueuedTasks({ snapshot, selected, now, presentations, cardStart, onSelect }: {
   snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[];
   // cardStart is the board's one Start, shared by every list of queued tasks.
@@ -25,7 +26,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
       {memory && <MemoryMeter memory={memory} disk={snapshot.disk ?? null} processors={snapshot.processors ?? null} gpu={snapshot.gpu ?? null} />}
       {!memory && snapshot.disk && <div className="memory"><DiskMeter disk={snapshot.disk} /></div>}
     </div>}
-    <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
+    <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={null}
       renderCard={(task, rank) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
         next={task.id === next?.id ? next : undefined}
         start={cardStart(task)} onSelect={onSelect} />} /></RenderBoundary>

@@ -106,6 +106,63 @@ func TestSpawnRefusesWhenATeammateHasWorkInTheBriefsArea(t *testing.T) {
 	}
 }
 
+func TestSpawnRefusesToTakeUpAnIssueSomeoneElseHas(t *testing.T) {
+	overlord := tickets.Actor{Login: "fpresta0607"}
+	cases := []struct {
+		name      string
+		issue     tickets.Issue
+		wantLine  string
+		isRefused bool
+	}{
+		{name: "assigned to someone else", issue: tickets.Issue{Assignees: []string{"nreid1609"}},
+			wantLine: "issue #415 by fpresta0607, which the brief names to take up, is not free: it is assigned to nreid1609: Parcel layer drops the ETJ", isRefused: true},
+		{name: "held by another account's fleet", issue: tickets.Issue{Labels: []string{"cfo: in progress", "goblin: codex"}},
+			wantLine: "is not free: another Code Goblins fleet holds it (cfo: in progress)", isRefused: true},
+		{name: "assigned to the account the fleet writes as", issue: tickets.Issue{Assignees: []string{"fpresta0607"}}},
+		{name: "free", issue: tickets.Issue{Labels: []string{"bug"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the brief lists an issue the Overlord filed, which no
+			// teammate's work otherwise meets.
+			fixture := newOverlapSpawn(t, "Close one open issue:\n\n- #415 Parcel layer drops the ETJ")
+			fixture.activity.PullRequests = nil
+			tc.issue.Number, tc.issue.Title, tc.issue.Author, tc.issue.CreatedAt = 415, "Parcel layer drops the ETJ", overlord, time.Now().Add(-time.Hour)
+			fixture.activity.Issues = []tickets.Issue{tc.issue}
+
+			// Act
+			code, _, stderr := fixture.run()
+
+			// Assert
+			if tc.isRefused != (code == 1 && !fixture.spawned) {
+				t.Fatalf("exit = %d, spawned = %v, want refused %v; stderr=%s", code, fixture.spawned, tc.isRefused, stderr)
+			}
+			if tc.isRefused && !strings.Contains(stderr, tc.wantLine) {
+				t.Fatalf("stderr lacks %q:\n%s", tc.wantLine, stderr)
+			}
+		})
+	}
+}
+
+func TestSpawnStartsBesideAnIssueItAlreadyClaimed(t *testing.T) {
+	// Arrange: a respawn of a task whose ticket claimed the issue before
+	// claims assigned it, so only the fleet's label is on it.
+	fixture := newOverlapSpawn(t, "Close one open issue:\n\n- #415 Parcel layer drops the ETJ")
+	fixture.activity.PullRequests = nil
+	fixture.activity.Issues = []tickets.Issue{{Number: 415, Title: "Parcel layer drops the ETJ", Author: tickets.Actor{Login: "fpresta0607"}, Labels: []string{"cfo: in progress"}, CreatedAt: time.Now().Add(-time.Hour)}}
+	if err := tickets.WriteRecord(fixture.home.State, tickets.Record{TaskID: "nw-sync", Repository: "fpresta0607/northwind-api", Number: 415, IsClaimed: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, _, stderr := fixture.run()
+
+	// Assert
+	if code != 0 || !fixture.spawned || stderr != "" {
+		t.Fatalf("exit = %d, spawned = %v, stderr = %q, want the task's own claim never to stop it", code, fixture.spawned, stderr)
+	}
+}
+
 func TestSpawnStartsBesideATeammateWhenTheCFOSaysWhy(t *testing.T) {
 	// Arrange
 	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")

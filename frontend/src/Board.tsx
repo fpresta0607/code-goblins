@@ -12,7 +12,7 @@ import type { CardStarter } from "./useStart";
 import { taskColumn } from "./workflow";
 
 const COLUMNS = [
-  { name: "Tasks", list: "queued", empty: "Nothing queued" },
+  { name: "Tasks", list: "queued" },
   { name: "In progress", list: "progress", empty: "No work in progress" },
   { name: "Completed", list: "", empty: "Nothing finished yet" },
 ] as const;
@@ -52,7 +52,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
       // once its start ends, so it never moves on the way.
       const tasks = column.name === "In progress" ? [...listed.filter((task) => task.starting), ...listed.filter((task) => !task.starting)] : listed;
       const trains = trainsIn(column.name);
-      const empty = trains.length > 0 ? null : <p className="column-empty">{column.empty}</p>;
+      const empty = column.list === "queued" || trains.length > 0 ? null : <p className="column-empty">{column.empty}</p>;
       return <section key={column.name} className="board-column" aria-label={column.name}>
         <h2>{column.name}<span className="column-count">{tasks.length}</span></h2>
         {trains.length > 0 && <div className="train-cards">{trains.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} selected={train.id === selectedTrain} onSelect={onSelectTrain} />)}</div>}

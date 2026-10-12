@@ -52,6 +52,9 @@ type Record struct {
 	// The ticket is done once each of them is. A claimed record written
 	// before records listed them is its own one issue.
 	Issues []Record `json:"issues,omitempty"`
+	// Assignee is the account the task assigned its issue to when it opened
+	// or claimed it, unassigned again when a claimed issue is released.
+	Assignee string `json:"assignee,omitempty"`
 }
 
 // ListRecords reads every task's ticket record, in task order. A file that
