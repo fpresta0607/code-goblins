@@ -370,7 +370,7 @@ test("a reused credential request clears its typed value, while CFO registration
   // Assert
   await expect(card(page)).toContainText(again.why);
   await expect(field).toHaveValue("");
-  await expect(card(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(card(page).getByRole("button", { name: "Store PROBE_VALUE" })).toHaveCount(0);
 });
 
 test("a late refusal for an old publication does not mark the reused question's draft failed", async ({ page, context }) => {

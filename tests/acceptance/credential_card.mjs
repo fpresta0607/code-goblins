@@ -1,8 +1,9 @@
 // The browser half of the credential canary proof: it opens a board in a
 // headless Edge over the DevTools protocol, finds a credential request's card
 // in the Command Center, clicks into one of its fields as a mouse does, enters
-// a value the way a paste lands, clicks Save (confirming a replace if the card
-// asks), and waits for the row to show it saved. It then fills a plain sign-in
+// a value the way a paste lands, presses its row's lock to store it
+// (confirming a replace if the card asks), and waits for the row to show it
+// stored or the Command Center to finish the card. It then fills a plain sign-in
 // form of its own with values it makes up, which a browser keeps and offers to
 // save: finding that shows the proof can see a browser do either. The value
 // comes from a file this script deletes as soon as it reads it, travels only
@@ -286,12 +287,16 @@ try {
   await sleep(1000);
   const before = visible ? passwordNames() : { examined: 0, names: [] };
   const card = `[data-credential-request="${options.request}"]`;
+  // The row shows its value stored, and once the request closes the Command
+  // Center finishes its card with Stored and moves on within a second, so
+  // either is recorded the moment it shows.
+  await evaluate("(selector) => { window.proofStored = false; const look = () => { if (document.querySelector(selector) || [...document.querySelectorAll('.done-card h3')].some((heading) => heading.textContent === 'Stored')) window.proofStored = true; }; new MutationObserver(look).observe(document.body, { subtree: true, childList: true, attributes: true }); look(); }", `${card} [data-credential-name="${options.name}"][data-state="saved"]`);
   await enter(`${card} input[aria-label="Value for ${options.name}"]`, value);
-  for (let i = 0; i < 50 && !(await press(`${card} .credential-save:enabled`)); i++) await sleep(100);
+  for (let i = 0; i < 50 && !(await press(`${card} [data-credential-name="${options.name}"] .credential-store:enabled`)); i++) await sleep(100);
   let confirmed = false;
   for (let i = 0; i < 100 && !result.saved; i++) {
-    if (!confirmed) confirmed = await press(`${card} .credential-replace-confirm`);
-    result.saved = await evaluate("(selector) => Boolean(document.querySelector(selector))", `${card} [data-credential-name="${options.name}"][data-state="saved"]`);
+    if (!confirmed) confirmed = await press(".credential-replace-confirm");
+    result.saved = await evaluate("() => window.proofStored === true");
     if (!result.saved) await sleep(300);
   }
   if (visible) {

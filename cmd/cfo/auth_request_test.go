@@ -31,7 +31,7 @@ func TestAuthRequestRefusesValuesWithoutRepeatingThem(t *testing.T) {
 	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
 	t.Run("a plain request gets past the checks to who is asking", func(t *testing.T) {
 		useScratchHome(t)
-		code, _, stderr := runCLI(t, "request", "--project", "throwaway", "--why", "Charge test cards", "--link", "https://dashboard.stripe.com/apikeys", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
+		code, _, stderr := runCLI(t, "request", "--project", "throwaway", "--why", "Charge test cards", "--link", "https://dashboard.stripe.com/apikeys", "--step", "Sign in to the shop's Stripe account", "--step", "Reveal the secret key and copy it", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET")
 		if code != 1 || !strings.Contains(stderr, "registered CFO") {
 			t.Fatalf("a plain request = %d %q, want it refused only for its caller", code, stderr)
 		}
@@ -43,6 +43,7 @@ func TestAuthRequestRefusesValuesWithoutRepeatingThem(t *testing.T) {
 		"a key in the reason":       {"--project", "throwaway", "--why", "use " + "ghp" + "_" + random, "GITHUB_TOKEN"},
 		"a key in the link":         {"--project", "throwaway", "--why", "Charge test cards", "--link", "https://example.com/" + random, "STRIPE_SECRET_KEY"},
 		"a link with a query":       {"--project", "throwaway", "--why", "Charge test cards", "--link", "https://example.com/keys?token=" + random, "STRIPE_SECRET_KEY"},
+		"a key in a step":           {"--project", "throwaway", "--why", "Charge test cards", "--step", "Paste " + "sk" + "_live_" + random, "STRIPE_SECRET_KEY"},
 		"no project":                {"--why", "Charge test cards", "STRIPE_SECRET_KEY"},
 		"no reason":                 {"--project", "throwaway", "STRIPE_SECRET_KEY"},
 		"no names":                  {"--project", "throwaway", "--why", "Charge test cards"},
@@ -84,7 +85,7 @@ func TestAuthRequestNamesTheRepositoryItsScopeIsFor(t *testing.T) {
 	runtime := commandRuntime{projectsRoot: func() (string, error) { return root, nil }}
 	request := func(project string) (string, string) {
 		t.Helper()
-		filed, err := credentialRequest(runtime, project, "", "Charge test cards", "", "", []string{"STRIPE_SECRET_KEY"})
+		filed, err := credentialRequest(runtime, project, "", "Charge test cards", "", nil, "", []string{"STRIPE_SECRET_KEY"})
 		if err != nil {
 			t.Fatalf("credentialRequest(%q) = %v", project, err)
 		}
