@@ -735,7 +735,10 @@ Output is written through xterm's own write queue and never re-renders the page.
 A chunk as large as one host read, 32 KiB, is part of a larger redraw, so the view opens a synchronized update (DECSET 2026) before it and ends it when the redraw's short tail arrives or the stream has been quiet for 8 ms, and xterm paints the redraw as one frame; a smaller chunk, such as an echoed key, is written as it is.
 The update's markers only go where the stream sits between escape sequences and characters and outside any synchronized update the program opened itself, and xterm ends an update left open after one second.
 Each connection draws into its own xterm, kept out of sight until the history, the repaint its size asked for and any open update are drawn, so the panel never shows a blank, cleared or half-drawn screen; until the first one is whole a full-pane state says the terminal is connecting.
-A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; any other close keeps the last screen in view with its reason and Reconnect in a bar across the bottom.
+A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; a terminal that ended keeps the last screen in view with how it ended in a bar across the bottom and no Reconnect, and any other close does the same with its reason and Reconnect.
+The relay closes a view as ended, a normal close (1000), when what it names no longer runs: its program exited, no terminal runs for it, its command is not running or ended, its task restarted or was replaced, or the CFO no longer runs in it.
+Nothing brings such a terminal back, and a new session or terminal is one the board opens by itself, so the board offers no Reconnect for it, as the Overlord asked on 2026-10-12 of a failed command's card ("it shows the reconnect button when it shouldn't").
+Every other refusal closes as refused (1008) and keeps Reconnect.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
 
 Every key typed in a native terminal goes to its program as xterm sends it, the bytes of a plain terminal, in the CFO's terminal and a goblin's alike, whether the program is idle, busy or on a full screen of its own.
@@ -788,6 +791,7 @@ A control is a `PanelControl` (an id, a name for its tip and its menu item, an a
 Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
 
 Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right corner, in a strip of its own under the terminal, so it never covers the terminal's text.
+A command's terminal on its Command Center card has no microphone button, as the Overlord asked on 2026-10-12: Ctrl+Shift+Space still dictates into it, and its bubble shows over the terminal's corner only while the keys are held, so a dictation never resizes the command's terminal.
 It is drawn like the board's dialogue boxes: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
 That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it through the speech model the supervisor runs on this PC, in a browser tab and in the desktop window alike.

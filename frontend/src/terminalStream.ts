@@ -134,10 +134,16 @@ export function panelFit(width: number, height: number, cell: { width: number; h
 }
 
 // A view that fell behind, a restarting board and a dropped connection come
-// back on their own; an ended terminal, a replaced task and a refusal wait
-// for Reconnect.
+// back on their own, and a refusal waits for Reconnect.
 export function reconnects(code: number): boolean {
   return code === 1013 || code === 1001 || code === 1006;
+}
+
+// A terminal that ended closes its view normally: its command or session
+// ended or was replaced, or the CFO left it, so nothing is there to reconnect
+// to, and a new session is one the board opens by itself.
+export function ended(code: number): boolean {
+  return code === 1000;
 }
 
 export function closedReason(code: number, reason: string): string {

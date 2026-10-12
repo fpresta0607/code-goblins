@@ -292,10 +292,11 @@ func TestARunTerminalViewOpensOnlyWhileItsCommandRuns(t *testing.T) {
 		query  string
 		header string
 		reason string
+		code   websocket.StatusCode
 	}{
-		"a command not running":  {query: "run=" + ready.ID + "&token=instance", reason: "This command is not running."},
-		"an unknown command":     {query: "run=missing-item-1&token=instance", reason: "This command is not running."},
-		"values through a proxy": {query: "run=" + credential.ID + "&token=instance", header: "Tailscale-User-Login", reason: "Values are typed only on the board's own page on this PC."},
+		"a command not running":  {query: "run=" + ready.ID + "&token=instance", reason: "This command is not running.", code: websocket.StatusNormalClosure},
+		"an unknown command":     {query: "run=missing-item-1&token=instance", reason: "This command is not running.", code: websocket.StatusNormalClosure},
+		"values through a proxy": {query: "run=" + credential.ID + "&token=instance", header: "Tailscale-User-Login", reason: "Values are typed only on the board's own page on this PC.", code: websocket.StatusPolicyViolation},
 	} {
 		t.Run(name, func(t *testing.T) {
 			conn, _, err := dialNativeWith(server, view.query, view.header)
@@ -305,8 +306,8 @@ func TestARunTerminalViewOpensOnlyWhileItsCommandRuns(t *testing.T) {
 			defer conn.CloseNow()
 			_, _, err = conn.Read(context.Background())
 			var closed websocket.CloseError
-			if !errors.As(err, &closed) || closed.Code != websocket.StatusPolicyViolation || closed.Reason != view.reason {
-				t.Errorf("the view ended with %v, want a close saying %q", err, view.reason)
+			if !errors.As(err, &closed) || closed.Code != view.code || closed.Reason != view.reason {
+				t.Errorf("the view ended with %v, want a %d close saying %q", err, view.code, view.reason)
 			}
 		})
 	}
