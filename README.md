@@ -996,7 +996,7 @@ It opens the issue when the task is queued, or claims the one the task's brief n
 | is paused | `cfo: paused` |
 | is blocked on a decision, or stopped on a failure | `cfo: blocked`, saying which of the two and never the question itself |
 | merged | closed as completed, with a comment naming the pull request |
-| was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
+| was stopped, or finished without a merge | closed as not planned once GitHub says none of its pull requests merged or is still open, else as completed; an issue it had claimed is released open instead |
 
 A ticket carries the task's title, what it changes and where, its state, who is on it, its pull request and the reason you gave `cfo spawn --overlap-ok` when it was started beside a teammate's work, and nothing else: never the rest of the brief, a path on your machine, a secret or a note.
 What it changes is the brief's `## Ticket` section, two or three sentences you write there for teammates, the only words of a brief that reach GitHub.
@@ -1012,6 +1012,8 @@ An issue a task claimed keeps its author's title and body, and its state lives i
 An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.
 The board says when tickets wait: for that consent, or for an hour after GitHub refused a write.
 A ticket outlives the board's memory of its task: when a finished task's pull request merges weeks later, the ticket still closes.
+A ticket lists every pull request of its task, and only pull requests of its own repository.
+Each goblin learns its ticket's number from `state/tasktmp/<id>/ticket.md` and writes "Part of #N" in each pull request it opens, so the issue and its pull requests link to each other.
 A project with no GitHub repository simply has no tickets.
 
 The board shows the same.

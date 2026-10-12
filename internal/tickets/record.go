@@ -29,9 +29,13 @@ type Record struct {
 	IsDone     bool     `json:"done,omitempty"`
 	// Title is the title last written to an issue the task opened.
 	Title string `json:"title,omitempty"`
-	// PullRequest is the task's pull request, kept once a ticket names it,
-	// so its merge can close the ticket after the task has left the board.
+	// PullRequest is the pull request the ticket names now, kept once a
+	// ticket names it, so its merge can close the ticket after the task has
+	// left the board.
 	PullRequest string `json:"pull_request,omitempty"`
+	// PullRequests are every pull request of the task a ticket named, in
+	// the order it named them.
+	PullRequests []string `json:"pull_requests,omitempty"`
 	// Note is what the board says about the ticket while it is open, such
 	// as why the issue the task named was not claimed.
 	Note string `json:"note,omitempty"`
@@ -115,6 +119,17 @@ func (r Record) Harness() string {
 		}
 	}
 	return ""
+}
+
+// PullRequestsOnRecord are every pull request the ticket named, in the
+// order it named them; a record written before records listed them names its
+// one pull request alone.
+func (r Record) PullRequestsOnRecord() []string {
+	pulls := slices.Clone(r.PullRequests)
+	if r.PullRequest != "" && !slices.Contains(pulls, r.PullRequest) {
+		pulls = append(pulls, r.PullRequest)
+	}
+	return pulls
 }
 
 func recordPath(directory, taskID string) (string, error) {

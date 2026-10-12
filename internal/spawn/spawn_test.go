@@ -1474,3 +1474,23 @@ func TestASpawnSharesNoEnvFileTheManifestDoesNotName(t *testing.T) {
 		}
 	}
 }
+
+// A goblin's pull request names its task's ticket, which the supervisor
+// opens after the goblin starts and names in the goblin's tasktmp folder.
+func TestNotifyInstructionTellsAShipGoblinWhereItsTicketIsNamed(t *testing.T) {
+	// Arrange
+	taskTmp := filepath.Join(`C:\home\state`, "tasktmp", "task-7")
+	ticket := filepath.Join(taskTmp, "ticket.md")
+
+	// Act
+	ship := notifyInstruction(state.TaskMeta{ID: "task-7", Kind: "ship", TaskTmp: taskTmp})
+	helper := notifyInstruction(state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7", TaskTmp: taskTmp})
+
+	// Assert
+	if !strings.Contains(ship, "Before you open a pull request, read "+ticket) || !strings.Contains(ship, "Part of #N") {
+		t.Errorf("ship instruction does not say where its ticket is named:\n%s", ship)
+	}
+	if strings.Contains(helper, "ticket.md") {
+		t.Errorf("a helper, which opens no pull request, is told of the ticket:\n%s", helper)
+	}
+}
