@@ -95,7 +95,7 @@ type fakeTicketWriter struct {
 type appliedTicket struct {
 	repository string
 	ticket     tickets.Ticket
-	claim      int
+	named      []tickets.NamedIssue
 	hadRecord  bool
 }
 
@@ -138,14 +138,20 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 			f.labelled = append(f.labelled, repository)
 			return nil
 		},
-		Apply: func(_ context.Context, repository string, record *tickets.Record, ticket tickets.Ticket, claim int) (*tickets.Record, error) {
+		Apply: func(_ context.Context, repository string, record *tickets.Record, ticket tickets.Ticket, named []tickets.NamedIssue) (*tickets.Record, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
-			f.applied = append(f.applied, appliedTicket{repository, ticket, claim, record != nil})
+			f.applied = append(f.applied, appliedTicket{repository, ticket, named, record != nil})
 			if f.applyErr != nil {
 				return record, f.applyErr
 			}
 			next := tickets.Record{TaskID: ticket.TaskID, Repository: repository, Number: 501, URL: "https://github.com/" + repository + "/issues/501"}
+			if record == nil && len(named) > 0 && !f.refuseClaim {
+				for _, issue := range named {
+					next.Issues = append(next.Issues, tickets.Record{TaskID: ticket.TaskID, Repository: repository, Number: issue.Number, URL: fmt.Sprintf("https://github.com/%s/issues/%d", repository, issue.Number), IsClaimed: true})
+				}
+				next.Number, next.URL, next.IsClaimed = next.Issues[0].Number, next.Issues[0].URL, true
+			}
 			if record != nil {
 				next = *record
 			}
@@ -166,8 +172,8 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 					next.PullRequests = append(next.PullRequests, pull.URL)
 				}
 			}
-			if f.refuseClaim && claim > 0 {
-				return &next, &tickets.ClaimRefused{Number: claim, Why: "it is closed"}
+			if f.refuseClaim && len(named) > 0 {
+				return &next, &tickets.ClaimRefused{Refused: []tickets.RefusedIssue{{Number: named[0].Number, Why: "it is closed"}}, IsOpened: true}
 			}
 			return &next, nil
 		},
@@ -205,7 +211,7 @@ func TestKeeperOpensATicketForATaskInACollaborativeRepository(t *testing.T) {
 	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
 
 	// Assert
-	if len(github.applied) != 1 || github.applied[0].hadRecord || github.applied[0].repository != ticketRepository || github.applied[0].ticket.State != tickets.InProgress || github.applied[0].claim != 0 {
+	if len(github.applied) != 1 || github.applied[0].hadRecord || github.applied[0].repository != ticketRepository || github.applied[0].ticket.State != tickets.InProgress || len(github.applied[0].named) != 0 {
 		t.Fatalf("applied = %+v, want one ticket opened in progress", github.applied)
 	}
 	if !slices.Equal(github.labelled, []string{ticketRepository}) {
@@ -308,8 +314,40 @@ func TestKeeperClaimsTheIssueTheBriefNames(t *testing.T) {
 	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
 
 	// Assert
-	if len(github.applied) != 1 || github.applied[0].claim != 415 {
+	if len(github.applied) != 1 || !slices.Equal(github.applied[0].named, []tickets.NamedIssue{{Number: 415}}) {
 		t.Fatalf("applied = %+v, want the brief's issue claimed", github.applied)
+	}
+}
+
+func TestKeeperClaimsBothIssuesABriefListsAndTellsTheGoblinBoth(t *testing.T) {
+	// Arrange: the task's spawn made its tasktmp folder, and its brief lists
+	// two issues as bare #N lines of its Task.
+	h, checkout, github := ticketHome(t)
+	writeFile(t, filepath.Join(h.Data, "nw-sync", "brief.md"), "# Brief nw-sync\n\n## Task\n\nClose two open issues:\n\n- #1343 Project Home reads an unfinished search as a miss.\n- #1344 The ordinance badge still reads pending.\n")
+	taskTmp := filepath.Join(h.State, "tasktmp", "nw-sync")
+	if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "nw-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.TaskTmp = taskTmp
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || !slices.Equal(github.applied[0].named, []tickets.NamedIssue{{Number: 1343, IsListed: true}, {Number: 1344, IsListed: true}}) {
+		t.Fatalf("applied = %+v, want both listed issues claimed", github.applied)
+	}
+	told, err := os.ReadFile(filepath.Join(taskTmp, "ticket.md"))
+	if err != nil || !strings.Contains(string(told), "Part of #1343\nPart of #1344\n") || !strings.Contains(string(told), "/issues/1344") {
+		t.Fatalf("ticket.md = %q, %v, want both issues named with the lines its pull requests carry", told, err)
 	}
 }
 
@@ -329,8 +367,8 @@ func TestKeeperKeepsTheRecordOfARefusedClaimAndShowsTheRefusal(t *testing.T) {
 	if record, err := tickets.ReadRecord(h.State, "nw-sync"); err != nil || record.Number != 501 {
 		t.Fatalf("record = %+v, %v, want the issue opened instead kept although Apply returned an error", record, err)
 	}
-	if github.applied[1].claim != 0 {
-		t.Fatalf("second pass claim = %d, want no second claim once the task has a record", github.applied[1].claim)
+	if len(github.applied[1].named) != 0 {
+		t.Fatalf("second pass named = %v, want no second claim once the task has a record", github.applied[1].named)
 	}
 	if issues := keeper.Issues(); len(issues) != 1 || !strings.Contains(issues[0], "nw-sync") || !strings.Contains(issues[0], "#415") {
 		t.Fatalf("issues = %v, want the refusal still shown after a later clean pass", issues)

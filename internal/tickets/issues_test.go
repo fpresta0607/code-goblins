@@ -34,6 +34,9 @@ type issueGitHub struct {
 	failTimes map[string]int
 	calls     []apiCall
 	closed    []string
+	// comments counts the status comments GitHub added, each given the next
+	// id from 9001.
+	comments int64
 }
 
 func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -78,7 +81,8 @@ func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case call.Method == "POST" && call.Path == "repos/"+northwind+"/issues":
 		return execx.Result{Stdout: []byte(`{"number":501,"html_url":"https://github.com/` + northwind + `/issues/501"}`)}, nil
 	case call.Method == "POST" && strings.HasSuffix(call.Path, "/comments"):
-		return execx.Result{Stdout: []byte(`{"id":9001}`)}, nil
+		f.comments++
+		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"id":%d}`, 9000+f.comments))}, nil
 	case call.Method == "GET" && call.Path == "repos/"+northwind:
 		return execx.Result{Stdout: []byte(`{"full_name":"` + northwind + `"}`)}, nil
 	case call.Method == "GET":
@@ -148,7 +152,7 @@ func TestApplyOpensAnIssueForANewTask(t *testing.T) {
 	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: Queued}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, ticket, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, ticket, nil)
 
 	// Assert
 	if err != nil {
@@ -168,7 +172,7 @@ func TestApplyOpensAnIssueForANewTask(t *testing.T) {
 
 func TestApplyOpensNothingForATaskThatFinishedBeforeItsTicket(t *testing.T) {
 	gh := &issueGitHub{}
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: Merged, PullRequest: mergedPull}, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: Merged, PullRequest: mergedPull}, nil)
 	if err != nil || record != nil || len(gh.calls) != 0 {
 		t.Fatalf("record = %+v, err = %v, requests = %v, want nothing opened", record, err, gh.requests())
 	}
@@ -205,7 +209,7 @@ func TestApplyMovesAnOpenedIssueThroughEachState(t *testing.T) {
 			tc.to.TaskID = "nw-sync"
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -242,7 +246,7 @@ func TestApplyWritesNothingWhileTheTicketIsUnchanged(t *testing.T) {
 	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
 
 	// Assert
 	if err != nil || len(gh.calls) != 0 || record != from {
@@ -268,12 +272,12 @@ func TestApplyRecordsAPullRequestThatAppearsWhileTheStateStays(t *testing.T) {
 			ticket := Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude", PullRequest: mergedPull}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			firstPass := gh.requests()
-			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, 0)
+			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, nil)
 
 			// Assert
 			if err != nil {
@@ -299,7 +303,7 @@ func TestApplyWritesNothingOnceTheIssueIsDone(t *testing.T) {
 	gh := &issueGitHub{}
 	from := openedRecord(Merged, "goblin: claude")
 	from.IsDone = true
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Reason: FinishedUnmerged}, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Reason: FinishedUnmerged}, nil)
 	if err != nil || len(gh.calls) != 0 || record != from {
 		t.Fatalf("record = %+v, err = %v, requests = %v, want a done issue left alone", record, err, gh.requests())
 	}
@@ -331,7 +335,7 @@ func TestApplyRetitlesADoneIssueAndWritesNothingElse(t *testing.T) {
 			from.IsDone, from.IsClaimed, from.Title = true, tc.isClaimed, "Old work"
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", Title: tc.title, State: Closed, Reason: FinishedUnmerged}, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", Title: tc.title, State: Closed, Reason: FinishedUnmerged}, nil)
 
 			// Assert
 			if err != nil {
@@ -370,11 +374,11 @@ func TestApplyWritesWhatTheTaskChangesAndWhereIntoTheBody(t *testing.T) {
 			ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", What: what, Area: area, State: InProgress, Harness: "claude"}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, 0)
+			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, nil)
 
 			// Assert
 			if err != nil {
@@ -404,7 +408,7 @@ func TestApplyListsEveryPullRequestOfTheTask(t *testing.T) {
 	ticket := Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: second, PullRequests: []PullRequestLink{mergedPull, second}}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, ticket, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, ticket, nil)
 
 	// Assert
 	if err != nil {
@@ -456,7 +460,7 @@ func TestApplyClaimsTheIssueTheTaskNames(t *testing.T) {
 	issue := "repos/" + northwind + "/issues/415"
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Ignored for a claimed issue", State: InProgress, Harness: "pi"}, 415)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Ignored for a claimed issue", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 
 	// Assert
 	if err != nil {
@@ -502,9 +506,9 @@ func TestApplyFinishesAClaimWhoseStatusCommentFailed(t *testing.T) {
 			github := GitHub{Commands: gh}
 
 			// Act
-			partial, claimErr := github.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, 415)
+			partial, claimErr := github.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 			firstPass := len(gh.calls)
-			record, err := github.Apply(context.Background(), northwind, partial, tc.next, 0)
+			record, err := github.Apply(context.Background(), northwind, partial, tc.next, nil)
 
 			// Assert
 			if claimErr == nil || partial == nil || !partial.IsClaimed || partial.Number != 415 || partial.CommentID != 0 || partial.Status != "" || !slices.Equal(partial.Labels, []string{"cfo: in progress", "goblin: pi"}) {
@@ -547,11 +551,11 @@ func TestApplyOpensANewIssueWhenTheNamedOneCannotBeClaimed(t *testing.T) {
 			gh := &issueGitHub{issues: tc.issues}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "pi"}, 415)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 
 			// Assert
 			var refused *ClaimRefused
-			if !errors.As(err, &refused) || refused.Number != 415 || !strings.Contains(err.Error(), tc.wantWhy) {
+			if !errors.As(err, &refused) || len(refused.Refused) != 1 || refused.Refused[0].Number != 415 || !refused.IsOpened || !strings.Contains(err.Error(), tc.wantWhy) {
 				t.Fatalf("err = %v, want a claim refusal for #415 naming %q", err, tc.wantWhy)
 			}
 			if got := gh.requests(); !slices.Equal(got, tc.wantRequests) {
@@ -564,13 +568,134 @@ func TestApplyOpensANewIssueWhenTheNamedOneCannotBeClaimed(t *testing.T) {
 	}
 }
 
+func openIssue(number int) string {
+	return fmt.Sprintf(`{"number":%d,"html_url":"https://github.com/%s/issues/%d","state":"open"}`, number, northwind, number)
+}
+
+func TestApplyClaimsBothIssuesABriefListsAndClosesEachOnTheMerge(t *testing.T) {
+	// Arrange: a brief whose Task lists two bare #N lines.
+	first, second := "repos/"+northwind+"/issues/1343", "repos/"+northwind+"/issues/1344"
+	gh := &issueGitHub{issues: map[int]string{1343: openIssue(1343), 1344: openIssue(1344)}}
+	github := GitHub{Commands: gh}
+	named := NamedIssues("## Task\n\n- #1343 Project Home reads an unfinished search as a miss.\n- #1344 The ordinance badge still reads pending.\n", northwind)
+
+	// Act
+	claimed, claimErr := github.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, named)
+	claimRequests := gh.requests()
+	merged, mergeErr := github.Apply(context.Background(), northwind, claimed, Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}, nil)
+
+	// Assert
+	if claimErr != nil || mergeErr != nil {
+		t.Fatalf("claim err = %v, merge err = %v", claimErr, mergeErr)
+	}
+	wantClaim := []string{"GET " + first, "GET " + second, "POST " + first + "/labels", "POST " + second + "/labels", "POST " + first + "/comments", "POST " + second + "/comments"}
+	if !slices.Equal(claimRequests, wantClaim) {
+		t.Fatalf("claim requests = %v, want %v: both issues read, labelled and given a status comment, and no issue opened", claimRequests, wantClaim)
+	}
+	if claimed.Number != 1343 || !claimed.IsClaimed || len(claimed.Issues) != 2 || claimed.Issues[0].CommentID != 9001 || claimed.Issues[1].Number != 1344 || claimed.Issues[1].CommentID != 9002 {
+		t.Fatalf("claimed record = %+v, want both issues on it, each with its own status comment", claimed)
+	}
+	for _, comment := range []string{"PATCH repos/" + northwind + "/issues/comments/9001", "PATCH repos/" + northwind + "/issues/comments/9002"} {
+		if body := gh.call(t, comment).Fields["body"]; len(body) != 1 || body[0] != "Merged in #412" {
+			t.Fatalf("%s body = %q, want each issue's own comment to say the merge", comment, body)
+		}
+	}
+	if !slices.Equal(gh.closed, []string{first, second}) || !merged.IsDone || !merged.Issues[0].IsDone || !merged.Issues[1].IsDone {
+		t.Fatalf("closed = %v, record = %+v, want both issues closed and the ticket done", gh.closed, merged)
+	}
+}
+
+func TestApplyPassesOverAListedNumberThatIsNoOpenIssue(t *testing.T) {
+	cases := []struct {
+		name       string
+		issues     map[int]string
+		wantNumber int
+		isClaimed  bool
+	}{
+		{name: "a pull request listed beside an open issue", issues: map[int]string{412: `{"number":412,"state":"open","pull_request":{"url":"x"}}`, 415: openIssue(415)}, wantNumber: 415, isClaimed: true},
+		{name: "a pull request, a closed issue and a missing one", issues: map[int]string{412: `{"number":412,"state":"open","pull_request":{"url":"x"}}`, 415: `{"number":415,"state":"closed"}`}, wantNumber: 501},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGitHub{issues: tc.issues}
+			named := NamedIssues("## Task\n\n- #412 merged the first half.\n- #415 the sync fails.\n- #416 the retry loops.\n", northwind)
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, named)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("err = %v, want no refusal for numbers the brief only lists", err)
+			}
+			if record == nil || record.Number != tc.wantNumber || record.IsClaimed != tc.isClaimed {
+				t.Fatalf("record = %+v, want issue #%d", record, tc.wantNumber)
+			}
+			for _, call := range gh.calls {
+				if call.Method != "GET" && strings.Contains(call.Path, "/issues/412") {
+					t.Fatalf("requests = %v, want the pull request never written to", gh.requests())
+				}
+			}
+		})
+	}
+}
+
+func TestApplyClaimsTheNamedIssuesItCanAndSaysWhyNotTheRest(t *testing.T) {
+	// Arrange
+	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"state":"closed"}`, 416: openIssue(416)}}
+
+	// Act
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, NamedIssues("## Task\n\nResolve issues #415 and #416.\n", northwind))
+
+	// Assert
+	var refused *ClaimRefused
+	if !errors.As(err, &refused) || refused.IsOpened || refused.Err != nil || err.Error() != "issue #415 was not claimed because it is closed" {
+		t.Fatalf("err = %v, want #415's refusal alone, with no new issue opened", err)
+	}
+	if record == nil || record.Number != 416 || !record.IsClaimed || len(record.Issues) != 1 {
+		t.Fatalf("record = %+v, want #416 claimed", record)
+	}
+}
+
+func TestApplyRedoesAFailedCloseOnThatIssueAlone(t *testing.T) {
+	// Arrange
+	first, second := "repos/"+northwind+"/issues/1343", "repos/"+northwind+"/issues/1344"
+	closeSecond := "PATCH " + second + " state=closed"
+	gh := &issueGitHub{failures: map[string]int{closeSecond: 502}, failTimes: map[string]int{closeSecond: 1}}
+	issue := func(number int, commentID int64) Record {
+		return Record{TaskID: "nw-sync", Repository: northwind, Number: number, IsClaimed: true, CommentID: commentID, State: PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}}
+	}
+	from := issue(1343, 9001)
+	from.Issues = []Record{issue(1343, 9001), issue(1344, 9002)}
+	merged := Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}
+	github := GitHub{Commands: gh}
+
+	// Act
+	failed, failErr := github.Apply(context.Background(), northwind, &from, merged, nil)
+	firstPass := len(gh.calls)
+	record, err := github.Apply(context.Background(), northwind, failed, merged, nil)
+
+	// Assert
+	if failErr == nil || failed.IsDone || !failed.Issues[0].IsDone || failed.Issues[1].IsDone {
+		t.Fatalf("record = %+v, err = %v, want the first issue done and the ticket open while the second waits", failed, failErr)
+	}
+	for _, call := range gh.calls[firstPass:] {
+		if strings.HasPrefix(call.Path, first) || strings.HasSuffix(call.Path, "/comments/9001") {
+			t.Fatalf("second pass requests = %v, want nothing written again to #1343", gh.requests()[firstPass:])
+		}
+	}
+	if err != nil || !record.IsDone || !slices.Equal(gh.closed, []string{first, second}) {
+		t.Fatalf("record = %+v, err = %v, closed = %v, want the second issue closed on the retry", record, err, gh.closed)
+	}
+}
+
 func TestApplyClaimsAndOpensNothingWhileTheRepositoryIsNotVisible(t *testing.T) {
 	// Arrange: a 404 for the issue and for the repository itself is what gh
 	// gets when it has lost access, not what a deleted issue looks like.
 	gh := &issueGitHub{failures: map[string]int{"GET repos/" + northwind: 404}}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, 415)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 
 	// Assert
 	var refused *ClaimRefused
@@ -610,7 +735,7 @@ func TestApplyMovesAClaimedIssueByItsStatusComment(t *testing.T) {
 			tc.to.TaskID = "nw-sync"
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -639,7 +764,7 @@ func TestApplyKeepsTheRecordWhenAWriteFails(t *testing.T) {
 	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "HTTP 502") {
@@ -670,9 +795,9 @@ func TestApplyRetriesAFailedCloseWithOneClosingComment(t *testing.T) {
 			}
 
 			// Act
-			failed, failErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, 0)
+			failed, failErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, nil)
 			commentsAfterFailure := comments()
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, failed, tc.to, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, failed, tc.to, nil)
 
 			// Assert
 			if failErr == nil || failed != from {
@@ -716,7 +841,7 @@ func TestApplyPostsANewStatusCommentWhenSomeoneDeletedIt(t *testing.T) {
 			from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 8800, State: PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: pi"}}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -744,9 +869,9 @@ func TestApplyEndsATicketWhoseIssueIsGone(t *testing.T) {
 			from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
 			firstPass := len(gh.calls)
-			again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}, 0)
+			again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}, nil)
 
 			// Assert
 			if err != nil || record == nil || !record.IsDone {
@@ -769,7 +894,7 @@ func TestApplyKeepsATicketLiveWhileTheRepositoryIsNotVisible(t *testing.T) {
 	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "not visible") {
@@ -783,7 +908,7 @@ func TestApplyKeepsATicketLiveWhileTheRepositoryIsNotVisible(t *testing.T) {
 func TestApplyTakesALabelAlreadyGoneAsRemoved(t *testing.T) {
 	issue := "repos/" + northwind + "/issues/501"
 	gh := &issueGitHub{failures: map[string]int{"DELETE " + issue + "/labels/cfo:%20queued": 404}}
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, openedRecord(Queued, "cfo: queued"), Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, openedRecord(Queued, "cfo: queued"), Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
 	if err != nil || record.State != InProgress {
 		t.Fatalf("record = %+v, err = %v, want a label someone removed by hand to count as removed", record, err)
 	}
