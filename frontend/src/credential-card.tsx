@@ -27,7 +27,7 @@ const wrappable = (text: string, separator: string) => text.split(separator).map
 interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[] }
 
 // A request for credential values: its header says how to get them, as the
-// page to open and the asker's steps, and its table has a Name and a Value
+// page to open and the asker's steps, numbered in order, and its table has a Name and a Value
 // column, a field to paste each value into and a check once the value is in
 // the project's vault. A pasted value is stored at once, unless its format
 // hint warns about it; a typed one when he presses Enter or the row's lock.
@@ -125,10 +125,10 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{credentialHeading(request)}</h3>
       {request.why && <p className="credential-why">{request.why}</p>}
-      {(request.link || request.steps.length > 0) && <ul className="credential-steps" aria-label="How to get them">
+      {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label="How to get them">
         {request.link && <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{wrappable(linkLabel(request.link), "/")}</span><Icon name="external" /></a></li>}
         {request.steps.map((step, index) => <li key={index}>{stepText(step)}</li>)}
-      </ul>}
+      </ol>}
     </header>
     {open && !local && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}
     {!open && <p className="credential-outcome" data-tip={request.reason}><Icon name="clock" /><strong>Closed</strong></p>}

@@ -728,7 +728,7 @@ New items also stay under the badge, and the browser tab's title counts what is 
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
 Closing keeps every item for later.
-The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done**, with **Back** to it, and the Command Center closes.
+The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 **Back** to a question you answered shows it with your answer checked and its other choices open: pick another and **Change answer** sends the change once.
 It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
@@ -756,7 +756,7 @@ A goblin can hand you a command the same way, on a run card that names the gobli
 </p>
 
 When the CFO or a goblin needs a secret, such as `STRIPE_SECRET_KEY`, it files `cfo auth request` with the names only, and a credential card arrives with an alert.
-Its header says what the values are for and how to get them, as bullets: the page to open, from `--link`, then each `--step` the asker gave.
+Its header says what the values are for and how to get them, as numbered steps: the page to open, from `--link`, then each `--step` the asker gave.
 Below it a table has two columns, Name and Value, and nothing else, so it fits your window and a phone with no sideways scrolling: each row is a name and a hidden field you paste the value into, and Ctrl+V and right-click Paste work in every field.
 The field shows a dot for each character and never holds the value itself, so the browser has nothing to remember, sync or offer to save as a password.
 A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place. A goblin's worktree holds that file only when the project's `worktree.json` names it in `link`, as its own copy made when the worktree was.
@@ -769,7 +769,7 @@ Values are typed only on the board on this PC: a board opened through Tailscale 
 Each name takes one save, and a request nobody finishes expires after 24 hours.
 
 <p align="center">
-  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export asks for two credentials for acme-api. Its header says what they are for and gives three bulleted steps, the first opening dashboard.stripe.com/test/apikeys. A table with a Name and a Value column has a row per name, each a hidden field to paste into with an empty ring at its end, the stored one with a dashed check and a field to paste a replacement. Below, the cfo auth store command with Copy and Run" width="640" />
+  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export asks for two credentials for acme-api. Its header says what they are for and gives three numbered steps, the first opening dashboard.stripe.com/test/apikeys. A table with a Name and a Value column has a row per name, each a hidden field to paste into with an empty ring at its end, the stored one with a dashed check and a field to paste a replacement. Below, the cfo auth store command with Copy and Run" width="640" />
 </p>
 
 ### AFK mode

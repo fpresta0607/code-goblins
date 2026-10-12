@@ -1238,7 +1238,7 @@ The Command Center shows one item at a time as a stack, a question, a review ite
 A card's own action row holds everything: Back, its place such as 2 of 4, and Skip, which leaves the item as it is and shows the next, on the left while more than one item waits, and its answer on the right.
 Closing keeps every item for later.
 Each card sends only its own answer.
-The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done, with Back to the last item, and the Command Center closes.
+The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done, with no Back, and the Command Center closes.
 Back to a question he answered and moved past in this sitting, or answered elsewhere, shows History's change card in the stack, with its Back and Skip: his answer checked, from the moment he sent it even before the snapshot carries it, and its other choices open, so Change answer sends an `answer_change` once, as from History.
 A question he went back to never shows its done card.
 A request the board refuses keeps its card on screen with what went wrong, and can be sent again with Retry under the same request identity; a run card stays to show the command's result.
@@ -1648,7 +1648,7 @@ When the terminal finishes, the board checks each row it provably stored, a name
 A clean finish closes the request as saved, like a save; a terminal that failed or was stopped leaves it open with what it stored recorded, unless every name is stored.
 
 On the board each open request is a card in the Command Center, counted under Open Command Center and eligible for a Windows notification only while the tab is hidden or the window is minimized.
-The card says who asks, and its header says what the values are for and how to get them: the page to open, then each step, as bullets that start with a capital.
+The card says who asks, and its header says what the values are for and how to get them: the page to open, then each step, numbered in order, each starting with a capital.
 Below it a table has two columns, Name and Value, and nothing else, so it fits the Overlord's window and a phone's width with no sideways scrolling: a long name wraps after an underscore and a field narrows.
 Each row is a name and a hidden field to paste its value into, with a mark at the field's end: an empty ring until the value is stored, a lock that stores a typed value, then a check beside Stored.
 Where a value goes, the project's vault, its goblins and each `auth.json` service that reads it, and the env file the request names, is the ring's tip, and how it was stored, pasted on the card or typed in the terminal, saved or replaced, is the check's tip.

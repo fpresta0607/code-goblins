@@ -390,8 +390,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               if (Math.abs(dx) > 70 && Math.abs(event.clientY - start.y) < 50) move(dx < 0 ? 1 : -1);
             }}>
             {allDone
-              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p>
-                {stack.length > 0 && <div className="card-actions"><div className="stack-pager" role="group" aria-label="Move between items"><button type="button" onClick={() => setAllDone(false)}>Back</button></div></div>}</div>
+              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : revisited
               ? <ChangeCard key={"change:" + revisited.id} question={revisited} snapshot={snapshot} connected={connected} draft={changeDraft(revisited)}
                 onDraft={(changes) => update(changeKey(revisited), changes)} onChange={() => change(revisited)} onClose={close} pager={pager} />

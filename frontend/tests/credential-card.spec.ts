@@ -422,16 +422,18 @@ test("a board opened from another machine shows no value field and no Run, only 
   await expect(card.locator('[data-credential-name="STRIPE_WEBHOOK_SECRET"]')).toContainText("Stored before: saving replaces it");
 });
 
-test("the header gives the steps to get the values as bullets, the page to open first, each starting with a capital", async ({ page }) => {
+test("the header gives the steps to get the values numbered in order, the page to open first, each starting with a capital", async ({ page }) => {
   // Arrange
   await answer(page);
 
   // Act
   const card = await openCard(page);
-  const steps = card.getByRole("list", { name: "How to get them" }).getByRole("listitem");
+  const list = card.getByRole("list", { name: "How to get them" });
+  const steps = list.getByRole("listitem");
 
   // Assert
   await expect(steps).toHaveText(["Open dashboard.stripe.com/test/apikeys", "Sign in to the shop's Stripe account", "Reveal the test secret key and copy it"]);
+  expect(await list.evaluate((element) => [element.tagName, getComputedStyle(element).listStyleType])).toEqual(["OL", "decimal"]);
   await expect(steps.first().getByRole("link")).toHaveAttribute("href", "https://dashboard.stripe.com/test/apikeys");
 });
 

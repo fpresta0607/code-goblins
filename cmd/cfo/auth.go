@@ -400,7 +400,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	why := flags.String("why", "", "what the values are for, in one line")
 	link := flags.String("link", "", "the https page the Overlord gets the values from")
 	var steps []string
-	flags.Func("step", "one step of getting the values on that page, shown as a bullet in the card's header; repeat it for each, in order", func(value string) error {
+	flags.Func("step", "one step of getting the values on that page, shown as a numbered step in the card's header; repeat it for each, in order", func(value string) error {
 		steps = append(steps, value)
 		return nil
 	})
