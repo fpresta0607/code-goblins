@@ -242,6 +242,24 @@ func TestSpawnStartsWithoutAWordWhereNoTeammateOverlaps(t *testing.T) {
 				panic(err)
 			}
 		}},
+		{name: "the overlaps are the issues the brief lists as bare #N lines", task: "Close two issues about the billing sync mismatch:\n\n- #415 Billing sync reports a mismatch\n- #416 Billing sync mismatch repeats", change: func(f *overlapSpawn) {
+			f.activity.PullRequests = nil
+			f.activity.Issues = []tickets.Issue{
+				{Number: 415, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently},
+				{Number: 416, Title: "Billing sync mismatch repeats", Author: ana, CreatedAt: recently},
+			}
+		}},
+		{name: "the one overlap is the second issue the task already claimed", task: "Say why the billing sync reports a mismatch.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests = nil
+			f.activity.Issues = []tickets.Issue{{Number: 416, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently}}
+			first := tickets.Record{TaskID: "nw-sync", Repository: "fpresta0607/northwind-api", Number: 415, IsClaimed: true}
+			second := first
+			second.Number = 416
+			first.Issues = []tickets.Record{first, second}
+			if err := tickets.WriteRecord(f.home.State, first); err != nil {
+				panic(err)
+			}
+		}},
 		{name: "GitHub cannot be read", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
 			f.readErr = errors.New("gh api graphql exited 1: HTTP 502")
 		}, wantStderr: "HTTP 502"},

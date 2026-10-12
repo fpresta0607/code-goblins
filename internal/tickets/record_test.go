@@ -16,8 +16,8 @@ func TestApplyRetitlesAnIssueItOpenedWhenTheTasksTitleChanges(t *testing.T) {
 	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "claude"}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, ticket, 0)
-	again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, 0)
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, ticket, nil)
+	again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, nil)
 
 	// Assert
 	if err != nil || againErr != nil {
@@ -48,7 +48,7 @@ func TestApplyNeverRetitlesAClaimedIssueOrWritesAnEmptyTitle(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			gh := &issueGitHub{}
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.ticket, 0)
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.ticket, nil)
 			if err != nil || len(gh.calls) != 0 || record != tc.from {
 				t.Fatalf("record = %+v, err = %v, requests = %v, want nothing written", record, err, gh.requests())
 			}
@@ -62,11 +62,11 @@ func TestApplyKeepsTheTitleAndThePullRequestInTheRecord(t *testing.T) {
 	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: Queued}
 
 	// Act
-	opened, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, ticket, 0)
+	opened, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, ticket, nil)
 	ticket.State, ticket.Harness, ticket.PullRequest = PROpen, "claude", mergedPull
-	withPull, pullErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, opened, ticket, 0)
+	withPull, pullErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, opened, ticket, nil)
 	ticket.State, ticket.PullRequest = Paused, PullRequestLink{}
-	paused, pausedErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, withPull, ticket, 0)
+	paused, pausedErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, withPull, ticket, nil)
 
 	// Assert
 	if err != nil || pullErr != nil || pausedErr != nil {
