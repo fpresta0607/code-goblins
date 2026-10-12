@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
+	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -142,6 +143,12 @@ func TestMain(m *testing.M) {
 	if code, ok := runGateTurnTestProgram(); ok {
 		os.Exit(code)
 	}
+	// The tests of what ends with a gate's run run this binary as a gate's
+	// runner and as each process of the tree it runs.
+	if code, ok := runGateTreeTestProgram(); ok {
+		os.Exit(code)
+	}
+	treetest.Run()
 	// goblins starts its own program as serve. A test that reaches that start
 	// would run this binary, and with it every test again, detached and with
 	// no one waiting: it serves nothing instead.

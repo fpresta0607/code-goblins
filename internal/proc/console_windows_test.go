@@ -1,4 +1,4 @@
-package proc
+package proc_test
 
 import (
 	"os"
@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
@@ -46,17 +47,17 @@ func TestConsoleShownFollowsTheConsoleHostToItsWindow(t *testing.T) {
 			t.Fatal("the stand-ins never recorded that they run")
 		}
 	}
-	windowOwners, err := WindowOwners()
+	windowOwners, err := proc.WindowOwners()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	isHiddenShown, hiddenErr := ConsoleShown(hidden, windowOwners)
+	isHiddenShown, hiddenErr := proc.ConsoleShown(hidden, windowOwners)
 	// The hidden program started its console host, so where it showed a
 	// window of its own its host's parent would.
-	isInTerminal, terminalErr := ConsoleShown(hidden, map[int]bool{hidden: true})
-	isDetachedShown, detachedErr := ConsoleShown(detached, map[int]bool{detached: true})
+	isInTerminal, terminalErr := proc.ConsoleShown(hidden, map[int]bool{hidden: true})
+	isDetachedShown, detachedErr := proc.ConsoleShown(detached, map[int]bool{detached: true})
 
 	// Assert
 	if hiddenErr != nil || terminalErr != nil || detachedErr != nil {
