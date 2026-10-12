@@ -28,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -130,6 +131,9 @@ type Options struct {
 	// board offers; nil reads the machine's.
 	ReadScreen       func(host.Record) ([]string, error)
 	ProgramInstalled func(harness.Kind) (string, time.Time, error)
+	// KeyPages are the reviewed key page recipes the binary carries; the
+	// browser broker lends a login's browser only for a provider they name.
+	KeyPages keypages.Recipes
 }
 
 type Service struct {
@@ -317,6 +321,8 @@ type Service struct {
 	// by provider, for the dials, and none while config/fleet.json cannot
 	// be read.
 	weeklyFloors map[string]float64
+	// browsers lends each browser login's Chrome to one goblin at a time.
+	browsers *browserBroker
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -349,6 +355,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
+	s.browsers = newBrowserBroker(h.State, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited
@@ -459,6 +466,12 @@ func (s *Service) run(ctx context.Context) {
 		s.serveRunRequests(ctx)
 	}()
 	defer func() { s.cancel(); <-pipeDone }()
+	browsersDone := make(chan struct{})
+	go func() {
+		defer close(browsersDone)
+		s.keepBrowsers(ctx)
+	}()
+	defer func() { s.cancel(); <-browsersDone }()
 	defer func() { s.cancel(); s.pageWork.Wait() }()
 	historyDone := make(chan struct{})
 	go func() {

@@ -157,10 +157,20 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		reply.Error = "the run request is not valid JSON"
 	default:
 		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
-		if req.Kind == "reported" {
+		switch req.Kind {
+		case "reported":
 			// A look takes no item, so it waits behind nobody's request.
 			err = s.lookNow(ctx)
-		} else {
+		case "browser":
+			// The broker takes its own requests one at a time, and a
+			// browser's start waits behind nobody's item.
+			var lease BrowserLease
+			if req.Browser == nil {
+				err = errors.New("a browser request names no browser")
+			} else if lease, err = s.browsers.take(ctx, *req.Browser); err == nil && lease.URL != "" {
+				reply.Browser = &lease
+			}
+		default:
 			s.runRequests.Lock()
 			switch req.Kind {
 			case "":
@@ -183,7 +193,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		switch {
 		case err != nil:
 			reply.Error = err.Error()
-		case req.Kind != "reported":
+		case req.Kind != "reported" && req.Kind != "browser":
 			s.publish(nil)
 		}
 	}

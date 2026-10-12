@@ -82,6 +82,7 @@ commands:
   cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--env-file <file>] NAME [NAME...]   ask the Overlord for credential values by name; he pastes them on the board
   cfo auth list [--project <p>]        list stored credential keys, never values
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
+  cfo auth browser <provider> --task <id> [--release]   a goblin drives its project's browser login of a provider: the supervisor starts that login's Chrome, headless and reaching only the provider's hosts, and points the goblin's browser session at it; --release gives it back and closes it
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
   cfo project check <project> [--area <area>] [--json] [--draft <file>]   assess what the home knows about a project: its record, its gate, its configs, its connectors and its instructions, one line each with the evidence and the fix. It reads only and exits 1 when a line is worse than low. --draft writes the record it can vouch for to a new file outside the home's projects
   cfo project check --unfiled [--json]   name each checkout under the projects root that the home holds no folder for, and what a spawn there would be given
@@ -237,6 +238,11 @@ type commandRuntime struct {
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
 	// requestHelper asks the supervisor for a goblin's helper.
 	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)
+	// requestBrowser asks the supervisor to lend or take back a login's
+	// browser, and handBrowser points this terminal's browser session at
+	// one, or with no address lets go of it.
+	requestBrowser func(home.Home, supervisor.BrowserRequest) (supervisor.BrowserLease, error)
+	handBrowser    func(context.Context, string) error
 	// projectServices builds the local services of a home, writing what a
 	// start says while it waits to progress.
 	projectServices func(home.Home, io.Writer) services.Service
@@ -295,6 +301,8 @@ func defaultCommandRuntime() commandRuntime {
 	return commandRuntime{
 		resolveHome:     home.Resolve,
 		requestHelper:   supervisor.RequestHelper,
+		requestBrowser:  supervisor.RequestBrowser,
+		handBrowser:     handBrowserSession(execx.OSRunner{}),
 		projectServices: defaultProjectServices,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
