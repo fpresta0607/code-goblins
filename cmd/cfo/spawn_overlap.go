@@ -22,8 +22,8 @@ import (
 // brief's area. Beside it comes what the read stopped short of, so a check
 // that was incomplete never passes for a complete one.
 //
-// The issue the task itself is for is not an overlap: the one its ticket is
-// on, or the one its brief names. A runtime with no repository read (a
+// The issues the task itself is for are not overlaps: the ones its ticket is
+// on, and the ones its brief names. A runtime with no repository read (a
 // test's) checks nothing. The read runs under overlapTimeout, so one that
 // hangs is a failed read.
 func teammateOverlap(runtime commandRuntime, h home.Home, id, checkout, brief string, now time.Time) (tickets.Overlaps, []string, error) {
@@ -46,11 +46,13 @@ func teammateOverlap(runtime commandRuntime, h home.Home, id, checkout, brief st
 		return tickets.Overlaps{}, nil, nil
 	}
 	own := map[int]bool{}
-	if number, ok := tickets.ClaimedIssue(brief, activity.Repository); ok {
-		own[number] = true
+	for _, issue := range tickets.NamedIssues(brief, activity.Repository) {
+		own[issue.Number] = true
 	}
 	if record, err := tickets.ReadRecord(h.State, id); err == nil {
-		own[record.Number] = true
+		for _, number := range record.IssueNumbers() {
+			own[number] = true
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return tickets.Overlaps{}, nil, err
 	}

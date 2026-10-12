@@ -251,7 +251,7 @@ The area is the branch's committed change from its default-branch merge base, in
 An item must have opened strictly after the goblin's current spawn generation began; an item opened during the generation stays eligible if later committed changes first make it overlap.
 Pre-existing open items remain visible in the ordinary ticket report and do not wake on polling startup, restart or area changes.
 The wake names the teammate, item link, overlap and goblin, asking the CFO whether to continue, wait or narrow the work.
-Fresh live evidence is checked before and after the read, including after a per-PR done report; stopped or paused goblins, bots, the signed-in viewer, branch-only work and the goblin's own recorded or claimed issue in that repository never produce these wakes.
+Fresh live evidence is checked before and after the read, including after a per-PR done report; stopped or paused goblins, bots, the signed-in viewer, branch-only work and the goblin's own recorded or claimed issues in that repository never produce these wakes.
 Each item wakes once per goblin generation across restart, acknowledgement, closure and area changes.
 Unknown item or generation timestamps, unread authors and incomplete reads keep a board line without guessing times or raising `ci_unreadable`, while readable overlaps continue.
 They wake the CFO as `supervisor_error` only once the read went unread on three polls in a row.

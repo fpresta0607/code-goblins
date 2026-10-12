@@ -36,7 +36,7 @@ type Tickets struct {
 	// EnsureLabels creates the ticket labels in a repository.
 	EnsureLabels func(ctx context.Context, repository string) error
 	// Apply moves one task's issue to its ticket.
-	Apply func(ctx context.Context, repository string, record *tickets.Record, ticket tickets.Ticket, claim int) (*tickets.Record, error)
+	Apply func(ctx context.Context, repository string, record *tickets.Record, ticket tickets.Ticket, named []tickets.NamedIssue) (*tickets.Record, error)
 	// PullRequestState asks GitHub whether a pull request is OPEN, CLOSED or
 	// MERGED, for a ticket whose task has left the board; without it such a
 	// ticket waits.
@@ -426,6 +426,15 @@ func (k *ticketKeeper) tellGoblin(id string) {
 	}
 	path := filepath.Join(meta.TaskTmp, "ticket.md")
 	told := fmt.Sprintf("Your task's ticket is issue #%d of %s: %s\nTeammates follow the task there. Write this line in the body of every pull request you open for the task, so the issue and the pull request link to each other:\n\nPart of #%d\n", record.Number, record.Repository, record.URL, record.Number)
+	if len(record.Issues) > 1 {
+		var numbers, links, lines []string
+		for _, issue := range record.Issues {
+			numbers = append(numbers, fmt.Sprintf("#%d", issue.Number))
+			links = append(links, issue.URL)
+			lines = append(lines, fmt.Sprintf("Part of #%d", issue.Number))
+		}
+		told = fmt.Sprintf("Your task's tickets are issues %s of %s: %s\nTeammates follow the task there. Write these lines in the body of every pull request you open for the task, so the issues and the pull request link to each other:\n\n%s\n", strings.Join(numbers, ", "), record.Repository, strings.Join(links, ", "), strings.Join(lines, "\n"))
+	}
 	if current, err := fsx.ReadFile(path); err == nil && string(current) == told {
 		return
 	}
@@ -582,7 +591,7 @@ func (k *ticketKeeper) pullRequestOutcome(ctx context.Context, id string, pulls 
 
 // move writes a task's ticket through GitHub and keeps what it then holds.
 func (k *ticketKeeper) move(ctx context.Context, id string, record *tickets.Record, ticket tickets.Ticket, wasQueuedBefore bool, now time.Time) {
-	repository, claim := "", 0
+	repository, named := "", []tickets.NamedIssue(nil)
 	if record != nil {
 		repository = record.Repository
 	} else {
@@ -592,7 +601,7 @@ func (k *ticketKeeper) move(ctx context.Context, id string, record *tickets.Reco
 		if repository = k.ticketedRepository(ctx, id, now); repository == "" {
 			return
 		}
-		claim = k.claimedIssue(id, repository)
+		named = k.namedIssues(id, repository)
 	}
 	if wait, isWaiting := k.backOff[repository]; isWaiting && now.Before(wait.until) {
 		k.note("repository:"+repository, wait.line)
@@ -607,12 +616,12 @@ func (k *ticketKeeper) move(ctx context.Context, id string, record *tickets.Reco
 		}
 		k.labelled[repository] = true
 	}
-	next, err := k.writer.Apply(ctx, repository, record, ticket, claim)
+	next, err := k.writer.Apply(ctx, repository, record, ticket, named)
 	var refusedClaim *tickets.ClaimRefused
 	if errors.As(err, &refusedClaim) && next != nil {
 		noted := *next
-		noted.Note = fmt.Sprintf("The ticket for %s: %v", id, err)
-		next, err = &noted, nil
+		noted.Note = fmt.Sprintf("The ticket for %s: %v", id, refusedClaim)
+		next, err = &noted, refusedClaim.Err
 	}
 	if next != nil && next != record {
 		if writeErr := tickets.WriteRecord(k.home.State, *next); writeErr != nil {
@@ -761,17 +770,16 @@ func (k *ticketKeeper) namedTitle(id string) string {
 	return tickets.ShortTitle(named)
 }
 
-// claimedIssue is the issue a task's brief, or its backlog row, names as
-// the one it is for, or 0.
-func (k *ticketKeeper) claimedIssue(id, repository string) int {
+// namedIssues are the issues a task's brief, or its backlog row, names to
+// take up.
+func (k *ticketKeeper) namedIssues(id, repository string) []tickets.NamedIssue {
 	text := ""
 	if brief, err := fsx.ReadFile(filepath.Join(k.home.Data, id, "brief.md")); err == nil {
 		text = string(brief)
 	} else if queued, err := fleet.ReadQueuedTask(k.home, id); err == nil {
 		text = queued.Detail
 	}
-	number, _ := tickets.ClaimedIssue(text, repository)
-	return number
+	return tickets.NamedIssues(text, repository)
 }
 
 // note records a problem the pass under way met.

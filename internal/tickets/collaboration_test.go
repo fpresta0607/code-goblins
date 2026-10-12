@@ -117,7 +117,7 @@ func TestShouldBackOffReadsGitHubsRefusals(t *testing.T) {
 	for _, tc := range cases {
 		issue := "repos/" + northwind + "/issues/501"
 		gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: tc.status, "GET repos/" + northwind: tc.status}}
-		_, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, openedRecord(InProgress, "cfo: in progress", "goblin: claude"), Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude"}, 0)
+		_, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, openedRecord(InProgress, "cfo: in progress", "goblin: claude"), Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude"}, nil)
 		if got := ShouldBackOff(err); got != tc.want {
 			t.Fatalf("status %d: back off = %v (err %v), want %v", tc.status, got, err, tc.want)
 		}
