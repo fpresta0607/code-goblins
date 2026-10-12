@@ -304,6 +304,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-canvas { position: relative; display: flex; flex-direction: column; height: 100%; overflow: clip; touch-action: none; cursor: grab; background: radial-gradient(circle, #51716675 1px, transparent 1px) 0 0 / 24px 24px; }
 .flow-canvas:active { cursor: grabbing; }
 .flow-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+/* While the canvas fits itself, a baby goblin born or gone eases the frame
+   to its new fit rather than snapping to it. A pan or a zoom by hand, and
+   every other refit, moves it at once. */
+.flow-world.settling { transition: transform .38s cubic-bezier(.2, .8, .2, 1); }
 .flow-connections { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connection-line path { fill: none; stroke: #637b8c; stroke-width: 2; }
 .connection-line circle { fill: #bad4ec; }
@@ -312,16 +316,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connection-line.relation-delegated path { stroke-dasharray: 7 4; }
 /* A pulse or birth highlight lays over its connector for its whole life,
    which the board sets as the animation's duration, and fades out before it
-   is removed. Its dash travels one full dash pattern per loop, so it keeps
-   moving without a jump until the fade ends. */
-.connector-effect { animation: effect-life ease-in-out forwards; }
+   is removed. Its dashes travel by transform and it fades by opacity, apart
+   from the connectors, so nothing under it repaints while it plays. A dash
+   is unseen until it travels. */
+.connector-effect { position: absolute; left: 0; top: 0; pointer-events: none; animation: effect-life ease-in-out forwards; }
+.connector-effect svg { position: absolute; inset: 0; overflow: visible; }
+.connector-effect path { fill: none; stroke-width: 2; }
+.connector-effect.delegated path { stroke-dasharray: 7 4; }
 .connector-effect.communicating path { stroke: #57e5bf; }
 .connector-effect.communicating circle { fill: #86ffe0; }
 .connector-effect.creating path { stroke: #70bfa9; stroke-width: 3; }
 .connector-effect.creating circle { fill: #9adbc9; }
+.connector-effect .communication-pulse { position: absolute; left: -7px; top: -2.5px; width: 14px; height: 5px; background: #57e5bf; opacity: 0; }
 .connection-line text { fill: #bcffe9; font-size: 15px; }
-.connection-line .communication-pulse { stroke-width: 5; stroke-dasharray: 14 230; animation: guidance 2.5s linear infinite; }
-@keyframes guidance { to { stroke-dashoffset: -244; } }
 @keyframes effect-life { 0%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
 .flow-node { position: absolute; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease; }
 /* A canvas card is a fixed 292 by 166 box, so the column of text in it never
@@ -721,6 +728,9 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .activity-glow { pointer-events: none; position: absolute; inset: -2px; border: 2px solid #81edc0; border-radius: inherit; box-shadow: 0 0 16px #67e8b755; animation: received 3s ease-out both; }
 @keyframes received { from { opacity: 1; } to { opacity: 0; } }
 .node-enter { animation: entered .5s ease-out; }
+/* A goblin at work glows, still, in the board's green: nothing plays while
+   nothing changes. */
+.flow-node.is-working::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 1px #00e59b55, 0 0 28px #00e59b2e; pointer-events: none; }
 @keyframes entered { from { opacity: .3; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* The goblin panel: a top row with the Task and Terminal pill, a header that

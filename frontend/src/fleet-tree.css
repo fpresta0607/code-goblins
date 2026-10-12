@@ -80,6 +80,22 @@ button.tree-child:hover { border-color: var(--glass-border-hover); }
 .tree-branches .state-chip { justify-self: center; font-size: .8125rem; }
 .tree-branches .tree-memory { font-size: .8125rem; line-height: 1.3; }
 
+/* The canvas alive, in transforms and opacity only, each played once for
+   what happened: a working baby goblin glows still, one born grows in on its
+   branch, one that finished or went reports back and fades where it hung,
+   and a pulse runs along a branch at each exchange, down when its goblin
+   starts it and up when it reports. With reduced motion none plays. */
+.tree-branches .tree-child[data-state="working"]::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 1px #00e59b40, 0 0 18px #00e59b26; pointer-events: none; }
+.tree-branches > li.born > .tree-child { animation: baby-born 520ms cubic-bezier(.2, .9, .3, 1.12) both; }
+.tree-branches > li.leaving > .tree-child { animation: baby-leaving 1400ms ease-in both; }
+.branch-lines .born { animation: branch-born 520ms ease-out both; }
+.branch-lines .leaving { animation: branch-leaving 1400ms ease-in both; }
+@keyframes baby-born { from { opacity: 0; transform: translateY(-14px) scale(.86); } }
+@keyframes baby-leaving { 0%, 60% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(10px) scale(.9); } }
+@keyframes branch-born { from { opacity: 0; } }
+@keyframes branch-leaving { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+.branch-pulse { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 10px 3px #6ee7b780; opacity: 0; pointer-events: none; }
+
 /* The lineage list at phone width: the count under the goblin, its children
    on a rail. */
 .workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; justify-items: start; }

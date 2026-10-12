@@ -13,6 +13,12 @@ import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { CardFacts } from "./card-facts";
 import { CfoCardFacts } from "./cfo-card-facts";
+import { ConnectorEffect } from "./connector-effect";
+import { withDepartures } from "./tree-traffic";
+import { travel, useGlide, useTreeMotion, type Point as Place } from "./use-tree-motion";
+
+// The phases a goblin is at work in, whose card glows.
+const WORKING = new Set(["working", "busy", "active", "started"]);
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
@@ -71,11 +77,18 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     const tree = node.task && ownsTaskSession(node.session, node.task) ? node.task.tree : undefined;
     return tree && hasRunningChildren(tree) ? [[node.id, tree]] : [];
   })), [nodes]);
+  // A baby goblin that finished or went keeps its place on its branch while
+  // it reports back and fades, so the others hold still until it has gone.
+  const motion = useTreeMotion(trees, connected);
+  const shownChildren = useMemo(() => {
+    const goblins = new Set([...Object.keys(trees), ...motion.leaving.map((gone) => gone.goblin)]);
+    return Object.fromEntries([...goblins].map((id) => [id, withDepartures(trees[id] ? running(trees[id]) : [], motion.leaving.filter((gone) => gone.goblin === id))]));
+  }, [trees, motion.leaving]);
   // The connectors to the goblins under a goblin's baby goblins run down
   // beside them, each on a line of its own.
-  const branches = useMemo(() => Object.fromEntries(Object.entries(trees).map(([id, tree]) => [id, branchLayout(running(tree).length, NODE_WIDTH, nodes.filter((node) => node.parent === id).length)])), [trees, nodes]);
-  const extents = useMemo(() => Object.fromEntries(Object.keys(trees).map((id): [string, Extent] => collapsed.has(id)
-    ? [id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT, drops: [0] }] : [id, { width: branches[id].width, below: branches[id].height, drops: branches[id].drops }])), [trees, branches, collapsed]);
+  const branches = useMemo(() => Object.fromEntries(Object.entries(shownChildren).map(([id, children]) => [id, branchLayout(children.length, NODE_WIDTH, nodes.filter((node) => node.parent === id).length)])), [shownChildren, nodes]);
+  const extents = useMemo(() => Object.fromEntries(Object.keys(shownChildren).flatMap((id): [string, Extent][] => !collapsed.has(id)
+    ? [[id, { width: branches[id].width, below: branches[id].height, drops: branches[id].drops }]] : trees[id] ? [[id, { width: NODE_WIDTH, below: TREE_GAP + COUNT_HEIGHT, drops: [0] }]] : [])), [shownChildren, trees, branches, collapsed]);
   const below = useMemo(() => Object.fromEntries(Object.entries(extents).map(([id, extent]) => [id, extent.below])), [extents]);
   // The graph fills the visible canvas, centered, and Arrange lays it out in
   // the rows that show it largest there, until a zoom or a pan by hand takes
@@ -131,6 +144,13 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     return false;
   };
   const visible = nodes.filter((node) => !hidden(node));
+  // Where each baby goblin hangs from its goblin's card, where it slides to
+  // when one beside it comes or goes.
+  const places = new Map(visible.flatMap((node) => {
+    const block = branches[node.id];
+    return !block || collapsed.has(node.id) ? [] : shownChildren[node.id].map((child, i): [string, Place] => [child.id, { x: (NODE_WIDTH - block.width) / 2 + block.places[i].x, y: block.places[i].y }]);
+  }));
+  const glide = useGlide(places, connected);
   const point = (id: string) => positions[id];
   // Each card's left and right with what hangs under it, centred on the card.
   const lefts = visible.map((node) => point(node.id).x + (NODE_WIDTH - (extents[node.id]?.width || NODE_WIDTH)) / 2);
@@ -219,6 +239,51 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   };
   const endDrag = () => { if (drag.current) save(); drag.current = null; setHeld(null); };
   const toggle = (id: string) => setCollapsed((prior) => { const next = new Set(prior); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  // Each connector from a card's parent down to the card, and what plays on
+  // it: the CFO's pulses on what it hears and a goblin's birth.
+  const connectors = visible.flatMap((node) => {
+    if (!node.parent || !visible.some((other) => other.id === node.parent)) return [];
+    const from = point(node.parent), to = point(node.id);
+    // A native cycle stays labeled in details and visible in layout;
+    // drawing it as normal downward ancestry would be misleading.
+    const seen = new Set([node.id]);
+    let parent: string | undefined = node.parent;
+    while (parent && !seen.has(parent)) { seen.add(parent); parent = byID.get(parent)?.parent; }
+    if (parent) return [];
+    // Each connector leaves its parent's bottom on its own, a line's
+    // gap from the next, in the order they run down.
+    const down = (id: string) => ways.get(id)?.x ?? point(id).x + NODE_WIDTH / 2;
+    const siblings = nodes.filter((other) => other.parent === node.parent).sort((one, other) => down(one.id) - down(other.id));
+    const index = siblings.indexOf(node), sy = from.y + NODE_HEIGHT;
+    const ex = to.x + NODE_WIDTH / 2, ey = to.y;
+    // Travel sideways just below the parent, then drop straight
+    // down. For the next row this is the plain S curve. One to a
+    // later row whose drop would pass behind a card or what hangs
+    // under it drops down the clear way nearest instead, and turns
+    // toward its card above that card's row. Under a parent whose
+    // baby goblins hang open, it runs down beside them on its own
+    // line, so it never passes behind one, the outermost turning
+    // lowest, toward the card furthest that way.
+    const block = collapsed.has(node.parent) ? undefined : branches[node.parent];
+    const left = from.x + (NODE_WIDTH - (block?.width || 0)) / 2;
+    const beside = block?.passes[index].map((turn) => ({ x: left + turn.x, y: sy + turn.y }));
+    const under = sy + (block?.height || 0) + LANE_GAP + ((siblings.length - 1) / 2 - index) * LINE_GAP;
+    const isBeside = beside !== undefined && ey - under >= LANE_GAP / 2;
+    const sx = isBeside ? beside[0].x : from.x + NODE_WIDTH / 2 + (index - (siblings.length - 1) / 2) * LINE_GAP;
+    const drop = Math.min((ey - sy) / 2, 56), way = ways.get(node.id), dx = way?.x ?? ex;
+    const path = isBeside
+      ? elbows([...beside, { x: beside[beside.length - 1].x, y: under }, { x: ex, y: under }, { x: ex, y: ey }])
+      : `M${sx},${sy} C${sx},${sy + drop} ${dx},${sy + drop} ${dx},${sy + 2 * drop}`
+        + (way ? elbows([{ x: dx, y: sy + 2 * drop }, { x: dx, y: way.turn }, { x: ex, y: way.turn }, { x: ex, y: ey }]).replace(/^M/, " L") : ` L${ex},${ey}`);
+    const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
+    const reports = connected && node.task ? traffic[node.task.id] || [] : [];
+    const playing: { key: string; kind: "communicating" | "creating"; start: number; life: number }[] = [
+      ...activity.creation ? [{ key: activity.creation.id, kind: "creating" as const, start: activity.creation.expires - EFFECT_MS, life: EFFECT_MS }] : [],
+      ...activity.communication ? [{ key: activity.communication.id, kind: "communicating" as const, start: activity.communication.expires - EFFECT_MS, life: EFFECT_MS }] : [],
+      ...reports.map((report) => ({ key: "report:" + report, kind: "communicating" as const, start: report, life: PULSE_MS })),
+    ];
+    return [{ node, path, end: { x: ex, y: ey }, playing }];
+  });
   return <section className="orchestration" aria-label="Orchestration">
     <p className="sr-only" id="canvas-help">Drag a card to reposition it. With a card focused, Alt and arrow keys move it, Shift moves farther. Drag the canvas to move the view, and the wheel zooms where the pointer is. On the canvas, plus and minus zoom, zero fits. Moving cards never changes parent relationships.</p>
     <div ref={viewport} className="flow-canvas" tabIndex={0} aria-label="Connected family tree" aria-describedby="canvas-help"
@@ -255,59 +320,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         panned.current = false;
       }}>
       {!nodes.length && <div className="empty-state"><h2>No sessions reported yet</h2><p>Native parent relationships will appear here as work starts.</p></div>}
-      <div className="flow-world" style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
+      <div className={"flow-world" + (motion.isSettling && !view && !held ? " settling" : "")} style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
         <svg className="flow-connections" width={fitLeft + fitWidth} height={fitTop + fitHeight} aria-hidden="true">
-          {visible.map((node) => {
-            if (!node.parent || !visible.some((other) => other.id === node.parent)) return null;
-            const from = point(node.parent), to = point(node.id);
-            // A native cycle stays labeled in details and visible in layout;
-            // drawing it as normal downward ancestry would be misleading.
-            const seen = new Set([node.id]);
-            let parent: string | undefined = node.parent;
-            while (parent && !seen.has(parent)) { seen.add(parent); parent = byID.get(parent)?.parent; }
-            if (parent) return null;
-            // Each connector leaves its parent's bottom on its own, a line's
-            // gap from the next, in the order they run down.
-            const down = (id: string) => ways.get(id)?.x ?? point(id).x + NODE_WIDTH / 2;
-            const siblings = nodes.filter((other) => other.parent === node.parent).sort((one, other) => down(one.id) - down(other.id));
-            const index = siblings.indexOf(node), sy = from.y + NODE_HEIGHT;
-            const ex = to.x + NODE_WIDTH / 2, ey = to.y;
-            // Travel sideways just below the parent, then drop straight
-            // down. For the next row this is the plain S curve. One to a
-            // later row whose drop would pass behind a card or what hangs
-            // under it drops down the clear way nearest instead, and turns
-            // toward its card above that card's row. Under a parent whose
-            // baby goblins hang open, it runs down beside them on its own
-            // line, so it never passes behind one, the outermost turning
-            // lowest, toward the card furthest that way.
-            const block = collapsed.has(node.parent) ? undefined : branches[node.parent];
-            const left = from.x + (NODE_WIDTH - (block?.width || 0)) / 2;
-            const beside = block?.passes[index].map((turn) => ({ x: left + turn.x, y: sy + turn.y }));
-            const under = sy + (block?.height || 0) + LANE_GAP + ((siblings.length - 1) / 2 - index) * LINE_GAP;
-            const isBeside = beside !== undefined && ey - under >= LANE_GAP / 2;
-            const sx = isBeside ? beside[0].x : from.x + NODE_WIDTH / 2 + (index - (siblings.length - 1) / 2) * LINE_GAP;
-            const drop = Math.min((ey - sy) / 2, 56), way = ways.get(node.id), dx = way?.x ?? ex;
-            const path = isBeside
-              ? elbows([...beside, { x: beside[beside.length - 1].x, y: under }, { x: ex, y: under }, { x: ex, y: ey }])
-              : `M${sx},${sy} C${sx},${sy + drop} ${dx},${sy + drop} ${dx},${sy + 2 * drop}`
-                + (way ? elbows([{ x: dx, y: sy + 2 * drop }, { x: dx, y: way.turn }, { x: ex, y: way.turn }, { x: ex, y: ey }]).replace(/^M/, " L") : ` L${ex},${ey}`);
-            const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
-            const reports = connected && node.task ? traffic[node.task.id] || [] : [];
-            // Each pulse or birth highlight is its own overlay on the
-            // connector, played out over its whole life and faded before
-            // it is removed, so the connector itself never changes.
-            const effect = (key: string, kind: "communicating" | "creating", start: number, life: number) =>
-              <g key={key} ref={playFrom(start)} className={"connector-effect " + kind} style={{ animationDuration: life + "ms" }}>
-                <path d={path} /><circle cx={ex} cy={ey} r={4} />
-                {kind === "communicating" && <path className="communication-pulse" d={path} />}
-              </g>;
-            return <g key={node.id} className={"connection-line relation-" + node.relation + (lit === node.id ? " lit" : "")}>
-              <path d={path} /><circle cx={ex} cy={ey} r={4} />
-              {activity.creation && effect(activity.creation.id, "creating", activity.creation.expires - EFFECT_MS, EFFECT_MS)}
-              {activity.communication && effect(activity.communication.id, "communicating", activity.communication.expires - EFFECT_MS, EFFECT_MS)}
-              {reports.map((report) => effect("report:" + report, "communicating", report, PULSE_MS))}
-            </g>;
-          })}
+          {connectors.map(({ node, path, end }) => <g key={node.id} className={"connection-line relation-" + node.relation + (lit === node.id ? " lit" : "")}>
+            <path d={path} /><circle cx={end.x} cy={end.y} r={4} />
+          </g>)}
           {/* A goblin waiting on another goblin: a dashed line from the
               waiting card to the one it waits on, apart from the family tree. */}
           {visible.flatMap((node) => {
@@ -339,24 +356,36 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             return [<g key={"wait:" + node.id} className="dependency-line"><path d={path} /><circle cx={ex} cy={ey} r={5} /></g>];
           })}
         </svg>
+        {/* Each pulse or birth highlight is its own overlay on its
+            connector, played out over its whole life and faded before it is
+            removed, so the connector itself never changes. */}
+        {connectors.flatMap(({ node, path, end, playing }) => playing.map((effect) => <ConnectorEffect key={node.id + ":" + effect.key} kind={effect.kind}
+          path={path} end={end} width={fitLeft + fitWidth} height={fitTop + fitHeight} isDelegated={node.relation === "delegated"} start={effect.start} life={effect.life} />))}
         {/* Branches come before the cards, so a card and its chevron lie
             over the branches hanging from it. */}
         {visible.flatMap((node) => {
-          const tree = trees[node.id], task = node.task;
-          if (!tree || !task) return [];
+          const tree = trees[node.id], task = node.task, children = shownChildren[node.id];
+          if (!children || !task) return [];
           const p = point(node.id);
-          if (collapsed.has(node.id)) return [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
+          if (collapsed.has(node.id)) return tree ? [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
             <TreeCount tree={tree} title={node.title} expanded={false} onToggle={() => toggle(node.id)} />
-          </div>];
+          </div>] : [];
           const block = branches[node.id];
+          // A baby goblin being born grows in on its branch, one leaving fades
+          // out, and a pulse runs along a branch at each exchange.
+          const motionOf = (child: string) => motion.born.has(child) ? " born" : motion.leaving.some((gone) => gone.node.id === child) ? " leaving" : "";
           return [<ul key={"tree:" + node.id} className="tree-branches" aria-label={"What runs under " + node.title}
             style={{ left: p.x + (NODE_WIDTH - block.width) / 2, top: p.y + NODE_HEIGHT, width: block.width, height: block.height }}>
             <svg className="branch-lines" width={block.width} height={block.height} aria-hidden="true">
-              {running(tree).map((child, i) => <g key={child.id} className={lit === "child:" + child.id ? "lit" : undefined}>
+              {children.map((child, i) => <g key={child.id} className={(lit === "child:" + child.id ? "lit" : "") + motionOf(child.id)}>
                 <path d={block.lines[i]} /><circle cx={block.ends[i].x} cy={block.ends[i].y} r={3} />
               </g>)}
             </svg>
-            {running(tree).map((child, i) => <li key={child.id} style={{ left: block.places[i].x, top: block.places[i].y, width: BABY_WIDTH, height: BABY_HEIGHT }} {...lights("child:" + child.id)}>
+            {motion.pulses.filter((pulse) => pulse.goblin === node.id).map((pulse) => {
+              const route = block.routes[children.findIndex((child) => child.id === pulse.child)];
+              return route && <span key={pulse.key} className="branch-pulse" ref={travel(pulse.isUp ? [...route].reverse() : route)} aria-hidden="true" />;
+            })}
+            {children.map((child, i) => <li key={child.id} ref={glide(child.id)} className={motionOf(child.id).trim() || undefined} style={{ left: block.places[i].x, top: block.places[i].y, width: BABY_WIDTH, height: BABY_HEIGHT }} {...lights("child:" + child.id)}>
               <TreeChild node={child} name={babyName(task, child)} now={now} isSelected={selected === "child:" + child.id} onOpen={(source) => onChild(task, child, source)} />
             </li>)}
           </ul>];
@@ -369,7 +398,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const { text: status, phase } = owner && node.task ? taskStatus(node.task, snapshot) : { text: nodeStatus(node, false, snapshot.tasks, snapshot.merge_trains), phase: node.session?.runtime?.state || node.session?.phase };
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
           const hasCfoFacts = (!!node.cfo || node.session?.role === "cfo") && snapshot.cfo_runs && !snapshot.cfo_closed;
-          return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
+          return <article key={node.id} className={"flow-node" + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
             <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
               onKeyDown={(event) => {
