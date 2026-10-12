@@ -76,6 +76,30 @@ func NamedIssues(text, repository string) []NamedIssue {
 	return named
 }
 
+// HeldElsewhere says why an issue a task names is someone else's work, or ""
+// when it is not: someone other than the account the fleet writes as is
+// assigned to it, or a Code Goblins state label is on it while that account
+// is not, which is how another account's fleet holds an issue it opened or
+// claimed. A fleet assigns its own account to every issue it opens or claims.
+func HeldElsewhere(assignees, labels []string, account string) string {
+	isOwn := false
+	for _, assignee := range assignees {
+		if !strings.EqualFold(assignee, account) {
+			return "it is assigned to " + assignee
+		}
+		isOwn = true
+	}
+	if isOwn {
+		return ""
+	}
+	for _, state := range openStates {
+		if slices.Contains(labels, stateLabel(state)) {
+			return "another Code Goblins fleet holds it (" + stateLabel(state) + ")"
+		}
+	}
+	return ""
+}
+
 // taskSection is the text of a brief's Task section alone, or "" when it has
 // none. Headings match whatever their case and a trailing colon.
 func taskSection(text string) string {
