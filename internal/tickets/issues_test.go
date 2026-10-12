@@ -394,6 +394,62 @@ func TestApplyWritesWhatTheTaskChangesAndWhereIntoTheBody(t *testing.T) {
 	}
 }
 
+func TestApplyListsEveryPullRequestOfTheTask(t *testing.T) {
+	// Arrange: the issue names the task's first pull request; the task then
+	// opened a second.
+	gh := &issueGitHub{}
+	second := PullRequestLink{Number: 415, URL: "https://github.com/" + northwind + "/pull/415"}
+	from := openedRecord(PROpen, "cfo: pr open", "goblin: claude")
+	from.PullRequest, from.PullRequests = mergedPull.URL, []string{mergedPull.URL}
+	ticket := Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: second, PullRequests: []PullRequestLink{mergedPull, second}}
+
+	// Act
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, ticket, 0)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := gh.call(t, "PATCH repos/"+northwind+"/issues/501").Fields["body"][0]
+	if !strings.Contains(body, "**Pull requests:** "+mergedPull.URL+", "+second.URL+"\n") {
+		t.Fatalf("body = %q, want both pull requests listed", body)
+	}
+	if record.PullRequest != second.URL || !slices.Equal(record.PullRequests, []string{mergedPull.URL, second.URL}) {
+		t.Fatalf("record = %+v, want both pull requests kept and the second current", record)
+	}
+}
+
+func TestPullRequestsOnRecordIncludeOneARecordNamedBeforeTheList(t *testing.T) {
+	// Arrange: a record written before records listed every pull request.
+	record := Record{TaskID: "nw-sync", PullRequest: mergedPull.URL}
+
+	// Act
+	got := record.PullRequestsOnRecord()
+
+	// Assert
+	if !slices.Equal(got, []string{mergedPull.URL}) {
+		t.Fatalf("pull requests on record = %q, want the one it named", got)
+	}
+}
+
+func TestIsPullRequestOfReadsTheRepositoryFromTheLink(t *testing.T) {
+	cases := []struct {
+		url  string
+		want bool
+	}{
+		{url: "https://github.com/fpresta0607/northwind-api/pull/412", want: true},
+		{url: "https://github.com/FPresta0607/Northwind-API/pull/412", want: true},
+		{url: "https://github.com/fpresta0607/code-goblins/pull/673"},
+		{url: "https://github.com/fpresta0607/northwind-api/issues/412"},
+		{url: ""},
+	}
+	for _, tc := range cases {
+		if got := IsPullRequestOf(tc.url, northwind); got != tc.want {
+			t.Errorf("IsPullRequestOf(%q) = %v, want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
 func TestApplyClaimsTheIssueTheTaskNames(t *testing.T) {
 	// Arrange
 	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"html_url":"https://github.com/` + northwind + `/issues/415","state":"open"}`}}

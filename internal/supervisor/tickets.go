@@ -328,10 +328,34 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 		k.noteOf(record)
 		return
 	}
-	ticket, ok := ticketFor(id, k.title(id, record), task, record)
+	title := k.title(id, record)
+	ticket, ok := ticketFor(id, title, task, record)
+	// A ticket holds only pull requests of its own repository: one a goblin
+	// reported from another is left out, and the board says so. A task with
+	// no ticket that will not get one is not asked about.
+	if ok && ticket.PullRequest.URL != "" && (record != nil || ticket.IsOpen()) {
+		if repository := k.taskRepository(ctx, id, record, now); repository != "" && !tickets.IsPullRequestOf(ticket.PullRequest.URL, repository) {
+			k.note("task:"+id, fmt.Sprintf("The ticket for %s leaves out %s, a pull request of another repository than %s", id, task.PR, repository))
+			task.PR = ""
+			ticket, ok = ticketFor(id, title, task, record)
+		}
+	}
 	if !ok {
 		k.noteOf(record)
 		return
+	}
+	ticket.PullRequests = pullRequestsOf(record, ticket.PullRequest)
+	// The board can lose a task's pull request, so before a ticket closes as
+	// not planned GitHub says what became of each one it holds.
+	if ticket.State == tickets.Closed && record != nil {
+		merged, isSettled := k.pullRequestOutcome(ctx, id, ticket.PullRequests, now)
+		if !isSettled {
+			k.noteOf(record)
+			return
+		}
+		if merged.Number > 0 {
+			ticket.State, ticket.Reason, ticket.PullRequest = tickets.Merged, "", merged
+		}
 	}
 	// cfo spawn keeps the CFO's reason for starting a task beside a
 	// teammate's work; the keeper, the tickets' only writer, puts it on the
@@ -348,6 +372,66 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 		ticket.What, ticket.Area = record.What, record.Area
 	}
 	k.move(ctx, id, record, ticket, wasQueuedBefore, now)
+	k.tellGoblin(id)
+}
+
+// taskRepository is the GitHub repository a task's ticket is in, or would
+// be: its record's, else its project's, or "" while that is unknown.
+func (k *ticketKeeper) taskRepository(ctx context.Context, id string, record *tickets.Record, now time.Time) string {
+	if record != nil {
+		return record.Repository
+	}
+	project := k.project(id)
+	if project == "" {
+		return ""
+	}
+	known := k.repository(ctx, project, now)
+	if known.err != nil || known.isNotGitHub {
+		return ""
+	}
+	return known.Repository
+}
+
+// pullRequestsOf are every pull request of its own repository a ticket's
+// record holds, in the order it named them, then current when the record
+// does not hold it yet.
+func pullRequestsOf(record *tickets.Record, current tickets.PullRequestLink) []tickets.PullRequestLink {
+	var pulls []tickets.PullRequestLink
+	if record != nil {
+		for _, url := range record.PullRequestsOnRecord() {
+			if link := pullRequestLink(url); link.Number > 0 && tickets.IsPullRequestOf(url, record.Repository) {
+				pulls = append(pulls, link)
+			}
+		}
+	}
+	if current.URL != "" && !slices.Contains(pulls, current) {
+		pulls = append(pulls, current)
+	}
+	return pulls
+}
+
+// tellGoblin names a running task's ticket in its tasktmp folder, where its
+// instruction tells the goblin to look before it opens a pull request, so
+// each pull request of the task says it is part of the ticket and GitHub
+// links the two. It writes only into a folder the spawn made, and only when
+// what it says changed.
+func (k *ticketKeeper) tellGoblin(id string) {
+	record, err := tickets.ReadRecord(k.home.State, id)
+	if err != nil || record.IsDone || record.Number == 0 {
+		return
+	}
+	meta, err := state.ReadTaskMeta(k.home.State, id)
+	if err != nil || meta.TaskTmp == "" || !exists(meta.TaskTmp) {
+		return
+	}
+	path := filepath.Join(meta.TaskTmp, "ticket.md")
+	told := fmt.Sprintf("Your task's ticket is issue #%d of %s: %s\nTeammates follow the task there. Write this line in the body of every pull request you open for the task, so the issue and the pull request link to each other:\n\nPart of #%d\n", record.Number, record.Repository, record.URL, record.Number)
+	if current, err := fsx.ReadFile(path); err == nil && string(current) == told {
+		return
+	}
+	if err := fsx.AtomicWriteFile(path, []byte(told)); err != nil {
+		k.note("task:"+id, fmt.Sprintf("The ticket of %s could not be named to its goblin: %v", id, err))
+	}
 }
 
 // description is what a task's brief tells its ticket: its Ticket section,
@@ -420,19 +504,21 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 			k.noteOf(&record)
 			continue
 		}
-		ticket := tickets.Ticket{TaskID: record.TaskID, Title: k.title(record.TaskID, &record), What: record.What, Area: record.Area, Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest), Overlap: record.Overlap}
-		if ticket.PullRequest.Number == 0 {
+		ticket := tickets.Ticket{TaskID: record.TaskID, Title: k.title(record.TaskID, &record), What: record.What, Area: record.Area, Harness: record.Harness(), PullRequests: pullRequestsOf(&record, tickets.PullRequestLink{}), Overlap: record.Overlap}
+		if current := pullRequestLink(record.PullRequest); slices.Contains(ticket.PullRequests, current) {
+			ticket.PullRequest = current
+		}
+		merged, isSettled := k.pullRequestOutcome(ctx, record.TaskID, ticket.PullRequests, now)
+		switch {
+		case !isSettled:
+			k.noteOf(&record)
+			continue
+		case merged.Number > 0:
+			ticket.State, ticket.PullRequest = tickets.Merged, merged
+		case len(ticket.PullRequests) == 0:
 			ticket.State, ticket.Reason = tickets.Closed, tickets.LeftTheFleet
-		} else {
-			switch k.pullRequestState(ctx, record, now) {
-			case "MERGED":
-				ticket.State = tickets.Merged
-			case "CLOSED":
-				ticket.State, ticket.Reason = tickets.Closed, tickets.FinishedUnmerged
-			default:
-				k.noteOf(&record)
-				continue
-			}
+		default:
+			ticket.State, ticket.Reason = tickets.Closed, tickets.FinishedUnmerged
 		}
 		k.move(ctx, record.TaskID, &record, ticket, false, now)
 	}
@@ -449,29 +535,49 @@ func (k *ticketKeeper) retitleDone(ctx context.Context, record tickets.Record, n
 	}
 }
 
-// pullRequestState asks GitHub what became of a gone task's pull request,
-// once an hour while it is open and after ticketRetry when GitHub did not
-// answer; in between, and without a way to ask, it is "". The wait after a
-// failed read keeps its line on the board.
-func (k *ticketKeeper) pullRequestState(ctx context.Context, record tickets.Record, now time.Time) string {
+// pullRequestOutcome asks GitHub what became of the pull requests a ticket
+// holds before the ticket closes otherwise than by its board's merge: the
+// one that merged, if any, and whether the ticket may close, which it may
+// not while one is still open or GitHub has not answered for each. A ticket
+// with none may close at once. GitHub is asked once an hour while one is
+// open and after ticketRetry when it did not answer; in between, and without
+// a way to ask, the ticket waits. The wait after a failed read keeps its line
+// on the board.
+func (k *ticketKeeper) pullRequestOutcome(ctx context.Context, id string, pulls []tickets.PullRequestLink, now time.Time) (merged tickets.PullRequestLink, isSettled bool) {
+	if len(pulls) == 0 {
+		return tickets.PullRequestLink{}, true
+	}
 	if k.writer.PullRequestState == nil {
-		return ""
+		return tickets.PullRequestLink{}, false
 	}
-	if wait := k.askPullAfter[record.TaskID]; now.Before(wait.until) {
+	if wait := k.askPullAfter[id]; now.Before(wait.until) {
 		if wait.line != "" {
-			k.note("task:"+record.TaskID, wait.line)
+			k.note("task:"+id, wait.line)
 		}
-		return ""
+		return tickets.PullRequestLink{}, false
 	}
-	answer, err := k.writer.PullRequestState(ctx, record.PullRequest)
-	if err != nil {
-		wait := ticketWait{until: now.Add(ticketRetry), line: fmt.Sprintf("The ticket for %s waits: its pull request could not be read: %v", record.TaskID, err)}
-		k.askPullAfter[record.TaskID] = wait
-		k.note("task:"+record.TaskID, wait.line)
-		return ""
+	isOpen := false
+	for _, pull := range pulls {
+		answer, err := k.writer.PullRequestState(ctx, pull.URL)
+		if err != nil {
+			wait := ticketWait{until: now.Add(ticketRetry), line: fmt.Sprintf("The ticket for %s waits: its pull request could not be read: %v", id, err)}
+			k.askPullAfter[id] = wait
+			k.note("task:"+id, wait.line)
+			return tickets.PullRequestLink{}, false
+		}
+		switch answer.State {
+		case "MERGED":
+			return pull, true
+		case "CLOSED":
+		default:
+			isOpen = true
+		}
 	}
-	k.askPullAfter[record.TaskID] = ticketWait{until: now.Add(collaborationRefresh)}
-	return answer.State
+	if isOpen {
+		k.askPullAfter[id] = ticketWait{until: now.Add(collaborationRefresh)}
+		return tickets.PullRequestLink{}, false
+	}
+	return tickets.PullRequestLink{}, true
 }
 
 // move writes a task's ticket through GitHub and keeps what it then holds.

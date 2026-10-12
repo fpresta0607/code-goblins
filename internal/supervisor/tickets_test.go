@@ -161,6 +161,11 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 			if ticket.PullRequest.URL != "" {
 				next.PullRequest = ticket.PullRequest.URL
 			}
+			for _, pull := range append(slices.Clone(ticket.PullRequests), ticket.PullRequest) {
+				if pull.URL != "" && !slices.Contains(next.PullRequests, pull.URL) {
+					next.PullRequests = append(next.PullRequests, pull.URL)
+				}
+			}
 			if f.refuseClaim && claim > 0 {
 				return &next, &tickets.ClaimRefused{Number: claim, Why: "it is closed"}
 			}
@@ -1391,5 +1396,135 @@ func TestKeeperKeepsAGoneTasksWhatAndAreaWhenItClosesItsTicket(t *testing.T) {
 	// Assert
 	if len(github.applied) != 1 || github.applied[0].ticket.What != record.What || !slices.Equal(github.applied[0].ticket.Area, record.Area) {
 		t.Fatalf("applied = %+v, want the ticket closed with the what and area it had", github.applied)
+	}
+}
+
+const secondTicketPull = "https://github.com/fpresta0607/northwind-api/pull/415"
+
+func TestKeeperKeepsEveryPullRequestOfTheTaskOnTheTicket(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	keeper.reconcile(context.Background(), []Task{liveTask("ready", ticketPull)}, ticketNow)
+
+	// Act: the goblin reports a second pull request, which the board shows
+	// in place of the first.
+	keeper.reconcile(context.Background(), []Task{liveTask("ready", secondTicketPull)}, ticketNow.Add(time.Minute))
+
+	// Assert
+	last := github.applied[len(github.applied)-1].ticket
+	if last.PullRequest.Number != 415 || len(last.PullRequests) != 2 || last.PullRequests[0].Number != 412 || last.PullRequests[1].Number != 415 {
+		t.Fatalf("ticket = %+v, want both pull requests listed and the second one current", last)
+	}
+	if record, err := tickets.ReadRecord(h.State, "nw-sync"); err != nil || !slices.Equal(record.PullRequests, []string{ticketPull, secondTicketPull}) {
+		t.Fatalf("record = %+v, %v, want both pull requests kept", record, err)
+	}
+}
+
+func TestKeeperAsksGitHubBeforeClosingATicketAsNotPlanned(t *testing.T) {
+	cases := []struct {
+		name       string
+		answers    map[string]string
+		wantState  tickets.State
+		wantReason tickets.Reason
+		wantPull   int
+		wantWrite  bool
+	}{
+		{name: "the second pull request merged after the board lost it", answers: map[string]string{ticketPull: "CLOSED", secondTicketPull: "MERGED"}, wantState: tickets.Merged, wantPull: 415, wantWrite: true},
+		{name: "no pull request merged", answers: map[string]string{ticketPull: "CLOSED", secondTicketPull: "CLOSED"}, wantState: tickets.Closed, wantReason: tickets.StoppedByCFO, wantWrite: true},
+		{name: "GitHub does not answer", answers: map[string]string{ticketPull: "CLOSED"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the ticket holds two pull requests; the board now shows
+			// the task stopped, with no pull request.
+			h, checkout, github := ticketHome(t)
+			github.pulls = tc.answers
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #415", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: secondTicketPull, PullRequests: []string{ticketPull, secondTicketPull}}); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{{ID: "nw-sync", Title: "Say why", Harness: "claude", Archived: true, Evaluation: Evaluation{Phase: "stopped"}}}, ticketNow)
+
+			// Assert
+			if !tc.wantWrite {
+				if len(github.applied) != 0 || len(keeper.Issues()) != 1 {
+					t.Fatalf("applied = %+v, issues = %q, want the close to wait and say why", github.applied, keeper.Issues())
+				}
+				return
+			}
+			if len(github.applied) != 1 {
+				t.Fatalf("applied = %+v, want one close", github.applied)
+			}
+			if got := github.applied[0].ticket; got.State != tc.wantState || got.Reason != tc.wantReason || got.PullRequest.Number != tc.wantPull {
+				t.Fatalf("ticket = %+v, want %s (%s) naming #%d", got, tc.wantState, tc.wantReason, tc.wantPull)
+			}
+		})
+	}
+}
+
+func TestKeeperRefusesAPullRequestFromAnotherRepository(t *testing.T) {
+	foreign := "https://github.com/fpresta0607/code-goblins/pull/673"
+	cases := []struct {
+		name      string
+		task      Task
+		wantState tickets.State
+		wantWrite bool
+	}{
+		{name: "a task working with another repository's pull request", task: liveTask("ready", foreign), wantState: tickets.InProgress, wantWrite: true},
+		{name: "a task merged with only another repository's pull request", task: liveTask("merged", foreign)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, checkout, github := ticketHome(t)
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "Say why a billing sync fails"}); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow)
+
+			// Assert
+			if !tc.wantWrite {
+				if len(github.applied) != 0 {
+					t.Fatalf("applied = %+v, want nothing closed on another repository's pull request", github.applied)
+				}
+				return
+			}
+			if len(github.applied) != 1 || github.applied[0].ticket.State != tc.wantState || github.applied[0].ticket.PullRequest.URL != "" || len(github.applied[0].ticket.PullRequests) != 0 {
+				t.Fatalf("applied = %+v, want the ticket %s with no pull request", github.applied, tc.wantState)
+			}
+		})
+	}
+}
+
+func TestKeeperTellsTheGoblinItsTicket(t *testing.T) {
+	// Arrange: the task's spawn made its tasktmp folder.
+	h, checkout, github := ticketHome(t)
+	taskTmp := filepath.Join(h.State, "tasktmp", "nw-sync")
+	if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "nw-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.TaskTmp = taskTmp
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	told, err := os.ReadFile(filepath.Join(taskTmp, "ticket.md"))
+	if err != nil || !strings.Contains(string(told), "Part of #501") || !strings.Contains(string(told), "https://github.com/"+ticketRepository+"/issues/501") {
+		t.Fatalf("ticket.md = %q, %v, want the issue named with the line its pull requests carry", told, err)
 	}
 }

@@ -2,6 +2,8 @@ package tickets
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -64,7 +66,10 @@ type Ticket struct {
 	State       State
 	Harness     string
 	PullRequest PullRequestLink
-	Reason      Reason
+	// PullRequests are every pull request of the task the ticket holds, in
+	// the order they appeared, PullRequest among them.
+	PullRequests []PullRequestLink
+	Reason       Reason
 	// Overlap is the CFO's reason for starting the task beside a teammate's
 	// work, when he did; he writes it for the ticket.
 	Overlap string
@@ -136,9 +141,9 @@ func (t Ticket) CloseReason() string {
 }
 
 // Body is the body of an issue cfo opened for the task: what it changes and
-// where, its state, who is on it and its pull request, rewritten in place as
-// the state changes. The title is the issue's own, so the body does not
-// repeat it.
+// where, its state, who is on it and every pull request of the task,
+// rewritten in place as the state changes. The title is the issue's own, so
+// the body does not repeat it.
 func (t Ticket) Body() string {
 	var body strings.Builder
 	if t.What != "" {
@@ -151,12 +156,37 @@ func (t Ticket) Body() string {
 	if t.Harness != "" {
 		fmt.Fprintf(&body, "**On it:** %s\n", t.onIt())
 	}
-	if t.PullRequest.URL != "" {
-		fmt.Fprintf(&body, "**Pull request:** %s\n", t.PullRequest.URL)
+	switch urls := t.pullRequestURLs(); len(urls) {
+	case 0:
+	case 1:
+		fmt.Fprintf(&body, "**Pull request:** %s\n", urls[0])
+	default:
+		fmt.Fprintf(&body, "**Pull requests:** %s\n", strings.Join(urls, ", "))
 	}
 	if t.Overlap != "" {
 		fmt.Fprintf(&body, "**Started beside other work:** %s\n", t.Overlap)
 	}
 	body.WriteString("\nThe Code Goblins fleet opened this ticket for its task and keeps it current; its state follows the task.\n")
 	return body.String()
+}
+
+// pullRequestURLs are the links of every pull request the ticket holds, its
+// current one among them, each once and in the order they appeared.
+func (t Ticket) pullRequestURLs() []string {
+	var urls []string
+	for _, pull := range append(slices.Clone(t.PullRequests), t.PullRequest) {
+		if pull.URL != "" && !slices.Contains(urls, pull.URL) {
+			urls = append(urls, pull.URL)
+		}
+	}
+	return urls
+}
+
+var pullRequestURL = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/\d+$`)
+
+// IsPullRequestOf reports whether url links a pull request of repository.
+// GitHub does not tell a repository's names apart by case.
+func IsPullRequestOf(url, repository string) bool {
+	match := pullRequestURL.FindStringSubmatch(url)
+	return match != nil && strings.EqualFold(match[1], repository)
 }
