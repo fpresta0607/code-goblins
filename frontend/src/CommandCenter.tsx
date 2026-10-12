@@ -10,7 +10,7 @@ import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CredentialCard } from "./credential-card";
-import { credentialAsk } from "./credentials";
+import { credentialAsk, credentialSettled } from "./credentials";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
@@ -103,11 +103,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // card sent nothing: answered on another board, or taken back by its asker
   // or the CFO. A command finishes once it ends without trouble, by its exit
   // code whatever its output says, or is withdrawn; one that failed keeps its
-  // card, with its output, and an update keeps its own card.
+  // card, with its output, and an update keeps its own card. A credential
+  // request finishes once every value it asks for is stored, by its card or
+  // its terminal.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
   const ranClean = item?.kind === "run" && !item.run.update && !isOpen(item) && !runMark(item.run).trouble;
-  const finishing = !!item && (item.kind === "run" ? ranClean : elsewhere || !!sending && !sending.failed);
+  const stored = item?.kind === "credential" && item.request.state === "saved";
+  const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // A question he answered and moved past opens again, when he goes back to
   // it, with his answer checked and its other choices open to change, never
@@ -387,8 +390,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               if (Math.abs(dx) > 70 && Math.abs(event.clientY - start.y) < 50) move(dx < 0 ? 1 : -1);
             }}>
             {allDone
-              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p>
-                {stack.length > 0 && <div className="card-actions"><div className="stack-pager" role="group" aria-label="Move between items"><button type="button" onClick={() => setAllDone(false)}>Back</button></div></div>}</div>
+              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : revisited
               ? <ChangeCard key={"change:" + revisited.id} question={revisited} snapshot={snapshot} connected={connected} draft={changeDraft(revisited)}
                 onDraft={(changes) => update(changeKey(revisited), changes)} onChange={() => change(revisited)} onClose={close} pager={pager} />
@@ -396,6 +398,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : ranClean
               ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
+              : item.kind === "credential" && stored
+              ? <DoneCard key={shownKey} heading="Stored" label={credentialSettled(item.request)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />

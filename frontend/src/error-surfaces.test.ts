@@ -7,17 +7,21 @@ import ts from "typescript";
 // The Overlord, 2026-10-08: "again everything error wise goes to cfo and cfo
 // decides what to tell me in command center", and of a line saying how and
 // when a panel was read: "i dont need descriptive text everywhere like this".
-// The board keeps five kinds of words about trouble: a one or two word status
+// The board keeps six kinds of words about trouble: a one or two word status
 // on a card, a disabled button's reason in its tip, a few words beside what
 // he clicked that go by themselves (ClickFeedback), one short line while the
-// supervisor is down, and the box that says his AFK switch was refused, in
-// full, which he chose on 2026-10-08 over a few words that went by themselves
-// ("this yellow text i hate. as an error"). This reads the board's source for
+// supervisor is down, the box that says his AFK switch was refused, in full,
+// which he chose on 2026-10-08 over a few words that went by themselves
+// ("this yellow text i hate. as an error"), and, under a key card's row, why
+// the board refused the value he pasted, so the row stays open, which he
+// approved with the key card on 2026-10-12. This reads the board's source for
 // every other way of showing him an error, and for a line explaining where a
 // number came from or how fresh it is.
 const SOURCE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const FEEDBACK = "click-feedback.tsx";
 const REFUSAL = "afk-refusal.tsx";
+const KEY_CARD = "credential-card.tsx";
+const KEY_REFUSAL = "credential-refusal";
 
 // The roles and classes the board used for error boxes and warning lines.
 const ERROR_CLASSES = /\b(warning-text|task-action-problem|error-box|terminal-error|connections-error|order-error|afk-problem|connection-banner|layout-notice|lineage-warning|card-stalled|windows-teardown|memory-warning|card-silent|window-error)\b/;
@@ -46,7 +50,8 @@ function findingsIn(file: string, code: string): Finding[] {
     if (path.basename(file) === REFUSAL) return;
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText(source), value = node.initializer && ts.isStringLiteral(node.initializer) ? node.initializer.text : node.initializer?.getText(source) || "";
-      if (name === "role" && /alert/.test(value)) at(node, 'role="alert"');
+      const keyRefusal = path.basename(file) === KEY_CARD && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === KEY_REFUSAL);
+      if (name === "role" && /alert/.test(value) && !keyRefusal) at(node, 'role="alert"');
       if (name === "className" && ERROR_CLASSES.test(value)) at(node, "className " + value);
     }
     const text = ts.isJsxText(node) ? node.getText(source).trim()
@@ -84,4 +89,7 @@ test("the check finds an error box, an error sentence and an explanatory line, a
     ["export const G = () => <span>Checks failed</span>;", 0],
   ];
   for (const [code, want] of cases) assert.equal(findingsIn("case.tsx", code).length, want, code);
+  const refusal = 'export const H = () => <p className="credential-refusal" role="alert">x</p>;';
+  assert.equal(findingsIn("credential-card.tsx", refusal).length, 0, "a key card row's refusal");
+  assert.equal(findingsIn("case.tsx", refusal).length, 1, "the same line anywhere else");
 });

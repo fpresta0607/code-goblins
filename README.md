@@ -635,7 +635,7 @@ A Claude Code pane with no scrollback of its own, such as Claude Code's fullscre
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 New native hosts explicitly request interactive Windows scheduling, so typing and dictated bursts remain responsive when their hidden console would otherwise be treated as background work.
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
-Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
+Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal, except a command's terminal on its Command Center card, which shows it only while you dictate.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard, for as long as you like: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
 A long message is heard in pieces while you speak, so it comes back as fast as a short line.
 The bubble shows its waveform the moment the keys go down.
@@ -728,7 +728,7 @@ New items also stay under the badge, and the browser tab's title counts what is 
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
 Closing keeps every item for later.
-The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done**, with **Back** to it, and the Command Center closes.
+The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 **Back** to a question you answered shows it with your answer checked and its other choices open: pick another and **Change answer** sends the change once.
 It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
@@ -748,6 +748,7 @@ Each live page offers **Open review** or **Open page** and **Keep in background*
 A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**.
 Run turns the card into the command's own terminal, where you type, paste and sign in; no window or tab opens, an administrator's command included once you confirm Windows' prompt, and **Stop** ends it.
 When the command exits the card completes by itself, **Complete** or **Failed:** with the last line it printed, and History keeps its exit code.
+A terminal that ended, a command's, a goblin's replaced session or one the CFO left, says how it ended and never offers **Reconnect**, since nothing is there to reconnect to.
 A goblin can hand you a command the same way, on a run card that names the goblin, and the goblin is told how it ended.
 
 <p align="center">
@@ -755,17 +756,20 @@ A goblin can hand you a command the same way, on a run card that names the gobli
 </p>
 
 When the CFO or a goblin needs a secret, such as `STRIPE_SECRET_KEY`, it files `cfo auth request` with the names only, and a credential card arrives with an alert.
-Each row says where its value goes (the repository, the credential scope, and the goblins and services that read it), what it is for and where to get it, and has a hidden field you paste the value into; Ctrl+V and right-click Paste work in every field.
+Its header says what the values are for and how to get them, as numbered steps: the page to open, from `--link`, then each `--step` the asker gave.
+Below it a table has two columns, Name and Value, and nothing else, so it fits your window and a phone with no sideways scrolling: each row is a name and a hidden field you paste the value into, and Ctrl+V and right-click Paste work in every field.
 The field shows a dot for each character and never holds the value itself, so the browser has nothing to remember, sync or offer to save as a password.
 A request can also name a local env file at the root of the project's checkout, such as `.env.docker.local`, with `--env-file`: the board checks with git that the file is ignored and untracked, before filing and again before each write, and sets each value's line there too, in place. A goblin's worktree holds that file only when the project's `worktree.json` names it in `link`, as its own copy made when the worktree was.
-**Save** sends the values to the board on this PC, which stores them in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only; the fields empty after every save, and each saved row shows a check.
-A name the scope already holds is replaced only once you confirm **Replace and save**, and a value of the wrong kind, such as a live Stripe key where a restricted one is advised, shows a warning without blocking the save.
-Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell window on this PC where you type or paste each value without it being shown.
+A paste stores its row at once, and a typed value stores on Enter: the board on this PC stores it in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only, and the row shows a check beside Stored.
+Before anything says stored, the board checks the value's shape without showing it: no control character, a plausible length, and the known prefix when the name says the kind of key, such as `sk_test_` or `rk_test_` for `STRIPE_TEST_SECRET_KEY`. A refused value's reason shows under its row, which stays open.
+A name the scope already holds is replaced only once you confirm **Replace and save**, and a value the project's format hint warns about, such as a live Stripe key where a restricted one is advised, shows a warning and waits for your Enter.
+Once every value is stored, by the card or its terminal, the card says **Stored** and the Command Center moves on to your next item by itself.
+Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell terminal on the card where you type or paste each value without it being shown, and it asks again, three times at most, for a value of the wrong shape.
 Values are typed only on the board on this PC: a board opened through Tailscale or from another machine shows the card read-only, with the commands to copy.
-A request takes one save and expires after 24 hours.
+Each name takes one save, and a request nobody finishes expires after 24 hours.
 
 <p align="center">
-  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export needs two credentials for acme-api; each row shows its name, where it is saved (the repository, the credential scope, and the goblins' auth.ps1 and stripe service), what it is for, the page to get it from, and a hidden value field, one noting a stored value that saving replaces; below, the cfo auth store command with Copy and Run, and Save" width="640" />
+  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export asks for two credentials for acme-api. Its header says what they are for and gives three numbered steps, the first opening dashboard.stripe.com/test/apikeys. A table with a Name and a Value column has a row per name, each a hidden field to paste into with an empty ring at its end, the stored one with a dashed check and a field to paste a replacement. Below, the cfo auth store command with Copy and Run" width="640" />
 </p>
 
 ### AFK mode

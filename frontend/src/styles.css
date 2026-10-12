@@ -1198,6 +1198,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    than the screen leaves, with Stop under it. */
 .run-live { display: grid; gap: 10px; min-width: 0; }
 .run-live .host-terminal { height: clamp(14rem, 52vh, 34rem); border: 1px solid var(--glass-border); border-radius: var(--radius); overflow: hidden; }
+/* A command's terminal has no microphone: its bubble shows only while he
+   dictates, over the terminal's corner, so a dictation never resizes it. */
+.run-live .voice-dock { position: absolute; right: 0; bottom: 0; z-index: 4; min-height: 0; border-top: 0; background: none; }
 .run-live-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .run-live-actions .warning-text { flex: 1; margin: 0; }
 /* Stop is the lantern box's stepped outline button, the lesser action beside

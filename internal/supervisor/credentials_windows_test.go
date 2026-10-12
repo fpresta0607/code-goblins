@@ -130,8 +130,8 @@ func TestCredentialTerminalStoresEachValueHiddenAndChecksItsRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"} {
-		if !strings.Contains(string(script), "auth store --project 'throwaway' '"+name+"'") {
-			t.Fatalf("the terminal's script does not store %s hidden:\n%s", name, script)
+		if !strings.Contains(string(script), "auth store --project 'throwaway' '"+name+"'; $code = $LASTEXITCODE } while ($code -eq 2 -and $tries -lt 3)") {
+			t.Fatalf("the terminal's script does not store %s hidden, asking again up to three times for a value it refuses:\n%s", name, script)
 		}
 	}
 	if request := b.stored(); request.State != "saved" || !slices.Equal(request.Saved, []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}) || !slices.Equal(request.Typed, []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}) {
@@ -416,7 +416,7 @@ func TestCredentialSaveAfterAFailedTerminalAddsToWhatItStored(t *testing.T) {
 	b.openTerminal()
 	b.typeValue("STRIPE_SECRET_KEY")
 	b.endTerminal(1)
-	canary := newCanary(t)
+	canary := newWebhookCanary(t)
 
 	// Act
 	response := b.post(b.handler, b.body(map[string]string{"STRIPE_WEBHOOK_SECRET": canary}), nil)

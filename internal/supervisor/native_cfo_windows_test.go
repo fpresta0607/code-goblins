@@ -745,24 +745,25 @@ func TestTheBoardShowsANativeCFOsTerminalAndTypesIntoIt(t *testing.T) {
 	}
 }
 
-// A view of the CFO's terminal is refused while the CFO runs in Herdr or not
-// at all, or in another terminal than the one the view names, rather than
-// showing some other terminal.
-func TestACFOViewIsRefusedUnlessTheCFORunsInTheTerminalItNames(t *testing.T) {
+// A view of the CFO's terminal closes as ended while the CFO runs in Herdr or
+// not at all, or in another terminal than the one the view names, rather than
+// showing some other terminal: no Reconnect brings the CFO back to it, and the
+// board opens the CFO's terminal again by itself once it runs in one.
+func TestACFOViewEndsUnlessTheCFORunsInTheTerminalItNames(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 
 	closed := openNativeView(t, server, cfoQuery).waitForClose(t)
 
-	if closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "native terminal") {
-		t.Errorf("with no native CFO the view closed with %d %q, want it refused because the CFO has no native terminal", closed.Code, closed.Reason)
+	if closed.Code != websocket.StatusNormalClosure || !strings.Contains(closed.Reason, "native terminal") {
+		t.Errorf("with no native CFO the view closed with %d %q, want it ended because the CFO has no native terminal", closed.Code, closed.Reason)
 	}
 	nativePrimary(t, h.Service.Store.Home.State)
 	hostTerminal(t, h.Service.Store.Home.State, "cfo")
 
 	closed = openNativeView(t, server, "cfo=elsewhere&token=instance").waitForClose(t)
 
-	if closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "another terminal") {
-		t.Errorf("naming another terminal the view closed with %d %q, want it refused because the CFO runs in another terminal", closed.Code, closed.Reason)
+	if closed.Code != websocket.StatusNormalClosure || !strings.Contains(closed.Reason, "another terminal") {
+		t.Errorf("naming another terminal the view closed with %d %q, want it ended because the CFO runs in another terminal", closed.Code, closed.Reason)
 	}
 }
 
@@ -1005,8 +1006,8 @@ func TestOnlyASoundRegistrationWhoseProcessEndedIsAClosedCFO(t *testing.T) {
 	}
 }
 
-// A view of the CFO's terminal closes once the CFO registers in another
-// terminal, so typing never reaches a terminal the CFO has left.
+// A view of the CFO's terminal closes as ended once the CFO registers in
+// another terminal, so typing never reaches a terminal the CFO has left.
 func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	h.terminalTick = 10 * time.Millisecond
@@ -1040,7 +1041,7 @@ func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	if closed := v.waitForClose(t); closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "CFO") {
+	if closed := v.waitForClose(t); closed.Code != websocket.StatusNormalClosure || !strings.Contains(closed.Reason, "CFO") {
 		t.Errorf("the view closed with %d %q, want it closed because the CFO left the terminal", closed.Code, closed.Reason)
 	}
 }

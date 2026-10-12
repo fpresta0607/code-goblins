@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -50,6 +50,11 @@ test("a panel measured while hidden never resizes the terminal", () => {
 test("a view reconnects on its own only when the terminal is still there to reach", () => {
   const cases: [number, boolean][] = [[1013, true], [1001, true], [1006, true], [1000, false], [1008, false], [1003, false]];
   for (const [code, again] of cases) assert.equal(reconnects(code), again, String(code));
+});
+
+test("only a terminal that ended closes as ended, which offers no Reconnect", () => {
+  const cases: [number, boolean][] = [[1000, true], [1008, false], [1013, false], [1001, false], [1006, false], [1003, false]];
+  for (const [code, isEnded] of cases) assert.equal(ended(code), isEnded, String(code));
 });
 
 test("a closed view says why in plain words", () => {
