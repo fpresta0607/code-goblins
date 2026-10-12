@@ -142,6 +142,9 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 	if err != nil {
 		return BrowserLease{}, fmt.Errorf("task %s has no live record: %w", task, err)
 	}
+	if meta.Harness != "claude" {
+		return BrowserLease{}, errors.New("only a Claude Code task can explore a login. Other harnesses have no PreToolUse hook to seal browser reads")
+	}
 	if err := b.live(task); err != nil {
 		return BrowserLease{}, err
 	}
@@ -172,13 +175,13 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 		}
 	}
 	if b.closing[login.ID] {
-		return BrowserLease{}, fmt.Errorf("%s's %s login's last browser is still closing, and Chrome opens a profile once; ask again in a minute", project, provider.Name)
+		return BrowserLease{}, fmt.Errorf("%s's %s login's last browser is still closing, and Chrome opens a profile once. Ask again in a minute", project, provider.Name)
 	}
 	lease := BrowserLease{Login: login.ID, Provider: provider.Name, Account: login.Account}
 	now := b.now()
 	if _, ok := b.processes[login.ID]; ok && login.Browser != nil {
 		if login.Browser.Holder != task {
-			return BrowserLease{}, fmt.Errorf("%s's %s login is lent to %s since %s, and Chrome opens a profile once; ask again in a minute", project, provider.Name, login.Browser.Holder, login.Browser.Since.Format(time.Kitchen))
+			return BrowserLease{}, fmt.Errorf("%s's %s login is lent to %s since %s, and Chrome opens a profile once. Ask again in a minute", project, provider.Name, login.Browser.Holder, login.Browser.Since.Format(time.Kitchen))
 		}
 		login.Browser.Since = now
 		lease.URL = login.Browser.URL
@@ -189,7 +192,7 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 		return BrowserLease{}, fmt.Errorf("free memory cannot be read, so no browser starts: %w", err)
 	}
 	if low := min(memory.Available, memory.CommitAvailable); low < memoryFloor {
-		return BrowserLease{}, fmt.Errorf("free memory is %.1f GB, under the %.0f GB a browser waits for; ask again in a few minutes", gigabytes(low), gigabytes(memoryFloor))
+		return BrowserLease{}, fmt.Errorf("free memory is %.1f GB, under the %.0f GB a browser waits for. Ask again in a few minutes", gigabytes(low), gigabytes(memoryFloor))
 	}
 	profile, err := browserlogin.MakeProfile(b.state, login.ID)
 	if err != nil {
@@ -249,24 +252,31 @@ func (b *browserBroker) release(task, providerID string) error {
 // Chrome in the background. The caller holds b.mu.
 func (b *browserBroker) close(logins []browserlogin.Login, index int) error {
 	login := &logins[index]
-	if process, ok := b.processes[login.ID]; ok {
-		delete(b.processes, login.ID)
-		b.closing[login.ID] = true
-		b.work.Add(1)
-		go func(id string) {
-			defer b.work.Done()
-			err := b.end(context.Background(), process)
-			b.mu.Lock()
-			delete(b.closing, id)
-			b.mu.Unlock()
-			if err != nil {
-				b.report(fmt.Errorf("the browser of login %s: %w", id, err))
-			}
-		}(login.ID)
-	}
+	b.closeProcess(login.ID)
 	used := b.now()
 	login.Browser, login.UsedAt = nil, &used
 	return browserlogin.Write(b.state, logins)
+}
+
+func (b *browserBroker) closeProcess(id string) {
+	process, ok := b.processes[id]
+	if !ok || b.closing[id] {
+		return
+	}
+	b.closing[id] = true
+	b.work.Add(1)
+	go func() {
+		defer b.work.Done()
+		err := b.end(context.Background(), process)
+		if err != nil {
+			b.report(fmt.Errorf("the browser of login %s: %w", id, err))
+			return
+		}
+		b.mu.Lock()
+		delete(b.processes, id)
+		delete(b.closing, id)
+		b.mu.Unlock()
+	}()
 }
 
 // sweep closes each browser that exited, or whose task has left or kept it
@@ -310,6 +320,9 @@ func (b *browserBroker) closeAll() error {
 	b.closed = true
 	logins, err := browserlogin.Read(b.state)
 	failed := []error{err}
+	for id := range b.processes {
+		b.closeProcess(id)
+	}
 	for index, login := range logins {
 		if login.Browser != nil {
 			failed = append(failed, b.close(logins, index))

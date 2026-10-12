@@ -131,6 +131,42 @@ func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 	return meta, err
 }
 
+// goblinPipeCaller proves the pipe's peer belongs to the task it names.
+// A check in the CLI alone leaves a raw pipe request free to name any task.
+func goblinPipeCaller(stateDir, taskID string, pid int, connected time.Time) error {
+	meta, err := state.ReadTaskMeta(stateDir, taskID)
+	if err != nil {
+		return err
+	}
+	if meta.Backend != "native" {
+		return fmt.Errorf("task %s runs in no native terminal", taskID)
+	}
+	record, err := host.ReadRecord(stateDir, taskID)
+	if err != nil {
+		return err
+	}
+	entries, err := proc.Ancestry(pid, 32)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 || entries[0].Start.After(connected) || record.ChildStart.IsZero() {
+		return errors.New("the caller's process identity cannot be proven")
+	}
+	isProven := descendsFrom(entries, lock.Info{PID: record.ChildPID, Start: record.ChildStart})
+	if !isProven {
+		identity, err := proc.Identify(pid, entries[0].Start)
+		if err != nil {
+			return err
+		}
+		_, err = terminalProgram(record, identity.Environment)
+		isProven = err == nil
+	}
+	if !isProven {
+		return fmt.Errorf("this process does not run under task %s's terminal", taskID)
+	}
+	return terminalAnswers(stateDir, taskID)
+}
+
 // SurfaceNotify records a goblin's blocking notify with choices for the CFO
 // to answer, labelled with the goblin. A notify without choices and a failed
 // notify stay prose in the CFO's wake queue, except a goblin's Scrawl page,

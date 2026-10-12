@@ -130,30 +130,41 @@ func (p Process) close() error {
 
 func (j *job) end(pid int) error {
 	defer windows.CloseHandle(j.handle)
-	members, err := proc.JobMembers(j.handle)
+	members, err := proc.EndJob(j.handle)
 	if err != nil {
-		return err
-	}
-	var waits []windows.Handle
-	for _, member := range members {
-		if handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(member)); err == nil {
-			waits = append(waits, handle)
-		}
-	}
-	defer func() {
-		for _, handle := range waits {
-			windows.CloseHandle(handle)
-		}
-	}()
-	if err := windows.TerminateJobObject(j.handle, 1); err != nil {
 		return fmt.Errorf("end chrome %d's job: %w", pid, err)
 	}
 	deadline := time.Now().Add(teardownWait)
-	for _, handle := range waits {
-		left := max(time.Until(deadline), 0)
-		if event, err := windows.WaitForSingleObject(handle, uint32(left.Milliseconds())); err != nil || event != windows.WAIT_OBJECT_0 {
-			return fmt.Errorf("chrome %d's processes were not gone %s after its job ended", pid, teardownWait)
+	for _, member := range members {
+		if err := awaitGone(member, deadline); err != nil {
+			return fmt.Errorf("chrome %d's processes were not gone %s after its job ended: %w", pid, teardownWait, err)
 		}
+	}
+	return nil
+}
+
+// awaitGone waits until member, a process an ended job held, has been torn
+// down, or deadline passes. One that cannot be opened, or that started at
+// another time, is gone and its pid taken by another program.
+func awaitGone(member proc.Entry, deadline time.Time) error {
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(member.PID))
+	if err != nil {
+		return nil
+	}
+	defer windows.CloseHandle(handle)
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
+		return nil
+	}
+	if difference := time.Unix(0, creation.Nanoseconds()).Sub(member.Start); difference <= -time.Second || difference >= time.Second {
+		return nil
+	}
+	event, err := windows.WaitForSingleObject(handle, uint32(max(time.Until(deadline), 0).Milliseconds()))
+	if err != nil {
+		return err
+	}
+	if event != windows.WAIT_OBJECT_0 {
+		return fmt.Errorf("process %d is still there", member.PID)
 	}
 	return nil
 }

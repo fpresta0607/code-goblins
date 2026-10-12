@@ -97,7 +97,7 @@ func navigate(t *testing.T, address, url string) (string, string) {
 }
 
 func TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked(t *testing.T) {
-	process, profile := startChrome(t, nil)
+	process, profile := startChrome(t, []string{"localhost"})
 
 	if !strings.HasPrefix(process.URL, "http://127.0.0.1:") {
 		t.Fatalf("DevTools address = %q, want one on 127.0.0.1", process.URL)
@@ -119,7 +119,7 @@ func TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked(t *testing.T) {
 }
 
 func TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted(t *testing.T) {
-	process, profile := startChrome(t, nil)
+	process, profile := startChrome(t, []string{"localhost"})
 	// Nothing answers at this address, so the browser is never asked to
 	// close and only its job can end it.
 	unreachable := process
@@ -153,5 +153,9 @@ func TestChromeOnHostRulesReachesOnlyTheRecipeHosts(t *testing.T) {
 	failed, _ = navigate(t, process.URL, "http://elsewhere.localhost:"+port+"/")
 	if failed != "net::ERR_NAME_NOT_RESOLVED" {
 		t.Fatalf("a host outside the recipe: error %q, want net::ERR_NAME_NOT_RESOLVED", failed)
+	}
+	failed, text = navigate(t, process.URL, page.URL)
+	if failed == "" && text == "the key page" {
+		t.Fatal("an IP address outside the recipe reached the server")
 	}
 }

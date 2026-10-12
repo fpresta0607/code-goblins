@@ -167,6 +167,8 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 			var lease BrowserLease
 			if req.Browser == nil {
 				err = errors.New("a browser request names no browser")
+			} else if err = goblinPipeCaller(s.Store.Home.State, req.Browser.Task, int(pid), connected); err != nil {
+				err = fmt.Errorf("browser caller: %w", err)
 			} else if lease, err = s.browsers.take(ctx, *req.Browser); err == nil && lease.URL != "" {
 				reply.Browser = &lease
 			}
@@ -181,6 +183,8 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 				var started HelperStart
 				if req.Helper == nil {
 					err = errors.New("a helper request names no helper")
+				} else if err = goblinPipeCaller(s.Store.Home.State, req.Helper.Parent, int(pid), connected); err != nil {
+					err = fmt.Errorf("helper caller: %w", err)
 				} else if started, err = s.acceptHelper(*req.Helper); err == nil {
 					reply.Helper = &started
 				}

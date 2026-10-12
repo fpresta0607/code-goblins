@@ -1,15 +1,81 @@
 package supervisor
 
 import (
+	"context"
 	"net/http"
+	"os"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestBrowserPipeRefusesAnotherTasksCallerBeforeLendingOrReleasing(t *testing.T) {
+	for _, action := range []string{"attach", "release"} {
+		t.Run(action, func(t *testing.T) {
+			store, h := testStore(t)
+			broker, chrome, _, _ := testBroker(t)
+			broker.state = h.State
+			brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+			hostTerminal(t, h.State, "pd-keys")
+			if action == "release" {
+				if _, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runPipe(t, &Service{Store: store, browsers: broker})
+
+			_, err := askPipe(h.State, runPipeRequest{Kind: "browser", Browser: &BrowserRequest{Action: action, Task: "pd-keys", Provider: "stripe"}})
+
+			if err == nil || !strings.Contains(err.Error(), "browser caller") {
+				t.Fatalf("unproven caller's %s = %v, want refusal before the broker acts", action, err)
+			}
+			if action == "attach" && len(chrome.launches) != 0 {
+				t.Fatal("a refused caller started a browser")
+			}
+			if action == "release" && len(chrome.endedPIDs(broker)) != 0 {
+				t.Fatal("a refused caller ended another task's browser")
+			}
+		})
+	}
+}
+
+func TestGoblinPipeCallerRejectsAConnectionFromAnEarlierProcessLifetime(t *testing.T) {
+	stateDir := t.TempDir()
+	writeNativeTask(t, stateDir, "pd-keys")
+	terminal := hostTerminal(t, stateDir, "pd-keys")
+	terminal.standIn(t)
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("cannot read this process's start")
+	}
+
+	err := goblinPipeCaller(stateDir, "pd-keys", os.Getpid(), started.Add(-time.Second))
+
+	if err == nil || !strings.Contains(err.Error(), "identity cannot be proven") {
+		t.Fatalf("earlier connection = %v, want a reused PID refused", err)
+	}
+	if err := goblinPipeCaller(stateDir, "pd-keys", os.Getpid(), time.Now()); err != nil {
+		t.Fatalf("current caller = %v, want the task's own program accepted", err)
+	}
+}
+
+func TestHelperPipeRefusesAnotherTasksCaller(t *testing.T) {
+	store, h := testStore(t)
+	writeNativeTask(t, h.State, "pd-keys")
+	runPipe(t, &Service{Store: store})
+
+	_, err := askPipe(h.State, runPipeRequest{Kind: "helper", Helper: &HelperRequest{Parent: "pd-keys", Brief: "Check the browser"}})
+
+	if err == nil || !strings.Contains(err.Error(), "helper caller") {
+		t.Fatalf("unproven helper caller = %v, want refusal before dispatch", err)
+	}
+}
 
 // A goblin's ask over the supervisor's pipe starts a real Chrome on the
 // login's own profile, headless and held to its provider's hosts, and giving
@@ -21,8 +87,13 @@ func TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses(t 
 		KeyPages: keypages.Recipes{Providers: []keypages.Provider{{ID: "stripe", Name: "Stripe", Hosts: []string{"stripe.com", "*.stripe.com"}}}},
 		Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }},
 	}, func(err error) { t.Errorf("a browser was not closed: %v", err) })
-	// The stand-in task runs in no terminal of its own.
-	broker.live = func(string) error { return nil }
+	t.Cleanup(func() {
+		if err := broker.closeAll(); err != nil {
+			t.Error(err)
+		}
+	})
+	terminal := hostTerminal(t, h.State, "pd-keys")
+	terminal.standIn(t)
 	runPipe(t, &Service{Store: store, browsers: broker})
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "pd-keys", Project: `C:\dev\PrecisionDocs-AI`, Backend: "native", Window: "native", Harness: "claude", Kind: "ship", Worktree: `C:\cfo\worktrees\pd-keys`}); err != nil {
 		t.Fatal(err)

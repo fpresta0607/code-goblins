@@ -71,7 +71,7 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintf(stderr, "cfo auth browser: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "gave the %s login's browser back, and it is closed; your browser session starts a browser of its own on its next command\n", provider)
+		fmt.Fprintf(stdout, "gave the %s login's browser back, and it is closing. Your browser session starts a browser of its own on its next command\n", provider)
 		return 0
 	}
 	lease, err := runtime.requestBrowser(h, supervisor.BrowserRequest{Action: "attach", Task: *task, Provider: provider})
@@ -81,7 +81,7 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 	}
 	if err := runtime.handBrowser(ctx, lease.URL); err != nil {
 		_, releaseErr := runtime.requestBrowser(h, supervisor.BrowserRequest{Action: "release", Task: *task, Provider: provider})
-		fmt.Fprintf(stderr, "cfo auth browser: your browser session could not take the login's browser, which is closed again: %v\n", err)
+		fmt.Fprintf(stderr, "cfo auth browser: your browser session could not take the login's browser, which was asked to close: %v\n", err)
 		if releaseErr != nil {
 			fmt.Fprintf(stderr, "cfo auth browser: closing it failed too: %v\n", releaseErr)
 		}

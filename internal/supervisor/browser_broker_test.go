@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -29,6 +30,8 @@ type fakeChrome struct {
 }
 
 func (f *fakeChrome) start(_ context.Context, launch browserlogin.Launch) (browserlogin.Process, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.launches = append(f.launches, launch)
 	f.next++
 	f.alive[f.next] = true
@@ -140,7 +143,7 @@ func TestALoginLentToOneTaskIsRefusedToAnotherUntilItIsGivenBack(t *testing.T) {
 	}
 
 	_, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-other", Provider: "stripe"})
-	if err == nil || !strings.Contains(err.Error(), "lent to pd-keys") || !strings.Contains(err.Error(), "ask again") {
+	if err == nil || !strings.Contains(err.Error(), "lent to pd-keys") || !strings.Contains(err.Error(), "Ask again") {
 		t.Fatalf("second task's attach = %v, want it refused naming the holder and when to ask again", err)
 	}
 	if len(chrome.launches) != 1 {
@@ -150,6 +153,7 @@ func TestALoginLentToOneTaskIsRefusedToAnotherUntilItIsGivenBack(t *testing.T) {
 	if _, err := broker.take(context.Background(), BrowserRequest{Action: "release", Task: "pd-keys", Provider: "stripe"}); err != nil {
 		t.Fatal(err)
 	}
+	chrome.endedPIDs(broker)
 	lease, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-other", Provider: "stripe"})
 	if err != nil || lease.Login != "stripe-precisiondocs-ai" {
 		t.Fatalf("attach after release = (%+v, %v), want the same login lent to the next task", lease, err)
@@ -240,6 +244,29 @@ func TestEachProjectGetsALoginOfItsOwn(t *testing.T) {
 
 	if pd.Login == shift.Login || shift.Login != "stripe-siqshift" || len(chrome.launches) != 2 || chrome.launches[0].Profile == chrome.launches[1].Profile {
 		t.Fatalf("logins %s and %s on %d launches, want one login and profile per project", pd.Login, shift.Login, len(chrome.launches))
+	}
+}
+
+func TestOnlyAHarnessWithTheBrowserSealHookCanExploreALogin(t *testing.T) {
+	for _, harness := range []string{"codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			broker, chrome, _, _ := testBroker(t)
+			brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+			meta, err := state.ReadTaskMeta(broker.state, "pd-keys")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = harness
+			if err := state.WriteTaskMeta(broker.state, meta); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = broker.attach(context.Background(), "pd-keys", "stripe")
+
+			if err == nil || !strings.Contains(err.Error(), "PreToolUse") || len(chrome.launches) != 0 {
+				t.Fatalf("%s attach = %v, launches %d, want refusal before a browser starts", harness, err, len(chrome.launches))
+			}
+		})
 	}
 }
 
@@ -383,5 +410,43 @@ func TestAStoppingSupervisorClosesItsBrowsersAndLendsNoMore(t *testing.T) {
 	}
 	if _, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}); err == nil || !strings.Contains(err.Error(), "stopping") {
 		t.Fatalf("attach after closeAll = %v, want it refused", err)
+	}
+}
+
+func TestALoginCannotBeLentAgainWhenItsBrowserDidNotClose(t *testing.T) {
+	broker, chrome, _, _ := testBroker(t)
+	brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+	if _, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}); err != nil {
+		t.Fatal(err)
+	}
+	broker.end = func(context.Context, browserlogin.Process) error { return errors.New("still running") }
+	var reported error
+	broker.report = func(err error) { reported = err }
+	if err := broker.release("pd-keys", "stripe"); err != nil {
+		t.Fatal(err)
+	}
+	broker.work.Wait()
+
+	_, err := broker.attach(context.Background(), "pd-keys", "stripe")
+
+	if err == nil || !strings.Contains(err.Error(), "still closing") || len(chrome.launches) != 1 || reported == nil {
+		t.Fatalf("attach after failed close = %v, launches %d, report %v, want blocked and reported", err, len(chrome.launches), reported)
+	}
+}
+
+func TestAStoppingBrokerEndsItsProcessesEvenWhenTheRegistryCannotBeRead(t *testing.T) {
+	broker, chrome, _, _ := testBroker(t)
+	brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+	if _, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(browserlogin.RegistryPath(broker.state), []byte("invalid registry"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := broker.closeAll()
+
+	if ended := chrome.endedPIDs(broker); err == nil || !slices.Equal(ended, []int{1}) {
+		t.Fatalf("closeAll = %v, ended %v, want the registry error and every owned process ended", err, ended)
 	}
 }

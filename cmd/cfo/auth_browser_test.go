@@ -98,7 +98,7 @@ func TestAuthBrowserIsRefused(t *testing.T) {
 		{"without a task", "pd-keys", []string{"stripe"}, nil, nil, 2, nil, "--task names your own task's ID"},
 		{"without a provider", "pd-keys", []string{"--task", "pd-keys"}, nil, nil, 2, nil, "usage: cfo auth browser"},
 		{"when the supervisor refuses", "pd-keys", []string{"stripe", "--task", "pd-keys"}, errors.New("PrecisionDocs-AI's Stripe login is lent to pd-other; ask again in a minute"), nil, 1, []string{"attach pd-keys stripe"}, "lent to pd-other"},
-		{"when the session cannot take it, which gives it back", "pd-keys", []string{"stripe", "--task", "pd-keys"}, nil, errors.New("chrome-devtools-axi start exited 1"), 1, []string{"attach pd-keys stripe", "hand http://127.0.0.1:9333", "release pd-keys stripe"}, "closed again"},
+		{"when the session cannot take it, which gives it back", "pd-keys", []string{"stripe", "--task", "pd-keys"}, nil, errors.New("chrome-devtools-axi start exited 1"), 1, []string{"attach pd-keys stripe", "hand http://127.0.0.1:9333", "release pd-keys stripe"}, "asked to close"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
