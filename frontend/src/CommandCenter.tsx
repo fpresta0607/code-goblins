@@ -5,7 +5,7 @@ import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answerMark, answerReason, answeredElsewhere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
@@ -112,6 +112,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const stored = item?.kind === "credential" && item.request.state === "saved";
   const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
+  // A question he answered and moved past opens again, when he goes back to
+  // it, with his answer checked and its other choices open to change, never
+  // as its done card.
+  const answered = item?.kind === "question" && sent.has(item.key) ? answeredHere(item.question, draft || EMPTY_DRAFT) : undefined;
+  const revisited = answered && canChange(answered) ? answered : undefined;
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
   const show = (key: string) => {
@@ -385,7 +390,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               if (Math.abs(dx) > 70 && Math.abs(event.clientY - start.y) < 50) move(dx < 0 ? 1 : -1);
             }}>
             {allDone
-              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
+              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p>
+                {stack.length > 0 && <div className="card-actions"><div className="stack-pager" role="group" aria-label="Move between items"><button type="button" onClick={() => setAllDone(false)}>Back</button></div></div>}</div>
+              : revisited
+              ? <ChangeCard key={"change:" + revisited.id} question={revisited} snapshot={snapshot} connected={connected} draft={changeDraft(revisited)}
+                onDraft={(changes) => update(changeKey(revisited), changes)} onChange={() => change(revisited)} onClose={close} pager={pager} />
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : ranClean

@@ -440,10 +440,6 @@ export interface Question {
   // change_id is his board action changing the CFO's answer to his own, and
   // replaced_answer the CFO's choice it replaced once the goblin has his.
   answered_away: boolean; change_id: string; replaced_answer: string;
-  // decided is the choice the CFO answered its own question with while AFK
-  // mode was on, and acted on: the card shows it checked, for him to keep or
-  // change. It is empty for every other question.
-  decided: string;
 }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
@@ -699,7 +695,7 @@ function itemLists(v: Record<string, unknown>) {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
-        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), decided: string(q.decided) };
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);

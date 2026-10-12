@@ -635,7 +635,7 @@ A Claude Code pane with no scrollback of its own, such as Claude Code's fullscre
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 New native hosts explicitly request interactive Windows scheduling, so typing and dictated bursts remain responsive when their hidden console would otherwise be treated as background work.
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
-Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
+Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal, except a command's terminal on its Command Center card, which shows it only while you dictate.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard, for as long as you like: while the keys are held the bubble's waveform moves with your voice and lies as a flat dotted line while you are silent, and releasing them types what was heard as one line, which **Enter** sends.
 A long message is heard in pieces while you speak, so it comes back as fast as a short line.
 The bubble shows its waveform the moment the keys go down.
@@ -728,7 +728,8 @@ New items also stay under the badge, and the browser tab's title counts what is 
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
 Closing keeps every item for later.
-The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
+The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done**, with **Back** to it, and the Command Center closes.
+**Back** to a question you answered shows it with your answer checked and its other choices open: pick another and **Change answer** sends the change once.
 It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with a few words of what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and it keeps waiting under **Waiting on you** until you send it again.
 An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
@@ -747,6 +748,7 @@ Each live page offers **Open review** or **Open page** and **Keep in background*
 A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**.
 Run turns the card into the command's own terminal, where you type, paste and sign in; no window or tab opens, an administrator's command included once you confirm Windows' prompt, and **Stop** ends it.
 When the command exits the card completes by itself, **Complete** or **Failed:** with the last line it printed, and History keeps its exit code.
+A terminal that ended, a command's, a goblin's replaced session or one the CFO left, says how it ended and never offers **Reconnect**, since nothing is there to reconnect to.
 A goblin can hand you a command the same way, on a run card that names the goblin, and the goblin is told how it ended.
 
 <p align="center">
@@ -799,9 +801,10 @@ While it is on:
   When you turn AFK mode off, each of them waits in the Command Center as a question with what is wrong, what the CFO already tried and its choices.
   One the CFO saw to while you were away, its backlog row done, its task finished or its own later decision, is settled with what became of it and never asked.
 - Any other decision you would have been asked, the CFO answers itself and acts on.
-  When you turn AFK mode off, each waits in the Command Center with the CFO's answer checked and marked as the CFO's: keep it, or choose another and the CFO undoes or redoes what its answer started.
+  When you turn AFK mode off, each is settled: it is in the Command Center's **History** with the CFO's answer, marked as given while you were away, never in your queue.
+  **Change answer** there sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
 - A goblin's Scrawl page that asks for your answer goes to the CFO, which reads it and answers it in your place, and never waits in your Command Center.
-  When you turn AFK mode off, each page the CFO answered waits there the same way, with the goblin's question, its page and the CFO's answer checked: keep it, or choose another and the CFO passes it to the goblin.
+  Each page the CFO answered is settled the same way: the goblin's question is in **History** with the CFO's answer, and a change you make there goes to the goblin.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   Nothing is held for you, and a goblin blocked only on something of yours moves to its next piece of work.
   The CFO's bar says since when AFK is on, who turned it on and how much the CFO decided.
@@ -812,18 +815,16 @@ At your first click or key on the board after five minutes with none, the board 
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
 Turning it off shows the report of the stretch on the board as one page.
 It opens on a headline in plain words, how long you were away, how many things wait on you and what the CFO merged, deployed, migrated and installed, beside who turned it on and off and **Go through them**.
-**For you** lists what was held or left for you that still waits on you in the Command Center, each as it stands now, with its recommendation, the CFO's answer to a decision it made itself, and its goblin's progress.
+**For you** lists what was held or left for you that still waits on you in the Command Center, each as it stands now, with its recommendation and its goblin's progress.
 What no longer waits, answered or settled with what became of it, folds under **Settled**.
-**What the CFO did** follows, a drawer for each heading that holds something, closed until you open it: what merged, deployed, migrated and installed, each with its link and its verification, what it answered for goblins, the goblins paused at a floor and what each goblin finished.
+**What the CFO did** follows, a drawer for each heading that holds something, closed until you open it: first **Answered for you**, each decision the CFO answered in your place with its answer, which you can change in History, then what merged, deployed, migrated and installed, each with its link and its verification, what it answered for goblins, the goblins paused at a floor and what each goblin finished.
 What merged is one **Merged** drawer, each pull request with what the CFO wrote of it riding on it.
 A merge that did not land is the report's one warning, under **Not merged**, which stays open.
 Each of its rows says in one sentence what the CFO did about it, then what happened.
 One the CFO left for you has **Answer it**, which opens its question in the Command Center.
 **Spent** and the short **Not read** section stay open too.
-**Go through them** opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has.
-A decision the CFO answered opens with its answer checked and marked as the CFO's: **Keep the CFO's answer** keeps it, and another choice tells the CFO, which undoes or redoes what its answer started.
-What only you can do opens with nothing checked.
-**Back** goes to the one before, and **Skip** leaves one as it is and shows the next.
+**Go through them** opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
+**Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
 The Command Center's list offers **Go through them** too whenever two or more things wait on you.
 A line the CFO logged by mistake and struck is shown struck through under **Struck by the CFO**, with its reason, and never as something that needs you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.

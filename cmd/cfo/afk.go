@@ -19,7 +19,7 @@ const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of left, merge, deploy, migration, install, answer, other. A left line also takes --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>" with an optional --recommend "<choice>": his Command Center question once he is back. With --answer "<choice>" it is a decision you made and acted on, asked with your answer checked for him to keep or change; without it, it is what only he can do
+  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of left, merge, deploy, migration, install, answer, other. A left line also takes --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>" with an optional --recommend "<choice>": his Command Center question once he is back. With --answer "<choice>" it is a decision you made and acted on, settled in his History with your answer once he is back, where he can change it; without it, it is what only he can do
   strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason; the line stays, and the report shows it struck
   settle  the registered CFO settles a line it left for him and saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it; the line stays, it is never asked in the Command Center, and the report shows what became of it`
 
@@ -179,7 +179,7 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	var options []string
 	fs.Func("option", "for a left line: one choice his Command Center question offers once he is back; repeat for each", func(value string) error { options = append(options, value); return nil })
 	recommend := fs.String("recommend", "", "for a left line: the choice you recommend, exactly as one --option")
-	answer := fs.String("answer", "", "for a left line you decided yourself: the choice you made and acted on, exactly as one --option, which he keeps or changes once back")
+	answer := fs.String("answer", "", "for a left line you decided yourself: the choice you made and acted on, exactly as one --option, settled in his History once he is back, where he can change it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

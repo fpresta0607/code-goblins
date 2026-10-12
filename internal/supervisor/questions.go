@@ -71,10 +71,6 @@ type Question struct {
 	// goblin has his.
 	ChangeID       string `json:"change_id,omitempty"`
 	ReplacedAnswer string `json:"replaced_answer,omitempty"`
-	// Decided is the choice the CFO answered its own question with while AFK
-	// mode was on, and acted on: the question is asked with it checked, for
-	// the Overlord to keep or change.
-	Decided string `json:"decided,omitempty"`
 	// Page is, on the board only, the open review item whose page carries
 	// this question, so the Command Center shows the two as one.
 	Page string `json:"page,omitempty"`
@@ -94,9 +90,6 @@ func validQuestion(q Question) error {
 	if q.Recommended != "" && !slices.Contains(q.Options, q.Recommended) {
 		return errors.New("recommendation must name one of the supplied choices exactly")
 	}
-	if q.Decided != "" && (q.Task != "" || !slices.Contains(q.Options, q.Decided)) {
-		return errors.New("only the CFO's own question carries its answer, and it names one of the supplied choices exactly")
-	}
 	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
@@ -112,7 +105,7 @@ func validQuestion(q Question) error {
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Decided == b.Decided && a.Task == b.Task && slices.Equal(a.Images, b.Images)
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && slices.Equal(a.Images, b.Images)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane
@@ -270,7 +263,7 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 		change = fmt.Sprintf("Question: %s Was: %s. Now, in his own words: %s. Act on the new answer: undo or redo what the first answer started.", q.Text, a.Replaces, a.Text)
 	}
 	if q.Task == "" {
-		return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed his answer to your question %s on the board. %s", q.ID, change))
+		return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to your question %s on the board. %s", q.ID, change))
 	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
@@ -299,13 +292,6 @@ func answerToCFO(q Question, a Action) string {
 	text := fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
 	if a.AnswerKind == "other" {
 		text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
-	}
-	switch {
-	case q.Decided == "":
-	case a.AnswerKind == "option" && a.Text == q.Decided:
-		text += ". You answered " + q.Decided + " while AFK mode was on, and he kept it."
-	default:
-		text += ". You answered " + q.Decided + " while AFK mode was on, and he changed it: undo or redo what your answer started."
 	}
 	return text
 }
@@ -404,7 +390,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if !ok || len(options) == 0 && wake.Page(asked) == "" {
 		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
 	}
-	choices, recommended := questionChoices(options)
+	choices, _ := questionChoices(options)
 	if chosen, err = pickAnswer(asked, choices, option); err != nil {
 		return "", false, err
 	}
@@ -442,7 +428,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 			unrecorded = append(unrecorded, err)
 		}
 	}
-	if err := logAFKAnswer(c.State, Question{ID: id, Task: q.Task, Text: asked, Options: choices, Recommended: recommended}, chosen, answer); err != nil {
+	if err := logAFKAnswer(c.State, Question{ID: id, Task: q.Task, Text: asked}, answer); err != nil {
 		unrecorded = append(unrecorded, err)
 	}
 	if err := errors.Join(unrecorded...); err != nil {
@@ -548,7 +534,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 		return "", err
 	}
 	if in == "" {
-		if err := logAFKAnswer(c.State, q, chosen, withNote(chosen, note)); err != nil {
+		if err := logAFKAnswer(c.State, q, withNote(chosen, note)); err != nil {
 			return chosen, fmt.Errorf("recorded on the board; do not record it again, but %w", err)
 		}
 	}
@@ -574,22 +560,14 @@ func overlordAway(stateDir string) error {
 
 // logAFKAnswer logs the CFO's choice chosen, given a goblin's question q as
 // answer, while AFK mode is on, as a decision made under its authority, with
-// the question and the answer as its evidence. An answer to a goblin's page
-// also carries the page, its question, its choices, or chosen as the one
-// choice of a page that declared none, and the CFO's choice, so the Overlord
-// is asked it once AFK mode turns off. It logs nothing while AFK mode is off.
-func logAFKAnswer(stateDir string, q Question, chosen, answer string) error {
+// the question and the answer as its evidence, and the page an answer to a
+// goblin's page answered as its link. It logs nothing while AFK mode is off.
+func logAFKAnswer(stateDir string, q Question, answer string) error {
 	switched, err := afk.Read(stateDir)
 	if err != nil || !switched.On {
 		return err
 	}
-	entry := afk.Entry{Kind: afk.KindAnswer, What: q.ID, Task: q.Task, Evidence: bounded("asked: "+q.Text+" answered: "+answer, 6000)}
-	if link := wake.Page(q.Text); link != "" {
-		entry.Link, entry.Question, entry.Options, entry.Recommendation, entry.Answer = link, bounded(q.Text, 4000), q.Options, q.Recommended, chosen
-		if len(entry.Options) == 0 {
-			entry.Options = []string{chosen}
-		}
-	}
+	entry := afk.Entry{Kind: afk.KindAnswer, What: q.ID, Task: q.Task, Link: wake.Page(q.Text), Evidence: bounded("asked: "+q.Text+" answered: "+answer, 6000)}
 	if err := sendPipeRequest(stateDir, runPipeRequest{Kind: "afk-log", AFK: &entry}); err != nil {
 		return fmt.Errorf("AFK mode's log did not take the decision: %w", err)
 	}
@@ -1010,17 +988,50 @@ func (s *Store) acceptQuestion(q Question) error {
 	if err := validQuestion(q); err != nil {
 		return err
 	}
-	for _, prior := range s.db.Questions {
-		if prior.ID == q.ID {
-			if !sameQuestion(prior, q) {
-				return errors.New("question ID already used")
-			}
-			return nil
-		}
+	if isKnown, err := s.knownQuestion(q); isKnown || err != nil {
+		return err
 	}
 	if !s.db.QuestionFloor.IsZero() && !q.CreatedAt.After(s.db.QuestionFloor) {
 		return nil
 	}
+	q.Status, q.AnswerID, q.Message = "pending", "", ""
+	q.Answer, q.AnswerKind = "", ""
+	return s.admitQuestion(q)
+}
+
+// settleQuestion admits q with its answer, straight into History: a decision
+// the CFO answered itself while AFK mode was on, settled once it turned off.
+// The supervisor admits it once, itself, so the floor that keeps a replayed
+// publication out does not apply to it.
+func (s *Store) settleQuestion(q Question) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validQuestion(q); err != nil {
+		return err
+	}
+	if isKnown, err := s.knownQuestion(q); isKnown || err != nil {
+		return err
+	}
+	return s.admitQuestion(q)
+}
+
+// knownQuestion reports whether the board holds q already, and refuses other
+// content under its ID. The caller holds the store lock.
+func (s *Store) knownQuestion(q Question) (bool, error) {
+	for _, prior := range s.db.Questions {
+		if prior.ID == q.ID {
+			if !sameQuestion(prior, q) {
+				return true, errors.New("question ID already used")
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// admitQuestion adds q to the board, making room for it, and saves. The caller
+// holds the store lock and has checked q.
+func (s *Store) admitQuestion(q Question) error {
 	if len(s.db.Questions) >= maxQuestions {
 		// A question that closed without an answer stays listed until the
 		// Overlord clears it, or until it is the oldest superseded one while
@@ -1048,8 +1059,6 @@ func (s *Store) acceptQuestion(q Question) error {
 		}
 		s.db.Questions = slices.Delete(s.db.Questions, index, index+1)
 	}
-	q.Status, q.AnswerID, q.Message = "pending", "", ""
-	q.Answer, q.AnswerKind = "", ""
 	q.Options = slices.Clone(q.Options)
 	// A goblin that asks again has moved past its earlier question, so the
 	// newer one replaces it and the Command Center shows one card.

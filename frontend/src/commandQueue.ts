@@ -253,6 +253,15 @@ export function canChange(question: Question): boolean {
   return (question.status === "queued" || question.status === "running" || question.status === "uncertain") && !!question.answer_id;
 }
 
+// answeredHere is a question as he answered it from its card: the board's own
+// once it carries his answer, else with the answer he sent, from the moment he
+// sent it, so going back to it shows his answer before the board hears back.
+export function answeredHere(question: Question, draft: SentDraft): Question {
+  if (question.status !== "pending" || !draft.submission) return question;
+  const sent = object(JSON.parse(draft.submission.payload));
+  return { ...question, status: "queued", answer_id: draft.submission.id, answer: string(sent.text), answer_kind: string(sent.answer_kind) };
+}
+
 // His change of a question's answer sent from this board that the board does
 // not show yet: from the moment he sends it until the supervisor has it, when
 // the question carries it, or a later change from another tab, itself.

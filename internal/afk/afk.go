@@ -35,9 +35,6 @@ const (
 	// Overlord as the Command Center bounds a question's.
 	maxLeftOptions = 8
 	maxOption      = 500
-	// maxQuestion bounds a goblin's question the CFO answered on its page as
-	// the Command Center bounds a question's text.
-	maxQuestion = 4000
 )
 
 // State is the switch. A home where it was never turned on reads as the zero
@@ -143,14 +140,10 @@ type Entry struct {
 	Tried     string   `json:"tried,omitempty"`
 	Options   []string `json:"options,omitempty"`
 	// Answer is the one of a left line's Options the CFO answered itself
-	// and acted on under the authority, which he keeps or changes once back,
-	// and is empty for what only he can do.
+	// and acted on under the authority, and is empty for what only he can do.
+	// Once AFK mode turns off such a line is settled: it is in his History
+	// with the CFO's answer, where he can change it, and never asked of him.
 	Answer string `json:"answer,omitempty"`
-	// Question is what a goblin asked on its Scrawl page, for an answer the
-	// CFO gave it in the Overlord's place. Such an answer carries the page as
-	// its Link, the page's Options, the goblin's Recommendation and the CFO's
-	// Answer, and he keeps or changes it once back, as a left line's.
-	Question string `json:"question,omitempty"`
 	// Struck is the CFO's reason for striking a decision through, and Settled
 	// what became of a line left for the Overlord that the CFO settled, each
 	// set on the decision as the report folds the log, and never written to
@@ -340,10 +333,6 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 		if err := validLeft(entry); err != nil {
 			return Entry{}, err
 		}
-	case OnPage(entry):
-		if err := validPageAnswer(entry); err != nil {
-			return Entry{}, err
-		}
 	}
 	entry.Struck, entry.Settled, entry.Noted, entry.Asked = "", "", "", ""
 	return record(stateDir, entry, now)
@@ -361,41 +350,18 @@ func validLeft(entry Entry) error {
 	case len(entry.Options) < minLeftOptions || len(entry.Options) > maxLeftOptions:
 		return fmt.Errorf("a line left for him offers %d to %d choices, which his Command Center question asks once he is back", minLeftOptions, maxLeftOptions)
 	}
-	return validChoices("a line left for him", entry)
-}
-
-// validPageAnswer refuses an answer the CFO gave a goblin's page that could
-// not be asked of the Overlord once AFK mode turns off: it names the question,
-// carries the page's choices, or the CFO's own words as the one choice of a
-// page that declared none, and the CFO's answer is one of them.
-func validPageAnswer(entry Entry) error {
-	switch {
-	case strings.TrimSpace(entry.Question) == "" || len(entry.Question) > maxQuestion:
-		return fmt.Errorf("an answer to a goblin's page names the question it asked, in at most %d characters", maxQuestion)
-	case len(entry.Options) == 0 || len(entry.Options) > maxLeftOptions:
-		return fmt.Errorf("an answer to a goblin's page carries its choices, 1 to %d distinct ones", maxLeftOptions)
-	case entry.Answer == "":
-		return errors.New("an answer to a goblin's page carries the CFO's answer, one of its choices")
-	}
-	return validChoices("a goblin's page", entry)
-}
-
-// validChoices refuses choices his Command Center question cannot offer, and
-// a recommendation or an answer of the CFO's that is not one of them,
-// exactly. whose names what the choices belong to.
-func validChoices(whose string, entry Entry) error {
 	seen := map[string]bool{}
 	for _, option := range entry.Options {
 		if strings.TrimSpace(option) == "" || len(option) > maxOption || seen[option] {
-			return fmt.Errorf("the choices of %s are distinct, and each is text of at most %d characters", whose, maxOption)
+			return fmt.Errorf("the choices of a line left for him are distinct, and each is text of at most %d characters", maxOption)
 		}
 		seen[option] = true
 	}
 	if entry.Recommendation != "" && !seen[entry.Recommendation] {
-		return fmt.Errorf("the recommended choice of %s is one of its choices, exactly", whose)
+		return errors.New("the recommended choice of a line left for him is one of its choices, exactly")
 	}
 	if entry.Answer != "" && !seen[entry.Answer] {
-		return fmt.Errorf("the CFO's answer to %s is one of its choices, exactly", whose)
+		return errors.New("the CFO's answer to a line left for him is one of its choices, exactly")
 	}
 	return nil
 }
@@ -483,21 +449,10 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 }
 
 // LeftQuestionID is the ID of the Command Center question a line left for the
-// Overlord is asked as.
+// Overlord is asked as, or, for a decision the CFO answered itself, settled in
+// his History as.
 func LeftQuestionID(left Entry) string {
 	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
-}
-
-// OnPage reports whether a decision is the CFO's answer to a goblin's Scrawl
-// page, which the Overlord is asked once AFK mode turns off.
-func OnPage(entry Entry) bool {
-	return entry.Kind == KindAnswer && entry.Link != ""
-}
-
-// PageQuestionID is the ID of the Command Center question the CFO's answer to
-// a goblin's page is asked as.
-func PageQuestionID(answer Entry) string {
-	return "afk-page-" + answer.At.UTC().Format("20060102T150405.000000000Z")
 }
 
 // Hold records an item that waits on the Overlord, in the stretch that is on.
