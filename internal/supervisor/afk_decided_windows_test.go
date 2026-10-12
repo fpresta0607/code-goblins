@@ -16,8 +16,8 @@ import (
 // center". Under AFK mode the CFO answers a decision itself and acts on its
 // answer. When AFK mode turns off that decision is settled: it is in the
 // Command Center's History with the CFO's answer, who gave it and when, and
-// never in his queue or under For you in the report, which gives it a recap
-// of its own. What only he can do is still asked, with nothing checked.
+// never in his queue, and his report recaps it under For you. A step only he
+// can take is a line of his recap, never asked.
 
 // decidedLine is a decision the CFO answered itself under AFK mode.
 func decidedLine() afk.Entry {
@@ -65,7 +65,7 @@ func questionAbout(t *testing.T, s *Service, what string) Question {
 	return s.Store.Snapshot().Questions[i]
 }
 
-func TestADecisionTheCFOAnsweredIsSettledInHistoryAndWhatIsHisIsStillAsked(t *testing.T) {
+func TestADecisionTheCFOAnsweredIsSettledInHistoryAndHisStepIsALineOfTheRecap(t *testing.T) {
 	// Arrange
 	s, h, _ := asTheCFO(t)
 	_, identity, err := readPrimary(h.State)
@@ -75,7 +75,8 @@ func TestADecisionTheCFOAnsweredIsSettledInHistoryAndWhatIsHisIsStillAsked(t *te
 	decided := decidedLine()
 
 	// Act
-	logged := awayAndBack(t, s, h, decided, leftLine("Sign in to Fly again?"))
+	step := afk.Entry{Kind: afk.KindHis, What: "Sign in to Fly again", Evidence: "his own sign-in. Backlog row cg-fly-token-durable"}
+	logged := awayAndBack(t, s, h, decided, step)
 
 	// Assert
 	settled := questionAbout(t, s, decided.What)
@@ -88,31 +89,26 @@ func TestADecisionTheCFOAnsweredIsSettledInHistoryAndWhatIsHisIsStillAsked(t *te
 	if !strings.Contains(settled.Text, "\n- Evidence: ") {
 		t.Errorf("the decision reads %q, want what the CFO's answer stood on", settled.Text)
 	}
-	asked := questionAbout(t, s, "Sign in to Fly again?")
-	if asked.Status != "pending" || asked.AnsweredBy != "" || !strings.Contains(asked.Text, "\n- Why it is yours: ") {
-		t.Errorf("his sign-in = %+v, want it asked of him with nothing answered", asked)
+	if questions := s.Store.Snapshot().Questions; len(questions) != 1 {
+		t.Errorf("the board holds %+v, want only the settled decision: his sign-in is never asked", questions)
 	}
 	report, found, err := ReadAFKReport(h)
 	if err != nil || !found {
 		t.Fatalf("ReadAFKReport = %v, %v, want the report", found, err)
 	}
-	var forYou []string
-	for _, one := range report.Held {
-		forYou = append(forYou, one.What)
-	}
-	if !slices.Equal(forYou, []string{"Sign in to Fly again?"}) {
-		t.Errorf("For you = %q, want only his sign-in", forYou)
+	if len(report.Held) != 0 {
+		t.Errorf("held for him = %+v, want nothing", report.Held)
 	}
 	sections := report.Sections()
-	i := slices.IndexFunc(sections, func(section afk.Section) bool { return section.Title == "Answered for you" })
-	if i < 0 || len(sections[i].Entries) != 1 || sections[i].Entries[0].What != decided.What || sections[i].Entries[0].Answer != decided.Answer {
-		t.Errorf("the report's sections = %+v, want the decision recapped under Answered for you with the CFO's answer", sections)
+	i := slices.IndexFunc(sections, func(section afk.Section) bool { return section.Title == "For you" })
+	if i < 0 || sections[i].Group != afk.GroupDecided || len(sections[i].Entries) != 1 || sections[i].Entries[0].What != decided.What || sections[i].Entries[0].Answer != decided.Answer || sections[i].Entries[0].Item != "question:"+settled.ID {
+		t.Errorf("the report's sections = %+v, want the decision recapped under For you with the CFO's answer and its question in History", sections)
 	}
 	var text bytes.Buffer
 	if err := afk.Render(&text, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"For you (1), each as it stands now\n- question:afk-left-", "\nAnswered for you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it from the machine config. You can change it in History.\n"} {
+	for _, want := range []string{"\nFor you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it from the machine config. You can change it in History.\n", "\nNeeds you (1)\n- Sign in to Fly again\n"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("the CFO's text of the report lacks %q:\n%s", want, text.String())
 		}

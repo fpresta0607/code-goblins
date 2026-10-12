@@ -72,9 +72,8 @@ type Finish struct {
 	At   time.Time `json:"at"`
 }
 
-// Held is an item that waited on the Overlord during the stretch: one held
-// for him, or a line the CFO left for him, which is asked in the Command
-// Center as the CFO's question when the stretch ends.
+// Held is an item that waited on the Overlord in the Command Center during
+// the stretch, such as a question asked of him before it began.
 type Held struct {
 	// Item is its key in the Command Center, Task its goblin, empty for the
 	// CFO's own, and What the question or request itself, which says why it
@@ -93,8 +92,9 @@ type Held struct {
 	// Recommendation is the choice recommended for it by whoever asked it,
 	// empty when nothing was.
 	Recommendation string `json:"recommendation,omitempty"`
-	// Settled is what became of a line left for him that the CFO settled in
-	// the stretch: it was never asked, so nothing read later changes it.
+	// Settled is what became of a line the CFO left for him and settled in
+	// the stretch, as a report kept before nothing was left for him held it:
+	// it was never asked, so nothing read later changes it.
 	Settled string `json:"settled,omitempty"`
 }
 
@@ -210,10 +210,10 @@ var trainLanding = regexp.MustCompile(`^merge train \S+: CI passed on (\S+) at `
 // landed twice under one pull request gives each line its own landing, or
 // else to every merge it names. A line the CFO wrote that links a pull request
 // that did not merge goes the same way to that merge, as what the CFO did about
-// it, and a line left for the Overlord that links it gives it the Command
-// Center question he is asked, or, for a decision the CFO answered itself,
-// its words and the CFO's answer, staying a decision of its own. A struck
-// line, and one that names no merge, stays as it was.
+// it, and a decision the CFO answered in the Overlord's place that links it
+// gives it its words and the CFO's answer, and a step only he can take that
+// links it says it needs him, each staying a line of its own. A struck line,
+// and one that names no merge, stays as it was.
 func Noted(decisions []Entry) []Entry {
 	names := func(line, merge Entry) bool {
 		train := trainLanding.FindStringSubmatch(merge.Evidence)
@@ -262,14 +262,14 @@ func Noted(decisions []Entry) []Entry {
 			fold(i, func(merge Entry) bool { return open(merge) && merge.What == line.Link })
 		}
 	}
-	for _, left := range decisions {
+	for _, line := range decisions {
 		for j, merge := range noted {
 			switch {
-			case left.Kind != KindLeft || left.Struck != "" || left.Link == "" || folded[j] || !open(merge) || merge.What != left.Link:
-			case left.Answer == "":
-				noted[j].Asked = "question:" + LeftQuestionID(left)
-			default:
-				noted[j].Noted = strings.TrimSpace(noted[j].Noted + " " + said(left, merge) + " It answered: " + strings.TrimSuffix(left.Answer, ".") + ".")
+			case line.Kind != KindLeft && line.Kind != KindHis || line.Struck != "" || line.Link == "" || folded[j] || !open(merge) || merge.What != line.Link:
+			case NeedsHim(line):
+				noted[j].Noted = strings.TrimSpace(noted[j].Noted + " It needs you: " + sentence(line.What))
+			case AnsweredForHim(line):
+				noted[j].Noted = strings.TrimSpace(noted[j].Noted + " " + said(line, merge) + " It answered: " + strings.TrimSuffix(line.Answer, ".") + ".")
 			}
 		}
 	}
@@ -289,10 +289,7 @@ func said(line, merge Entry) string {
 	var parts []string
 	for _, part := range []string{line.What, line.Evidence} {
 		if part = strings.TrimSuffix(strings.TrimSpace(part), "."); part != "" && part != merge.What {
-			if !strings.HasSuffix(part, "?") {
-				part += "."
-			}
-			parts = append(parts, part)
+			parts = append(parts, sentence(part))
 		}
 	}
 	if line.Outcome != "" {
@@ -301,22 +298,27 @@ func said(line, merge Entry) string {
 	return strings.Join(parts, " ")
 }
 
+// sentence is text as a sentence of the report: one full stop at its end,
+// unless it asks a question.
+func sentence(text string) string {
+	text = strings.TrimSuffix(strings.TrimSpace(text), ".")
+	if strings.HasSuffix(text, "?") {
+		return text
+	}
+	return text + "."
+}
+
 // did says what the CFO did about a merge that did not land: the lines it
-// wrote about it and the question it left for the Overlord about it, or that
-// it logged nothing. A line the CFO wrote that names no merge needs no word
-// of what it did, since it is the CFO's own.
+// wrote about it, or that it logged nothing. A line the CFO wrote that names
+// no merge needs no word of what it did, since it is the CFO's own.
 func did(merge Entry) string {
-	var parts []string
-	if merge.Noted != "" {
-		parts = append(parts, "The CFO: "+merge.Noted)
+	switch {
+	case merge.Noted != "":
+		return "The CFO: " + merge.Noted
+	case merge.Link == "" || merge.Link == merge.What:
+		return "The CFO logged nothing about it."
 	}
-	if merge.Asked != "" {
-		parts = append(parts, "Left for you as "+merge.Asked+".")
-	}
-	if len(parts) == 0 && (merge.Link == "" || merge.Link == merge.What) {
-		parts = append(parts, "The CFO logged nothing about it.")
-	}
-	return strings.Join(parts, " ")
+	return ""
 }
 
 // NotLanded says in one sentence what became of a merge that did not land:
@@ -329,60 +331,89 @@ func NotLanded(outcome string) string {
 	return strings.ToUpper(outcome[:1]) + outcome[1:] + "."
 }
 
-// Section is one heading of the report with the decisions under it.
+// The parts of the recap a heading is in, in the order it reads them: what
+// was done, what the CFO decided for the Overlord and the goblins, and last
+// what needs him.
+const (
+	GroupDone    = "done"
+	GroupDecided = "decided"
+	GroupNeeds   = "needs"
+)
+
+// Section is one heading of the report, in its part of the recap, with the
+// lines under it.
 type Section struct {
 	Title   string  `json:"title"`
+	Group   string  `json:"group"`
 	Entries []Entry `json:"entries"`
 }
 
-// Sections sorts what the CFO decided under its headings, in the order the
-// report lists them, the goblins paused at a floor after them, and last what
-// the CFO struck. A heading is there only when it holds something. First is
-// each decision the CFO answered itself in his place, settled in his History
-// once AFK mode turned off. A line the CFO wrote for a landing is with the
-// merge it names, and Not merged holds only what did not land. What it left
-// for him, and a line it settled, is not among them: it is with what was held
-// for him, as it stands now. A struck line is under Struck by the CFO alone,
-// so it is never taken for something left for him or decided. The CFO's text
-// and the board's page are both written from these.
+// Sections sorts the stretch's lines under their headings, in the order the
+// recap reads them, and a heading is there only when it holds something.
+// Done leads with a merge that did not land, then what changed for the
+// Overlord: what was deployed, migrated and installed, then what merged, and
+// what else the CFO did, the goblins the supervisor paused at a floor, each
+// step only he could take that the CFO saw to later, and last what the CFO
+// struck, under Struck by the CFO alone so it is never taken for anything
+// else. A line the CFO wrote for a landing is with the merge it names. Then
+// Decided: each decision the CFO answered in his place and each goblin's
+// question it answered, each naming the question in his History where he
+// changes its answer. Last Needs you: each step only he can take that is
+// still open. The CFO's text and the board's page are both written from these.
 func (r Report) Sections() []Section {
 	var sections []Section
 	decisions := Noted(r.Decisions)
-	decided := func(title string, keep func(Entry) bool) {
+	for i, entry := range decisions {
+		switch {
+		case AnsweredForHim(entry):
+			decisions[i].Item = "question:" + LeftQuestionID(entry)
+		case entry.Kind == KindAnswer:
+			decisions[i].Item = "question:" + entry.What
+		}
+	}
+	add := func(group, title string, entries []Entry) {
+		if len(entries) > 0 {
+			sections = append(sections, Section{Title: title, Group: group, Entries: entries})
+		}
+	}
+	lines := func(group, title string, keep func(Entry) bool) {
 		entries := []Entry{}
 		for _, entry := range decisions {
 			if entry.Struck == "" && keep(entry) {
 				entries = append(entries, entry)
 			}
 		}
-		if len(entries) > 0 {
-			sections = append(sections, Section{Title: title, Entries: entries})
-		}
+		add(group, title, entries)
 	}
 	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
-	decided("Answered for you", AnsweredForHim)
-	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
-	decided("Not merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged })
-	decided("Deployed", kind(KindDeploy))
-	decided("Migrations applied", kind(KindMigration))
-	decided("Installed", kind(KindInstall))
-	decided("Answered for goblins", kind(KindAnswer))
-	decided("Other decisions", kind(KindOther))
-	if len(r.Paused) > 0 {
-		sections = append(sections, Section{Title: "Paused at a floor", Entries: r.Paused})
-	}
-	struck := slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck)
-	if len(struck) > 0 {
-		sections = append(sections, Section{Title: "Struck by the CFO", Entries: struck})
-	}
+	lines(GroupDone, "Not merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged })
+	lines(GroupDone, "Deployed", kind(KindDeploy))
+	lines(GroupDone, "Migrations applied", kind(KindMigration))
+	lines(GroupDone, "Installed", kind(KindInstall))
+	lines(GroupDone, "Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
+	lines(GroupDone, "Other", kind(KindOther))
+	add(GroupDone, "Paused at a floor", r.Paused)
+	lines(GroupDone, "Settled by the CFO", func(entry Entry) bool { return entry.Settled != "" })
+	add(GroupDone, "Struck by the CFO", slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck))
+	lines(GroupDecided, "For you", AnsweredForHim)
+	lines(GroupDecided, "For the goblins", kind(KindAnswer))
+	lines(GroupNeeds, "Needs you", NeedsHim)
 	return sections
 }
 
-// AnsweredForHim reports whether a line left for the Overlord is a decision the
-// CFO answered itself in his place and did not settle later: once AFK mode
-// turns off it is in his History with the CFO's answer, never asked of him.
+// AnsweredForHim reports whether a line is a decision the CFO answered in the
+// Overlord's place: once AFK mode turns off it is in his History with the
+// CFO's answer, never asked of him. One the CFO settled before nothing was
+// left for him was never put there, and is under Settled by the CFO.
 func AnsweredForHim(left Entry) bool {
 	return left.Kind == KindLeft && left.Answer != "" && left.Settled == ""
+}
+
+// NeedsHim reports whether a line is a step only the Overlord can take that is
+// still open: one the CFO logged as his, or a line it left him unanswered
+// before nothing was left for him, which it neither struck nor saw to later.
+func NeedsHim(line Entry) bool {
+	return (line.Kind == KindHis || line.Kind == KindLeft && line.Answer == "") && line.Struck == "" && line.Settled == ""
 }
 
 // Lasted says how long the stretch lasted, to the minute.
@@ -525,89 +556,68 @@ func span(d time.Duration) string {
 	return fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
-// Render writes the report as the text the CFO puts in its terminal: who
-// turned it on and off, what was held or left for the Overlord, which he
-// reads first, then what the CFO decided, what each goblin finished and what
-// was spent, with what became of free disk after it.
+// Render writes the report as the text the CFO puts in its terminal, in the
+// recap's order: who turned it on and off, or that nothing needs him, then
+// Done, with what each goblin finished, what was spent, with what became of
+// free disk after it, and each item held for the Overlord that no longer
+// waits, then Decided for you, and last Needs you, each step only he can take
+// and each item that still waits on him in the Command Center, as it stands
+// now. A part with nothing under it is left out, but for Done.
 func Render(w io.Writer, r Report) error {
 	var out []string
 	say := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
 	say("AFK MODE REPORT")
 	say("AFK mode was on from %s to %s (%s): turned on %s, off %s.", at(r.Since), at(r.Ended), r.Lasted(), SwitchedBy(r.From, r.Asked), SwitchedBy(r.EndedFrom, r.EndedAsked))
-
-	say("")
-	say("For you (%d), each as it stands now", len(r.Held))
-	for _, held := range r.Held {
-		whose := "the CFO's"
-		if held.Task != "" {
-			whose = held.Task + "'s"
-		}
-		say("- %s, %s: %s", held.Item, whose, held.What)
-		if recommends := Recommends(held.Task, held.Recommendation, held.Waiting); recommends != "" {
-			say("  %s", recommends)
-		}
-		line := "  Now: " + held.Now + "."
-		if held.Meanwhile != "" {
-			line += " Meanwhile: " + held.Meanwhile + "."
-		}
-		say("%s", line)
+	sections := r.Sections()
+	in := func(group string) []Section {
+		return slices.DeleteFunc(slices.Clone(sections), func(section Section) bool { return section.Group != group })
 	}
-
-	for _, section := range r.Sections() {
+	waiting := slices.DeleteFunc(slices.Clone(r.Held), func(one Held) bool { return !one.Waiting })
+	settled := slices.DeleteFunc(slices.Clone(r.Held), func(one Held) bool { return one.Waiting })
+	needs := in(GroupNeeds)
+	if len(needs) == 0 && len(waiting) == 0 {
+		say("Nothing needs you.")
+	}
+	part := func(title string, sections []Section) {
 		say("")
-		say("%s (%d)", section.Title, len(section.Entries))
-		for _, entry := range section.Entries {
-			line := "- "
-			if entry.Task != "" {
-				line += entry.Task + ": "
+		say("%s", strings.ToUpper(title))
+		for _, section := range sections {
+			say("")
+			say("%s (%d)", section.Title, len(section.Entries))
+			for _, entry := range section.Entries {
+				out = append(out, entryLines(entry)...)
 			}
-			line += entry.What
-			// A pull request is its own link.
-			if entry.Link != "" && entry.Link != entry.What {
-				line += " (" + entry.Link + ")"
+		}
+	}
+	held := func(title string, held []Held) {
+		if len(held) == 0 {
+			return
+		}
+		say("")
+		say("%s (%d), each as it stands now", title, len(held))
+		for _, one := range held {
+			whose := "the CFO's"
+			if one.Task != "" {
+				whose = one.Task + "'s"
 			}
-			notLanded := entry.Kind == KindMerge && entry.Outcome != OutcomeMerged && entry.Struck == ""
-			switch {
-			case entry.Struck != "":
-				line += " (struck)"
-			case entry.Outcome != "" && !notLanded:
-				line += ": " + entry.Outcome
+			say("- %s, %s: %s", one.Item, whose, one.What)
+			if recommends := Recommends(one.Task, one.Recommendation, one.Waiting); recommends != "" {
+				say("  %s", recommends)
+			}
+			line := "  Now: " + one.Now + "."
+			if one.Meanwhile != "" {
+				line += " Meanwhile: " + one.Meanwhile + "."
 			}
 			say("%s", line)
-			if notLanded {
-				if did := did(entry); did != "" {
-					say("  %s", did)
-				}
-				say("  %s", NotLanded(entry.Outcome))
-			}
-			if entry.Struck != "" {
-				say("  Struck: %s", entry.Struck)
-			}
-			if entry.Noted != "" && !notLanded {
-				say("  The CFO: %s", entry.Noted)
-			}
-			// A decision the CFO answered for him is recapped: what it stood on
-			// is in History with it.
-			if AnsweredForHim(entry) && entry.Struck == "" {
-				say("  The CFO answered: %s. You can change it in History.", strings.TrimSuffix(entry.Answer, "."))
-				continue
-			}
-			// A strike of an earlier stretch's line carries the reason as its
-			// evidence, and names the line by when it was logged.
-			if entry.Kind == KindStrike {
-				say("  Logged: %s", entry.Item)
-				continue
-			}
-			say("  Evidence: %s", entry.Evidence)
 		}
 	}
 
+	part("Done", in(GroupDone))
 	say("")
 	say("Goblins finished (%d)", len(r.Finished))
 	for _, finish := range r.Finished {
 		say("- %s: %s (%s)", finish.Task, finish.PR, finish.At.UTC().Format("15:04 UTC"))
 	}
-
 	if spent, use := Spent(r.Before, r.After), DiskUsed(r.DiskBefore, r.DiskAfter); len(spent) > 0 || use != nil {
 		say("")
 		say("Spent")
@@ -617,6 +627,14 @@ func Render(w io.Writer, r Report) error {
 		if use != nil {
 			say("- %s", use.says())
 		}
+	}
+	held("Settled", settled)
+	if decided := in(GroupDecided); len(decided) > 0 {
+		part("Decided for you", decided)
+	}
+	if len(needs) > 0 || len(waiting) > 0 {
+		part("Needs you", needs)
+		held("Waiting on you in the Command Center", waiting)
 	}
 
 	if len(r.Notes) > 0 {
@@ -632,6 +650,54 @@ func Render(w io.Writer, r Report) error {
 		}
 	}
 	return nil
+}
+
+// entryLines is one line of the report as the CFO's text writes it: whose and
+// what, its link, how it ended, then what it stood on on lines of its own. A
+// decision answered in the Overlord's place is recapped with its answer and
+// where he changes it, since its question in History carries what it stood on.
+func entryLines(entry Entry) []string {
+	line := "- "
+	if entry.Task != "" {
+		line += entry.Task + ": "
+	}
+	line += entry.What
+	// A pull request is its own link.
+	if entry.Link != "" && entry.Link != entry.What {
+		line += " (" + entry.Link + ")"
+	}
+	notLanded := entry.Kind == KindMerge && entry.Outcome != OutcomeMerged && entry.Struck == ""
+	switch {
+	case entry.Struck != "":
+		line += " (struck)"
+	case entry.Outcome != "" && !notLanded:
+		line += ": " + entry.Outcome
+	}
+	lines := []string{line}
+	if notLanded {
+		if did := did(entry); did != "" {
+			lines = append(lines, "  "+did)
+		}
+		lines = append(lines, "  "+NotLanded(entry.Outcome))
+	}
+	if entry.Struck != "" {
+		lines = append(lines, "  Struck: "+entry.Struck)
+	}
+	if entry.Settled != "" {
+		lines = append(lines, "  Settled: "+entry.Settled)
+	}
+	if entry.Noted != "" && !notLanded {
+		lines = append(lines, "  The CFO: "+entry.Noted)
+	}
+	if AnsweredForHim(entry) && entry.Struck == "" {
+		return append(lines, "  The CFO answered: "+strings.TrimSuffix(entry.Answer, ".")+". You can change it in History.")
+	}
+	// A strike of an earlier stretch's line carries the reason as its
+	// evidence, and names the line by when it was logged.
+	if entry.Kind == KindStrike {
+		return append(lines, "  Logged: "+entry.Item)
+	}
+	return append(lines, "  Evidence: "+entry.Evidence)
 }
 
 // SaveReport keeps the report of the stretch that just ended.

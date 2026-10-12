@@ -19,9 +19,9 @@ const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of left, merge, deploy, migration, install, answer, other. A left line also takes --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>" with an optional --recommend "<choice>": his Command Center question once he is back. With --answer "<choice>" it is a decision you made and acted on, settled in his History with your answer once he is back, where he can change it; without it, it is what only he can do
-  strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason; the line stays, and the report shows it struck
-  settle  the registered CFO settles a line it left for him and saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it; the line stays, it is never asked in the Command Center, and the report shows what became of it`
+  log     the registered CFO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in or a step a tool refuses: one plain line at the end of his recap, never a question
+  strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason. The line stays, and the report shows it struck
+  settle  the registered CFO settles a his line it saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it. The line stays, and his recap shows what became of it`
 
 // runAFK is cfo afk: the Overlord's switch for running the fleet while he is
 // away, what was decided and held under it, and the report it ends with. The
@@ -74,11 +74,11 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintf(stdout, "AFK mode %s on since %s, turned on %s.\n", is, switched.Since.UTC().Format("2006-01-02 15:04 UTC"), afk.SwitchedBy(switched.From, switched.Asked))
 		if asked != "" {
 			// The CFO reads this, having made the switch at his ask.
-			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You decide everything its authority covers and log each decision. What only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer.")
+			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You answer every decision yourself with your recommendation, act on it and log it. A step only he can take gets a backlog row and a cfo afk log --kind his line, one plain line in his recap, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer.")
 			fmt.Fprintln(stdout, "His own switch, on the board or in a terminal of his own, turns it off at any time. cfo afk status shows what was decided and held.")
 			return 0
 		}
-		fmt.Fprintln(stdout, "The CFO decides everything its authority covers and logs each decision. What only you can do waits in the backlog and in your report.")
+		fmt.Fprintln(stdout, "The CFO answers every decision with its recommendation and logs it. Nothing is asked of you: a step only you can take is one line at the end of your recap.")
 		fmt.Fprintln(stdout, "cfo afk status shows both. cfo afk off turns it off and prints the report.")
 		return 0
 	case "off":
@@ -177,9 +177,9 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	diagnosis := fs.String("diagnosis", "", "for a left line: what is wrong, found to its cause")
 	tried := fs.String("tried", "", "for a left line: what you already tried")
 	var options []string
-	fs.Func("option", "for a left line: one choice his Command Center question offers once he is back; repeat for each", func(value string) error { options = append(options, value); return nil })
+	fs.Func("option", "for a left line: one choice its question in his History offers, given once for each", func(value string) error { options = append(options, value); return nil })
 	recommend := fs.String("recommend", "", "for a left line: the choice you recommend, exactly as one --option")
-	answer := fs.String("answer", "", "for a left line you decided yourself: the choice you made and acted on, exactly as one --option, settled in his History once he is back, where he can change it")
+	answer := fs.String("answer", "", "for a left line: the choice you made with your recommendation and acted on, exactly as one --option, settled in his History once he is back, where he can change it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -191,8 +191,11 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	case !left && (*diagnosis != "" || *tried != "" || len(options) > 0 || *recommend != "" || *answer != ""):
 		fmt.Fprintln(stderr, "cfo afk log: --diagnosis, --tried, --option, --recommend and --answer go with --kind left")
 		return 2
+	case left && *answer == "":
+		fmt.Fprintln(stderr, "cfo afk log: "+afk.ErrUnanswered.Error())
+		return 2
 	case left && (strings.TrimSpace(*diagnosis) == "" || strings.TrimSpace(*tried) == "" || len(options) < 2):
-		fmt.Fprintln(stderr, "cfo afk log: a left line says what is wrong with --diagnosis, what you already tried with --tried, and offers him two or more --option choices: nothing reaches him undiagnosed")
+		fmt.Fprintln(stderr, "cfo afk log: a left line says what is wrong with --diagnosis, what you already tried with --tried, and offers two or more --option choices: nothing reaches his History undiagnosed")
 		return 2
 	case !slices.Contains(afk.DecisionKinds, *kind):
 		fmt.Fprintln(stderr, "cfo afk log: --kind is one of "+strings.Join(afk.DecisionKinds, ", "))
@@ -291,8 +294,8 @@ func (r commandRuntime) afkSettle() func(home.Home, time.Time, string) error {
 }
 
 // afkStatus prints the switch and, while it is on, its terms, what the CFO
-// decided so far and what is held for the Overlord. A question the CFO
-// answered is a decision, so it is not listed as held.
+// decided so far, each step only the Overlord can take and what is held for
+// him. A question the CFO answered is a decision, so it is not listed as held.
 func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 	switched, err := afk.Read(h.State)
 	if err != nil {
@@ -315,6 +318,8 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 		return 1
 	}
 	decisions := afk.Noted(afk.Decisions(entries))
+	steps := slices.DeleteFunc(slices.Clone(decisions), func(decision afk.Entry) bool { return decision.Kind != afk.KindHis })
+	decisions = slices.DeleteFunc(decisions, func(decision afk.Entry) bool { return decision.Kind == afk.KindHis })
 	fmt.Fprintf(stdout, "\nDecided so far (%d)\n", len(decisions))
 	answered := map[string]bool{}
 	for _, decision := range decisions {
@@ -335,6 +340,17 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 		if decision.Kind == afk.KindAnswer {
 			answered["question:"+decision.What] = true
 		}
+	}
+	fmt.Fprintf(stdout, "\nSteps only he can take so far (%d)\n", len(steps))
+	for _, step := range steps {
+		line := "- " + step.What
+		switch {
+		case step.Struck != "":
+			line += " (struck: " + step.Struck + ")"
+		case step.Settled != "":
+			line += " (settled: " + step.Settled + ")"
+		}
+		fmt.Fprintln(stdout, line)
 	}
 	var held []afk.Entry
 	for _, entry := range entries {
