@@ -98,8 +98,8 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, and with neither it is named by its id
-  cfo title <id> "<short title>"   give a running task its short title: the board shows it, and the supervisor writes it to the ticket it opened for the task
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, cut to 100 characters with no harness at its end, and with neither it is named by its id
+  cfo title <id> "<short title>"   give a task its short title: the board shows it while the task runs, and the supervisor writes it to the ticket it opened for the task, open or closed; the one way to rename an open ticket
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]   change a running goblin's harness/model/effort in place, or restart it onto a harness update
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]

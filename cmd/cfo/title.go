@@ -11,16 +11,13 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
-// maxTaskTitle is the longest short title a task takes. The title names the
-// task on the board and on its ticket, where teammates read it.
-const maxTaskTitle = 100
-
 // shortTitle is a task's short title as the CFO typed it, with its spacing
-// tidied. A title of several lines or longer than maxTaskTitle is refused:
-// that is a description, and a ticket's title must stay the few words the CFO
-// chose for it.
+// tidied. A title of several lines or longer than a ticket's title is
+// refused: that is a description, and a ticket's title must stay the few
+// words the CFO chose for it.
 func shortTitle(typed string) (string, error) {
 	if strings.ContainsAny(typed, "\r\n") {
 		return "", errors.New("a title is one line")
@@ -29,14 +26,16 @@ func shortTitle(typed string) (string, error) {
 	if title == "" {
 		return "", errors.New("the title is empty")
 	}
-	if utf8.RuneCountInString(title) > maxTaskTitle {
-		return "", fmt.Errorf("a title is at most %d characters", maxTaskTitle)
+	if utf8.RuneCountInString(title) > tickets.MaxTitle {
+		return "", fmt.Errorf("a title is at most %d characters", tickets.MaxTitle)
 	}
 	return title, nil
 }
 
-// runTitle gives a running task its short title: the board shows it, and the
-// supervisor writes it to the ticket it opened for the task.
+// runTitle gives a task its short title: the board shows it while the task
+// runs, and the supervisor writes it to the ticket it opened for the task,
+// even once the task has finished. It is the one way to change the title of
+// an issue already open.
 func runTitle(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) != 2 {
 		fmt.Fprintln(stderr, `usage: cfo title <id> "<short title>"`)
@@ -57,12 +56,20 @@ func runTitle(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "cfo title: %v\n", err)
 		return 1
 	}
-	if err := titleTask(h.State, id, title); err != nil {
+	err = titleTask(h.State, id, title)
+	if errors.Is(err, os.ErrNotExist) {
+		_, err = tickets.ReadRecord(h.State, id)
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintf(stderr, "cfo title: %s is not a running task; a queued task takes its title from its backlog row or from cfo spawn --title\n", id)
+			fmt.Fprintf(stderr, "cfo title: %s is neither a running task nor one with a ticket; a queued task takes its title from its backlog row or from cfo spawn --title\n", id)
 			return 1
 		}
+	}
+	if err != nil {
 		fmt.Fprintf(stderr, "cfo title: %v\n", err)
+		return 1
+	}
+	if err := tickets.WriteTitleNote(h.State, id, title); err != nil {
+		fmt.Fprintf(stderr, "cfo title: the title for the task's ticket could not be kept: %v\n", err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "titled %s: %s\n", id, title)

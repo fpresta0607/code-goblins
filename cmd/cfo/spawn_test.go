@@ -289,3 +289,44 @@ func TestSpawnAndSwitchRefuseKimiAsAHarness(t *testing.T) {
 		})
 	}
 }
+
+// A backlog row's title is often long and ends with the harness; a task
+// spawned from it takes the short title its ticket shows.
+func TestRunSpawnShortensTheBacklogRowsTitle(t *testing.T) {
+	cases := []struct {
+		name string
+		row  string
+		want string
+	}{
+		{name: "a row title over 100 characters", row: "The agent API rows left after area A: row 26 and row 27, starting now with the read-only histogram check and the D3 proposal",
+			want: "The agent API rows left after area A: row 26 and row 27, starting now with the read-only histogram…"},
+		{name: "a row title ending with the harness", row: "Install and run on any machine, no setup; Claude Code", want: "Install and run on any machine, no setup"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if err := os.MkdirAll(h.Data, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n\n- **g4** - "+tc.row+" (repo: code-goblins)\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			deps := testCommandRuntimeForHome(h)
+			var got *spawn.Request
+			deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+				got = &request
+				return spawn.Result{Output: "spawned g4"}, nil
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, &stdout, &stderr, deps)
+
+			// Assert
+			if exit != 0 || got == nil || got.Title != tc.want {
+				t.Fatalf("exit=%d request=%+v, want the title %q; stderr=%s", exit, got, tc.want, stderr.String())
+			}
+		})
+	}
+}

@@ -24,7 +24,8 @@ import (
 // request the record does not hold yet is a change too, so the record keeps
 // it. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
-// A done issue is never written again. A status comment someone deleted is
+// A done issue is never written again but for a new title, the one cfo title
+// can still give it. A status comment someone deleted is
 // posted again, and an issue that is deleted (410, or 404 while the
 // repository still answers) ends the ticket: Apply returns its record done,
 // without an error. An issue the task named that cannot be claimed (missing,
@@ -56,10 +57,13 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 			return g.open(ctx, repository, ticket)
 		}
 	}
+	var next *Record
+	var err error
 	if record.IsDone {
-		return record, nil
+		next, err = g.retitle(ctx, repository, record, ticket.Title)
+	} else {
+		next, err = g.move(ctx, repository, record, ticket)
 	}
-	next, err := g.move(ctx, repository, record, ticket)
 	if err == nil {
 		return next, nil
 	}
@@ -70,9 +74,27 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 	if isGone {
 		gone := *record
 		gone.IsDone = true
+		// A retitle of an issue that is gone is not asked again.
+		if record.IsDone {
+			gone.Title = ticket.Title
+		}
 		return &gone, nil
 	}
 	return next, err
+}
+
+// retitle gives a done issue the task opened a new title, and writes nothing
+// else to it.
+func (g GitHub) retitle(ctx context.Context, repository string, record *Record, title string) (*Record, error) {
+	if record.IsClaimed || title == "" || title == record.Title {
+		return record, nil
+	}
+	if _, err := g.api(ctx, "PATCH", fmt.Sprintf("repos/%s/issues/%d", repository, record.Number), "title="+title); err != nil {
+		return record, err
+	}
+	next := *record
+	next.Title = title
+	return &next, nil
 }
 
 // isGone reports whether a refused request means the issue it wrote to is

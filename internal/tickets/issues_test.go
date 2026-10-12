@@ -305,6 +305,53 @@ func TestApplyWritesNothingOnceTheIssueIsDone(t *testing.T) {
 	}
 }
 
+func TestApplyRetitlesADoneIssueAndWritesNothingElse(t *testing.T) {
+	issue := "repos/" + northwind + "/issues/501"
+	cases := []struct {
+		name         string
+		isClaimed    bool
+		title        string
+		failure      int
+		wantRequests []string
+		wantTitle    string
+	}{
+		{name: "a new title", title: "Show the map inside the chat", wantRequests: []string{"PATCH " + issue}, wantTitle: "Show the map inside the chat"},
+		{name: "the title it has", title: "Old work", wantTitle: "Old work"},
+		{name: "a claimed issue keeps its author's title", isClaimed: true, title: "Show the map inside the chat", wantTitle: "Old work"},
+		{name: "an issue that is gone", title: "Show the map inside the chat", failure: 410, wantRequests: []string{"PATCH " + issue}, wantTitle: "Show the map inside the chat"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGitHub{}
+			if tc.failure != 0 {
+				gh.failures = map[string]int{"PATCH " + issue: tc.failure}
+			}
+			from := openedRecord(Merged, "goblin: claude")
+			from.IsDone, from.IsClaimed, from.Title = true, tc.isClaimed, "Old work"
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", Title: tc.title, State: Closed, Reason: FinishedUnmerged}, 0)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := gh.requests(); !slices.Equal(got, tc.wantRequests) {
+				t.Fatalf("requests = %v, want %v", got, tc.wantRequests)
+			}
+			if len(tc.wantRequests) > 0 && tc.failure == 0 {
+				if fields := gh.call(t, "PATCH "+issue).Fields; len(fields) != 1 || fields["title"][0] != tc.title {
+					t.Fatalf("written = %v, want only the title", fields)
+				}
+			}
+			if record.Title != tc.wantTitle || !record.IsDone || record.State != Merged || record.Status != from.Status {
+				t.Fatalf("record = %+v, want it done as it was, titled %q", record, tc.wantTitle)
+			}
+		})
+	}
+}
+
 func TestApplyClaimsTheIssueTheTaskNames(t *testing.T) {
 	// Arrange
 	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"html_url":"https://github.com/` + northwind + `/issues/415","state":"open"}`}}
