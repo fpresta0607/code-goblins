@@ -533,6 +533,13 @@ Native-creation receipts instead produce a quiet birth highlight on that proven 
 Every pulse, card glow and birth highlight is its own layer over the connector or card, which plays out over the effect's whole life and fades before it is removed: a pulse's dash keeps travelling until the fade ends, so none freezes in place or vanishes at full strength, and the connector underneath never changes.
 Each effect runs on the clock of the report it shows, so one drawn late, on a branch expanded mid-pulse, joins its animation where it is and still ends on time.
 A newer report on the same connector plays its own pulse while the earlier one finishes and fades.
+A pulse's lit line fades by opacity and its dashes, 14 px long and 244 px apart, travel by transform along points of its connector, so the canvas under a pulse is never redrawn while it plays.
+A goblin at work glows, still, in the board's green, and a working baby goblin glows softer.
+A baby goblin its goblin starts grows in on its branch with a pulse down the branch, and one that reports, by new activity, a new last line or a new state, sends a pulse up its branch.
+One that finishes or goes sends its last pulse up, fades where it hung and then leaves, while the others slide into their new places and the canvas eases to its new fit.
+Every motion on the canvas is a transform or a fade, played once for the snapshot that showed it: nothing of it runs between snapshots, while the board is hidden or while its stream is down, and with reduced motion a baby goblin simply appears or goes.
+On 12 October 2026 the stand-in canvas `frontend/tests/fixtures/canvas-alive.html?demo`, with an event every 1.4 seconds, at 1600 by 1000 in headless Edge, took 49 ms of main thread and 258 ms of all Edge's processor time each second before this motion, and 38 ms and 230 ms with it, since the CFO's pulse moved by transform instead of `stroke-dashoffset`.
+While nothing changes it took no main thread time either way.
 The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID` fallback; same-harness or directory/time resemblance never establishes a sender.
 When sender identity is unavailable, only target evidence is shown.
 Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.
