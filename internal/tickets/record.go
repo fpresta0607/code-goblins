@@ -47,6 +47,11 @@ type Record struct {
 	// gone.
 	What string   `json:"what,omitempty"`
 	Area []string `json:"area,omitempty"`
+	// Issues are every issue a task claimed, each as a record of its own with
+	// its labels and status comment, the first being the one Number names.
+	// The ticket is done once each of them is. A claimed record written
+	// before records listed them is its own one issue.
+	Issues []Record `json:"issues,omitempty"`
 }
 
 // ListRecords reads every task's ticket record, in task order. A file that
@@ -130,6 +135,18 @@ func (r Record) PullRequestsOnRecord() []string {
 		pulls = append(pulls, r.PullRequest)
 	}
 	return pulls
+}
+
+// IssueNumbers are the numbers of every issue the ticket is on: the one it
+// opened, or each one it claimed.
+func (r Record) IssueNumbers() []int {
+	numbers := []int{r.Number}
+	for _, issue := range r.Issues {
+		if !slices.Contains(numbers, issue.Number) {
+			numbers = append(numbers, issue.Number)
+		}
+	}
+	return numbers
 }
 
 func recordPath(directory, taskID string) (string, error) {

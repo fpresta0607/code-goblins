@@ -232,12 +232,14 @@ func (s *Service) readOverlaps(ctx context.Context, runner execx.Runner, w *flee
 				}
 			}
 			own := map[int]bool{}
-			if number, ok := tickets.ClaimedIssue(brief, repository); ok {
-				own[number] = true
+			for _, issue := range tickets.NamedIssues(brief, repository) {
+				own[issue.Number] = true
 			}
 			if record, err := tickets.ReadRecord(s.Store.Home.State, goblin.id); err == nil {
 				if strings.EqualFold(record.Repository, repository) {
-					own[record.Number] = true
+					for _, number := range record.IssueNumbers() {
+						own[number] = true
+					}
 				}
 			} else if !errors.Is(err, os.ErrNotExist) {
 				unread = errors.Join(unread, err)
