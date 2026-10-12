@@ -124,6 +124,57 @@ export function babyName(goblin: Task, node: TreeNode): string {
 // or else what it does.
 export const babyTask = (node: TreeNode) => node.task || node.label;
 
+// What the programs a goblin starts most often are, in plain words, by the
+// command that starts them.
+const PROGRAM_WORDS: [RegExp, string][] = [
+  [/^(docker desktop|com\.docker\.backend)\b/i, "Docker Desktop"],
+  [/^docker(-compose|\s+compose)\b/i, "Docker Compose"],
+  [/^docker\b/i, "Docker"],
+  [/^stripe\s+listen\b/i, "Stripe listener"],
+  [/^stripe\b/i, "Stripe CLI"],
+  [/^ngrok\b/i, "ngrok tunnel"],
+  [/^supabase\b/i, "Supabase"],
+  [/^redis-server\b/i, "Redis"],
+  [/^(postgres|pg_ctl)\b/i, "Postgres"],
+  [/^((npm|pnpm|yarn|bun)(\s+run)?\s+(dev|start|serve|preview)|(next|nuxt|astro|remix)\s+(dev|start)|vite(\s+(dev|serve|preview))?$|uvicorn|gunicorn|flask\s+run|rails\s+s(erver)?|php\s+artisan\s+serve|python3?\s+manage\.py\s+runserver)\b/i, "App server"],
+];
+// A script a shell runs, or one started by itself.
+const SCRIPT = /^(?:(?:bash|sh|zsh|pwsh|powershell|cmd)\b.*?)?["']?(?:[^\s"']*[\\/])?([^\s"'\\/]+\.(?:sh|ps1|bat|cmd))(?=["'\s]|$)/i;
+// A program that runs a script of its own language, and its name.
+const INTERPRETED = /^(node|python3?|deno|bun|ruby)\b.*?["']?(?:[^\s"']*[\\/])?([^\s"'\\/]+\.(?:m?js|cjs|ts|py|rb))(?=["'\s]|$)/i;
+const INTERPRETERS: Record<string, string> = { node: "Node", python: "Python", python3: "Python", deno: "Deno", bun: "Bun", ruby: "Ruby" };
+
+// cmd.exe running one command, as Windows starts npm's and node's children,
+// and the program a command starts, without its folder or .exe.
+const CMD_WRAPPER = /^(?:"(?:[^"]*[\\/])?cmd(?:\.exe)?"|(?:\S*[\\/])?cmd(?:\.exe)?)(?:\s+\/[a-z])*\s+"?(.*?)"?$/i;
+const PROGRAM = /^(?:"(?:[^"]*[\\/])?([^"\\/]+?)(?:\.exe)?"|(?:\S*[\\/])?([^\s"\\/]+?)(?:\.exe)?)(?=\s|$)(.*)$/i;
+
+// whatItRuns is what a baby goblin runs, in plain words, which its card says
+// under its name: a helper is a helper goblin, a sub-agent, shell or monitor
+// is its own description, and a job, or a shell given no description, is
+// the program its command starts, such as Docker Desktop, the Stripe
+// listener, the app server on its port or a shell running a script. A test
+// run, a build or a browser it cannot name better is what it is, and any
+// other command reads as its program's name: no baby goblin shows a command
+// line (the Overlord, 2026-10-08).
+export function whatItRuns(node: TreeNode): string {
+  if (node.kind === "helper") return BABY_NAMES.helper;
+  const isCommand = node.kind === "process" || (node.kind === "shell" || node.kind === "monitor") && !!node.task && node.task.startsWith(node.label);
+  if (!isCommand) return node.label;
+  const typed = (node.task || node.label).trim().replace(CMD_WRAPPER, "$1");
+  const [, quoted, bare, rest] = PROGRAM.exec(typed) || [];
+  const program = quoted ?? bare ?? typed, command = program + (rest ?? "");
+  const port = /^Dev server :(\d+)$/.exec(node.label)?.[1];
+  const known = PROGRAM_WORDS.find(([pattern]) => pattern.test(command))?.[1];
+  if (known) return known === "App server" && port ? "App server on port " + port : known;
+  const script = SCRIPT.exec(command)?.[1];
+  if (script) return "Shell running " + script;
+  if (port) return "App server on port " + port;
+  const interpreted = INTERPRETED.exec(command);
+  if (interpreted) return INTERPRETERS[interpreted[1].toLowerCase()] + " running " + interpreted[2];
+  return node.kind === "process" && node.group !== "other" ? node.label : program;
+}
+
 // formatMemory is a child's or a goblin's memory, empty for none.
 export function formatMemory(bytes: number): string {
   if (bytes <= 0) return "";
@@ -162,14 +213,16 @@ export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 
 // the finished ones too.
 export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;
 
-// A baby goblin on its branch, and the branches' measures: the gap between
-// two lines side by side, the room a line keeps from a baby goblin beside it,
-// the narrowest gap between columns, the gap between rows, how far under the
-// card the first line turns aside, clear of the card's chevron, how far a
-// line drops into a baby goblin after its last turn, the drop to the first
-// row when no line turns, the room the card's bottom keeps from its corners,
-// and the bend of a joint.
-export const BABY_WIDTH = 166, BABY_HEIGHT = 124, LINE_GAP = 8;
+// A baby goblin on its branch, the size its card is drawn at, wide enough for
+// the longest state, such as Detached, working 12h 52m, on one line, and tall
+// enough for a name of two lines, what it runs, its state and its memory, and
+// the branches' measures: the gap between two lines side by side, the room a
+// line keeps from a baby goblin beside it, the narrowest gap between columns,
+// the gap between rows, how far under the card the first line turns aside,
+// clear of the card's chevron, how far a line drops into a baby goblin after
+// its last turn, the drop to the first row when no line turns, the room the
+// card's bottom keeps from its corners, and the bend of a joint.
+export const BABY_WIDTH = 228, BABY_HEIGHT = 160, LINE_GAP = 8;
 const CLEAR = 12, COLUMN_GAP = 32, ROW_GAP = 28, FIRST = 32, TAIL = 18, DROP = 44, CORNERS = 32, BEND = 8;
 
 interface Point { x: number; y: number }

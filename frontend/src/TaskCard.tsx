@@ -2,12 +2,10 @@ import { useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
-import { Icon } from "./Icon";
-import { clockText } from "./cards";
 import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
-import { harnessName, harnessTip, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn } from "./workflow";
+import { harnessName, harnessTip, personaFor, pullRequestIcon, safePullRequest, taskColumn } from "./workflow";
 import { goblinName, plainText, taskName } from "./task-words";
 import { taskStatus } from "./task-status";
 import { TicketLink } from "./ticket-link";
@@ -18,6 +16,8 @@ import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { BabyGoblin } from "./BabyGoblin";
 import { formatMemory, summarize } from "./fleet-tree";
+import { CardClock } from "./card-clock";
+import { CardPullRequest } from "./card-pull-request";
 
 // A task's card on the board: its portrait beside its title, up to three
 // lines, then across the card's whole width one muted line with the repo, the
@@ -63,11 +63,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task);
   const test = pullRequestTest(task, snapshot.merge_trains ?? []), { text: status, phase } = taskStatus(task, snapshot);
-  const waiting = task.phase === "queued";
-  // A queued task the supervisor is starting has waited, and has not run yet.
-  const clock = column === "Completed" || column === "Paused" || task.phase === "paused" || waiting && column !== "Tasks" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
-  const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
-  const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
   const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
   const parentName = parent ? goblinName(parent) : task.parent;
   // What runs under a live goblin, as baby goblins with a count each, which
@@ -81,7 +76,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>{clockBadge}{ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}</span>
+      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span><CardClock task={task} now={now} /></span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
@@ -95,7 +90,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {(count || pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
       {count}
-      {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...column === "Completed" && task.branch ? { "data-tip": task.branch } : {}}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
+      <CardPullRequest task={task} />
       {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
       {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="card-checks" />}
       {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" />}

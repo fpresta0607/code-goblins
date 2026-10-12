@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, titleFor } from "./fleet-tree.ts";
-import { arrange, detours, makeRoom, NODE_HEIGHT, NODE_WIDTH, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
+import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, titleFor, whatItRuns } from "./fleet-tree.ts";
+import { arrange, detours, makeRoom, NODE_HEIGHT, NODE_WIDTH, ROW, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
 const MINUTE = 60_000;
@@ -80,14 +80,14 @@ test("a goblin has children to draw on the canvas only while one still runs or i
 });
 
 test("rows under a goblin whose children show move down to make room, and keep their rows", () => {
-  const positions = { cfo: { x: 400, y: 72 }, one: { x: 40, y: 316 }, two: { x: 376, y: 316 }, low: { x: 208, y: 560 } };
+  const positions = { cfo: { x: 400, y: 72 }, one: { x: 40, y: 72 + ROW }, two: { x: 376, y: 72 + ROW }, low: { x: 208, y: 72 + 2 * ROW } };
   assert.deepEqual(makeRoom(positions, {}), positions, "nothing open moves nothing");
   assert.deepEqual(makeRoom(positions, { one: 58 }), positions, "a count fits in the gap between rows");
   const room = makeRoom(positions, { one: 300 });
   assert.equal(room.cfo.y, 72);
-  assert.equal(room.one.y, 316);
-  assert.equal(room.two.y, 316, "a row moves as one");
-  assert.ok(room.low.y >= 316 + NODE_HEIGHT + 300, "the row under the open goblin starts below its children");
+  assert.equal(room.one.y, 72 + ROW);
+  assert.equal(room.two.y, 72 + ROW, "a row moves as one");
+  assert.ok(room.low.y >= 72 + ROW + NODE_HEIGHT + 300, "the row under the open goblin starts below its children");
   assert.equal(room.low.x, 208);
 });
 
@@ -386,6 +386,33 @@ test("a baby goblin's title is the one who does what its own description says, o
     [{ label: "Dev server :5173", kind: "process", group: "dev-server" }, "Server Keeper"], [{ label: "CI checks on PR 398", kind: "monitor" }, "Watcher"],
     [{ label: 'C:\\WINDOWS\\System32\\cmd.exe /d /s /c "npm run dev"', kind: "process", group: "other" }, "Process Wrangler"], [{ label: "Sub-agent" }, "Scout"],
   ] as [Partial<TreeNode>, string][]) assert.equal(titleFor(child(fields)), title, JSON.stringify(fields));
+});
+
+// The Overlord, 2026-10-12, of Mabel's four baby goblins, which said only
+// Process Wrangler and Server Keeper: he asked whether they were duplicates
+// or errors. A baby goblin's card names what it runs in plain words.
+test("a baby goblin says what it runs in plain words: the program its command starts, or its own description", () => {
+  for (const [fields, runs] of [
+    [{ kind: "process", group: "dev-server", label: "Dev server :2375", task: "Docker Desktop" }, "Docker Desktop"],
+    [{ kind: "process", group: "dev-server", label: "Dev server :2375", task: "\"C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe\" --minimized" }, "Docker Desktop"],
+    [{ kind: "process", group: "other", label: "stripe listen --forward-to localhost:3000/api/stripe/webhook", task: "stripe listen --forward-to localhost:3000/api/stripe/webhook" }, "Stripe listener"],
+    [{ kind: "process", group: "dev-server", label: "Dev server :3000", task: "npm run dev" }, "App server on port 3000"],
+    [{ kind: "process", group: "dev-server", label: "Dev server :8000", task: "node server.js" }, "App server on port 8000"],
+    [{ kind: "process", group: "other", label: 'C:\\WINDOWS\\System32\\cmd.exe /d /s /c "npm run dev"', task: "" }, "App server"],
+    [{ kind: "process", group: "other", label: "bash scripts/sync-tenants.sh", task: "bash scripts/sync-tenants.sh --all" }, "Shell running sync-tenants.sh"],
+    [{ kind: "process", group: "other", label: "pwsh -NoProfile -File C:\\dev\\ops\\watch.ps1", task: "pwsh -NoProfile -File C:\\dev\\ops\\watch.ps1" }, "Shell running watch.ps1"],
+    [{ kind: "process", group: "other", label: "./run.sh", task: "./run.sh" }, "Shell running run.sh"],
+    [{ kind: "process", group: "other", label: "node scripts/poll.mjs", task: "node scripts/poll.mjs" }, "Node running poll.mjs"],
+    [{ kind: "process", group: "test", label: "Test run", task: "go test ./..." }, "Test run"],
+    [{ kind: "process", group: "other", label: "sleep", task: "sleep 300" }, "sleep"],
+    [{ kind: "process", group: "other", label: "go run ./cmd/cfo serve --port 4310", task: "go run ./cmd/cfo serve --port 4310" }, "go"],
+    [{ kind: "shell", label: "terraform apply -auto-approve", task: "terraform apply -auto-approve" }, "terraform"],
+    [{ kind: "shell", label: "Start the dev server", task: "npm run dev" }, "Start the dev server"],
+    [{ kind: "shell", label: "bash scripts/listen.sh", task: "bash scripts/listen.sh" }, "Shell running listen.sh"],
+    [{ kind: "subagent", label: "Map harness plumbing" }, "Map harness plumbing"],
+    [{ kind: "gate", label: "Gate: test" }, "Gate: test"],
+    [{ kind: "helper", label: "Pip - Rail Fitter", task: "Fit the rails" }, "Helper goblin"],
+  ] as [Partial<TreeNode>, string][]) assert.equal(whatItRuns(child(fields)), runs, JSON.stringify(fields));
 });
 
 test("baby goblins are named after their goblin in the order they started, Jr. then II and on, and a helper keeps its own name", () => {

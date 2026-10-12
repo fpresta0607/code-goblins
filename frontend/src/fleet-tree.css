@@ -42,18 +42,26 @@
 .tree-child { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 60px; padding: 6px 12px 6px 8px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
 .tree-rail .tree-child { width: 100%; text-align: left; }
 .tree-rail .tree-child-copy strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* A card on the rail grows with what it says, so what it runs and its state
+   wrap there rather than end in an ellipsis. */
+.tree-rail .tree-child-runs, .tree-rail .state-chip { white-space: normal; overflow-wrap: anywhere; }
+.tree-rail .state-chip { border-radius: 12px; }
 button.tree-child:hover { border-color: var(--glass-border-hover); }
 .tree-child.selected { border-color: var(--accent-green); box-shadow: var(--selected-glow); }
 .tree-child.dim, .working-row.dim { opacity: .55; }
 .tree-child-copy { display: grid; gap: 4px; min-width: 0; line-height: 1.3; }
 .tree-child-copy strong { font-size: 1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .state-chip { display: inline-flex; align-items: center; justify-self: start; gap: 6px; max-width: 100%; padding: 1px 9px; border: 1px solid var(--glass-border); border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: #c4d4df; font-size: .875rem; font-weight: 700; line-height: 1.4; white-space: nowrap; overflow: hidden; }
+.state-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tree-child-runs { max-width: 100%; color: #9bb3c1; font-size: .875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-child-copy .status-dot { width: 7px; height: 7px; }
 .tree-memory { font-size: .875rem; font-weight: 700; color: #b9cad6; white-space: nowrap; }
 
 /* A goblin's running children on the canvas: each a baby goblin hanging on
    a branch under its card, the size fleet-tree.ts lays them out at, or, once
-   the goblin is folded, their count. */
+   the goblin is folded, their count. Each part of a baby goblin's card keeps
+   to its lines, its name two and the rest one, ending in an ellipsis, so the
+   card holds them all. */
 .tree-branch { position: absolute; display: grid; justify-items: center; }
 .tree-branches { position: absolute; margin: 0; padding: 0; list-style: none; }
 .tree-branches > li { position: absolute; }
@@ -64,12 +72,13 @@ button.tree-child:hover { border-color: var(--glass-border-hover); }
    to end. */
 .branch-lines .lit path { stroke: var(--mint); }
 .branch-lines .lit circle { fill: var(--mint); }
-.tree-branches .tree-child { grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: 2px; width: 166px; height: 124px; min-height: 0; padding: 8px 8px 6px; text-align: center; }
+.tree-branches .tree-child { grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: 2px; width: 100%; height: 100%; min-height: 0; padding: 8px 8px 6px; text-align: center; }
 .tree-branches .baby-goblin { width: 40px; height: 40px; }
 .tree-branches .tree-child-copy { width: 100%; justify-items: center; }
 .tree-branches .tree-child-copy strong { font-size: .875rem; line-height: 1.25; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tree-branches .tree-child-runs { font-size: .8125rem; }
 .tree-branches .state-chip { justify-self: center; font-size: .8125rem; }
-.tree-branches .tree-memory { font-size: .8125rem; }
+.tree-branches .tree-memory { font-size: .8125rem; line-height: 1.3; }
 
 /* The lineage list at phone width: the count under the goblin, its children
    on a rail. */
