@@ -72,6 +72,17 @@ func foundIn(t *testing.T, found <-chan foundTree) treetest.Found {
 	return tree.Found
 }
 
+// running lists, by pid, the processes of tree that still run a moment on.
+func running(tree treetest.Found) []int {
+	var pids []int
+	for _, member := range tree.Members() {
+		if !member.Ends() {
+			pids = append(pids, member.PID)
+		}
+	}
+	return pids
+}
+
 // named reports whether said names each of members by name and pid, as a
 // run names what it ended.
 func named(said string, members ...treetest.Member) bool {
@@ -115,11 +126,11 @@ func TestGatePrepushEndsEverythingACheckStartedAtTheTimeLimit(t *testing.T) {
 	if exit != 0 || starts != 2 {
 		t.Fatalf("exit = %d after %d start(s), want 0 after 2, cut at the limit; stdout=%s stderr=%s", exit, starts, stdout.String(), stderr.String())
 	}
-	if !tree.Run.Ends() || !tree.Helper.Ends() {
-		t.Errorf("the check's process is running = %t and its helper whose parent exited is running = %t, want both ended at the limit", tree.Run.IsRunning(), tree.Helper.IsRunning())
+	if left := running(tree); len(left) > 0 {
+		t.Errorf("pids %v of the check's tree still run, want the check, its child and the helper whose parent exited all ended at the limit", left)
 	}
-	if !named(stdout.String(), tree.Run, tree.Helper) {
-		t.Errorf("stdout %q does not name the check's process, pid %d, and its helper, pid %d, among what the limit ended", stdout.String(), tree.Run.PID, tree.Helper.PID)
+	if !named(stdout.String(), tree.Members()...) {
+		t.Errorf("stdout %q does not name each of pids %d, %d and %d among what the limit ended", stdout.String(), tree.Run.PID, tree.Child.PID, tree.Helper.PID)
 	}
 	if said := stdout.String() + stderr.String(); strings.ContainsAny(said, ";\u2014\u2013") {
 		t.Errorf("the run's own lines hold a semicolon or a long dash: %q", said)
@@ -150,8 +161,8 @@ func TestAnEndedGateRunEndsEverythingItsCheckStarted(t *testing.T) {
 			<-waited
 
 			// Assert
-			if !tree.Run.Ends() || !tree.Helper.Ends() {
-				t.Errorf("the check's process is running = %t and its helper whose parent exited is running = %t, want both ended with the run", tree.Run.IsRunning(), tree.Helper.IsRunning())
+			if left := running(tree); len(left) > 0 {
+				t.Errorf("pids %v of the check's tree still run, want the check, its child and the helper whose parent exited all ended with the run", left)
 			}
 		})
 	}
@@ -173,8 +184,8 @@ func TestAnEndedGateTurnEndsEverythingItsCommandStarted(t *testing.T) {
 	run.exit(t, "the run, once ended,")
 
 	// Assert
-	if !tree.Run.Ends() || !tree.Helper.Ends() {
-		t.Errorf("the command is running = %t and its helper whose parent exited is running = %t, want both ended with the run", tree.Run.IsRunning(), tree.Helper.IsRunning())
+	if left := running(tree); len(left) > 0 {
+		t.Errorf("pids %v of the command's tree still run, want the command, its child and the helper whose parent exited all ended with the run", left)
 	}
 }
 

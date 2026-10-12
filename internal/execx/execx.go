@@ -71,16 +71,15 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, cut(tree, err)
 	}
-	if err := release(tree); err != nil {
-		return Result{}, err
-	}
-
 	result := Result{
 		Stdout: stdout.Bytes(),
 		Stderr: stderr.Bytes(),
 	}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
+	}
+	if err := release(tree); err != nil {
+		return result, err
 	}
 	if waitErr == nil {
 		return result, nil
@@ -111,7 +110,7 @@ func (OSRunner) Stream(ctx context.Context, req Request, stdout, stderr io.Write
 		return -1, cut(tree, err)
 	}
 	if err := release(tree); err != nil {
-		return -1, err
+		return cmd.ProcessState.ExitCode(), err
 	}
 	var exitErr *exec.ExitError
 	if waitErr == nil || errors.As(waitErr, &exitErr) && cmd.ProcessState.Exited() {

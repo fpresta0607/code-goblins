@@ -101,20 +101,26 @@ func (h *HeldJobs) Processes() ([]Entry, error) {
 	return jobEntries(h.jobs)
 }
 
-// jobEntries returns the live processes in jobs, sorted by pid.
+// jobEntries returns the live processes in jobs, sorted by pid. The jobs are
+// read before the machine's processes, so a process that joined one just
+// before has its name.
 func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
+	held := make([][]uint32, len(jobs))
+	for index, job := range jobs {
+		ids, err := jobProcessIDs(job)
+		if err != nil {
+			return nil, err
+		}
+		held[index] = ids
+	}
 	processes, err := snapshotProcesses()
 	if err != nil {
 		return nil, err
 	}
 	seen := map[uint32]bool{}
 	var jobbed []Entry
-	for _, job := range jobs {
-		ids, err := jobProcessIDs(job)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range ids {
+	for index, job := range jobs {
+		for _, id := range held[index] {
 			start, alive := jobProcessStart(job, id)
 			if seen[id] || !alive {
 				continue
@@ -177,20 +183,21 @@ func KeepJobOnClose(job windows.Handle) error {
 const endJobFor = 5 * time.Second
 
 // EndJob ends every process in job, as TerminateJobObject does, except a
-// machine service started in it and what runs under it (Service): Docker
-// Desktop or the no-mistakes daemon a goblin started serves the whole
-// machine, and the end of what started it must not end it. With one there,
-// the job stops ending its processes when its last handle closes, so the
-// service outlives it, and the rest are ended one by one until none is left.
-// It returns the processes it ended, sorted by pid.
+// machine service started in it and what runs under it there
+// (RunningServicesAmong): Docker Desktop or the no-mistakes daemon a goblin
+// started serves the whole machine, and the end of what started it must not
+// end it. With one there, the job stops ending its processes when its last
+// handle closes, so the service outlives it, and the rest are ended one by
+// one until none is left. It returns the processes the job held as it ended
+// them, sorted by pid.
 func EndJob(job windows.Handle) ([]Entry, error) {
 	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
 	if err != nil {
 		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
-	services, err := RunningServices()
+	services, err := RunningServicesAmong(members)
 	if err != nil {
-		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
+		return members, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	if !slices.ContainsFunc(members, func(member Entry) bool { return services[member.PID] != NoService }) {
 		if err := windows.TerminateJobObject(job, 1); err != nil {
@@ -232,7 +239,7 @@ func endEachBut(job windows.Handle, members []Entry, services map[int]Service) (
 		if members, err = jobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
 			return ended, err
 		}
-		if services, err = RunningServices(); err != nil {
+		if services, err = RunningServicesAmong(members); err != nil {
 			return ended, err
 		}
 	}

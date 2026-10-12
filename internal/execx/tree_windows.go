@@ -68,9 +68,15 @@ func StartTree(cmd *exec.Cmd) (*Tree, error) {
 	return tree, nil
 }
 
-// join puts the started process in the tree's job and lets it run.
+// join puts the started process in the tree's job and lets it run, unless
+// the tree was ended first, as its context's end ends it.
 func (t *Tree) join() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	pid := t.cmd.Process.Pid
+	if t.isDone {
+		return fmt.Errorf("execx: process %d was ended before it joined a job of its own", pid)
+	}
 	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
 		return fmt.Errorf("execx: open process %d: %w", pid, err)

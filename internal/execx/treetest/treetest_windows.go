@@ -1,6 +1,7 @@
 // Package treetest makes a process tree for the tests of what ends with a
-// run: the run's own process, a relay it starts and waits for, and a helper
-// the relay starts and outlives, as a test's helper outlived the test
+// run: the run's own process, as go test's is, a child it starts that runs
+// on, as a test binary does, a relay the child starts and waits for, and a
+// helper the relay starts and outlives, as a test's helper outlived the test
 // process that started it under cfo gate prepush on 2026-10-12. Each writes
 // its pid to a file named for it in the tree's folder, the helper only once
 // its relay has exited, and none lives past a minute.
@@ -27,11 +28,11 @@ import (
 const lifetime = time.Minute
 
 // Args are the arguments that make a test binary whose TestMain calls Run
-// the run's process of a tree in folder. With isBreakaway the run starts
+// the run's process of a tree in folder. With isBreakaway the child starts
 // its relay in a job of its own that lets a process break away, as a
 // terminal's job does, and the relay starts the helper out of that job, as
-// the MSYS runtime starts what Git Bash runs. The run holds until Release
-// lets it end.
+// the MSYS runtime starts what Git Bash runs. The run and its child hold
+// until Release lets them end.
 func Args(folder string, isBreakaway bool) []string {
 	return []string{"treetest", "run", folder, strconv.FormatBool(isBreakaway)}
 }
@@ -50,9 +51,22 @@ func Run() {
 		_ = os.WriteFile(filepath.Join(folder, "failure"), []byte(err.Error()), 0o600)
 		os.Exit(9)
 	}
+	hold := func() {
+		for deadline := time.Now().Add(lifetime); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(folder, "release")); err == nil {
+				break
+			}
+		}
+	}
 	switch os.Args[2] {
 	case "run":
 		say(folder, "run")
+		if err := start("child").Start(); err != nil {
+			fail(err)
+		}
+		hold()
+	case "child":
+		say(folder, "child")
 		if isBreakaway {
 			if err := joinBreakawayJob(); err != nil {
 				fail(err)
@@ -61,11 +75,7 @@ func Run() {
 		if err := start("relay").Run(); err != nil {
 			fail(err)
 		}
-		for deadline := time.Now().Add(lifetime); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			if _, err := os.Stat(filepath.Join(folder, "release")); err == nil {
-				break
-			}
-		}
+		hold()
 	case "relay":
 		helper := start("helper", strconv.Itoa(os.Getpid()))
 		if isBreakaway {
@@ -142,10 +152,10 @@ func (m Member) Ends() bool {
 	return true
 }
 
-// Found is what Find found of a tree: its run's process and its helper,
-// each the zero Member when it was not found.
+// Found is what Find found of a tree: its run's process, the child that
+// runs on and its helper, each the zero Member when it was not found.
 type Found struct {
-	Run, Helper Member
+	Run, Child, Helper Member
 }
 
 // Find waits, for a minute at most, for the tree in folder to hold its
@@ -156,7 +166,7 @@ func Find(folder string) (Found, error) {
 	for _, member := range []struct {
 		name string
 		into *Member
-	}{{"run", &found.Run}, {"helper", &found.Helper}} {
+	}{{"run", &found.Run}, {"child", &found.Child}, {"helper", &found.Helper}} {
 		for deadline := time.Now().Add(lifetime); ; time.Sleep(10 * time.Millisecond) {
 			if failure, err := fsx.ReadFile(filepath.Join(folder, "failure")); err == nil {
 				return found, fmt.Errorf("the tree could not be made: %s", failure)
@@ -185,9 +195,14 @@ func Find(folder string) (Found, error) {
 	return found, nil
 }
 
+// Members are the processes found, the run's first.
+func (f Found) Members() []Member {
+	return []Member{f.Run, f.Child, f.Helper}
+}
+
 // End ends by its pid each process found that still runs.
 func (f Found) End() {
-	for _, member := range []Member{f.Run, f.Helper} {
+	for _, member := range f.Members() {
 		if member.IsRunning() {
 			_ = proc.TerminateVerified(member.PID, member.Started, func([]string) error { return nil })
 		}
