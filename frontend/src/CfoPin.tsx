@@ -2,13 +2,11 @@ import { useState } from "react";
 import type { Snapshot } from "./types";
 import { message, request } from "./api";
 import { Avatar } from "./Avatar";
-import { ConnectorMark } from "./ConnectorMark";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
 import { cfoSummary } from "./cfoSummary";
-import { harnessMark } from "./connectors";
-import { harnessTip } from "./workflow";
-import { SubscriptionDial } from "./subscription-dial";
+import { CfoHarnessMark } from "./cfo-harness-mark";
+import { SubscriptionDials } from "./subscription-dials";
 import "./cfo-pin.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
@@ -30,7 +28,7 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // The mark of the harness the registered CFO runs sits beside its portrait,
 // with the model of its newest session in that harness in its tip, and the
 // weekly allowance of each subscription in use is a dial beside the bar's
-// buttons, the one place the board shows it. While AFK mode is on nothing
+// buttons, as on the CFO's card on the canvas. While AFK mode is on nothing
 // prompts him and nothing is held for him: the bar stays at rest, says since
 // when and how much was decided, and an outline Open Command Center with how
 // many wait is its one way to whatever is there.
@@ -62,14 +60,10 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
   const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : unreachable ? "The board cannot reach the CFO." : line;
   const terminal = "Open the CFO's terminal";
   const command = "Open Command Center";
-  const harness = snapshot.cfo_harness;
-  const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
   const away = snapshot.afk.state === "on";
-  const mark = harness && !absent ? <ConnectorMark mark={harnessMark(harness)} label={harnessTip(harness, model, "")} /> : undefined;
+  const mark = snapshot.cfo_harness && !absent ? <CfoHarnessMark snapshot={snapshot} /> : undefined;
   const status = <p {...unreachable ? { "data-tip": snapshot.registration } : {}}>{shown}</p>;
-  const dials = !absent && !!snapshot.subscriptions?.length && <div className="subscription-dials" role="group" aria-label="Weekly subscription allowance">
-    {snapshot.subscriptions.map((usage) => <SubscriptionDial key={usage.provider} usage={usage} now={now} />)}
-  </div>;
+  const dials = !absent && <SubscriptionDials snapshot={snapshot} now={now} />;
   const waits = command + ": " + waiting + " waiting on you";
   if (!absent && waiting > 0 && !away) return <div className="cfo-pin">
     <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: terminal, onClick: onOpen }} badge={mark}

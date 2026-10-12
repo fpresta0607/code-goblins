@@ -10,6 +10,8 @@ import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTit
 import { goblinName, taskName, withoutHarness } from "./task-words";
 import { hasRunningChildren, isHeldByTree, isHelperHeld } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
+import { CardFacts } from "./card-facts";
+import { CfoCardFacts } from "./cfo-card-facts";
 
 // child is a baby goblin of the task's goblin, by its id in the goblin's
 // family tree.
@@ -21,7 +23,7 @@ export interface Selection { session?: string; task?: string; child?: string; tr
 export const childSelection = (task: Task, child: TreeNode): Selection =>
   child.kind === "helper" ? { task: child.id.replace(/^helper:/, "") } : { task: task.id, child: child.id };
 
-export function Lineage({ snapshot, project, selected, onSelect, effects, presentations, now }: {
+export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effects, presentations, now }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
   now: number;
@@ -29,6 +31,8 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
   project: string;
   selected: Selection | null;
   onSelect: (selection: Selection, source: HTMLElement) => void;
+  // onOpenCfo opens the CFO's terminal, from its card's button.
+  onOpenCfo: (source: HTMLElement) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const sessions = projectSessions(snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session)), snapshot.tasks, project);
@@ -87,6 +91,8 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
             <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus({ id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>
+          {owner && task && <div className="node-facts"><CardFacts task={task} now={now} /></div>}
+          {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={now} onOpenCfo={onOpenCfo} /></div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
             <Chevron collapsed={isCollapsed} />
@@ -112,6 +118,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             {task.goblin_name && <span className="node-task">Task: {taskName(task)}</span>}
             <span className="node-status">{taskStatus(task, snapshot).text}</span>
           </button>
+          <div className="node-facts"><CardFacts task={task} now={now} /></div>
         </div>
       </div>
       {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={title} now={now} selected={selected?.task === task.id ? selected.child : undefined} onOpen={(child, source) => onSelect(childSelection(task, child), source)} />}

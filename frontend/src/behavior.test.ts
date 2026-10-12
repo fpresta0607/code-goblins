@@ -4,7 +4,7 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runFailure, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW } from "./workflow.ts";
 
 // A canvas of the board's usual shape, wider than it is tall.
 const CANVAS = { width: 1400, height: 900 };
@@ -310,7 +310,8 @@ test("a wide family of goblins wraps into rows that never overlap", () => {
 // cg-credential-requests sat where he had placed it by hand, under
 // pd-connect-quickstart's arranged place.
 const FLEET = ["cg-native-desktop", "cg-board-theme", "cg-cfo-wakes", "cg-hidden-windows", "cg-review-editor-sync", "cg-credential-requests", "pd-connect-quickstart", "cg-install-no-mistakes-pinned"];
-const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 542 } };
+// He placed it a little above the third row of the arranged grid.
+const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 72 + 2 * ROW - 18 } };
 const fleet = (count: number, waits: Record<string, string> = {}) => parseSnapshot({ healthy: true, tasks: FLEET.slice(0, count).map((id) => ({ id, phase: waits[id] ? "waiting" : "working", waiting_on: waits[id] || "", verified: false })) });
 const overlaps = (positions: Record<string, { x: number; y: number }>) => Object.entries(positions).flatMap(([id, one], i, all) => all.slice(i + 1)
   .filter(([, other]) => Math.abs(one.x - other.x) < NODE_WIDTH && Math.abs(one.y - other.y) < NODE_HEIGHT).map(([other]) => id + " and " + other));
@@ -332,7 +333,7 @@ test("a goblin waiting on another sits in the row under it, half a card over, an
     const nodes = workflowNodes(fleet(count, { "cg-board-theme": "cg-cfo-wakes" }));
     const positions = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes" });
     const waiting = positions["task:cg-board-theme"], awaited = positions["task:cg-cfo-wakes"];
-    assert.equal(waiting.y, awaited.y + 244, count + " goblins: in the row under it");
+    assert.equal(waiting.y, awaited.y + ROW, count + " goblins: in the row under it");
     assert.equal(Math.abs(waiting.x - awaited.x), (NODE_WIDTH + 44) / 2, count + " goblins: half a card over");
     assert.deepEqual(overlaps(positions), [], count + " goblins");
   }
@@ -342,7 +343,7 @@ test("a chain or a cycle of waits keeps its places, and only the first link move
   const nodes = workflowNodes(fleet(FLEET.length));
   const family = arrange(nodes, CANVAS);
   const chain = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
-  assert.equal(chain["task:cg-cfo-wakes"].y, chain["task:cg-hidden-windows"].y + 244);
+  assert.equal(chain["task:cg-cfo-wakes"].y, chain["task:cg-hidden-windows"].y + ROW);
   assert.ok([...new Set(Object.values(family).map((point) => point.y))].includes(chain["task:cg-board-theme"].y), "the waiting end of a chain stays in a family row");
   assert.deepEqual(overlaps(chain), []);
   const cycle = arrange(nodes, CANVAS, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });

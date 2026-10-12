@@ -9,7 +9,7 @@ export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "f
   | "researcher" | "performance" | "integrations" | "git" | "accessibility" | "releases";
 export type Point = { x: number; y: number };
 export const NODE_WIDTH = 292;
-export const NODE_HEIGHT = 132;
+export const NODE_HEIGHT = 166;
 
 // The canvas zooms between a tenth and one and a half times, so the whole of
 // any tree fits it.
@@ -311,8 +311,10 @@ export function waitingOn(snapshot: Snapshot, nodes: WorkflowNode[]): Record<str
   return edges;
 }
 
-// The canvas grid: a card and its gap across, a row down.
-const COLUMN = NODE_WIDTH + 44, ROW = 244;
+// The canvas grid: a card and its gap across, and a row down, which keeps
+// the same gap under a card whatever its height.
+const COLUMN = NODE_WIDTH + 44;
+export const ROW = NODE_HEIGHT + 112;
 
 // The gap kept between one card, with what shows under it, and the next.
 const GAP = 44;
