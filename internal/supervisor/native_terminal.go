@@ -125,7 +125,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	binding, err := h.Service.nativeBinding(r.URL.Query())
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, err.Error())
+		_ = view.Close(closeCode(err), err.Error())
 		return
 	}
 	if binding.isLocalOnly && offMachine(r, h.Host) != "" {
@@ -149,7 +149,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for "+binding.name+".")
+		_ = view.Close(websocket.StatusNormalClosure, "No terminal is running for "+binding.name+".")
 		return
 	}
 	terminal, err := host.Watch(record)
@@ -167,7 +167,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	custody, err := binding.check(check)
 	stop()
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
+		_ = view.Close(closeCode(err), closeReason(err.Error()))
 		return
 	}
 
@@ -287,7 +287,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				refused, err := binding.check(check)
 				stop()
 				if err != nil {
-					_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
+					_ = view.Close(closeCode(err), closeReason(err.Error()))
 					return
 				}
 				mu.Lock()
@@ -372,11 +372,11 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	if id := query.Get("run"); id != "" {
 		r, found := s.runOnCard(id, "")
 		if !found {
-			return nativeBinding{}, errors.New("This command is not running.")
+			return nativeBinding{}, terminalEnded("This command is not running.")
 		}
 		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, isLocalOnly: r.CredentialRequest != "", check: func(context.Context) (error, error) {
 			if _, found := s.runOnCard(id, r.RunAction); !found {
-				return nil, errors.New("The command ended.")
+				return nil, terminalEnded("The command ended.")
 			}
 			return nil, nil
 		}}, nil
@@ -386,14 +386,14 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	if want := query.Get("cfo"); want != "" {
 		id := readCFOState(s.Store.Home.State).terminal
 		if id == "" {
-			return nativeBinding{}, errors.New("The CFO does not run in a native terminal.")
+			return nativeBinding{}, terminalEnded("The CFO does not run in a native terminal.")
 		}
 		if id != want {
-			return nativeBinding{}, errors.New("The CFO runs in another terminal now. Open the CFO again.")
+			return nativeBinding{}, terminalEnded("The CFO runs in another terminal now. Open the CFO again.")
 		}
 		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, check: func(context.Context) (error, error) {
 			if readCFOState(s.Store.Home.State).terminal != id {
-				return nil, errors.New("The CFO no longer runs in this terminal. Open the CFO again.")
+				return nil, terminalEnded("The CFO no longer runs in this terminal. Open the CFO again.")
 			}
 			return nil, nil
 		}}, nil
@@ -437,12 +437,32 @@ func (s *Service) nativeTask(selected terminalSelection) (state.TaskMeta, error)
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, selected.Task)
 	if err != nil || meta.SpawnGen != selected.Generation {
-		return state.TaskMeta{}, errors.New("This task restarted or was replaced. Select its current session.")
+		return state.TaskMeta{}, terminalEnded("This task restarted or was replaced. Select its current session.")
 	}
 	if meta.Backend != "native" {
 		return state.TaskMeta{}, errors.New("This task's terminal runs in Herdr, not natively.")
 	}
 	return meta, nil
+}
+
+// endedTerminal is why a view closes when the terminal it names no longer
+// runs: its command or its task's session ended or was replaced, or the CFO
+// left it. No reconnect brings such a terminal back, so the view closes as
+// ended, a normal close, which the board shows without Reconnect, and a new
+// session or terminal is one the board opens by itself.
+type endedTerminal struct{ reason string }
+
+func (ended endedTerminal) Error() string { return ended.reason }
+
+func terminalEnded(reason string) error { return endedTerminal{reason} }
+
+// closeCode is how a view closes for err: as ended for a terminal that no
+// longer runs, and as refused for anything else, which Reconnect may get past.
+func closeCode(err error) websocket.StatusCode {
+	if errors.As(err, new(endedTerminal)) {
+		return websocket.StatusNormalClosure
+	}
+	return websocket.StatusPolicyViolation
 }
 
 // closeReason fits text into a WebSocket close frame, which carries at most

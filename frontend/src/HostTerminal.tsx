@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { reportToCfo } from "./api";
 import { Icon } from "./Icon";
-import { closedReason, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
+import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { useVoice } from "./useVoice";
@@ -19,8 +19,10 @@ const MAX_RETRIES = 5;
 // place until the new one is ready, so the panel is never blank, never
 // cleared and repainted, and never half drawn.
 // query names the terminal to the relay: a task's generation, or the native
-// terminal the CFO runs in.
-export function HostTerminal({ query, harness, label, instance, visible, shown, focus }: { query: string; harness: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
+// terminal the CFO runs in. A terminal that ended says how in place of
+// Reconnect. hasMicrophone is false for a command's terminal on its card,
+// which shows the voice bubble only while the dictation keys are held.
+export function HostTerminal({ query, harness, label, instance, visible, shown, focus, hasMicrophone = true }: { query: string; harness: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -31,6 +33,8 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   const harnessValue = useRef(harness);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
+  // How the terminal ended, while its view is closed for that.
+  const [endedWhy, setEndedWhy] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -83,6 +87,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
         setHistoryEnd(null);
         setUnread(view.unread);
         setReconnecting(false);
+        setEndedWhy("");
         setPhase("live");
         if (shownValue.current && (wantFocus.current || container.closest(".context-pane")?.contains(document.activeElement))) view.focus();
         wantFocus.current = false;
@@ -96,6 +101,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
         }
         if (why) reportToCfo("a goblin's terminal", closedReason(code, why));
         setReconnecting(false);
+        setEndedWhy(ended(code) ? closedReason(code, why) : "");
         setPhase("closed");
       },
       copied: () => {
@@ -124,11 +130,11 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
-    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
+    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{endedWhy ? <p>{endedWhy}</p> : <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
     {phase === "live" && isUnread && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
-    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />
+    {(hasMicrophone || dictation.listening) && <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />}
     {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

@@ -1,4 +1,4 @@
-import { doneCards, expect, openItem, recordDoneCards, test, type Page } from "./site";
+import { doneCards, expect, openItem, recordDoneCards, test, type Page, type WebSocketRoute } from "./site";
 
 // The Overlord, 2026-10-08, on a run card that said "It runs in its own
 // window": "why can we not render terminal right in command center in place
@@ -11,14 +11,15 @@ import { doneCards, expect, openItem, recordDoneCards, test, type Page } from ".
 // printed, and History keeps the exit code.
 const RUN = "Sign in to Fly so I can deploy";
 
-// xterm draws in the DOM, where a test reads it, without WebGL.
-test.use({ launchOptions: { args: ["--disable-webgl"] } });
+// xterm draws in the DOM, where a test reads it, without WebGL. Chromium's
+// fake microphone stands in for the Overlord's when a test dictates.
+test.use({ launchOptions: { args: ["--disable-webgl", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 const QUESTION = "May I merge the release train now?";
 
-interface Wire { actions: Record<string, unknown>[]; inputs: Buffer[]; views: string[] }
+interface Wire { actions: Record<string, unknown>[]; inputs: Buffer[]; views: string[]; sockets: WebSocketRoute[] }
 
 async function openRunCard(page: Page): Promise<Wire> {
-  const wire: Wire = { actions: [], inputs: [], views: [] };
+  const wire: Wire = { actions: [], inputs: [], views: [], sockets: [] };
   await page.route("**/api/actions", async (route) => {
     const sent: Record<string, unknown> = route.request().postDataJSON();
     wire.actions.push(sent);
@@ -26,6 +27,7 @@ async function openRunCard(page: Page): Promise<Wire> {
   });
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     wire.views.push(socket.url());
+    wire.sockets.push(socket);
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.send(Buffer.from("\x1b[2J\x1b[HWaiting for the sign-in in the browser\r\nYour fly.io email: "));
     socket.onMessage((data) => {
@@ -169,5 +171,111 @@ test.describe("on a phone", () => {
     const box = await terminal.boundingBox();
     expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+});
+
+// The Overlord, 2026-10-12 about 12:25Z: "Whenever a terminal fails, in the
+// command center, it shows the reconnect button when it shouldn't." A command
+// that ended has nothing to reconnect to: its terminal says how it ended and
+// offers no Reconnect, from the moment it ends and before the board hears of
+// it, and so does a view opened once it has ended. A view the supervisor
+// refused for any other reason still offers Reconnect.
+for (const view of [
+  { name: "a command that failed", close: { code: 1000, reason: "The terminal ended with exit code 3." }, isEnded: true },
+  { name: "a command opened after it ended", close: { code: 1000, reason: "This command is not running." }, isEnded: true },
+  { name: "a view the supervisor refused", close: { code: 1008, reason: "The terminal of this command did not answer." }, isEnded: false },
+]) {
+  test(`${view.name} ${view.isEnded ? "says how it ended and offers no Reconnect" : "still offers Reconnect"}`, async ({ page }) => {
+    // Arrange
+    const wire = await openRunCard(page);
+    const dialog = page.locator("dialog.question-modal");
+    await dialog.getByRole("button", { name: "Run in PowerShell" }).click();
+    await step(page, "running");
+    await expect(dialog.locator(".run-live .xterm-rows")).toContainText("Your fly.io email:");
+    await expect(dialog.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
+
+    // Act: the view closes, and no snapshot follows yet.
+    await wire.sockets.at(-1)!.close(view.close);
+
+    // Assert
+    const live = dialog.locator(".run-live");
+    await expect(live.locator(".terminal-closed")).toBeVisible();
+    await expect(live.getByRole("button", { name: "Reconnect" })).toHaveCount(view.isEnded ? 0 : 1);
+    if (view.isEnded) await expect(live.locator(".terminal-closed")).toHaveText(view.close.reason);
+  });
+}
+
+// The Overlord, the same minute: "you do have the microphone button that are
+// running terminal. in the command center. Doesn't look like we ever need to
+// use it, so just remove that microphone button in the command center for
+// running terminals." A command's running terminal on its card has no
+// microphone button. A goblin's own terminal keeps its, as the voice bubble's
+// tests show.
+for (const size of [{ name: "his window", viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 }, { name: "a phone", viewport: { width: 390, height: 844 }, deviceScaleFactor: 3 }]) {
+  test.describe(`at ${size.name}'s size`, () => {
+    test.use({ viewport: size.viewport, deviceScaleFactor: size.deviceScaleFactor });
+
+    test("a running command's terminal has no microphone button, and a failed one no Reconnect", async ({ page }, testInfo) => {
+      // Arrange
+      const wire = await openRunCard(page);
+      const dialog = page.locator("dialog.question-modal");
+      await dialog.getByRole("button", { name: "Run in PowerShell" }).click();
+      await step(page, "running");
+      await expect(dialog.locator(".run-live .xterm-rows")).toContainText("Your fly.io email:");
+      await expect(dialog.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
+
+      // Act
+      await dialog.locator(".run-live").screenshot({ path: testInfo.outputPath(`running-${size.viewport.width}.png`) });
+      const microphones = await dialog.locator(".run-live .voice-bubble").count();
+      await wire.sockets.at(-1)!.close({ code: 1000, reason: "The terminal ended with exit code 3." });
+      await expect(dialog.locator(".run-live .terminal-closed")).toBeVisible();
+      await dialog.locator(".run-live").screenshot({ path: testInfo.outputPath(`ended-${size.viewport.width}.png`) });
+
+      // Assert
+      expect(microphones).toBe(0);
+      await expect(dialog.getByRole("button", { name: "Recent messages" })).toHaveCount(0);
+      await expect(dialog.getByRole("button", { name: "Reconnect" })).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    });
+  });
+}
+
+// Dictation by its key still works in a running command's terminal: the bars
+// show over its corner while the keys are held, and what was said is typed
+// into the command.
+test.describe("dictating into a running command's terminal", () => {
+  test.use({ permissions: ["microphone"] });
+
+  test("the key still dictates there, with the bars showing only while it is held", async ({ page }) => {
+    // Arrange
+    await page.addInitScript(() => localStorage.setItem("cfo-voice-hint-v1", "dismissed"));
+    await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
+    await page.route("**/api/dictation", (route) => route.request().method() === "GET"
+      ? route.fulfill({ json: { engine: "test-model", state: "ready" } })
+      : route.fulfill({ json: { text: "overlord@example.com", engine: "test-model" } }));
+    const wire = await openRunCard(page);
+    const dialog = page.locator("dialog.question-modal");
+    await dialog.getByRole("button", { name: "Run in PowerShell" }).click();
+    await step(page, "running");
+    await expect(dialog.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
+    const surface = dialog.locator(".run-live .terminal-surface");
+    const before = await surface.boundingBox();
+
+    // Act
+    await page.keyboard.down("Control");
+    await page.keyboard.down("Shift");
+    await page.keyboard.down("Space");
+    await expect(dialog.locator(".run-live .voice-bubble")).toHaveClass(/recording/);
+    const held = await surface.boundingBox();
+    await page.waitForTimeout(1200);
+    await page.keyboard.up("Space");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("Control");
+
+    // Assert: the bars cover the terminal's corner while held, so the
+    // command's terminal keeps its size and is never resized by a dictation.
+    expect(held).toEqual(before);
+    await expect.poll(() => typed(wire)).toContain("overlord@example.com");
+    await expect(dialog.locator(".run-live .voice-bubble")).toHaveCount(0);
   });
 });

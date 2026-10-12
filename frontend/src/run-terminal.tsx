@@ -12,7 +12,8 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // the command and a sign-in it opens works as in a window. It takes the
 // keyboard as it appears, since he pressed Run to use it, and Stop ends the
 // command and everything it started; a Stop refused says so beside it for a
-// moment.
+// moment. It has no microphone button, which the Overlord found he never
+// needs there (2026-10-12), and dictation by its keys still types into it.
 export function RunTerminal({ run, instance, connected }: { run: Run; instance: string; connected: boolean }) {
   const [stopping, setStopping] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
@@ -27,7 +28,7 @@ export function RunTerminal({ run, instance, connected }: { run: Run; instance: 
     }
   };
   return <section className="run-live">
-    <HostTerminal query={"run=" + encodeURIComponent(run.id)} harness="" label={"Terminal of " + run.title} instance={instance} visible={connected} shown focus={1} />
+    <HostTerminal query={"run=" + encodeURIComponent(run.id)} harness="" label={"Terminal of " + run.title} instance={instance} visible={connected} shown focus={1} hasMicrophone={false} />
     <div className="run-live-actions">
       <ClickFeedback text={feedback} />
       <button type="button" disabled={!connected || stopping} onClick={() => void stop()}><Icon name="stop-circle" />{stopping ? "Stopping" : "Stop"}</button>

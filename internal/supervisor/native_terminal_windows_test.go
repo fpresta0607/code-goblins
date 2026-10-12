@@ -1189,14 +1189,18 @@ func TestANativeTerminalClosesWithItsExitCode(t *testing.T) {
 	}
 }
 
-// A view that cannot open closes with the reason, which a browser can read.
+// A view that cannot open closes with the reason, which a browser can read. A
+// view of a terminal that no longer runs closes as ended, a normal close the
+// board offers no Reconnect for, since none brings it back, and one refused
+// for any other reason closes as refused.
 func TestANativeViewClosesWithTheReasonItCannotOpen(t *testing.T) {
 	for name, view := range map[string]struct {
 		backend, query, reason string
+		code                   websocket.StatusCode
 	}{
-		"a replaced task": {"native", "task=task-1&generation=g0&token=instance", "This task restarted or was replaced. Select its current session."},
-		"a Herdr task":    {"herdr", viewQuery, "This task's terminal runs in Herdr, not natively."},
-		"no running host": {"native", viewQuery, "No terminal is running for this task."},
+		"a replaced task": {"native", "task=task-1&generation=g0&token=instance", "This task restarted or was replaced. Select its current session.", websocket.StatusNormalClosure},
+		"a Herdr task":    {"herdr", viewQuery, "This task's terminal runs in Herdr, not natively.", websocket.StatusPolicyViolation},
+		"no running host": {"native", viewQuery, "No terminal is running for this task.", websocket.StatusNormalClosure},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, server := nativeBoard(t, "direct")
@@ -1214,8 +1218,8 @@ func TestANativeViewClosesWithTheReasonItCannotOpen(t *testing.T) {
 
 			closed := openNativeView(t, server, view.query).waitForClose(t)
 
-			if closed.Code != websocket.StatusPolicyViolation || closed.Reason != view.reason {
-				t.Errorf("the view closed with %d %q, want %q", closed.Code, closed.Reason, view.reason)
+			if closed.Code != view.code || closed.Reason != view.reason {
+				t.Errorf("the view closed with %d %q, want %d %q", closed.Code, closed.Reason, view.code, view.reason)
 			}
 		})
 	}
@@ -1259,12 +1263,13 @@ func TestANativeViewOfAStartThatEndsWithoutATerminalCloses(t *testing.T) {
 
 	// Assert
 	closed := v.waitForClose(t)
-	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "No terminal is running for this task." {
-		t.Errorf("the view closed with %d %q, want No terminal is running", closed.Code, closed.Reason)
+	if closed.Code != websocket.StatusNormalClosure || closed.Reason != "No terminal is running for this task." {
+		t.Errorf("the view closed with %d %q, want it ended: No terminal is running", closed.Code, closed.Reason)
 	}
 }
 
-// A task replaced while its view is open closes the view on the next tick.
+// A task replaced while its view is open closes the view on the next tick, as
+// ended: the board opens the task's new session by itself.
 func TestANativeViewClosesWhenItsTaskIsReplaced(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	hostTask(t, h)
@@ -1282,8 +1287,8 @@ func TestANativeViewClosesWhenItsTaskIsReplaced(t *testing.T) {
 	}
 
 	closed := v.waitForClose(t)
-	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "This task restarted or was replaced. Select its current session." {
-		t.Errorf("the view closed with %d %q, want the replaced task's reason", closed.Code, closed.Reason)
+	if closed.Code != websocket.StatusNormalClosure || closed.Reason != "This task restarted or was replaced. Select its current session." {
+		t.Errorf("the view closed with %d %q, want it ended with the replaced task's reason", closed.Code, closed.Reason)
 	}
 }
 
