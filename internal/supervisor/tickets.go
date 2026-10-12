@@ -598,7 +598,7 @@ func (k *ticketKeeper) move(ctx context.Context, id string, record *tickets.Reco
 		if !ticket.IsOpen() || ticket.State == tickets.Queued && wasQueuedBefore {
 			return
 		}
-		if repository = k.ticketedRepository(ctx, id, now); repository == "" {
+		if repository, ticket.Assignee = k.ticketedRepository(ctx, id, now); repository == "" {
 			return
 		}
 		named = k.namedIssues(id, repository)
@@ -649,36 +649,37 @@ func (k *ticketKeeper) refused(id, repository string, err error, now time.Time) 
 }
 
 // ticketedRepository names the repository a task without a ticket gets one
-// in, or "" when it gets none: its project is unknown or has no GitHub
-// repository, only the Overlord works in its repository, or the repository
-// is public and not allowed.
-func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now time.Time) string {
+// in, and the account the fleet writes as there, which the ticket is
+// assigned to, or "" when it gets none: its project is unknown or has no
+// GitHub repository, only the Overlord works in its repository, or the
+// repository is public and not allowed.
+func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now time.Time) (repository, account string) {
 	project := k.project(id)
 	if project == "" {
-		return ""
+		return "", ""
 	}
 	known := k.repository(ctx, project, now)
 	switch {
 	case known.isNotGitHub:
-		return ""
+		return "", ""
 	case known.err != nil:
 		k.note("project:"+project, fmt.Sprintf("Tickets for %s wait: %v", project, known.err))
-		return ""
+		return "", ""
 	case !known.IsCollaborative:
-		return ""
+		return "", ""
 	}
 	if !known.IsPrivate {
 		isAllowed, err := tickets.IsPublicAllowed(k.home.State, known.Repository)
 		if err != nil {
 			k.note("public:"+known.Repository, fmt.Sprintf("Tickets in %s wait: %v", known.Repository, err))
-			return ""
+			return "", ""
 		}
 		if !isAllowed {
 			k.note("public:"+known.Repository, fmt.Sprintf("Task tickets are not filed in %s, because it is a public repository and anyone could read them. To file them there anyway: cfo tickets \"%s\" --allow-public-tickets", known.Repository, project))
-			return ""
+			return "", ""
 		}
 	}
-	return known.Repository
+	return known.Repository, known.Viewer
 }
 
 // repository is what a project's repository answered, asked again once its

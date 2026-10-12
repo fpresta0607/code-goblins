@@ -689,6 +689,108 @@ func TestApplyRedoesAFailedCloseOnThatIssueAlone(t *testing.T) {
 	}
 }
 
+func TestApplyRefusesAClaimOverAnIssueSomeoneElseHas(t *testing.T) {
+	named := "repos/" + northwind + "/issues/415"
+	cases := []struct {
+		name    string
+		issue   string
+		brief   string
+		wantWhy string
+	}{
+		{name: "named, and assigned to someone else", issue: `{"number":415,"state":"open","assignees":[{"login":"nreid1609"}]}`,
+			brief: "## Task\n\nResolve issue #415.\n", wantWhy: "issue #415 was not claimed because it is assigned to nreid1609; a new issue was opened for the task"},
+		{name: "listed, and assigned to someone else", issue: `{"number":415,"state":"open","assignees":[{"login":"nreid1609"}]}`,
+			brief: "## Task\n\n- #415 the parcel layer drops the ETJ\n", wantWhy: "issue #415 was not claimed because it is assigned to nreid1609; a new issue was opened for the task"},
+		{name: "held by another account's fleet", issue: `{"number":415,"state":"open","assignees":[],"labels":[{"name":"cfo: in progress"},{"name":"goblin: codex"}]}`,
+			brief: "## Task\n\n- #415 the parcel layer drops the ETJ\n", wantWhy: "issue #415 was not claimed because another Code Goblins fleet holds it (cfo: in progress); a new issue was opened for the task"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGitHub{issues: map[int]string{415: tc.issue}}
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why the parcel layer drops the ETJ", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}, NamedIssues(tc.brief, northwind))
+
+			// Assert
+			var refused *ClaimRefused
+			if !errors.As(err, &refused) || err.Error() != tc.wantWhy {
+				t.Fatalf("err = %v, want %q", err, tc.wantWhy)
+			}
+			if got := gh.requests(); !slices.Equal(got, []string{"GET " + named, "POST repos/" + northwind + "/issues"}) {
+				t.Fatalf("requests = %v, want the held issue only read and a new issue opened", got)
+			}
+			if record == nil || record.Number != 501 || record.IsClaimed {
+				t.Fatalf("record = %+v, want the issue opened instead", record)
+			}
+		})
+	}
+}
+
+func TestApplyAssignsTheFleetsAccountWhenItOpensOrClaims(t *testing.T) {
+	// Arrange
+	issue := "repos/" + northwind + "/issues/415"
+	gh := &issueGitHub{issues: map[int]string{415: openIssue(415)}}
+	github := GitHub{Commands: gh}
+	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}
+
+	// Act
+	opened, openErr := github.Apply(context.Background(), northwind, nil, ticket, nil)
+	claimed, claimErr := github.Apply(context.Background(), northwind, nil, ticket, []NamedIssue{{Number: 415}})
+
+	// Assert
+	if openErr != nil || claimErr != nil {
+		t.Fatalf("open err = %v, claim err = %v", openErr, claimErr)
+	}
+	if assignees := gh.call(t, "POST repos/"+northwind+"/issues").Fields["assignees[]"]; !slices.Equal(assignees, []string{"fpresta0607"}) || opened.Assignee != "fpresta0607" {
+		t.Fatalf("opened with assignees %v, record %+v, want the issue opened assigned to the fleet's account", assignees, opened)
+	}
+	if got := gh.requests()[1:]; !slices.Equal(got, []string{"GET " + issue, "POST " + issue + "/assignees", "POST " + issue + "/labels", "POST " + issue + "/comments"}) {
+		t.Fatalf("claim requests = %v, want the issue assigned before it is labelled", got)
+	}
+	if assignees := gh.call(t, "POST "+issue+"/assignees").Fields["assignees[]"]; !slices.Equal(assignees, []string{"fpresta0607"}) || claimed.Assignee != "fpresta0607" || claimed.Issues[0].Assignee != "fpresta0607" {
+		t.Fatalf("assigned %v, record %+v", assignees, claimed)
+	}
+}
+
+func TestApplyClaimsAnIssueAlreadyAssignedToTheFleetsAccountWithoutAssigningItAgain(t *testing.T) {
+	// Arrange
+	issue := "repos/" + northwind + "/issues/415"
+	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"state":"open","assignees":[{"login":"FPresta0607"}]}`}}
+
+	// Act
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}, []NamedIssue{{Number: 415, IsListed: true}})
+
+	// Assert
+	if err != nil || record == nil || record.Number != 415 || !record.IsClaimed {
+		t.Fatalf("record = %+v, err = %v, want #415 claimed", record, err)
+	}
+	if got := gh.requests(); !slices.Equal(got, []string{"GET " + issue, "POST " + issue + "/labels", "POST " + issue + "/comments"}) {
+		t.Fatalf("requests = %v, want no second assignment", got)
+	}
+}
+
+func TestApplyUnassignsAClaimedIssueItReleases(t *testing.T) {
+	// Arrange
+	issue := "repos/" + northwind + "/issues/415"
+	gh := &issueGitHub{}
+	from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Assignee: "fpresta0607"}
+
+	// Act
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCFO}, nil)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assignees := gh.call(t, "DELETE "+issue+"/assignees").Fields["assignees[]"]; !slices.Equal(assignees, []string{"fpresta0607"}) {
+		t.Fatalf("unassigned %v, want the fleet's account", assignees)
+	}
+	if want := "PATCH repos/" + northwind + "/issues/comments/9001"; gh.requests()[len(gh.calls)-1] != want || len(gh.closed) != 0 || record.Assignee != "" || !record.IsDone {
+		t.Fatalf("requests = %v, closed = %v, record = %+v, want the issue released open and unassigned", gh.requests(), gh.closed, record)
+	}
+}
+
 func TestApplyClaimsAndOpensNothingWhileTheRepositoryIsNotVisible(t *testing.T) {
 	// Arrange: a 404 for the issue and for the repository itself is what gh
 	// gets when it has lost access, not what a deleted issue looks like.

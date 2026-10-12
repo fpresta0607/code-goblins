@@ -70,6 +70,9 @@ type IssueMatch struct {
 	Author Actor    `json:"author"`
 	Paths  []string `json:"paths,omitempty"`
 	Words  []string `json:"words,omitempty"`
+	// Held says why an issue the brief names to take up is someone else's,
+	// as HeldElsewhere says it.
+	Held string `json:"held,omitempty"`
 }
 
 // An issue's title matches a brief when the brief uses at least

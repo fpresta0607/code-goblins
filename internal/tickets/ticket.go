@@ -73,6 +73,9 @@ type Ticket struct {
 	// Overlap is the CFO's reason for starting the task beside a teammate's
 	// work, when he did; he writes it for the ticket.
 	Overlap string
+	// Assignee is the account the fleet writes as, which an issue the task
+	// opens or claims is assigned to, so GitHub says who has it.
+	Assignee string
 }
 
 // Labels are the state label while the ticket is open and the label of the

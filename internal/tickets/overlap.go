@@ -50,6 +50,10 @@ func (o Overlaps) Lines() []string {
 		lines = append(lines, fmt.Sprintf("%s by %s changes %s", what, actorName(overlap.Author), strings.Join(overlap.Files, ", ")))
 	}
 	for _, match := range o.Issues {
+		if match.Held != "" {
+			lines = append(lines, fmt.Sprintf("issue #%d by %s, which the brief names to take up, is not free: %s: %s", match.Number, actorName(match.Author), match.Held, match.Title))
+			continue
+		}
 		var why []string
 		if len(match.Paths) > 0 {
 			why = append(why, "names "+strings.Join(match.Paths, ", "))
