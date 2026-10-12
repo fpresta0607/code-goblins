@@ -8,13 +8,15 @@ import (
 )
 
 // Collaboration is whether people other than the Overlord work in a
-// repository, who they are, most recently active first, and whether only its
-// members can read it.
+// repository, who they are, most recently active first, whether only its
+// members can read it, and the Overlord's login, the account gh is signed in
+// as, which the fleet writes as.
 type Collaboration struct {
 	Repository      string
 	IsCollaborative bool
 	IsPrivate       bool
 	People          []Actor
+	Viewer          string
 }
 
 // Collaboration reads who worked in a repository in the last 30 days, by the
@@ -45,5 +47,5 @@ func (g GitHub) Collaboration(ctx context.Context, repository string, now time.T
 	for _, contributor := range contributors(activity, now) {
 		people = append(people, Actor{Login: contributor.Login, Name: contributor.Name, AvatarURL: contributor.AvatarURL})
 	}
-	return Collaboration{Repository: repository, IsCollaborative: len(people) > 0, IsPrivate: repo.IsPrivate, People: people}, nil
+	return Collaboration{Repository: repository, IsCollaborative: len(people) > 0, IsPrivate: repo.IsPrivate, People: people, Viewer: activity.Viewer.Login}, nil
 }

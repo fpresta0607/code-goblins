@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -22,6 +23,9 @@ const (
 	// could not be started.
 	exitNotStarted = 126
 )
+
+// statusControlCExit is the exit status of a console program Ctrl+C ended.
+const statusControlCExit = 0xC000013A
 
 const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argument>...]"
 
@@ -46,7 +50,10 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // The exit code is the command's. The turn is held until the command has
 // ended, through an interrupt too, which the command is sent as well and
 // answers for itself; an interrupt while the run waits takes it out of the
-// line.
+// line. The command runs as a tree (execx.StartTree): a run that is ended,
+// as its caller's time limit ends it, ends with everything its command
+// started, and an interrupted run, once its command has ended, ends what
+// the command left running and names it.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	as, command, err := parseGateTurn(args)
 	if err != nil {
@@ -64,16 +71,23 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	defer stop()
 	ctx, leave := context.WithCancel(context.Background())
 	defer leave()
-	waited := make(chan struct{})
+	// One reader takes every interrupt the run is sent, while it waits and
+	// while its command runs, so none is lost between the two.
+	var isInterrupted atomic.Bool
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
-		select {
-		case <-signals:
-			leave()
-		case <-waited:
+		for {
+			select {
+			case <-signals:
+				isInterrupted.Store(true)
+				leave()
+			case <-done:
+				return
+			}
 		}
 	}()
 	turn, err := takeGateTurn(ctx, "cfo gate turn", stderr, stderr, runtime.availableMemory, gateTurnWho(as, command, dir, runtime), 0, verify.NoLimit)
-	close(waited)
 	if err != nil {
 		return exitNoTurn
 	}
@@ -82,13 +96,27 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	process := execx.Command(command[0], command[1:]...)
 	process.Stdin, process.Stdout, process.Stderr = os.Stdin, stdout, stderr
 	process.Env = append(os.Environ(), verify.TurnVariable+"="+turn.Token())
-	if err := process.Start(); err != nil {
+	tree, err := execx.StartTree(process)
+	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %v\n", err)
 		return exitNotStarted
 	}
 	// What Wait returns for a command that ended is its exit status, which
 	// the run passes on as it is.
 	process.Wait()
+	// A command Ctrl+C ended can end before this run is told of the
+	// interrupt, and its exit status says so then.
+	if isInterrupted.Load() || process.ProcessState.ExitCode() == statusControlCExit {
+		ended, err := tree.End()
+		if len(ended) > 0 {
+			fmt.Fprintf(stderr, "cfo gate turn: the run was interrupted, so it ended what its command left running: %s\n", execx.Names(ended))
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo gate turn: the run was interrupted, and what its command left running may not all have ended: %v\n", err)
+		}
+	} else if err := tree.Release(); err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: what its command left running may have ended with it, since it could not be let go: %v\n", err)
+	}
 	return process.ProcessState.ExitCode()
 }
 

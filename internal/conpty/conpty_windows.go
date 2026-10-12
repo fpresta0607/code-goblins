@@ -14,6 +14,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // Spec is one process to run in a pseudo console.
@@ -43,8 +45,8 @@ type Spec struct {
 // and everything it starts share a job object, so Close ends them all, except
 // a process that asks to break away (a goblin host, a detached serve), which
 // leaves the job and outlives Close, and a machine service started in it,
-// which Close leaves running (endJob). The console's input waker runs in the
-// job too.
+// which Close leaves running (proc.EndJob). The console's input waker runs in
+// the job too.
 type Console struct {
 	host       consoleHost
 	pc         windows.Handle
@@ -402,12 +404,12 @@ func (c *Console) ExitCode() uint32 {
 }
 
 // Close ends the process and everything it started but a machine service
-// (endJob), and releases the console; the console's owner calls it once.
+// (proc.EndJob), and releases the console; the console's owner calls it once.
 // Closing the pseudo console can wait for its output to be read, so the
 // output is drained here too.
 func (c *Console) Close() error {
 	close(c.closing)
-	err := endJob(c.job)
+	_, err := proc.EndJob(c.job)
 	go func() {
 		buffer := make([]byte, 32<<10)
 		for {

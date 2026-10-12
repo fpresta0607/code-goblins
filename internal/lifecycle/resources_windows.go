@@ -424,13 +424,11 @@ type terminalJob struct {
 
 // holdTerminalJobs holds the job of each host that still runs, and stops a
 // job with a machine service in it from ending the service when it closes.
+// A service is judged among the job's own processes
+// (proc.RunningServicesAmong), so one above the host keeps nothing of it.
 func holdTerminalJobs(hosts []Identity) (terminalJobs, error) {
 	if len(hosts) == 0 {
 		return nil, nil
-	}
-	services, err := proc.RunningServices()
-	if err != nil {
-		return nil, fmt.Errorf("identify the machine services running: %w", err)
 	}
 	var jobs terminalJobs
 	for _, host := range hosts {
@@ -447,6 +445,11 @@ func holdTerminalJobs(hosts []Identity) (terminalJobs, error) {
 		if err != nil {
 			jobs.Close()
 			return nil, fmt.Errorf("read task host %d job: %w", host.PID, err)
+		}
+		services, err := proc.RunningServicesAmong(members)
+		if err != nil {
+			jobs.Close()
+			return nil, fmt.Errorf("identify the machine services running: %w", err)
 		}
 		if slices.ContainsFunc(members, func(member proc.Entry) bool { return services[member.PID] != proc.NoService }) {
 			if err := held.KeepOnClose(); err != nil {
@@ -477,7 +480,7 @@ func (jobs terminalJobs) End(ctx context.Context, end func(proc.Entry) (bool, er
 			if err != nil {
 				return err
 			}
-			services, err := proc.RunningServices()
+			services, err := proc.RunningServicesAmong(members)
 			if err != nil {
 				return fmt.Errorf("identify the machine services running: %w", err)
 			}

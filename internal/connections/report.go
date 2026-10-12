@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,11 +31,6 @@ func harnessReport(ctx context.Context, name string, args []string, dir string, 
 			command.Env = append(command.Env, entry)
 		}
 	}
-	if runtime.GOOS == "windows" {
-		command.Cancel = func() error {
-			return execx.Command("taskkill", "/PID", strconv.Itoa(command.Process.Pid), "/T", "/F").Run()
-		}
-	}
 	input, err := command.StdinPipe()
 	if err != nil {
 		return nil, errors.New("Connection check could not start.")
@@ -46,9 +40,12 @@ func harnessReport(ctx context.Context, name string, args []string, dir string, 
 		return nil, errors.New("Connection check could not start.")
 	}
 	command.Stderr = io.Discard
-	if err := command.Start(); err != nil {
+	// The check runs as a tree, so its end ends what the harness started for
+	// it as well (execx.StartTree).
+	tree, err := execx.StartTree(command)
+	if err != nil {
 		return nil, errors.New("Connection check could not start.")
 	}
-	defer func() { _ = input.Close(); cancel(); _ = command.Wait() }()
+	defer func() { _ = input.Close(); cancel(); _ = command.Wait(); _ = tree.Release() }()
 	return report(output, input)
 }
