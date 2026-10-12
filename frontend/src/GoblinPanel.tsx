@@ -50,7 +50,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       </div>}
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
         {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
-        <WorkspaceDetails task={task} node={node} runs={snapshot.runs} instance={snapshot.instance} startAtLogin={snapshot.start_at_login} devDrive={snapshot.dev_drive} onRepair={onAnswer} />
+        <WorkspaceDetails task={task} node={node} runs={snapshot.runs} instance={snapshot.instance} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} cardStart={cardStart} onSelect={(next) => onOpenTask(next)} />
