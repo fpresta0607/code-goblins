@@ -200,7 +200,7 @@ type commandRuntime struct {
 	// restartCFO restarts the CFO running in native terminal cfo and returns
 	// the conversation it last registered with and, when it did not come back
 	// on that conversation, why it started a new one.
-	restartCFO func(h home.Home) (supervisor.CFOConversation, string, error)
+	restartCFO func(h home.Home, harness string) (supervisor.CFOConversation, string, error)
 	// admitLaunch says why the machine has no room yet for another harness,
 	// or nil when it has, as a spawn admits one.
 	admitLaunch func(h home.Home) error
@@ -486,8 +486,22 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		}
 		return runQuickstart(stdout, stderr, runtime, true, false, "")
 	}
-	if len(args) == 1 && args[0] == "resume" {
-		return runQuickstart(stdout, stderr, runtime, false, true, "")
+	if len(args) > 0 && args[0] == "resume" && (len(args) == 1 || runtime.goblins && strings.HasPrefix(args[1], "-")) {
+		fs := flag.NewFlagSet("goblins resume", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		harness := fs.String("harness", "", "the harness to restart the CFO as: claude, codex or pi")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if fs.NArg() != 0 {
+			fmt.Fprintln(stderr, "usage: goblins resume [--harness <claude|codex|pi>]")
+			return 2
+		}
+		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {
+			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
+			return 2
+		}
+		return runQuickstart(stdout, stderr, runtime, false, true, *harness)
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
