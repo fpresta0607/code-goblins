@@ -1,98 +1,159 @@
 package supervisor
 
 import (
-	"context"
+	"bytes"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// Under AFK mode the CFO answers a decision itself and acts on its answer.
-// When AFK mode turns off the decision is asked in the Command Center with
-// the CFO's answer checked, for him to keep or change, and the report says
-// so. What only he can do is asked with nothing checked.
-func TestADecisionTheCFOAnsweredIsAskedWithItsAnswerChecked(t *testing.T) {
-	// Arrange
-	s, h, _ := asTheCFO(t)
+// The Overlord, 2026-10-12 about 11:55Z: "Anything the CFO has already
+// answered should not appear as a [line] for you in the AFK report. It should
+// just be something that was already ... settled in history, the command
+// center". Under AFK mode the CFO answers a decision itself and acts on its
+// answer. When AFK mode turns off that decision is settled: it is in the
+// Command Center's History with the CFO's answer, who gave it and when, and
+// never in his queue or under For you in the report, which gives it a recap
+// of its own. What only he can do is still asked, with nothing checked.
+
+// decidedLine is a decision the CFO answered itself under AFK mode.
+func decidedLine() afk.Entry {
+	decided := leftLine("Which fallback does the gate policy take?")
+	decided.Options, decided.Recommendation, decided.Answer = []string{"Drop it from the machine config", "Take it into the policy"}, "", "Drop it from the machine config"
+	return decided
+}
+
+// awayAndBack turns AFK mode on at his ask, logs each of lines, and turns it
+// off from his own board. It returns the lines as the log holds them.
+func awayAndBack(t *testing.T, s *Service, h home.Home, lines ...afk.Entry) []afk.Entry {
+	t.Helper()
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
-	decided := leftLine("Which fallback does the gate policy take?")
-	decided.Options, decided.Recommendation, decided.Answer = []string{"Drop it from the machine config", "Take it into the policy"}, "", "Drop it from the machine config"
-	for _, entry := range []afk.Entry{decided, leftLine("Sign in to Fly again?")} {
-		if err := LogAFKDecision(h, entry); err != nil {
+	for _, line := range lines {
+		if err := LogAFKDecision(h, line); err != nil {
 			t.Fatal(err)
 		}
 	}
+	switched, err := afk.Read(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := afk.Entries(h.State, switched.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.runRequests.Lock()
+	err = s.switchAFKAs("his own board (goblins-window.exe pid 4242)", "", false)
+	s.runRequests.Unlock()
+	if err != nil {
+		t.Fatalf("his off = %v", err)
+	}
+	return entries[1:]
+}
+
+// questionAbout is the board's question whose first line is what.
+func questionAbout(t *testing.T, s *Service, what string) Question {
+	t.Helper()
+	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool { return strings.HasPrefix(q.Text, what+"\n") })
+	if i < 0 {
+		t.Fatalf("the board holds no question about %q: %+v", what, s.Store.Snapshot().Questions)
+	}
+	return s.Store.Snapshot().Questions[i]
+}
+
+func TestADecisionTheCFOAnsweredIsSettledInHistoryAndWhatIsHisIsStillAsked(t *testing.T) {
+	// Arrange
+	s, h, _ := asTheCFO(t)
+	_, identity, err := readPrimary(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decided := decidedLine()
 
 	// Act
-	s.runRequests.Lock()
-	err := s.switchAFKAs("his own board (goblins-window.exe pid 4242)", "", false)
-	s.runRequests.Unlock()
-	report, found, readErr := ReadAFKReport(h)
+	logged := awayAndBack(t, s, h, decided, leftLine("Sign in to Fly again?"))
 
 	// Assert
-	if err != nil || readErr != nil || !found {
-		t.Fatalf("his off = %v, report = %v, %v", err, found, readErr)
+	settled := questionAbout(t, s, decided.What)
+	if settled.ID != afk.LeftQuestionID(logged[0]) || settled.Status != "succeeded" || settled.Identity != identity || settled.Task != "" || !slices.Equal(settled.Options, decided.Options) {
+		t.Errorf("the decision on the board = %+v, want the CFO's own question %s, closed", settled, afk.LeftQuestionID(logged[0]))
 	}
-	answers, texts := map[string]string{}, map[string]string{}
-	for _, q := range s.Store.Snapshot().Questions {
-		if strings.HasPrefix(q.ID, "afk-left-") && q.Status == "pending" {
-			what := q.Text[:strings.Index(q.Text, "\n")]
-			answers[what], texts[what] = q.Decided, q.Text
-		}
+	if settled.AnsweredBy != "cfo" || !settled.AnsweredAway || settled.AnsweredOption != decided.Answer || settled.Answer != decided.Answer || settled.AnswerKind != "option" || settled.AnsweredAt == nil || !settled.AnsweredAt.Equal(logged[0].At) {
+		t.Errorf("the decision's answer = %+v, want the CFO's answer, given while he was away when it was logged at %s", settled, logged[0].At)
 	}
-	if !strings.Contains(texts["Which fallback does the gate policy take?"], "\n- Evidence: ") || !strings.Contains(texts["Sign in to Fly again?"], "\n- Why it is yours: ") {
-		t.Errorf("question texts = %q, want the decision's evidence and why his sign-in is his", texts)
+	if !strings.Contains(settled.Text, "\n- Evidence: ") {
+		t.Errorf("the decision reads %q, want what the CFO's answer stood on", settled.Text)
 	}
-	if len(answers) != 2 || answers["Which fallback does the gate policy take?"] != "Drop it from the machine config" || answers["Sign in to Fly again?"] != "" {
-		t.Errorf("questions asked of him = %q, want the decision with the CFO's answer checked and his sign-in with nothing checked", answers)
+	asked := questionAbout(t, s, "Sign in to Fly again?")
+	if asked.Status != "pending" || asked.AnsweredBy != "" || !strings.Contains(asked.Text, "\n- Why it is yours: ") {
+		t.Errorf("his sign-in = %+v, want it asked of him with nothing answered", asked)
 	}
-	says := map[string]string{}
+	report, found, err := ReadAFKReport(h)
+	if err != nil || !found {
+		t.Fatalf("ReadAFKReport = %v, %v, want the report", found, err)
+	}
+	var forYou []string
 	for _, one := range report.Held {
-		says[one.What] = one.Now
+		forYou = append(forYou, one.What)
 	}
-	if now := says["Which fallback does the gate policy take?"]; now != "the CFO answered it: Drop it from the machine config, yours to keep or change" {
-		t.Errorf("the report says the decision is %q, want the CFO's answer, his to keep or change", now)
+	if !slices.Equal(forYou, []string{"Sign in to Fly again?"}) {
+		t.Errorf("For you = %q, want only his sign-in", forYou)
 	}
-	if now := says["Sign in to Fly again?"]; now != "still waiting on you" {
-		t.Errorf("the report says his sign-in is %q, want it still waiting on him", now)
+	sections := report.Sections()
+	i := slices.IndexFunc(sections, func(section afk.Section) bool { return section.Title == "Answered for you" })
+	if i < 0 || len(sections[i].Entries) != 1 || sections[i].Entries[0].What != decided.What || sections[i].Entries[0].Answer != decided.Answer {
+		t.Errorf("the report's sections = %+v, want the decision recapped under Answered for you with the CFO's answer", sections)
+	}
+	var text bytes.Buffer
+	if err := afk.Render(&text, report); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"For you (1), each as it stands now\n- question:afk-left-", "\nAnswered for you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it from the machine config. You can change it in History.\n"} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("the CFO's text of the report lacks %q:\n%s", want, text.String())
+		}
 	}
 }
 
-// His answer to a decision the CFO answered under AFK mode reaches the CFO
-// with what it answered: kept, or changed, which the CFO undoes or redoes.
-func TestHisAnswerToADecisionTheCFOAnsweredTellsTheCFOWhetherHeKeptIt(t *testing.T) {
-	for name, c := range map[string]struct{ answer, want string }{
-		"kept":    {"Board", "Answer: Board. You answered Board while AFK mode was on, and he kept it."},
-		"changed": {"Tree", "Answer: Tree. You answered Board while AFK mode was on, and he changed it: undo or redo what your answer started."},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			store, _ := testStore(t)
-			primary, closed, cfo, connection := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: connection}}
-			question := Question{ID: "afk-left-20261009T032741.118000000Z", Identity: closed, Text: "Pick a layout", Options: []string{"Board", "Tree"}, Decided: "Board", CreatedAt: time.Now().UTC(), Status: "pending"}
-			if err := store.acceptQuestion(question); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := store.Queue(Action{ID: "answer-" + name, Kind: "cfo_answer", QuestionID: question.ID, Generation: closed, Text: c.answer, AnswerKind: "option"}); err != nil {
-				t.Fatal(err)
-			}
-			reregisterCFO(t, store, primary)
-
-			// Act
-			err := store.ProcessOne(context.Background(), s.execute)
-
-			// Assert
-			if err != nil {
-				t.Fatal(err)
-			}
-			if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], c.want) {
-				t.Errorf("the CFO received %q, want %q", typed, c.want)
-			}
-		})
+// His change to a decision the CFO settled, made from History, reaches the
+// CFO once, as a change from the CFO's answer to his, and choosing it again
+// sends nothing more.
+func TestHisChangeToASettledDecisionReachesTheCFOOnce(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	_, _, cfo, connection := primaryFixture(t, store)
+	for _, name := range []string{"CFO_ROLE", "NO_MISTAKES_GATE"} {
+		t.Setenv(name, "")
 	}
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	runPipe(t, s)
+	decided := decidedLine()
+	awayAndBack(t, s, h, decided)
+	settled := questionAbout(t, s, decided.What)
+
+	// Act
+	_, err := change(store, "change-1", settled, "Take it into the policy")
+	if err == nil {
+		runAll(t, store, s)
+		_, err = change(store, "change-2", questionAbout(t, s, decided.What), "Take it into the policy")
+		runAll(t, store, s)
+	}
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	told := changeLines(cfo.waitForLines(t, 1))
+	if len(told) != 1 || !strings.Contains(told[0], settled.ID) {
+		t.Fatalf("the CFO received %q, want one change to its question %s", told, settled.ID)
+	}
+	wantTheChange(t, told[0], decided.Answer, "Take it into the policy")
+	if strings.Contains(told[0], "his answer") {
+		t.Errorf("the change reads %q, but the answer it replaces was the CFO's", told[0])
+	}
+	wantHisAnswer(t, questionAbout(t, s, decided.What), "Take it into the policy", decided.Answer)
 }

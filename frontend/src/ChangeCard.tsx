@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { Question, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
 import { AnswerMark } from "./AnswerMark";
@@ -18,10 +18,12 @@ import { goblinName } from "./task-words";
 // choice or a written answer, at any time and whoever gave the answer. His
 // change is the answer the moment he makes it, while it goes on its way, and
 // choosing the answer already chosen sends nothing. When the first answer did
-// what cannot be undone by itself, one line says so.
-export function ChangeCard({ question, snapshot, connected, draft, onDraft, onChange, onClose }: {
+// what cannot be undone by itself, one line says so. In the Command Center's
+// stack, where he went back to a question he answered, it carries the stack's
+// Back and Skip in place of its own Close.
+export function ChangeCard({ question, snapshot, connected, draft, onDraft, onChange, onClose, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft;
-  onDraft: (changes: Partial<Draft>) => void; onChange: () => void; onClose: () => void;
+  onDraft: (changes: Partial<Draft>) => void; onChange: () => void; onClose: () => void; pager?: ReactNode;
 }) {
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (draft.error) showFeedback(draft.error); }, [draft.error, showFeedback]);
@@ -49,7 +51,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
     {warning && <p className="change-warning">{warning}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />
-      <button type="button" className="icon-button raised" aria-label="Close" data-tip="Close" onClick={onClose}><Icon name="close" /></button>
+      {pager || <button type="button" className="icon-button raised" aria-label="Close" data-tip="Close" onClick={onClose}><Icon name="close" /></button>}
       <button className="primary send-decision" type="submit" disabled={!connected || !payload || isStanding || draft.sending}><Icon name="edit" />Change answer</button>
     </div>
   </form>;

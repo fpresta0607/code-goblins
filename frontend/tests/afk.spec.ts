@@ -18,16 +18,19 @@ const HELD = [
   { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path", recommendation: "Hold it" },
 ];
 // What the stretch left for him, each the CFO's question in the Command
-// Center once AFK mode turned off: a decision the CFO answered itself, his own
-// sign-in, and one the CFO settled, which was never asked.
+// Center once AFK mode turned off: his own sign-in, and one the CFO settled,
+// which was never asked.
 const left = (id: string, what: string, fields: Record<string, unknown> = {}) => ({ item: "question:" + id, task: "", what, at: "2026-10-02T06:12:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "", settled: "", ...fields });
 const LEFT = [
-  left("afk-left-20261002T050000.000000000Z", "Which fallback does the gate policy take?", { at: "2026-10-02T05:00:00Z", now: "the CFO answered it: Drop it from the machine config, yours to keep or change" }),
   left("afk-left-20261002T061200.000000000Z", "Sign in to Vercel for nw-search-index", { recommendation: "I will sign in" }),
   left("afk-left-20261002T064000.000000000Z", "Finish or abort the parked gate run", { at: "2026-10-02T06:40:00Z", waiting: false, now: "settled by the CFO: the run finished on its own", settled: "the run finished on its own" }),
 ];
+// A decision the CFO answered itself while he was away: settled when AFK mode
+// turned off, so it is in History with the CFO's answer, the report recaps it
+// under Answered for you, and it never waits on him.
+const DECIDED = { at: "2026-10-02T05:00:00Z", kind: "left", what: "Which fallback does the gate policy take?", evidence: "the machine config and the policy disagree", diagnosis: "the two name different models", tried: "read both", answer: "Drop it from the machine config" };
 const LEFT_QUESTIONS = [
-  { id: "afk-left-20261002T050000.000000000Z", text: "Which fallback does the gate policy take?\n- Evidence: the machine config and the policy disagree", options: ["Drop it from the machine config", "Take it into the policy"], recommended: "", decided: "Drop it from the machine config", status: "pending", task: "", generation: "", created_at: new Date(Date.now() - 60_000).toISOString() },
+  { id: "afk-left-20261002T050000.000000000Z", text: "Which fallback does the gate policy take?\n- Evidence: the machine config and the policy disagree", options: ["Drop it from the machine config", "Take it into the policy"], recommended: "", status: "succeeded", answer: "Drop it from the machine config", answer_kind: "option", answered_option: "Drop it from the machine config", answered_by: "cfo", answered_away: true, answered_at: "2026-10-02T05:00:00Z", task: "", generation: "", created_at: "2026-10-02T05:00:00Z" },
   { id: "afk-left-20261002T061200.000000000Z", text: "Sign in to Vercel for nw-search-index\n- Why it is yours: his own sign-in", options: ["I will sign in", "Skip Vercel for now"], recommended: "I will sign in", status: "pending", task: "", generation: "", created_at: new Date(Date.now() - 60_000).toISOString() },
 ];
 let revision = 0;
@@ -39,6 +42,7 @@ const KEPT = { state: "off", report: "afk-20261002T034000.000Z" };
 const REPORT = {
   found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
   sections: [
+    { title: "Answered for you", entries: [DECIDED] },
     { title: "Merged", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
     { title: "Not merged", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
     { title: "Answered for goblins", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180" }] },
@@ -46,7 +50,7 @@ const REPORT = {
     { title: "Paused at a floor", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
   ],
   finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }],
-  held: [LEFT[0], LEFT[1], HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }, LEFT[2]],
+  held: [LEFT[0], HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }, LEFT[1]],
   spent: [
     { provider: "claude", window: "week", on: 41, off: 49 },
     { provider: "claude", window: "session", on: 42, off: 3, reset: true },
@@ -506,24 +510,24 @@ test("the report opens on a plain headline and Go through them, lists what was h
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   const title = report(page).locator(".afk-report-title");
-  await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 3 things wait on you\. The CFO merged 1 pull request\.$/);
+  await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 2 things wait on you\. The CFO merged 1 pull request\.$/);
   await expect(title).toContainText("Turned on from your board, off from your terminal.");
   // No grid of counts: the few that matter are in the headline.
   await expect(report(page).locator(".afk-tally")).toHaveCount(0);
   await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveClass(/primary/);
   // Coming back he reads what is for him before what was done.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["For you", "Settled", "Merged", "Not merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["For you", "Settled", "Answered for you", "Merged", "Not merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   await expect(report(page).getByRole("group", { name: "What the CFO did" }).locator("h3")).toHaveText("What the CFO did");
 
   // What was held and what was left for him are one list, each as it stands
-  // now: a decision the CFO answered itself waits for him to keep or change,
-  // his own sign-in waits with what the CFO recommends, and a question held
-  // from before still waits.
-  const forYou = report(page).getByRole("region", { name: "For you" }).locator("li");
-  await expect(forYou.locator(".inbox-summary")).toHaveText(["Which fallback does the gate policy take?", "Sign in to Vercel for nw-search-index", "Migration 0042 drops the legacy_invoices table. Apply it?"]);
-  await expect(forYou.nth(0).locator(".afk-waiting")).toHaveText("The CFO answered it: Drop it from the machine config, yours to keep or change.");
-  await expect(forYou.nth(1).locator(".afk-recommends")).toHaveText("The CFO recommends: I will sign in.");
-  await expect(forYou.locator(".delivery.uncertain")).toHaveCount(3);
+  // now: his own sign-in waits with what the CFO recommends, and a question
+  // held from before still waits. A decision the CFO answered itself is not
+  // for him (the Overlord, 2026-10-12).
+  const forYou = report(page).getByRole("region", { name: "For you", exact: true }).locator("li");
+  await expect(forYou.locator(".inbox-summary")).toHaveText(["Sign in to Vercel for nw-search-index", "Migration 0042 drops the legacy_invoices table. Apply it?"]);
+  await expect(forYou.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: I will sign in.");
+  await expect(forYou.locator(".delivery.uncertain")).toHaveCount(2);
+  await expect(report(page).getByRole("region", { name: "For you", exact: true })).not.toContainText(/The CFO answered|keep or change/);
   // What became of the rest folds under it, closed until he opens it.
   const settledSection = report(page).getByRole("region", { name: "Settled" });
   await expect(settledSection.locator("details.afk-drawer")).not.toHaveAttribute("open");
@@ -535,13 +539,19 @@ test("the report opens on a plain headline and Go through them, lists what was h
   // should be collapsed in panel like drawer". Every heading of what the CFO
   // did is a drawer, closed until he opens it, but what did not merge, which
   // still needs him.
-  for (const name of ["Merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished"]) {
+  for (const name of ["Answered for you", "Merged", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished"]) {
     const section = report(page).getByRole("region", { name, exact: true });
     await expect(section.locator("details.afk-drawer")).not.toHaveAttribute("open");
     await expect(section.locator("li")).toHaveCount(0);
     await section.locator("summary").click();
     await expect(section.locator("li")).toHaveCount(1);
   }
+  // What the CFO answered for him is recapped with its answer and where he
+  // changes it, and nothing of what it stood on, which History keeps.
+  const recap = report(page).getByRole("region", { name: "Answered for you" }).locator("li");
+  await expect(recap.locator("strong")).toHaveText("Which fallback does the gate policy take?");
+  await expect(recap.locator(".afk-answered")).toHaveText("The CFO answered: Drop it from the machine config. You can change it in History.");
+  await expect(recap.locator(".afk-evidence")).toHaveCount(0);
   const notMerged = report(page).getByRole("region", { name: "Not merged" });
   await expect(notMerged.locator("details")).toHaveCount(0);
   await expect(notMerged.locator("li strong")).toHaveText("northwind-api #417");
@@ -596,12 +606,12 @@ test("the report opens on a plain headline and Go through them, lists what was h
 
 test("with nothing for him still waiting, the report has no Go through them and no For you, what was settled folds, and with nothing used it has no Spent", async ({ page }) => {
   await open(page, snapshot({ afk: KEPT }));
-  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [REPORT.held[3], LEFT[2]], spent: [] } }));
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [REPORT.held[2], LEFT[1]], spent: [] } }));
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-headline")).toContainText("Nothing waits on you.");
   await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveCount(0);
-  await expect(report(page).getByRole("region", { name: "For you" })).toHaveCount(0);
+  await expect(report(page).getByRole("region", { name: "For you", exact: true })).toHaveCount(0);
   await expect(report(page).getByRole("region", { name: "Settled" }).locator("summary")).toHaveText("Settled 2");
   await expect(report(page).getByRole("region", { name: "Spent" })).toHaveCount(0);
   await report(page).getByRole("button", { name: "Close the report" }).click();
@@ -683,14 +693,16 @@ test("free disk is the only row under Spent when no allowance was used, and has 
 });
 
 // The Overlord, 2026-10-09: "If I have all these left for me, why are they not
-// presented in the Command Center?" and, at 12:50Z, "in AFK mode chief should
-// review and answer the decision himself but walk through should open it with
-// the marked checked answers". Go through them opens the Command Center on
-// what still waits from the stretch, and only that, in the report's order:
-// a decision the CFO answered itself opens with its answer checked and marked
-// as the CFO's, his own sign-in opens with nothing checked, Skip leaves an
-// item as it is, and an answer sent moves on to the next.
-test("Go through them steps through what still waits from the stretch: it skips one, keeping the CFO's answer, and answers one", async ({ page }) => {
+// presented in the Command Center?", and 2026-10-12: "Anything the CFO has
+// already answered should not appear as a [line] for you ... It should just be
+// something that was already ... settled in history, the command center".
+// Go through them opens the Command Center on what still waits from the
+// stretch, and only that, in the report's order: his own sign-in opens with
+// nothing checked, an answer sent moves on to the next, and Back shows it again
+// with his answer checked. The decision the CFO answered itself is not among
+// them: it is in History as the CFO's answer while he was away, where Change
+// answer sends his change once.
+test("Go through them steps through only what still waits from the stretch, and what the CFO answered is in History to change", async ({ page }, testInfo) => {
   const sent: Record<string, unknown>[] = [];
   // A question the CFO asked him after AFK mode ended waits beside the
   // stretch's, and is not among them.
@@ -701,30 +713,20 @@ test("Go through them steps through what still waits from the stretch: it skips 
     sent.push(action);
     await route.fulfill({ json: { id: action.id, kind: action.kind, question_id: action.question_id, status: "queued" } });
   });
+  const posted = () => sent.map((action) => [action.kind, action.question_id, action.text]);
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
 
   // Act: he goes through them.
   await report(page).getByRole("button", { name: "Go through them" }).click();
 
-  // Assert: the Command Center opens on the first, with only the stretch's
-  // three in its stack, not the question asked after it.
+  // Assert: the Command Center opens on his sign-in, with only the stretch's
+  // two that wait in its stack: not the CFO's answer, and not the question
+  // asked after the stretch.
   await expect(report(page)).toHaveCount(0);
   const dialog = page.locator("dialog.question-modal");
   await expect(dialog.locator(".from-afk")).toHaveText("From your AFK stretch");
-  await expect(dialog.locator(".stack-count")).toHaveText("1 of 3");
-  await expect(dialog.getByRole("button", { name: "Back" })).toBeDisabled();
-  // The decision the CFO answered opens with its answer checked and marked.
-  await expect(dialog.locator(".asker")).toContainText("The CFO answered while you were away");
-  await expect(dialog.getByRole("radio", { name: /Drop it from the machine config/ })).toBeChecked();
-  await expect(dialog.locator(".question-choice", { hasText: "Drop it from the machine config" }).locator(".cfo-answer")).toHaveText("The CFO's answer");
-  await expect(dialog.getByRole("button", { name: "Keep the CFO's answer" })).toBeEnabled();
-
-  // Act: he skips it, leaving the CFO's answer as it is.
-  await dialog.getByRole("button", { name: "Skip" }).click();
-
-  // Assert: his own sign-in opens with nothing checked.
-  await expect(dialog.locator(".stack-count")).toHaveText("2 of 3");
+  await expect(dialog.locator(".stack-count")).toHaveText("1 of 2");
   await expect(dialog.locator(".question-body")).toContainText("Sign in to Vercel for nw-search-index");
   await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Send decision" })).toBeDisabled();
@@ -733,26 +735,33 @@ test("Go through them steps through what still waits from the stretch: it skips 
   await dialog.getByRole("radio", { name: /I will sign in/ }).check();
   await dialog.getByRole("button", { name: "Send decision" }).click();
 
-  // Assert: his answer is sent to the CFO, the skipped one sends nothing, and
-  // the last of the three follows.
-  await expect.poll(() => sent.map((action) => [action.kind, action.question_id, action.text])).toEqual([["cfo_answer", LEFT_QUESTIONS[1].id, "I will sign in"]]);
+  // Assert: his answer is sent to the CFO and the last of the two follows.
+  // Back shows his answer checked, with the other choice open to choose.
+  await expect.poll(posted).toEqual([["cfo_answer", LEFT_QUESTIONS[1].id, "I will sign in"]]);
   await expect(dialog.locator(".question-body")).toContainText("Migration 0042 drops the legacy_invoices table. Apply it?");
-  await expect(dialog.locator(".stack-count")).toHaveText("3 of 3");
-  await expect(dialog.getByRole("button", { name: "Skip" })).toBeDisabled();
-
-  // The skipped decision is still there, its answer still the CFO's.
+  await expect(dialog.locator(".stack-count")).toHaveText("2 of 2");
   await dialog.getByRole("button", { name: "Back" }).click();
-  await dialog.getByRole("button", { name: "Back" }).click();
-  await expect(dialog.getByRole("radio", { name: /Drop it from the machine config/ })).toBeChecked();
-  expect(sent).toHaveLength(1);
+  await expect(dialog.locator(".done-card")).toHaveCount(0);
+  await expect(dialog.getByRole("radio", { name: /I will sign in/ })).toBeChecked();
+  await expect(dialog.getByRole("radio", { name: /Skip Vercel for now/ })).toBeEnabled();
 
-  // The Command Center's own list offers the same walk through everything
-  // that waits on him, the later question among them and his answer gone.
+  // History holds the CFO's answer, marked as given while he was away, and
+  // takes his change once.
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await page.locator(".command-center-menu > summary").click();
-  await page.locator(".command-center-updates").getByRole("button", { name: "Go through them" }).click();
-  await expect(dialog.locator(".from-afk")).toHaveCount(0);
-  await expect(dialog.locator(".stack-count")).toHaveText("1 of 3");
+  const inbox = page.locator(".command-center-updates");
+  await expect(inbox.getByRole("region", { name: "Waiting on you" })).not.toContainText("Which fallback does the gate policy take?");
+  await inbox.getByText("History").click();
+  const row = inbox.locator(".inbox-history li").filter({ hasText: "Which fallback does the gate policy take?" });
+  await expect(row.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
+  await expect(row).toContainText("The CFO chose Drop it from the machine config");
+  await inbox.screenshot({ path: testInfo.outputPath("history-after-afk.png") });
+  await row.getByRole("button", { name: /^Change the answer to The CFO: Which fallback does the gate policy take\?/ }).click();
+  await expect(dialog.getByRole("radio", { name: "Drop it from the machine config" })).toBeChecked();
+  await expect(dialog.locator(".answered-by")).toHaveText(/^The CFO chose this while you were away · /);
+  await dialog.getByRole("radio", { name: "Take it into the policy" }).check();
+  await dialog.getByRole("button", { name: "Change answer" }).dblclick();
+  await expect.poll(posted).toEqual([["cfo_answer", LEFT_QUESTIONS[1].id, "I will sign in"], ["answer_change", LEFT_QUESTIONS[0].id, "Take it into the policy"]]);
 });
 
 test("a switch that cannot be read is shown off, its tip says how to reset it, and what waits on him still leads", async ({ page }) => {
@@ -847,7 +856,7 @@ test.describe("in the desktop window", () => {
     const asked = { id: "afk-left-20261010T193500.000000000Z", text: "Merge code-goblins #674 past its failing check?\n- Evidence: the check fails on main too", options: ["Hold it", "Merge it"], recommended: "Hold it", status: "pending", task: "", generation: "", created_at: new Date(Date.now() - 60_000).toISOString() };
     const held = { item: "question:" + asked.id, task: "", what: "Merge code-goblins #674 past its failing check?", at: "2026-10-10T19:35:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it", settled: "" };
     await open(page, snapshot({ questions: [asked], afk: KEPT }));
-    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [held], sections: [{ title: "Merged", entries: [landed(561), landed(560)] }, { title: "Not merged", entries: [failed, sentBack, leftFor] }, REPORT.sections[2]] } }));
+    await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held: [held], sections: [{ title: "Merged", entries: [landed(561), landed(560)] }, { title: "Not merged", entries: [failed, sentBack, leftFor] }, REPORT.sections.find((section) => section.title === "Answered for goblins")!] } }));
     await openCfoPanel(page);
 
     // Act

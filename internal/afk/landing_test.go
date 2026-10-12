@@ -73,17 +73,18 @@ func TestTheStretchOf10OctoberReportsOneMergedGroupAndNoWarning(t *testing.T) {
 	sections, text := report.Sections(), rendered(t, report)
 
 	// Assert
-	if got := titled(sections); len(got) == 0 || got[0] != "Merged 80" {
-		t.Fatalf("the stretch's headings = %q, want Merged 80 first", got)
+	// The 8 decisions the CFO answered for him that stretch come first, recapped.
+	if got := titled(sections); len(got) < 2 || got[0] != "Answered for you 8" || got[1] != "Merged 80" {
+		t.Fatalf("the stretch's headings = %q, want Answered for you 8, then Merged 80", got)
 	}
-	for _, section := range sections[1:] {
+	for _, section := range sections[2:] {
 		for _, entry := range section.Entries {
 			if entry.Kind == KindMerge && section.Title != "Struck by the CFO" {
 				t.Errorf("a merge is under %q, not Merged: %+v", section.Title, entry)
 			}
 		}
 	}
-	for _, entry := range sections[0].Entries {
+	for _, entry := range sections[1].Entries {
 		if entry.Outcome != OutcomeMerged {
 			t.Errorf("under Merged: %+v, want only what merged", entry)
 		}
@@ -284,5 +285,31 @@ func TestAKeptReportFoldsTheCFOsLinesAsTheyStandWhenItIsRead(t *testing.T) {
 	}
 	if got := following(text, "- "+merged.What+": merged"); got != "  The CFO: PR 10 landed. One CI run." {
 		t.Errorf("the merge says %q, want only the line the CFO stands by:\n%s", got, text)
+	}
+}
+
+// A decision the CFO answered itself about a merge that did not land is what
+// the CFO did about it: the merge's row says it with the CFO's answer, nothing
+// is left for him, and the decision is recapped under Answered for you.
+func TestANotMergedRowSaysWhatTheCFOAnsweredAboutIt(t *testing.T) {
+	// Arrange
+	pr := "https://github.com/acme/api/pull/13"
+	word := Entry{At: night, Kind: KindMerge, What: pr, Link: pr, Evidence: "verified: 15 checks green"}
+	failed := Entry{At: night.Add(time.Minute), Kind: KindMerge, What: pr, Link: pr, Evidence: "gh pr merge", Outcome: "not merged: gh exited 1: Pull request is not mergeable"}
+	decided := Entry{At: night.Add(3 * time.Minute), Kind: KindLeft, What: "Merge #13 past its failing check?", Link: pr, Evidence: "the check fails on main too", Diagnosis: "a flaky check", Tried: "two reruns", Options: []string{"Hold it", "Merge it"}, Answer: "Hold it"}
+	report := Report{Session: "afk-1", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board", Decisions: Decisions([]Entry{word, failed, decided})}
+
+	// Act
+	sections, text := report.Sections(), rendered(t, report)
+
+	// Assert
+	if got := titled(sections); strings.Join(got, ",") != "Answered for you 1,Not merged 1" {
+		t.Fatalf("headings = %q, want the decision recapped and the merge not merged:\n%s", got, text)
+	}
+	if merge := sections[1].Entries[0]; merge.Asked != "" {
+		t.Errorf("the merge = %+v, want nothing left for him about it", merge)
+	}
+	if got, want := following(text, "- "+pr), "  The CFO: Merge #13 past its failing check? the check fails on main too. It answered: Hold it."; got != want {
+		t.Errorf("the merge's row says %q, want %q:\n%s", got, want, text)
 	}
 }

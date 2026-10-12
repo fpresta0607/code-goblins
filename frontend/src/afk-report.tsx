@@ -13,7 +13,7 @@ import "./afk.css";
 
 // The mark each kind of decision, and a goblin paused at a floor, wears in
 // the report.
-const MARKS: Record<string, IconName> = { left: "clock", merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause", strike: "close" };
+const MARKS: Record<string, IconName> = { left: "comment", merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check", pause: "pause", strike: "close" };
 
 // The report of the last stretch of AFK mode, as one page over the board. Its
 // headline says in plain words how long he was away, how many things wait on
@@ -21,9 +21,10 @@ const MARKS: Record<string, IconName> = { left: "clock", merge: "merge", deploy:
 // through them, which steps through what still waits on him in the Command
 // Center. Then For you lists what was held or left for him that still waits,
 // each as it stands now, and what was settled folds under it. What the CFO did
-// follows, a drawer for each heading that holds something, a merge that did
-// not land open since it needs him, then what each goblin finished, what was
-// spent and what could not be read. It opens when AFK mode turns off, and
+// follows, a drawer for each heading that holds something, first what it
+// answered for him, which is in his History, a merge that did not land open
+// since it needs him, then what each goblin finished, what was spent and what
+// could not be read. It opens when AFK mode turns off, and
 // again from the CFO panel's header.
 export function AfkReportPage({ tasks, now, onClose, onGoThrough }: { tasks: Task[]; now: number; onClose: () => void; onGoThrough: (keys: string[]) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -74,8 +75,9 @@ export function AfkReportPage({ tasks, now, onClose, onGoThrough }: { tasks: Tas
               <div className="inbox-text">
                 <strong>{entry.struck ? <s>{said}</s> : said}</strong>
                 {says.happened && <small className="afk-not-landed">{says.happened}</small>}
+                {says.answered && <small className="afk-answered">{says.answered}</small>}
                 {notLanded(entry) && entry.asked && <small className="afk-not-landed">Left for you{left ? ": " + left.what : ""}{left?.waiting && <> <button className="text-button" onClick={() => onGoThrough([left.item])}>Answer it</button></>}</small>}
-                <ShowMore text={says.basis} className="afk-evidence" />
+                {says.basis && <ShowMore text={says.basis} className="afk-evidence" />}
               </div>
               <time dateTime={entry.at}>{afkTime(entry.at, now)}</time>
             </li>;

@@ -436,3 +436,30 @@ func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
 		t.Errorf("Lasted = %q, want 10h21m", lasted)
 	}
 }
+
+// A decision the CFO answered itself under AFK mode is settled when it turns
+// off, so the report recaps it first, under a heading of its own, with the
+// CFO's answer and nothing of what it stood on, and never with what was left
+// for him. A struck one is under Struck by the CFO alone.
+func TestADecisionTheCFOAnsweredIsRecappedUnderAnsweredForYou(t *testing.T) {
+	// Arrange
+	decided := Entry{At: night, Kind: KindLeft, What: "Which fallback does the gate policy take?", Evidence: "the machine config and the policy disagree", Diagnosis: "two fallbacks", Tried: "read both", Options: []string{"Drop it", "Keep it"}, Answer: "Drop it"}
+	struck := decided
+	struck.At, struck.What, struck.Struck = night.Add(time.Minute), "A line logged by mistake?", "a test line"
+	report := nightReport()
+	report.Decisions = append(report.Decisions, decided, struck)
+
+	// Act
+	sections, text := report.Sections(), rendered(t, report)
+
+	// Assert
+	if got, want := titled(sections), []string{"Answered for you 1", "Merged 1", "Not merged 1", "Deployed 1", "Answered for goblins 1", "Struck by the CFO 1"}; !slices.Equal(got, want) {
+		t.Fatalf("headings = %q, want %q", got, want)
+	}
+	if recap := sections[0].Entries[0]; recap.What != decided.What || recap.Answer != "Drop it" {
+		t.Errorf("under Answered for you = %+v, want the decision with the CFO's answer", recap)
+	}
+	if want := "\nAnswered for you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it. You can change it in History.\n\nMerged (1)\n"; !strings.Contains(text, want) {
+		t.Errorf("the CFO's text lacks the recap %q:\n%s", want, text)
+	}
+}

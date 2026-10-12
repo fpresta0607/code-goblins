@@ -188,7 +188,7 @@ func leftForHim() Entry {
 // CFO already tried, and offers him real choices, so nothing is handed to him
 // undiagnosed.
 // Under AFK mode the CFO answers a decision itself and acts on its answer:
-// the line keeps the choice it made, which he keeps or changes once back.
+// the line keeps the choice it made, settled in his History once he is back.
 func TestADecisionTheCFOAnsweredKeepsItsAnswer(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)

@@ -284,7 +284,7 @@ func TestAFKLogSendsALineLeftForHimWithWhatIsWrongWhatWasTriedAndHisChoices(t *t
 }
 
 // Under AFK mode the CFO answers a decision itself: --answer is the choice it
-// made and acted on, which the Overlord keeps or changes once back.
+// made and acted on, settled in the Overlord's History once he is back.
 func TestAFKLogSendsTheAnswerTheCFOGaveADecision(t *testing.T) {
 	// Arrange
 	runtime, _ := afkRuntime(t)
