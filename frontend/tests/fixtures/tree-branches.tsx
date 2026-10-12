@@ -13,7 +13,7 @@ const snapshot = parseSnapshot(treeFleet(now));
 const view = new URLSearchParams(location.search).get("view");
 watchTips();
 createRoot(document.getElementById("root")!).render(view === "lineage"
-  ? <main className="canvas-region" style={{ width: "100%" }}><Lineage snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} onSelect={() => {}} /></main>
+  ? <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} onSelect={() => {}} /></main>
   : <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} onSelect={() => {}} onChild={() => {}} />
   </main>);

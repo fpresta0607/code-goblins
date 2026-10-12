@@ -1,10 +1,12 @@
 import { expect, test, type Page } from "./site";
+import { ROW } from "../src/workflow";
 
 // On 2026-10-01 pd-connect-quickstart's card covered cg-credential-requests',
 // which the Overlord had placed by hand where pd-connect-quickstart's arranged
-// place came to be, and cg-board-theme sat beside the goblin it waited on.
+// place came to be, a little above the third row, and cg-board-theme sat
+// beside the goblin it waited on.
 const LAYOUT_KEY = "cfo-orchestration-layout-v2";
-const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 542 } };
+const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 72 + 2 * ROW - 18 } };
 
 async function cards(page: Page) {
   await expect(page.locator(".flow-node")).toHaveCount(9);

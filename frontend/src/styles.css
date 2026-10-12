@@ -324,15 +324,31 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 @keyframes guidance { to { stroke-dashoffset: -244; } }
 @keyframes effect-life { 0%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
 .flow-node { position: absolute; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease; }
-/* A canvas card is a fixed 292 by 132 box, so the column of text in it never
+/* A canvas card is a fixed 292 by 166 box, so the column of text in it never
    grows past the box: the title and the status end in an ellipsis after two
    lines, the project and the relation after one, and a card that also shows a
    browser line or its relation gives lines up to make room, so every part
-   still shows. */
-.flow-node-main { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 8px 22px 8px 8px; border: none; border-radius: inherit; background: transparent; text-align: left; touch-action: none; cursor: grab; }
+   still shows. Under the column a foot row says what its board card says
+   besides: its clock, its pull request and its harness mark, or on the CFO's
+   card its weekly dials, its terminal button and its mark. The foot sits over
+   the card's button, clear of its chevron, so the whole card still drags. */
+.flow-node-main { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 8px 22px 42px 8px; border: none; border-radius: inherit; background: transparent; text-align: left; touch-action: none; cursor: grab; }
+.flow-node-foot { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 12px; height: 28px; pointer-events: none; }
+.flow-node-foot > * { pointer-events: auto; }
+.flow-node-foot .card-clock { flex: none; font-size: .9375rem; line-height: 1.3; white-space: nowrap; }
+.flow-node-foot .card-pr { display: block; min-width: 0; font-size: .9375rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flow-node-foot .card-pr .icon { display: inline-block; width: 16px; height: 16px; margin-right: 5px; vertical-align: -3px; }
+.flow-node-foot .card-harness, .flow-node-foot .icon-button { margin-left: auto; }
+.flow-node-foot .icon-button + .card-harness { margin-left: 0; }
+.flow-node-foot .mark, .flow-node-foot .icon-button { width: 28px; height: 28px; min-height: 28px; }
+.flow-node-foot .mark svg, .flow-node-foot .mark .icon, .flow-node-foot .icon-button svg { width: 16px; height: 16px; }
+.flow-node-foot .subscription-dials { display: flex; gap: 10px; min-width: 0; }
+.flow-node-foot .subscription-dial { min-width: 0; gap: 4px; }
+.flow-node-foot .subscription-ring { width: 28px; height: 28px; }
+.flow-node-foot .subscription-percent { font-size: .9375rem; }
 .flow-node-main:active { cursor: grabbing; }
 .flow-node .goblin-avatar { width: 72px; height: 72px; }
-.flow-node .card-copy { gap: 2px; max-height: 100%; overflow: hidden; }
+.flow-node .card-copy { gap: 2px; max-height: 100%; overflow: clip; overflow-clip-margin: 3px; }
 .flow-node .card-copy strong { font-size: 1.125rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .flow-node .plain-status { font-size: 1rem; line-height: 1.3; }
 .flow-node .card-status-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -556,6 +572,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .node-relation { color: var(--muted); font-size: .9375rem; margin: 0 0 8px; overflow-wrap: anywhere; }
 .workflow-node { position: relative; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease; }
 .node-select { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 18px; }
+/* Under it, what the goblin's board card says besides: its clock, pull
+   request and harness mark, or the CFO's dials, terminal button and mark. */
+.node-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: -6px; padding: 0 18px 16px; }
+.node-facts .card-pr { min-width: 0; overflow-wrap: anywhere; }
+.node-facts .card-harness, .node-facts .icon-button { margin-left: auto; }
+.node-facts .icon-button + .card-harness { margin-left: 0; }
 .node-select strong { display: block; font-size: 1.25rem; overflow-wrap: anywhere; }
 .node-role, .node-task { display: block; color: var(--muted); font-size: .9375rem; margin-bottom: 6px; overflow-wrap: anywhere; }
 .node-task { margin-top: 6px; }
