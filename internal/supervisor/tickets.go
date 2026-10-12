@@ -343,7 +343,41 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 	if ticket.Overlap = overlap; overlap == "" && record != nil {
 		ticket.Overlap = record.Overlap
 	}
+	var hasBrief bool
+	if ticket.What, ticket.Area, hasBrief = k.description(id); !hasBrief && record != nil {
+		ticket.What, ticket.Area = record.What, record.Area
+	}
 	k.move(ctx, id, record, ticket, wasQueuedBefore, now)
+}
+
+// description is what a task's brief tells its ticket: its Ticket section,
+// and the repository paths its work names that the project's checkout has.
+// A path the checkout lacks is left out, so a path on this machine never
+// reaches GitHub. hasBrief is false when the task has no brief to read.
+func (k *ticketKeeper) description(id string) (what string, area []string, hasBrief bool) {
+	brief, err := fsx.ReadFile(filepath.Join(k.home.Data, id, "brief.md"))
+	if err != nil {
+		return "", nil, false
+	}
+	what = tickets.TicketSection(string(brief))
+	project := k.project(id)
+	if project == "" {
+		return what, nil, true
+	}
+	checkout, err := k.writer.Checkout(project)
+	if err != nil {
+		return what, nil, true
+	}
+	hasPath := func(repositoryPath string) bool {
+		_, err := os.Stat(filepath.Join(checkout, filepath.FromSlash(repositoryPath)))
+		return err == nil
+	}
+	for _, path := range tickets.BriefArea(string(brief), hasPath).Paths {
+		if hasPath(path) {
+			area = append(area, path)
+		}
+	}
+	return what, area, true
 }
 
 // reconcileGone moves the open tickets of tasks the board no longer shows.
@@ -386,7 +420,7 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 			k.noteOf(&record)
 			continue
 		}
-		ticket := tickets.Ticket{TaskID: record.TaskID, Title: k.title(record.TaskID, &record), Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest), Overlap: record.Overlap}
+		ticket := tickets.Ticket{TaskID: record.TaskID, Title: k.title(record.TaskID, &record), What: record.What, Area: record.Area, Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest), Overlap: record.Overlap}
 		if ticket.PullRequest.Number == 0 {
 			ticket.State, ticket.Reason = tickets.Closed, tickets.LeftTheFleet
 		} else {
@@ -668,7 +702,8 @@ func (k *ticketKeeper) show() {
 // move it: a state between two others, a merge with no pull request named,
 // or work with no harness known.
 //
-// Only the title, the state, who is on it and the pull request cross over.
+// Only the title, the state, who is on it and the pull request cross over,
+// with what the task changes and where, which its brief gives.
 // A blocked task's question and a failed or stopped task's reason stay here:
 // the ticket says which fixed thing happened, never why.
 func ticketFor(id, title string, task Task, record *tickets.Record) (tickets.Ticket, bool) {

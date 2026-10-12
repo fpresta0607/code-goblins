@@ -38,6 +38,11 @@ type Record struct {
 	// Overlap is the reason the CFO gave for starting the task beside a
 	// teammate's work, as last written to the ticket.
 	Overlap string `json:"overlap,omitempty"`
+	// What and Area are what the task changes and where, as last written to
+	// an issue the task opened, so the ticket keeps them once the brief is
+	// gone.
+	What string   `json:"what,omitempty"`
+	Area []string `json:"area,omitempty"`
 }
 
 // ListRecords reads every task's ticket record, in task order. A file that

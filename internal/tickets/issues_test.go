@@ -352,6 +352,48 @@ func TestApplyRetitlesADoneIssueAndWritesNothingElse(t *testing.T) {
 	}
 }
 
+func TestApplyWritesWhatTheTaskChangesAndWhereIntoTheBody(t *testing.T) {
+	issue := "repos/" + northwind + "/issues/501"
+	what, area := "The billing sync says why it failed.", []string{"billing/sync.py"}
+	cases := []struct {
+		name         string
+		from         *Record
+		wantRequests []string
+	}{
+		{name: "an issue opened with them", wantRequests: []string{"POST repos/" + northwind + "/issues"}},
+		{name: "an open issue that had neither", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), wantRequests: []string{"PATCH " + issue}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGitHub{}
+			ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", What: what, Area: area, State: InProgress, Harness: "claude"}
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, 0)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := gh.requests(); !slices.Equal(got, tc.wantRequests) {
+				t.Fatalf("requests = %v, want %v and nothing on the second pass", got, tc.wantRequests)
+			}
+			body := gh.calls[0].Fields["body"][0]
+			if !strings.Contains(body, "**What:** "+what+"\n") || !strings.Contains(body, "**Area:** `billing/sync.py`\n") {
+				t.Fatalf("body = %q, want what and area", body)
+			}
+			if record.What != what || !slices.Equal(record.Area, area) || again != record {
+				t.Fatalf("record = %+v, want what and area kept", record)
+			}
+		})
+	}
+}
+
 func TestApplyClaimsTheIssueTheTaskNames(t *testing.T) {
 	// Arrange
 	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"html_url":"https://github.com/` + northwind + `/issues/415","state":"open"}`}}

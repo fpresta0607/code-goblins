@@ -74,3 +74,16 @@ func TestTicketBodyOfAQueuedTaskNamesNobody(t *testing.T) {
 		t.Fatalf("queued body = %q, want the state alone", body)
 	}
 }
+
+func TestTicketBodySaysWhatTheTaskChangesAndWhere(t *testing.T) {
+	// Arrange
+	ticket := Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude", What: "The billing sync says why it failed.", Area: []string{"billing/export", "billing/sync.py"}}
+
+	// Act
+	body := ticket.Body()
+
+	// Assert
+	if !strings.HasPrefix(body, "**What:** The billing sync says why it failed.\n**Area:** `billing/export`, `billing/sync.py`\n**State:** In progress") {
+		t.Fatalf("body = %q, want what and area before the state", body)
+	}
+}
