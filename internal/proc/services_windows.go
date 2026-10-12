@@ -1,15 +1,38 @@
 package proc
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
-// RunningServices maps the ID of every running process that is a machine
-// service, or runs under one, to that service.
-func RunningServices() (map[int]Service, error) {
+// RunningServicesAmong maps each of members, the processes of a job, that is
+// a machine service, or runs under one that is among members too, to that
+// service. A service outside them makes none of them one: what a job holds
+// is the job's, and the gate daemon above an agent's cfo gate prepush is no
+// part of the job a check of it runs in, so it must not keep the check
+// from being ended.
+func RunningServicesAmong(members []Entry) (map[int]Service, error) {
 	running, err := runningProcesses()
 	if err != nil {
 		return nil, err
 	}
-	return ServicesOf(running), nil
+	return servicesAmong(running, members), nil
+}
+
+// servicesAmong is ServicesOf over the processes of running that are among
+// members, each the process that started when its member did.
+func servicesAmong(running []ServiceProcess, members []Entry) map[int]Service {
+	started := make(map[int]time.Time, len(members))
+	for _, member := range members {
+		started[member.PID] = member.Start
+	}
+	var among []ServiceProcess
+	for _, process := range running {
+		if start, isMember := started[process.PID]; isMember && start.Equal(process.Start) {
+			among = append(among, process)
+		}
+	}
+	return ServicesOf(among)
 }
 
 // ProcessTree lists pid and every process under it, pid first, with the

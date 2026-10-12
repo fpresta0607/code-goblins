@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -101,7 +102,8 @@ func commandErrors(name string) string {
 }
 
 // runGateTurnTestCommand is the command name of the folder dir: it leaves
-// name.started holding the turn its environment names, leaves name.overlap
+// name.pid holding its pid and name.started holding the turn its
+// environment names, leaves name.overlap
 // when another command of the folder has started and not ended, writes its
 // output, waits for name.release when it was told to hold, leaves name.ended
 // and exits with the code it was given.
@@ -109,6 +111,9 @@ func runGateTurnTestCommand(args []string) int {
 	dir, name := args[0], args[1]
 	exit, err := strconv.Atoi(args[2])
 	if err != nil {
+		return 99
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".pid"), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return 99
 	}
 	started := filepath.Join(dir, name+".started")
@@ -154,7 +159,7 @@ func turnLine(t *testing.T) string {
 
 // commandFolder is a folder for the marks of a test's commands. A command
 // still held when the test ends is let go there and waited for, so none
-// outlives its test.
+// outlives its test. One that was ended with its run is not waited for.
 func commandFolder(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -163,7 +168,12 @@ func commandFolder(t *testing.T) string {
 		for _, mark := range started {
 			name := strings.TrimSuffix(filepath.Base(mark), ".started")
 			letGo(t, dir, name)
+			data, _ := os.ReadFile(filepath.Join(dir, name+".pid"))
+			pid, _ := strconv.Atoi(string(data))
 			for deadline := time.Now().Add(10 * time.Second); !left(dir, name, "ended") && time.Now().Before(deadline); {
+				if _, isRunning := proc.StartTime(pid); !isRunning {
+					break
+				}
 				time.Sleep(10 * time.Millisecond)
 			}
 		}
@@ -397,8 +407,6 @@ func TestAGateTurnWhoseHolderWasEndedMidRunTakesTheTurn(t *testing.T) {
 	slots := turnLine(t)
 	dir := commandFolder(t)
 	first := startGateTurn(t, dir, nil, turnCommand(dir, "first", 0, true)...)
-	// The first run's command outlives the run that started it, as a command
-	// does when only its wrapper is ended, until the test's end lets it go.
 	eventually(t, "the first run's command starts", func() bool { return left(dir, "first", "started") })
 	second := startGateTurn(t, dir, nil, turnCommand(dir, "second", 7, false)...)
 	held := fmt.Sprintf("(pid %d), for ", first.process.Process.Pid)

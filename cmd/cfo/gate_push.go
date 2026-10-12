@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -185,10 +186,12 @@ func runPushStep(ctx context.Context, step gatetest.Step, root, project string, 
 	var err error
 	if step.Command[0] != "go" || step.Command[1] != "test" {
 		exit, err = runtime.pushRun(ctx, step.Command, dir, env, stdout, stderr)
+		sayEnded(stdout, "the time limit", step.What, err)
 	} else {
 		var failed []string
 		var isBuilt bool
 		failed, isBuilt, exit, err = runPushTests(ctx, step.Command, dir, project, env, turn, stdout, stderr, runtime)
+		sayEnded(stdout, "the time limit", step.What, err)
 		if len(failed) > 0 {
 			it, its, itself, them := "it runs", "its", "itself", "it"
 			if len(failed) > 1 {
@@ -199,6 +202,7 @@ func runPushStep(ctx context.Context, step gatetest.Step, root, project string, 
 			again, _, againExit, againErr := runPushTests(againCtx, step.Again(failed), dir, project, env, turn, stdout, stderr, runtime)
 			isAgainCut := againCtx.Err() != nil
 			cancel()
+			sayEnded(stdout, fmt.Sprintf("its own time of %s", runtime.pushAgain), "the second run of "+namedPushTests(failed), againErr)
 			switch {
 			case len(again) > 0:
 				return namedPushTests(again) + " failed" + pushFix, false
@@ -265,9 +269,21 @@ func namedPushTests(tests []string) string {
 
 // runPushCommand runs one check as a process in dir with env and returns
 // its exit code. A check its context ended is ended with everything it
-// started, since npm's and go test's own children do the work.
+// started, since npm's and go test's own children do the work, and a test's
+// helper whose parent already exited is among it (execx.StartTree). So is
+// a check whose run is ended, as a goblin's tool ends it.
 func runPushCommand(ctx context.Context, command []string, dir string, env []string, stdout, stderr io.Writer) (int, error) {
 	return execx.OSRunner{}.Stream(ctx, execx.Request{Name: command[0], Args: command[1:], Dir: dir, Env: env, KillTree: true}, stdout, stderr)
+}
+
+// sayEnded names, by name and pid, the processes a check's run ended when
+// its time ended it (execx.Ended), so a run cut short says what of it no
+// longer runs.
+func sayEnded(stdout io.Writer, cause, what string, err error) {
+	var ended *execx.Ended
+	if errors.As(err, &ended) && len(ended.Processes) > 0 {
+		fmt.Fprintf(stdout, "cfo gate prepush: %s ended %s and these processes it ran: %s\n", cause, what, execx.Names(ended.Processes))
+	}
 }
 
 // takePushTurn waits in the machine's common line, the one cfo gate test

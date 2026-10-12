@@ -433,7 +433,7 @@ Once, when it takes a turn it waited a second or more for:
 cfo gate turn: took its turn after 3m0s
 ```
 
-Then comes the command's own output, and nothing of `cfo`'s after it.
+Then comes the command's own output, and nothing of `cfo`'s after it but the line of an interrupted run that ended what its command left running.
 A gate shows a step's output only once the step has ended, so while a run waits the line is read from outside with `cfo gate turns`.
 
 **What it leaves untouched.**
@@ -452,14 +452,19 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 | 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
-A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s.
+A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s unless the run was interrupted and ended what its command left running.
 
 **The turn.**
 The turn is held from before the command starts until it has ended, and is given back whatever its exit code.
 A wrapper that is ended leaves a turn the next run takes at once, since the holder is recorded by process id and start time, so no lock a dead run left ever stops the machine's tests.
-A command that outlives a wrapper ended by force then runs outside any turn, as the checks of a `cfo gate test` ended by force do, so whoever ends a wrapper ends its command with it, as a gate's job object does.
+The command runs in a Windows job of its own that every process it starts joins and none can leave, whatever becomes of its parent, and the job ends with the wrapper, so a wrapper ended by force ends its command with everything the command started, and no command runs on outside the turn.
 On Ctrl+C or Ctrl+Break while it waits, `cfo` leaves the line and exits 125.
 While the command runs, `cfo` keeps the turn through the signal and exits with the command's code: the command shares the console, receives the same signal and answers for itself.
+Once it has ended, `cfo` ends what it left running, sparing a machine service, and names each process it ended in one last line:
+
+```text
+cfo gate turn: the run was interrupted, so it ended what its command left running: node.exe pid 5150
+```
 
 **A command that takes turns itself.**
 This repository's test command is `cfo gate test`, which takes a turn for each of its checks, and behind the wrapper it would wait for the turn its own wrapper holds, for good.
@@ -538,6 +543,15 @@ It starts a check only while free memory and commit are over the 4 GB floor, and
 Beside a working fleet free memory dips under the floor for seconds at a time, so a run waits for the floor, says once what it waits for, and leaves the rest to CI only when the limit passes first or memory cannot be read.
 A run that gave up at the first low reading ran 9 of its 42 checks on 2026-10-10 and left the two changed slow packages to CI.
 A check still running at the limit is ended, which is no failure.
+It is ended with everything it started, since each check runs in a Windows job of its own that every process it starts joins and none can leave, a test's helper whose parent already exited included, and the run names each process that ended by its name and pid:
+
+```text
+cfo gate prepush: the time limit ended tests of internal/supervisor and these processes it ran: go.exe pid 4242, supervisor.test.exe pid 4343, supervisor.test.exe pid 4404
+```
+
+Ending a check with what its parents still reached left that helper running on 2026-10-12, a `supervisor.test.exe` whose test process had already ended.
+The job ends with the run too, so a run that is itself ended, as a goblin's tool ends it, leaves nothing of its checks running, and so do the checks of a `cfo gate test` a gate's time limit ends.
+A machine service a check started, such as Docker Desktop, is spared when the run ends a check, as a goblin's terminal spares it.
 Whatever it did not run it names under `left to CI`, each with why: the slow tests by number and time, the other browser specs, the board's build, and the checks the limit or the memory cut.
 CI is the check of those: a pull request's own run starts every job the change can alter, and the merge train's run that lands it starts them all.
 That is one more reason the guards run here whatever changed: a pull request's own run starts no job for a package its change does not reach, so a guard in such a package would first fail in the merge train.
