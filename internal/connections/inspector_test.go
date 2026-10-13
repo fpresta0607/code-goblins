@@ -362,3 +362,37 @@ func TestInspectorReadsATaskAnOlderBuildStartedAsBefore(t *testing.T) {
 		t.Errorf("the credential did not read missing: %+v", result.Entries)
 	}
 }
+
+// A connector card offers + for a service or a project MCP server the task
+// does not carry and a check for one its record names, the two that cfo auth
+// grant and cfo auth revoke change. A credential variable and an MCP server
+// from outside the project's .mcp.json offer neither.
+func TestInspectorNamesWhatEachConnectorCardOffers(t *testing.T) {
+	// Arrange
+	inspector, meta := inspectorFixture(t)
+	meta.Credentials, meta.HasCredentials, meta.MCPServers = []string{"repo"}, true, []string{"tools"}
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET"]},{"name":"payments","method":"env","env":["FIXTURE_PAYMENTS_TOKEN"]}]}`)
+	writeConnectionFixture(t, filepath.Join(meta.TaskTmp, "mcp.json"), `{"mcpServers":{"tools":{"command":"private-command"}}}`)
+	writeConnectionFixture(t, filepath.Join(meta.Project, ".mcp.json"), `{"mcpServers":{"tools":{"command":"private-command"},"oauth":{"url":"https://example.invalid/mcp"}}}`)
+	inspector.Claude = func(context.Context, string, []string, []string) ([]Entry, error) {
+		return []Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}, {ID: "mcp:personal", Name: "personal", Kind: "mcp", Status: "connected"}}, nil
+	}
+
+	// Act
+	result := inspector.Check(context.Background(), meta)
+
+	// Assert
+	for id, want := range map[string]string{"service:repo": "revoke", "service:payments": "grant", "mcp:tools": "revoke", "withheld:oauth": "grant", "mcp:personal": "", "credential:FIXTURE_SECRET": "", "credential:FIXTURE_PAYMENTS_TOKEN": ""} {
+		index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
+		if index < 0 || result.Entries[index].Grant != want {
+			t.Errorf("%s offers %q, want %q: %+v", id, entryGrant(result.Entries, index), want, result.Entries)
+		}
+	}
+}
+
+func entryGrant(entries []Entry, index int) string {
+	if index < 0 {
+		return "no entry"
+	}
+	return entries[index].Grant
+}
