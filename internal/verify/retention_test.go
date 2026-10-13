@@ -278,3 +278,40 @@ func TestPruneExecutionsOfAStoreThatHasNoneIsNoError(t *testing.T) {
 		t.Fatalf("pruning a store with no executions = %v", err)
 	}
 }
+
+// A run that kept no logs, as cfo gate turn's, whose output its caller
+// keeps, is kept apart, so a burst of them never evicts a run's logs.
+func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
+	// Arrange
+	now := time.Now()
+	dir := t.TempDir()
+	logged := storedExecution(t, dir, "passed", now.Add(-time.Hour), now.Add(-time.Hour))
+	var unlogged []string
+	for index := range keptUnlogged + 3 {
+		id := rand.Text()
+		created := now.Add(-time.Duration(keptUnlogged+3-index) * time.Second)
+		data, err := json.Marshal(ExecutionRecord{Version: 1, ID: id, Status: "passed", Created: created})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeAged(t, filepath.Join(dir, id+".json"), data, created)
+		unlogged = append(unlogged, id)
+	}
+
+	// Act
+	err := pruneExecutions(dir, t.TempDir(), executionBudget, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isStored(dir, logged) {
+		t.Fatal("a burst of runs without logs evicted a run's logs")
+	}
+	for index, id := range unlogged {
+		_, statError := os.Stat(filepath.Join(dir, id+".json"))
+		if isKept := statError == nil; isKept != (index >= 3) {
+			t.Fatalf("run %d of %d without logs kept = %v; want the newest %d kept", index, len(unlogged), isKept, keptUnlogged)
+		}
+	}
+}

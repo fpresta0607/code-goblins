@@ -927,3 +927,32 @@ func TestATurnThatWasNeverTakenSaysNothing(t *testing.T) {
 	// Act
 	Turn{}.Say("go test: 1 package done")
 }
+
+// A run held back for memory says the tighter of free memory and free commit
+// that is short, so the reader looks where the machine is shortest.
+func TestAdmissionSaysTheTighterShortOfMemoryAndCommit(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		headroom Headroom
+		want     string
+	}{
+		{name: "memory short", headroom: Headroom{PhysicalAvailable: 3 * gigabyte, CommitAvailable: 9 * gigabyte}, want: "3.0 GB of memory is available and the floor is 4.0 GB"},
+		{name: "commit short", headroom: Headroom{PhysicalAvailable: 9 * gigabyte, CommitAvailable: 2 * gigabyte}, want: "2.0 GB of memory is available and the floor is 4.0 GB"},
+		{name: "both short, commit lower", headroom: Headroom{PhysicalAvailable: 3 * gigabyte, CommitAvailable: 1 * gigabyte}, want: "1.0 GB of memory is available and the floor is 4.0 GB"},
+		{name: "both short, memory lower", headroom: Headroom{PhysicalAvailable: 1 * gigabyte, CommitAvailable: 3 * gigabyte}, want: "1.0 GB of memory is available and the floor is 4.0 GB"},
+		{name: "neither short", headroom: Headroom{PhysicalAvailable: 9 * gigabyte, CommitAvailable: 9 * gigabyte}, want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			admission := Admission{Headroom: func() (Headroom, error) { return test.headroom, nil }}
+
+			// Act
+			said, err := admission.short(4 * gigabyte)
+
+			// Assert
+			if err != nil || said != test.want {
+				t.Fatalf("said %q, %v; want %q", said, err, test.want)
+			}
+		})
+	}
+}

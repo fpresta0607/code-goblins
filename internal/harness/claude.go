@@ -27,8 +27,8 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Claude Code ends every background shell of a session idle for half an
 	// hour when Windows signals critical memory, whatever each one holds: a
 	// goblin's queued cfo gate turn lost its place in the line that way. The
-	// line's own runs end at the desktop reserve instead, aimed at the run
-	// that holds the memory, and the fleet's memory floor pauses whole
+	// line ends the one run it lets use the machine's spare memory at the
+	// desktop reserve instead, and the fleet's memory floor pauses whole
 	// goblins (decision 1001550). The setting is read only as Claude starts.
 	launch.Env["CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP"] = "1"
 	// Goblin panes must not inherit the operator's connected claude.ai MCP

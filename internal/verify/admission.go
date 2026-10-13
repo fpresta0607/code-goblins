@@ -326,10 +326,10 @@ func (a Admission) short(floor uint64) (string, error) {
 		if memory.PhysicalAvailable >= physical && memory.CommitAvailable >= commit {
 			return "", nil
 		}
-		// The tighter of free memory and free commit, as a run without a
-		// headroom reader says it.
+		// The tighter of free memory and free commit that is short, as a run
+		// without a headroom reader says it.
 		available, required := memory.PhysicalAvailable, physical
-		if memory.PhysicalAvailable >= physical {
+		if memory.PhysicalAvailable >= physical || memory.CommitAvailable < commit && memory.CommitAvailable < memory.PhysicalAvailable {
 			available, required = memory.CommitAvailable, commit
 		}
 		return fmt.Sprintf("%.1f GB of memory is available and the floor is %.1f GB", Gigabytes(available), Gigabytes(required)), nil

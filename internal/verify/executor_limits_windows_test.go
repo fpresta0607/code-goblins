@@ -646,3 +646,93 @@ func TestExecutorSaysWhyACommandNeverStarted(t *testing.T) {
 		})
 	}
 }
+
+// An interrupt that comes after the run took its turn and before a command
+// that answers interrupts itself started never reaches the command, so the
+// run ends there, with no turn's result, and starts nothing.
+func TestExecutorEndsASharedRunInterruptedBeforeItsCommandStarted(t *testing.T) {
+	if os.Getenv(limitsRole) == "must-not-start" {
+		_ = os.WriteFile("started", []byte("started"), 0o600)
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: true, Took: func(time.Duration) { cancel() }}
+
+	// Act
+	result, _, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsASharedRunInterruptedBeforeItsCommandStarted$"}, Env: append(os.Environ(), limitsRole+"=must-not-start")}, 0)
+
+	// Assert
+	if !errors.Is(err, ErrNoTurn) || !errors.Is(err, context.Canceled) || result.ExitCode != -1 {
+		t.Fatalf("run = %+v, %v; want no turn's result for an interrupt", result, err)
+	}
+	if _, statError := os.Stat(filepath.Join(root, "started")); statError == nil {
+		t.Fatal("the command started after its run was interrupted")
+	}
+	holders, waiters, lineError := Line(executor.Admission.Dir)
+	if lineError != nil || len(holders)+len(waiters) != 0 {
+		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, lineError)
+	}
+}
+
+// A running sample is progress, not the run's evidence, so one that cannot
+// be written ends no command: the command runs to its own end, and the run
+// keeps its exit code.
+func TestExecutorKeepsRunningWhenASampleCannotBeWritten(t *testing.T) {
+	if os.Getenv(limitsRole) == "runs-a-while" {
+		time.Sleep(12 * time.Second)
+		os.Exit(4)
+	}
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	var record string
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 50 * time.Millisecond, Headroom: plentyOfMemory,
+		Observe: func(measurement Measurement) error {
+			if measurement.State != Running || record != "" {
+				return nil
+			}
+			// The record's place is taken after the first sample, so the
+			// next, ten seconds on, cannot be written.
+			records, err := filepath.Glob(filepath.Join(store, "executions", "*.json"))
+			if err != nil || len(records) != 1 {
+				return fmt.Errorf("records = %v, %v", records, err)
+			}
+			record = records[0]
+			if err := os.Rename(record, record+".saved"); err != nil {
+				return err
+			}
+			if err := os.Mkdir(record, 0o700); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(record, "occupied"), nil, 0o600); err != nil {
+				return err
+			}
+			// Its place is given back before the command ends, so the run's
+			// final measurement can be written.
+			go func() {
+				time.Sleep(11 * time.Second)
+				_ = os.Remove(filepath.Join(record, "occupied"))
+				_ = os.Remove(record)
+				_ = os.Rename(record+".saved", record)
+			}()
+			return nil
+		}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Act
+	result, _, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorKeepsRunningWhenASampleCannotBeWritten$"}, Env: append(os.Environ(), limitsRole+"=runs-a-while")}, 0)
+
+	// Assert
+	if err != nil || result.ExitCode != 4 {
+		t.Fatalf("run = %+v, %v; want the command's own 4 after a sample could not be written", result, err)
+	}
+	if record == "" {
+		t.Fatal("no sample's record was taken away, so the test proved nothing")
+	}
+}

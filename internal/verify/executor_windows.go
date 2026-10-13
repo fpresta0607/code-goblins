@@ -82,12 +82,12 @@ func (executor *Executor) RunWithin(ctx context.Context, request execx.Request, 
 		var err error
 		request.Dir, err = os.Getwd()
 		if err != nil {
-			return execx.Result{ExitCode: -1}, "", err
+			return execx.Result{ExitCode: -1}, "", fmt.Errorf("%w: %w", ErrNoTurn, err)
 		}
 	}
 	execution, err := BeginExecution(request.Dir, append([]string{request.Name}, request.Args...))
 	if err != nil {
-		return execx.Result{ExitCode: -1}, "", err
+		return execx.Result{ExitCode: -1}, "", fmt.Errorf("%w: %w", ErrNoTurn, err)
 	}
 	pending := &pendingCleanup{execution: execution, isGuardComplete: true, isTurnReleased: true, usage: &execx.TreeUsage{}, exitCode: -1}
 	executor.mu.Lock()
@@ -211,6 +211,11 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err != nil {
 		return refuseStart(err)
 	}
+	// A command that answers an interrupt itself is never sent one that came
+	// before it started, so such an interrupt ends the run here.
+	if err := ctx.Err(); executor.IsConsoleShared && err != nil {
+		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
+	}
 	if err := execution.Start(); err != nil {
 		return refuseStart(err)
 	}
@@ -282,12 +287,14 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 				}
 			}
 			// A sample is kept every ten seconds, and the final measurement
-			// always, so a long run is not a file write every poll.
+			// always, so a long run is not a file write every poll. A sample
+			// is progress, not the run's evidence, so one that cannot be
+			// written ends no command: the final measurement, written once
+			// the command has ended, fails the run when it cannot be.
 			if time.Since(persisted) >= 10*time.Second {
-				if err := execution.Observe(measurement); err != nil {
-					return err
+				if err := execution.Observe(measurement); err == nil {
+					persisted = time.Now()
 				}
-				persisted = time.Now()
 			}
 		}
 		if observe != nil {

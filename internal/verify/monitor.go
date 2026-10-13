@@ -56,6 +56,11 @@ var (
 	ErrNotStarted = errors.New("verify: the command did not start")
 )
 
+// ErrPressure is the failure of a run free memory or commit stayed under its
+// desktop reserve through: the run ended its command for the machine's sake,
+// so its exit code is no result of the command's own.
+var ErrPressure = errors.New("verify: reserve pressure")
+
 // Leftover is a process a command left running, by image name and pid.
 type Leftover struct {
 	Name string `json:"name"`
@@ -165,7 +170,7 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 			pressedSince = time.Now()
 		}
 		if !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain {
-			failure = fmt.Errorf("verify: reserve pressure for %s: %.1f GB of memory and %.1f GB of commit available, under the desktop reserve of %.1f GB and %.1f GB", monitor.Sustain, Gigabytes(headroom.PhysicalAvailable), Gigabytes(headroom.CommitAvailable), Gigabytes(monitor.Reserve.PhysicalAvailable), Gigabytes(monitor.Reserve.CommitAvailable))
+			failure = fmt.Errorf("%w for %s: %.1f GB of memory and %.1f GB of commit available, under the desktop reserve of %.1f GB and %.1f GB", ErrPressure, monitor.Sustain, Gigabytes(headroom.PhysicalAvailable), Gigabytes(headroom.CommitAvailable), Gigabytes(monitor.Reserve.PhysicalAvailable), Gigabytes(monitor.Reserve.CommitAvailable))
 			break
 		}
 		if failure = ctx.Err(); failure != nil {

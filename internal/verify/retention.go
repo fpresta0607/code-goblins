@@ -26,7 +26,11 @@ const (
 	keptFailures       = 50
 	keptRefusals       = 20
 	keptAlwaysFailures = 5
-	executionBudget    = 2 << 30
+	// keptUnlogged are the runs that kept no logs, as cfo gate turn's, whose
+	// output their caller keeps. They are kept apart, so a burst of them
+	// never evicts a cfo verify run's logs, which are kept nowhere else.
+	keptUnlogged    = 200
+	executionBudget = 2 << 30
 	// abandonedExecutionAge is how long a record still pending or one that
 	// cannot be read, and a log without its record, are kept: no run lasts
 	// that long, so by then its controller has gone without finishing it.
@@ -105,7 +109,7 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 			records[id] = info
 		}
 	}
-	var passes, failures, refusals []stored
+	var passes, failures, refusals, unlogged []stored
 	for id, info := range records {
 		if _, err := os.Lstat(filepath.Join(custodyDir, id+".json")); !errors.Is(err, os.ErrNotExist) {
 			continue
@@ -125,6 +129,10 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 			continue
 		}
 		entry := stored{id: id, created: record.Created, size: sizes[id]}
+		if len(logs[id]) == 0 && record.Status != "pending" {
+			unlogged = append(unlogged, entry)
+			continue
+		}
 		switch record.Status {
 		case "pending":
 			if !isYoung {
@@ -147,9 +155,9 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 		}
 		return list[:min(len(list), count)]
 	}
-	passes, failures, refusals = keep(passes, keptPasses), keep(failures, keptFailures), keep(refusals, keptRefusals)
+	passes, failures, refusals, unlogged = keep(passes, keptPasses), keep(failures, keptFailures), keep(refusals, keptRefusals), keep(unlogged, keptUnlogged)
 	var total int64
-	for _, list := range [][]stored{passes, failures, refusals} {
+	for _, list := range [][]stored{passes, failures, refusals, unlogged} {
 		for _, kept := range list {
 			total += kept.size
 		}
@@ -157,7 +165,7 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 	for _, evictable := range []struct {
 		list  *[]stored
 		floor int
-	}{{&passes, 1}, {&refusals, 0}, {&failures, keptAlwaysFailures}} {
+	}{{&unlogged, 0}, {&passes, 1}, {&refusals, 0}, {&failures, keptAlwaysFailures}} {
 		for total > budget && len(*evictable.list) > evictable.floor {
 			last := (*evictable.list)[len(*evictable.list)-1]
 			*evictable.list = (*evictable.list)[:len(*evictable.list)-1]

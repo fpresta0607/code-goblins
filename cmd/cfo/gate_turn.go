@@ -18,7 +18,9 @@ import (
 // is a test result, and a command that itself exits with one is told apart
 // by the last line on standard error, which then is not cfo gate turn's.
 const (
-	// exitNoTurn says no turn was taken and the command was never started.
+	// exitNoTurn says the run gave no result of its command's: no turn was
+	// taken and the command never started, or the line ended the command
+	// for the machine's memory.
 	exitNoTurn = 125
 	// exitNotStarted says a turn was taken and given back, and the command
 	// could not be started.
@@ -122,7 +124,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	// pipe, and the caller keeps what it writes.
 	commandOutput, isOutputFile := stdout.(*os.File)
 	commandErrors, isErrorsFile := stderr.(*os.File)
-	if !isOutputFile || !isErrorsFile {
+	if !isOutputFile || !isErrorsFile || commandOutput == nil || commandErrors == nil {
 		fmt.Fprintln(stderr, "cfo gate turn: this run takes no turn: its standard output and error are not files, as a process's own are")
 		tell(exitNoTurn)
 		return exitNoTurn
@@ -137,12 +139,14 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	if err := executor.RetryCleanup(cleanup); err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: what its command left may not all have ended: %s\n", oneLine(err))
 	}
-	if evidence, err := verify.LoadExecution(record); record != "" && err == nil {
-		if leftovers := evidence.Measurement.Leftovers; len(leftovers) > 0 {
-			fmt.Fprintf(stderr, "cfo gate turn: its command left %s running after it exited, which the run ended\n", processNames(leftovers))
-		}
-		if spared := evidence.Measurement.Spared; len(spared) > 0 {
-			fmt.Fprintf(stderr, "cfo gate turn: its command started %s, which serves the whole machine, so the run left it running\n", processNames(spared))
+	if record != "" {
+		if evidence, err := verify.LoadExecution(record); err == nil {
+			if leftovers := evidence.Measurement.Leftovers; len(leftovers) > 0 {
+				fmt.Fprintf(stderr, "cfo gate turn: its command left %s running after it exited, which the run ended\n", processNames(leftovers))
+			}
+			if spared := evidence.Measurement.Spared; len(spared) > 0 {
+				fmt.Fprintf(stderr, "cfo gate turn: its command started %s, which serves the whole machine, so the run left it running\n", processNames(spared))
+			}
 		}
 	}
 	if err := verify.PruneExecutions(time.Now()); err != nil {
@@ -161,6 +165,12 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %s\n", oneLine(runError))
 		tell(exitNotStarted)
 		return exitNotStarted
+	// What the command was ended at is no result of its own, so a gate parks
+	// the run on 125 and this last line rather than ask for a repair.
+	case errors.Is(runError, verify.ErrPressure) && !isInterrupted.Load():
+		fmt.Fprintf(stderr, "cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: %s\n", oneLine(runError))
+		tell(exitNoTurn)
+		return exitNoTurn
 	case runError != nil && !isInterrupted.Load():
 		fmt.Fprintf(stderr, "cfo gate turn: %s\n", oneLine(runError))
 	}
@@ -188,6 +198,9 @@ func parseGateTurn(args []string) (as string, command []string, err error) {
 		case args[at] == "--":
 			if at+1 == len(args) {
 				return "", nil, errors.New("no command follows --")
+			}
+			if args[at+1] == "" {
+				return "", nil, errors.New("the command after -- names no program")
 			}
 			return as, args[at+1:], nil
 		case isNamed:
