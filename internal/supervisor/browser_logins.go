@@ -13,8 +13,8 @@ import (
 
 // browserLoginEntry is one login a goblin's Connections lists: a login its
 // project may use, whether he is signed in to it, when he last signed in
-// and when a fetch last used it. It holds no browser address and nothing
-// of the session.
+// and when a browser on it last closed. It holds no browser address and
+// nothing of the session.
 type browserLoginEntry struct {
 	ID                 string     `json:"id"`
 	Provider           string     `json:"provider"`

@@ -2,8 +2,8 @@ import { listNames } from "./credentials.ts";
 import { array, object, string, strings } from "./types.ts";
 
 // A browser login a goblin's Connections lists: one its project may use,
-// whether he is signed in to it, when he last signed in and when a fetch
-// last used it. It holds nothing of the session.
+// whether he is signed in to it, when he last signed in and when a browser
+// on it last closed. It holds nothing of the session.
 export type BrowserLogin = {
   id: string; provider: string; account: string; projects: string[];
   signedIn: boolean; signedInAt: string; usedAt: string; signsOutAfterFetch: boolean; inUse: boolean;
@@ -33,12 +33,12 @@ export function ago(time: string, now: number): string {
 export const loginName = (login: BrowserLogin) => login.provider + " · " + login.account;
 
 // What a login's row says under its name: the projects it serves, and when
-// he signed in and a fetch last used it.
+// he signed in and when it was last used.
 export function loginDetail(login: BrowserLogin, now: number): string {
   const used = ago(login.usedAt, now);
   const parts = ["For " + listNames(login.projects) + "."];
   if (login.signsOutAfterFetch) parts.push("It signs out after each fetch, so each fetch brings the sign-in card.");
-  if (login.signedIn) parts.push(`You signed in ${ago(login.signedInAt, now)}` + (used ? `, a fetch used it ${used}.` : "."));
+  if (login.signedIn) parts.push(`You signed in ${ago(login.signedInAt, now)}` + (used ? `, last used ${used}.` : "."));
   else {
     if (!login.signsOutAfterFetch) parts.push("You are signed out, so the next fetch brings the sign-in card.");
     if (used) parts.push(`Last used ${used}.`);

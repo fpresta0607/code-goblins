@@ -8,9 +8,9 @@ const login = (changes: Partial<BrowserLogin> = {}): BrowserLogin => ({
   signedIn: true, signedInAt: "2026-10-13T18:00:00Z", usedAt: "2026-10-13T19:55:00Z", signsOutAfterFetch: false, inUse: false, ...changes,
 });
 
-test("a login's row names it and says when he signed in and a fetch used it, in the approved words", () => {
+test("a login's row names it and says when he signed in and when it was last used", () => {
   assert.equal(loginName(login()), "Stripe · PrecisionDocs");
-  assert.equal(loginDetail(login(), now), "For PrecisionDocs-AI. You signed in 2 hours ago, a fetch used it 5 minutes ago.");
+  assert.equal(loginDetail(login(), now), "For PrecisionDocs-AI. You signed in 2 hours ago, last used 5 minutes ago.");
   assert.equal(loginDetail(login({ usedAt: "" }), now), "For PrecisionDocs-AI. You signed in 2 hours ago.");
   assert.equal(loginDetail(login({ projects: ["SIQshift", "PrecisionDocs-AI"], signedIn: false, signedInAt: "", signsOutAfterFetch: true, usedAt: "2026-10-10T20:00:00Z" }), now),
     "For SIQshift and PrecisionDocs-AI. It signs out after each fetch, so each fetch brings the sign-in card. Last used 3 days ago.");

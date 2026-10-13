@@ -35,7 +35,7 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     const siqstack = list.getByRole("listitem").filter({ hasText: "Stripe · SIQstack" });
 
     await expect(precision.getByText("Signed in", { exact: true })).toBeVisible();
-    await expect(precision.getByText("For code-goblins. You signed in 2 hours ago, a fetch used it 5 minutes ago.", { exact: true })).toBeVisible();
+    await expect(precision.getByText("For code-goblins. You signed in 2 hours ago, last used 5 minutes ago.", { exact: true })).toBeVisible();
     await expect(siqstack.getByText("Signed out", { exact: true })).toBeVisible();
     await expect(siqstack.getByText("For SIQshift and code-goblins. It signs out after each fetch, so each fetch brings the sign-in card. Last used 3 days ago.", { exact: true })).toBeVisible();
     await expect(siqstack.getByRole("button", { name: "Sign out of Stripe · SIQstack" })).toHaveCount(0);

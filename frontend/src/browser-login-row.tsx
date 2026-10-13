@@ -3,7 +3,7 @@ import { Icon } from "./Icon";
 
 // One browser login in a goblin's Connections: its provider's letter, its
 // name, signed in or out, what it serves and when it was used, and Sign
-// out and Forget, which wait while a browser of it runs.
+// out and Forget, which are disabled while a browser of it runs.
 export function BrowserLoginRow({ login, now, isBusy, onSignOut, onForget }: {
   login: BrowserLogin; now: number; isBusy: boolean; onSignOut: () => void; onForget: () => void;
 }) {
