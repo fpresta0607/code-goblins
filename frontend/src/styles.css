@@ -380,7 +380,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace-project { margin-bottom: 12px; }
 
 .workspace-outcome { color: var(--muted); font-size: .9375rem; margin: 12px 0; overflow-wrap: anywhere; }
-.engine-selector { container-type: inline-size; min-width: 0; margin-bottom: 18px; }
+.engine-selector { container-type: inline-size; min-width: 0; }
 .engine-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 10px; }
 .engine-fields label { display: grid; min-width: 0; gap: 8px; color: var(--muted); font-size: .9375rem; }
 .engine-fields select { width: 100%; min-width: 0; color: #edf4f3; padding-left: 10px; }

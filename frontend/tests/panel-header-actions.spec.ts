@@ -2,7 +2,8 @@ import { expect, holdStream, test, type Locator, type Page } from "./site";
 
 // The Overlord, 2026-10-08 about 21:55Z, of Restart the CFO in the body of
 // the CFO's panel: "what does restart the cfo do.. i want it in header of
-// task panel please right below goblin".
+// task panel please right below goblin". On 2026-10-13 every harness control
+// moved into a category of its own named Harness, the CFO's Restart with it.
 // The supervisor is played here: one snapshot on a held stream.
 const NOTE = "An optional drive that Defender scans in performance mode, so files open faster.";
 const EXPLAIN = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion.";
@@ -45,23 +46,21 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
   test.describe(`at ${size} width`, () => {
     test.use({ viewport });
 
-    test("Restart the CFO sits in the CFO's header right below its name, on one line, and the panel under the header has none", async ({ page }, testInfo) => {
+    test("Restart the CFO sits under Harness in the CFO's task panel, on one line with its harness, and the header has none", async ({ page }, testInfo) => {
       // Arrange
       await open(page, snapshot());
-      const header = page.locator(".panel-header");
-      const restart = header.getByRole("button", { name: "Restart the CFO" });
-      const selector = header.getByRole("button", { name: "Harness: Claude Code" });
+      const section = page.locator(".panel-content > .disclosure.harness");
+      const restart = section.getByRole("button", { name: "Restart the CFO" });
+      const selector = section.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
-      await header.screenshot({ path: testInfo.outputPath(`cfo-header-${size}.png`) });
+      await section.locator("> summary").click();
+      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-harness-${size}.png`) });
 
       // Assert
       await expect(restart).toBeVisible();
-      await expect(page.locator(".panel-task").getByRole("button", { name: /Restart/ })).toHaveCount(0);
-      const name = await box(header.locator("#panel-title")), button = await box(restart), status = await box(header.locator(".panel-status"));
-      expect(button.y).toBeGreaterThanOrEqual(name.y + name.height - 1);
-      expect(button.y + button.height).toBeLessThanOrEqual(status.y + 1);
-      expect(Math.abs(button.x - name.x)).toBeLessThan(2);
+      await expect(page.locator(".panel-header").getByRole("button", { name: /Restart|^Harness:/ })).toHaveCount(0);
+      const button = await box(restart);
       expect(await lines(restart)).toBe(1);
       await expect(restart).toHaveText("Restart");
       await expect(selector).toBeVisible();
@@ -73,13 +72,14 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       expect(await pageScroll(page)).toBe(0);
     });
 
-    test("the header harness menu dismisses without closing the task panel and Restart sends the selection", async ({ page }) => {
+    test("the harness menu dismisses without closing the task panel and Restart sends the selection", async ({ page }) => {
       // Arrange
       const asked: { method: string; body: string | null }[] = [];
       await open(page, snapshot());
       await page.route("**/api/cfo/restart", (route) => { asked.push({ method: route.request().method(), body: route.request().postData() }); return route.fulfill({ json: {} }); });
-      const header = page.locator(".panel-header");
-      const selector = header.getByRole("button", { name: "Harness: Claude Code" });
+      const section = page.locator(".panel-content > .disclosure.harness");
+      await section.locator("> summary").click();
+      const selector = section.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
       await selector.click();
@@ -93,7 +93,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await selector.click();
       await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
       expect(asked).toEqual([]);
-      await header.getByRole("button", { name: "Restart the CFO" }).click();
+      await section.getByRole("button", { name: "Restart the CFO" }).click();
       await expect.poll(() => asked).toEqual([{ method: "POST", body: JSON.stringify({ harness: "codex" }) }]);
       await expect(page.getByRole("dialog")).toHaveCount(0);
     });
@@ -121,11 +121,12 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
 
       // Act
       await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
-      await page.locator(".panel-content > .disclosure.connections > summary").click();
+      await page.locator(".panel-content > .disclosure.harness > summary").click();
 
       // Assert
       await expect(page.getByText("CFO project root", { exact: true })).toBeVisible();
-      await expect(page.getByRole("list", { name: "Harness and model" })).toContainText("Claude Code");
+      await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Harness: Claude Code" })).toBeVisible();
+      await expect(page.locator(".panel-content > .disclosure.connections")).toHaveCount(0);
       await expect(page.getByText("Choose a goblin to check its connections.", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Dev Drive", { exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Set up", exact: true })).toBeEnabled();

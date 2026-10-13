@@ -5,19 +5,21 @@ import { Icon } from "./Icon";
 import { CfoHarnessSelector } from "./cfo-harness-selector";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
-// Restart for a CFO that runs in its native terminal, in the CFO's panel
-// header right below its name and off its bar: it does what goblins resume
-// does, as for a screen that froze. A CFO still starting has not
-// registered yet, so it has none, and nor does the header's compact form over
-// its terminal. A restart always restarts the CFO, and one that started it on
-// a new conversation says so in one plain line, which stays while the
-// restarted CFO starts, when the board opens its terminal and Restart is gone.
-export function RestartCfoButton({ snapshot, isCompact }: { snapshot: Snapshot; isCompact: boolean }) {
+// isCfoRestartOffered says the CFO runs in its native terminal and has
+// registered, so Restart can reach it: a CFO still starting has none.
+export const isCfoRestartOffered = (snapshot: Snapshot) => snapshot.cfo_runs && !snapshot.cfo_starting && !!snapshot.cfo_terminal;
+
+// Restart for a CFO that runs in its native terminal, under Harness in the
+// CFO's panel and off its bar: it does what goblins resume does, as for a
+// screen that froze. A restart always restarts the CFO, and one that started
+// it on a new conversation says so in one plain line, which stays while the
+// restarted CFO starts, when Restart is gone.
+export function RestartCfoButton({ snapshot }: { snapshot: Snapshot }) {
   const [isRestarting, setRestarting] = useState(false);
   const [selection, setSelection] = useState({ currentHarness: snapshot.cfo_harness, harness: snapshot.cfo_harness });
   const [feedback, showFeedback] = useClickFeedback();
   if (selection.currentHarness !== snapshot.cfo_harness) setSelection({ currentHarness: snapshot.cfo_harness, harness: snapshot.cfo_harness });
-  const isOffered = !isCompact && snapshot.cfo_runs && !snapshot.cfo_starting && !!snapshot.cfo_terminal;
+  const isOffered = isCfoRestartOffered(snapshot);
   if (!isOffered && !feedback) return null;
   // The board shows the restarted CFO from its next snapshot, with its
   // terminal on the new host, so a restart that came back on its

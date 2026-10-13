@@ -61,16 +61,16 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update"}, input.When) {
+	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update", "restart"}, input.When) {
 		apiError(w, 400, "Invalid task engine selection")
 		return
 	}
 	s := h.Service
 	choice := state.EngineChoice{ID: input.Task, Generation: input.Generation, Harness: input.Harness, Model: input.Model, Effort: input.Effort, Requested: time.Now().UTC()}
-	// An update keeps the goblin's own harness, model and effort, so there is
-	// no choice to check against the catalog.
-	isUpdate := input.When == "update"
-	if input.When != "cancel" && !isUpdate {
+	// An update and a restart keep the goblin's own harness, model and
+	// effort, so there is no choice to check against the catalog.
+	isUpdate, isRestart := input.When == "update", input.When == "restart"
+	if input.When != "cancel" && !isUpdate && !isRestart {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
 		catalog, err := s.engineCatalog(ctx, execx.OSRunner{})
@@ -90,7 +90,7 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
-	if errors.Is(err, os.ErrNotExist) && input.Generation == "" && input.When != "cancel" {
+	if errors.Is(err, os.ErrNotExist) && input.Generation == "" && input.When != "cancel" && !isRestart {
 		if err := fleet.SaveQueuedEngine(s.Store.Home, input.Task, input.Revision, input.Harness, input.Model, input.Effort); err != nil {
 			apiError(w, 409, err.Error())
 			return
@@ -130,6 +130,9 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		if record.Phase == "paused" && isUpdate {
 			apiError(w, 409, "A paused goblin starts on the update when it resumes")
 			return
+		} else if record.Phase == "paused" && isRestart {
+			apiError(w, 409, "A paused goblin starts again when it resumes")
+			return
 		} else if record.Phase == "paused" {
 			choice.When = "resume"
 		} else if record.Phase != "running" {
@@ -146,6 +149,9 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, When: "update", Requested: choice.Requested}
+	}
+	if isRestart {
+		choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, When: "restart", Requested: choice.Requested}
 	}
 	if choice.When == "resume" || input.When == "turn-end" || isUpdate {
 		if choice.When == "" {
@@ -170,7 +176,7 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		}{true})
 		return
 	}
-	if input.When != "now" {
+	if input.When != "now" && !isRestart {
 		apiError(w, 400, "Choose when to switch the running task")
 		return
 	}
@@ -209,7 +215,7 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 	delete(s.changeErrors, meta.ID)
 	go func() {
 		args := []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--harness", choice.Harness, "--model", choice.Model, "--effort", choice.Effort, "--force-dirty"}
-		if choice.When == "update" {
+		if choice.When == "update" || choice.When == "restart" {
 			args = []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart"}
 		}
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
@@ -217,9 +223,9 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 		if removeErr := state.RemoveEngineChoice(s.Store.Home.State, meta.ID); removeErr != nil {
 			err = errors.Join(err, removeErr)
 		}
-		outcome := "session switched"
-		if choice.When == "update" {
-			outcome = "session restarted onto its harness update"
+		outcome := map[string]string{"update": "session restarted onto its harness update", "restart": "session restarted"}[choice.When]
+		if outcome == "" {
+			outcome = "session switched"
 		}
 		if err != nil {
 			generation := meta.SpawnGen
