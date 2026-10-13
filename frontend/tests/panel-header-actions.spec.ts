@@ -59,6 +59,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await open(page, snapshot());
       const header = page.locator(".panel-header");
       const restart = header.getByRole("button", { name: "Restart the CFO" });
+      const selector = header.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
       await header.screenshot({ path: testInfo.outputPath(`cfo-header-${size}.png`) });
@@ -71,25 +72,52 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       expect(button.y + button.height).toBeLessThanOrEqual(status.y + 1);
       expect(Math.abs(button.x - name.x)).toBeLessThan(2);
       expect(await lines(restart)).toBe(1);
-      await expect(restart).toHaveAttribute("data-tip", "Restart the CFO or choose another harness.");
+      await expect(restart).toHaveText("Restart");
+      await expect(selector).toBeVisible();
+      const choice = await box(selector);
+      expect(Math.abs(button.y - choice.y)).toBeLessThan(2);
+      expect(choice.x).toBeGreaterThanOrEqual(button.x + button.width);
+      expect(choice.x + choice.width).toBeLessThanOrEqual(viewport.width);
+      expect(await lines(selector)).toBe(1);
       expect(await pageScroll(page)).toBe(0);
     });
 
-    test("Restart in the header still asks first, and Cancel restarts nothing", async ({ page }) => {
+    test("the header harness menu dismisses without closing the task panel and Restart sends the selection", async ({ page }) => {
       // Arrange
-      const asked: string[] = [];
+      const asked: { method: string; body: string | null }[] = [];
       await open(page, snapshot());
-      await page.route("**/api/cfo/restart", (route) => { asked.push(route.request().method()); return route.fulfill({ json: {} }); });
+      await page.route("**/api/cfo/restart", (route) => { asked.push({ method: route.request().method(), body: route.request().postData() }); return route.fulfill({ json: {} }); });
+      const header = page.locator(".panel-header");
+      const selector = header.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
-      await page.locator(".panel-header").getByRole("button", { name: "Restart the CFO" }).click();
-      const dialog = page.getByRole("dialog", { name: "Restart the CFO?" });
-      await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await selector.click();
+      await page.keyboard.press("Escape");
 
       // Assert
-      await expect(dialog).toHaveCount(0);
+      await expect(page.getByRole("menu", { name: "Harness" })).toHaveCount(0);
+      await expect(selector).toBeFocused();
+      await expect(page.locator("#panel-title")).toHaveText("CFO");
       expect(asked).toEqual([]);
+      await selector.click();
+      await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
+      expect(asked).toEqual([]);
+      await header.getByRole("button", { name: "Restart the CFO" }).click();
+      await expect.poll(() => asked).toEqual([{ method: "POST", body: JSON.stringify({ harness: "codex" }) }]);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+
+    test("the compact terminal header has no restart controls", async ({ page }) => {
+      // Arrange
+      await open(page, snapshot());
+
+      // Act
+      await page.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true }).click();
+
+      // Assert
+      await expect(page.locator(".panel-header")).toHaveClass(/compact/);
+      await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
     });
 
     test("each row of the CFO's Workspace keeps its name and its control on one header line, and Set up fits on one line", async ({ page }, testInfo) => {

@@ -266,8 +266,9 @@ It leaves the CFO running only when it could not start it again, such as when th
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
-`cfo resume` with no task named is the same command, and the board offers it as **Restart the CFO** in the header of the CFO's panel, right below its name, which asks first since it interrupts what the CFO is doing.
-Its harness selector offers Claude Code, Codex and pi, starting on the CFO's current harness.
+`cfo resume` with no task named is the same command, and the board offers it as **Restart** in the header of the CFO's task panel, right below its name.
+Beside Restart, a dropdown shows the selected harness's name and icon and offers Claude Code, Codex and pi, starting on the CFO's current harness.
+Selecting a harness sends nothing until Restart is pressed, which immediately interrupts the CFO's current response and restarts it in that harness.
 Keeping that harness resumes its conversation where it can, while choosing another starts a new conversation with the home's digest and remembers the choice for later starts.
 `goblins resume --harness claude|codex|pi` makes the same choice from another terminal.
 A restart that started the CFO on a new conversation says so in one line beside it.
