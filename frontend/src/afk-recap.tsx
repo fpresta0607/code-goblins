@@ -1,5 +1,6 @@
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
+import { AfkIconButton } from "./afk-icon-button";
 import { AfkRecapGroup } from "./afk-recap-group";
 import { AfkRecapRow } from "./afk-recap-row";
 import { askedAndAnswered, byRepository, decisionSays, heldRecommends, heldSays, inGroup, notLanded, safeLink, settled, shownUnder, stillWaiting, type AfkDecision, type AfkReport, type AfkSection } from "./afk";
@@ -12,8 +13,8 @@ import "./lantern.css";
 // The mark each kind of line wears in the recap.
 const MARKS: Record<string, IconName> = { merge: "merge", deploy: "external", migration: "database", install: "download", other: "check", pause: "pause", strike: "close", left: "comment", his: "warning" };
 
-// AfkRecap is the recap's three parts under its headline: Done, Decided for
-// you, and Needs you only when something does.
+// AfkRecap is the recap's three parts under its headline: Needs you first and
+// only when something does, then Done and Decided for you.
 export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report: AfkReport; tasks: Task[]; now: number; onGoThrough: (keys: string[]) => void; onChange: (key: string) => void }) {
   const goblin = (task: string) => tasks.find((one) => one.id === task)?.goblin_name || task;
   const avatar = (task: string) => <Avatar persona={task ? personaFor(tasks.find((one) => one.id === task)) : "cfo"} small />;
@@ -47,8 +48,18 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
   };
   const decided = inGroup(report, "decided");
   const needs = inGroup(report, "needs");
-  const change = (entry: AfkDecision) => entry.item ? <button className="text-button" onClick={() => onChange(entry.item)}>Change</button> : undefined;
+  const waiting = stillWaiting(report.held);
+  const change = (entry: AfkDecision) => entry.item ? <AfkIconButton icon="edit" label="Change answer" onClick={() => onChange(entry.item)} /> : undefined;
   return <>
+    {(needs.length > 0 || waiting.length > 0) && <section className="afk-part needs" aria-label="Needs you">
+      <h3>Needs you</h3>
+      {waiting.length > 0 && <button className="primary go-through" onClick={() => onGoThrough(waiting.map((one) => one.item))}>Go through them</button>}
+      <ul className="afk-rows needs">
+        {needs.flatMap((section) => section.entries).map((entry) => <AfkRecapRow key={entry.at + entry.what} mark={<Icon name="warning" />} what={entry.what} link={entry.link} tone="warning" at={entry.at} now={now} evidence={entry.evidence} />)}
+        {waiting.map((one) => <AfkRecapRow key={one.item + one.at} mark={avatar(one.task)} what={one.what} detail={[heldRecommends(one), heldSays(one)].filter(Boolean).join(" ")} tone="warning" at={one.at} now={now}
+          action={<AfkIconButton icon="question" label="Open in the Command Center" onClick={() => onGoThrough([one.item])} />} />)}
+      </ul>
+    </section>}
     {(done.length > 0 || alsoFinished.length > 0 || spent.length > 0 || report.disk || settledItems.length > 0) && <section className="afk-part" aria-label="Done">
       <h3>Done</h3>
       {done.filter((section) => !section.entries.every((entry) => entry.struck)).map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length}>{doneRows(section)}</AfkRecapGroup>)}
@@ -69,16 +80,8 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
           const { question, answer } = askedAndAnswered(entry.evidence);
           return <AfkRecapRow key={entry.at + entry.what} mark={avatar(entry.task)} what={question} link={entry.link} detail={"The CFO answered " + goblin(entry.task) + ": " + answer} tone="answered" at={entry.at} now={now} evidence={decisionSays(entry).basis} action={change(entry)} />;
         }
-        return <AfkRecapRow key={entry.at + entry.what} mark={<Icon name="comment" />} what={entry.what} detail={"The CFO answered: " + entry.answer} tone="answered" at={entry.at} now={now} evidence={decisionSays(entry).basis} action={change(entry)} />;
+        return <AfkRecapRow key={entry.at + entry.what} mark={avatar("")} what={entry.what} detail={"The CFO answered: " + entry.answer} tone="answered" at={entry.at} now={now} evidence={decisionSays(entry).basis} action={change(entry)} />;
       })}</AfkRecapGroup>)}
-    </section>}
-    {(needs.length > 0 || stillWaiting(report.held).length > 0) && <section className="afk-part needs" aria-label="Needs you">
-      <h3>Needs you</h3>
-      <ul className="afk-rows needs">
-        {needs.flatMap((section) => section.entries).map((entry) => <AfkRecapRow key={entry.at + entry.what} mark={<Icon name="warning" />} what={entry.what} link={entry.link} tone="warning" at={entry.at} now={now} evidence={entry.evidence} />)}
-        {stillWaiting(report.held).map((one) => <AfkRecapRow key={one.item + one.at} mark={avatar(one.task)} what={one.what} detail={[heldRecommends(one), heldSays(one)].filter(Boolean).join(" ")} tone="warning" at={one.at} now={now}
-          action={<button className="text-button" onClick={() => onGoThrough([one.item])}>Answer</button>} />)}
-      </ul>
     </section>}
     {report.notes.length > 0 && <section className="afk-part" aria-label="Not read">
       <h3>Not read</h3>

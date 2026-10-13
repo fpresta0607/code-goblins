@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { Chevron } from "./Chevron";
+import { AfkIconButton } from "./afk-icon-button";
 import { Icon } from "./Icon";
 import { afkTime, linkLabel, safeLink } from "./afk";
 import "./afk.css";
@@ -10,8 +10,8 @@ export type Tone = "done" | "answered" | "warning";
 
 // One line of the AFK recap: its mark, what was done or decided in plain
 // words, with its link, a second line that says how it ended or what was
-// answered, and its time. What it stood on is one tap away, under Evidence,
-// never inline. action is a button of the row's own, such as Change, and
+// answered, and its time. What it stood on is one tap away, under its Evidence
+// button, never inline. action is a button of the row's own, such as Change, and
 // children what the row lists under its words, such as its pull requests.
 export function AfkRecapRow({ mark, what, link = "", detail = "", tone = "done", at = "", now, evidence = "", struck = false, action, children }: {
   mark: ReactNode; what: string; link?: string; detail?: string; tone?: Tone; at?: string; now: number; evidence?: string; struck?: boolean; action?: ReactNode; children?: ReactNode;
@@ -34,9 +34,9 @@ export function AfkRecapRow({ mark, what, link = "", detail = "", tone = "done",
     </div>
     <div className="afk-row-side">
       {href && !named && <a className="afk-row-link" href={href} target="_blank" rel="noreferrer"><Icon name="external" />{linkLabel(href)}</a>}
-      {action}
-      {evidence && <button className="text-button afk-evidence-toggle" aria-expanded={open} aria-controls={open ? shown : undefined} onClick={() => setOpen(!open)}>Evidence<Chevron collapsed={!open} /></button>}
       {at && <time dateTime={at}>{afkTime(at, now)}</time>}
+      {action}
+      {evidence && <AfkIconButton className="afk-evidence-toggle" icon="file" label="Show evidence" aria-expanded={open} aria-controls={open ? shown : undefined} onClick={() => setOpen(!open)} />}
     </div>
   </li>;
 }

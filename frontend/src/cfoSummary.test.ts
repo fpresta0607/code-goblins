@@ -59,13 +59,28 @@ test("while AFK mode is on the bar says so and still counts what waits in the Co
 });
 
 // The Overlord, 2026-10-07: alerts are only for what the Command Center asks
-// him. That the CFO has left goblins' questions unanswered is no longer an
-// alert; the CFO's bar says it, in place of All quiet, while it lasts.
-test("questions the CFO has left unanswered for ten minutes are said on its bar, with their count and age, while it lasts", () => {
-  const cases: [string, Partial<Snapshot>, string][] = [
-    ["three questions, nothing waiting on him", { tasks: [task("a"), task("b")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } }, "3 questions wait for the CFO (11 min). 2 goblins at work."],
-    ["one question, beside an item waiting on him", { tasks: [task("a")], questions: [question("own", "Merge PR 91 now?")], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 1, oldest_age: 600 } }, "1 question waits for the CFO (10 min). 1 goblin at work."],
-    ["the stretch over", { tasks: [task("a")], cfo_quiet: null }, "All quiet. 1 goblin at work."],
+// him. That the CFO has left goblins' questions unanswered is no alert; the
+// CFO's bar says it, in place of All quiet, while it lasts. On 2026-10-13 the
+// bar named a question waiting twenty minutes that his Command Center did not
+// show: the bar now counts only the goblins' questions the Command Center
+// shows him, which is each one the CFO has left for ten minutes.
+test("questions the CFO has left unanswered for ten minutes are said on its bar, with their count and age, and wait in his Command Center", () => {
+  const at = "2026-10-02T12:21:00Z";
+  const goblins = (...ages: number[]) => ages.map((minutes, i) => question("g" + i, "Which layout?", { task: "goblin-a", created_at: new Date(Date.parse(at) - minutes * 60_000).toISOString() }));
+  const cases: [string, Partial<Snapshot>, { waiting: number; line: string }][] = [
+    ["three questions, nothing else waiting on him", { at, tasks: [task("a"), task("b")], questions: goblins(11, 10.5, 10) }, { waiting: 3, line: "3 questions wait for the CFO (11 min). 2 goblins at work." }],
+    ["one question, beside an item waiting on him", { at, tasks: [task("a")], questions: [question("own", "Merge PR 91 now?"), ...goblins(10)] }, { waiting: 2, line: "1 question waits for the CFO (10 min). 1 goblin at work." }],
+    ["a question the CFO has had for nine minutes", { at, tasks: [task("a")], questions: goblins(9) }, { waiting: 0, line: "All quiet. 1 goblin at work." }],
+    ["a question the CFO answered", { at, tasks: [task("a")], questions: goblins(30).map((asked) => ({ ...asked, status: "succeeded" })) }, { waiting: 0, line: "All quiet. 1 goblin at work." }],
   ];
-  for (const [name, changes, line] of cases) assert.equal(cfoSummary(snapshot(changes)).line, line, name);
+  for (const [name, changes, summary] of cases) assert.deepEqual(cfoSummary(snapshot(changes)), summary, name);
+});
+
+// The bar on 2026-10-13 said 15 goblins at work while six of them were paused:
+// it counted every task with a session. A paused goblin's terminal is
+// stopped, whatever it waits for, so only the others are at work.
+test("the bar counts only the goblins at work, never one paused, pausing or resuming", () => {
+  const working = Array.from({ length: 9 }, (_, i) => task("working-" + i, { phase: "working" }));
+  const paused = ["paused", "paused", "paused", "paused", "pausing", "resuming"].map((phase, i) => task(phase + "-" + i, { phase }));
+  assert.equal(cfoSummary(snapshot({ tasks: [...working, ...paused] })).line, "All quiet. 9 goblins at work.");
 });
