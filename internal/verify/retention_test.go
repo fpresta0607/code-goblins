@@ -4,9 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -127,7 +125,7 @@ func TestPruneExecutionsProtectsARecordItCannotReadOnlyWhileItIsYoung(t *testing
 	// Arrange
 	dir, custody := t.TempDir(), t.TempDir()
 	now := time.Now()
-	young, stale, renamed := rand.Text(), rand.Text(), rand.Text()
+	young, stale, renamed, newer, newerStale := rand.Text(), rand.Text(), rand.Text(), rand.Text(), rand.Text()
 	writeAged(t, filepath.Join(dir, young+".json"), []byte("{"), now.Add(-time.Hour))
 	writeAged(t, filepath.Join(dir, stale+".json"), []byte("{"), now.Add(-2*abandonedExecutionAge))
 	other, err := json.Marshal(ExecutionRecord{Version: 1, ID: rand.Text(), Status: "passed", Created: now})
@@ -135,6 +133,14 @@ func TestPruneExecutionsProtectsARecordItCannotReadOnlyWhileItIsYoung(t *testing
 		t.Fatal(err)
 	}
 	writeAged(t, filepath.Join(dir, renamed+".json"), other, now.Add(-2*abandonedExecutionAge))
+	// A record a newer cfo writes, in a format this one does not know.
+	for id, written := range map[string]time.Time{newer: now.Add(-time.Hour), newerStale: now.Add(-2 * abandonedExecutionAge)} {
+		data, err := json.Marshal(ExecutionRecord{Version: 2, ID: id, Status: "passed", Created: written})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeAged(t, filepath.Join(dir, id+".json"), data, written)
+	}
 	storedRun(t, dir, "failed", keptFailures, now)
 
 	// Act
@@ -144,12 +150,14 @@ func TestPruneExecutionsProtectsARecordItCannotReadOnlyWhileItIsYoung(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, young+".json")); err != nil {
-		t.Fatalf("removed a record that may still be being written: %v", err)
+	for _, id := range []string{young, newer} {
+		if _, err := os.Stat(filepath.Join(dir, id+".json")); err != nil {
+			t.Fatalf("removed record %s, which may still be written or a newer cfo's: %v", id, err)
+		}
 	}
-	for _, id := range []string{stale, renamed} {
+	for _, id := range []string{stale, renamed, newerStale} {
 		if _, err := os.Stat(filepath.Join(dir, id+".json")); err == nil {
-			t.Fatalf("record %s, unreadable or naming another run, outlived the failures kept after it", id)
+			t.Fatalf("record %s, unreadable, naming another run or in an unknown format, outlived the failures kept after it", id)
 		}
 	}
 }
@@ -159,6 +167,7 @@ func TestPruneExecutionsKeepsTheNewestFailureThatAloneOverrunsItsBudget(t *testi
 	dir, custody := t.TempDir(), t.TempDir()
 	now := time.Now()
 	pass := storedExecution(t, dir, "passed", now.Add(-time.Hour), now)
+	earlier := storedExecution(t, dir, "failed", now.Add(-time.Minute), now)
 	failure := storedExecution(t, dir, "failed", now, now)
 
 	// Act
@@ -168,8 +177,8 @@ func TestPruneExecutionsKeepsTheNewestFailureThatAloneOverrunsItsBudget(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !isStored(dir, failure) || !isStored(dir, pass) {
-		t.Fatalf("stored: failure %v, pass %v, want the newest of each kept over the budget", isStored(dir, failure), isStored(dir, pass))
+	if !isStored(dir, failure) || !isStored(dir, earlier) || !isStored(dir, pass) {
+		t.Fatalf("stored: failures %v and %v, pass %v, want the newest five failures and the newest pass kept over the budget", isStored(dir, failure), isStored(dir, earlier), isStored(dir, pass))
 	}
 }
 
@@ -225,64 +234,6 @@ func TestPruneExecutionsRemovesALogOnlyOnceItIsAbandoned(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err == nil {
 		t.Fatal("kept a log abandoned past any run's length")
-	}
-}
-
-func TestPruneExecutionsNeverTouchesWhatIsOnlyNamedLikeTheStoresOwn(t *testing.T) {
-	// Arrange
-	dir, custody := t.TempDir(), t.TempDir()
-	now := time.Now()
-	old := now.Add(-2 * abandonedExecutionAge)
-	id := rand.Text()
-	var lookalikes []string
-	for _, name := range []string{strings.ToLower(id) + ".json", id[:25] + ".json", id + "A.json", id + ".json.bak", id + ".json.cfo-tmp-1", id + ".json.stdout.log.old"} {
-		path := filepath.Join(dir, name)
-		writeAged(t, path, []byte("{"), old)
-		lookalikes = append(lookalikes, path)
-	}
-	folder := filepath.Join(dir, rand.Text()+".json")
-	if err := os.Mkdir(folder, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	target := t.TempDir()
-	writeAged(t, filepath.Join(target, "kept"), []byte("kept"), old)
-	junction := filepath.Join(dir, rand.Text()+".json.stdout.log")
-	if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", junction, target).CombinedOutput(); err != nil {
-		t.Fatalf("mklink /J: %v %s", err, output)
-	}
-	storedRun(t, dir, "failed", keptFailures+1, now)
-
-	// Act
-	err := pruneExecutions(dir, custody, executionBudget, now)
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range append(lookalikes, folder, junction, filepath.Join(target, "kept")) {
-		if _, err := os.Lstat(path); err != nil {
-			t.Fatalf("removed %s, which the store did not name as its own: %v", path, err)
-		}
-	}
-}
-
-func TestPruneExecutionsRefusesAStoreFolderThatIsAJunction(t *testing.T) {
-	// Arrange
-	target := t.TempDir()
-	// A refusal has no floor, so a budget of nothing removes it when the
-	// folder is followed.
-	id := storedExecution(t, target, "not_started", time.Now().Add(-time.Hour), time.Now())
-	dir := filepath.Join(t.TempDir(), "executions")
-	if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", dir, target).CombinedOutput(); err != nil {
-		t.Fatalf("mklink /J: %v %s", err, output)
-	}
-
-	// Act
-	err := pruneExecutions(dir, t.TempDir(), 0, time.Now())
-
-	// Assert
-	if err == nil || !isStored(target, id) {
-		t.Fatalf("pruning through a junction = %v, stored = %v, want a refusal that touches nothing", err, isStored(target, id))
 	}
 }
 

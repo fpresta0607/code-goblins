@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -396,5 +397,28 @@ func TestVerifyPrunesTheExecutionsStore(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("the tier's own evidence %s was pruned: %v", path, err)
 		}
+	}
+}
+
+// A store the tier cannot prune is named on standard error, and the tier
+// keeps its own result.
+func TestVerifyKeepsItsResultWhenItCannotPruneTheStore(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	executions := filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "executions")
+	if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", executions, t.TempDir()).CombinedOutput(); err != nil {
+		t.Fatalf("mklink /J: %v %s", err, output)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || !strings.Contains(stderr.String(), "could not all be removed") || !strings.Contains(stderr.String(), "not a plain folder") {
+		t.Fatalf("exit = %d, stderr = %q, want a pass that names the store it could not prune", exit, stderr.String())
+	}
+	if results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json")); len(results) != 1 || results[0].Status != "passed" {
+		t.Fatalf("saved = %+v, want the tier's own pass", results)
 	}
 }
