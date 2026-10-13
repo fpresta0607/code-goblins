@@ -51,7 +51,7 @@ const pollAncestry = 8
 // under a process that does. Only the command lines of node and lavish-axi
 // are read, so the check opens a handful of processes rather than every one
 // on the machine.
-func (p ProcessPolls) Polls(context.Context) ([]Poll, error) {
+func (p ProcessPolls) Polls(ctx context.Context) ([]Poll, error) {
 	processes, err := proc.Processes()
 	if err != nil {
 		return nil, err
@@ -83,6 +83,9 @@ func (p ProcessPolls) Polls(context.Context) ([]Poll, error) {
 			if dir, err := proc.WorkingDirectory(process.PID); err == nil {
 				page = filepath.Join(dir, page)
 			}
+		}
+		if environment, err := proc.Environment(process.PID); err == nil && isolatedPagePoll(ctx, page, environment) {
+			continue
 		}
 		polls = append(polls, Poll{PID: process.PID, Start: chain[0].Start, Task: task, Page: page})
 	}

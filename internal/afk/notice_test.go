@@ -25,7 +25,9 @@ func TestTheCFOIsToldNothingWhileAFKModeIsOff(t *testing.T) {
 
 // The notice is the authority the CFO acts on while the Overlord is away, so
 // every term of his directive is pinned: what the CFO decides, the checks a
-// merge word needs, and each thing that stays his alone.
+// merge word needs, and each thing that stays his alone. The Overlord,
+// 2026-10-12 on the recap's page: under AFK only what a tool refuses or needs
+// his sign-in stays his.
 func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 	notice := strings.Join(Notice(State{On: true, Session: "afk-1", Since: night, From: "his own terminal (powershell.exe pid 4242)"}), "\n")
 
@@ -48,29 +50,37 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"migration":                      "A merged migration that adds or changes, applied to production and dev and read back",
 		"install":                        "update once the merge queue settles",
 		"answers":                        "A goblin's question that is yours to answer",
-		"his alone: never decided":       "never decided for him",
-		"his alone: destructive":         "a migration or command that drops or deletes data",
-		"his alone: branch deletion":     "deleting a branch",
-		"his alone: a teammate's work":   "pushing to a teammate's branch or merging a teammate's pull request",
-		"his alone: spend":               "any spend beyond his account's limits",
+		"his alone: what it is":          "only what a tool refuses or needs his own sign-in stays his",
+		"his alone: a teammate's merge":  "merging a teammate's pull request",
+		"his alone: a merge's branch":    "deleting a branch through a merge",
+		"his alone: an update":           "updating Code Goblins",
+		"his alone: spend":               "any spend his account refuses",
 		"his alone: identity":            "his own sign-ins and identity checks",
-		"his alone: a tool's refusal":    "anything a tool refuses",
-		"his alone: never asked":         "Never ask him or hold anything for him while he is away",
-		"his alone: no question":         "never publish it as a cfo question or a cfo run-request",
-		"his alone: a backlog row":       "give it a backlog row in data/backlog.md",
-		"his alone: logged as left":      "cfo afk log --kind left",
-		"his alone: worked around":       "work around it",
-		"his alone: asked once back":     "asked in the Command Center as your question",
-		"his alone: settled once done":   "cfo afk settle --at <its at> --how",
+		"his alone: a tool's refusal":    "anything else a tool refuses",
+		"the rest is the CFO's":          "Everything else is yours to decide",
+		"deleting data: a backup first":  "a migration or command that drops or deletes data included, which you run only after a backup you can restore",
+		"nothing asked, away or back":    "Nothing is asked of him, while he is away or when he is back",
+		"no question":                    "never publish anything as a cfo question or a cfo run-request",
+		"no question once back":          "nothing you log becomes a Command Center question",
+		"his step: what it is":           "A step you cannot take, such as his own sign-in or a step a tool refuses",
+		"his step: one plain line":       "one plain line at the end of his recap",
+		"his step: a backlog row":        "give it a backlog row in data/backlog.md",
+		"his step: logged as his":        "cfo afk log --kind his",
+		"his step: worked around":        "work around it",
+		"his step: settled once done":    "cfo afk settle --at <its at> --how",
 		"questions refused":              "cfo question refuses",
 		"the goblin moves on":            "move to its next piece of work",
 		"the command that logs the rest": "cfo afk log --kind",
-		"a decision the CFO answers":     "Answer it yourself, act on your answer",
+		"a decision the CFO answers":     "Answer it yourself with your recommendation, act on your answer",
+		"logged as left":                 "cfo afk log --kind left",
 		"logged with its answer":         "--answer",
 	} {
 		if !strings.Contains(notice, phrase) {
 			t.Errorf("the notice does not say %s (%q):\n%s", name, phrase, notice)
 		}
+	}
+	if strings.Contains(notice, "asked in the Command Center") {
+		t.Errorf("the notice still says a line is asked in the Command Center once he is back:\n%s", notice)
 	}
 	if strings.ContainsRune(notice, 0x2014) {
 		t.Error("the notice uses an em dash")
