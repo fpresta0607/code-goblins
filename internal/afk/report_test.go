@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func nightReport() Report {
 		Session: "afk-1", Since: night, Ended: night.Add(10*time.Hour + 21*time.Minute),
 		From: "his own terminal (powershell.exe pid 4242)", EndedFrom: "his own terminal (powershell.exe pid 5151)",
 		Decisions: []Entry{
-			{Kind: KindLeft, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in"},
+			{Kind: KindHis, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in"},
 			{Kind: KindMerge, What: "https://github.com/acme/api/pull/12", Link: "https://github.com/acme/api/pull/12", Evidence: "gate run 41 passed and its test output was read; head abc1234; 7 checks green", Outcome: "merged"},
 			{Kind: KindMerge, What: "https://github.com/acme/api/pull/13", Evidence: "verified locally"},
 			{Kind: KindDeploy, What: "acme production", Link: "https://acme.example/health", Evidence: "/health reads 200 with commit abc1234"},
@@ -91,7 +92,9 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 		"a held item that closed":       "withdrawn: pd-auth reported again",
 		"what was spent":                "claude week: 40% used when it turned on, 47% when it turned off (7 points)",
 		"what it could not read":        "1 line of the log could not be read",
-		"how many are for him":          "For you (2), each as it stands now",
+		"his step, last":                "NEEDS YOU\n\nNeeds you (1)\n- Sign in to Vercel for pd-auth\n",
+		"what still waits on him":       "Waiting on you in the Command Center (1), each as it stands now",
+		"what no longer waits on him":   "Settled (1), each as it stands now",
 		"how many merged":               "Merged (1)",
 		"merge words that did not land": "Not merged (1)",
 	} {
@@ -99,8 +102,8 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 			t.Errorf("the report does not say %s (%q):\n%s", name, phrase, report)
 		}
 	}
-	// What was left for him is with what was held for him, as it stands now,
-	// and a heading with nothing under it is not there.
+	// Nothing is left for him as a question, and a heading with nothing under
+	// it is not there.
 	for _, phrase := range []string{"Left for you", "Installed (0)", "Migrations applied (0)"} {
 		if strings.Contains(report, phrase) {
 			t.Errorf("the report says %q:\n%s", phrase, report)
@@ -144,8 +147,8 @@ func TestAHeldItemSaysWhatWasRecommendedForIt(t *testing.T) {
 	}
 }
 
-// The goblins paused at a floor are listed after what the CFO decided, under
-// their own heading, and only in a stretch that paused one.
+// The goblins paused at a floor are listed under what was done, under their
+// own heading, and only in a stretch that paused one.
 func TestTheReportListsTheGoblinsPausedAtAFloor(t *testing.T) {
 	// Arrange
 	report := nightReport()
@@ -159,8 +162,8 @@ func TestTheReportListsTheGoblinsPausedAtAFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := sections[len(sections)-1]; last.Title != "Paused at a floor" || len(last.Entries) != 1 || last.Entries[0].Task != "nw-search-index" {
-		t.Errorf("the last heading = %+v, want the goblin paused at the memory floor", last)
+	if i := slices.IndexFunc(sections, func(section Section) bool { return section.Title == "Paused at a floor" }); i < 0 || sections[i].Group != GroupDone || len(sections[i].Entries) != 1 || sections[i].Entries[0].Task != "nw-search-index" {
+		t.Errorf("headings = %+v, want the goblin paused at the memory floor under Done", sections)
 	}
 	for _, line := range []string{"Paused at a floor (1)\n", "- nw-search-index: at the memory floor: paused\n", "  Evidence: 3.1 GB of memory and 6.2 GB of commit free on two readings in a row, under the 4 GB floor\n"} {
 		if !strings.Contains(out.String(), line) {
@@ -180,12 +183,12 @@ func TestAQuietStretchReportsNothingRatherThanNothingAtAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, phrase := range []string{"For you (0)", "Goblins finished (0)"} {
+	for _, phrase := range []string{"Nothing needs you.", "Goblins finished (0)"} {
 		if !strings.Contains(out.String(), phrase) {
 			t.Errorf("a quiet stretch's report does not say %q:\n%s", phrase, out.String())
 		}
 	}
-	for _, phrase := range []string{"Merged (0)", "Deployed (0)", "Left for you"} {
+	for _, phrase := range []string{"Merged (0)", "Deployed (0)", "Left for you", "DECIDED FOR YOU", "NEEDS YOU"} {
 		if strings.Contains(out.String(), phrase) {
 			t.Errorf("a quiet stretch's report says %q, a heading with nothing under it:\n%s", phrase, out.String())
 		}
@@ -411,23 +414,67 @@ func TestTheReportIsKeptForTheStretchItEnds(t *testing.T) {
 	}
 }
 
-// The report's decisions sit under the same headings in the CFO's text and on
-// the board's page. A heading is there only when it holds something, and
-// what was left for him is under none of them: it is with what was held for
-// him, as it stands now.
-func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
+func TestAReportedDecisionAlreadyInTheCommandCenterAppearsOnlyOnce(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		isWaiting bool
+		now       string
+		settled   string
+	}{
+		{name: "waiting", isWaiting: true, now: "still waiting on you"},
+		{name: "answered", now: "you answered it: Leave it parked"},
+		{name: "settled", now: "settled by the CFO: the existing token works", settled: "the existing token works"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			decision := Entry{At: night, Kind: KindLeft, What: "Sign in to Fly again?", Evidence: "the token was refused", Settled: scenario.settled}
+			report := Report{
+				Since: night, Ended: night.Add(time.Hour), Decisions: []Entry{decision},
+				Held: []Held{{Item: "question:" + LeftQuestionID(decision), What: decision.What, At: night, Waiting: scenario.isWaiting, Now: scenario.now, Settled: scenario.settled}},
+			}
+
+			sections, text := report.Sections(), rendered(t, report)
+
+			if len(sections) != 0 {
+				t.Errorf("sections = %+v, want the held question alone to report its current state", sections)
+			}
+			if strings.Count(text, decision.What) != 1 || !strings.Contains(text, scenario.now) {
+				t.Errorf("report = %s, want the question once with its current state", text)
+			}
+			if !scenario.isWaiting && strings.Contains(text, "NEEDS YOU") {
+				t.Errorf("report = %s, want no Needs you after the question was handled", text)
+			}
+			if len(report.Decisions) != 1 || !reflect.DeepEqual(report.Decisions[0], decision) {
+				t.Fatal("rendering changed the saved decision")
+			}
+		})
+	}
+}
+
+// The report's lines sit under the same headings in the CFO's text and on the
+// board's page, each heading in its part of the recap, in the order he reads
+// them: what was done, leading with what did not land and then what changed
+// for him, then what the CFO decided, and last what needs him. A heading is
+// there only when it holds something.
+func TestTheReportsLinesSitUnderItsHeadingsInTheRecapsOrder(t *testing.T) {
 	// Act
 	night, quiet := nightReport().Sections(), Report{}.Sections()
 
 	// Assert
-	if got, want := titled(night), []string{"Merged 1", "Not merged 1", "Deployed 1", "Answered for goblins 1"}; !slices.Equal(got, want) {
+	var got []string
+	for _, section := range night {
+		got = append(got, section.Group+": "+section.Title+" "+strconv.Itoa(len(section.Entries)))
+	}
+	if want := []string{"done: Not merged 1", "done: Deployed 1", "done: Merged 1", "decided: For the goblins 1", "needs: Needs you 1"}; !slices.Equal(got, want) {
 		t.Errorf("the night's headings = %q, want %q", got, want)
 	}
-	if merged := night[0].Entries[0]; merged.What != "https://github.com/acme/api/pull/12" || merged.Outcome != OutcomeMerged {
+	if unmerged := night[0].Entries[0]; unmerged.What != "https://github.com/acme/api/pull/13" || unmerged.Outcome != "" {
+		t.Errorf("under Not merged = %+v, want the one with no outcome", unmerged)
+	}
+	if merged := night[2].Entries[0]; merged.What != "https://github.com/acme/api/pull/12" || merged.Outcome != OutcomeMerged {
 		t.Errorf("under Merged = %+v, want the merge word whose merge was recorded", merged)
 	}
-	if unmerged := night[1].Entries[0]; unmerged.What != "https://github.com/acme/api/pull/13" || unmerged.Outcome != "" {
-		t.Errorf("under Not merged = %+v, want the one with no outcome", unmerged)
+	if answered := night[3].Entries[0]; answered.Item != "question:notify-pd-billing-12" {
+		t.Errorf("under For the goblins = %+v, want it to name its question in his History", answered)
 	}
 	if len(quiet) != 0 {
 		t.Errorf("a quiet stretch's headings = %q, want none", titled(quiet))
@@ -438,10 +485,10 @@ func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
 }
 
 // A decision the CFO answered itself under AFK mode is settled when it turns
-// off, so the report recaps it first, under a heading of its own, with the
-// CFO's answer and nothing of what it stood on, and never with what was left
-// for him. A struck one is under Struck by the CFO alone.
-func TestADecisionTheCFOAnsweredIsRecappedUnderAnsweredForYou(t *testing.T) {
+// off, so the report recaps it under For you, naming its question in his
+// History, with the CFO's answer and nothing of what it stood on. A struck
+// one is under Struck by the CFO alone.
+func TestADecisionTheCFOAnsweredIsRecappedUnderForYou(t *testing.T) {
 	// Arrange
 	decided := Entry{At: night, Kind: KindLeft, What: "Which fallback does the gate policy take?", Evidence: "the machine config and the policy disagree", Diagnosis: "two fallbacks", Tried: "read both", Options: []string{"Drop it", "Keep it"}, Answer: "Drop it"}
 	struck := decided
@@ -453,13 +500,13 @@ func TestADecisionTheCFOAnsweredIsRecappedUnderAnsweredForYou(t *testing.T) {
 	sections, text := report.Sections(), rendered(t, report)
 
 	// Assert
-	if got, want := titled(sections), []string{"Answered for you 1", "Merged 1", "Not merged 1", "Deployed 1", "Answered for goblins 1", "Struck by the CFO 1"}; !slices.Equal(got, want) {
+	if got, want := titled(sections), []string{"Not merged 1", "Deployed 1", "Merged 1", "Struck by the CFO 1", "For you 1", "For the goblins 1", "Needs you 1"}; !slices.Equal(got, want) {
 		t.Fatalf("headings = %q, want %q", got, want)
 	}
-	if recap := sections[0].Entries[0]; recap.What != decided.What || recap.Answer != "Drop it" {
-		t.Errorf("under Answered for you = %+v, want the decision with the CFO's answer", recap)
+	if recap := sections[4].Entries[0]; recap.What != decided.What || recap.Answer != "Drop it" || recap.Item != "question:"+LeftQuestionID(decided) {
+		t.Errorf("under For you = %+v, want the decision with the CFO's answer and its question in History", recap)
 	}
-	if want := "\nAnswered for you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it. You can change it in History.\n\nMerged (1)\n"; !strings.Contains(text, want) {
+	if want := "\nDECIDED FOR YOU\n\nFor you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it. You can change it in History.\n\nFor the goblins (1)\n"; !strings.Contains(text, want) {
 		t.Errorf("the CFO's text lacks the recap %q:\n%s", want, text)
 	}
 }

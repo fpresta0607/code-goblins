@@ -63,7 +63,7 @@ test("every caret opens or closes, but for the pager's arrows", () => {
   const drawn = files.flatMap((name) => caretsIn(name).map((kind) => name + ": " + kind));
 
   // Assert
-  assert.deepEqual(drawn, ["Disclosure.tsx: icon", "Lineage.tsx: fold", "Orchestration.tsx: fold", "Pager.tsx: icon", "Pager.tsx: icon", "TreeCount.tsx: fold"]);
+  assert.deepEqual(drawn, ["Disclosure.tsx: icon", "Lineage.tsx: fold", "Orchestration.tsx: fold", "Pager.tsx: icon", "Pager.tsx: icon", "TreeCount.tsx: fold", "afk-recap-row.tsx: fold"]);
 });
 
 test("whatever opens and closes on the board is the Disclosure, which draws the one caret", () => {

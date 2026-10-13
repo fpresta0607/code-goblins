@@ -35,8 +35,10 @@ const RESEND_MS = 1000;
 // A focus opens its item; one without a key opens the first item waiting on
 // the Overlord, or the list when nothing waits. One with keys, as Go through
 // them on the AFK report names what still waits from the stretch, steps
-// through only those.
-export interface CommandFocus { key: string; at: number; keys?: string[] }
+// through only those. One with change opens the answered question at that
+// item key on its change card, as History's Change answer does, as Change on
+// the AFK recap asks.
+export interface CommandFocus { key: string; at: number; keys?: string[]; change?: string }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
@@ -135,11 +137,13 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
+    const answered = focus?.change ? itemFor(snapshot, focus.change) : undefined;
     // A focus on an item he already answered or cleared, as from a
     // notification that outlived it, opens the list, never another item.
     const key = focus?.key ? cardKey(snapshot, focus.key) : waiting[0]?.key;
     setScope(focus?.keys ?? null);
-    if (focus && key && unscoped.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
+    if (answered?.kind === "question" && canChange(answered.question)) { setInbox(false); setChanging(answered.question.id); }
+    else if (focus && !focus.change && key && unscoped.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
     else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,

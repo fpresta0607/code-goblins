@@ -186,7 +186,7 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 // the Overlord asked on 2026-10-12: it stays in History as the goblin's
 // question with the CFO's answer, given while he was away, where he can
 // change it, and it is never asked of him again, nor listed under For you.
-// The report recaps it under Answered for goblins.
+// The report recaps it under For the goblins.
 func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	// Arrange
 	s, h, _, _, connection := pageFixture(t)
@@ -218,9 +218,9 @@ func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	if len(report.Held) != 0 {
 		t.Errorf("For you = %+v, want nothing: the CFO answered the page", report.Held)
 	}
-	i := slices.IndexFunc(report.Sections(), func(section afk.Section) bool { return section.Title == "Answered for goblins" })
+	i := slices.IndexFunc(report.Sections(), func(section afk.Section) bool { return section.Title == "For the goblins" })
 	if i < 0 || len(report.Sections()[i].Entries) != 1 || report.Sections()[i].Entries[0].What != q.ID {
-		t.Errorf("the report's sections = %+v, want the page's answer under Answered for goblins", report.Sections())
+		t.Errorf("the report's sections = %+v, want the page's answer under For the goblins", report.Sections())
 	}
 }
 

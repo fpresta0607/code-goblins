@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-// A line left for the Overlord that the CFO saw to later in the stretch, as
-// three of the six left on the night of 2026-10-08 were, is settled with what
-// became of it. The log keeps the line and the settle after it, and the line
-// folds into a decision marked settled.
-func TestTheCFOSettlesALineLeftForHimWithWhatBecameOfIt(t *testing.T) {
+// A step only the Overlord could take that the CFO saw to later in the
+// stretch, as three of the six left on the night of 2026-10-08 were, is
+// settled with what became of it. The log keeps the line and the settle after
+// it, and the line folds into a decision marked settled.
+func TestTheCFOSettlesAStepOnlyHeCouldTakeWithWhatBecameOfIt(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
-	left, err := Log(dir, leftForHim(), night.Add(time.Hour))
+	left, err := Log(dir, hisStep(), night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,9 +39,10 @@ func TestTheCFOSettlesALineLeftForHimWithWhatBecameOfIt(t *testing.T) {
 	}
 }
 
-// A settle names a line left for him in the stretch that is on, says what
+// A settle names a step only he can take in the stretch that is on, says what
 // became of it, and is made once: everything else is refused and writes
-// nothing to the log.
+// nothing to the log. A decision the CFO answered is settled in his History
+// once AFK mode turns off, never by a settle.
 func TestSettleRefusesALineItCannotName(t *testing.T) {
 	cases := []struct {
 		name string
@@ -53,8 +54,8 @@ func TestSettleRefusesALineItCannotName(t *testing.T) {
 		before func(t *testing.T, dir string, left Entry)
 		want   string
 	}{
-		{name: "a line the log does not hold", line: func(Entry, Entry) time.Time { return night.Add(9 * time.Hour) }, how: "done", want: "no line left for him at"},
-		{name: "a decision that was not left for him", line: func(_, merge Entry) time.Time { return merge.At }, how: "done", want: "no line left for him at"},
+		{name: "a line the log does not hold", line: func(Entry, Entry) time.Time { return night.Add(9 * time.Hour) }, how: "done", want: "no step only he can take at"},
+		{name: "a decision that is not his step", line: func(_, merge Entry) time.Time { return merge.At }, how: "done", want: "no step only he can take at"},
 		{name: "no word of what became of it", line: func(left, _ Entry) time.Time { return left.At }, how: "  ", want: "what became of the line"},
 		{name: "a struck line", line: func(left, _ Entry) time.Time { return left.At }, how: "done", before: func(t *testing.T, dir string, left Entry) {
 			if _, err := Strike(dir, left.At, "written by mistake", night.Add(90*time.Minute)); err != nil {
@@ -70,13 +71,13 @@ func TestSettleRefusesALineItCannotName(t *testing.T) {
 			if _, err := TurnOff(dir, "his own terminal", night.Add(90*time.Minute)); err != nil {
 				t.Fatal(err)
 			}
-		}, want: "Command Center"},
+		}, want: "a line in his recap"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
 			dir, _ := turnedOn(t)
-			left, err := Log(dir, leftForHim(), night.Add(time.Hour))
+			left, err := Log(dir, hisStep(), night.Add(time.Hour))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -107,7 +108,7 @@ func TestSettleRefusesALineItCannotName(t *testing.T) {
 func TestSettleAfterAFKModeTurnedOffIsNotOn(t *testing.T) {
 	// Arrange
 	dir, _ := turnedOn(t)
-	left, err := Log(dir, leftForHim(), night.Add(time.Hour))
+	left, err := Log(dir, hisStep(), night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

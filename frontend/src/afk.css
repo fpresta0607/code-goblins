@@ -43,29 +43,19 @@
 
 .cfo-rest { flex-wrap: wrap; container-type: inline-size; }
 
-/* What is held, drawn as the Command Center's inbox. What was recommended for
-   an item reads as the Command Center's reason under an answer does; an item
-   that still waits says so in the colour of waiting; a narrow list puts its
-   age under its words. */
-.afk-held small.afk-recommends { color: var(--muted); font-weight: 500; }
-.afk-held small.afk-waiting { color: var(--amber); }
-.afk-held small.afk-settled { color: var(--mint); }
-@container (max-width: 640px) {
-  .inbox-list.afk-held li { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .inbox-list.afk-held li > time { grid-column: 2; grid-row: 2; justify-self: start; }
-  .inbox-list.afk-held li > :last-child { grid-column: 3; grid-row: 1; }
-}
-
 /* The questions before AFK mode turns on and when he is back. The offer takes
    the focus itself, and being over the page is what shows it. */
 .afk-dialog .preservation-notice { margin: 16px 0 0; text-align: left; }
 .afk-dialog .stop-task-choices:last-child { margin-bottom: 0; }
 .afk-dialog:focus-visible { outline: none; }
 
-/* The report: one page over the board. Its headline in plain words beside Go
-   through them, which a narrow header puts under the words, then what is for
-   him, then what the CFO did, a drawer to a heading, each decision with what
-   it stood on, which folds to two lines until he asks for the rest. */
+/* The recap: one page over the board, laid out as a Scrawl page is. Its
+   headline in plain words beside Go through them, which a narrow header puts
+   under the words, then Done, Decided for you and Needs you, each a heading
+   in the display face over its groups. A group is one card of lines with a
+   rule between them: a line's mark, its words and how it ended, and on its
+   right its link, Change, Evidence and time. Evidence opens under the words.
+   A phone puts the right side under the words. */
 .afk-report .command-center-heading { flex-wrap: wrap; }
 .afk-report-title { display: grid; gap: 4px; flex: 1 1 22rem; min-width: 0; }
 .afk-report-title p { margin: 0; overflow-wrap: anywhere; }
@@ -73,23 +63,45 @@
 .afk-headline strong { color: #fff; }
 .go-through { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .go-through .icon { width: 18px; height: 18px; }
-.question-modal.afk-report section { margin-top: 26px; }
-.question-modal.afk-report .afk-did { margin-top: 26px; }
-.question-modal.afk-report .afk-did section { margin-top: 4px; }
-.question-modal.afk-report h3, .question-modal.afk-report h4 { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font: 400 1.1875rem/1.3 var(--font-display); }
-.inbox-list.afk-decisions li { grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; padding: 10px 12px; }
-.afk-decisions .delivery { margin-top: 2px; }
-.afk-decisions .inbox-text { gap: 2px; }
-.afk-decisions small.afk-not-landed { color: var(--amber); }
-.afk-decisions small.afk-answered { color: var(--mint); }
-.afk-evidence { display: block; max-height: calc(1.5em * 2); overflow: hidden; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
-.afk-evidence.expanded { max-height: none; overflow: visible; }
-.inbox-list.afk-lines li { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; overflow-wrap: anywhere; }
+.afk-part { margin-top: 30px; }
+.afk-part:first-of-type { margin-top: 6px; }
+.question-modal.afk-report .afk-part > h3 { margin: 0 0 6px; font: 400 1.5rem/1.3 var(--font-display); color: #f4fbff; }
+.afk-part-note { margin: 0 0 4px; color: var(--muted); }
+.afk-group { margin-top: 16px; }
+.question-modal.afk-report .afk-group h4 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font: 400 1.0625rem/1.3 var(--font-display); color: #cfe0dc; }
+.afk-rows { list-style: none; margin: 0; padding: 0; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); }
+.afk-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 10px 14px; }
+.afk-row + .afk-row { border-top: 1px solid var(--glass-border); }
+.afk-row.note { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.afk-row-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--field-bg); color: var(--mint); }
+.afk-row-mark .icon { width: 16px; height: 16px; }
+.afk-row-mark .goblin-avatar { width: 28px; height: 28px; }
+.afk-row.warning .afk-row-mark { color: var(--amber); }
+.afk-row-text { display: grid; gap: 2px; min-width: 0; padding-top: 3px; }
+.afk-row-what { color: #eef3f1; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.afk-row-what a { color: inherit; text-decoration: none; }
+.afk-row-what a:hover { color: var(--mint); text-decoration: underline; }
+.afk-row-detail { color: var(--muted); font-size: .9375rem; line-height: 1.45; overflow-wrap: anywhere; }
+.afk-row.answered .afk-row-detail { color: var(--mint); }
+.afk-row.warning .afk-row-detail { color: var(--amber); }
+.afk-row-evidence { margin: 8px 0 2px; padding: 10px 12px; border-left: 2px solid var(--glass-border-hover); border-radius: 0 8px 8px 0; background: var(--field-bg); color: var(--muted); font-size: .9375rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-line; }
+.afk-row-side { display: flex; align-items: center; gap: 14px; padding-top: 4px; white-space: nowrap; }
+.afk-row-side time { color: var(--muted); font-size: .9375rem; }
+.afk-row-link { display: inline-flex; align-items: center; gap: 5px; color: var(--mint); font-size: .9375rem; font-weight: 700; text-decoration: none; }
+.afk-row-link:hover { text-decoration: underline; }
+.afk-row-link .icon { width: 14px; height: 14px; }
+.afk-evidence-toggle { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.afk-evidence-toggle svg { width: 14px; height: 14px; }
+.afk-evidence-toggle[aria-expanded="true"] { color: #eef3f1; }
+/* Needs you wears the lantern box of what waits on him, one box to a line. */
+.afk-rows.needs { display: grid; gap: 10px; border: 0; background: none; }
+.afk-rows.needs > .afk-row + .afk-row { border-top: 0; }
+.afk-rows.needs .afk-row-what { color: var(--bone); }
 
-/* Report drawers keep the open heading's spacing without the disclosure's
+/* A folded heading keeps the open heading's spacing without the disclosure's
    rule above it. */
 .afk-report .disclosure.afk-drawer { border-top: 0; }
-.afk-report .disclosure.afk-drawer > summary { padding: 0 0 12px; font: 400 1.1875rem/1.3 var(--font-display); cursor: pointer; }
+.afk-report .disclosure.afk-drawer > summary { padding: 0 0 8px; font: 400 1.0625rem/1.3 var(--font-display); color: #cfe0dc; cursor: pointer; }
 .afk-report .disclosure.afk-drawer > summary .column-count { margin-left: -2px; }
 .afk-report .disclosure.afk-drawer > .disclosure-content { padding: 0; }
 
@@ -130,7 +142,7 @@
 .afk-spent-change.used { border-color: #00e59b66; background: #00e59b1a; color: var(--accent-green); }
 .afk-spent-change .icon { width: 14px; height: 14px; }
 @media (max-width: 40rem) {
-  .question-modal.afk-report h3:has(.afk-spent-legend) { flex-wrap: wrap; }
+  .question-modal.afk-report h4:has(.afk-spent-legend) { flex-wrap: wrap; }
   .afk-spent-legend { white-space: nowrap; }
   .afk-spent { grid-template-columns: minmax(0, 1fr); }
   .afk-spent li { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; }
@@ -138,7 +150,10 @@
   .afk-spent-graph { grid-column: 1 / -1; grid-row: 3; }
 }
 @media (max-width: 40rem) {
-  .afk-report .inbox-list.afk-held li, .inbox-list.afk-decisions li { grid-template-columns: auto minmax(0, 1fr); }
-  .afk-report .inbox-list.afk-held li > time, .inbox-list.afk-decisions li > time { grid-column: 2; justify-self: start; }
-  .afk-report .inbox-list.afk-held li > .delivery { display: none; }
+  .afk-row { grid-template-columns: auto minmax(0, 1fr); }
+  .afk-row-side { grid-column: 2; flex-wrap: wrap; row-gap: 4px; padding-top: 0; }
 }
+/* A repository's pull requests, each its number and a link, on one line. */
+.afk-pulls { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; }
+.afk-pulls a { color: var(--mint); font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: none; }
+.afk-pulls a:hover { text-decoration: underline; }

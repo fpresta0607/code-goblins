@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -147,81 +146,104 @@ func TestADecisionIsLoggedInTheStretchItWasMadeIn(t *testing.T) {
 	}
 }
 
-// AFK mode is complete autopilot: what only the Overlord can do is never asked
-// of him or held for him. The CFO gives it a backlog row, works around it and
-// logs it as left for him, which his report lists.
-func TestWhatOnlyHeCanDoIsLoggedAsLeftForHim(t *testing.T) {
+// A step only the Overlord can take, such as his own sign-in, is never asked
+// of him: the CFO gives it a backlog row, works around it and logs it as one
+// plain line, which his recap lists last.
+func TestAStepOnlyHeCanTakeIsLoggedAsAPlainLine(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
 
 	// Act
-	logged, err := Log(dir, leftForHim(), night.Add(time.Hour))
+	logged, err := Log(dir, hisStep(), night.Add(time.Hour))
 
 	// Assert
 	if err != nil {
-		t.Fatalf("Log = %v, want what is left for him logged", err)
+		t.Fatalf("Log = %v, want his step logged", err)
 	}
 	entries, _, _ := Entries(dir, on.Session)
-	decisions := Decisions(entries)
-	if len(decisions) != 1 || decisions[0].Kind != KindLeft || decisions[0].Evidence != logged.Evidence {
-		t.Fatalf("decisions = %+v, want what was left for him with its evidence", decisions)
-	}
-	left := decisions[0]
-	if left.Diagnosis != logged.Diagnosis || left.Tried != logged.Tried || !slices.Equal(left.Options, logged.Options) || left.Recommendation != logged.Recommendation {
-		t.Errorf("left = %+v, want its diagnosis, what was tried and his choices kept", left)
+	if decisions := Decisions(entries); len(decisions) != 1 || decisions[0].Kind != KindHis || decisions[0].What != logged.What || decisions[0].Evidence != logged.Evidence {
+		t.Fatalf("decisions = %+v, want his step with its evidence", decisions)
 	}
 }
 
-// leftForHim is a line the CFO leaves for the Overlord: what only he can do,
-// why it is his, what is wrong found to its cause, what the CFO already
-// tried, and the choices his Command Center question offers once he is back.
-func leftForHim() Entry {
+// decidedForHim is a decision the CFO would have asked the Overlord, answered
+// itself with its recommendation: the question, what its answer stands on,
+// what is wrong found to its cause, what the CFO already tried, the choices
+// its question in his History offers, and the CFO's answer.
+func decidedForHim() Entry {
 	return Entry{
-		Kind: KindLeft, What: "Sign in to Vercel for pd-auth?", Evidence: "his own sign-in; backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export",
-		Diagnosis: "the stored Vercel token expired at 01:10Z and Vercel answers 403 to the deploy probe",
-		Tried:     "cfo auth --fix read the store and the .env again, and neither holds a newer token",
-		Options:   []string{"I will sign in", "Skip Vercel for now"}, Recommendation: "I will sign in",
+		Kind: KindLeft, What: "Which fallback does the gate policy take?", Evidence: "the machine config and the policy name different models",
+		Diagnosis: "the machine config kept a fallback the policy dropped on 2026-10-01",
+		Tried:     "read both, and the policy's history",
+		Options:   []string{"Drop it from the machine config", "Take it into the policy"}, Recommendation: "Drop it from the machine config", Answer: "Drop it from the machine config",
 	}
 }
 
-// A line left for him is what reaches him: it says what is wrong and what the
-// CFO already tried, and offers him real choices, so nothing is handed to him
-// undiagnosed.
+// hisStep is a step only the Overlord can take: his own sign-in, which the
+// CFO cannot give, with why and its backlog row.
+func hisStep() Entry {
+	return Entry{Kind: KindHis, What: "Sign in to Vercel for pd-auth", Evidence: "Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export"}
+}
+
 // Under AFK mode the CFO answers a decision itself and acts on its answer:
 // the line keeps the choice it made, settled in his History once he is back.
 func TestADecisionTheCFOAnsweredKeepsItsAnswer(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
-	decided := leftForHim()
-	decided.Answer = "Skip Vercel for now"
 
 	// Act
-	_, err := Log(dir, decided, night.Add(time.Hour))
+	_, err := Log(dir, decidedForHim(), night.Add(time.Hour))
 
 	// Assert
 	if err != nil {
 		t.Fatalf("Log = %v, want the decision logged with the CFO's answer", err)
 	}
-	if entries, _, _ := Entries(dir, on.Session); len(entries) != 2 || entries[1].Answer != "Skip Vercel for now" {
+	if entries, _, _ := Entries(dir, on.Session); len(entries) != 2 || entries[1].Answer != "Drop it from the machine config" {
 		t.Errorf("log = %+v, want the line with the CFO's answer", entries)
 	}
 }
 
-func TestALineLeftForHimWithoutItsDiagnosisWhatWasTriedOrHisChoicesIsRefused(t *testing.T) {
+// The Overlord, 2026-10-12: "in AFK mode, you should just answer everything".
+// A decision logged without the CFO's answer would be left for him as a
+// question, so it is refused and the log keeps nothing of it.
+func TestADecisionLoggedWithoutTheCFOsAnswerIsRefused(t *testing.T) {
+	// Arrange
+	dir, on := turnedOn(t)
+	unanswered := decidedForHim()
+	unanswered.Answer = ""
+
+	// Act
+	_, err := Log(dir, unanswered, night.Add(time.Hour))
+
+	// Assert
+	if !errors.Is(err, ErrUnanswered) {
+		t.Fatalf("Log = %v, want %v", err, ErrUnanswered)
+	}
+	if entries, _, _ := Entries(dir, on.Session); len(entries) != 1 {
+		t.Errorf("log = %+v, want only the switch", entries)
+	}
+}
+
+// A decision answered in his place reaches his History: it says what is
+// wrong and what the CFO already tried, and offers real choices with the
+// CFO's answer among them, so nothing reaches him undiagnosed.
+func TestADecisionWithoutItsDiagnosisWhatWasTriedOrItsChoicesIsRefused(t *testing.T) {
 	for name, change := range map[string]func(*Entry){
-		"no diagnosis":           func(e *Entry) { e.Diagnosis = " " },
-		"nothing tried":          func(e *Entry) { e.Tried = "" },
-		"no choices":             func(e *Entry) { e.Options = nil },
-		"one choice":             func(e *Entry) { e.Options = []string{"I will sign in"} },
-		"the same choice twice":  func(e *Entry) { e.Options = []string{"I will sign in", "I will sign in"} },
-		"a blank choice":         func(e *Entry) { e.Options = []string{"I will sign in", " "} },
-		"a recommendation alone": func(e *Entry) { e.Recommendation = "Sign in tomorrow" },
-		"an answer alone":        func(e *Entry) { e.Answer = "Sign in tomorrow" },
+		"no diagnosis":  func(e *Entry) { e.Diagnosis = " " },
+		"nothing tried": func(e *Entry) { e.Tried = "" },
+		"no choices":    func(e *Entry) { e.Options = nil },
+		"one choice":    func(e *Entry) { e.Options = []string{"Drop it from the machine config"} },
+		"the same choice twice": func(e *Entry) {
+			e.Options = []string{"Drop it from the machine config", "Drop it from the machine config"}
+		},
+		"a blank choice":                 func(e *Entry) { e.Options = []string{"Drop it from the machine config", " "} },
+		"a recommendation alone":         func(e *Entry) { e.Recommendation = "Keep both" },
+		"an answer that is not a choice": func(e *Entry) { e.Answer = "Keep both" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dir, on := turnedOn(t)
-			entry := leftForHim()
+			entry := decidedForHim()
 			change(&entry)
 
 			// Act

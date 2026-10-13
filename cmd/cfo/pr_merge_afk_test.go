@@ -139,7 +139,7 @@ func TestAnAFKMergeIsRefusedWhenItIsNotTheCFOsToGive(t *testing.T) {
 	}{
 		{name: "nothing says what verified it", runner: &afkMergeRunner{}, refusal: "--verified"},
 		{name: "a blank verification", runner: &afkMergeRunner{}, args: []string{"--verified", "  "}, refusal: "--verified"},
-		{name: "deleting the branch", runner: &afkMergeRunner{}, args: append([]string{"--delete-branch"}, verified...), refusal: "deleting a branch stays the Overlord's alone"},
+		{name: "deleting the branch", runner: &afkMergeRunner{}, args: append([]string{"--delete-branch"}, verified...), refusal: "deleting a branch through a merge stays the Overlord's alone"},
 		{name: "a teammate's pull request", runner: &afkMergeRunner{author: "a-teammate"}, args: verified, refusal: "a-teammate's, and merging a teammate's pull request stays the Overlord's alone"},
 		{name: "a pull request from another repository", runner: &afkMergeRunner{cross: true}, args: verified, refusal: "comes from another repository"},
 		{name: "a head that does not hold its base's tip", runner: &afkMergeRunner{behind: 2}, args: verified, refusal: "2 commit(s) behind main"},

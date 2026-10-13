@@ -81,7 +81,7 @@ type Allowance struct {
 
 // The kinds of line the log holds: the switch, an item held for the Overlord,
 // a goblin the supervisor paused at a floor, and the decisions the CFO makes
-// under the authority, what it left for him among them.
+// under the authority, with each step only he can take among them.
 const (
 	KindOn        = "on"
 	KindOff       = "off"
@@ -93,21 +93,26 @@ const (
 	KindMigration = "migration"
 	KindInstall   = "install"
 	KindOther     = "other"
-	KindLeft      = "left"
+	// KindLeft is a decision the CFO would have asked the Overlord, answered
+	// in his place with its recommendation and acted on, and KindHis a step
+	// only he can take, such as his own sign-in or a step a tool refuses: one
+	// plain line in his recap, never a question.
+	KindLeft = "left"
+	KindHis  = "his"
 	// KindStrike strikes through a line the CFO wrote by mistake. It is a
 	// line of its own: the log never loses the line it strikes.
 	KindStrike = "strike"
-	// KindSettle settles a line left for the Overlord that the CFO saw to
-	// later in the stretch, with what became of it, the same way.
+	// KindSettle settles a step only the Overlord could take that the CFO saw
+	// to later in the stretch, with what became of it, the same way.
 	KindSettle = "settle"
 )
 
-// minLeftOptions is how many choices a line left for the Overlord offers him
-// at least, as its Command Center question once he is back.
+// minLeftOptions is how many choices a decision the CFO answered in the
+// Overlord's place offers at least, as its question in his History.
 const minLeftOptions = 2
 
-// DecisionKinds are the kinds Log takes, in the order the report lists them.
-var DecisionKinds = []string{KindLeft, KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
+// DecisionKinds are the kinds Log takes.
+var DecisionKinds = []string{KindLeft, KindHis, KindMerge, KindDeploy, KindMigration, KindInstall, KindAnswer, KindOther}
 
 // Entry is one line of the log.
 type Entry struct {
@@ -124,38 +129,35 @@ type Entry struct {
 	// out ended, on a second line for the same What.
 	Outcome string `json:"outcome,omitempty"`
 	// Task is the goblin an answer or a held item belongs to, and Item the
-	// held item's key in the Command Center.
+	// held item's key in the Command Center, a strike's or a settle's line by
+	// when it was logged, and, in the report's sections, the question in his
+	// History a decision answered in his place is, where he changes it.
 	Task string `json:"task,omitempty"`
 	Item string `json:"item,omitempty"`
 	// Recommendation is the choice recommended for a held question by whoever
 	// asked it: the CFO for its own, or the goblin whose question it is, and
-	// for a line left for the Overlord the one of its Options the CFO
-	// recommends.
+	// for a decision the CFO answered in the Overlord's place the one of its
+	// Options it recommends.
 	Recommendation string `json:"recommendation,omitempty"`
-	// Diagnosis and Tried are what a line left for the Overlord carries beside
-	// why it is his: what is wrong, found to its cause, and what the CFO
-	// already tried. Options are the choices his Command Center question
-	// offers him once he is back.
+	// Diagnosis and Tried are what a decision the CFO answered in the
+	// Overlord's place carries beside what it stands on: what is wrong, found
+	// to its cause, and what the CFO already tried. Options are the choices
+	// its question in his History offers, and Answer the one the CFO chose
+	// and acted on. Once AFK mode turns off it is settled there with the
+	// CFO's answer, where he can change it, and never asked of him.
 	Diagnosis string   `json:"diagnosis,omitempty"`
 	Tried     string   `json:"tried,omitempty"`
 	Options   []string `json:"options,omitempty"`
-	// Answer is the one of a left line's Options the CFO answered itself
-	// and acted on under the authority, and is empty for what only he can do.
-	// Once AFK mode turns off such a line is settled: it is in his History
-	// with the CFO's answer, where he can change it, and never asked of him.
-	Answer string `json:"answer,omitempty"`
+	Answer    string   `json:"answer,omitempty"`
 	// Struck is the CFO's reason for striking a decision through, and Settled
-	// what became of a line left for the Overlord that the CFO settled, each
-	// set on the decision as the report folds the log, and never written to
-	// the log.
+	// what became of a step only the Overlord could take that the CFO saw to
+	// later, each set on the decision as the report folds the log, and never
+	// written to the log.
 	Struck  string `json:"struck,omitempty"`
 	Settled string `json:"settled,omitempty"`
-	// Noted is what the CFO wrote of a merge in lines of its own, and Asked
-	// the Command Center item a line it left for the Overlord about a merge
-	// that did not land is asked as, each set on the merge they name as the
-	// report folds them in, and never written to the log.
+	// Noted is what the CFO wrote of a merge in lines of its own, set on the
+	// merge it names as the report folds it in, and never written to the log.
 	Noted string `json:"noted,omitempty"`
-	Asked string `json:"asked,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -334,34 +336,41 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 			return Entry{}, err
 		}
 	}
-	entry.Struck, entry.Settled, entry.Noted, entry.Asked = "", "", "", ""
+	entry.Struck, entry.Settled, entry.Noted = "", "", ""
 	return record(stateDir, entry, now)
 }
 
-// validLeft refuses a line left for the Overlord that would hand him
-// something undiagnosed: it says what is wrong and what the CFO already
-// tried, and offers him real choices, one of them recommended or none.
+// ErrUnanswered refuses a decision logged for the Overlord without the CFO's
+// answer: under AFK mode nothing is left for him as a question.
+var ErrUnanswered = errors.New("under AFK mode nothing is left for him as a question: answer it yourself with your recommendation, act on it, and log it with --answer. A step only he can take, such as his own sign-in or a step a tool refuses, is a --kind his line")
+
+// validLeft refuses a decision answered in the Overlord's place that would
+// reach his History unanswered or undiagnosed: it carries the CFO's answer,
+// says what is wrong and what the CFO already tried, and offers real choices,
+// the answer among them, one of them recommended or none.
 func validLeft(entry Entry) error {
 	switch {
+	case entry.Answer == "":
+		return ErrUnanswered
 	case strings.TrimSpace(entry.Diagnosis) == "" || len(entry.Diagnosis) > maxEvidence:
-		return fmt.Errorf("a line left for him says what is wrong, found to its cause, in at most %d characters", maxEvidence)
+		return fmt.Errorf("a decision answered in his place says what is wrong, found to its cause, in at most %d characters", maxEvidence)
 	case strings.TrimSpace(entry.Tried) == "" || len(entry.Tried) > maxEvidence:
-		return fmt.Errorf("a line left for him says what was already tried, in at most %d characters", maxEvidence)
+		return fmt.Errorf("a decision answered in his place says what was already tried, in at most %d characters", maxEvidence)
 	case len(entry.Options) < minLeftOptions || len(entry.Options) > maxLeftOptions:
-		return fmt.Errorf("a line left for him offers %d to %d choices, which his Command Center question asks once he is back", minLeftOptions, maxLeftOptions)
+		return fmt.Errorf("a decision answered in his place offers %d to %d choices, which its question in his History offers him", minLeftOptions, maxLeftOptions)
 	}
 	seen := map[string]bool{}
 	for _, option := range entry.Options {
 		if strings.TrimSpace(option) == "" || len(option) > maxOption || seen[option] {
-			return fmt.Errorf("the choices of a line left for him are distinct, and each is text of at most %d characters", maxOption)
+			return fmt.Errorf("the choices of a decision answered in his place are distinct, and each is text of at most %d characters", maxOption)
 		}
 		seen[option] = true
 	}
 	if entry.Recommendation != "" && !seen[entry.Recommendation] {
-		return errors.New("the recommended choice of a line left for him is one of its choices, exactly")
+		return errors.New("the recommended choice of a decision answered in his place is one of its choices, exactly")
 	}
-	if entry.Answer != "" && !seen[entry.Answer] {
-		return errors.New("the CFO's answer to a line left for him is one of its choices, exactly")
+	if !seen[entry.Answer] {
+		return errors.New("the CFO's answer to a decision answered in his place is one of its choices, exactly")
 	}
 	return nil
 }
@@ -405,14 +414,14 @@ func Strike(stateDir string, at time.Time, reason string, now time.Time) (Entry,
 	return strike, appendEntry(stateDir, strike)
 }
 
-// Settle settles the line left for the Overlord logged at at, which the CFO
-// saw to later in the stretch that is on, with what became of it: its backlog
-// row done, its task finished, or a later decision of the CFO's. The line
-// stays in the log as it was written, and the settle is a line of its own
-// after it, which names the line by when it was logged. A settled line is
-// never asked in the Command Center, and the report shows what became of it.
-// Once AFK mode turns off each open line is his question there, so a line is
-// settled only while its stretch is on, once, and never once struck.
+// Settle settles the step only the Overlord could take logged at at, which
+// the CFO saw to later in the stretch that is on, with what became of it: its
+// backlog row done, its task finished, or a later decision of the CFO's. The
+// line stays in the log as it was written, and the settle is a line of its
+// own after it, which names the line by when it was logged. A settled line no
+// longer needs him: his recap shows what became of it. Once AFK mode turns
+// off his recap is written, so a line is settled only while its stretch is
+// on, once, and never once struck.
 func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, error) {
 	how = strings.TrimSpace(how)
 	if how == "" || len(how) > maxEvidence {
@@ -423,7 +432,7 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 		return Entry{}, err
 	}
 	if !state.On {
-		return Entry{}, fmt.Errorf("%w: once it turns off, each line left for him that is still open is his question in the Command Center", ErrNotOn)
+		return Entry{}, fmt.Errorf("%w: once it turns off, each step only he can take that is still open is a line in his recap", ErrNotOn)
 	}
 	entries, _, err := Entries(stateDir, state.Session)
 	if err != nil {
@@ -434,23 +443,22 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 	for i, entry := range entries {
 		switch {
 		case entry.Kind == KindStrike && entry.Item == stamp:
-			return Entry{}, fmt.Errorf("the line left for him at %s is struck, so there is nothing of his to settle", stamp)
+			return Entry{}, fmt.Errorf("the step only he can take logged at %s is struck, so there is nothing of his to settle", stamp)
 		case entry.Kind == KindSettle && entry.Item == stamp:
-			return Entry{}, fmt.Errorf("the line left for him at %s is settled already", stamp)
-		case entry.Kind == KindLeft && entry.At.Equal(at):
+			return Entry{}, fmt.Errorf("the step only he can take logged at %s is settled already", stamp)
+		case entry.Kind == KindHis && entry.At.Equal(at):
 			target = &entries[i]
 		}
 	}
 	if target == nil {
-		return Entry{}, fmt.Errorf("this stretch logged no line left for him at %s; name the line by its at, as state/afk.audit has it", stamp)
+		return Entry{}, fmt.Errorf("this stretch logged no step only he can take at %s: name the line by its at, as state/afk.audit has it", stamp)
 	}
 	settle := Entry{At: now.UTC(), Session: state.Session, Kind: KindSettle, What: target.What, Item: stamp, Evidence: how}
 	return settle, appendEntry(stateDir, settle)
 }
 
-// LeftQuestionID is the ID of the Command Center question a line left for the
-// Overlord is asked as, or, for a decision the CFO answered itself, settled in
-// his History as.
+// LeftQuestionID is the ID of the question a decision the CFO answered in the
+// Overlord's place is settled in his History as.
 func LeftQuestionID(left Entry) string {
 	return "afk-left-" + left.At.UTC().Format("20060102T150405.000000000Z")
 }

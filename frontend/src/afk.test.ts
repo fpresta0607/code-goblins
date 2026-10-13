@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldRecommends, heldSays, heldWho, offerFor, parseAfkReport, safeLink, settled, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, diskGraph, diskSays, shownUnder, afkHeadline, type AfkDecision, type AfkAllowance, type AfkDisk, type AfkReport, type Occasion } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, askedAndAnswered, byRepository, decisionSays, heldRecommends, heldSays, heldWho, linkLabel, offerFor, parseAfkReport, safeLink, settled, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, diskGraph, diskSays, shownUnder, afkHeadline, type AfkDecision, type AfkAllowance, type AfkDisk, type AfkGroup, type AfkReport, type Occasion } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
@@ -90,15 +90,15 @@ test("his first click or key after the CFO turned AFK mode on at his ask offers 
   for (const [name, value, lastTouch, now, want] of cases) assert.equal(offerFor(value, lastTouch, now), want, name);
 });
 
-test("a decision says whose and what and what it stood on, names a pull request as a person would and an answer by its goblin, and opens only a web link", () => {
-  const decision = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "", evidence: "gate run 41 passed", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", noted: "", asked: "", answer: "", ...changes });
-  assert.deepEqual(decisionSays(decision()), { text: "northwind-api #412", href: "https://github.com/you/northwind-api/pull/412", outcome: "merged", happened: "", answered: "", basis: "Evidence: gate run 41 passed" });
-  assert.equal(decisionSays(decision({ task: "northwind-invoices" })).text, "northwind-invoices: northwind-api #412");
-  assert.deepEqual(decisionSays(decision({ kind: "deploy", what: "northwind-api to production", link: "https://northwind.example/deploys/88", outcome: "" })), { text: "northwind-api to production", href: "https://northwind.example/deploys/88", outcome: "", happened: "", answered: "", basis: "Evidence: gate run 41 passed" });
+const DECISION: AfkDecision = { at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "", evidence: "gate run 41 passed", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", settled: "", noted: "", answer: "", item: "" };
+
+test("a line opens only a web link, and an answer's evidence is its question and its answer", () => {
+  const decision = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ ...DECISION, ...changes });
+  assert.deepEqual(decisionSays(decision()), { href: "https://github.com/you/northwind-api/pull/412", happened: "", basis: "Evidence: gate run 41 passed" });
+  assert.deepEqual(decisionSays(decision({ kind: "deploy", what: "northwind-api to production", link: "https://northwind.example/deploys/88", outcome: "" })), { href: "https://northwind.example/deploys/88", happened: "", basis: "Evidence: gate run 41 passed" });
   assert.deepEqual(decisionSays(decision({ kind: "answer", what: "notify-pd-billing-admin-41", task: "pd-billing-admin", evidence: "asked: Which CSV dialect? answered: RFC 4180", outcome: "" })),
-    { text: "pd-billing-admin", href: "", outcome: "", happened: "", answered: "", basis: "Asked: Which CSV dialect? Answered: RFC 4180" });
-  assert.equal(decisionSays(decision({ kind: "answer", what: "notify-41", outcome: "" })).text, "notify-41", "an answer with no goblin named keeps its id");
-  for (const unsafe of ["javascript:alert(1)", "http://plain.example/x", "file:///C:/secret", "https://two words.example", ""]) assert.equal(safeLink(unsafe), "", unsafe);
+    { href: "", happened: "", basis: "Asked: Which CSV dialect? Answered: RFC 4180" });
+  for (const unsafe of ["javascript:alert(1)", "http://plain.example/x", "file:///C:/secret", "https://two words.example", "https://[", "https://example.com:bad", "https://?query", ""]) assert.equal(safeLink(unsafe), "", unsafe);
   assert.equal(decisionSays(decision({ kind: "other", what: "note", link: "javascript:alert(1)" })).href, "");
 });
 
@@ -108,53 +108,69 @@ test("a decision says whose and what and what it stood on, names a pull request 
 // that did not land warns, saying in a sentence of its own what the CFO did
 // about it, then what happened.
 test("a merge carries what the CFO wrote of it, and one that did not land says what the CFO did about it and what happened", () => {
-  const merge = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ at: "2026-10-10T01:47:40Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/561", link: "https://github.com/you/northwind-api/pull/561", evidence: "merge train api-20261010-012749: CI passed on https://github.com/you/northwind-api/pull/567 at a1380d3, built on main at e349d37", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", noted: "", asked: "", answer: "", ...changes });
-  const cases: [string, AfkDecision, { outcome: string; happened: string; basis: string }][] = [
+  const merge = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ ...DECISION, at: "2026-10-10T01:47:40Z", what: "https://github.com/you/northwind-api/pull/561", link: "https://github.com/you/northwind-api/pull/561", evidence: "merge train api-20261010-012749: CI passed on https://github.com/you/northwind-api/pull/567 at a1380d3, built on main at e349d37", ...changes });
+  const cases: [string, AfkDecision, { happened: string; basis: string }][] = [
     ["a merge the CFO wrote of", merge({ noted: "PR 561 (the export) landed on merge train 567. One CI run." }),
-      { outcome: "merged", happened: "", basis: "The CFO: PR 561 (the export) landed on merge train 567. One CI run. Evidence: merge train api-20261010-012749: CI passed on https://github.com/you/northwind-api/pull/567 at a1380d3, built on main at e349d37" }],
+      { happened: "", basis: "The CFO: PR 561 (the export) landed on merge train 567. One CI run. Evidence: merge train api-20261010-012749: CI passed on https://github.com/you/northwind-api/pull/567 at a1380d3, built on main at e349d37" }],
     ["a merge that failed, which the CFO did nothing about", merge({ evidence: "verified: 15 checks green", outcome: "not merged: gh exited 1: Pull request is not mergeable" }),
-      { outcome: "", happened: "The CFO logged nothing about it.", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
+      { happened: "The CFO logged nothing about it.", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
     ["a merge that failed, which the CFO sent back", merge({ evidence: "verified: 15 checks green", outcome: "not merged: gh exited 1: Pull request is not mergeable", noted: "Sent it back to nw-export to merge main in. Its head was behind main." }),
-      { outcome: "", happened: "The CFO: Sent it back to nw-export to merge main in. Its head was behind main.", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
-    ["a merge that failed, which the CFO left for him", merge({ evidence: "verified: 15 checks green", outcome: "not merged: gh exited 1: Pull request is not mergeable", asked: "question:afk-left-20261010T193500.000000000Z" }),
-      { outcome: "", happened: "", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
+      { happened: "The CFO: Sent it back to nw-export to merge main in. Its head was behind main.", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
     ["a merge word nothing followed", merge({ evidence: "verified: 15 checks green", outcome: "" }),
-      { outcome: "", happened: "The CFO logged nothing about it.", basis: "No merge was recorded. Evidence: verified: 15 checks green" }],
+      { happened: "The CFO logged nothing about it.", basis: "No merge was recorded. Evidence: verified: 15 checks green" }],
     ["a merge that joined a queue", merge({ evidence: "verified: 15 checks green", outcome: "added to the merge queue" }),
-      { outcome: "", happened: "The CFO logged nothing about it.", basis: "Added to the merge queue. Evidence: verified: 15 checks green" }],
+      { happened: "The CFO logged nothing about it.", basis: "Added to the merge queue. Evidence: verified: 15 checks green" }],
     ["a line the CFO wrote of no merge", merge({ what: "PR 561 landed on merge train 567", evidence: "One CI run.", outcome: "" }),
-      { outcome: "", happened: "", basis: "No merge was recorded. Evidence: One CI run." }],
+      { happened: "", basis: "No merge was recorded. Evidence: One CI run." }],
     ["a merge word the CFO struck", merge({ evidence: "verified: 15 checks green", outcome: "", struck: "logged twice" }),
-      { outcome: "", happened: "", basis: "Struck: logged twice. Evidence: verified: 15 checks green." }],
+      { happened: "", basis: "Struck: logged twice. Evidence: verified: 15 checks green." }],
   ];
   for (const [name, entry, want] of cases) {
-    const { outcome, happened, basis } = decisionSays(entry);
-    assert.deepEqual({ outcome, happened, basis }, want, name);
+    const { happened, basis } = decisionSays(entry);
+    assert.deepEqual({ happened, basis }, want, name);
   }
-  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "Not merged", entries: [{ ...merge(), noted: "Sent it back.", asked: "question:afk-left-1" }] }] });
-  assert.deepEqual([report?.sections[0].entries[0].noted, report?.sections[0].entries[0].asked], ["Sent it back.", "question:afk-left-1"]);
-});
-
-test("a line left for him says what is wrong and what was tried, and a struck line says why the CFO struck it", () => {
-  const decision = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ at: "2026-10-09T00:08:18.430129Z", kind: "left", what: "Store a new Fly token?", link: "", evidence: "Fly tokens are his", outcome: "", task: "", diagnosis: "", tried: "", struck: "", noted: "", asked: "", answer: "", ...changes });
-  assert.equal(decisionSays(decision({ diagnosis: "an old .env line overwrote it", tried: "cfo auth --fix" })).basis, "Evidence: Fly tokens are his. Found: an old .env line overwrote it. Tried: cfo auth --fix.");
-  assert.equal(decisionSays(decision({ what: "nothing: CFO note", evidence: "test", struck: "a test line the CFO wrote by mistake" })).basis, "Struck: a test line the CFO wrote by mistake. Evidence: test.");
-  assert.equal(decisionSays(decision({ kind: "strike", what: "nothing: CFO note", evidence: "a test line the CFO wrote by mistake", struck: "a test line the CFO wrote by mistake" })).basis, "Struck: a test line the CFO wrote by mistake.");
-  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "Struck by the CFO", entries: [{ at: "2026-10-09T00:08:18.430129Z", kind: "left", what: "nothing: CFO note", evidence: "test", diagnosis: "none", tried: "none", struck: "a test line the CFO wrote by mistake" }] }] });
-  assert.deepEqual([report?.sections[0].entries[0].struck, report?.sections[0].entries[0].diagnosis], ["a test line the CFO wrote by mistake", "none"]);
+  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "Not merged", group: "done", entries: [{ ...merge(), noted: "Sent it back." }] }] });
+  assert.equal(report?.sections[0].entries[0].noted, "Sent it back.");
 });
 
 // The Overlord, 2026-10-12: "Anything the CFO has already answered should not
 // appear as a [line] for you in the AFK report". A decision the CFO answered
-// for him is recapped with its answer and where he changes it, and nothing of
-// what it stood on, which its question in History carries.
-test("a decision the CFO answered for him is recapped with its answer and where he changes it, and a struck one is only struck", () => {
-  const decided: AfkDecision = { at: "2026-10-12T05:00:00Z", kind: "left", what: "Which fallback does the gate policy take?", link: "", evidence: "the machine config and the policy disagree", outcome: "", task: "", diagnosis: "two fallbacks", tried: "read both", struck: "", noted: "", asked: "", answer: "Drop it from the machine config" };
-  assert.deepEqual(decisionSays(decided), { text: "Which fallback does the gate policy take?", href: "", outcome: "", happened: "", answered: "The CFO answered: Drop it from the machine config. You can change it in History.", basis: "" });
-  const struck = decisionSays({ ...decided, struck: "logged twice" });
-  assert.deepEqual([struck.answered, struck.basis], ["", "Struck: logged twice. Evidence: the machine config and the policy disagree. Found: two fallbacks. Tried: read both."]);
-  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "Answered for you", entries: [decided] }] });
-  assert.equal(report?.sections[0].entries[0].answer, "Drop it from the machine config");
+// in his place keeps what it stood on, what was found and what was tried
+// behind its Evidence, and a struck line says why the CFO struck it.
+test("a decision answered in his place keeps what it stood on behind its evidence, and a struck line says why the CFO struck it", () => {
+  const decided: AfkDecision = { ...DECISION, at: "2026-10-12T05:00:00Z", kind: "left", what: "Which fallback does the gate policy take?", evidence: "the machine config and the policy disagree", outcome: "", diagnosis: "two fallbacks", tried: "read both", answer: "Drop it from the machine config", item: "question:afk-left-20261012T050000.000000000Z" };
+  assert.deepEqual(decisionSays(decided), { href: "", happened: "", basis: "Evidence: the machine config and the policy disagree. Found: two fallbacks. Tried: read both." });
+  assert.equal(decisionSays({ ...decided, struck: "logged twice" }).basis, "Struck: logged twice. Evidence: the machine config and the policy disagree. Found: two fallbacks. Tried: read both.");
+  assert.equal(decisionSays({ ...DECISION, kind: "strike", what: "nothing: CFO note", evidence: "a test line the CFO wrote by mistake", outcome: "", struck: "a test line the CFO wrote by mistake" }).basis, "Struck: a test line the CFO wrote by mistake.");
+  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "For you", group: "decided", entries: [decided] }] });
+  assert.deepEqual([report?.sections[0].entries[0].answer, report?.sections[0].entries[0].item], ["Drop it from the machine config", "question:afk-left-20261012T050000.000000000Z"]);
+});
+
+// The recap is in plain words: a goblin's question the CFO answered says the
+// question without its details and the answer's choice, merges and finished
+// pull requests are one line to a repository, and a link says what it opens.
+test("a goblin's question reads as its question and the answer's first sentence", () => {
+  const cases: [string, string, { question: string; answer: string }][] = [
+    ["a question with details and a note", "asked: The free tier is broken in production: no free workspace can ask a single question. Shall I fix it in its own pull request now?\n- Seen in the walk on the dev stack\n- **The first question of every free workspace is held** answered: Fix it in its own pull request now. The free limit is a production defect.",
+      { question: "The free tier is broken in production: no free workspace can ask a single question. Shall I fix it in its own pull request now?", answer: "Fix it in its own pull request now." }],
+    ["a page", "asked: The canvas cards before and after (page https://sermon.example/session/fab6c0cf8ffde8b2) answered: Ship them as shown. It matches his words.",
+      { question: "The canvas cards before and after", answer: "Ship them as shown." }],
+    ["bold the asker marked", "asked: May I run the **last** walk? answered: Walk 1560's head now",
+      { question: "May I run the last walk?", answer: "Walk 1560's head now" }],
+    ["no answer said", "asked: Which store?", { question: "Which store?", answer: "" }],
+  ];
+  for (const [name, evidence, want] of cases) assert.deepEqual(askedAndAnswered(evidence), want, name);
+});
+
+test("pull requests are one line to a repository in the order each came, and a link says what it opens", () => {
+  const pull = (repository: string, number: number) => "https://github.com/fpresta0607/" + repository + "/pull/" + number;
+  assert.deepEqual(byRepository([pull("code-goblins", 707), pull("PrecisionDocs-AI", 1559), pull("code-goblins", 709), "PR 13 landed on merge train 900"]), [
+    { repository: "code-goblins", pulls: [{ url: pull("code-goblins", 707), number: "#707" }, { url: pull("code-goblins", 709), number: "#709" }] },
+    { repository: "PrecisionDocs-AI", pulls: [{ url: pull("PrecisionDocs-AI", 1559), number: "#1559" }] },
+    { repository: "PR 13 landed on merge train 900", pulls: [] },
+  ]);
+  assert.deepEqual([pull("code-goblins", 707), "https://github.com/fpresta0607/PrecisionDocs-AI/actions/runs/38270621823", "https://sermon.example:4388/session/1dbf778927dda6b4", "https://acme.example/health"].map(linkLabel),
+    ["code-goblins #707", "Run", "Scrawl page", "acme.example"]);
 });
 
 test("who made a switch is said to the Overlord: his own board or terminal without the program and its process, or the CFO at his ask with his words", () => {
@@ -174,23 +190,24 @@ test("the report is shown when AFK mode turns off with a report kept, and at no 
   assert.equal(turnedOff(afk({ state: "off" }), afk()), false);
 });
 
-test("the report is read with its sections in the supervisor's order, and none while no stretch has ended", () => {
+test("the report is read with its sections in the supervisor's order and their part of the recap, and none while no stretch has ended", () => {
   assert.equal(parseAfkReport({ found: false }), null);
   const report = parseAfkReport({
     found: true, session: "afk-20261002T021000.000Z", since: "2026-10-02T02:10:00Z", ended: "2026-10-02T12:31:00Z", lasted: "10h21m",
     from: "his own board (goblins-window.exe pid 4242)", ended_from: "his own terminal (powershell.exe pid 5151)",
-    sections: [{ title: "Merged", entries: [{ at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged" }] }, { title: "Deployed", entries: [] }],
+    sections: [{ title: "Merged", group: "done", entries: [{ at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged" }] }, { title: "Needs you", group: "needs", entries: [] }],
     finished: [{ task: "northwind-invoices", pr: "https://github.com/you/northwind-api/pull/412", at: "2026-10-02T03:14:00Z" }],
     held: [held()], spent: [{ provider: "claude", window: "week", on: 40, off: 47 }], notes: [],
   });
-  assert.deepEqual(report?.sections.map((section) => section.title + " " + section.entries.length), ["Merged 1", "Deployed 0"]);
-  assert.deepEqual(report?.sections[0].entries[0], { at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", noted: "", asked: "", answer: "" });
+  assert.deepEqual(report?.sections.map((section) => section.group + ": " + section.title + " " + section.entries.length), ["done: Merged 1", "needs: Needs you 0"]);
+  assert.deepEqual(report?.sections[0].entries[0], { at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", settled: "", noted: "", answer: "", item: "" });
   assert.equal(report?.lasted, "10h21m");
   assert.deepEqual([report?.asked, report?.ended_asked], ["", ""], "he made both switches himself");
   assert.deepEqual(report?.held, [held()]);
   const asked = parseAfkReport({ found: true, ...BY_THE_CFO, ended_from: "the CFO at his ask (claude pid 4242)", ended_asked: "I'm back, turn AFK off", sections: [], finished: [], held: [], spent: [], notes: [] });
   assert.deepEqual([asked?.asked, asked?.ended_asked], [ASKED, "I'm back, turn AFK off"]);
   assert.throws(() => parseAfkReport({ found: true, sections: "none" }), /Invalid response list/);
+  assert.throws(() => parseAfkReport({ found: true, sections: [{ title: "Merged", group: "later", entries: [] }] }), /Invalid AFK report group/);
 });
 
 test("the report's Spent reads each allowance as the percent used at either end, a reading not taken as none, and credits as what was spent", () => {
@@ -290,20 +307,24 @@ test("free disk's graph marks what of the drive was used all through and the str
 // little grid boxes". The report opens on a few plain sentences: how long he
 // was away, how many things wait on him, and what the CFO merged, deployed,
 // migrated and installed, leaving out what it did none of.
-test("the report's headline says how long he was away, what waits on him and what reached his repositories, production and machine", () => {
-  const report = (held: AfkHeld[], sections: { title: string; count: number }[]): AfkReport => ({
+// The Overlord, 2026-10-12: "just tell me what you've done". The headline says
+// how long he was away, whether anything needs him, a step only he can take
+// or an item still waiting on him in the Command Center, and what the CFO
+// merged, deployed, migrated, installed and answered.
+test("the recap's headline says how long he was away, what needs him and what the CFO did", () => {
+  const report = (held: AfkHeld[], sections: { title: string; group: AfkGroup; count: number }[]): AfkReport => ({
     session: "afk-1", since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: "", asked: "", ended_from: "", ended_asked: "",
-    sections: sections.map(({ title, count }) => ({ title, entries: Array.from({ length: count }, () => ({ at: "", kind: "", what: "", link: "", evidence: "", outcome: "", task: "", diagnosis: "", tried: "", struck: "", noted: "", asked: "", answer: "" })) })),
+    sections: sections.map(({ title, group, count }) => ({ title, group, entries: Array.from({ length: count }, () => DECISION) })),
     finished: [], held, spent: [], disk: null, notes: [],
   });
   const now = Date.parse("2026-10-02T13:00:00Z");
-  const cases: [string, AfkReport, { away: string; waiting: string; did: string }][] = [
-    ["a busy night", report([held(), held({ item: "question:afk-left-1" }), held({ item: "run:x", waiting: false })], [{ title: "Merged", count: 5 }, { title: "Answered for goblins", count: 14 }, { title: "Installed", count: 2 }]),
-      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", waiting: "2 things wait on you.", did: "The CFO merged 5 pull requests and installed 2 builds." }],
-    ["one of each", report([held()], [{ title: "Merged", count: 1 }, { title: "Deployed", count: 1 }, { title: "Migrations applied", count: 1 }, { title: "Installed", count: 1 }]),
-      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", waiting: "1 thing waits on you.", did: "The CFO merged 1 pull request, made 1 deploy, applied 1 migration and installed 1 build." }],
-    ["a quiet night", report([held({ waiting: false })], [{ title: "Answered for goblins", count: 3 }]),
-      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", waiting: "Nothing waits on you.", did: "" }],
+  const cases: [string, AfkReport, { away: string; needs: string; did: string }][] = [
+    ["a busy night", report([held(), held({ item: "run:x", waiting: false })], [{ title: "Merged", group: "done", count: 5 }, { title: "Installed", group: "done", count: 2 }, { title: "For you", group: "decided", count: 2 }, { title: "For the goblins", group: "decided", count: 14 }, { title: "Needs you", group: "needs", count: 1 }]),
+      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", needs: "2 things need you.", did: "The CFO merged 5 pull requests, installed 2 builds and answered 16 questions." }],
+    ["one of each", report([held()], [{ title: "Merged", group: "done", count: 1 }, { title: "Deployed", group: "done", count: 1 }, { title: "Migrations applied", group: "done", count: 1 }, { title: "Installed", group: "done", count: 1 }, { title: "For you", group: "decided", count: 1 }]),
+      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", needs: "1 thing needs you.", did: "The CFO merged 1 pull request, made 1 deploy, applied 1 migration, installed 1 build and answered 1 question." }],
+    ["a quiet night", report([held({ waiting: false })], []),
+      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", needs: "Nothing needs you.", did: "" }],
   ];
   for (const [name, value, want] of cases) assert.deepEqual(afkHeadline(value, now, "UTC", "en-US"), want, name);
 });
