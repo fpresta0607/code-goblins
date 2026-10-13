@@ -643,9 +643,11 @@ func TestCustodyMutationRetriesItsFailedRelease(t *testing.T) {
 	if err := windows.CloseHandle(handle); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	nextUnlock, err := custodyMutationContext(ctx, dir)
+	// A poisoned mutation is refused at once as held, so the mutation's own
+	// five-second bound proves none, and a busy machine, which can take
+	// longer than a tenth of a second to release the lease and take it
+	// again, fails no run that is not poisoned.
+	nextUnlock, err := custodyMutation(dir)
 
 	// Assert
 	if err != nil {
