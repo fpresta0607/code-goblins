@@ -305,7 +305,7 @@ func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T
 		t.Fatal(err)
 	}
 	defer turn.Release()
-	guard, err := turn.Protect(execution.ID())
+	guard, err := turn.Protect(execution.ID(), execution.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,7 +563,7 @@ func TestExecutorCleanupDeadlineCoversCustodyReleaseAndEvidence(t *testing.T) {
 				}
 				pending.isTurnReleased = false
 				if phase == "custody" {
-					pending.guard, err = pending.turn.Protect(execution.ID())
+					pending.guard, err = pending.turn.Protect(execution.ID(), execution.Path())
 					if err != nil {
 						t.Fatal(err)
 					}

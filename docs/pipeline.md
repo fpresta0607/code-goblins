@@ -491,7 +491,15 @@ The record names its complete stdout and stderr logs, while the returned command
 Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits.
 Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
 Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
-An abandoned or unreadable custody record refuses further admission rather than guessing that its workers are gone.
+A custody record names its execution's Windows job, the process that controls the execution and that process's logon session, and it is written before the job or any worker exists.
+The job is named `Local\cfo-verify-` followed by the execution's random run ID, its creation refuses a name that already exists, and no child inherits its handle.
+When that controller is verifiably gone, the next admission, or the release of the turn it ran inside, recovers its custody instead of refusing every later run.
+Recovery ends whatever still runs in the job and waits until Windows counts it empty, or finds that no job of that name exists, which means nothing runs in it.
+It still refuses while a process the controller started after recording custody runs outside the job, as a worker created suspended and never assigned to its job would.
+A dead controller alone is never taken as proof that its workers are gone.
+A controller whose state cannot be read, a job this process cannot open, a job named in another logon session, a record that names another run's job, or a record that changed during recovery leaves custody in place and refuses admission.
+A recovered execution's record is marked failed and interrupted with a note naming the recovery, and one that had already passed with its cleanup confirmed keeps that result, so recovery never produces a pass.
+An unreadable custody record still refuses further admission rather than guessing that its workers are gone.
 The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` calls and keeps a confirmed cleanup proof if its evidence write or custody removal needs another attempt.
 Slot release reports errors and stays retryable, and an executor retains final evidence-write failures even after workers have ended.
 Concurrent recovery waits respect the waiting caller's deadline without holding the executor's registry mutex over job or filesystem operations.
@@ -501,7 +509,7 @@ Stale lease removal claims the record against writes and replacement, validates 
 Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
-Restart recovery and retention of the execution records and logs are not yet implemented, so these APIs remain outside the live command path.
+Retention of the execution records and logs is not yet implemented, so these APIs remain outside the live command path.
 These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
 
 `ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
