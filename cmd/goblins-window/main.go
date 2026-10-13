@@ -75,6 +75,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window asks the goblins beside it")
 		os.Exit(2)
 	}
+	if err := keepOutput(*stateDir); err != nil {
+		log.Printf("keep the window's output in %s: %v", *stateDir, err)
+	}
 	login := loginCommand(launcher, self, *board, *stateDir)
 	userEnv, err := userEnvironment()
 	if err != nil {

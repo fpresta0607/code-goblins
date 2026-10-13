@@ -1104,6 +1104,7 @@ Each home has a window of its own: the home the user's own environment names, by
 Started with neither `--board` nor `--state`, as the Start menu, desktop shortcut and **Start at login** start it, the program runs the `goblins.exe` beside it with `--window --locate` in a hidden console.
 `goblins --window --locate` finds or starts the supervisor and prints only the board's address followed by the state folder, one per line; it opens no window, browser or CFO.
 The original window uses those two lines to show the board itself, or stays in its tray if it was started with `--background`.
+A window started that way has no standard error of its own, so once it knows the state folder it appends its output to `state\window.log` too: each window's first line there names its process id, and what it says after, Wails' fatal messages and the words of a Go crash follow it, so a window that ends unexpectedly leaves its reason beside the supervisor's `serve.log`.
 The supervisor takes the home's own window for the Overlord's by the program it runs, whoever opened it ([ownership proof](#afk-mode)), so its AFK switch and **Update** work however it was started.
 That covers a window the desktop shell started, one `goblins --window` started from a terminal of his own after that launcher has exited, one the installer started, and one the supervisor moved onto an update.
 A window started from an agent's terminal or under an agent harness carries that mark and is refused.
