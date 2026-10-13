@@ -3,6 +3,8 @@
     {
       "id": "stripe",
       "name": "Stripe",
+      "key_page": "https://dashboard.stripe.com/test/apikeys",
+      "signed_in_path": "^/(acct_[a-zA-Z0-9]+/)?test/apikeys/?$",
       "hosts": ["stripe.com", "*.stripe.com", "stripe.network", "*.stripe.network", "stripecdn.com", "*.stripecdn.com"]
     }
   ]

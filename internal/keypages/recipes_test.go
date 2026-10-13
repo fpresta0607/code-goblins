@@ -30,7 +30,7 @@ func TestRecipesAreRefused(t *testing.T) {
 	}{
 		{"an unknown field", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["stripe.com"],"keys":"all"}]}`, `unknown field "keys"`},
 		{"an id with capitals", `{"providers":[{"id":"Stripe","name":"Stripe","hosts":["stripe.com"]}]}`, "lowercase letters and digits"},
-		{"a provider listed twice", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["stripe.com"]},{"id":"stripe","name":"Stripe","hosts":["stripe.com"]}]}`, "listed twice"},
+		{"a provider listed twice", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["stripe.com"],"key_page":"https://stripe.com/test/apikeys","signed_in_path":"^/test/apikeys$"},{"id":"stripe","name":"Stripe","hosts":["stripe.com"]}]}`, "listed twice"},
 		{"no name", `{"providers":[{"id":"stripe","name":" ","hosts":["stripe.com"]}]}`, "has no name"},
 		{"no hosts", `{"providers":[{"id":"stripe","name":"Stripe","hosts":[]}]}`, "names no hosts"},
 		{"a wildcard in the middle", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["dash.*.stripe.com"]}]}`, "not a host name"},
