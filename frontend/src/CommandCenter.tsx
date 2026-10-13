@@ -140,7 +140,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const answered = focus?.change ? itemFor(snapshot, focus.change) : undefined;
     // A focus on an item he already answered or cleared, as from a
     // notification that outlived it, opens the list, never another item.
-    const key = focus?.key ?? waiting[0]?.key;
+    const key = focus?.key || waiting[0]?.key;
     setScope(focus?.keys ?? null);
     if (answered?.kind === "question" && canChange(answered.question)) { setInbox(false); setChanging(answered.question.id); }
     else if (focus && !focus.change && key && unscoped.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
