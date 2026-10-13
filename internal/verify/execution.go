@@ -5,6 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // ExecutionRecord is local execution evidence. Same-user files remain
@@ -21,6 +23,8 @@ type ExecutionRecord struct {
 	Status       string                `json:"status"`
 	ExitCode     *int                  `json:"exit_code"`
 	Failure      string                `json:"failure,omitempty"`
+	StdoutLog    string                `json:"stdout_log"`
+	StderrLog    string                `json:"stderr_log"`
 }
 
 type ExecutionTransition struct {
@@ -44,6 +48,8 @@ func BeginExecution(root string, command []string) (*Execution, error) {
 	id := rand.Text()
 	execution := &Execution{path: filepath.Join(store, "executions", id+".json")}
 	record := ExecutionRecord{Version: 1, ID: id, Root: root, Command: append([]string(nil), command...), Created: time.Now().UTC(), Status: "pending"}
+	record.StdoutLog = execution.path + ".stdout.log"
+	record.StderrLog = execution.path + ".stderr.log"
 	record.Measurement.State = Queued
 	record.Transitions = []ExecutionTransition{{State: Queued, At: record.Created}}
 	if err := execution.persist(record); err != nil {
@@ -109,16 +115,38 @@ func (execution *Execution) Finish(exitCode int, failure error) error {
 
 // Refuse records an execution that never started a process, including an
 // admission failure. No command exit code is invented for it.
-func (execution *Execution) Refuse(failure error) error {
+func (execution *Execution) Refuse(failure error, waited time.Duration) error {
 	state := execution.record.Measurement.State
-	if failure == nil || (state != Queued && state != Admitted) {
+	if failure == nil || waited < 0 || (state != Queued && state != Admitted) {
 		return errors.New("verify: refusal requires a failure before execution")
 	}
 	next := execution.record
+	next.QueueSeconds = waited.Seconds()
 	next.Measurement.State = Interrupted
 	next.Measurement.CleanupConfirmed = true
 	next.Status = "not_started"
 	next.Failure = failure.Error()
+	return execution.persist(next)
+}
+
+func (execution *Execution) interrupt() error {
+	if execution.record.Measurement.State != Completed {
+		return nil
+	}
+	next := execution.record
+	next.Measurement.State = Interrupted
+	return execution.persist(next)
+}
+
+func (execution *Execution) recoveredCleanup(usage execx.TreeUsage) error {
+	if execution.record.Status == "passed" || usage.ActiveProcesses != 0 {
+		return errors.New("verify: recovery requires a failed run and an empty job")
+	}
+	next := execution.record
+	next.Status = "failed"
+	next.Measurement.State = Interrupted
+	next.Measurement.CleanupConfirmed = true
+	next.Measurement.Usage = usage
 	return execution.persist(next)
 }
 

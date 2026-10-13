@@ -57,6 +57,10 @@ func TestExecutorRecordsActualExitOutputAndWholeJobCleanup(t *testing.T) {
 			if (record.Status == "passed") != (code == 0) {
 				t.Fatalf("status = %s, code = %d", record.Status, code)
 			}
+			logged, err := fsx.ReadFile(record.StdoutLog)
+			if err != nil || string(logged) != "proof" {
+				t.Fatalf("durable stdout = %q, %v", logged, err)
+			}
 			holders, waiters, err := Line(executor.Admission.Dir)
 			if err != nil || len(holders)+len(waiters) != 0 {
 				t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, err)
@@ -170,7 +174,143 @@ func TestExecutorRefusesResourceWaitWithoutStartingCommand(t *testing.T) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Status != "not_started" || record.ExitCode != nil || len(record.Transitions) != 2 {
+	if record.Status != "not_started" || record.ExitCode != nil || len(record.Transitions) != 2 || record.QueueSeconds <= 0 {
 		t.Fatalf("no-turn evidence = %+v", record)
+	}
+}
+
+func TestExecutorRetainsCancellationFromTheFinalObserver(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	standin.RemoveAtCleanup(t, root)
+	program := filepath.Join(root, "workload.exe")
+	standin.Put(t, program)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+		Observe: func(measurement Measurement) error {
+			if measurement.State == Completed {
+				cancel()
+			}
+			return nil
+		}}}
+
+	// Act
+	result, err := executor.Run(ctx, execx.Request{Dir: root, Name: program})
+
+	// Assert
+	if !errors.Is(err, context.Canceled) || result.ExitCode != 0 {
+		t.Fatalf("late cancellation = %+v, %v", result, err)
+	}
+	files, _ := filepath.Glob(filepath.Join(store, "executions", "*.json"))
+	if len(files) != 1 {
+		t.Fatalf("records = %v", files)
+	}
+	data, err := fsx.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record ExecutionRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "failed" || record.Measurement.State != Interrupted || !record.Measurement.CleanupConfirmed {
+		t.Fatalf("late cancellation record = %+v", record)
+	}
+}
+
+func TestExecutorFileInputDoesNotWaitForEOFWhenTheCommandEnds(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	standin.RemoveAtCleanup(t, root)
+	program := filepath.Join(root, "workload.exe")
+	standin.Put(t, program)
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	executor := Executor{Stdin: reader, Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Act
+	result, err := executor.Run(ctx, execx.Request{Dir: root, Name: program})
+
+	// Assert
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("open stdin kept an exited command alive: %+v, %v", result, err)
+	}
+}
+
+func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := admission(t)
+	turn, err := requested.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer turn.Release()
+	guard, err := turn.Protect(execution.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, err := range []error{execution.Admit(0), execution.Start(), execution.Observe(Measurement{State: CleanupUncertain}), execution.Finish(-1, errors.New("initial cleanup failed"))} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	tree := &measuredTree{cleanupError: errors.New("still unavailable")}
+	executor := Executor{pending: map[string]*pendingCleanup{execution.ID(): {tree: tree, turn: turn, guard: guard, execution: execution, isFinished: true}}}
+
+	// Act
+	firstError := executor.RetryCleanup(context.Background())
+	turn.Release()
+	if _, err := os.Stat(filepath.Join(requested.Dir, "slot-1")); err != nil || firstError == nil {
+		t.Fatalf("uncertain retry released custody: %v, %v", firstError, err)
+	}
+	tree.cleanupError = nil
+	if err := os.Rename(execution.Path(), execution.Path()+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(execution.Path(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(execution.Path(), "occupied"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.RetryCleanup(context.Background()); err == nil {
+		t.Fatal("failed recovery evidence write was ignored")
+	}
+	if err := os.Remove(filepath.Join(execution.Path(), "occupied")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(execution.Path()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(execution.Path()+".saved", execution.Path()); err != nil {
+		t.Fatal(err)
+	}
+	tree.cleanupError = errors.New("job handle was already closed")
+	finalError := executor.RetryCleanup(context.Background())
+
+	// Assert
+	if finalError != nil || len(executor.pending) != 0 || execution.record.Status != "failed" || !execution.record.Measurement.CleanupConfirmed {
+		t.Fatalf("recovered cleanup = %+v, pending = %d, err = %v", execution.record, len(executor.pending), finalError)
+	}
+	if _, err := os.Stat(filepath.Join(requested.Dir, "slot-1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("confirmed retry did not release custody: %v", err)
 	}
 }

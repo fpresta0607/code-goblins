@@ -1,47 +1,93 @@
 package verify
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// Executor runs verification commands under the shared admission authority.
+// Executor owns commands and any cleanup still pending after Run returns.
+// Its owner must retain it and call RetryCleanup until that succeeds.
 // The model or orchestrator holds no lease between individual commands.
 type Executor struct {
 	Admission Admission
 	Monitor   Monitor
-	Stdin     io.Reader
+	// A file is inherited directly, without a Go I/O pump that could remain
+	// blocked on an arbitrary reader after the process exits.
+	Stdin *os.File
+
+	mu      sync.Mutex
+	pending map[string]*pendingCleanup
 }
 
-func (executor Executor) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
-	var stdout, stderr bytes.Buffer
-	exitCode, err := executor.Stream(ctx, request, &stdout, &stderr)
-	return execx.Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes(), ExitCode: exitCode}, err
+type pendingCleanup struct {
+	tree       MeasuredJob
+	turn       Turn
+	guard      Custody
+	execution  *Execution
+	isFinished bool
+	usage      *execx.TreeUsage
 }
 
-func (executor Executor) Stream(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
+func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Dir == "" {
 		var err error
 		request.Dir, err = os.Getwd()
 		if err != nil {
-			return -1, err
+			return execx.Result{ExitCode: -1}, err
 		}
 	}
 	execution, err := BeginExecution(request.Dir, append([]string{request.Name}, request.Args...))
 	if err != nil {
-		return -1, err
+		return execx.Result{ExitCode: -1}, err
 	}
-	refuse := func(failure error) (int, error) { return -1, errors.Join(failure, execution.Refuse(failure)) }
+	defer func() {
+		executor.mu.Lock()
+		defer executor.mu.Unlock()
+		if pending := executor.pending[execution.ID()]; pending != nil {
+			pending.isFinished = true
+		}
+	}()
+	stdout, err := os.OpenFile(execution.record.StdoutLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return execx.Result{ExitCode: -1}, errors.Join(err, execution.Refuse(err, 0))
+	}
+	defer stdout.Close()
+	stderr, err := os.OpenFile(execution.record.StderrLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return execx.Result{ExitCode: -1}, errors.Join(err, execution.Refuse(err, 0))
+	}
+	defer stderr.Close()
+	exitCode, failure := executor.execute(ctx, request, execution, stdout, stderr)
+	failure = errors.Join(failure, stdout.Sync(), stderr.Sync())
+	output, outputError := outputTail(execution.record.StdoutLog)
+	errorsOutput, errorsOutputError := outputTail(execution.record.StderrLog)
+	failure = errors.Join(failure, outputError, errorsOutputError)
+	if execution.record.Status == "pending" {
+		if err := ctx.Err(); err != nil {
+			failure = errors.Join(failure, err, execution.interrupt())
+		}
+		failure = errors.Join(failure, execution.Finish(exitCode, failure))
+	}
+	if failure != nil {
+		failure = fmt.Errorf("verify: execution %s failed (%s): %w", execution.ID(), execution.record.Measurement.State, failure)
+	}
+	return execx.Result{Stdout: output, Stderr: errorsOutput, ExitCode: exitCode}, failure
+}
+
+func (executor *Executor) execute(ctx context.Context, request execx.Request, execution *Execution, stdout, stderr *os.File) (int, error) {
+	var waited time.Duration
+	refuse := func(failure error) (int, error) { return -1, errors.Join(failure, execution.Refuse(failure, waited)) }
 	monitor := executor.Monitor
 	if monitor.Headroom == nil {
 		return refuse(errors.New("verify: machine headroom reader is required"))
@@ -53,6 +99,7 @@ func (executor Executor) Stream(ctx context.Context, request execx.Request, stdo
 		return min(memory.PhysicalAvailable, memory.CommitAvailable), err
 	}
 	turn, err := admission.Wait(ctx)
+	waited = turn.Waited
 	if err != nil {
 		return refuse(err)
 	}
@@ -90,18 +137,19 @@ func (executor Executor) Stream(ctx context.Context, request execx.Request, stdo
 			measurement = Measurement{State: Interrupted, CleanupConfirmed: true}
 			failure = errors.Join(failure, guard.Complete())
 		}
-		failure = errors.Join(failure, execution.Observe(measurement))
-		return -1, errors.Join(failure, execution.Finish(-1, failure))
+		return -1, errors.Join(failure, execution.Observe(measurement))
 	}
-	waited := make(chan error, 1)
-	go func() { waited <- command.Wait() }()
+	processWait := make(chan error, 1)
+	go func() { processWait <- command.Wait() }()
 	monitor.Cancel = func() error {
 		return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(command.Process.Pid))
 	}
 	observe := monitor.Observe
 	monitor.Observe = func(measurement Measurement) error {
-		if err := execution.Observe(measurement); err != nil {
-			return err
+		if measurement.State == Running {
+			if err := execution.Observe(measurement); err != nil {
+				return err
+			}
 		}
 		if observe != nil {
 			return observe(measurement)
@@ -109,16 +157,37 @@ func (executor Executor) Stream(ctx context.Context, request execx.Request, stdo
 		return nil
 	}
 	measurement, failure := monitor.Watch(ctx, tree)
+	pending := &pendingCleanup{tree: tree, turn: turn, guard: guard, execution: execution}
+	shouldRetry := !measurement.CleanupConfirmed
 	if measurement.CleanupConfirmed {
-		failure = errors.Join(failure, guard.Complete())
+		pending.usage = &measurement.Usage
+		if err := guard.Complete(); err != nil {
+			failure = errors.Join(failure, err)
+			shouldRetry = true
+		}
+	}
+	if shouldRetry {
+		executor.mu.Lock()
+		if executor.pending == nil {
+			executor.pending = make(map[string]*pendingCleanup)
+		}
+		executor.pending[execution.ID()] = pending
+		executor.mu.Unlock()
 	}
 	var waitError error
 	select {
-	case waitError = <-waited:
+	case waitError = <-processWait:
 	case <-time.After(5 * time.Second):
 		failure = errors.Join(failure, errors.New("verify: command wait did not finish after bounded cleanup"))
-		return -1, errors.Join(failure, execution.Finish(-1, failure))
+		return -1, errors.Join(failure, execution.Observe(measurement))
 	}
+	if err := ctx.Err(); err != nil {
+		failure = errors.Join(failure, err)
+		if measurement.State == Completed {
+			measurement.State = Interrupted
+		}
+	}
+	failure = errors.Join(failure, execution.Observe(measurement))
 	exitCode := -1
 	if command.ProcessState != nil {
 		exitCode = command.ProcessState.ExitCode()
@@ -127,11 +196,62 @@ func (executor Executor) Stream(ctx context.Context, request execx.Request, stdo
 	if waitError != nil && !errors.As(waitError, &exitError) {
 		failure = errors.Join(failure, waitError)
 	}
-	if err := execution.Finish(exitCode, failure); err != nil {
-		failure = errors.Join(failure, err)
+	return exitCode, failure
+}
+
+// RetryCleanup retries retained jobs under the caller's deadline. A later
+// cleanup proof can release custody but can never turn a failed run green.
+func (executor *Executor) RetryCleanup(ctx context.Context) error {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	var failure error
+	for id, pending := range executor.pending {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(failure, err)
+		}
+		if !pending.isFinished {
+			failure = errors.Join(failure, fmt.Errorf("verify: execution %s is still finalizing", id))
+			continue
+		}
+		if pending.usage == nil {
+			usage, err := pending.tree.TerminateAndWait(ctx)
+			if err == nil && usage.ActiveProcesses != 0 {
+				err = errors.New("verify: retry returned active workers")
+			}
+			if err != nil {
+				failure = errors.Join(failure, fmt.Errorf("verify: execution %s cleanup remains uncertain: %w", id, err))
+				continue
+			}
+			pending.usage = &usage
+		}
+		if err := pending.execution.recoveredCleanup(*pending.usage); err != nil {
+			failure = errors.Join(failure, err)
+			continue
+		}
+		if err := pending.guard.Complete(); err != nil {
+			failure = errors.Join(failure, err)
+			continue
+		}
+		pending.turn.Release()
+		delete(executor.pending, id)
 	}
-	if failure != nil {
-		return exitCode, fmt.Errorf("verify: execution %s failed (%s): %w", execution.ID(), measurement.State, failure)
+	return failure
+}
+
+// Keep complete logs on disk without allocating an unbounded command result.
+func outputTail(path string) ([]byte, error) {
+	file, err := fsx.Open(path)
+	if err != nil {
+		return nil, err
 	}
-	return exitCode, nil
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	const limit = 4 << 20
+	if _, err := file.Seek(max(0, info.Size()-limit), io.SeekStart); err != nil {
+		return nil, err
+	}
+	return io.ReadAll(io.LimitReader(file, limit))
 }

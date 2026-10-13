@@ -487,9 +487,14 @@ Its reserve cannot lower the existing 4 GiB floor and is a cancellation threshol
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
 Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
+The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
+Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits.
 Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
 Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
 An abandoned or unreadable custody record refuses further admission rather than guessing that its workers are gone.
+The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` calls and keeps a confirmed cleanup proof if its evidence write or custody removal needs another attempt.
+Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
+Restart recovery and retention of the execution records and logs are not yet implemented, so these APIs remain outside the live command path.
 These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
 
 **Not in the wrapper.**

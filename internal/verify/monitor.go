@@ -152,5 +152,11 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 			}
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		failure = errors.Join(failure, err)
+		if result.State == Completed {
+			result.State = Interrupted
+		}
+	}
 	return result, failure
 }
