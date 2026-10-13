@@ -29,15 +29,21 @@ func TestMain(m *testing.M) {
 	if dir == "" {
 		os.Exit(m.Run())
 	}
+	fmt.Fprintf(os.Stderr, "%s pid=%d started admission\n", time.Now().UTC().Format(time.RFC3339Nano), os.Getpid())
 	holder := Admission{Dir: dir, Floor: 4 * gigabyte, Available: func() (uint64, error) { return 16 * gigabyte, nil }, Who: "a run that hangs", Budget: 200 * time.Millisecond, Limit: time.Minute, Poll: 5 * time.Millisecond}
+	holder.Waiting = func(waited time.Duration, why string) {
+		fmt.Fprintf(os.Stderr, "%s waiting=%s reason=%s\n", time.Now().UTC().Format(time.RFC3339Nano), waited, why)
+	}
 	turn, err := holder.Wait(context.Background())
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s admission failed: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 		fmt.Println("failed:", err)
 		os.Exit(1)
 	}
 	fmt.Println("holding")
+	fmt.Fprintf(os.Stderr, "%s admitted, waiting for stdin\n", time.Now().UTC().Format(time.RFC3339Nano))
 	bufio.NewReader(os.Stdin).ReadString('\n')
-	turn.Release()
+	fmt.Fprintf(os.Stderr, "%s stdin closed, release=%v\n", time.Now().UTC().Format(time.RFC3339Nano), turn.Release())
 }
 
 // admission takes turns in a folder of the test's own, on a machine with

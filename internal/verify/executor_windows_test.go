@@ -14,7 +14,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
@@ -91,6 +90,12 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	t.Setenv("CFO_VERIFY_DIR", store)
 	root := t.TempDir()
 	isParentGone := false
+	var childHandle windows.Handle
+	t.Cleanup(func() {
+		if childHandle != 0 {
+			windows.CloseHandle(childHandle)
+		}
+	})
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond,
 		Headroom: func() (Headroom, error) {
 			if isParentGone {
@@ -98,8 +103,18 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 			}
 			return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
 		}, Observe: func(measurement Measurement) error {
-			_, err := os.Stat(filepath.Join(root, "child.pid"))
+			data, err := os.ReadFile(filepath.Join(root, "child.pid"))
 			if err == nil && measurement.Usage.TotalProcesses == 2 && measurement.Usage.ActiveProcesses == 1 {
+				childPID, err := strconv.Atoi(string(data))
+				if err != nil {
+					return err
+				}
+				if childHandle == 0 {
+					childHandle, err = windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(childPID))
+					if err != nil {
+						return err
+					}
+				}
 				isParentGone = true
 			}
 			return nil
@@ -122,8 +137,9 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	if parseError != nil {
 		t.Fatal(parseError)
 	}
-	if _, isRunning := proc.StartTime(childPID); isRunning {
-		t.Fatalf("owned child %d survived verified cleanup", childPID)
+	isExited, waitError := windows.WaitForSingleObject(childHandle, 0)
+	if waitError != nil || isExited != windows.WAIT_OBJECT_0 {
+		t.Fatalf("owned child %d survived verified cleanup: wait=%d error=%v", childPID, isExited, waitError)
 	}
 	files, _ := filepath.Glob(filepath.Join(store, "executions", "*.json"))
 	if len(files) != 1 {
