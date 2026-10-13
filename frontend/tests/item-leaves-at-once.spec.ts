@@ -171,7 +171,7 @@ for (const way of WAYS) {
 test.describe("in the desktop window's size, with the CFO's panel open", () => {
   test.use({ viewport: { width: 1707, height: 1000 }, deviceScaleFactor: 1.5 });
 
-  test("a goblin's question stays with the CFO, his own question waits quietly, and the ten-minute notice is said on the CFO's bar, alerting nothing", async ({ page, context }, testInfo) => {
+  test("a goblin's question stays with the CFO, his own question waits quietly, and goblins' questions the CFO left ten minutes wait on him too, said on the CFO's bar, alerting nothing", async ({ page, context }, testInfo) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -197,8 +197,10 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await expect(card(page)).toBeHidden();
     await testInfo.attach("one quiet item with the CFO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
-    await send(page, "snapshot", { ...quiet, revision: 4, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } });
+    const left = [660, 630, 600].map((age, i) => ({ ...question, id: "left-" + i, task: "cg-probe", created_at: new Date(Date.parse("2026-10-02T12:21:00Z") - age * 1000).toISOString() }));
+    await send(page, "snapshot", { ...quiet, revision: 4, at: "2026-10-02T12:21:00Z", questions: left });
     await expect(bar(page)).toContainText("3 questions wait for the CFO (11 min). 1 goblin at work.");
+    await expect(badge(page)).toHaveAccessibleName("Command Center, 3 waiting on you");
     await page.waitForTimeout(500);
     await expect(toasts(page)).toHaveCount(0);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
@@ -486,4 +488,40 @@ test("a card open for an item that closed somewhere else shows what became of it
   await expect.poll(() => doneCards(page)).toContain("ClosedWithdrawn: The goblin moved on.");
   await expect(card(page)).toBeHidden();
   await expectGone(page, WAITS);
+});
+
+// The Overlord, 2026-10-13 at about 13:58Z, at a bar reading "1 question waits
+// for the CFO (20 min). 15 goblins at work.": "Why is it telling me there's a
+// question that waits for me for twenty minutes, and I there's no command
+// center?" Olive's question had waited on the CFO since 13:43Z, and six of the
+// fifteen goblins were paused. The bar names only what his Command Center
+// shows, where he can answer it himself, and counts only the goblins at work.
+test("the CFO's bar names only a goblin's question his Command Center shows him, which he answers there, and counts only the goblins at work", async ({ page, context }, testInfo) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const supervisor = await actions(context);
+  const RING = "Should the Project Home map's surrounding-context ring shrink from 2,500 m to 1,000 m, or stay as it is?";
+  const olive = { id: "notify-pd-billing-margin-review-1001446", identity: "e".repeat(64), task: "pd-billing-margin-review", status: "pending", created_at: "2026-10-13T13:43:01Z", text: RING, options: ["Shrink to 1,000 m", "Keep 2,500 m"], recommended: "Shrink to 1,000 m" };
+  const goblin = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: "Goblin " + id, project: "code-goblins", phase: "working", generation: id + "-1", verified: false, ...fields });
+  const paused = (id: string, reason: string) => goblin(id, { phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-10-13T13:30:00Z", pause: { reason, until: "", at: "2026-10-13T13:30:00Z" }, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
+  const tasks = [goblin("pd-billing-margin-review", { title: "Billing margin review" }), ...Array.from({ length: 8 }, (_, i) => goblin("working-" + i)),
+    paused("memory-a", "memory"), paused("memory-b", "memory"), paused("dependency", "dependency"), paused("allowance", "allowance"), paused("question", "question"), paused("overlord", "overlord")];
+  await page.goto("/");
+
+  // Act
+  await send(page, "snapshot", { ...quiet, revision: 2, at: "2026-10-13T14:03:01Z", tasks, questions: [olive] });
+
+  // Assert
+  await expect(bar(page)).toContainText("1 question waits for the CFO (20 min). 9 goblins at work.");
+  await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+  await expect(toasts(page)).toHaveCount(0);
+  await testInfo.attach("the bar and the question it names", { body: await page.screenshot(), contentType: "image/png" });
+  await openCard(page, RING);
+  await card(page).getByText("Shrink to 1,000 m", { exact: true }).click();
+  await card(page).locator(".send-decision").click();
+  await expect(card(page)).toBeVisible();
+  await expect(card(page)).toContainText("Sending");
+  supervisor.accept();
+  await expect.poll(() => supervisor.posted.map((body) => [body.kind, body.question_id])).toEqual([["goblin_answer", olive.id]]);
 });

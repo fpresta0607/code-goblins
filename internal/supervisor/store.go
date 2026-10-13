@@ -139,8 +139,7 @@ type Database struct {
 	BrowserSignIns []BrowserSignIn     `json:"browser_signins,omitempty"`
 	// Announced is every Command Center key the board has announced, so no
 	// item is announced twice.
-	Announced     []Announcement `json:"announced,omitempty"`
-	CFOQuietSince time.Time      `json:"cfo_quiet_since,omitzero"`
+	Announced []Announcement `json:"announced,omitempty"`
 	// QueuedSends are the receipts of messages typed into a goblin in a
 	// turn, held until its record shows the goblin took each; the board
 	// shows a receipt only then.
