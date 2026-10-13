@@ -107,6 +107,9 @@ type Run struct {
 	// DevDrive is the Dev Drive step the board made this item for: create,
 	// attach, trust or move.
 	DevDrive string `json:"dev_drive,omitempty"`
+	// CFOUnwoken is the oldest wake the supervisor could not type into the
+	// CFO, for the item that offers the Overlord its restart.
+	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -394,6 +397,32 @@ func (s *Store) withdrawRun(id, reason string) error {
 		return fmt.Errorf("the run item was withdrawn, but state/runs.audit was not written: %w", err)
 	}
 	return nil
+}
+
+// withdrawCFOUnwoken takes back the item that offers the Overlord the CFO's
+// restart, while nobody ran it, once the CFO was told of its wakes.
+func (s *Store) withdrawCFOUnwoken(reason string) error {
+	var open []string
+	s.mu.Lock()
+	for _, r := range s.db.Runs {
+		if r.CFOUnwoken != 0 && r.State == "ready" {
+			open = append(open, r.ID)
+		}
+	}
+	s.mu.Unlock()
+	var err error
+	for _, id := range open {
+		err = errors.Join(err, s.withdrawRun(id, reason))
+	}
+	return err
+}
+
+// offeredCFORestart reports whether an item already offered the CFO's restart
+// for the untyped wake oldest, whatever became of it.
+func (s *Store) offeredCFORestart(oldest int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.CFOUnwoken == oldest })
 }
 
 // expireRuns closes each item nobody ran within its lifetime.

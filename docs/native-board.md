@@ -937,6 +937,10 @@ A CFO already running keeps its harness, and goblins says the choice applies to 
 A Claude Code CFO is woken by its own Stop hook, which waits on the wake queue.
 A Codex or pi CFO in a native terminal is woken by the supervisor, once it has registered by running `cfo register` in that terminal, as its first prompt tells it to: while wakes it has not been told about are queued, the supervisor types one line into its terminal, `cfo watcher wake: N queued wakes (...); run cfo drain, ...`, only when two readings of its screen a second apart show it idle at an empty composer, so never mid-turn and never over text left unsent, at most one line every 30 seconds, and each queued record is covered by one line only.
 The line is proved taken as `cfo send` proves a send, and one that nothing proves taken is reported and not typed again.
+A wake left untyped is recorded in `state\cfo-wake-skips.jsonl`, once for each new wake and each new reason, with why in plain words, such as "its screen shows it in the middle of a turn", and the screen's last eight rows; the file keeps the newest 200.
+On 2026-10-13 six wakes waited 16 minutes for an idle Codex CFO and nothing said why.
+Once the oldest untyped wake has waited five minutes, the CFO cannot be told why, so the Overlord is: one Command Center item in plain words, such as "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows it in the middle of a turn. Restart the CFO so it reads them?", whose Run restarts the CFO as `goblins resume` does.
+It is made once for that oldest wake and taken back while nobody ran it once no wake waits untyped, whether the line was typed or the CFO ran `cfo drain` itself.
 A Codex or pi CFO someone starts in Herdr by hand has no wake path: it sees reports only when it checks the board or runs `cfo drain`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 

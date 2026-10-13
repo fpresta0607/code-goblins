@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -57,7 +59,11 @@ func typedWakeCFO(t *testing.T, agent string, screens ...[]string) (*Service, st
 			return deliverErr
 		},
 	}
-	return &Service{Options: Options{CFO: connection}}, stateDir, &typed, &deliverErr
+	store, err := Open(home.Home{Root: filepath.Dir(stateDir), State: stateDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Service{Store: store, Options: Options{CFO: connection}}, stateDir, &typed, &deliverErr
 }
 
 func queueWake(t *testing.T, stateDir, kind, key, detail string) {
@@ -310,5 +316,152 @@ func TestTheTypedWakeLineSaysAFKModeIsOn(t *testing.T) {
 	}
 	if len(*typed) != 1 || !strings.Contains((*typed)[0], "cfo watcher wake: 1 queued wake (notify cg-wakes)") || !strings.Contains((*typed)[0], "AFK mode is on since 2026-10-02 02:10 UTC") || strings.ContainsAny((*typed)[0], "\r\n") {
 		t.Fatalf("typed = %q, want one line naming the wake and saying AFK mode is on", *typed)
+	}
+}
+
+// skips reads the record of the wakes the supervisor did not type.
+func skips(t *testing.T, stateDir string) []cfoWakeSkip {
+	t.Helper()
+	lines, err := fsx.ReadLines(filepath.Join(stateDir, cfoWakeSkipsFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	var kept []cfoWakeSkip
+	for _, line := range lines {
+		var skip cfoWakeSkip
+		if err := json.Unmarshal([]byte(line), &skip); err != nil {
+			t.Fatalf("unreadable skip %q: %v", line, err)
+		}
+		kept = append(kept, skip)
+	}
+	return kept
+}
+
+// On 2026-10-13 from 01:17Z to 01:33Z wakes waited untyped for an idle Codex
+// CFO and nothing said why. A wake the supervisor does not type is recorded
+// with why, in plain words, and the last rows of the CFO's screen, once for
+// each new wake and each new reason, not at every look.
+func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
+	for name, test := range map[string]struct {
+		screen []string
+		why    string
+	}{
+		"in a turn":        {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
+		"its agents run":   {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
+		"at a dialog":      {[]string{"  Set up security for Daybreak mode", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
+		"holding text":     {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
+		"no prompt":        {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, stateDir, typed, _ := typedWakeCFO(t, "codex", test.screen)
+			queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+			now := time.Now().UTC()
+
+			// Act
+			for look := range 3 {
+				if err := s.wakeCFO(context.Background(), now.Add(time.Duration(look)*cfoWakeEvery)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			kept := skips(t, stateDir)
+			if len(*typed) != 0 || len(kept) != 1 {
+				t.Fatalf("typed %q and recorded %+v; want nothing typed and one skip", *typed, kept)
+			}
+			if kept[0].Why != test.why || kept[0].Wakes != 1 || !strings.Contains(kept[0].Screen, strings.TrimSpace(test.screen[0])) {
+				t.Errorf("skip = %+v; want why %q, 1 wake and the screen's rows", kept[0], test.why)
+			}
+		})
+	}
+}
+
+// A wake left untyped past cfoWakeStuckAfter means the CFO cannot be told of
+// anything, so the Overlord is: one Command Center item in plain words that
+// restarts the CFO, made once, and taken back once the CFO is told.
+func TestTheOverlordIsToldOnceWhenTheCFOCannotBeWoken(t *testing.T) {
+	// Arrange
+	busy := []string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything"}
+	s, stateDir, typed, _ := typedWakeCFO(t, "codex", busy)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	queueWake(t, stateDir, "notify", "g2", "blocked: which one?")
+	now := time.Now().UTC()
+	untold := func() []Run {
+		var kept []Run
+		for _, r := range s.Store.Snapshot().Runs {
+			if r.CFOUnwoken != 0 {
+				kept = append(kept, r)
+			}
+		}
+		return kept
+	}
+
+	// Act and assert: nothing before the wait is long enough.
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if items := untold(); len(items) != 0 {
+		t.Fatalf("items = %+v before the wakes waited %s", items, cfoWakeStuckAfter)
+	}
+
+	// Act and assert: one item once it is.
+	for look := range 2 {
+		if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Duration(look)*time.Minute+time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items := untold()
+	if len(items) != 1 || items[0].State != "ready" {
+		t.Fatalf("items = %+v; want one item waiting on the Overlord", items)
+	}
+	want := "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows it in the middle of a turn. Restart the CFO so it reads them?"
+	if items[0].Title != want || !strings.Contains(items[0].Command, " resume") {
+		t.Errorf("item = %q running %q; want %q running resume", items[0].Title, items[0].Command, want)
+	}
+
+	// Act and assert: the CFO takes the wakes, and the item goes.
+	s.Options.CFO.ReadScreen = func(host.Record) ([]string, error) { return idleCodexCFO, nil }
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if items := untold(); len(*typed) != 1 || len(items) != 1 || items[0].State != "withdrawn" {
+		t.Errorf("typed %q, items %+v; want the wakes typed and the item withdrawn", *typed, items)
+	}
+}
+
+// The CFO may read its wakes without being told, as a Codex CFO in a long
+// turn runs cfo drain itself: once none waits, the item goes as well.
+func TestTheOverlordsItemGoesOnceTheCFODrainsItsWakes(t *testing.T) {
+	// Arrange
+	busy := []string{"• Working (40m • esc to interrupt)", "› Ask Codex to do anything"}
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", busy)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := wake.Pending(stateDir)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending = %+v, %v", pending, err)
+	}
+
+	// Act
+	if err := wake.AckThrough(stateDir, pending[0].Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	var states []string
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.CFOUnwoken != 0 {
+			states = append(states, r.State)
+		}
+	}
+	if len(states) != 1 || states[0] != "withdrawn" {
+		t.Errorf("items = %q; want the one item withdrawn", states)
 	}
 }

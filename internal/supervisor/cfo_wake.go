@@ -2,6 +2,10 @@ package supervisor
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -36,6 +40,31 @@ const (
 	// steps of one turn is not taken for idle.
 	cfoIdleRecheck = time.Second
 )
+
+// cfoWakeStuckAfter is how long a queued wake may wait untyped before the
+// Overlord is told that the CFO cannot be.
+const cfoWakeStuckAfter = 5 * time.Minute
+
+// cfoWakeSkipsFile records each queued wake the supervisor did not type, why
+// and what the CFO's screen showed, so a CFO that was never told can be
+// explained afterwards: from 01:17Z to 01:33Z on 2026-10-13 six wakes waited
+// for an idle Codex CFO, and nothing said why. maxCFOWakeSkips bounds it.
+const (
+	cfoWakeSkipsFile = "cfo-wake-skips.jsonl"
+	maxCFOWakeSkips  = 200
+	// cfoWakeSkipRows is how many of the screen's last rows a skip keeps.
+	cfoWakeSkipRows = 8
+)
+
+// cfoWakeSkip is one record of cfoWakeSkipsFile: when, the wakes left
+// untyped, the newest of them, why in plain words, and the screen's last rows.
+type cfoWakeSkip struct {
+	At     time.Time `json:"at"`
+	Wakes  int       `json:"wakes"`
+	Newest int       `json:"newest"`
+	Why    string    `json:"why"`
+	Screen string    `json:"screen,omitempty"`
+}
 
 // cfoWokenFile holds the highest wake sequence a typed wake line covered:
 // the line sends the CFO to cfo drain, which shows all of them, so a record a
@@ -121,12 +150,18 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 			fresh = append(fresh, record)
 		}
 	}
-	if len(fresh) == 0 || now.Sub(typedAt) < cfoWakeGap {
+	if len(fresh) == 0 {
+		return s.untoldWakes(nil, cfoWakeSkip{}, now)
+	}
+	if now.Sub(typedAt) < cfoWakeGap {
 		return nil
 	}
-	primary, live := livePrimary(stateDir)
-	if !live || primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
-		return nil
+	primary, _, err := readPrimary(stateDir)
+	if err != nil || primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
+		return s.untoldWakes(nil, cfoWakeSkip{}, now)
+	}
+	if !primary.Process.VerifiedAlive() {
+		return s.untoldWakes(fresh, cfoWakeSkip{Why: "the CFO that registered no longer runs"}, now)
 	}
 	line := wakeLine(fresh)
 	// While AFK mode is on the line says so, since a CFO with no Stop hook
@@ -134,7 +169,87 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 	if banner := afk.BannerFor(stateDir); banner != "" {
 		line += " " + banner
 	}
-	return connection.typeWake(ctx, primary, line, fresh[len(fresh)-1].Seq, now)
+	skip, err := connection.typeWake(ctx, primary, line, fresh[len(fresh)-1].Seq, now)
+	if err != nil {
+		return errors.Join(err, s.untoldWakes(fresh, cfoWakeSkip{Why: "its terminal no longer runs the CFO that registered"}, now))
+	}
+	if skip.Why == "" {
+		fresh = nil
+	}
+	return s.untoldWakes(fresh, skip, now)
+}
+
+// untoldWakes records fresh, the wakes left untyped, as skip says, once for
+// each new wake and each new reason, and keeps the Overlord's item about
+// them: made once the oldest has waited cfoWakeStuckAfter, and taken back
+// once none waits untyped. With no wake left untyped it only takes it back.
+func (s *Service) untoldWakes(fresh []wake.Record, skip cfoWakeSkip, now time.Time) error {
+	if len(fresh) == 0 {
+		return s.Store.withdrawCFOUnwoken("The CFO was told of the fleet's updates.")
+	}
+	skip.At, skip.Wakes, skip.Newest = now.UTC(), len(fresh), fresh[len(fresh)-1].Seq
+	connection := s.Options.CFO
+	var recordErr error
+	if key := strconv.Itoa(skip.Newest) + "\x00" + skip.Why; key != connection.skipped {
+		if recordErr = recordCFOWakeSkip(connection.State, skip); recordErr == nil {
+			connection.skipped = key
+		}
+	}
+	waited := now.Sub(fresh[0].Time)
+	if waited < cfoWakeStuckAfter {
+		return recordErr
+	}
+	return errors.Join(recordErr, s.offerCFORestart(fresh[0].Seq, len(fresh), waited, skip.Why, now))
+}
+
+// recordCFOWakeSkip adds skip to cfoWakeSkipsFile, keeping the newest
+// maxCFOWakeSkips.
+func recordCFOWakeSkip(stateDir string, skip cfoWakeSkip) error {
+	data, err := json.Marshal(skip)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(stateDir, cfoWakeSkipsFile)
+	lines, err := fsx.ReadLines(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	lines = append(lines, string(data))
+	lines = lines[max(0, len(lines)-maxCFOWakeSkips):]
+	return fsx.AtomicWriteFile(path, []byte(strings.Join(lines, "\n")+"\n"))
+}
+
+// offerCFORestart puts before the Overlord, once for the oldest untyped wake
+// oldest, a Command Center item in plain words that restarts the CFO as
+// goblins resume does: the CFO cannot be told why its wakes wait, since that
+// would be one more wake.
+func (s *Service) offerCFORestart(oldest, wakes int, waited time.Duration, why string, now time.Time) error {
+	if s.Store.offeredCFORestart(oldest) {
+		return nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	id := "cfo-unwoken-" + hex.EncodeToString(nonce[:])
+	identity := sha256.Sum256([]byte("cfo-unwoken\n" + id + "\n" + strconv.FormatInt(now.UnixNano(), 10)))
+	updates := "fleet updates"
+	if wakes == 1 {
+		updates = "fleet update"
+	}
+	title := fmt.Sprintf("The CFO has not been told of %d %s for %d minutes, because %s. Restart the CFO so it reads them?", wakes, updates, int(waited/time.Minute), why)
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+	h := s.Store.Home
+	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(h.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(h.State) + "\n" +
+		"& " + quote(executable) + " resume\nexit $LASTEXITCODE\n"
+	// The item is made when it is, whichever moment the look was for.
+	made := time.Now().UTC()
+	_, err = s.recordBoardRun(Run{ID: id, Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: h.Root, State: "ready", CreatedAt: made, ExpiresAt: made.Add(runLifetime), CFOUnwoken: oldest})
+	return err
 }
 
 // wakeLine is the one line typed into the CFO: how many wakes wait, whose,
@@ -163,17 +278,17 @@ func wakeLine(records []wake.Record) string {
 // apart, marking the records up to covered as typed about at now first, and
 // delivers it with the proof cfo send uses: its native hooks report the
 // prompt taken, or its screen shows it working when it was not.
-func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistration, text string, covered int, now time.Time) error {
+func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistration, text string, covered int, now time.Time) (cfoWakeSkip, error) {
 	screens, readable := harness.NativeScreens(harness.Kind(primary.Agent))
 	if !readable {
-		return nil
+		return cfoWakeSkip{Why: "its screen is one this supervisor cannot read"}, nil
 	}
 	if err := c.verify(primary); err != nil {
-		return err
+		return cfoWakeSkip{}, err
 	}
 	record, err := host.ReadRecord(c.State, primary.Host)
 	if err != nil {
-		return err
+		return cfoWakeSkip{}, err
 	}
 	read := c.ReadScreen
 	if read == nil {
@@ -186,36 +301,55 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 			select {
 			case <-time.After(cfoIdleRecheck):
 			case <-ctx.Done():
-				return ctx.Err()
+				return cfoWakeSkip{}, ctx.Err()
 			}
 		}
 		// A screen that cannot be read, or shows the CFO in a turn, at a
 		// dialog or with text in its composer, is looked at again on the next
 		// tick.
 		screen, err := read(record)
-		if err != nil || !idleAtEmptyComposer(screens, screen) {
-			return nil
+		if err != nil {
+			return cfoWakeSkip{Why: "its screen could not be read"}, nil
+		}
+		if why := notIdle(screens, screen); why != "" {
+			return cfoWakeSkip{Why: why, Screen: host.ScreenTail(screen, cfoWakeSkipRows)}, nil
 		}
 	}
 	if err := writeCFOWoken(c.State, covered, now); err != nil {
-		return err
+		return cfoWakeSkip{}, err
 	}
 	deliver := c.Deliver
 	if deliver == nil {
 		deliver = c.deliverNative
 	}
 	if err := deliver(ctx, state.TaskMeta{ID: primary.Host, Harness: primary.Agent}, text); err != nil {
-		return fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
+		return cfoWakeSkip{}, fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
 	}
-	return nil
+	return cfoWakeSkip{}, nil
 }
 
 // idleAtEmptyComposer reports whether screen shows a harness waiting at its
 // composer with nothing in it: no turn, no dialog, no work running on it.
 func idleAtEmptyComposer(screens harness.Screens, screen []string) bool {
-	_, dialog := screens.Dialog(screen)
-	_, running := harness.RunningWork(screen)
-	return screens.IsReady(screen) && !dialog && !running && screens.ComposerEmpty(screen)
+	return notIdle(screens, screen) == ""
+}
+
+// notIdle says in plain words why screen does not show a harness waiting at
+// an empty composer, or "" when it does.
+func notIdle(screens harness.Screens, screen []string) string {
+	if dialog, isShown := screens.Dialog(screen); isShown {
+		return "its screen shows " + dialog.Name
+	}
+	if screens.IsWorking(screen) {
+		return "its screen shows it in the middle of a turn"
+	}
+	if row, isRunning := harness.RunningWork(screen); isRunning {
+		return "its screen shows work it started still running (" + bounded(row, 120) + ")"
+	}
+	if !screens.IsReady(screen) || !screens.ComposerEmpty(screen) {
+		return "its screen does not show it waiting at an empty prompt"
+	}
+	return ""
 }
 
 // deliverNative submits text in terminal's native terminal as cfo send does

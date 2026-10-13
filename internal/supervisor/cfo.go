@@ -67,6 +67,9 @@ type CFOConnection struct {
 	// typing lets one writer at a time read and type into the CFO's native
 	// terminal, so a typed wake and a board send never share its composer.
 	typing sync.Mutex
+	// skipped is the newest untyped wake and why, as last recorded in
+	// cfoWakeSkipsFile, so each is recorded once.
+	skipped string
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
