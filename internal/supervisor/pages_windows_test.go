@@ -444,8 +444,8 @@ func TestAnAnswerOnAPageReachesTheGoblinWhateverItReportedSince(t *testing.T) {
 			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, page) || !strings.Contains(wakes[0].Detail, meta.ID+" has it: I prefer goblin heads") {
 				t.Fatalf("review wakes = %+v, want the CFO told once that the goblin has his answer", wakes)
 			}
-			if len(replies) != 2 || replies[1] != "Received. "+meta.ID+" has it." {
-				t.Errorf("replies on the page = %q, want it told the goblin has his answer", replies)
+			if len(replies) != 2 || replies[1] != "Received." {
+				t.Errorf("replies on the page = %q, want a prompt receipt without claiming terminal delivery", replies)
 			}
 			if r := store.Snapshot().Reviews[0]; r.PageSettled == nil {
 				t.Errorf("the page's item = %+v, want its page settled once he ended the review", r)
@@ -829,8 +829,8 @@ func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
 	s.pageWork.Wait()
 
 	// Assert
-	if len(replies) != 3 || replies[0] != "" || replies[1] != "" || replies[2] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
-		t.Fatalf("replies = %q, want none while his answer could go on, then that the revision was received and what happens next", replies)
+	if len(replies) != 3 || replies[0] != "" || replies[1] != "Received." || replies[2] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
+		t.Fatalf("replies = %q, want receipt while his answer could go on, then that the revision was received and what happens next", replies)
 	}
 	if timeouts[1] != pageAnswerSettle {
 		t.Errorf("the poll after his revision waited %s for more, want %s", timeouts[1], pageAnswerSettle)
@@ -852,7 +852,7 @@ func TestTheNextVersionOfAPageReplacesItsItem(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	meta, _, _, page := pageOfAGoblin(t, store)
-	if err := store.reviseReview("waiting-"+meta.ID+"-7", time.Now().UTC()); err != nil {
+	if err := store.reviseReview(store.Snapshot().Reviews[0], time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 

@@ -265,6 +265,7 @@ type Service struct {
 	// one runs. pageWork waits for the pollers and the sweep.
 	pagesMu      sync.Mutex
 	pages        map[string]bool
+	pageTellers  map[string]bool
 	pageSwept    time.Time
 	pageSweeping bool
 	// pagesFailing counts the sweeps in a row on which each page could not be
