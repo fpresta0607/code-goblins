@@ -337,7 +337,7 @@ func TestTheCFOsDeliveredFileFollowsTheCFOAndIsPrunedAfterItRestarted(t *testing
 		t.Fatal(err)
 	}
 	_, pageErr := os.Stat(pages.pages[0])
-	if err := store.settlePage(pageKey(pages.pages[0]), Review{}); err != nil {
+	if err := store.settlePage(store.Snapshot().Reviews[0], Review{}); err != nil {
 		t.Fatal(err)
 	}
 	pruneErr := store.pruneReviews(time.Now().Add(closedReviewRetention + time.Hour))

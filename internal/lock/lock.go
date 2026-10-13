@@ -6,6 +6,7 @@
 package lock
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -376,9 +377,11 @@ func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool,
 			continue
 		}
 
-		// File still has the same dead holder; it is readable and unchanged.
-		// Safe to remove and retry the create.
-		if rerr := removeStale(path, attempt); rerr != nil {
+		// The claim holds the exact checked file against writes and replacement.
+		claimContext, cancelClaim := context.WithTimeout(context.Background(), time.Duration(acquireAttempts-1)*50*time.Millisecond)
+		_, rerr := removeMatchingRecord(claimContext, path, *holder2)
+		cancelClaim()
+		if rerr != nil {
 			return nil, rerr
 		}
 	}
