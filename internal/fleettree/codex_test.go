@@ -10,9 +10,10 @@ import (
 )
 
 // sessionMeta is a Codex rollout's opening entry, as Codex 0.160 writes a
-// goblin's own and a child agent's.
+// goblin's own and a child agent's: a goblin's names its source as a word,
+// "cli", and a child agent's as the thread that spawned it.
 func sessionMeta(id, cwd, parent, agentPath, nickname string, when time.Time) object {
-	payload := object{"id": id, "session_id": id, "cwd": cwd, "timestamp": when.Format(time.RFC3339Nano), "cli_version": "0.160.0"}
+	payload := object{"id": id, "session_id": id, "cwd": cwd, "timestamp": when.Format(time.RFC3339Nano), "cli_version": "0.160.0", "source": "cli", "thread_source": "user"}
 	if parent != "" {
 		payload["parent_thread_id"] = parent
 		payload["thread_source"] = "subagent"
