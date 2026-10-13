@@ -48,8 +48,38 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 		t.Fatal("the authorized caller could not read its synthetic cookie")
 	}
 
-	username := windows.StringToUTF16Ptr("cg-cdp-" + canary[:8])
-	password := windows.StringToUTF16Ptr("Aa1!" + canary)
+	username := windows.StringToUTF16Ptr("cg-cdp-" + rand.Text()[:8])
+	password := windows.StringToUTF16Ptr("Aa1!" + rand.Text())
+	type passwordHash struct {
+		Length uint32
+		Hash   *byte
+	}
+	type persistedPassword struct {
+		PresentFields                                 uint32
+		PasswordLastSet, BadPasswordTime, LockoutTime windows.Filetime
+		BadPasswordCount, PasswordHistoryLength       uint32
+		PasswordHistory                               *passwordHash
+	}
+	validation := struct {
+		Persisted                persistedPassword
+		Password, Username       *uint16
+		Hash                     passwordHash
+		MustChange, ClearLockout byte
+	}{Password: password, Username: username}
+	var validated *struct {
+		Changed persistedPassword
+		Status  uint32
+	}
+	network := windows.NewLazySystemDLL("netapi32.dll")
+	status, _, _ := network.NewProc("NetValidatePasswordPolicy").Call(0, 0, 3, uintptr(unsafe.Pointer(&validation)), uintptr(unsafe.Pointer(&validated)))
+	if status != 0 {
+		t.Fatalf("read the isolated runner's password policy: status %d", status)
+	}
+	validationStatus := validated.Status
+	network.NewProc("NetValidatePasswordPolicyFree").Call(uintptr(unsafe.Pointer(&validated)))
+	if validationStatus != 0 {
+		t.Fatalf("the isolated runner's password policy rejected its independent fixture credential: status %d", validationStatus)
+	}
 	account := struct {
 		Name, Password         *uint16
 		PasswordAge, Privilege uint32
@@ -57,8 +87,7 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 		Flags                  uint32
 		Script                 *uint16
 	}{Name: username, Password: password, Privilege: 1, Flags: 0x1 | 0x200 | 0x10000}
-	network := windows.NewLazySystemDLL("netapi32.dll")
-	status, _, _ := network.NewProc("NetUserAdd").Call(0, 1, uintptr(unsafe.Pointer(&account)), 0)
+	status, _, _ = network.NewProc("NetUserAdd").Call(0, 1, uintptr(unsafe.Pointer(&account)), 0)
 	if status != 0 {
 		t.Fatalf("create the isolated runner's temporary non-admin account: status %d", status)
 	}
