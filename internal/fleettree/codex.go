@@ -1,6 +1,7 @@
 package fleettree
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -47,14 +48,10 @@ func readRolloutMeta(path string) rolloutMeta {
 			ThreadSource string    `json:"thread_source"`
 			AgentPath    string    `json:"agent_path"`
 			Nickname     string    `json:"agent_nickname"`
-			Source       struct {
-				Subagent struct {
-					ThreadSpawn struct {
-						ParentThread string `json:"parent_thread_id"`
-						Role         string `json:"agent_role"`
-					} `json:"thread_spawn"`
-				} `json:"subagent"`
-			} `json:"source"`
+			// Source is a word for a thread a person or a program started,
+			// as "cli" for a goblin's own, and an object only for a child
+			// agent's, so it is read apart.
+			Source json.RawMessage `json:"source"`
 		} `json:"payload"`
 	}
 	if json.NewDecoder(io.LimitReader(file, TranscriptEntryReach)).Decode(&entry) != nil {
@@ -64,14 +61,25 @@ func readRolloutMeta(path string) rolloutMeta {
 		return rolloutMeta{read: true}
 	}
 	payload := entry.Payload
+	var source struct {
+		Subagent struct {
+			ThreadSpawn struct {
+				ParentThread string `json:"parent_thread_id"`
+				Role         string `json:"agent_role"`
+			} `json:"thread_spawn"`
+		} `json:"subagent"`
+	}
+	if bytes.HasPrefix(bytes.TrimSpace(payload.Source), []byte("{")) && json.Unmarshal(payload.Source, &source) != nil {
+		return rolloutMeta{}
+	}
 	parent := payload.ParentThread
 	if parent == "" {
-		parent = payload.Source.Subagent.ThreadSpawn.ParentThread
+		parent = source.Subagent.ThreadSpawn.ParentThread
 	}
 	return rolloutMeta{
 		read: true, id: payload.ID, cwd: payload.Cwd, parent: parent,
 		subagent: payload.ThreadSource == "subagent" || parent != "",
-		path:     payload.AgentPath, nickname: payload.Nickname, role: payload.Source.Subagent.ThreadSpawn.Role,
+		path:     payload.AgentPath, nickname: payload.Nickname, role: source.Subagent.ThreadSpawn.Role,
 		started: payload.Timestamp.UTC(),
 	}
 }
