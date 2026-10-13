@@ -482,6 +482,9 @@ That cleanup is bounded to five seconds or the caller's shorter deadline, and a 
 It is intended for verification workers, not a command that deliberately starts a shared machine service.
 The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
 This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
+`internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
+Its reserve cannot lower the existing 4 GiB floor and is a cancellation threshold, not a reservation.
+A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 
 **Not in the wrapper.**
 It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
