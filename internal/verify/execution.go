@@ -3,11 +3,15 @@ package verify
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // ExecutionRecord is local execution evidence. Same-user files remain
@@ -155,6 +159,44 @@ func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.Tr
 	next.Measurement.CleanupConfirmed = true
 	next.Measurement.Usage = usage
 	return execution.persistContext(ctx, next)
+}
+
+// markRecovered records in an execution's record that its controller ended
+// before confirming its workers gone, and how recovery confirmed it since.
+// The run fails: one its own controller never confirmed never passes. A run
+// that had passed, which needs its cleanup confirmed, keeps that result. A
+// record that is not there claims nothing.
+func markRecovered(ctx context.Context, path, runID string, usage execx.TreeUsage, isFound bool, note string) error {
+	if filepath.Base(path) != runID+".json" || filepath.Base(filepath.Dir(path)) != "executions" {
+		return errors.New("verify: recovery evidence names another run")
+	}
+	data, err := fsx.ReadFileContext(ctx, path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var record ExecutionRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return err
+	}
+	if record.ID != runID {
+		return errors.New("verify: recovery evidence names another run")
+	}
+	if record.Status == "passed" {
+		return nil
+	}
+	recovered := &Execution{path: path, record: record}
+	next := record
+	next.Status = "failed"
+	next.Failure = strings.TrimSpace(next.Failure + "\n" + note)
+	next.Measurement.State = Interrupted
+	next.Measurement.CleanupConfirmed = true
+	if isFound {
+		next.Measurement.Usage = usage
+	}
+	return recovered.persistContext(ctx, next)
 }
 
 func (execution *Execution) persist(next ExecutionRecord) error {

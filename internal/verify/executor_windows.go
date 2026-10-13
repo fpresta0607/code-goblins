@@ -148,7 +148,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 	if err := execution.Admit(turn.Waited); err != nil {
 		return refuse(err)
 	}
-	guard, err := turn.Protect(execution.ID())
+	guard, err := turn.Protect(execution.ID(), execution.Path())
 	if guard.RunID != "" {
 		pending.guard = guard
 		pending.isGuardComplete = false
@@ -168,7 +168,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 		environment = os.Environ()
 	}
 	command.Env = append(append([]string(nil), environment...), TurnVariable+"="+turn.Token())
-	tree, err := execx.StartTree(command)
+	tree, err := execx.StartNamedTree(command, guard.Job)
 	if err != nil {
 		failure := err
 		measurement := Measurement{State: CleanupUncertain}
