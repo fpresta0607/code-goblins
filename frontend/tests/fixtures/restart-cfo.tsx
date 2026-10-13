@@ -14,7 +14,8 @@ import "../../src/styles.css";
 // written under it;
 // Restart makes its own request, which each test answers.
 const comesBackStarting = location.hash === "#comes-back-starting";
-const board = (isStarting: boolean) => parseSnapshot({ healthy: true, instance: "fixture", cfo_runs: true, cfo_starting: isStarting, cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:00:00Z", cfo_harness: isStarting ? "" : "claude", tasks: [
+const currentHarness = new URLSearchParams(location.search).get("harness") || "claude";
+const board = (isStarting: boolean) => parseSnapshot({ healthy: true, instance: "fixture", cfo_runs: true, cfo_starting: isStarting, cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:00:00Z", cfo_harness: isStarting ? "" : currentHarness, tasks: [
   { id: "cg-board-kill", title: "cg-board-kill", project: "code-goblins", phase: "working", generation: "cg-board-kill-1", verified: false },
 ] });
 

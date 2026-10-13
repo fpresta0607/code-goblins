@@ -22,20 +22,20 @@ export function RestartCfoButton({ snapshot, isCompact }: { snapshot: Snapshot; 
   // The board shows the restarted CFO from its next snapshot, with its
   // terminal on the new host, so a restart that came back on its
   // conversation has nothing more to say here.
-  const restart = async () => {
+  const restart = async (harness: string) => {
     setConfirming(false);
     setRestarting(true);
     showFeedback("");
     try {
-      const answer = object(await request("/api/cfo/restart", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: "{}" }));
+      const answer = object(await request("/api/cfo/restart", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ harness }) }));
       if (answer.resumed === false) showFeedback("The CFO restarted on a new conversation");
     } catch (error: unknown) { showFeedback(message(error)); } finally {
       setRestarting(false);
     }
   };
   return <div className="cfo-restart">
-    {isOffered && <button className="labelled-button" disabled={restarting} data-tip="Starts the CFO again on its conversation, for a screen that froze." onClick={() => setConfirming(true)}><Icon name="refresh" />{restarting ? "Restarting the CFO…" : "Restart the CFO"}</button>}
+    {isOffered && <button className="labelled-button" disabled={restarting} data-tip="Restart the CFO or choose another harness." onClick={() => setConfirming(true)}><Icon name="refresh" />{restarting ? "Restarting the CFO…" : "Restart the CFO"}</button>}
     <ClickFeedback text={feedback} />
-    {confirming && <RestartCfoDialog onRestart={() => void restart()} onClose={() => setConfirming(false)} />}
+    {confirming && <RestartCfoDialog currentHarness={snapshot.cfo_harness} onRestart={(harness) => void restart(harness)} onClose={() => setConfirming(false)} />}
   </div>;
 }

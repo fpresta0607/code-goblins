@@ -1308,6 +1308,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .stop-task-dialog > .goblin-avatar { margin: 0 auto 18px; width: 66px; height: 66px; }
 .stop-task-dialog h2 { font-size: 1.75rem; margin: 0 0 8px; }
 .stop-task-dialog p { line-height: 1.55; }
+.restart-cfo-harness { display: grid; gap: 8px; margin-top: 18px; text-align: left; font-weight: 700; }
+.restart-cfo-harness select { width: 100%; }
+.restart-cfo-harness + p { margin-top: 18px; }
 .stop-task-choices { display: grid; gap: 12px; margin: 18px 0; }
 .stop-task-choices button { width: 100%; min-height: 46px; }
 .preservation-notice { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px solid #4ee2b644; border-radius: var(--radius); background: #163d3740; color: #9af2d7; }

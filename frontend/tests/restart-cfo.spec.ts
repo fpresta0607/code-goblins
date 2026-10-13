@@ -59,7 +59,7 @@ test("Enter in the dialog restarts the CFO once, with the board's token", async 
 
   // Assert: one request while it is under way, and nothing to report after.
   await expect(page.getByRole("button", { name: "Restarting the CFO…" })).toBeDisabled();
-  expect(requests).toEqual([{ token: "fixture", body: "{}" }]);
+  expect(requests).toEqual([{ token: "fixture", body: JSON.stringify({ harness: "claude" }) }]);
   release();
   await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -67,16 +67,17 @@ test("Enter in the dialog restarts the CFO once, with the board's token", async 
 
 test("a CFO that could not be restarted says so in a few words beside its Restart", async ({ page }) => {
   // Arrange
-  const reason = "the CFO could not be restarted: pi has no way to resume a conversation, so the CFO is left running: close it and run goblins to start it on a new conversation";
+  const reason = "The chosen harness is not installed";
   const { release } = await open(page, { status: 500, body: { error: reason } });
   release();
 
   // Act
   await page.getByRole("button", { name: "Restart the CFO" }).click();
+  await page.getByRole("combobox", { name: "Harness", exact: true }).selectOption("codex");
   await page.getByRole("dialog", { name: "Restart the CFO?" }).getByRole("button", { name: "Restart the CFO" }).click();
 
   // Assert
-  await expect(page.locator(".click-feedback")).toHaveText(/^The CFO could not be restarted: pi has no way to resume a…$/);
+  await expect(page.locator(".click-feedback")).toHaveText("The chosen harness is not installed.");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
 });
@@ -110,3 +111,64 @@ test("a CFO still starting offers no Restart", async ({ page }) => {
   await expect(page.getByRole("group", { name: "CFO" })).toContainText("Starting: answer anything it asks in its terminal.");
   await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
 });
+
+for (const [harness, width] of [["codex", 1280], ["pi", 390]] as const) {
+  test(`Restart can choose ${harness} at ${width}px and starts it fresh with the board token`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    const { requests, release } = await open(page, { status: 200, body: { restarted: true, resumed: false } });
+    await page.getByRole("button", { name: "Restart the CFO" }).click();
+    const dialog = page.getByRole("dialog", { name: "Restart the CFO?" });
+    await expect(dialog.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("claude");
+
+    // Act
+    await dialog.getByRole("combobox", { name: "Harness", exact: true }).selectOption(harness);
+
+    // Assert
+    await expect(dialog).toContainText("Starts a new conversation with this home's saved context.");
+    await dialog.screenshot({ path: testInfo.outputPath(`restart-as-${harness}.png`) });
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await dialog.getByRole("button", { name: "Restart the CFO" }).click();
+    await expect.poll(() => requests).toEqual([{ token: "fixture", body: JSON.stringify({ harness }) }]);
+    release();
+    await expect(page.locator(".click-feedback")).toHaveText("The CFO restarted on a new conversation.");
+  });
+}
+
+test("cancelling a harness choice sends nothing and reopening keeps the current harness", async ({ page }) => {
+  // Arrange
+  const { requests } = await open(page, { status: 200, body: {} });
+  await page.getByRole("button", { name: "Restart the CFO" }).click();
+  const dialog = page.getByRole("dialog", { name: "Restart the CFO?" });
+  await dialog.getByRole("combobox", { name: "Harness", exact: true }).selectOption("codex");
+
+  // Act
+  await page.keyboard.press("Escape");
+
+  // Assert
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeFocused();
+  expect(requests).toEqual([]);
+  await page.getByRole("button", { name: "Restart the CFO" }).click();
+  await expect(dialog.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("claude");
+  await expect(dialog).toContainText("Resumes its current conversation where it can.");
+});
+
+for (const harness of ["codex", "pi"]) {
+  test(`Restart begins with the running ${harness} selected`, async ({ page }) => {
+    // Arrange
+    const { requests, release } = await open(page, { status: 200, body: { resumed: harness !== "pi" } }, `?harness=${harness}`);
+    await page.getByRole("button", { name: "Restart the CFO" }).click();
+    const dialog = page.getByRole("dialog", { name: "Restart the CFO?" });
+    await expect(dialog.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue(harness);
+    await expect(dialog).toContainText(harness === "pi" ? "Starts a new conversation with this home's saved context." : "Resumes its current conversation where it can.");
+
+    // Act
+    await dialog.getByRole("button", { name: "Restart the CFO" }).click();
+
+    // Assert
+    await expect.poll(() => requests).toEqual([{ token: "fixture", body: JSON.stringify({ harness }) }]);
+    release();
+    await expect(page.getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  });
+}

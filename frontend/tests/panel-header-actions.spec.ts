@@ -71,7 +71,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       expect(button.y + button.height).toBeLessThanOrEqual(status.y + 1);
       expect(Math.abs(button.x - name.x)).toBeLessThan(2);
       expect(await lines(restart)).toBe(1);
-      await expect(restart).toHaveAttribute("data-tip", "Starts the CFO again on its conversation, for a screen that froze.");
+      await expect(restart).toHaveAttribute("data-tip", "Restart the CFO or choose another harness.");
       expect(await pageScroll(page)).toBe(0);
     });
 
