@@ -81,13 +81,6 @@ test("questions the CFO has left unanswered for ten minutes are said on its bar,
 // stopped, whatever it waits for, so only the others are at work.
 test("the bar counts only the goblins at work, never one paused, pausing or resuming", () => {
   const working = Array.from({ length: 9 }, (_, i) => task("working-" + i, { phase: "working" }));
-  const paused = [
-    task("memory", { phase: "paused", lifecycle: { pause: { reason: "memory" } } }),
-    task("dependency", { phase: "paused", lifecycle: { pause: { reason: "dependency" } } }),
-    task("allowance", { phase: "paused", lifecycle: { pause: { reason: "allowance" } } }),
-    task("overlord", { phase: "paused", lifecycle: { pause: { reason: "overlord" } } }),
-    task("pausing", { phase: "pausing", lifecycle: { pause: { reason: "memory" } } }),
-    task("resuming", { phase: "resuming", lifecycle: { pause: { reason: "dependency" } } }),
-  ] as Task[];
+  const paused = ["paused", "paused", "paused", "paused", "pausing", "resuming"].map((phase, i) => task(phase + "-" + i, { phase }));
   assert.equal(cfoSummary(snapshot({ tasks: [...working, ...paused] })).line, "All quiet. 9 goblins at work.");
 });

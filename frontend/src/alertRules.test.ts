@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { alertItem, announceKey, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, unseen, type BoardAlert, type SeenAlert } from "./alertRules.ts";
-import { parseSnapshot, type Question, type Review, type Run, type Snapshot, type Task } from "./types.ts";
+import { type Question, type Review, type Run, type Snapshot, type Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
 const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
