@@ -1727,6 +1727,123 @@ So the proof starts the browser with sync and automatic sign-in switched off on 
 It also fills a plain sign-in form with values it makes up, which a browser does keep and does offer to save, so a clean result cannot come from a search or a probe that sees nothing.
 `-Visible` runs it in a window, where a browser shows its offer to save a password, and checks that none follows the card's save; `-Browser` names another browser, such as Chrome.
 
+## Browser key fetching
+
+A key a reviewed key page shows can be fetched by the fleet instead of pasted: Go code in the supervisor reads it from the page and stores it straight into the project's vault, and no agent ever sees it.
+When the page asks for a sign-in, the Overlord signs in himself, in a window of its own that opens only on his click.
+
+### Logins
+
+A login is one provider account's kept browser session: its own Chrome profile under `state\browser-logins\<id>`, readable by his Windows user alone and never copied into a worktree.
+What is kept is the session, never a password, a code or a magic link.
+Chrome itself encrypts the profile's cookies with a key Windows keeps for his user.
+The registry, `state\browser-logins.json`, records each login's provider, the account's name, the account ID his last sign-in showed, the projects that use it, when he last signed in, when a browser the broker lent or a fetch started on it last closed, and the Chrome the broker runs on it now.
+
+A project names the logins its goblins use in its `auth.json`, at most one for each provider:
+
+```json
+"logins": [
+  {"provider": "stripe", "account": "PrecisionDocs", "account_id": "acct_1ABC", "signs_out_after_fetch": false}
+]
+```
+
+`provider` is the ID of the recipe the login fetches with, `account` is the name he reads (ASCII letters, digits, spaces, dots, dashes and underscores, starting with a letter or digit, at most 64), and `account_id`, when set, is the account a fetch reads keys on, whatever account his sign-in landed on.
+Projects that name the same provider and account share one login, so he signs in once for them all.
+A project that names no login for a provider gets one of its own, named for the project, which no other project reaches: a borrow, a fetch or a sign-in card for a project that names its account is refused until the project that owns it names it too.
+`signs_out_after_fetch` deletes the login's profile and records it signed out once the browser each fetch read in has closed, a goblin's lent browser included, so the next fetch brings his sign-in card.
+
+### Recipes
+
+A recipe in `config/key-pages.json` says, for one provider, the hosts a browser on its login may reach, the key page, the address pattern that means signed in, the address pattern whose one group is the account ID, and each key it reads by the accessible names a person sees.
+Stripe's is the first:
+
+```json
+{"id": "stripe", "name": "Stripe", "key_page": "https://dashboard.stripe.com/test/apikeys",
+ "signed_in_path": "^/(acct_[a-zA-Z0-9]+/)?test/apikeys/?$", "account_path": "^/(acct_[a-zA-Z0-9]+)/test/apikeys/?$",
+ "hosts": ["stripe.com", "*.stripe.com", "stripe.network", "*.stripe.network", "stripecdn.com", "*.stripecdn.com"],
+ "keys": [{"name": "STRIPE_TEST_PUBLISHABLE_KEY", "row": "Publishable key", "prefix": "pk_test_"},
+          {"name": "STRIPE_TEST_SECRET_KEY", "row": "Secret key", "reveal": "Reveal test key", "prefix": "sk_test_"}]}
+```
+
+Recipes live in the repository, so each one is reviewed before it runs, and a fetch runs only from a recipe the binary carries.
+A recipe is refused when its key page is not plain https on one of its hosts, when a pattern is not anchored, when a control is named Roll, Delete, Revoke or Create, when a key is live (a LIVE name or a live prefix), or when its keys have no account path.
+A browser is lent and a sign-in card filed only for a provider a recipe names, so a new provider's recipe starts with its hosts, key page and signed-in pattern, by pull request.
+With that merged, a Claude Code goblin can borrow the signed-in browser to explore the key page while the keys are masked, and add the keys it reads by another pull request.
+
+### The broker
+
+The supervisor's browser broker starts each login's Chrome, one at a time per login, since Chrome opens a profile once, and only when free memory is above the fleet's floor.
+A goblin's Chrome is headless and reaches only its recipe's hosts: every other name resolves to nothing.
+Chrome is never given a debugging port: it inherits two private pipes, and the broker serves DevTools on loopback only to a connection it proves comes from the same Windows user, with Host and Origin checked.
+A task borrows a login's browser with `cfo auth browser <provider> --task <id>` from its own terminal, which points the task's chrome-devtools-axi session at it, and gives it back with `--release`.
+The broker closes it 30 minutes after it was last lent, since asking again renews it, and once the task ends or loses the provider's service.
+Only a Claude Code task borrows one, since only its hook can seal browser reads, and the task must carry the provider's declared service.
+The handoff refuses unless `chrome-devtools-axi security --json` reports the `windows-user-v1` bridge transport, so no login's browser reaches a bridge another Windows user could drive.
+
+### The sign-in card
+
+A sign-in card asks him to sign in to one login.
+A goblin files one with `cfo auth browser <provider> --task <id> --sign-in`, and a fetch files one when the page asks for a sign-in.
+The card names who needs it, the provider and the account, and numbered steps, and has one button, **Open the sign-in window**.
+Only his click on the board on this PC opens anything: a normal Chrome window on the login's profile, at the provider's key page, with no host rules, so he signs in as he would anywhere, with a password, a passkey or a code from his phone.
+Nobody else types anything in it, and the fleet never sees what he does.
+The broker reads only whether the page's address has reached the recipe's signed-in pattern, and which account it names, never the page.
+Once it has, the window closes, the login records the account and the time, and the card says **Signed in** and moves on like every other command.
+If he closes the window first, the card keeps its button.
+A card nobody has clicked expires after a day, and his first click shortens that to 30 minutes from that click.
+A card that expires, or whose task left, was replaced or lost its grant, closes its window.
+
+### Fetching
+
+`cfo auth fetch <request> --task <id>` has the supervisor fetch the keys an open credential request still needs from the request's link, when a recipe reads that page.
+The request must be the task's own, or of no task in the task's project, and the task must carry the provider's declared service.
+A Codex or pi goblin can fetch too, since the read happens inside the supervisor.
+The fetch reads on the account the project names, or else on the one his last sign-in showed, and refuses when there is neither.
+It uses the browser the task holds, sealing it first, or starts a headless Chrome of its own and closes it after.
+A browser another task holds is refused.
+In a tab of its own it loads the account's key page and waits for the signed-in address on that account: a page that settles elsewhere asks for a sign-in, and one on another account is refused before anything is read.
+For each key it waits for the key's row, clicks the recipe's Reveal control with a real mouse click, and reads the key from beside the row's name.
+A key that stays masked, two different keys beside one row, two Reveal controls or a missing row stop the fetch, and so does a value that fails the key's shape check, holding dots, an ellipsis, bullets or whitespace.
+It then loads a blank page and closes its tab, so no key is left on screen.
+The keys are stored through the request card's own save, which refreshes the project's goblins and wakes the CFO with the names, and each stored row's tip says **fetched from the page**.
+The command, and so the goblin, prints the names stored and nothing of the page.
+When the fetch stops short, the command prints why.
+When the page asks for a sign-in, the fetch files his sign-in card and the login reads signed out, and once he has signed in the fetch carries on by itself.
+A fetch that carries on and stops wakes the CFO with why.
+
+### Fetch it for me
+
+A request of a goblin whose link a recipe reads offers **Fetch it for me** above its paste fields, saying what it reads, from which page, with which login.
+His click on the board on this PC starts the same fetch for the request's goblin and shows it running.
+Keys stored close the card as a save does, and a sign-in needed brings his sign-in card, after which the card shows the fetch carrying on.
+A fetch that stopped, from his click or after his sign-in, wakes the CFO with why and shows **Fetch stopped** with the reason in its tip.
+The paste fields and the terminal stay.
+
+### The seal and the key alarm
+
+Every Claude Code goblin starts with two hooks of its own, handed to it with `--settings`, beside the CFO's: `state\goblin-claude-settings.json`, written anew at each spawn and switch.
+`cfo hook goblin-seal` runs before each Bash or PowerShell call and refuses a chrome-devtools-axi command while a fetch reads in the browser the goblin's task holds.
+The seal is a file under `state\browser-seals`, written before the key page loads and removed once the keys are hidden.
+A seal left behind lifts by itself three minutes after it was written, a minute past a fetch's own bound, a starting supervisor clears any left, and one that cannot be read refuses.
+`cfo hook goblin-key-alarm` runs after every tool call and wakes the CFO once per call whose output holds a secret key, naming the goblin, the tool and the kind of key, never the key, so the key can be rolled.
+It matches each kind of secret key by its prefix and its length, and most kinds by their mix of letters and digits too, so a commit hash, a UUID, a publishable key or a masked key never wakes it, though a long name that starts like a key can.
+A Bash or PowerShell call starts cfo.exe twice, once for each hook, any other call once, and an ordinary call reads no file.
+
+### Logins in a goblin's Connections
+
+A goblin's **Connections** lists **Browser logins**: each login its project uses, signed in or out, the projects it serves, when he signed in and when it was last used.
+Its **Sign out** button deletes the login's profile and keeps the login, so the next fetch brings his sign-in card.
+**Forget** asks first, then deletes the profile and the login.
+His account and its keys at the provider are not touched.
+Both act only from the board on this PC, only on a login of that goblin's project, and refuse while a browser of the login runs, closes or signs in, saying to try again once it closes.
+
+### Proofs
+
+The proofs run against stand-in sign-in and key pages on this machine, never a real account.
+`TestBrowserSignInWindowOnAHiddenDesktop` and `TestAKeyFetchAfterHisSignInReachesOnlyTheVault` run on a desktop of their own that no one sees: his click opens the window there, a stand-in sign-in completes the card, and the fetch carries on headless, reveals the secret key with a real click and stores both keys.
+Each key is then in the vault and in no file of the home, the login's Chrome profile included, no answer to the goblin and no notice to the CFO.
+`TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses` and `TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem` run the reader against a headless Chrome, the second for every page it must refuse.
+
 ## AFK mode
 
 AFK mode is the Overlord's switch for running the fleet while he is away: the CFO decides everything his authority covers and logs each decision, nothing is asked of him or held for him, what only he can do gets a backlog row and is listed in his report, and nothing on the board prompts him.

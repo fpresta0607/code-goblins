@@ -613,6 +613,8 @@ Long names show their full text in a tip; rows keep room between their separator
 Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
 Repairs trigger a fresh check; a token stored after a native goblin started still needs to reach that goblin before its credential row changes.
 Disabled or withheld MCP servers say why they are unavailable, and no secret values appear on the board.
+Connections also lists **Browser logins**, the kept browser sessions the goblin's project fetches keys with: each says whether you are signed in, the projects it serves, when you signed in and when it was last used.
+**Sign out** ends a login's session and keeps the login, and **Forget** asks first, then removes the login and its session, without touching your account or its keys at the provider.
 
 <img src="docs/images/board-connections.webp" alt="Workspace and Connections in a goblin's panel: the harness, model and effort selectors, then Connected checks, a sign-in action, a withheld MCP server, repository services and a provided credential" width="720" />
 
@@ -775,6 +777,12 @@ Once every value is stored, by the card or its terminal, the card says **Stored*
 Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell terminal on the card where you type or paste each value without it being shown, and it asks again, three times at most, for a value of the wrong shape.
 Values are typed only on the board on this PC: a board opened through Tailscale or from another machine shows the card read-only, with the commands to copy.
 Each name takes one save, and a request nobody finishes expires after 24 hours.
+
+When a reviewed key page in `config/key-pages.json` shows the keys a goblin's request needs, such as Stripe's test key page, the card offers **Fetch it for me** above the table, saying what it reads, from which page and with which login.
+Your click starts the fetch on the board on this PC: the supervisor reads the keys from the page in its own code and stores them as the card does, so no agent ever sees them, and each stored row's tip says it was fetched from the page.
+When the page asks for a sign-in, a sign-in card comes next with one button, **Open the sign-in window**, which opens a Chrome window of the login's own on your click alone.
+You sign in there yourself, with a password, a passkey or a code from your phone, the window closes once the page shows you signed in, and the fetch carries on by itself.
+A fetch that stops wakes the CFO with why, and the card shows **Fetch stopped** with the reason in its tip, while the table and its terminal stay for a paste.
 
 <p align="center">
   <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export asks for two credentials for acme-api. Its header says what they are for and gives three numbered steps, the first opening dashboard.stripe.com/test/apikeys. A table with a Name and a Value column has a row per name, each a hidden field to paste into with an empty ring at its end, the stored one with a dashed check and a field to paste a replacement. Below, the cfo auth store command with Copy and Run" width="640" />
