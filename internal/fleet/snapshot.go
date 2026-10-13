@@ -270,7 +270,9 @@ func currentEndpointExists(current crewstate.Current) bool {
 
 func readMonitorSummary(stateDir, id string) (MonitorSummary, *bool) {
 	observation, err := monitor.ReadObservation(stateDir, id)
-	if err != nil {
+	// Lifecycle state comes from the current record above. A monitor scan
+	// from before a resume or switch cannot keep its old pause in this view.
+	if err != nil || observation.Reason == monitor.LifecycleOperation {
 		return MonitorSummary{Health: monitor.HealthUnknown}, nil
 	}
 	summary := MonitorSummary{
