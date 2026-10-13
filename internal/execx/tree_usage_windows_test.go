@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -208,8 +209,12 @@ func filetimeDuration(span windows.Filetime) time.Duration {
 func TestTreeCountsAMemberItMayNotReadInsteadOfFailing(t *testing.T) {
 	if os.Getenv("EXECX_TEST_LOCKED") != "" {
 		// Deny everyone the rights a sample opens a process with, as a
-		// sandboxed browser process can.
-		descriptor, err := windows.SecurityDescriptorFromString("D:(D;;0x101410;;;WD)(A;;GA;;;OW)")
+		// sandboxed browser process can, or the DACL a test names.
+		lock := os.Getenv("EXECX_TEST_LOCKED_DACL")
+		if lock == "" {
+			lock = "D:(D;;0x101410;;;WD)(A;;GA;;;OW)"
+		}
+		descriptor, err := windows.SecurityDescriptorFromString(lock)
 		if err != nil {
 			os.Exit(3)
 		}
@@ -277,6 +282,11 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 	if programs := os.Getenv("EXECX_TEST_SERVICE"); programs != "" {
 		for _, name := range []string{"com.docker.standin", "worker"} {
 			started := exec.Command(filepath.Join(programs, name+".exe"))
+			if lock := os.Getenv("EXECX_TEST_LOCKED_WORKER"); name == "worker" && lock != "" {
+				// A worker whose DACL denies everyone what lock denies.
+				started = exec.Command(os.Args[0], "-test.run=^TestTreeCountsAMemberItMayNotReadInsteadOfFailing$")
+				started.Env = append(os.Environ(), "EXECX_TEST_SERVICE=", "EXECX_TEST_LOCKED="+filepath.Join(programs, "locked"), "EXECX_TEST_LOCKED_DACL="+lock)
+			}
 			if started.Start() != nil {
 				os.Exit(8)
 			}
@@ -293,10 +303,15 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 		name          string
 		end           func(context.Context, *execx.Tree) ([]execx.EndedProcess, error)
 		isServiceKept bool
+		isSpareNamed  bool
 	}{
 		{name: "EndAndWait", end: func(ctx context.Context, tree *execx.Tree) ([]execx.EndedProcess, error) {
 			_, spared, err := tree.EndAndWait(ctx)
 			return spared, err
+		}, isServiceKept: true, isSpareNamed: true},
+		{name: "End", end: func(_ context.Context, tree *execx.Tree) ([]execx.EndedProcess, error) {
+			_, err := tree.End()
+			return nil, err
 		}, isServiceKept: true},
 		{name: "TerminateAndWait", end: func(ctx context.Context, tree *execx.Tree) ([]execx.EndedProcess, error) {
 			_, err := tree.TerminateAndWait(ctx)
@@ -305,35 +320,7 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			programs := t.TempDir()
-			standin.RemoveAtCleanup(t, programs)
-			for _, name := range []string{"com.docker.standin", "worker"} {
-				standin.Put(t, filepath.Join(programs, name+".exe"))
-			}
-			command := execx.Command(os.Args[0], "-test.run=^TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo$")
-			command.Env = append(append(os.Environ(), "EXECX_TEST_SERVICE="+programs), standin.Env("", standin.Rule{Any: true, Hold: true})...)
-			tree, err := execx.StartTree(command)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _, _ = tree.End(); _ = command.Wait() })
-			held := map[string]windows.Handle{}
-			pids := map[string]int{}
-			for _, name := range []string{"com.docker.standin", "worker"} {
-				pid := filepath.Join(programs, name+".pid")
-				for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-					if data, err := os.ReadFile(pid); err == nil {
-						if pids[name], err = strconv.Atoi(string(data)); err != nil {
-							t.Fatal(err)
-						}
-						break
-					}
-					if time.Now().After(deadline) {
-						t.Fatalf("%s never started", name)
-					}
-				}
-				held[name] = standin.Hold(t, pids[name])
-			}
+			tree, command, pids, held := serviceTree(t, "")
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
@@ -356,25 +343,150 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 				t.Fatalf("the machine service runs: %v, want %v", isServiceRunning, test.isServiceKept)
 			}
 			wantSpared := 0
-			if test.isServiceKept {
+			if test.isSpareNamed {
 				wantSpared = 1
 			}
 			if len(spared) != wantSpared || wantSpared == 1 && (spared[0].PID != pids["com.docker.standin"] || !strings.EqualFold(spared[0].Name, "com.docker.standin.exe")) {
 				t.Fatalf("spared = %+v, want the machine service %d alone where it is kept", spared, pids["com.docker.standin"])
 			}
-			for _, name := range []string{"worker", ""} {
-				process := held[name]
-				if name == "" {
-					handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(command.Process.Pid))
-					if err != nil {
-						continue
-					}
-					defer windows.CloseHandle(handle)
-					process, name = handle, "the tree's own process"
+			if event, err := windows.WaitForSingleObject(held["worker"], 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+				t.Fatal("the worker still runs after the tree's end")
+			}
+			if own, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(command.Process.Pid)); err == nil {
+				event, err := windows.WaitForSingleObject(own, 5000)
+				windows.CloseHandle(own)
+				if err != nil || event != windows.WAIT_OBJECT_0 {
+					t.Fatal("the tree's own process still runs after the tree's end")
 				}
-				if event, err := windows.WaitForSingleObject(process, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
-					t.Fatalf("%s still runs after the tree's end", name)
+			}
+		})
+	}
+}
+
+// serviceTree starts a tree whose command starts a stand-in named like
+// Docker Desktop and a worker, both running until ended, and returns the
+// tree, its command, and the two by name, by pid and held open. A worker
+// locked by the DACL lock denies everyone what lock denies, so it is not
+// held.
+func serviceTree(t *testing.T, lock string) (*execx.Tree, *exec.Cmd, map[string]int, map[string]windows.Handle) {
+	t.Helper()
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	for _, name := range []string{"com.docker.standin", "worker"} {
+		standin.Put(t, filepath.Join(programs, name+".exe"))
+	}
+	command := execx.Command(os.Args[0], "-test.run=^TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo$")
+	command.Env = append(append(os.Environ(), "EXECX_TEST_SERVICE="+programs), standin.Env("", standin.Rule{Any: true, Hold: true})...)
+	isWorkerLocked := lock != ""
+	if isWorkerLocked {
+		command.Env = append(command.Env, "EXECX_TEST_LOCKED_WORKER="+lock)
+	}
+	tree, err := execx.StartTree(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = tree.End(); _ = command.Wait() })
+	if isWorkerLocked {
+		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(programs, "locked")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the locked worker never said it was ready")
+			}
+		}
+	}
+	pids := map[string]int{}
+	held := map[string]windows.Handle{}
+	for _, name := range []string{"com.docker.standin", "worker"} {
+		pid := filepath.Join(programs, name+".pid")
+		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if data, err := os.ReadFile(pid); err == nil {
+				if pids[name], err = strconv.Atoi(string(data)); err != nil {
+					t.Fatal(err)
 				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s never started", name)
+			}
+		}
+		if name != "worker" || !isWorkerLocked {
+			held[name] = standin.Hold(t, pids[name])
+		}
+	}
+	return tree, command, pids, held
+}
+
+// withoutDebugPrivilege disables, until the test ends, this process's
+// SeDebugPrivilege, which a CI runner's process can hold and which opens any
+// process whatever its DACL says.
+func withoutDebugPrivilege(t *testing.T) {
+	t.Helper()
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &token); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = token.Close() })
+	var debug windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeDebugPrivilege"), &debug); err != nil {
+		t.Fatal(err)
+	}
+	disabled := windows.Tokenprivileges{PrivilegeCount: 1, Privileges: [1]windows.LUIDAndAttributes{{Luid: debug}}}
+	var previous windows.Tokenprivileges
+	var size uint32
+	if err := windows.AdjustTokenPrivileges(token, false, &disabled, uint32(unsafe.Sizeof(previous)), &previous, &size); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if previous.PrivilegeCount > 0 {
+			_ = windows.AdjustTokenPrivileges(token, false, &previous, 0, nil, nil)
+		}
+	})
+}
+
+// A member this process may not read, as a sandboxed browser process can be,
+// is in no reading the end acts on, and one it may not end outlives every
+// try. Beside a machine service the end then confirms nothing within its
+// caller's deadline, and the job still ends everything it holds when its
+// last handle closes, so the member never outlives the run's custody.
+func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
+	for _, test := range []struct {
+		name, lock string
+		access     uint32
+	}{
+		{name: "a member it may not read", lock: "D:(D;;0x101410;;;WD)(A;;GA;;;OW)", access: windows.PROCESS_QUERY_LIMITED_INFORMATION},
+		{name: "a member it may not end", lock: "D:(D;;0x1;;;WD)(A;;GA;;;OW)", access: windows.PROCESS_TERMINATE},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			withoutDebugPrivilege(t)
+			tree, _, pids, held := serviceTree(t, test.lock)
+			// The end below confirms nothing, so the strict end clears the job.
+			t.Cleanup(func() { _, _ = tree.TerminateAndWait(context.Background()) })
+			if opened, err := windows.OpenProcess(test.access, false, uint32(pids["worker"])); err == nil {
+				windows.CloseHandle(opened)
+				t.Skip("this process opens a process whose DACL denies it, so it cannot make the member")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			started := time.Now()
+
+			// Act
+			_, spared, err := tree.EndAndWait(ctx)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), strconv.Itoa(pids["worker"])) || len(spared) != 0 {
+				t.Fatalf("end = %+v, %v; want no confirmation, naming the member", spared, err)
+			}
+			if took := time.Since(started); took > 4*time.Second {
+				t.Fatalf("the end took %s, past its caller's deadline of a second", took)
+			}
+			if isArmed, err := tree.KillsOnCloseForTest(); err != nil || !isArmed {
+				t.Fatalf("kill on close armed = %v, %v; want the job still to end everything when it closes", isArmed, err)
+			}
+			if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+				t.Fatal("the machine service was ended though the end confirmed nothing")
 			}
 		})
 	}

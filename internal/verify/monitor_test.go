@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -392,28 +393,40 @@ func TestMonitorKeepsARunThroughABriefPressureByDefault(t *testing.T) {
 }
 
 // A machine service the end spared is named apart from the leftovers the run
-// ended, and the run's cleanup is confirmed though the job still holds it.
+// ended, and the run's cleanup is confirmed though the job still holds it. A
+// leftover whose pid a service's process took after it is still a leftover.
 func TestMonitorNamesAServiceItsEndSparedApartFromItsLeftovers(t *testing.T) {
-	// Arrange
-	service := execx.EndedProcess{Name: "Docker Desktop.exe", PID: 41}
-	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 2, TotalProcesses: 3}, members: []execx.EndedProcess{service, {Name: "worker.exe", PID: 42}}, spared: []execx.EndedProcess{service}}
-	exited := make(chan struct{})
-	close(exited)
-	monitor := Monitor{Poll: time.Millisecond, Exited: exited, Linger: 5 * time.Millisecond,
-		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
-	}
+	worker := execx.EndedProcess{Name: "worker.exe", PID: 42}
+	for _, test := range []struct {
+		name          string
+		spared        execx.EndedProcess
+		wantLeftovers []Leftover
+	}{
+		{name: "the service itself", spared: execx.EndedProcess{Name: "Docker Desktop.exe", PID: 41}, wantLeftovers: []Leftover{{Name: "worker.exe", PID: 42}}},
+		{name: "a service's process with a leftover's pid", spared: execx.EndedProcess{Name: "com.docker.backend.exe", PID: 42}, wantLeftovers: []Leftover{{Name: "Docker Desktop.exe", PID: 41}, {Name: "worker.exe", PID: 42}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 2, TotalProcesses: 3}, members: []execx.EndedProcess{{Name: "Docker Desktop.exe", PID: 41}, worker}, spared: []execx.EndedProcess{test.spared}}
+			exited := make(chan struct{})
+			close(exited)
+			monitor := Monitor{Poll: time.Millisecond, Exited: exited, Linger: 5 * time.Millisecond,
+				Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+			}
 
-	// Act
-	result, err := monitor.Watch(context.Background(), tree)
+			// Act
+			result, err := monitor.Watch(context.Background(), tree)
 
-	// Assert
-	if err != nil || result.State != Completed || !result.CleanupConfirmed {
-		t.Fatalf("result = %+v, %v, want a confirmed cleanup beside the spared service", result, err)
-	}
-	if len(result.Spared) != 1 || result.Spared[0] != (Leftover{Name: "Docker Desktop.exe", PID: 41}) {
-		t.Fatalf("spared = %+v, want the service", result.Spared)
-	}
-	if len(result.Leftovers) != 1 || result.Leftovers[0] != (Leftover{Name: "worker.exe", PID: 42}) {
-		t.Fatalf("leftovers = %+v, want the worker alone", result.Leftovers)
+			// Assert
+			if err != nil || result.State != Completed || !result.CleanupConfirmed {
+				t.Fatalf("result = %+v, %v, want a confirmed cleanup beside the spared service", result, err)
+			}
+			if len(result.Spared) != 1 || result.Spared[0] != (Leftover{Name: test.spared.Name, PID: test.spared.PID}) {
+				t.Fatalf("spared = %+v, want %+v", result.Spared, test.spared)
+			}
+			if !slices.Equal(result.Leftovers, test.wantLeftovers) {
+				t.Fatalf("leftovers = %+v, want %+v", result.Leftovers, test.wantLeftovers)
+			}
+		})
 	}
 }

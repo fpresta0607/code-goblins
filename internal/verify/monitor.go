@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -223,7 +224,9 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 		// A service the end spared is no leftover it ended.
 		for _, process := range spared {
 			result.Spared = append(result.Spared, Leftover{Name: process.Name, PID: process.PID})
-			result.Leftovers = slices.DeleteFunc(result.Leftovers, func(leftover Leftover) bool { return leftover.PID == process.PID })
+			result.Leftovers = slices.DeleteFunc(result.Leftovers, func(leftover Leftover) bool {
+				return leftover.PID == process.PID && strings.EqualFold(leftover.Name, process.Name)
+			})
 		}
 	}
 	result.WallSeconds = time.Since(start).Seconds()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 func uniqueJobName() string {
@@ -84,5 +86,39 @@ func TestEndNamedJobEndsATreeWhoseParentExitedFromAnotherHandle(t *testing.T) {
 		if !member.Ends() {
 			t.Fatalf("process %d of the named job still runs", member.PID)
 		}
+	}
+}
+
+// Recovery's end spares no machine service: a run's end keeps its job's kill
+// on close armed until only services are left, so the job of a controller
+// that died ended everything when its handle closed, and a service still in
+// a job recovery finds is no run's to keep.
+func TestEndNamedJobSparesNoMachineService(t *testing.T) {
+	// Arrange
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	program := filepath.Join(programs, "com.docker.standin.exe")
+	standin.Put(t, program)
+	service := execx.Command(program)
+	service.Env = append(os.Environ(), standin.Env("", standin.Rule{Any: true, Hold: true})...)
+	name := uniqueJobName()
+	tree, err := execx.StartNamedTree(service, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = tree.End(); _ = service.Wait() })
+	held := standin.Hold(t, service.Process.Pid)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Act
+	_, isFound, err := execx.EndNamedJob(ctx, name)
+
+	// Assert
+	if err != nil || !isFound {
+		t.Fatalf("recovery's end = found %v, %v", isFound, err)
+	}
+	if event, err := windows.WaitForSingleObject(held, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatal("recovery's end left the machine service running")
 	}
 }
