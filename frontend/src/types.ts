@@ -383,6 +383,7 @@ export interface Snapshot {
   reviews?: Review[];
   runs?: Run[];
   credentials?: CredentialRequest[];
+  browser_signins?: BrowserSignIn[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
   ci_durations: CIDuration[];
@@ -499,6 +500,11 @@ export interface ReleaseOffer {
 // or any release where the board was built from a clone, which updates from
 // the clone instead.
 export interface ReleaseView { installed: string; tag: string; page: string; published: string; source: boolean }
+export interface BrowserSignIn {
+  id: string; generation: string; login: string; provider: string; account: string; project: string; task: string;
+  state: "ready" | "opening" | "open" | "signed_in" | "expired";
+  reason: string; created_at: string; expires_at: string; closed_at: string;
+}
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
 // never carries a value.
@@ -689,7 +695,7 @@ function parseAfk(value: unknown): Afk {
 // The Command Center's items as the supervisor's stream sends them between
 // snapshots: its questions, review items, runs, credential requests and
 // actions, with the supervisor they are from and its revision.
-export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; actions: Action[] }
+export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; browser_signins: BrowserSignIn[]; actions: Action[] }
 function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
@@ -717,6 +723,13 @@ function itemLists(v: Record<string, unknown>) {
           notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
+    browser_signins: array(v.browser_signins).map((value): BrowserSignIn => {
+      const signin = object(value);
+      const state = string(signin.state);
+      if (state !== "ready" && state !== "opening" && state !== "open" && state !== "signed_in" && state !== "expired") throw new Error("Invalid browser sign-in state");
+      return { id: string(signin.id), generation: string(signin.generation), login: string(signin.login), provider: string(signin.provider), account: string(signin.account),
+        project: string(signin.project), task: string(signin.task), state, reason: string(signin.reason), created_at: string(signin.created_at), expires_at: string(signin.expires_at), closed_at: string(signin.closed_at) };
+    }),
     actions: array(v.actions).map(parseAction),
   };
 }
