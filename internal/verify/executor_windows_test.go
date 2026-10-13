@@ -75,7 +75,12 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	const roleVariable = "VERIFY_EXECUTOR_FIXTURE"
 	if role := os.Getenv(roleVariable); role != "" {
 		if role == "child" {
-			_ = os.WriteFile("child.pid", []byte(strconv.Itoa(os.Getpid())), 0600)
+			// Written whole and then named, so the run's Observe, which
+			// fails the run on a pid it cannot read, never reads an empty
+			// file between its creation and its write.
+			if os.WriteFile("child.pid.tmp", []byte(strconv.Itoa(os.Getpid())), 0600) != nil || os.Rename("child.pid.tmp", "child.pid") != nil {
+				os.Exit(7)
+			}
 			time.Sleep(20 * time.Second)
 			os.Exit(9)
 		}
