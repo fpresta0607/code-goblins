@@ -49,7 +49,56 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
 }
 ```
 
-`cfo spawn` without `--harness` deterministically classifies the task and selects a lane: from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`cfo doctor` prints it). A lane whose provider or model scope quota-axi reports `exhausted_now` is passed over for the next usable one, and a spawn with no usable lane is refused with the reset time; a missing, stale, or unparseable quota-axi is no evidence. Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default. A project without a manifest routes from the fleet table and gets no capsule. Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory; both contain names and policy, never secret values.
+`cfo spawn` without `--harness` deterministically classifies the task and selects a lane from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`cfo doctor` prints it).
+A missing, stale, or unparseable quota-axi is no evidence of exhaustion.
+Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default.
+A project without a manifest routes from the fleet table and gets no capsule.
+Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory, containing names and policy, never secret values.
+
+### Execution routing
+
+Board starts and automatic starts pass only the engine settings explicitly named by the backlog row or brief, with the row winning separately for each field.
+An unspecified harness, model or effort stays empty until spawn chooses it, and a generated brief preserves those empty settings.
+The queued snapshot therefore describes preferences rather than predicting a dispatched model.
+The board labels empty queued fields Automatic and saves each field independently.
+An explicitly empty backlog field overrides the brief, so returning a field to Automatic does not restore an older brief preference.
+A helper follows its own brief's classification and explicit engine settings, independently of its parent's model.
+Its mode stays local-only, its project and branch stay owned by its parent, and its brief cannot expand inherited credentials or MCP access.
+Invalid explicit settings and a conflicting helper mode are refused before its status or brief is written.
+
+When quota-axi reports a provider or model scope as `exhausted_now`, fallback follows only the capability order the policy declares:
+
+| Task | Permitted lane order |
+| --- | --- |
+| Class-specific work, including mechanical and scout | Class lane, default lane, escalation lane |
+| Ordinary work | Default lane, escalation lane |
+| High-risk work or a second attempt | Escalation lane only |
+
+Each lane is tried at most once.
+If none of the permitted lanes is usable, spawn refuses with their quota evidence and reset time when known.
+High-risk work also refuses when no escalation lane is configured.
+Available quota in an unrelated light lane cannot authorize a downgrade, and arbitrary model names do not establish equivalent capability.
+The existing `routed` diagnostic names the selected lane, class, risk, policy source, wanted lane when fallback occurred and evidence for each lane tried.
+The spawn's task record names the model and effort it actually launches.
+
+The committed `data/routing.json` currently ships Claude lanes: `deep` and `scout` use `fable` at `xhigh`, `build` uses `opus` at `high`, and `mechanical` uses `sonnet` at `medium`.
+Installation writes this table only where it is missing, so a home's tuned policy may differ.
+This routing fix changes neither that shipped table nor any private home's table.
+
+A conservative Codex proposal, to be applied separately after capability-safe fallback is installed, is:
+
+| Lane | Harness | Model | Effort | Intended work |
+| --- | --- | --- | --- | --- |
+| `mechanical` | `codex` | `gpt-6-luna` | `medium` | Narrow, explicitly specified edits with regression checks |
+| `build` (default) | `codex` | `gpt-6.1-sol` | `high` | Ordinary implementation and debugging |
+| `scout` | `codex` | `gpt-6.1-sol` | `medium` | Investigations that produce a report |
+| `deep` (escalation) | `codex` | `gpt-6-astra` | `high` | Architecture, security, migrations, rescue and retries |
+
+These identifiers and effort levels were present in the local Codex catalog on 2026-10-12.
+The allocation is a proposed policy, not a measured equivalence or a benchmark result.
+Official model documentation describes [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra).
+Local catalog availability does not prove account quota, and API pricing does not establish subscription consumption.
+No paid model probe or automatic paid-provider fallback is required to choose or validate the routing policy.
 
 Verification is tiered. `cfo verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task, and commit evidence. `cfo security` follows the project security mode. `cfo deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
 
