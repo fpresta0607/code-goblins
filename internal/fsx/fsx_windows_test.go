@@ -1,6 +1,7 @@
 package fsx
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -9,6 +10,43 @@ import (
 	"testing"
 	"time"
 )
+
+func TestAtomicWriteFileContextStopsAtDeadlineAndPreservesDestination(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	path := filepath.Join(dir, "record.json")
+	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	// Act
+	started := time.Now()
+	err = AtomicWriteFileContext(ctx, path, []byte("new"))
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+		t.Fatalf("write ignored deadline: %v", err)
+	}
+	data, err := ReadFile(path)
+	if err != nil || string(data) != "old" {
+		t.Fatalf("failed write changed destination: %q, %v", data, err)
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("staged file leaked: %v, %v", files, err)
+	}
+	reader.Close()
+	if err := AtomicWriteFileContext(context.Background(), path, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // A reader that opens a file the way Go's os.Open and PowerShell's
 // Get-Content do, without FILE_SHARE_DELETE, makes a rename over that file

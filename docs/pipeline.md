@@ -472,6 +472,45 @@ So the wrapper gives its command `CFO_VERIFY_TURN`, which names the turn it hold
 A `cfo gate test`, a `cfo gate prepush` or a nested `cfo gate turn` that finds it, with that turn still held by that same live process, runs inside it: it takes no turn, waits for none, and says what it is doing beside the holder's turn.
 Any other value, such as one a process kept from a run that has ended, is ignored, and the run joins the line as every run does.
 
+**Executor accounting.**
+`internal/execx.Tree.Usage` reads cumulative CPU time, current and peak private commitment, active and lifetime process counts from the Windows job, including descendants whose parents exited.
+It samples the private working set separately, which is neither commitment nor a measured lifetime peak.
+These reads are observations, not resource reservations or enforced limits.
+An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
+Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes.
+That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
+It is intended for verification workers, not a command that deliberately starts a shared machine service.
+The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
+This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
+`internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
+Its reserve cannot lower the existing 4 GiB floor and is a cancellation threshold, not a reservation.
+A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
+`internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
+Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
+The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
+Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits.
+Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
+Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
+An abandoned or unreadable custody record refuses further admission rather than guessing that its workers are gone.
+The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` calls and keeps a confirmed cleanup proof if its evidence write or custody removal needs another attempt.
+Slot release reports errors and stays retryable, and an executor retains final evidence-write failures even after workers have ended.
+Concurrent recovery waits respect the waiting caller's deadline without holding the executor's registry mutex over job or filesystem operations.
+The deadline also bounds custody-lock, file-open and final evidence-rename contention retries.
+A failed mutation-lock release retains its exact lease identity for a later retry, and cannot reclaim a changed or foreign live owner.
+Stale lease removal claims the record against writes and replacement, validates its identity while claimed, and deletes through that same Windows handle.
+Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
+An interrupted publication that leaves an incomplete record still refuses admission.
+Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
+Restart recovery and retention of the execution records and logs are not yet implemented, so these APIs remain outside the live command path.
+These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
+
+`ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
+It requires complete preparation evidence and matching sizes and SHA-256 hashes, so a revision directory or ready marker alone cannot hide missing runtime files.
+Incomplete or interrupted preparation, unreadable evidence or files, path traversal, symlinks and reparse points are refused.
+It only reads the named generation and does not discover, reinstall, repair or remove shared caches.
+Same-user mutable generations remain advisory because their contents can change during or after validation.
+Trusted reuse still requires a protected immutable generation, trusted inventory and a successful runtime initialization probe under admission.
+
 **Not in the wrapper.**
 It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
 
