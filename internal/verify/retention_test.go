@@ -286,6 +286,16 @@ func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
 	now := time.Now()
 	dir := t.TempDir()
 	logged := storedExecution(t, dir, "passed", now.Add(-time.Hour), now.Add(-time.Hour))
+	failures := storedRun(t, dir, "failed", keptFailures, now.Add(-time.Hour))
+	// A record its run left pending a week ago, with no logs, as a wrapper
+	// ended while it waited leaves: newer than every failure by when it was
+	// begun, it must not take a failure's place.
+	abandoned := rand.Text()
+	abandonedRecord, err := json.Marshal(ExecutionRecord{Version: 1, ID: abandoned, Status: "pending", Created: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAged(t, filepath.Join(dir, abandoned+".json"), abandonedRecord, now.Add(-2*abandonedExecutionAge))
 	var unlogged []string
 	for index := range keptUnlogged + 3 {
 		id := rand.Text()
@@ -299,7 +309,7 @@ func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
 	}
 
 	// Act
-	err := pruneExecutions(dir, t.TempDir(), executionBudget, now)
+	err = pruneExecutions(dir, t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -308,9 +318,15 @@ func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
 	if !isStored(dir, logged) {
 		t.Fatal("a burst of runs without logs evicted a run's logs")
 	}
+	for _, id := range failures {
+		if !isStored(dir, id) {
+			t.Fatal("a run without logs, left pending, evicted a failure's logs")
+		}
+	}
 	for index, id := range unlogged {
 		_, statError := os.Stat(filepath.Join(dir, id+".json"))
-		if isKept := statError == nil; isKept != (index >= 3) {
+		// The abandoned record is a run without logs too, the newest of them.
+		if isKept := statError == nil; isKept != (index >= 4) {
 			t.Fatalf("run %d of %d without logs kept = %v; want the newest %d kept", index, len(unlogged), isKept, keptUnlogged)
 		}
 	}

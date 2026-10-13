@@ -847,7 +847,7 @@ func TestGateTurnInterruptedWhileItWaitsLeavesTheLineAndStartsNothing(t *testing
 	case <-time.After(time.Minute):
 		t.Fatalf("the run had not ended a minute after it was interrupted; stderr=%q", stderr.String())
 	}
-	if want := "cfo gate turn: this run takes no turn: it was interrupted while it waited\n"; !strings.HasSuffix(stderr.String(), want) {
+	if want := "cfo gate turn: this run takes no turn: it was interrupted before its command started\n"; !strings.HasSuffix(stderr.String(), want) {
 		t.Errorf("stderr = %q; want it to end with %q", stderr.String(), want)
 	}
 	holding, waiting, err := verify.Line(slots)
@@ -1156,8 +1156,9 @@ func TestGateTurnLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
 }
 
 // Free memory under the desktop reserve for its ten seconds ends the run's
-// command with everything it started, and the run says why: the line's own
-// pressure check, aimed at the run that holds the memory.
+// command with everything it started, and the run exits 125 with a last line
+// that says why, which a gate parks the run on: what the command was ended
+// at is no result of its own.
 func TestGateTurnEndsItsCommandWhenMemoryStaysUnderTheReserve(t *testing.T) {
 	// Arrange
 	turnLine(t)

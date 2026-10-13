@@ -430,3 +430,31 @@ func TestMonitorNamesAServiceItsEndSparedApartFromItsLeftovers(t *testing.T) {
 		})
 	}
 }
+
+// Once the command's own process has exited, its result is its own: memory
+// under the reserve then ends what it left, as the linger's end does, names
+// it, and fails nothing.
+func TestMonitorEndsWhatAnExitedCommandLeftUnderPressureWithoutFailing(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, members: []execx.EndedProcess{{Name: "helper.exe", PID: 42}}}
+	exited := make(chan struct{})
+	close(exited)
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Sustain: 10 * time.Millisecond, Exited: exited, Linger: time.Minute,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+	started := time.Now()
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err != nil || result.State != Completed || !result.CleanupConfirmed {
+		t.Fatalf("result = %+v, %v; want a completed run that failed nothing", result, err)
+	}
+	if len(result.Leftovers) != 1 || result.Leftovers[0] != (Leftover{Name: "helper.exe", PID: 42}) {
+		t.Fatalf("leftovers = %+v; want the helper named", result.Leftovers)
+	}
+	if took := time.Since(started); took > 30*time.Second {
+		t.Fatalf("the run took %s, waiting out its linger under pressure", took)
+	}
+}

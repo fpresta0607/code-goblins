@@ -48,9 +48,10 @@ type Measurement struct {
 // ErrLimit is the failure of a command that ran past its limit.
 var ErrLimit = errors.New("verify: the command ran past its limit")
 
-// ErrNoTurn is the failure of a run that took no turn, so its command never
-// started, and ErrNotStarted that of one that took its turn and gave it back
-// without its command having started.
+// ErrNoTurn is the failure of a run that took no turn, or one interrupted
+// once it had taken it, so its command never started, and ErrNotStarted that
+// of one that took its turn and gave it back because its command could not
+// start.
 var (
 	ErrNoTurn     = errors.New("verify: the run took no turn")
 	ErrNotStarted = errors.New("verify: the command did not start")
@@ -164,12 +165,23 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 				break
 			}
 		}
+		if exitedAt.IsZero() && monitor.Exited != nil {
+			select {
+			case <-monitor.Exited:
+				exitedAt = time.Now()
+			default:
+			}
+		}
 		if headroom.PhysicalAvailable >= monitor.Reserve.PhysicalAvailable && headroom.CommitAvailable >= monitor.Reserve.CommitAvailable {
 			pressedSince = time.Time{}
 		} else if pressedSince.IsZero() {
 			pressedSince = time.Now()
 		}
-		if !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain {
+		isPressed := !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain
+		// Once the command's own process has exited, its result is its own,
+		// so pressure then ends what it left as the linger's end does and
+		// fails nothing.
+		if isPressed && exitedAt.IsZero() {
 			failure = fmt.Errorf("%w for %s: %.1f GB of memory and %.1f GB of commit available, under the desktop reserve of %.1f GB and %.1f GB", ErrPressure, monitor.Sustain, Gigabytes(headroom.PhysicalAvailable), Gigabytes(headroom.CommitAvailable), Gigabytes(monitor.Reserve.PhysicalAvailable), Gigabytes(monitor.Reserve.CommitAvailable))
 			break
 		}
@@ -179,14 +191,7 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 		if usage.ActiveProcesses == 0 {
 			break
 		}
-		if exitedAt.IsZero() && monitor.Exited != nil {
-			select {
-			case <-monitor.Exited:
-				exitedAt = time.Now()
-			default:
-			}
-		}
-		if !exitedAt.IsZero() && time.Since(exitedAt) >= monitor.Linger {
+		if !exitedAt.IsZero() && (isPressed || time.Since(exitedAt) >= monitor.Linger) {
 			members, err := tree.Members()
 			if err != nil {
 				failure = fmt.Errorf("verify: read what the command left running: %w", err)

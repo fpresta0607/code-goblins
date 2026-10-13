@@ -18,9 +18,10 @@ import (
 // is a test result, and a command that itself exits with one is told apart
 // by the last line on standard error, which then is not cfo gate turn's.
 const (
-	// exitNoTurn says the run gave no result of its command's: no turn was
-	// taken and the command never started, or the line ended the command
-	// for the machine's memory.
+	// exitNoTurn says the run gave no result of its command's: the command
+	// never started, as no turn was taken or the run was interrupted before
+	// it could start, or the line ended the command for the machine's
+	// memory.
 	exitNoTurn = 125
 	// exitNotStarted says a turn was taken and given back, and the command
 	// could not be started.
@@ -156,7 +157,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	case errors.Is(runError, verify.ErrNoTurn):
 		why := oneLine(runError)
 		if errors.Is(runError, context.Canceled) {
-			why = "it was interrupted while it waited"
+			why = "it was interrupted before its command started"
 		}
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s\n", why)
 		tell(exitNoTurn)

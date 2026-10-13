@@ -484,7 +484,7 @@ What the command was ended at is no result of its own, so `cfo` exits 125 with a
 cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: verify: execution 4KQ3NAWZPXDMR7YHTJ2CE6LFBU failed (interrupted): verify: reserve pressure for 10s: 1.2 GB of memory and 9.8 GB of commit available, under the desktop reserve of 2.0 GB and 2.0 GB
 ```
 
-A command that exits by itself keeps its own exit code, even when the reserve was crossed after it, while what it left ran on.
+A command that exits by itself keeps its own exit code: once its own process has exited, memory under the reserve for ten seconds ends what it left, as the linger's end does, and fails nothing.
 A running sample that cannot be written ends no command, since a sample is progress and the final measurement is the evidence, and a run interrupted after it took its turn but before its command started ends there with 125, since its command could never hear the interrupt.
 The record's commit reading is the documented one for the process that reads it, which is the machine's free commit unless that process sits in a job with a commit limit, as no `cfo` job is.
 Claude goblins launched since this change start with Claude Code's own low-memory ending of idle background shells turned off, since it ended a goblin's queued `cfo gate turn` and lost its place in the line, while this check ends the run the line let use the memory.
@@ -556,8 +556,8 @@ Mutation-lease creation excludes readers until the writer closes, so contenders 
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
 `cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says.
-After each tier the executions store keeps the newest 100 passes, 50 failures and 20 runs that never started, each kept apart, so a burst of one never evicts the evidence of another.
-What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
+After each tier, and after each `cfo gate turn` run, the executions store keeps the newest 100 passes, 50 failures and 20 runs that never started, each kept apart, so a burst of one never evicts the evidence of another, and apart from them the newest 200 runs that kept no logs, as `cfo gate turn`'s, whose output their caller keeps.
+What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then runs that kept no logs, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
 A record whose custody is still held, one still pending, and one it cannot read or that a newer cfo wrote, while younger than a week, is never removed or counted, so the 2 GiB covers only what it counts.
 A log whose record is gone is removed once it is a week old, and a record goes only once its logs are gone.
 It removes only plain files named as the store names them, refuses an executions folder that is a junction or link, and a removal that fails is named on standard error, tried again after the next tier, and never fails the tier.

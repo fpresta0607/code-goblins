@@ -292,9 +292,8 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 			// written ends no command: the final measurement, written once
 			// the command has ended, fails the run when it cannot be.
 			if time.Since(persisted) >= 10*time.Second {
-				if err := execution.Observe(measurement); err == nil {
-					persisted = time.Now()
-				}
+				_ = execution.Observe(measurement)
+				persisted = time.Now()
 			}
 		}
 		if observe != nil {

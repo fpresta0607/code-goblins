@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -102,8 +101,9 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 			windows.CloseHandle(childHandle)
 		}
 	})
-	// The child outlives the linger, so only pressure can end the run.
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond, Sustain: time.Millisecond, Linger: time.Minute,
+	// The child outlives the linger, so only pressure can end the run, and
+	// pressure lasts long enough for the parent's exit to be seen first.
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond, Sustain: 2 * time.Second, Linger: time.Minute,
 		Headroom: func() (Headroom, error) {
 			if isParentGone {
 				return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil
@@ -133,8 +133,8 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	result, err := executor.Run(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorTracksDescendantsAfterTheParentExits$"}, Env: append(os.Environ(), roleVariable+"=parent")})
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "reserve pressure") || !isParentGone || result.ExitCode != 0 {
-		t.Fatalf("parent result = %+v, %v, parent gone = %v, want reserve pressure", result, err, isParentGone)
+	if err != nil || !isParentGone || result.ExitCode != 0 {
+		t.Fatalf("parent result = %+v, %v, parent gone = %v, want the parent's own pass, with pressure after it ending what it left", result, err, isParentGone)
 	}
 	data, readError := os.ReadFile(filepath.Join(root, "child.pid"))
 	if readError != nil {
@@ -144,9 +144,8 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	if parseError != nil {
 		t.Fatal(parseError)
 	}
-	isExited, waitError := windows.WaitForSingleObject(childHandle, 0)
-	if waitError != nil || isExited != windows.WAIT_OBJECT_0 {
-		t.Fatalf("owned child %d survived verified cleanup: wait=%d error=%v", childPID, isExited, waitError)
+	if !endsSoon(childHandle) {
+		t.Fatalf("owned child %d survived verified cleanup", childPID)
 	}
 	files, _ := filepath.Glob(filepath.Join(store, "executions", "*.json"))
 	if len(files) != 1 {
@@ -160,8 +159,8 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Status != "failed" || record.Measurement.State != Interrupted || !record.Measurement.CleanupConfirmed || record.Measurement.Usage.ActiveProcesses != 0 || record.Measurement.Usage.TotalProcesses != 2 {
-		t.Fatalf("pressure evidence = %+v", record)
+	if record.Status != "passed" || record.Measurement.State != Completed || !record.Measurement.CleanupConfirmed || record.Measurement.Usage.ActiveProcesses != 0 || record.Measurement.Usage.TotalProcesses != 2 || len(record.Measurement.Leftovers) != 1 || record.Measurement.Leftovers[0].PID != childPID {
+		t.Fatalf("evidence = %+v, want the parent's pass with the child it left named and ended", record)
 	}
 	if _, err := os.Stat(filepath.Join(executor.Admission.Dir, "slot-1")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("turn remains after confirmed cleanup: %v", err)
