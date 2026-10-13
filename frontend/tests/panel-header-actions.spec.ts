@@ -83,7 +83,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       expect(asked).toEqual([]);
     });
 
-    test("the CFO task panel omits the empty connections prompt and machine settings", async ({ page }, testInfo) => {
+    test("the CFO task panel omits the prompt and explanation while keeping Dev Drive actions", async ({ page }, testInfo) => {
       // Arrange
       const settingsRequests: string[] = [];
       page.on("request", (request) => {
@@ -99,11 +99,56 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect(page.getByText("CFO project root", { exact: true })).toBeVisible();
       await expect(page.getByRole("list", { name: "Harness and model" })).toContainText("Claude Code");
       await expect(page.getByText("Choose a goblin to check its connections.", { exact: true })).toHaveCount(0);
-      await expect(page.getByText("Dev Drive", { exact: true })).toHaveCount(0);
+      await expect(page.getByText("Dev Drive", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Set up", exact: true })).toBeEnabled();
+      await expect(page.getByText(NOTE, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(EXPLAIN, { exact: true })).toHaveCount(0);
       await expect(page.getByText("Start at login", { exact: true })).toHaveCount(0);
       expect(settingsRequests).toEqual([]);
       expect(await pageScroll(page)).toBe(0);
       await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-panel-trimmed-${size}.png`) });
+    });
+
+    for (const [action, label] of [["set-up", "Set up"], ["try-again", "Try again"], ["attach", "Attach"]] as const) {
+      test(`the Dev Drive ${label} action stays available without explanatory copy`, async ({ page }) => {
+        const requests: { token: string | null; body: string | null }[] = [];
+        await open(page, snapshot({ dev_drive: drive({ action }) }));
+        await page.route("**/api/dev-drive", async (route) => {
+          requests.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postData() });
+          await route.fulfill({ json: { wanted: true } });
+        });
+        await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+        const row = page.locator(".dev-drive-setting");
+        const button = row.getByRole("button", { name: label, exact: true });
+        await expect(row.locator("p")).toHaveCount(0);
+        const nameBox = await box(row.getByText("Dev Drive", { exact: true })), buttonBox = await box(button), rowBox = await box(row);
+        expect(nameBox.y + nameBox.height / 2).toBeGreaterThan(buttonBox.y);
+        expect(nameBox.y + nameBox.height / 2).toBeLessThan(buttonBox.y + buttonBox.height);
+        expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
+        expect(await lines(button)).toBe(1);
+        await button.click();
+        await expect.poll(() => requests).toEqual([{ token: "fixture", body: '{"want":true}' }]);
+        expect(await pageScroll(page)).toBe(0);
+      });
+    }
+
+    test("Dev Drive keeps its waiting status without explanatory copy", async ({ page }) => {
+      await open(page, snapshot({ dev_drive: drive({ waiting: "create", action: "" }) }));
+      await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+      const row = page.locator(".dev-drive-setting");
+      await expect(row.getByRole("status")).toHaveText("Its next step waits for you in the Command Center.");
+      await expect(row.getByRole("button")).toHaveCount(0);
+      await expect(row).not.toContainText(NOTE);
+    });
+
+    test("Dev Drive keeps failed request feedback and allows retry", async ({ page }) => {
+      await open(page, snapshot({ dev_drive: drive({ action: "try-again" }) }));
+      await page.route("**/api/dev-drive", (route) => route.fulfill({ status: 409, json: { error: "Dev Drive setup is busy" } }));
+      await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+      const row = page.locator(".dev-drive-setting");
+      await row.getByRole("button", { name: "Try again", exact: true }).click();
+      await expect(row.locator(".click-feedback")).toHaveText("Dev Drive setup is busy.");
+      await expect(row.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
     });
 
   });
