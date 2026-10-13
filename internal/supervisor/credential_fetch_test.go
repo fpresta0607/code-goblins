@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
+	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -192,6 +193,52 @@ func TestAFetchThatStoppedAfterHisSignInSaysWhyOnTheCard(t *testing.T) {
 	}
 	if len(pending) != 1 || !strings.Contains(pending[0].Detail, "after the Stripe sign-in stopped") || !strings.Contains(pending[0].Detail, "the page changed") {
 		t.Fatalf("wakes = %+v, want the CFO told why the fetch stopped", pending)
+	}
+}
+
+func TestAFetchCarryingOnAfterHisSignInShowsOnTheCardAsRunning(t *testing.T) {
+	// Arrange
+	b := newFetchBoard(t)
+	b.signedIn("acct_fixture")
+	stateDuringRead := ""
+	read := b.broker.readKeys
+	b.broker.readKeys = func(ctx context.Context, url string, provider keypages.Provider, account string, keys []keypages.Key) (map[string]string, error) {
+		stateDuringRead = b.stored().Fetch.State
+		return read(ctx, url, provider, account, keys)
+	}
+	b.service.credentialWork.Add(1)
+
+	// Act
+	b.service.continueFetch(BrowserSignIn{Task: "pd-keys", Provider: "Stripe", Login: fetchLogin, Fetch: b.request.ID})
+
+	// Assert
+	if stateDuringRead != "fetching" {
+		t.Fatalf("the card's fetch read %q while the fetch carried on, want fetching so his click starts no second one", stateDuringRead)
+	}
+	if request := b.stored(); request.State == "open" || request.Fetch.State != "" {
+		t.Fatalf("request = %+v, fetch = %+v, want it closed with its fetch done", request, request.Fetch)
+	}
+}
+
+func TestAFetchCarryingOnLeavesAFetchHisClickStartedToSayHowItWent(t *testing.T) {
+	// Arrange
+	b := newFetchBoard(t)
+	b.signedIn("acct_fixture")
+	b.pageErr = browserlogin.ErrPageChanged
+	if _, err := b.service.Store.updateCredential(b.request.ID, func(r *CredentialRequest) { r.Fetch.State = "fetching" }); err != nil {
+		t.Fatal(err)
+	}
+	b.service.credentialWork.Add(1)
+
+	// Act
+	b.service.continueFetch(BrowserSignIn{Task: "pd-keys", Provider: "Stripe", Login: fetchLogin, Fetch: b.request.ID})
+
+	// Assert
+	if fetch := b.stored().Fetch; fetch.State != "fetching" || fetch.Reason != "" {
+		t.Fatalf("fetch = %+v, want the running fetch of his click left to say how it went", fetch)
+	}
+	if pending, err := wake.Pending(b.home.State); err != nil || len(pending) != 1 {
+		t.Fatalf("wakes = %+v, %v, want the CFO still told why the carried-on fetch stopped", pending, err)
 	}
 }
 
