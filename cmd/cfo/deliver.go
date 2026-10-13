@@ -277,7 +277,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, so this merge word is yours and is logged with its evidence: say what verified the pull request with --verified \"<the gate run or the local checks, and the output you read>\"")
 			return 2
 		case *deleteBranch:
-			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, and deleting a branch stays the Overlord's alone: run it again without --delete-branch, and leave the branch for him")
+			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, and deleting a branch through a merge stays the Overlord's alone: run it again without --delete-branch. If the branch must go, log it as one line of his recap with cfo afk log --kind his")
 			return 2
 		}
 	}
