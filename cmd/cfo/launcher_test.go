@@ -371,9 +371,9 @@ func TestGoblinsGivesUpOnASupervisorThatNeverAnswers(t *testing.T) {
 	}
 }
 
-// goblins --board starts the supervisor when none runs and opens the board,
-// and starts, shows and attaches no CFO, which the board leaves to its own
-// first-run screen; run again, it finds the supervisor and opens the board
+// In a fresh home goblins --board starts the supervisor when none runs and
+// opens the board, leaving the CFO to its first-run screen.
+// Run again, it finds the supervisor and opens the board
 // again, since opening it is what it is run for.
 func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
 	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
@@ -926,7 +926,7 @@ func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {
 // goblins --window --locate, which the window started alone runs, finds the
 // supervisor and prints the board's address and the state folder, one to a
 // line and nothing else, for that window to show: it starts no window of its
-// own, opens no browser, and starts or shows no CFO.
+// own, opens no browser, and leaves a fresh home to the first-run screen.
 func TestGoblinsWindowLocateNamesTheBoardAndOpensNoWindow(t *testing.T) {
 	// Arrange
 	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {

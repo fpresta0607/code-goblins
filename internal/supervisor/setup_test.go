@@ -110,6 +110,44 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 	return m
 }
 
+func TestSnapshotReportsWhetherTheCFOHasASavedHarness(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		firstRun     *FirstRun
+		isConfigured bool
+	}{
+		{name: "no setup", firstRun: nil},
+		{name: "no saved agent reader", firstRun: &FirstRun{}},
+		{name: "fresh home", firstRun: &FirstRun{SavedAgent: func() string { return "" }}},
+		{name: "Claude", firstRun: &FirstRun{SavedAgent: func() string { return "claude" }}, isConfigured: true},
+		{name: "Codex", firstRun: &FirstRun{SavedAgent: func() string { return "codex" }}, isConfigured: true},
+		{name: "pi", firstRun: &FirstRun{SavedAgent: func() string { return "pi" }}, isConfigured: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			service := &Service{Store: store, Options: Options{FirstRun: testCase.firstRun}}
+			handler := NewHTTP(service, "board.local", nil)
+			response := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://board.local/api/snapshot", nil))
+
+			// Assert
+			var snapshot struct {
+				CFOConfigured *bool `json:"cfo_configured"`
+				CFOClosed     bool  `json:"cfo_closed"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusOK || snapshot.CFOConfigured == nil || *snapshot.CFOConfigured != testCase.isConfigured || snapshot.CFOClosed {
+				t.Fatalf("snapshot=%s status=%d, want configured=%v and closed=false", response.Body, response.Code, testCase.isConfigured)
+			}
+		})
+	}
+}
+
 // The page shows every harness a CFO can run in, by the table of what is
 // proved: Claude Code marked as the recommended one, each with the few words
 // on what a CFO in it gets, and none refused that this machine has. Only one
