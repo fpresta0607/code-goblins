@@ -13,6 +13,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
+// openProcess opens a job member, and a test makes one this process may not
+// open without the privilege that would let it open any.
+var openProcess = windows.OpenProcess
+
 var (
 	usageKernel           = windows.NewLazySystemDLL("kernel32.dll")
 	isProcessInUsageJob   = usageKernel.NewProc("IsProcessInJob")
@@ -160,7 +164,7 @@ func (t *Tree) Members() ([]EndedProcess, error) {
 // the job lists that this process may not open is counted as running, since
 // nothing shows it has exited.
 func (t *Tree) holds(pid uint32) (bool, error) {
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
+	process, err := openProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return false, nil // The process has exited.
 	}
@@ -186,7 +190,7 @@ func (t *Tree) holds(pid uint32) (bool, error) {
 }
 
 func (t *Tree) processWorkingSet(pid uint32) (uint64, error) {
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_VM_READ, false, pid)
+	process, err := openProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_VM_READ, false, pid)
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return 0, nil // The sampled process has exited.
 	}

@@ -240,6 +240,13 @@ func TestTreeCountsAMemberItMayNotReadInsteadOfFailing(t *testing.T) {
 			t.Fatal("the locked worker never said it was ready")
 		}
 	}
+	// A process holding SeDebugPrivilege, as a CI runner's can, opens any
+	// process whatever its DACL says, so the lock proves nothing there.
+	// TestTreeCountsAMemberItCannotOpen covers the count on every machine.
+	if opened, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_VM_READ, false, uint32(command.Process.Pid)); err == nil {
+		windows.CloseHandle(opened)
+		t.Skip("this process opens a process whose DACL denies it, so it cannot make a member it may not read")
+	}
 
 	// Act
 	usage, usageError := tree.Usage()

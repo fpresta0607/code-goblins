@@ -70,7 +70,7 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	if child, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(childPID)); err == nil {
-		isEnded := hasEnded(child)
+		isEnded := endsSoon(child)
 		windows.CloseHandle(child)
 		if !isEnded {
 			t.Fatal("the child the command left still runs after the run ended")
@@ -361,7 +361,7 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 		t.Fatalf("leftovers = %+v, want the nested tree's child %d", evidence.Measurement.Leftovers, childPID)
 	}
 	if child, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(childPID)); err == nil {
-		isEnded := hasEnded(child)
+		isEnded := endsSoon(child)
 		windows.CloseHandle(child)
 		if !isEnded {
 			t.Fatal("the nested tree's child still runs after the run ended")
