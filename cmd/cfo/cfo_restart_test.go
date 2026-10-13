@@ -177,6 +177,12 @@ func nativeCFORunning(t *testing.T, h home.Home, session string) host.Record {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registerRestartCFO(t, h, record, "claude", session)
+	return record
+}
+
+func registerRestartCFO(t *testing.T, h home.Home, record host.Record, harness, session string) {
+	t.Helper()
 	started, alive := proc.StartTime(record.ChildPID)
 	if !alive {
 		t.Fatalf("the CFO's program, pid %d, is not running", record.ChildPID)
@@ -193,15 +199,14 @@ func nativeCFORunning(t *testing.T, h home.Home, session string) host.Record {
 		Terminal  string       `json:"terminal"`
 		Host      string       `json:"host,omitempty"`
 		Process   lock.Info    `json:"process"`
-	}{Agent: "claude", Host: supervisor.NativeCFOTerminal, Process: lock.Info{PID: record.ChildPID, OwnerPID: record.ChildPID, Start: started, Hostname: hostname, Acquired: time.Now().UTC()}})
+	}{Agent: harness, Host: supervisor.NativeCFOTerminal, Process: lock.Info{PID: record.ChildPID, OwnerPID: record.ChildPID, Start: started, Hostname: hostname, Acquired: time.Now().UTC()}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), registration, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	recordConversation(t, h.State, "claude", session, supervisor.NativeCFOTerminal)
-	return record
+	recordConversationOf(t, h.State, record, harness, session)
 }
 
 // recordConversationOf records session in harness as the conversation of the
@@ -295,7 +300,7 @@ func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	}
 
 	// Act
-	conversation, fresh, err := restartCFO(h)
+	conversation, fresh, err := restartCFO(h, "")
 
 	// Assert
 	if err != nil || fresh != "" || conversation.Session != "a1b2c3d4-session" {
@@ -331,7 +336,7 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 	}
 
 	// Act
-	conversation, fresh, err := restartCFO(h)
+	conversation, fresh, err := restartCFO(h, "")
 
 	// Assert
 	if err != nil || fresh != "Its conversation a1b2c3d4-session could not be resumed, so the CFO starts a new one." || conversation.Session != "a1b2c3d4-session" {
@@ -377,7 +382,7 @@ func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
 	}
 
 	// Act
-	conversation, fresh, err := restartCFO(h)
+	conversation, fresh, err := restartCFO(h, "")
 
 	// Assert
 	if err != nil || conversation.Session != "large-session" || fresh != "Its last conversation is 33 MB, past the 20 MB a CFO resumes, so the CFO starts a new one." {
@@ -436,7 +441,7 @@ func TestRestartCFONeverResumesAConversationNotOwnedByItsRunningHarness(t *testi
 			}
 
 			// Act
-			_, fresh, err := restartCFO(h)
+			_, fresh, err := restartCFO(h, "")
 
 			// Assert
 			if err != nil || fresh != "The CFO in native terminal cfo registered no conversation it can come back on, so the CFO starts a new one." {
@@ -467,7 +472,7 @@ func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
 	t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
 
 	// Act
-	_, _, err = restartCFO(h)
+	_, _, err = restartCFO(h, "")
 
 	// Assert
 	if why := "so the CFO is left running: run goblins resume in another terminal, or from the board"; err == nil || !strings.Contains(err.Error(), why) {
@@ -491,7 +496,7 @@ func TestRestartCFOLeavesTheCFORunningWhenItsProgramCannotBeFound(t *testing.T) 
 	t.Setenv("PATH", t.TempDir())
 
 	// Act
-	_, _, err := restartCFO(h)
+	_, _, err := restartCFO(h, "")
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "so the CFO is left running") {

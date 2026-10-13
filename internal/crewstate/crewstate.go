@@ -18,6 +18,7 @@ type Source string
 
 const (
 	Working  State = "working"
+	Waiting  State = "waiting"
 	Parked   State = "parked"
 	Done     State = "done"
 	Blocked  State = "blocked"
@@ -201,6 +202,8 @@ func mapVerb(verb string) State {
 	switch verb {
 	case "working":
 		return Working
+	case "waiting":
+		return Waiting
 	case "needs-decision":
 		return Parked
 	case "blocked":

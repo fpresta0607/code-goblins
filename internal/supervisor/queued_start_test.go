@@ -78,6 +78,11 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 	if mode := briefSettings(path)["mode"]; mode != "direct-PR" {
 		t.Fatalf("generated mode=%q", mode)
 	}
+	for _, key := range []string{"harness", "model", "effort"} {
+		if value := briefSettings(path)[key]; value != "" {
+			t.Errorf("generated brief pins implicit %s=%s", key, value)
+		}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

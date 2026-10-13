@@ -1,10 +1,37 @@
 package fsx
 
 import (
+	"context"
 	"io"
 	"os"
 	"sync/atomic"
 )
+
+// ReadFileContext bounds contention retries opening a fleet file.
+func ReadFileContext(ctx context.Context, path string) ([]byte, error) {
+	var file *os.File
+	err := retryTransientContext(ctx, func() (err error) {
+		file, err = open(path)
+		return err
+	})
+	opens.Add(1)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
+// CreateNewContext bounds contention retries creating an exclusive file.
+// On Windows its writer excludes readers until Close publishes the contents.
+func CreateNewContext(ctx context.Context, path string, perm os.FileMode) (*os.File, error) {
+	var file *os.File
+	err := retryTransientContext(ctx, func() (err error) {
+		file, err = createNewUnshared(path, perm)
+		return err
+	})
+	return file, err
+}
 
 // opens counts the files this process opened through Open.
 var opens atomic.Int64

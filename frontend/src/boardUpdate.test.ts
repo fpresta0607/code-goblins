@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { unsentComment, updateAction } from "./boardUpdate.ts";
+import { missingPageAction, unsentComment, updateAction } from "./boardUpdate.ts";
 import type { Action } from "./types.ts";
 
 test("a tab running an older build reloads only while hidden, idle and live, and otherwise offers a reload", () => {
@@ -48,4 +48,15 @@ test("a successful board update reloads a visible tab even with the Command Cent
     ["the served build is unknown", { ...current, served: "" }, "none"],
   ];
   for (const [name, given, want] of cases) assert.equal(updateAction(given), want, name);
+});
+
+test("a page that could not arrive reloads the tab once for the build it loaded, never mid-answer or offline", () => {
+  const live = { hasReloaded: false, answering: false, connected: true };
+  const cases: [string, Parameters<typeof missingPageAction>[0], ReturnType<typeof missingPageAction>][] = [
+    ["not reloaded yet", live, "reload"],
+    ["already reloaded for this build", { ...live, hasReloaded: true }, "banner"],
+    ["mid-answer", { ...live, answering: true }, "banner"],
+    ["while the supervisor is down", { ...live, connected: false }, "banner"],
+  ];
+  for (const [name, given, want] of cases) assert.equal(missingPageAction(given), want, name);
 });

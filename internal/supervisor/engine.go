@@ -26,7 +26,15 @@ type engineIdleReading struct {
 	At        time.Time
 }
 
-func validateEngineSelection(catalog EngineCatalog, choice state.EngineChoice) error {
+func validateEngineSelection(catalog EngineCatalog, choice state.EngineChoice, isQueued bool) error {
+	if isQueued {
+		if err := (startPlan{harness: choice.Harness, model: choice.Model, effort: choice.Effort}).validateEngine(); err != nil {
+			return err
+		}
+		if choice.Harness == "" {
+			return nil
+		}
+	}
 	for _, item := range catalog.Harnesses {
 		if item.ID != choice.Harness {
 			continue
@@ -34,9 +42,12 @@ func validateEngineSelection(catalog EngineCatalog, choice state.EngineChoice) e
 		if item.Reason != "" {
 			return errors.New(item.Reason)
 		}
+		if isQueued && choice.Model == "" {
+			return nil
+		}
 		for _, model := range item.Models {
 			if model.ID == choice.Model {
-				if choice.Effort != "default" && !slices.Contains(model.Efforts, choice.Effort) {
+				if !(isQueued && choice.Effort == "") && choice.Effort != "default" && !slices.Contains(model.Efforts, choice.Effort) {
 					return fmt.Errorf("Effort %s is unavailable for %s", choice.Effort, model.Name)
 				}
 				return nil
@@ -61,24 +72,29 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update"}, input.When) {
+	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update", "restart"}, input.When) || input.Generation == "" && input.When != "" {
 		apiError(w, 400, "Invalid task engine selection")
 		return
 	}
 	s := h.Service
 	choice := state.EngineChoice{ID: input.Task, Generation: input.Generation, Harness: input.Harness, Model: input.Model, Effort: input.Effort, Requested: time.Now().UTC()}
-	// An update keeps the goblin's own harness, model and effort, so there is
-	// no choice to check against the catalog.
-	isUpdate := input.When == "update"
-	if input.When != "cancel" && !isUpdate {
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
-		catalog, err := s.engineCatalog(ctx, execx.OSRunner{})
-		if err != nil {
-			apiError(w, 503, err.Error())
-			return
+	// An update and a restart keep the goblin's own harness, model and
+	// effort, so there is no choice to check against the catalog.
+	isUpdate, isRestart := input.When == "update", input.When == "restart"
+	if input.When != "cancel" && !isUpdate && !isRestart {
+		isQueued := input.Generation == ""
+		var catalog EngineCatalog
+		if !isQueued || choice.Harness != "" {
+			ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+			defer cancel()
+			var err error
+			catalog, err = s.engineCatalog(ctx, execx.OSRunner{})
+			if err != nil {
+				apiError(w, 503, err.Error())
+				return
+			}
 		}
-		if err := validateEngineSelection(catalog, choice); err != nil {
+		if err := validateEngineSelection(catalog, choice, isQueued); err != nil {
 			apiError(w, 409, err.Error())
 			return
 		}
@@ -130,6 +146,9 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		if record.Phase == "paused" && isUpdate {
 			apiError(w, 409, "A paused goblin starts on the update when it resumes")
 			return
+		} else if record.Phase == "paused" && isRestart {
+			apiError(w, 409, "A paused goblin starts again when it resumes")
+			return
 		} else if record.Phase == "paused" {
 			choice.When = "resume"
 		} else if record.Phase != "running" {
@@ -146,6 +165,9 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, When: "update", Requested: choice.Requested}
+	}
+	if isRestart {
+		choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, When: "restart", Requested: choice.Requested}
 	}
 	if choice.When == "resume" || input.When == "turn-end" || isUpdate {
 		if choice.When == "" {
@@ -170,7 +192,7 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		}{true})
 		return
 	}
-	if input.When != "now" {
+	if input.When != "now" && !isRestart {
 		apiError(w, 400, "Choose when to switch the running task")
 		return
 	}
@@ -209,7 +231,7 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 	delete(s.changeErrors, meta.ID)
 	go func() {
 		args := []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--harness", choice.Harness, "--model", choice.Model, "--effort", choice.Effort, "--force-dirty"}
-		if choice.When == "update" {
+		if choice.When == "update" || choice.When == "restart" {
 			args = []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart"}
 		}
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
@@ -217,9 +239,9 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 		if removeErr := state.RemoveEngineChoice(s.Store.Home.State, meta.ID); removeErr != nil {
 			err = errors.Join(err, removeErr)
 		}
-		outcome := "session switched"
-		if choice.When == "update" {
-			outcome = "session restarted onto its harness update"
+		outcome := map[string]string{"update": "session restarted onto its harness update", "restart": "session restarted"}[choice.When]
+		if outcome == "" {
+			outcome = "session switched"
 		}
 		if err != nil {
 			generation := meta.SpawnGen
@@ -338,7 +360,7 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 				failures = errors.Join(failures, err)
 				continue
 			}
-			if unavailable := validateEngineSelection(catalog, choice); unavailable != nil {
+			if unavailable := validateEngineSelection(catalog, choice, false); unavailable != nil {
 				s.starts.Lock()
 				delete(s.engineIdle, id)
 				current, readErr := state.ReadEngineChoice(s.Store.Home.State, id)
@@ -442,7 +464,7 @@ func (s *Service) engineTaskIdle(ctx context.Context, meta state.TaskMeta) (bool
 	if err != nil {
 		return false, err
 	}
-	return idleAtEmptyComposer(screens, screen), nil
+	return screens.IsIdleAtEmptyComposer(screen), nil
 }
 
 func (s *Service) engineGateIdle(ctx context.Context, meta state.TaskMeta) (bool, error) {

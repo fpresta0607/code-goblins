@@ -333,6 +333,41 @@ func TestNoisePassesOverWhatWindowsTasksWrite(t *testing.T) {
 	}
 }
 
+// The empty key Windows' widgets host, Dsh, creates for the profile at a time
+// of its own, which some runners already hold in the snapshot taken before
+// the install and others come to hold during the run, is passed over as that
+// one key left, and nothing near it is.
+func TestNoisePassesOverTheKeyWindowsCreatesForItsWidgetsHost(t *testing.T) {
+	cases := []struct {
+		name string
+		difference
+		isNamed bool
+	}{
+		{"the key left", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Dsh`}, false},
+		{"a key under it", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Dsh\Code`}, true},
+		{"a value in it", difference{Change: changeLeft, Kind: kindRegistryValue, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Dsh\Setting`, After: "1"}, true},
+		{"a key beside it", difference{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\DshOther`}, true},
+		{"the key gone", difference{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Dsh`}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			before, after := snapshotOf(map[string]map[string]string{tc.Kind: {}}), snapshotOf(map[string]map[string]string{tc.Kind: {tc.Identity: tc.After}})
+			if tc.Change == changeGone {
+				before, after = after, before
+			}
+
+			// Act
+			remaining, _ := compare(before, after, nil, noise())
+
+			// Assert
+			if (len(remaining) == 1) != tc.isNamed {
+				t.Errorf("%s: named %v, want named %v", tc.difference, remaining, tc.isNamed)
+			}
+		})
+	}
+}
+
 // The rule for HKCU\Software\Classes, and why. Windows registers each of
 // its own packaged apps' file types, links and classes there as it
 // provisions the app for a profile, at times of its own, under names of the
