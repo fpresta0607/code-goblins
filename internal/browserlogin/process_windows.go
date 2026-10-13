@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 	"unsafe"
@@ -42,9 +43,11 @@ type Process struct {
 // job is a Chrome's job object, closed once however many copies of its
 // Process end it.
 type job struct {
-	handle windows.Handle
-	once   sync.Once
-	err    error
+	handle     windows.Handle
+	unassigned *os.Process
+	waited     <-chan struct{}
+	once       sync.Once
+	err        error
 }
 
 // Start starts launch's Chrome and returns once its DevTools answer. It is
@@ -52,6 +55,13 @@ type job struct {
 // it starts escapes the job. A Chrome that does not get as far as its
 // DevTools is ended.
 func Start(ctx context.Context, launch Launch) (Process, error) {
+	return start(ctx, launch, AwaitDevTools, Process.close)
+}
+
+func start(ctx context.Context, launch Launch, await func(context.Context, string) (string, error), cleanup func(Process) error) (process Process, failure error) {
+	if err := ctx.Err(); err != nil {
+		return Process{}, err
+	}
 	if err := ClearPort(launch.Profile); err != nil {
 		return Process{}, err
 	}
@@ -67,37 +77,57 @@ func Start(ctx context.Context, launch Launch) (Process, error) {
 	}
 	cmd := execx.Command(launch.Executable, launch.Arguments()...)
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+	if err := ctx.Err(); err != nil {
+		windows.CloseHandle(held)
+		return Process{}, err
+	}
 	if err := cmd.Start(); err != nil {
 		windows.CloseHandle(held)
 		return Process{}, fmt.Errorf("start chrome: %w", err)
 	}
-	go func() { _ = cmd.Wait() }()
-	process := Process{PID: cmd.Process.Pid, job: &job{handle: held}}
+	waited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(waited) }()
+	process = Process{PID: cmd.Process.Pid, job: &job{handle: held, unassigned: cmd.Process, waited: waited}}
+	defer func() {
+		if failure == nil {
+			return
+		}
+		if err := cleanup(process); err != nil {
+			failure = errors.Join(failure, err)
+		} else {
+			process = Process{}
+		}
+	}()
 	handle, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(process.PID))
 	if err == nil {
 		err = windows.AssignProcessToJobObject(held, handle)
 		windows.CloseHandle(handle)
 	}
 	if err != nil {
-		_ = cmd.Process.Kill()
-		windows.CloseHandle(held)
-		return Process{}, fmt.Errorf("put chrome in its job: %w", err)
+		return process, fmt.Errorf("put chrome in its job: %w", err)
 	}
+	process.job.unassigned = nil
 	started, ok := proc.StartTime(process.PID)
 	if !ok {
-		return Process{}, errors.Join(fmt.Errorf("chrome %d's start time could not be read", process.PID), process.close())
+		return process, fmt.Errorf("chrome %d's start time could not be read", process.PID)
 	}
 	process.Started = started
+	if err := ctx.Err(); err != nil {
+		return process, err
+	}
 	if err := proc.Resume(process.PID); err != nil {
-		return Process{}, errors.Join(err, process.close())
+		return process, err
 	}
 	ready, cancel := context.WithTimeout(ctx, devToolsWait)
 	defer cancel()
-	url, err := AwaitDevTools(ready, launch.Profile)
+	url, err := await(ready, launch.Profile)
 	if err != nil {
-		return Process{}, errors.Join(err, process.close())
+		return process, err
 	}
 	process.URL = url
+	if err := ctx.Err(); err != nil {
+		return process, err
+	}
 	return process, nil
 }
 
@@ -130,6 +160,17 @@ func (p Process) close() error {
 
 func (j *job) end(pid int) error {
 	defer windows.CloseHandle(j.handle)
+	if j.unassigned != nil {
+		if err := j.unassigned.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("end unassigned chrome %d: %w", pid, err)
+		}
+		select {
+		case <-j.waited:
+			return nil
+		case <-time.After(teardownWait):
+			return fmt.Errorf("unassigned chrome %d did not exit", pid)
+		}
+	}
 	members, err := proc.EndJob(j.handle)
 	if err != nil {
 		return fmt.Errorf("end chrome %d's job: %w", pid, err)
