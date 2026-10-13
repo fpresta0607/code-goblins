@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/release"
@@ -215,6 +216,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	keyPages, err := keypages.Parse(codegoblins.KeyPages)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Dictation:        dictation,
 		Example:          *example,
@@ -249,6 +255,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		DevDrive:           devDrive,
 		Tree:               tree,
 		Releases:           releases,
+		KeyPages:           keyPages,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

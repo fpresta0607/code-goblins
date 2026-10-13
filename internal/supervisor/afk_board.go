@@ -181,7 +181,7 @@ func (s *Service) proveBoard(r *http.Request, board string, asked time.Time, who
 	}
 	peerOf := s.peerOf
 	if peerOf == nil {
-		peerOf = tcpPeerProcess
+		peerOf = proc.TCPPeerProcess
 	}
 	pid, err := peerOf(peer, local)
 	if err != nil {

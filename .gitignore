@@ -23,6 +23,7 @@ config/
 !/config/pipeline.json
 !/config/verify.json
 !/config/voice.json
+!/config/key-pages.json
 /cfo.exe
 # The marker of a checkout an older build made the CFO home, which install and
 # update write so this build takes it for the home in use.

@@ -1,0 +1,9 @@
+{
+  "providers": [
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "hosts": ["stripe.com", "*.stripe.com", "stripe.network", "*.stripe.network", "stripecdn.com", "*.stripecdn.com"]
+    }
+  ]
+}
