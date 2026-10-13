@@ -363,7 +363,7 @@ func TestVerifyRunsNothingOfATierWithAnEmptyCommand(t *testing.T) {
 // past what it keeps.
 func TestVerifyPrunesTheExecutionsStore(t *testing.T) {
 	// Arrange
-	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
 	executions := filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "executions")
 	if err := os.MkdirAll(executions, 0o700); err != nil {
 		t.Fatal(err)
@@ -387,5 +387,14 @@ func TestVerifyPrunesTheExecutionsStore(t *testing.T) {
 	}
 	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
 		t.Fatalf("an abandoned log outlived the tier's pruning: %v", err)
+	}
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) != 1 {
+		t.Fatalf("saved = %+v", results)
+	}
+	for _, path := range []string{results[0].Execution, results[0].Execution + ".stdout.log", results[0].Execution + ".stderr.log"} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("the tier's own evidence %s was pruned: %v", path, err)
+		}
 	}
 }
