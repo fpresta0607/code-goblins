@@ -19,17 +19,18 @@ export function startState(setup: Setup, picked: string, lookedAtFolder: boolean
   return { agent, blocked };
 }
 
-// FirstRunChoice is his last say on the first-run page: none, a CFO he
-// started that the board has not seen run yet, or the board without a CFO.
-// It is one choice, so Start the CFO, which sets none, also drops a start
-// that ended before the board saw it run.
-export type FirstRunChoice = "" | "started" | "board";
+// FirstRunChoice is his last say on the first-run page: none, an active setup,
+// a CFO he started that the board has not seen run yet, or the board without a CFO.
+// The board's Start the CFO clears this choice, also dropping a start that
+// ended before the board saw it run.
+export type FirstRunChoice = "" | "setup" | "started" | "board";
 
 // showsFirstRun is whether the board's root shows the first-run page: whenever
 // no CFO runs in a home that has had none, which is how the installer and its
 // shortcut open it, unless he just started one or chose to see the board
-// without a CFO. A home whose CFO was closed has had one: its board stays,
-// with Reopen on the CFO's bar.
-export function showsFirstRun({ cfoRuns, cfoClosed, choice }: { cfoRuns: boolean; cfoClosed: boolean; choice: FirstRunChoice }): boolean {
-  return !cfoRuns && !cfoClosed && choice === "";
+// without a CFO. A home with a saved harness or whose CFO was closed stays,
+// with Reopen on the CFO's bar. An active setup keeps its selection and error
+// until it succeeds or he leaves, even while Start saves and rolls back a choice.
+export function showsFirstRun({ cfoRuns, cfoClosed, cfoConfigured, choice }: { cfoRuns: boolean; cfoClosed: boolean; cfoConfigured: boolean; choice: FirstRunChoice }): boolean {
+  return choice === "setup" || !cfoRuns && !cfoClosed && !cfoConfigured && choice === "";
 }
