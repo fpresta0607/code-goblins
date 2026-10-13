@@ -914,6 +914,7 @@ func TestAnExitedCFOIsSaidClosedByTheReadThatFindsItGone(t *testing.T) {
 	h, _ := nativeBoard(t, "direct")
 	stateDir := h.Service.Store.Home.State
 	h.Service.Options.CFO = &CFOConnection{State: stateDir}
+	h.Service.Options.FirstRun = &FirstRun{SavedAgent: func() string { return "codex" }}
 	nativePrimary(t, stateDir)
 	recordHost(t, stateDir, os.Getpid())
 	h.Service.checkRegistration()
@@ -936,8 +937,8 @@ func TestAnExitedCFOIsSaidClosedByTheReadThatFindsItGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.CFORuns || !snapshot.CFOClosed || snapshot.Registration != "" {
-		t.Errorf("with the registered process gone since the last check: runs %v, closed %v, registration %q; want it closed and no problem", snapshot.CFORuns, snapshot.CFOClosed, snapshot.Registration)
+	if snapshot.CFORuns || !snapshot.CFOClosed || !snapshot.CFOConfigured || snapshot.Registration != "" {
+		t.Errorf("with the registered process gone: runs %v, closed %v, configured %v, registration %q, want it configured and closed with no problem", snapshot.CFORuns, snapshot.CFOClosed, snapshot.CFOConfigured, snapshot.Registration)
 	}
 }
 
@@ -971,8 +972,8 @@ func TestTheSnapshotSaysWhenTheCFOsTerminalHostStarted(t *testing.T) {
 }
 
 // Only a registration that is sound and whose process ended is a closed CFO.
-// A home no CFO ever registered in is not one: it has no CFO to reopen and
-// shows its first-run page. A registration nothing can read is wrong and
+// A home no CFO ever registered in is not one, even with a saved harness.
+// A registration nothing can read is wrong and
 // stays wrong, so it keeps its problem.
 func TestOnlyASoundRegistrationWhoseProcessEndedIsAClosedCFO(t *testing.T) {
 	for _, tc := range []struct {
@@ -986,6 +987,7 @@ func TestOnlyASoundRegistrationWhoseProcessEndedIsAClosedCFO(t *testing.T) {
 			h, _ := nativeBoard(t, "direct")
 			stateDir := h.Service.Store.Home.State
 			h.Service.Options.CFO = &CFOConnection{State: stateDir}
+			h.Service.Options.FirstRun = &FirstRun{SavedAgent: func() string { return "codex" }}
 			if tc.primary != "" {
 				if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), []byte(tc.primary), 0o600); err != nil {
 					t.Fatal(err)
@@ -999,8 +1001,8 @@ func TestOnlyASoundRegistrationWhoseProcessEndedIsAClosedCFO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if snapshot.CFOClosed || snapshot.CFORuns || !strings.Contains(snapshot.Registration, tc.problem) {
-				t.Errorf("closed %v, runs %v, registration %q; want neither, and a problem naming %q", snapshot.CFOClosed, snapshot.CFORuns, snapshot.Registration, tc.problem)
+			if snapshot.CFOClosed || snapshot.CFORuns || !snapshot.CFOConfigured || !strings.Contains(snapshot.Registration, tc.problem) {
+				t.Errorf("closed %v, runs %v, configured %v, registration %q, want only configured and a problem naming %q", snapshot.CFOClosed, snapshot.CFORuns, snapshot.CFOConfigured, snapshot.Registration, tc.problem)
 			}
 		})
 	}

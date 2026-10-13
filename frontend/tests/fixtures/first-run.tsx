@@ -9,7 +9,7 @@ import "../../src/styles.css";
 function FirstRunFixture() {
   const [outcome, setOutcome] = useState("");
   return <main className="first-run-region" aria-label="First run">
-    <FirstRun instance="fixture" onStarted={() => setOutcome("The CFO's terminal opens")} onBoard={() => setOutcome("The board opens without a CFO")} />
+    <FirstRun instance="fixture" onStarting={() => setOutcome("Starting the CFO")} onStarted={() => setOutcome("The CFO's terminal opens")} onBoard={() => setOutcome("The board opens without a CFO")} />
     <p role="status" aria-label="Outcome">{outcome}</p>
   </main>;
 }
