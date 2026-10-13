@@ -64,7 +64,17 @@ func BeginExecution(root string, command []string) (*Execution, error) {
 }
 
 func (execution *Execution) Path() string { return execution.path }
-func (execution *Execution) ID() string   { return execution.record.ID }
+
+// LoadExecution reads the execution record at path.
+func LoadExecution(path string) (ExecutionRecord, error) {
+	var record ExecutionRecord
+	data, err := fsx.ReadFile(path)
+	if err != nil {
+		return record, err
+	}
+	return record, json.Unmarshal(data, &record)
+}
+func (execution *Execution) ID() string { return execution.record.ID }
 
 func (execution *Execution) Admit(waited time.Duration) error {
 	if execution.record.Measurement.State != Queued || waited < 0 {

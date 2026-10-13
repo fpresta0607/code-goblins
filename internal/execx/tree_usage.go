@@ -12,4 +12,8 @@ type TreeUsage struct {
 	SampledPrivateWorkingSetBytes uint64        `json:"sampled_private_working_set_bytes"`
 	ActiveProcesses               uint32        `json:"active_processes"`
 	TotalProcesses                uint32        `json:"total_processes"`
+	// UnreadableMembers are the processes in the job whose private working
+	// set this process may not read, as a sandboxed browser's, which the
+	// sampled working set leaves out.
+	UnreadableMembers uint32 `json:"unreadable_members,omitempty"`
 }

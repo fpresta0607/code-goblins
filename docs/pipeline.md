@@ -478,7 +478,8 @@ Any other value, such as one a process kept from a run that has ended, is ignore
 
 **Executor accounting.**
 `internal/execx.Tree.Usage` reads cumulative CPU time, current and peak private commitment, active and lifetime process counts from the Windows job, including descendants whose parents exited.
-It samples the private working set separately, which is neither commitment nor a measured lifetime peak.
+It samples the private working set separately, which is neither commitment nor a measured lifetime peak, and counts apart the members this process may not read, as a sandboxed browser's, which the sample leaves out.
+A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes.
@@ -487,12 +488,25 @@ It is intended for verification workers, not a command that deliberately starts 
 The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
 This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
 `internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
-Its reserve cannot lower the existing 4 GiB floor and is a cancellation threshold, not a reservation.
+Its reserve is the memory a run leaves the desktop, a cancellation threshold, not a reservation or a kernel limit.
+It sits under the 4 GiB admission floor, since a run admitted at the floor uses the memory between the two, so a reserve at the floor would cancel nearly every run that used its headroom.
+The executor reads it from `reserve.json` in the admission store, as `{"physical_gib": 2, "commit_gib": 2}`, and keeps 2 GiB of each when the file is absent.
+Each value must be at least half a gigabyte and under the admission floor, and any other content, such as an unknown key, a missing dimension or trailing data, refuses the run before it starts.
+A caller can raise the reserve but never lower it below the store's.
+Free memory is the whole machine's, so one sample under the reserve can be another program's spike, and the run is cancelled only once free memory stays under the reserve for ten seconds.
+Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it and records each process by name and pid as a leftover, and `cfo verify` names them on standard error.
+The run keeps the command's own result, since tools such as build servers and browser bridges leave helpers behind on purpose, and a later certification can still require a run with none.
+Only a process still running counts, since Windows can count one that has exited in its job for a moment after.
+A process a nested `cfo gate turn` lets go of when its command ends is still in the executor's job, so it is ended and named the same way.
+The command's output to its logs is limited to 1 GiB together, past which the run is interrupted, and a running sample is written to the record every ten seconds and the final measurement always.
+Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
+`RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
+A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
 Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
 The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
-Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits.
+Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits, and a command given none reads an empty input.
 Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
 Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
 A custody record names its execution's Windows job and the process that controls the execution, and it is written before the job or any worker exists.
@@ -516,8 +530,8 @@ Stale lease removal claims the record against writes and replacement, validates 
 Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
-Retention of the execution records and logs is not yet implemented, so these APIs remain outside the live command path.
-These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
+`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says, while retention of the execution records and logs is not yet implemented.
+These same-user records are advisory, and the measured executor is not yet wired into `cfo gate turn` or a protected publisher.
 
 `ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
 It requires complete preparation evidence and matching sizes and SHA-256 hashes, so a revision directory or ready marker alone cannot hide missing runtime files.

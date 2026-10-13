@@ -31,7 +31,9 @@ const recoveryRole = "VERIFY_RECOVERY_ROLE"
 func controlAnExecution() int {
 	executor := Executor{
 		Admission: Admission{Dir: os.Getenv("VERIFY_RECOVERY_ADMISSION"), Who: "a recovery fixture", Limit: time.Minute, Poll: 5 * time.Millisecond},
-		Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: func() (Headroom, error) {
+		// The descendant must outlive the run until the test kills its
+		// controller, so the linger outlasts the test.
+		Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: time.Hour, Headroom: func() (Headroom, error) {
 			return Headroom{PhysicalAvailable: 64 << 30, CommitAvailable: 64 << 30}, nil
 		}},
 	}
@@ -151,6 +153,15 @@ func hasEnded(handle windows.Handle) bool {
 	return err == nil && event == windows.WAIT_OBJECT_0
 }
 
+// endsSoon reports whether the process ends within five seconds. Windows
+// can count a job empty a moment before a process it ended has finished
+// exiting, which a busy machine stretches, so a check made once just after a
+// job is counted empty races it.
+func endsSoon(handle windows.Handle) bool {
+	event, err := windows.WaitForSingleObject(handle, 5000)
+	return err == nil && event == windows.WAIT_OBJECT_0
+}
+
 func TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn(t *testing.T) {
 	switch os.Getenv(recoveryRole) {
 	case "controller":
@@ -217,7 +228,7 @@ func TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an abandoned execution kept the machine's turn: %v", err)
 	}
-	if !hasEnded(descendant) {
+	if !endsSoon(descendant) {
 		t.Fatal("the turn was given while the abandoned execution's descendant still ran")
 	}
 	if left, _ := filepath.Glob(filepath.Join(requested.Dir, "custody", "*.json")); len(left) != 0 {

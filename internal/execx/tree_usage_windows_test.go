@@ -3,6 +3,8 @@ package execx_test
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,6 +121,45 @@ func TestTreeTerminationRetainsCustodyWhenCancellationPreventsProof(t *testing.T
 	}
 }
 
+func TestTreeMembersNamesEachProcessStillInTheJob(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	command := execx.Command(os.Args[0], treetest.Args(folder, false)...)
+	tree, err := execx.StartTree(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := treetest.Find(folder)
+	defer found.End()
+	defer func() { tree.End(); command.Wait() }()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	members, err := tree.Members()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := make(map[int]string)
+	for _, member := range members {
+		named[member.PID] = member.Name
+	}
+	for _, process := range found.Members() {
+		if !strings.EqualFold(named[process.PID], filepath.Base(os.Args[0])) {
+			t.Fatalf("members = %+v, want pid %d named %s", members, process.PID, filepath.Base(os.Args[0]))
+		}
+	}
+	if _, err := tree.TerminateAndWait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if members, err := tree.Members(); err == nil {
+		t.Fatalf("a closed job still names members: %+v", members)
+	}
+}
+
 func TestTreeUsageCountsTheCPUTimeOfAWorkerThatExited(t *testing.T) {
 	const burn = 100 * time.Millisecond
 	if os.Getenv("EXECX_TEST_BURN") != "" {
@@ -159,4 +200,68 @@ func TestTreeUsageCountsTheCPUTimeOfAWorkerThatExited(t *testing.T) {
 // filetimeDuration is a span of 100-nanosecond intervals as a duration.
 func filetimeDuration(span windows.Filetime) time.Duration {
 	return time.Duration(uint64(span.HighDateTime)<<32|uint64(span.LowDateTime)) * 100
+}
+
+func TestTreeCountsAMemberItMayNotReadInsteadOfFailing(t *testing.T) {
+	if os.Getenv("EXECX_TEST_LOCKED") != "" {
+		// Deny everyone the rights a sample opens a process with, as a
+		// sandboxed browser process can.
+		descriptor, err := windows.SecurityDescriptorFromString("D:(D;;0x101410;;;WD)(A;;GA;;;OW)")
+		if err != nil {
+			os.Exit(3)
+		}
+		dacl, _, err := descriptor.DACL()
+		if err != nil {
+			os.Exit(4)
+		}
+		if err := windows.SetSecurityInfo(windows.CurrentProcess(), windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+			os.Exit(5)
+		}
+		if err := os.WriteFile(os.Getenv("EXECX_TEST_LOCKED"), []byte("locked"), 0o600); err != nil {
+			os.Exit(6)
+		}
+		time.Sleep(time.Minute)
+		os.Exit(9)
+	}
+	// Arrange
+	ready := filepath.Join(t.TempDir(), "locked")
+	command := execx.Command(os.Args[0], "-test.run=^TestTreeCountsAMemberItMayNotReadInsteadOfFailing$")
+	command.Env = append(os.Environ(), "EXECX_TEST_LOCKED="+ready)
+	tree, err := execx.StartTree(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = tree.End(); command.Wait() })
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the locked worker never said it was ready")
+		}
+	}
+	// A process holding SeDebugPrivilege, as a CI runner's can, opens any
+	// process whatever its DACL says, so the lock proves nothing there.
+	// TestTreeCountsAMemberItCannotOpen covers the count on every machine.
+	if opened, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_VM_READ, false, uint32(command.Process.Pid)); err == nil {
+		windows.CloseHandle(opened)
+		t.Skip("this process opens a process whose DACL denies it, so it cannot make a member it may not read")
+	}
+
+	// Act
+	usage, usageError := tree.Usage()
+	members, membersError := tree.Members()
+
+	// Assert
+	if usageError != nil || usage.UnreadableMembers != 1 || usage.ActiveProcesses != 1 {
+		t.Fatalf("usage = %+v, %v, want the locked worker counted as unreadable", usage, usageError)
+	}
+	if membersError != nil || len(members) != 1 || members[0].PID != command.Process.Pid {
+		t.Fatalf("members = %+v, %v, want the locked worker named as still running", members, membersError)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if final, err := tree.TerminateAndWait(ctx); err != nil || final.ActiveProcesses != 0 {
+		t.Fatalf("ending the locked worker = %+v, %v", final, err)
+	}
 }

@@ -47,8 +47,8 @@ func TestAValidProjectRecordPasses(t *testing.T) {
 	}
 }
 
-// `cfo verify` runs the commands of a tier and passes when none fails, so a
-// record with no verification command makes it pass with nothing run.
+// `cfo verify` refuses a tier that names no command, so a record with no
+// verification command fails every tier.
 func TestARecordWithNoVerificationCommandIsReported(t *testing.T) {
 	// Arrange
 	f := newFixture(t, nil)
