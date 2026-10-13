@@ -13,7 +13,8 @@ export function ConnectorCard({ entry, isCarried, isBusy, isChanging, onFix, onT
   onFix: (entry: ConnectionEntry, action: string) => void; onToggle: (entry: ConnectionEntry) => void;
 }) {
   const logo = connectorLogo(entry.name);
-  const about = connectorAbout(entry.name);
+  // A credential is one of its service's variables, not a service of its own.
+  const about = entry.kind === "credential" ? "" : connectorAbout(entry.name);
   const trouble = connectionTrouble(entry);
   const toggle = isCarried ? "Take " + entry.name + " back" : "Give " + entry.name;
   return <li className="connector-card">

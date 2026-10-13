@@ -12,7 +12,7 @@ const ENTRIES = [
   { id: "service:acme-internal", name: "acme-internal", kind: "service", status: "unauthorized", detail: "Sign-in required.", actions: ["login"], checked_at: "2026-10-13T12:07:00Z", grant: "revoke" },
   { id: "mcp:personal", name: "personal", kind: "mcp", status: "connected", checked_at: "2026-10-13T12:07:00Z" },
   { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", checked_at: "2026-10-13T12:07:00Z" },
-  { id: "credential:ACME_TOKEN", name: "ACME_TOKEN", kind: "credential", status: "provided", checked_at: "2026-10-13T12:07:00Z" },
+  { id: "credential:OPENROUTER_API_KEY", name: "OPENROUTER_API_KEY", kind: "credential", status: "provided", checked_at: "2026-10-13T12:07:00Z" },
 ];
 
 interface Supervisor { grants: unknown[]; tokens: string[]; entries: object[]; checking: boolean; held?: Promise<void>; refuses?: string }
@@ -63,7 +63,8 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await expect(panel).not.toContainText("does not carry it");
     await expect(panel).not.toContainText(/Checked \d/);
     await expect(panel.getByText("GITHUB_TOKEN", { exact: true })).toHaveCount(0);
-    await expect(panel.getByText("ACME_TOKEN", { exact: true })).toBeVisible();
+    await expect(card(panel, "OPENROUTER_API_KEY").locator(".connector-logo svg")).toHaveCount(1);
+    await expect(card(panel, "OPENROUTER_API_KEY").locator(".connector-about")).toHaveCount(0);
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.locator("main").screenshot({ path: test.info().outputPath("connector-cards-" + viewport.width + ".png") });

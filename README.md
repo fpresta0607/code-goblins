@@ -607,14 +607,14 @@ The switch closes the old native terminal, keeps the task, worktree and branch, 
 A pending choice appears on the card and can be cancelled under Harness; the live values change after the switch completes.
 Pausing the task first makes its next **Resume** use the pending choice, and a choice that is no longer available when the turn ends is dropped with the reason on the card.
 A completed task shows its recorded harness, model and effort without controls, or **Engine not recorded** when an older record has no engine.
-Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**, and a service the goblin's task does not carry reads **Withheld**.
-Connection names and statuses share a line with the status on the right in panels at least 520 px wide, and stack below that width.
-Long names show their full text in a tip; rows keep room between their separators while health checks run.
+Each connection is a card, as Claude lists its connectors: the service's own logo, bundled with the board, or its initial where the board has none, its name, one line on what it does, and one square button. **+** gives the task a repository service or a project MCP server it does not carry, and the check takes it back, as `cfo auth grant` and `cfo auth revoke` do, and the card changes at once.
+Only a board of the Overlord's own, his desktop window or a browser this home granted, can press them, and the CFO is told each time.
+A connector that is failing keeps one faint mark with its reason in the tip, and its sign-in or key icon beside it. Long names show their full text in a tip.
 Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
-Repairs trigger a fresh check; a token stored after a native goblin started still needs to reach that goblin before its credential row changes.
-Disabled or withheld MCP servers say why they are unavailable, and no secret values appear on the board.
+Repairs trigger a fresh check. A token stored after a native goblin started still needs to reach that goblin before its credential card changes.
+No secret values appear on the board.
 
-<img src="docs/images/board-connections.webp" alt="Workspace and Connections in a goblin's panel: the harness, model and effort selectors, then Connected checks, a sign-in action, a withheld MCP server, repository services and a provided credential" width="720" />
+<img src="docs/images/board-connections.webp" alt="Workspace, Harness and Connections in a goblin's panel: connector cards for context7, sentry, github, vercel and openrouter, each with its logo, name, one line on what it does and a + or a check, vercel with a faint warning mark and its sign-in, and a GITHUB_TOKEN credential" width="720" />
 
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
