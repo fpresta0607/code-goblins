@@ -268,7 +268,11 @@ It leaves the CFO running only when it could not start it again, such as when th
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
-`cfo resume` with no task named is the same command, and the board offers it as **Restart the CFO** in the header of the CFO's panel, right below its name, which asks first since it interrupts what the CFO is doing.
+`cfo resume` with no task named is the same command, and the board offers it as **Restart** in the header of the CFO's task panel, right below its name.
+Beside Restart, a dropdown shows the selected harness's name and icon and offers Claude Code, Codex and pi, starting on the CFO's current harness.
+Selecting a harness sends nothing until Restart is pressed, which immediately interrupts the CFO's current response and restarts it in that harness.
+Keeping that harness resumes its conversation where it can, while choosing another starts a new conversation with the home's digest and remembers the choice for later starts.
+`goblins resume --harness claude|codex|pi` makes the same choice from another terminal.
 A restart that started the CFO on a new conversation says so in one line beside it.
 When Claude Code, Codex or pi was updated while the CFO or a goblin runs, as Claude Code's "Update installed · Restart to update" says, the board shows **Update** beside the AFK switch on the CFO's header, and on that goblin's card: your press restarts it onto the update on its own conversation once its turn ends, and nothing restarts until you press it ([Harness updates](docs/native-board.md#harness-updates)).
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
@@ -595,12 +599,12 @@ A pause, resume or stop lists what it kept under **What’s preserved**, such as
 A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
-The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with harness, model and effort selectors followed by MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**, each closed until you open it.
+The Task view shows **Workspace** with the repository, branch and exact working folder, **Harness** with the harness, model and effort selectors, **Connections** with MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**, each closed until you open it.
 **Changes** reads nothing until it is opened: it then shows the change set's summary, with **Files on GitHub** for a task with a pull request, where the whole diff is, and each file's diff loads only when that file is opened.
 For a queued task, **Save** sets the engine **Start** will use; for a paused task, **Save for Resume** sets its next session's engine.
-A running task's **Apply** opens a confirmation: **Switch when its turn ends** is the default and waits for an idle session with no gate step running, while **Switch now** interrupts the turn and any running gate step.
+A running task's **Restart** acts at once, as the CFO's does: unchanged it restarts the goblin on its own harness, model and effort, and changed it switches onto the ones shown, interrupting the turn and any running gate step.
 The switch closes the old native terminal, keeps the task, worktree and branch, and passes `--force-dirty` so uncommitted work stays.
-A pending choice appears on the card and can be cancelled in Connections; the live values change after the switch completes.
+A pending choice appears on the card and can be cancelled under Harness; the live values change after the switch completes.
 Pausing the task first makes its next **Resume** use the pending choice, and a choice that is no longer available when the turn ends is dropped with the reason on the card.
 A completed task shows its recorded harness, model and effort without controls, or **Engine not recorded** when an older record has no engine.
 Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**, and a service the goblin's task does not carry reads **Withheld**.

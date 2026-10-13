@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -652,6 +653,58 @@ func TestSuccessfulCLIActionClearsAnEarlierEngineFailure(t *testing.T) {
 				if isRecovered && message != "" || !isRecovered && message == "" {
 					t.Fatalf("recovered=%t error=%q", isRecovered, message)
 				}
+			}
+		})
+	}
+}
+
+// Restart in a working goblin's Harness section restarts it at once on its
+// own harness, model and effort, on its own conversation, through cfo switch
+// --restart. A paused goblin has Resume for that, and a queued task has no
+// session to restart.
+func TestBoardRestartRestartsAGoblinOnItsOwnEngineAtOnce(t *testing.T) {
+	cases := []struct {
+		name       string
+		phase      string
+		isQueued   bool
+		wantStatus int
+		wantCalls  [][]string
+	}{
+		{name: "working", phase: "running", wantStatus: http.StatusAccepted, wantCalls: [][]string{{"switch", "goblin", "--generation", "s1", "--restart"}}},
+		{name: "paused", phase: "paused", wantStatus: http.StatusConflict},
+		{name: "queued", isQueued: true, wantStatus: http.StatusBadRequest},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 5*gigabyte, spawner)
+			service := handler.Service
+			meta := state.TaskMeta{ID: "goblin", SpawnGen: "s1", Harness: "claude", Model: "opus", Effort: "xhigh", Backend: "native", Worktree: h.Root, Project: h.Root}
+			generation := meta.SpawnGen
+			if test.isQueued {
+				generation = ""
+			} else {
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "op-1", Action: "resume", Phase: test.phase, Updated: time.Now()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": meta.ID, "generation": generation, "when": "restart"})
+			if response.Code == http.StatusAccepted {
+				waitEngineChange(t, service, meta.ID)
+			}
+
+			// Assert
+			if response.Code != test.wantStatus || !slices.EqualFunc(spawner.recorded(), test.wantCalls, slices.Equal[[]string]) {
+				t.Fatalf("restart = %d %s, calls %+v; want %d and %+v", response.Code, response.Body, spawner.recorded(), test.wantStatus, test.wantCalls)
+			}
+			if _, err := state.ReadEngineChoice(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("engine choice after restart: %v; want none left", err)
 			}
 		})
 	}

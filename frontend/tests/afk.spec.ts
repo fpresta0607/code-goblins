@@ -895,10 +895,14 @@ test.describe("a board left open across an update", () => {
   // serveBuilds answers each load of the board with the build named next in
   // builds, the last one from then on, as the supervisor names it in the page,
   // and the report's page only while isServed says the loaded build has it.
+  // count is the loads asked for, and loaded the pages that took their place:
+  // a reload is asked for before the page it replaces is gone, so a test that
+  // reaches into the page after a reload waits for loaded.
   async function serveBuilds(page: Page, builds: string[], isServed: (loads: number) => boolean) {
     const site = process.env.BOARD_TEST_SITE!;
     const index = await readFile(join(site, "index.html"), "utf8");
-    const loads = { count: 0 };
+    const loads = { count: 0, loaded: 0 };
+    page.on("domcontentloaded", () => { loads.loaded++; });
     await page.route(ORIGIN + "/", (route) => {
       const build = builds[Math.min(loads.count, builds.length - 1)];
       loads.count++;
@@ -920,7 +924,7 @@ test.describe("a board left open across an update", () => {
 
     // Assert
     await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
-    await expect.poll(() => loads.count).toBe(2);
+    await expect.poll(() => loads.loaded).toBe(2);
     await expect.poll(() => push(page, snapshot({ build: "new", afk: KEPT }))).toBeGreaterThan(0);
     await expect(page.locator(".board-column").first()).toBeVisible();
     expect(await loadedBuild(page)).toBe("new");
@@ -965,7 +969,7 @@ test.describe("a board left open across an update", () => {
 
     // Act
     await toggle(page).click();
-    await expect.poll(() => loads.count).toBe(2);
+    await expect.poll(() => loads.loaded).toBe(2);
     await expect.poll(() => push(page, snapshot({ build: "new", afk: KEPT }))).toBeGreaterThan(0);
     await openCfoPanel(page);
     const missing = page.waitForResponse("**/assets/afk-report-*");

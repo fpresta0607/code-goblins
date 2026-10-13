@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { knowInstance } from "../../src/api";
 import { WorkspaceDetails } from "../../src/WorkspaceDetails";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
@@ -9,7 +10,8 @@ if (!root) throw new Error("Fixture root is missing");
 const board = createRoot(root);
 const render = (runs: unknown[]) => {
   const snapshot = parseSnapshot({ instance: "connections-proof", healthy: true, tasks, runs });
-  board.render(<main className="panel-content" style={{ maxWidth: 720, margin: "auto" }}><WorkspaceDetails task={snapshot.tasks[0]} runs={snapshot.runs} instance={snapshot.instance} onRepair={(key) => { document.title = key; }} /></main>);
+  board.render(<main className="panel-content" style={{ maxWidth: 720, margin: "auto" }}><WorkspaceDetails task={snapshot.tasks[0]} runs={snapshot.runs} snapshot={snapshot} onRepair={(key) => { document.title = key; }} /></main>);
 };
 Object.assign(window, { finishRepair: (id: string) => render([{ id, state: "succeeded", finished_at: new Date().toISOString(), connection_task: "connection-proof", connection_generation: "first" }]) });
+knowInstance("connections-proof");
 render([]);

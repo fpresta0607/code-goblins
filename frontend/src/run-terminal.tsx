@@ -28,7 +28,7 @@ export function RunTerminal({ run, instance, connected }: { run: Run; instance: 
     }
   };
   return <section className="run-live">
-    <HostTerminal query={"run=" + encodeURIComponent(run.id)} harness="" label={"Terminal of " + run.title} instance={instance} visible={connected} shown focus={1} hasMicrophone={false} />
+    <HostTerminal query={"run=" + encodeURIComponent(run.id)} harness="" label={"Terminal of " + run.title} reportAs={"the terminal of the command " + run.title} instance={instance} visible={connected} shown focus={1} hasMicrophone={false} />
     <div className="run-live-actions">
       <ClickFeedback text={feedback} />
       <button type="button" disabled={!connected || stopping} onClick={() => void stop()}><Icon name="stop-circle" />{stopping ? "Stopping" : "Stop"}</button>

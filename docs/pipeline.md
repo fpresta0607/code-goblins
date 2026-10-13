@@ -482,9 +482,9 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
-Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes.
+Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
-It is intended for verification workers, not a command that deliberately starts a shared machine service.
+Recovery uses `TerminateAndWait`, which spares nothing.
 The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
 This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
 `internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
@@ -498,6 +498,10 @@ Once the command's own process has exited, what it left running may run on for a
 The run keeps the command's own result, since tools such as build servers and browser bridges leave helpers behind on purpose, and a later certification can still require a run with none.
 Only a process still running counts, since Windows can count one that has exited in its job for a moment after.
 A process a nested `cfo gate turn` lets go of when its command ends is still in the executor's job, so it is ended and named the same way.
+A machine service the command started, Docker Desktop with what it runs, the no-mistakes daemon with its gate agents or the Scrawl server, serves the whole machine, so the run's end leaves it running, as every teardown of a goblin does, and records it apart from the leftovers it ended, and `cfo verify` names it on standard error.
+The run's cleanup is confirmed once nothing but such a service runs in its job, by the job's own list of its processes, where a process the run may not open counts as running.
+Only then does the job stop ending what it holds when its handle closes, so a controller that dies first, or an end that fails, still ends everything in it.
+A recovery after a controller died spares nothing, since that controller's job ended everything in it when its handle closed.
 The command's output to its logs is limited to 1 GiB together, past which the run is interrupted, and a running sample is written to the record every ten seconds and the final measurement always.
 Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
 `RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
@@ -530,7 +534,12 @@ Stale lease removal claims the record against writes and replacement, validates 
 Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
-`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says, while retention of the execution records and logs is not yet implemented.
+`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says.
+After each tier the executions store keeps the newest 100 passes, 50 failures and 20 runs that never started, each kept apart, so a burst of one never evicts the evidence of another.
+What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
+A record whose custody is still held, one still pending, and one it cannot read or that a newer cfo wrote, while younger than a week, is never removed or counted, so the 2 GiB covers only what it counts.
+A log whose record is gone is removed once it is a week old, and a record goes only once its logs are gone.
+It removes only plain files named as the store names them, refuses an executions folder that is a junction or link, and a removal that fails is named on standard error, tried again after the next tier, and never fails the tier.
 These same-user records are advisory, and the measured executor is not yet wired into `cfo gate turn` or a protected publisher.
 
 `ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
