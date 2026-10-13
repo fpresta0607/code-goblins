@@ -180,16 +180,16 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if seconds <= 0 {
 		seconds = 90
 	}
-	r := verifyrun.Runner{Commands: execx.OSRunner{}}
-	res, e := r.Run(context.Background(), cmds, *tier, meta.ID, "", meta.Worktree, time.Duration(seconds)*time.Second)
 	p := filepath.Join(meta.TaskTmp, "verification-"+*tier+".json")
-	_ = verifyrun.Save(p, res)
+	res, e := runMeasuredTier("cfo verify", cmds, *tier, meta, time.Duration(seconds)*time.Second, p, stderr, runtime)
 	if e != nil {
 		// A check ends with the line that names what failed, so the tier
 		// says that line, and the file that holds everything the check said.
 		if len(res) > 0 {
-			said := strings.Split(strings.TrimSpace(res[len(res)-1].Output), "\n")
-			fmt.Fprintln(stderr, strings.TrimSpace(said[len(said)-1]))
+			if said := strings.TrimSpace(res[len(res)-1].Output); said != "" {
+				lines := strings.Split(said, "\n")
+				fmt.Fprintln(stderr, strings.TrimSpace(lines[len(lines)-1]))
+			}
 		}
 		fmt.Fprintln(stderr, e)
 		fmt.Fprintln(stderr, p)
@@ -197,6 +197,27 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	fmt.Fprintln(stdout, p)
 	return 0
+}
+
+// runMeasuredTier runs a tier's commands as measured executions in the
+// machine's one line for heavy runs, each limited from when it starts, and
+// saves what became of each to path. A result that cannot be saved fails
+// the tier, since nothing else would show what it did.
+func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime) ([]verifyrun.Result, error) {
+	executor, err := measuredExecutor(name, fmt.Sprintf("%s %s of task %s", name, scope, taskLabel(meta.ID, runtime)), stderr, runtime.availableMemory)
+	if err != nil {
+		return nil, fmt.Errorf("%s: this run takes no turn: %w", name, err)
+	}
+	res, runError := verifyrun.Runner{Commands: executor}.Run(context.Background(), cmds, scope, meta.ID, "", meta.Worktree, limit)
+	// A command whose cleanup was not confirmed keeps the machine's line
+	// until it is, and this process is its only owner.
+	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	failure := errors.Join(runError, executor.RetryCleanup(cleanup))
+	if err := verifyrun.Save(path, res); err != nil {
+		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
+	}
+	return res, failure
 }
 
 func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -235,10 +256,8 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	if needsDeep {
 		cmds = append(cmds, m.Security.Deep...)
 	}
-	r := verifyrun.Runner{Commands: execx.OSRunner{}}
-	res, e := r.Run(context.Background(), cmds, "security", meta.ID, "", meta.Worktree, 10*time.Minute)
 	p := filepath.Join(meta.TaskTmp, "security.json")
-	_ = verifyrun.Save(p, res)
+	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime)
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1

@@ -254,3 +254,42 @@ func TestMonitorLetsARunUseTheMemoryBetweenTheFloorAndItsReserve(t *testing.T) {
 		t.Fatalf("a run above its reserve and under the admission floor was cut: %+v, %v", result, err)
 	}
 }
+
+// exitingTree holds one process until its command exits, and none after.
+type exitingTree struct{ exited chan struct{} }
+
+func (tree exitingTree) Usage() (execx.TreeUsage, error) {
+	select {
+	case <-tree.exited:
+		return execx.TreeUsage{TotalProcesses: 1}, nil
+	default:
+		return execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 1}, nil
+	}
+}
+func (exitingTree) Members() ([]execx.EndedProcess, error) { return nil, nil }
+func (exitingTree) TerminateAndWait(context.Context) (execx.TreeUsage, error) {
+	return execx.TreeUsage{TotalProcesses: 1}, nil
+}
+
+func TestMonitorSamplesAgainAsSoonAsTheCommandExits(t *testing.T) {
+	// Arrange
+	tree := exitingTree{exited: make(chan struct{})}
+	monitor := Monitor{Poll: time.Minute, Exited: tree.exited,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		close(tree.exited)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	started := time.Now()
+
+	// Act
+	result, err := monitor.Watch(ctx, tree)
+
+	// Assert
+	if err != nil || result.State != Completed || time.Since(started) > 5*time.Second {
+		t.Fatalf("a command that exited waited for the next poll: %+v, %v after %s", result, err, time.Since(started))
+	}
+}

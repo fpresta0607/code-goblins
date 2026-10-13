@@ -158,9 +158,16 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 			}
 			break
 		}
+		// The command's exit is sampled at once, so a quick command does not
+		// wait out a whole poll before its run can end.
+		var exit <-chan struct{}
+		if exitedAt.IsZero() {
+			exit = monitor.Exited
+		}
 		select {
 		case <-ctx.Done():
 		case <-ticker.C:
+		case <-exit:
 		}
 	}
 	result.State = Completed
