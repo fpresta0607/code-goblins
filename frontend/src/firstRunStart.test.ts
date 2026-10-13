@@ -39,6 +39,9 @@ test("the board's root keeps configured homes out of quick start", () => {
     ["a CFO that was closed: the home has had one, so the board stays", { cfoRuns: false, cfoClosed: true, cfoConfigured: false, choice: "" }, false],
     ["a configured home before its CFO registers", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "" }, false],
     ["a configured home whose CFO start failed", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "started" }, false],
+    ["an active setup before the choice is saved", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "setup" }, true],
+    ["an active setup while the saved choice has not settled", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "setup" }, true],
+    ["an active setup while its launch has not settled", { cfoRuns: true, cfoClosed: false, cfoConfigured: true, choice: "setup" }, true],
   ];
   for (const [name, given, want] of cases) assert.equal(showsFirstRun(given), want, name);
 });

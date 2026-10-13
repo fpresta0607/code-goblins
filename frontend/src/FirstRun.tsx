@@ -25,7 +25,7 @@ const SIGN_IN: Record<SignIn, { text: string; icon: IconName; tone: string }> = 
 // or leave. A quiet link shows the board without a CFO, so goblins at work
 // stay in view. Once, it offers a Dev Drive, opt-in, or says in one line why
 // this machine can have none; Start keeps the answer.
-export function FirstRun({ instance, devDrive, onStarted, onBoard }: { instance: string; devDrive?: DevDriveView; onStarted: () => void; onBoard: () => void }) {
+export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }: { instance: string; devDrive?: DevDriveView; onStarting: () => void; onStarted: () => void; onBoard: () => void }) {
   // typed is what the Overlord typed in the field, which shows the recorded
   // folder until he types; asked is the folder last looked at, and null,
   // which an empty Look goes back to, opens on the recorded one.
@@ -52,6 +52,7 @@ export function FirstRun({ instance, devDrive, onStarted, onBoard }: { instance:
   const shown = data.agents.find((each) => each.id === agent);
   const remembered = data.agents.find((each) => each.id === data.agent);
   const start = async () => {
+    onStarting();
     setStarting(true);
     setFailure("");
     try {
