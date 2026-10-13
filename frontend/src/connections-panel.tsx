@@ -6,6 +6,7 @@ import { Icon } from "./Icon";
 import { object, string, type Run, type Task } from "./types";
 import "./connections.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { goblinName } from "./task-words";
 
 export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; runs?: Run[]; onRepair?: (key: string) => void }) {
   const [data, setData] = useState<ReturnType<typeof parseConnections>>();
@@ -16,6 +17,10 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   const [isBusy, setIsBusy] = useState(false);
   const [reads, setReads] = useState(0);
   const isSignInPending = useRef(false);
+  // Whose connections, as the CFO is told when they cannot be read.
+  const whose = goblinName(task) + " (" + task.id + ")";
+  const whoseValue = useRef(whose);
+  useEffect(() => { whoseValue.current = whose; }, [whose]);
   const repairFinishedAt = runs.filter((run) => run.connection_task === task.id && run.connection_generation === task.generation).map((run) => run.finished_at).sort().at(-1) || "";
   const path = "/api/connections?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation);
   useEffect(() => {
@@ -28,7 +33,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
         isChecking = next.checking;
         if (!controller.signal.aborted) setData(next);
       } catch (error: unknown) {
-        if (!controller.signal.aborted) reportToCfo("reading a goblin's connections", message(error));
+        if (!controller.signal.aborted) reportToCfo("reading the connections of " + whoseValue.current, message(error));
       } finally {
         if (!controller.signal.aborted && isChecking) timer = setTimeout(() => void read(), 2000);
       }
