@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -513,5 +515,161 @@ func TestExecutorConcurrentCleanupHonorsTheWaitingCallersDeadline(t *testing.T) 
 	// Assert
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
 		t.Fatalf("concurrent cleanup ignored deadline: %v after %s", err, time.Since(started))
+	}
+}
+
+func TestExecutorCleanupDeadlineCoversCustodyReleaseAndEvidence(t *testing.T) {
+	for _, phase := range []string{"custody", "release", "evidence"} {
+		t.Run(phase, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending := &pendingCleanup{execution: execution, usage: &execx.TreeUsage{}, isFinished: true, isGuardComplete: true, isTurnReleased: true, exitCode: -1}
+			var unblock func()
+			if phase == "evidence" {
+				path, err := windows.UTF16PtrFromString(execution.Path())
+				if err != nil {
+					t.Fatal(err)
+				}
+				handle, err := windows.CreateFile(path, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unblock = func() { _ = windows.CloseHandle(handle) }
+			} else {
+				requested := admission(t)
+				pending.turn, err = requested.Wait(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				pending.isTurnReleased = false
+				if phase == "custody" {
+					pending.guard, err = pending.turn.Protect(execution.ID())
+					if err != nil {
+						t.Fatal(err)
+					}
+					pending.isGuardComplete = false
+				}
+				var unlock func() error
+				unlock, err = custodyMutation(requested.Dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unblock = func() {
+					if err := unlock(); err != nil {
+						t.Error(err)
+					}
+				}
+			}
+			defer func() {
+				if unblock != nil {
+					unblock()
+				}
+			}()
+			executor := Executor{pending: map[string]*pendingCleanup{execution.ID(): pending}}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+
+			// Act
+			started := time.Now()
+			err = executor.RetryCleanup(ctx)
+			elapsed := time.Since(started)
+			unblock()
+			unblock = nil
+
+			// Assert
+			if !errors.Is(err, context.DeadlineExceeded) || elapsed > time.Second || len(executor.pending) != 1 {
+				t.Errorf("%s ignored cleanup deadline or lost ownership: %v after %s, pending=%d", phase, err, elapsed, len(executor.pending))
+			}
+			if err := executor.RetryCleanup(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(executor.pending) != 0 {
+				t.Fatal("successful retry retained cleanup")
+			}
+		})
+	}
+}
+
+func TestCustodyMutationRetriesItsFailedRelease(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	unlock, err := custodyMutation(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := windows.UTF16PtrFromString(filepath.Join(dir, "custody-mutation"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(path, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := unlock(); err == nil {
+		t.Fatal("blocked mutation release was ignored")
+	}
+	if err := windows.CloseHandle(handle); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	nextUnlock, err := custodyMutationContext(ctx, dir)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("failed release poisoned future mutation: %v", err)
+	}
+	if err := nextUnlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExecutorNestedCleanupDeadlineCoversProgressCard(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	requested := admission(t)
+	outer, err := requested.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outer.Release()
+	t.Setenv(TurnVariable, outer.Token())
+	inner, err := requested.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := &pendingCleanup{execution: execution, turn: inner, usage: &execx.TreeUsage{}, isFinished: true, isGuardComplete: true, exitCode: -1}
+	executor := Executor{pending: map[string]*pendingCleanup{execution.ID(): pending}}
+	path, err := windows.UTF16PtrFromString(filepath.Join(requested.Dir, "slot-1.run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(path, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = executor.RetryCleanup(ctx)
+	elapsed := time.Since(started)
+	windows.CloseHandle(handle)
+	if !errors.Is(err, context.DeadlineExceeded) || elapsed > time.Second || len(executor.pending) != 1 {
+		t.Errorf("nested release ignored deadline or lost ownership: %v after %s", err, elapsed)
+	}
+	if err := executor.RetryCleanup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !requested.isHeldAs("slot-1", outer.Token()) {
+		t.Fatal("nested release removed outer custody")
 	}
 }

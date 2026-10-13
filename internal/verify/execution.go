@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"path/filepath"
@@ -138,7 +139,7 @@ func (execution *Execution) interrupt() error {
 	return execution.persist(next)
 }
 
-func (execution *Execution) recoveredCleanup(usage execx.TreeUsage, exitCode int) error {
+func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.TreeUsage, exitCode int) error {
 	if execution.record.Status == "passed" || usage.ActiveProcesses != 0 {
 		return errors.New("verify: recovery requires a failed run and an empty job")
 	}
@@ -153,14 +154,18 @@ func (execution *Execution) recoveredCleanup(usage execx.TreeUsage, exitCode int
 	next.Measurement.State = Interrupted
 	next.Measurement.CleanupConfirmed = true
 	next.Measurement.Usage = usage
-	return execution.persist(next)
+	return execution.persistContext(ctx, next)
 }
 
 func (execution *Execution) persist(next ExecutionRecord) error {
+	return execution.persistContext(context.Background(), next)
+}
+
+func (execution *Execution) persistContext(ctx context.Context, next ExecutionRecord) error {
 	if len(next.Transitions) > 0 && next.Transitions[len(next.Transitions)-1].State != next.Measurement.State {
 		next.Transitions = append(next.Transitions, ExecutionTransition{State: next.Measurement.State, At: time.Now().UTC()})
 	}
-	if err := Save(execution.path, next); err != nil {
+	if err := save(ctx, execution.path, next); err != nil {
 		return err
 	}
 	execution.record = next

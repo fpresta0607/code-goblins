@@ -149,11 +149,13 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 		return refuse(err)
 	}
 	guard, err := turn.Protect(execution.ID())
+	if guard.RunID != "" {
+		pending.guard = guard
+		pending.isGuardComplete = false
+	}
 	if err != nil {
 		return refuse(err)
 	}
-	pending.guard = guard
-	pending.isGuardComplete = false
 	if err := execution.Start(); err != nil {
 		return refuse(err)
 	}
@@ -261,14 +263,8 @@ func (executor *Executor) RetryCleanup(ctx context.Context) error {
 func (pending *pendingCleanup) retry(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-	for !pending.mu.TryLock() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
+	if err := lockBefore(ctx, &pending.mu); err != nil {
+		return err
 	}
 	defer pending.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -291,18 +287,21 @@ func (pending *pendingCleanup) retry(ctx context.Context) error {
 		pending.usage = &usage
 	}
 	if !pending.isGuardComplete {
-		if err := pending.guard.Complete(); err != nil {
+		if err := pending.guard.CompleteContext(ctx); err != nil {
 			return err
 		}
 		pending.isGuardComplete = true
 	}
 	if !pending.isTurnReleased {
-		if err := pending.turn.Release(); err != nil {
+		if err := pending.turn.ReleaseContext(ctx); err != nil {
 			return err
 		}
 		pending.isTurnReleased = true
 	}
-	if err := pending.execution.recoveredCleanup(*pending.usage, pending.exitCode); err != nil {
+	if err := pending.execution.recoveredCleanup(ctx, *pending.usage, pending.exitCode); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	pending.isDone = true

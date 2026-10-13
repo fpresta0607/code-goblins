@@ -495,6 +495,8 @@ An abandoned or unreadable custody record refuses further admission rather than 
 The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` calls and keeps a confirmed cleanup proof if its evidence write or custody removal needs another attempt.
 Slot release reports errors and stays retryable, and an executor retains final evidence-write failures even after workers have ended.
 Concurrent recovery waits respect the waiting caller's deadline without holding the executor's registry mutex over job or filesystem operations.
+The deadline also bounds custody-lock, file-open and final evidence-rename contention retries.
+A failed mutation-lock release retains its exact lease identity for a later retry, and cannot reclaim a changed or foreign live owner.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
 Restart recovery and retention of the execution records and logs are not yet implemented, so these APIs remain outside the live command path.
 These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.

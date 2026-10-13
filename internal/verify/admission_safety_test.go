@@ -473,6 +473,11 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 						break
 					}
 					if time.Now().After(deadline) {
+						select {
+						case line := <-output:
+							t.Fatalf("child %d exited before joining: %s", index, line)
+						default:
+						}
 						t.Fatalf("child %d did not join: %+v %v", index, waiting, err)
 					}
 				}

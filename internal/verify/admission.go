@@ -65,7 +65,7 @@ type Turn struct {
 	token   string
 	dir     string
 	slot    string
-	release func() error
+	release func(context.Context) error
 	say     func(now string)
 }
 
@@ -91,8 +91,14 @@ func turnToken(slot string, holder *lock.Info) string {
 // Release gives the turn's slot back. A run inside a turn takes back what it
 // said beside it and leaves the slot with the run that holds it.
 func (t Turn) Release() error {
+	return t.ReleaseContext(context.Background())
+}
+
+func (t Turn) ReleaseContext(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	if t.release != nil {
-		return t.release()
+		return t.release(ctx)
 	}
 	return nil
 }
@@ -155,7 +161,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 	custodyError := a.checkWorkerCustody()
-	unlock()
+	custodyError = errors.Join(custodyError, unlock())
 	if custodyError != nil {
 		return Turn{}, custodyError
 	}
@@ -221,7 +227,8 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				}
 				turn, err := a.take(capacity)
 				if err != nil {
-					return Turn{Waited: time.Since(start)}, err
+					turn.Waited = time.Since(start)
+					return turn, err
 				}
 				if turn.release != nil {
 					if err := ctx.Err(); err != nil {
@@ -392,10 +399,16 @@ func (a Admission) inside() (Turn, bool) {
 			a.sayInside(name, token, now)
 		}
 	}
-	release := func() error {
-		say("")
-		mu.Lock()
+	release := func(ctx context.Context) error {
+		if err := lockBefore(ctx, &mu); err != nil {
+			return err
+		}
 		defer mu.Unlock()
+		if !isReleased {
+			if err := a.sayInsideContext(ctx, name, token, ""); err != nil {
+				return err
+			}
+		}
 		isReleased = true
 		return nil
 	}
@@ -413,18 +426,31 @@ func (a Admission) isHeldAs(name, token string) bool {
 // now, while the slot is still held under token, and keeps who holds it and
 // under what budget: those are the holder's.
 func (a Admission) sayInside(name, token, now string) {
-	if !a.isHeldAs(name, token) {
-		return
+	_ = a.sayInsideContext(context.Background(), name, token, now)
+}
+
+func (a Admission) sayInsideContext(ctx context.Context, name, token, now string) error {
+	holder, err := lock.ReadNamedStrictContext(ctx, a.Dir, name)
+	if err != nil {
+		return err
+	}
+	if turnToken(name, holder) != token || !holder.VerifiedAlive() {
+		return errors.New("verify: nested turn ownership changed")
 	}
 	var says card
-	data, err := fsx.ReadFile(filepath.Join(a.Dir, name+".run"))
-	if err != nil || json.Unmarshal(data, &says) != nil {
-		return
+	data, err := fsx.ReadFileContext(ctx, filepath.Join(a.Dir, name+".run"))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &says); err != nil {
+		return err
 	}
 	says.Now = now
-	if data, err := json.Marshal(says); err == nil {
-		fsx.AtomicWriteFile(filepath.Join(a.Dir, name+".run"), data)
+	data, err = json.Marshal(says)
+	if err != nil {
+		return err
 	}
+	return fsx.AtomicWriteFileContext(ctx, filepath.Join(a.Dir, name+".run"), data)
 }
 
 // take takes a free slot or reclaims verifiably dead custody, and returns a
@@ -432,12 +458,12 @@ func (a Admission) sayInside(name, token, now string) {
 // keeps the slot regardless of its elapsed budget. Once release has run, say
 // writes nothing, so a progress note can never land beside a slot the run
 // has given back.
-func (a Admission) take(capacity int) (Turn, error) {
+func (a Admission) take(capacity int) (turn Turn, failure error) {
 	unlock, err := custodyMutation(a.Dir)
 	if err != nil {
 		return Turn{}, err
 	}
-	defer unlock()
+	defer func() { failure = errors.Join(failure, unlock()) }()
 	if err := a.checkWorkerCustody(); err != nil {
 		return Turn{}, err
 	}
@@ -480,16 +506,18 @@ func (a Admission) take(capacity int) (Turn, error) {
 		}
 		var mu sync.Mutex
 		isReleased := false
-		release := func() error {
-			mu.Lock()
+		release := func(ctx context.Context) (failure error) {
+			if err := lockBefore(ctx, &mu); err != nil {
+				return err
+			}
 			defer mu.Unlock()
+			unlock, err := custodyMutationContext(ctx, a.Dir)
+			if err != nil {
+				return err
+			}
+			defer func() { failure = errors.Join(failure, unlock()) }()
 			if !isReleased {
-				unlock, err := custodyMutation(a.Dir)
-				if err != nil {
-					return err
-				}
-				defer unlock()
-				guards, err := a.workerCustody()
+				guards, err := a.workerCustodyContext(ctx)
 				if err != nil {
 					return err
 				}
@@ -498,7 +526,10 @@ func (a Admission) take(capacity int) (Turn, error) {
 						return fmt.Errorf("verify: execution %s still holds worker custody", guard.RunID)
 					}
 				}
-				if err := a.remove(a.Dir, name, owner); err != nil {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if err := a.removeContext(ctx, a.Dir, name, owner); err != nil {
 					return err
 				}
 				isReleased = true
@@ -545,7 +576,11 @@ func (a Admission) leave(dir, name string, says card) error {
 // new holder's card alone. The card goes first, while the lock still keeps
 // every other run out.
 func (a Admission) remove(dir, name string, owner *lock.Info) error {
-	current, err := lock.ReadNamedStrict(dir, name)
+	return a.removeContext(context.Background(), dir, name, owner)
+}
+
+func (a Admission) removeContext(ctx context.Context, dir, name string, owner *lock.Info) error {
+	current, err := lock.ReadNamedStrictContext(ctx, dir, name)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -558,7 +593,7 @@ func (a Admission) remove(dir, name string, owner *lock.Info) error {
 	if err := os.Remove(filepath.Join(dir, name+".run")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return lock.ReleaseExclusiveNamed(dir, name)
+	return lock.ReleaseExclusiveOwned(ctx, dir, name, *owner)
 }
 
 // readCard reads what the run holding lockFile says of itself. A run whose
