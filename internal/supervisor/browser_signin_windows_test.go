@@ -239,12 +239,27 @@ func proveBrowserSignInWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = json.NewDecoder(pageList.Body).Decode(&pages)
+	var lent []struct {
+		Socket string `json:"webSocketDebuggerUrl"`
+		Type   string `json:"type"`
+	}
+	err = json.NewDecoder(pageList.Body).Decode(&lent)
 	pageList.Body.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	connection, err := cdp.Dial(ctx, pages[0].Socket)
+	// Chrome lists other targets beside its pages, in no set order.
+	socket := ""
+	for _, target := range lent {
+		if target.Type == "page" {
+			socket = target.Socket
+			break
+		}
+	}
+	if socket == "" {
+		t.Fatal("the lent browser has no page")
+	}
+	connection, err := cdp.Dial(ctx, socket)
 	if err != nil {
 		t.Fatal(err)
 	}
