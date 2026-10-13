@@ -43,7 +43,7 @@ func TestTheCFOStrikesALineWrittenByMistakeAndTheLogKeepsBoth(t *testing.T) {
 func TestAStruckLineIsShownStruckInTheReportAndLeavesNothingForHim(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
-	left, err := Log(dir, leftForHim(), night.Add(time.Hour))
+	left, err := Log(dir, hisStep(), night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestAStruckLineIsShownStruckInTheReportAndLeavesNothingForHim(t *testing.T)
 	if last.Title != "Struck by the CFO" || len(last.Entries) != 1 || last.Entries[0].What != left.What {
 		t.Errorf("last heading = %+v, want the struck line under Struck by the CFO", last)
 	}
-	for _, want := range []string{"Struck by the CFO (1)", "- Sign in to Vercel for pd-auth? (struck)", "  Struck: pd-auth signs in with the fleet's own token, so nothing is his"} {
+	for _, want := range []string{"Struck by the CFO (1)", "- Sign in to Vercel for pd-auth (struck)", "  Struck: pd-auth signs in with the fleet's own token, so nothing is his"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("the report text lacks %q:\n%s", want, text.String())
 		}
@@ -81,7 +81,7 @@ func TestAStruckLineIsShownStruckInTheReportAndLeavesNothingForHim(t *testing.T)
 func TestAStrikeOfAnEarlierStretchsLineIsShownInTheNextReport(t *testing.T) {
 	// Arrange
 	dir, first := turnedOn(t)
-	bogus, err := Log(dir, Entry{Kind: KindLeft, What: "nothing: CFO note", Evidence: "test", Diagnosis: "none", Tried: "none", Options: []string{"a one", "a two"}}, night.Add(time.Hour))
+	bogus, err := Log(dir, Entry{Kind: KindHis, What: "nothing: CFO note", Evidence: "test"}, night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

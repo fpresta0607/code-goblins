@@ -12,8 +12,8 @@ func at(when time.Time) string { return when.UTC().Format(stamp) }
 
 // Notice is what the session digest and every wake tell the CFO while AFK
 // mode is on: who turned it on, when and from where, what the CFO decides
-// itself under it, and what stays the Overlord's alone. The terms are his
-// directive's own. It is empty while AFK mode is off.
+// itself under it, and what stays the Overlord's alone while he is away. The
+// terms are his directive's own. It is empty while AFK mode is off.
 func Notice(state State) []string {
 	if !state.On {
 		return nil
@@ -31,9 +31,9 @@ func Notice(state State) []string {
 		"- A merged migration that adds or changes, applied to production and dev and read back from the applied list. Log it with --kind migration.",
 		"- Installing a merged build through <candidate> update once the merge queue settles. Log it with --kind install.",
 		"- A goblin's question that is yours to answer. cfo answer logs it.",
-		"- Any other decision with choices that is not his alone, one you would have asked him. Answer it yourself, act on your answer, and log it as a line left for him with --answer \"<your choice>\": once he is back it is settled in his History with your answer, never asked of him, and a change he makes there reaches you once, as a change, so you undo or redo what yours started.",
-		"These stay his alone and are never decided for him, in AFK mode or out of it: a migration or command that drops or deletes data, deleting a branch, pushing to a teammate's branch or merging a teammate's pull request, any spend beyond his account's limits, his own sign-ins and identity checks, and anything a tool refuses.",
-		"Never ask him or hold anything for him while he is away, and never publish it as a cfo question or a cfo run-request: cfo question refuses while it is on. Instead give it a backlog row in data/backlog.md, log it with cfo afk log --kind left --what \"<what only he can do, as his question>\" --evidence \"<why it is his and its backlog row>\" --diagnosis \"<what is wrong, found to its cause>\" --tried \"<what you already tried>\" --option \"<choice>\" --option \"<choice>\" [--recommend \"<choice>\"], and work around it. When AFK mode turns off it is asked in the Command Center as your question, and his report lists it as it stands. Once you see to it yourself, settle it with cfo afk settle --at <its at> --how \"<what became of it>\", and it is never asked. Tell a goblin blocked only on it to move to its next piece of work.",
+		"- Every other decision with choices, one you would have asked him. Answer it yourself with your recommendation, act on your answer, and log it with cfo afk log --kind left --what \"<the question>\" --evidence \"<what your answer stands on>\" --diagnosis \"<what is wrong, found to its cause>\" --tried \"<what you already tried>\" --option \"<choice>\" --option \"<choice>\" --answer \"<your choice>\": once he is back it is settled in his History with your answer, never asked of him, and a change he makes there reaches you once, as a change, so you undo or redo what yours started.",
+		"While he is away only what a tool refuses or needs his own sign-in stays his: merging a teammate's pull request or deleting a branch through a merge, which cfo pr merge refuses, updating Code Goblins, any spend his account refuses, his own sign-ins and identity checks, and anything else a tool refuses. Everything else is yours to decide, a migration or command that drops or deletes data included, which you run only after a backup you can restore.",
+		"Nothing is asked of him, while he is away or when he is back: never publish anything as a cfo question or a cfo run-request, since cfo question refuses while it is on, and nothing you log becomes a Command Center question. A step you cannot take, such as his own sign-in or a step a tool refuses, is one plain line at the end of his recap: give it a backlog row in data/backlog.md, log it with cfo afk log --kind his --what \"<the step he must take, in plain words>\" --evidence \"<why you cannot take it, and its backlog row>\" [--link <url>], and work around it. Once you see to it yourself, settle it with cfo afk settle --at <its at> --how \"<what became of it>\". Tell a goblin blocked only on it to move to its next piece of work.",
 	}
 }
 

@@ -75,8 +75,8 @@ func TestQuestionWhileAFKModeIsOnIsRefusedAndSaysToLeaveItForHim(t *testing.T) {
 	// Assert
 	for name, args := range refusals {
 		exit, stderr := ask(args...)
-		if exit != 2 || !strings.Contains(stderr, "AFK mode is on") || !strings.Contains(stderr, "backlog row") || !strings.Contains(stderr, "cfo afk log --kind left") {
-			t.Errorf("a question %s while AFK mode is on: exit=%d stderr=%q, want it refused, saying to leave it for him", name, exit, stderr)
+		if exit != 2 || !strings.Contains(stderr, "AFK mode is on") || !strings.Contains(stderr, "backlog row") || !strings.Contains(stderr, "cfo afk log --kind left") || !strings.Contains(stderr, "cfo afk log --kind his") {
+			t.Errorf("a question %s while AFK mode is on: exit=%d stderr=%q, want it refused, saying to answer it or log his step", name, exit, stderr)
 		}
 	}
 	if offExit != 1 || strings.Contains(off, "AFK mode is on") {
