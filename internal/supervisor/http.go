@@ -37,8 +37,6 @@ type HTTP struct {
 	Host          string
 	Assets        fs.FS
 	mu            sync.Mutex
-	// refusals holds when each kind of refused board press last woke the CFO.
-	refusals map[string]time.Time
 	cache         map[string]cachedResponse
 	gitSlots      chan struct{}
 	streams       chan struct{}
@@ -68,6 +66,8 @@ type HTTP struct {
 	dictationWork     sync.WaitGroup
 	dictationSlot     chan struct{}
 	dictationPatience time.Duration
+	// refusals holds when each kind of refused board press last woke the CFO.
+	refusals map[string]time.Time
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
