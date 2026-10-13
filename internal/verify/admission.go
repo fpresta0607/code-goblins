@@ -59,6 +59,8 @@ type Turn struct {
 	// when anything was, including an admission failure.
 	Note    string
 	token   string
+	dir     string
+	slot    string
 	release func()
 	say     func(now string)
 }
@@ -134,6 +136,15 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	}
 	if a.Available == nil {
 		return Turn{}, errors.New("verify: available memory cannot be read")
+	}
+	unlock, err := custodyMutation(a.Dir)
+	if err != nil {
+		return Turn{}, err
+	}
+	custodyError := a.checkWorkerCustody()
+	unlock()
+	if custodyError != nil {
+		return Turn{}, custodyError
 	}
 	if turn, isInside := a.inside(); isInside {
 		return turn, nil
@@ -359,7 +370,7 @@ func (a Admission) inside() (Turn, bool) {
 		defer mu.Unlock()
 		isReleased = true
 	}
-	return Turn{token: token, release: release, say: say}, true
+	return Turn{token: token, dir: a.Dir, slot: name, release: release, say: say}, true
 }
 
 // isHeldAs reports whether the slot name is held, by a process that is
@@ -393,6 +404,14 @@ func (a Admission) sayInside(name, token, now string) {
 // writes nothing, so a progress note can never land beside a slot the run
 // has given back.
 func (a Admission) take(capacity int) (Turn, error) {
+	unlock, err := custodyMutation(a.Dir)
+	if err != nil {
+		return Turn{}, err
+	}
+	defer unlock()
+	if err := a.checkWorkerCustody(); err != nil {
+		return Turn{}, err
+	}
 	entries, err := os.ReadDir(a.Dir)
 	if err != nil {
 		return Turn{}, err
@@ -436,6 +455,20 @@ func (a Admission) take(capacity int) (Turn, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			if !isReleased {
+				unlock, err := custodyMutation(a.Dir)
+				if err != nil {
+					return
+				}
+				defer unlock()
+				guards, err := a.workerCustody()
+				if err != nil {
+					return
+				}
+				for _, guard := range guards {
+					if guard.Token == turnToken(name, owner) {
+						return
+					}
+				}
 				isReleased = true
 				a.remove(a.Dir, name, owner)
 			}
@@ -447,7 +480,7 @@ func (a Admission) take(capacity int) (Turn, error) {
 				a.say(name, owner, now)
 			}
 		}
-		return Turn{token: turnToken(name, owner), release: release, say: say}, nil
+		return Turn{token: turnToken(name, owner), dir: a.Dir, slot: name, release: release, say: say}, nil
 	}
 	return Turn{}, nil
 }
