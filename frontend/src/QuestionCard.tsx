@@ -11,6 +11,7 @@ import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
+import { DictatedAnswer } from "./dictated-answer";
 
 // sentAt is when he sent the draft's change of an answer, and unsent says a
 // dropped connection kept the supervisor from taking it, so it goes again
@@ -60,7 +61,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
-      {displayed.selection === "other" && <label className="written-answer"><span className="sr-only">Your written answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
+      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} onText={(written) => onDraft({ written, error: "", receipt: undefined })} />}
     </fieldset>
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.

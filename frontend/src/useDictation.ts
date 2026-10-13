@@ -20,6 +20,11 @@ interface Note { text: string; lasting: boolean }
 
 const NO_NOTE: Note = { text: "", lasting: false };
 
+// What he dictates joins what he wrote, after a space.
+export function appendDictation(prior: string, heard: string): string {
+  return [prior.trimEnd(), heard.trim()].filter(Boolean).join(" ");
+}
+
 // Push-to-talk dictation for one terminal or message box. Its key handler
 // hands every key to key first: false means the terminal must not see the
 // key, true that it may, and null that the key is not dictation's. start and

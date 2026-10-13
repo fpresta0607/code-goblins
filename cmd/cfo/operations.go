@@ -249,6 +249,12 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	if err := verifyrun.Save(path, res); err != nil {
 		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
 	}
+	// The store keeps the newest records within its budget. One it cannot
+	// remove now is tried again after the next tier, so the tier keeps its
+	// own result.
+	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
+		fmt.Fprintf(stderr, "%s: old execution records could not all be removed: %v\n", name, err)
+	}
 	return res, failure
 }
 

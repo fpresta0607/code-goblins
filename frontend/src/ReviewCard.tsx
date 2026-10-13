@@ -11,6 +11,7 @@ import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
+import { DictatedAnswer } from "./dictated-answer";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
@@ -61,7 +62,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
       </button>)}
     </div>}
-    {answersHere && <label className="written-answer"><span className="sr-only">Your answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} disabled={draft.sending} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
+    {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} />}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">

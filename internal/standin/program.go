@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 
@@ -49,6 +49,8 @@ var buildFlags = []string{"-trimpath", "-buildvcs=false"}
 // stand-in is found and built with it, since a test may have pointed
 // LOCALAPPDATA or PATH elsewhere by the time it asks for the stand-in.
 var startEnvironment = os.Environ()
+
+var startGoTool, startGoToolErr = goTool()
 
 // startCache is the user's cache folder as the test binary started.
 var startCache, startCacheErr = os.UserCacheDir()
@@ -159,6 +161,9 @@ func ensure(root string) (string, error) {
 	if isBuilt(path) {
 		return path, nil
 	}
+	if startGoToolErr != nil {
+		return "", startGoToolErr
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -173,7 +178,7 @@ func ensure(root string) (string, error) {
 		}
 	}
 	built := filepath.Join(work, filepath.Base(path))
-	build := execx.Command(goTool(), append(append([]string{"build"}, buildFlags...), "-o", built, ".")...)
+	build := execx.Command(startGoTool, append(append([]string{"build"}, buildFlags...), "-o", built, ".")...)
 	build.Dir = work
 	// The stand-in is built for this system by the toolchain that built the
 	// test, whatever flags, workspace or cross-compilation the test run has.
@@ -225,15 +230,22 @@ func replace(temporary, path string, content []byte) error {
 	return os.Rename(temporary, path)
 }
 
-// goTool is the go command of the toolchain that runs this test: go test
-// names its root in GOROOT, and PATH has it otherwise.
-func goTool() string {
-	for _, variable := range startEnvironment {
-		if root, found := strings.CutPrefix(variable, "GOROOT="); found && root != "" {
-			return filepath.Join(root, "bin", "go"+executableSuffix())
-		}
+// goTool resolves the compiler at package initialization, before a test can
+// replace PATH. Setting a command's Env does not change its path lookup.
+func goTool() (string, error) {
+	tool := "go"
+	if root := os.Getenv("GOROOT"); root != "" {
+		tool = filepath.Join(root, "bin", "go"+executableSuffix())
 	}
-	return "go"
+	path, err := exec.LookPath(tool)
+	if err != nil {
+		return "", fmt.Errorf("find the initial Go compiler: %w", err)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve the initial Go compiler: %w", err)
+	}
+	return path, nil
 }
 
 // place writes program to path, and refuses a path named after a Windows
