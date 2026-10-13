@@ -349,14 +349,21 @@ Once a task's pull request is merged, its card, in Completed too, says how the d
 The same CI poll reads it from the push runs on the repository's default branch: the newest run of each workflow whose name says deploy, for the commit the merge pushed, found by the commit's title, "Merge pull request #N" or a squash's "(#N)".
 A merge train lands its pull requests with one merge commit of its own, "Merge train <id>: #1, #2", so that commit's run is the deploy of each pull request it names.
 A deploy that no workflow on the default branch runs shows nothing: a site shipped with the Vercel CLI, for one, leaves no run to read, and its card stops at Merged.
-A [merge train](../AGENTS.md#merge-trains) shows as one card for each batch of pull requests: a running train at the top of In progress, a finished one at the top of Completed for six hours after it finished, and a column holding one is not empty.
+A [merge train](../AGENTS.md#merge-trains) shows as one card for each batch of pull requests: a running train at the top of In progress, and a finished train that landed at least one pull request at the top of Completed for six hours after it finished.
+A column holding one is not empty, and a train still testing stays In progress even when an earlier half landed.
 A train that landed nothing is folded into the later train that took its pull requests on, whose card counts its runs on from it, so a train main moved under three times and the train that then landed its pull requests show as one card, Landed on run 4.
-A train that landed nothing and was not retried shows once, saying why.
-Its card names the repository and the branch it lands on and says where the train stands in its tone, opening the train's pull request, with what happened last in its tip: CI tests #1, #2 (with the run, from the second on, and ending in again while a red run's failed checks run a second time) in blue, Landed (with the run, from the second on) in mint, the pull request that breaks CI or Train failed with why in red, and Nothing merged cleanly in grey.
+A finished train that landed nothing and was not retried shows once in the collapsed Train history below the columns, with its recorded reason, including a stop before any CI run.
+Its card names the repository and the branch it lands on and says where the train stands in its tone, opening the train's pull request, with what happened last in its tip: CI tests #1, #2 (with the run, from the second on, and ending in again while a red run's failed checks run a second time) in blue, Landed (with the run, from the second on) in mint, the pull request that breaks CI or Train failed with why in red, and Stopped in grey.
 Under that it lists the pull requests it tests, waits to test or landed, in train order, opening each on GitHub, with the goblin that made it, by its avatar, name and title, its task in the goblin's tip, and where it stands: Testing, Waits its turn or Landed, and the train's reason in its tip.
 A finished train's card lists only what it landed: a pull request it could not merge, left for the next train or found broken is not on it, and shows on its goblin's card with what happens next, Merging main to fix a conflict or Rides the next train in grey, or Breaks CI in red.
 A click on a train's card, anywhere but a link, opens its panel, as a goblin's card opens the goblin's, and the card stays outlined while the panel shows.
-The panel has the train's mark, the repository and branch and where the train stands, and the train's pull request one tap away, then two sections: Pull requests, every pull request of the batch with its goblin and where it stands, each row opening it, and Runs, every CI run of the batch with the pull requests it tested, each a one tap chip, and how it ended, Testing, Landed, Failed, Main moved, A pull request changed, Pushed again or Stopped, each opening that run: a red run its first failed check, any other the pull request it was tested on.
+The panel has the train's mark, the repository and branch and where the train stands, and the train's pull request one tap away.
+Each pull request has one primary row with its goblin, a link to the pull request, and its current run state linking to that run.
+A waiting, returned or conflicting pull request keeps its own state, without borrowing another pull request's run.
+Attempt history is folded below when there are retries, failures or shared runs, keeping each run's actual pull requests together and preserving earlier trains and failed checks.
+The panel shows the train's recorded reason as text, and folded earlier attempts retain their own reasons beside their runs, including an attempt with no run.
+Each pull request's recorded reason is readable in its primary row, and earlier attempts keep their pull requests' reasons in history even when a later attempt landed them.
+A red run opens its first failed check, and any other run opens the pull request it was tested on.
 A run that lands merges its train's pull request, so a train that was halved has a pull request for each half, and its card opens the newest.
 On GitHub a landed train's pull request reads merged, as each pull request it landed does, and only a train that did not land its last run leaves one closed, saying why ([Merge trains](../AGENTS.md#merge-trains)).
 A train's pull request wears the `merge-train` label, which a release's generated notes leave out, so the lines of what is new on the [Update item](#update-code-goblins) name the pull requests a train landed and never the train.
@@ -937,6 +944,17 @@ A CFO already running keeps its harness, and goblins says the choice applies to 
 A Claude Code CFO is woken by its own Stop hook, which waits on the wake queue.
 A Codex or pi CFO in a native terminal is woken by the supervisor, once it has registered by running `cfo register` in that terminal, as its first prompt tells it to: while wakes it has not been told about are queued, the supervisor types one line into its terminal, `cfo watcher wake: N queued wakes (...); run cfo drain, ...`, only when two readings of its screen a second apart show it idle at an empty composer, so never mid-turn and never over text left unsent, at most one line every 30 seconds, and each queued record is covered by one line only.
 The line is proved taken as `cfo send` proves a send, and one that nothing proves taken is reported and not typed again.
+A wake left untyped is recorded in `state\cfo-wake-skips.jsonl`, once for each new wake and each new reason, with why in plain words, such as "its screen shows it in the middle of a turn", and the screen's last eight rows; the file keeps the newest 200.
+On 2026-10-13 six wakes waited 16 minutes for an idle Codex CFO and nothing said why.
+Once the oldest untyped wake has waited five minutes while the CFO is not in a turn, the CFO cannot be told why, so the Overlord is: one Command Center item in plain words, such as "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows work it started still running. Restart the CFO so it reads them?", whose one action is the board's own Restart the CFO, with its confirmation, which the supervisor carries out.
+A CFO in the middle of a turn is never offered it, however long its wakes wait: it takes them as the turn ends, and a restart would end it at work.
+A turn is read before anything else on the screen, by the harness's working row or any row ending in its interrupt hint, so words of a dialog a busy CFO read do not count; only a command left running or a shell count is work at an idle prompt.
+That reads a CFO as busy when such a hint is merely quoted on its screen; its wakes are still recorded, and it is never offered a restart, which errs toward a CFO at work.
+The reason must hold on every look for a minute, counted afresh for each stretch of untyped wakes, before the item is made, an item already made is taken back once the CFO is at work again, and a CFO that no longer runs, or whose terminal runs another program, is offered nothing.
+The item runs no command, and the supervisor refuses to run it as one, since a CFO a run terminal started is not proven to outlive that terminal.
+It is made once for that oldest wake and taken back while nobody ran it once no wake waits untyped, whether the line was typed or the CFO ran `cfo drain` itself.
+A restart that ran and did not help is offered again once it has been over five minutes, and one that expired at once.
+Only a wake the supervisor chose not to type is recorded: a Claude Code CFO takes its wakes through its Stop hook, and a line typed but not proven taken is reported as before.
 A Codex or pi CFO someone starts in Herdr by hand has no wake path: it sees reports only when it checks the board or runs `cfo drain`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
@@ -1104,6 +1122,8 @@ Each home has a window of its own: the home the user's own environment names, by
 Started with neither `--board` nor `--state`, as the Start menu, desktop shortcut and **Start at login** start it, the program runs the `goblins.exe` beside it with `--window --locate` in a hidden console.
 `goblins --window --locate` finds or starts the supervisor and prints only the board's address followed by the state folder, one per line; it opens no window, browser or CFO.
 The original window uses those two lines to show the board itself, or stays in its tray if it was started with `--background`.
+A window started that way has no standard error of its own, so once it knows the state folder it appends its output to `state\window.log` too: each window's first line there names its process id, and what it says after, Wails' fatal messages and the words of a Go crash follow it, so a window that ends unexpectedly leaves its reason beside the supervisor's `serve.log`.
+Before it knows the state folder there is no log to keep, and a window that cannot find its board says why in a message box instead.
 The supervisor takes the home's own window for the Overlord's by the program it runs, whoever opened it ([ownership proof](#afk-mode)), so its AFK switch and **Update** work however it was started.
 That covers a window the desktop shell started, one `goblins --window` started from a terminal of his own after that launcher has exited, one the installer started, and one the supervisor moved onto an update.
 A window started from an agent's terminal or under an agent harness carries that mark and is refused.
@@ -1907,6 +1927,9 @@ Both Windows CI and the release workflow install from the lockfile, check the fr
 The runtime executable embeds those assets and requires no Node process.
 The board names the build it serves, a hash of its `index.html`, which names every hashed file of the bundle, in the page (`<meta name="cfo-build">`) and in every snapshot, on `/api/snapshot` and on the event stream.
 A tab whose loaded build differs from the one served, such as one left open across an install, reloads itself while it is hidden, the event stream is live and the Overlord is not mid-answer (the Command Center closed, no card in it and no comment on a diff keeping an answer not yet sent, no terminal listening to dictation, and no text field holding text), and otherwise shows one line, The board was updated, with Reload; a page loaded without a build, such as from the dev server, never acts.
+The AFK report and the terminals are pages the board fetches the first time they are shown, and a tab loaded before an install asks for its own build's page, which the new supervisor no longer serves.
+Such a page draws nothing in its place, so the rest of the board stays drawn, and the board tells the CFO why.
+With the event stream live and the Overlord not mid-answer, the tab then reloads onto the served build once for the build it loaded, and otherwise, or when the page is still missing after that reload, it shows The board was updated with Reload.
 For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies API calls to a supervisor on `127.0.0.1:4310`, translating only that explicit local development origin.
 `BOARD_DEV_PORT` sets the port the dev server listens on; it defaults to `5173`, and the translated origin follows it.
 `BOARD_SUPERVISOR` sets the supervisor the dev server proxies API calls to, such as an example fixture; it defaults to `http://127.0.0.1:4310`.

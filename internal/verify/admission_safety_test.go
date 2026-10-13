@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
@@ -436,10 +437,13 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 				}
 				defer second.Release()
 			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			t.Cleanup(cancel)
 			type child struct {
 				process *exec.Cmd
 				stdin   io.WriteCloser
 				output  <-chan string
+				stderr  *os.File
 			}
 			var children []child
 			t.Cleanup(func() {
@@ -447,12 +451,25 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 					child.stdin.Close()
 				}
 				for _, child := range children {
-					child.process.Wait()
+					waitError := child.process.Wait()
+					child.stderr.Close()
+					if t.Failed() || waitError != nil {
+						data, readError := os.ReadFile(child.stderr.Name())
+						t.Logf("child pid=%d exit=%v diagnostics=%s read=%v", child.process.Process.Pid, waitError, data, readError)
+					}
+					if waitError != nil {
+						t.Errorf("FIFO child failed: %v", waitError)
+					}
 				}
 			})
 			for index := range 2 {
-				process := exec.Command(os.Args[0])
+				process := execx.CommandContext(ctx, os.Args[0])
 				process.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+a.Dir)
+				stderr, err := os.Create(filepath.Join(a.Dir, fmt.Sprintf("child-%d.stderr", index)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				process.Stderr = stderr
 				stdin, err := process.StdinPipe()
 				if err != nil {
 					t.Fatal(err)
@@ -466,13 +483,18 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 				}
 				output := make(chan string, 1)
 				go func() { line, _ := bufio.NewReader(stdout).ReadString('\n'); output <- strings.TrimSpace(line) }()
-				children = append(children, child{process, stdin, output})
+				children = append(children, child{process, stdin, output, stderr})
 				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
 					_, waiting, err := Line(a.Dir)
 					if err == nil && len(waiting) == index+1 {
 						break
 					}
 					if time.Now().After(deadline) {
+						select {
+						case line := <-output:
+							t.Fatalf("child %d exited before joining: %s", index, line)
+						default:
+						}
 						t.Fatalf("child %d did not join: %+v %v", index, waiting, err)
 					}
 				}

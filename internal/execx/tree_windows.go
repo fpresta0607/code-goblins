@@ -42,6 +42,11 @@ func StartTree(cmd *exec.Cmd) (*Tree, error) {
 	if err != nil {
 		return nil, fmt.Errorf("execx: create a job: %w", err)
 	}
+	return startTreeIn(cmd, job)
+}
+
+// startTreeIn starts cmd in job, which it owns from here on.
+func startTreeIn(cmd *exec.Cmd, job windows.Handle) (*Tree, error) {
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {

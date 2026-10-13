@@ -89,9 +89,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	// once it went unread failingPasses readings in a row.
 	unreadPauses := map[string]bool{}
 	for _, meta := range liveTasks(s.Store.Home.State) {
-		if allowanceBlocked(watched, meta.Harness, meta.Model, now) {
-			continue
-		}
 		record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -101,6 +98,20 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			continue
 		}
 		if record.Phase != "paused" || record.Generation != meta.SpawnGen || record.Pause == nil {
+			continue
+		}
+		// A goblin given new settings while paused resumes on them, as cfo
+		// resume does, so it waits on their allowance and not on the one
+		// it paused on.
+		harness, model := meta.Harness, meta.Model
+		choice, err := state.ReadEngineChoice(s.Store.Home.State, meta.ID)
+		if err == nil && choice.Generation == meta.SpawnGen {
+			harness, model = choice.Harness, choice.Model
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			problems = errors.Join(problems, fmt.Errorf("resume settings of %s: %w", meta.ID, err))
+			continue
+		}
+		if allowanceBlocked(watched, harness, model, now) {
 			continue
 		}
 		isReady, err := s.pauseCleared(ctx, *record.Pause, now, watched)
@@ -114,7 +125,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			problems = errors.Join(problems, fmt.Errorf("parent of %s: %w", meta.ID, err))
 			continue
 		}
-		isReady = isReady || isWithParent
+		// An allowance pause waits out the allowance of the harness it paused
+		// on, which is no wait for a goblin resuming on another harness. One
+		// resuming on another model of the same harness still waits, since
+		// without a reading the account's own floor may be what paused it.
+		isOtherAllowance := record.Pause.Reason == "allowance" && harness != meta.Harness
+		isReady = isReady || isWithParent || isOtherAllowance
 		if isReady {
 			ready = append(ready, record)
 		} else if record.Pause.Reason == "memory" && memoryPending == "" {

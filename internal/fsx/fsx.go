@@ -3,6 +3,7 @@
 package fsx
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -24,6 +25,18 @@ func AtomicWriteFile(path string, data []byte) error {
 		return err
 	}
 	return staged.Commit()
+}
+
+// AtomicWriteFileContext bounds contention retries by the caller's context.
+func AtomicWriteFileContext(ctx context.Context, path string, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	staged, err := Stage(path, data)
+	if err != nil {
+		return err
+	}
+	return staged.CommitContext(ctx)
 }
 
 // Staged is a file written whole beside the place it is meant for and not
@@ -64,11 +77,45 @@ func Stage(path string, data []byte) (*Staged, error) {
 // waits out another process holding either file as AtomicWriteFile does. A
 // commit that fails removes the staged file.
 func (s *Staged) Commit() error {
+	return s.commit(retryTransient)
+}
+
+// CommitContext stops waiting for a held file when the caller cancels.
+func (s *Staged) CommitContext(ctx context.Context) error {
+	return s.commit(func(op func() error) error {
+		return retryTransientContext(ctx, op)
+	})
+}
+
+func retryTransientContext(ctx context.Context, op func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, transientBudget)
+	defer cancel()
+	wait := 10 * time.Millisecond
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := op()
+		if err == nil || !heldByAnother(err) {
+			return err
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return errors.Join(ctx.Err(), err)
+		case <-timer.C:
+		}
+		wait = min(2*wait, longestPause)
+	}
+}
+
+func (s *Staged) commit(retry func(func() error) error) error {
 	temp := s.temp
 	s.temp = ""
 	root, err := os.OpenRoot(filepath.Dir(s.path))
 	if err == nil {
-		err = retryTransient(func() error { return root.Rename(filepath.Base(temp), filepath.Base(s.path)) })
+		err = retry(func() error { return root.Rename(filepath.Base(temp), filepath.Base(s.path)) })
 		root.Close()
 	}
 	if err != nil {
@@ -111,7 +158,13 @@ func Remove(path string) error {
 // it could follow a link is a folder swapped for one while it runs, by a
 // process still writing there.
 func RemoveAll(path string) error {
-	return retryTransient(func() error { return os.RemoveAll(path) })
+	return RemoveAllWithin(path, transientBudget)
+}
+
+// RemoveAllWithin is RemoveAll that waits out a holder for budget at most,
+// for a caller whose own wait is longer or shorter than transientBudget.
+func RemoveAllWithin(path string, budget time.Duration) error {
+	return retryTransientWithin(budget, func() error { return os.RemoveAll(path) })
 }
 
 // transientBudget is how long a state file operation waits out another
@@ -133,7 +186,12 @@ var sleep = time.Sleep
 // waiting 10 ms after the first attempt and twice as long after each next
 // one, up to longestPause.
 func retryTransient(op func() error) error {
-	deadline := time.Now().Add(transientBudget)
+	return retryTransientWithin(transientBudget, op)
+}
+
+// retryTransientWithin is retryTransient with budget for transientBudget.
+func retryTransientWithin(budget time.Duration, op func() error) error {
+	deadline := time.Now().Add(budget)
 	wait := 10 * time.Millisecond
 	for {
 		err := op()
