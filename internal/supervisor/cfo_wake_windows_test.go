@@ -735,3 +735,38 @@ func TestACFOThatNoLongerRunsIsOfferedNothing(t *testing.T) {
 		t.Errorf("recorded %+v; want the wake with why", kept)
 	}
 }
+
+// A reason that held through an earlier stretch of untyped wakes does not
+// carry over: once the CFO was told, the next stretch needs its own minute.
+func TestAnEarlierStretchDoesNotShortenTheSteadyMinute(t *testing.T) {
+	// Arrange: a first stretch, long enough to be steady, then the CFO is told.
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleWithWorkRunning)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+	for _, at := range []time.Duration{time.Second, 2 * time.Minute} {
+		if err := s.wakeCFO(context.Background(), now.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pending, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wake.AckThrough(stateDir, pending[len(pending)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.wakeCFO(context.Background(), now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	queueWake(t, stateDir, "notify", "g2", "blocked: which one?")
+
+	// Act: one frame once the new wake has waited long enough.
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if states := cfoUnwokenItems(s); len(states) != 0 {
+		t.Errorf("items = %q after one look at the new stretch; want none", states)
+	}
+}

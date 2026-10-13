@@ -184,6 +184,7 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 	}
 	// A CFO its Stop hook wakes, or one in Herdr, takes its wakes itself.
 	if primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
+		connection.steadySince, connection.steadyWhy = time.Time{}, ""
 		return s.Store.withdrawCFOUnwoken("The CFO now takes its wakes itself.")
 	}
 	if !primary.Process.VerifiedAlive() {
@@ -212,6 +213,8 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 // only takes it back.
 func (s *Service) untoldWakes(fresh []wake.Record, skip cfoWakeSkip, now time.Time) error {
 	if len(fresh) == 0 {
+		// The next wake left untyped starts its own minute.
+		s.Options.CFO.steadySince, s.Options.CFO.steadyWhy = time.Time{}, ""
 		return s.Store.withdrawCFOUnwoken("The CFO was told of the fleet's updates.")
 	}
 	skip.At, skip.Wakes, skip.Newest = now.UTC(), len(fresh), fresh[len(fresh)-1].Seq
