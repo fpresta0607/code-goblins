@@ -23,10 +23,11 @@ func ReadFileContext(ctx context.Context, path string) ([]byte, error) {
 }
 
 // CreateNewContext bounds contention retries creating an exclusive file.
+// On Windows its writer excludes readers until Close publishes the contents.
 func CreateNewContext(ctx context.Context, path string, perm os.FileMode) (*os.File, error) {
 	var file *os.File
 	err := retryTransientContext(ctx, func() (err error) {
-		file, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+		file, err = createNewUnshared(path, perm)
 		return err
 	})
 	return file, err

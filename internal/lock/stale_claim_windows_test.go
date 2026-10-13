@@ -3,6 +3,7 @@ package lock
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 func TestStaleClaimChild(t *testing.T) {
@@ -20,6 +22,7 @@ func TestStaleClaimChild(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	fmt.Println("started")
 	owner, err := AcquireExclusiveNamedStrictContext(ctx, dir, "lease")
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +75,11 @@ func TestStaleClaimPreservesCrossProcessReplacement(t *testing.T) {
 							t.Error(err)
 						}
 					})
-					line, err := bufio.NewReader(stdout).ReadString('\n')
+					reader := bufio.NewReader(stdout)
+					if line, err := reader.ReadString('\n'); err != nil || line != "started\n" {
+						t.Fatalf("child did not start: %q %v", line, err)
+					}
+					line, err := reader.ReadString('\n')
 					if err != nil || line != "holding\n" {
 						t.Fatalf("child did not acquire: %q %v", line, err)
 					}
@@ -129,5 +136,67 @@ func TestContextAcquisitionVerifiesCreatedIdentity(t *testing.T) {
 	current, err := ReadNamedStrict(dir, name)
 	if err != nil || *current != replacement {
 		t.Fatalf("replacement changed: %+v %v", current, err)
+	}
+}
+
+func TestContextAcquisitionWaitsForCrossProcessPublication(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := fsx.CreateNewContext(context.Background(), filepath.Join(dir, "lease"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { writer.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	child := execx.CommandContext(ctx, os.Args[0], "-test.run=^TestStaleClaimChild$")
+	child.Env = append(os.Environ(), "LOCK_STALE_CLAIM_CHILD="+dir)
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Stderr = os.Stderr
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stdin.Close()
+		if err := child.Wait(); err != nil {
+			t.Error(err)
+		}
+	})
+	reader := bufio.NewReader(stdout)
+	if line, err := reader.ReadString('\n'); err != nil || line != "started\n" {
+		t.Fatalf("child startup: %q %v", line, err)
+	}
+	output := make(chan string, 1)
+	go func() { line, _ := reader.ReadString('\n'); output <- line }()
+	select {
+	case line := <-output:
+		t.Fatalf("contender observed unfinished publication: %q", line)
+	case <-time.After(100 * time.Millisecond):
+	}
+	dead, _ := ownerInfo(os.Getpid(), "interrupted prior owner")
+	dead.Start = dead.Start.Add(-time.Hour)
+	data, err := json.Marshal(dead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case line := <-output:
+		if line != "holding\n" {
+			t.Fatalf("contender after publication: %q", line)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
 }
