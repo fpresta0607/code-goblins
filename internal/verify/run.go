@@ -82,6 +82,13 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 	return out, nil
 }
 func Save(path string, v any) error {
+	return save(context.Background(), path, v)
+}
+
+func save(ctx context.Context, path string, v any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -89,5 +96,5 @@ func Save(path string, v any) error {
 	if e != nil {
 		return e
 	}
-	return fsx.AtomicWriteFile(path, append(b, '\n'))
+	return fsx.AtomicWriteFileContext(ctx, path, append(b, '\n'))
 }

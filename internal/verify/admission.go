@@ -32,6 +32,10 @@ type Admission struct {
 	// waits for, and Available reads it. An unavailable reading refuses admission.
 	Floor     uint64
 	Available func() (uint64, error)
+	// Headroom compares physical and commit reserves independently. A caller
+	// supplies this or Available, never both. Floor applies to both dimensions.
+	Headroom func() (Headroom, error)
+	Reserve  Headroom
 	// Who names this run to the runs behind it, and Budget is how long its
 	// checks may run. Expiry does not release a live or uncertain owner.
 	Who    string
@@ -59,7 +63,9 @@ type Turn struct {
 	// when anything was, including an admission failure.
 	Note    string
 	token   string
-	release func()
+	dir     string
+	slot    string
+	release func(context.Context) error
 	say     func(now string)
 }
 
@@ -84,10 +90,17 @@ func turnToken(slot string, holder *lock.Info) string {
 
 // Release gives the turn's slot back. A run inside a turn takes back what it
 // said beside it and leaves the slot with the run that holds it.
-func (t Turn) Release() {
+func (t Turn) Release() error {
+	return t.ReleaseContext(context.Background())
+}
+
+func (t Turn) ReleaseContext(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	if t.release != nil {
-		t.release()
+		return t.release(ctx)
 	}
+	return nil
 }
 
 // Say records what the run is doing now beside its turn, for whoever reads
@@ -117,6 +130,8 @@ var arrivals atomic.Int64
 // or was left by a process whose recorded identity is verifiably gone. A
 // run whose wait fails gets the time it had waited with the error, so the
 // wait is on record even though no turn came of it.
+// If cancellation races admission and release fails, the returned turn still
+// owns that slot. Its caller must retain and retry Release despite the error.
 func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := ctx.Err(); err != nil {
 		return Turn{}, err
@@ -132,8 +147,23 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if _, _, err := AdmissionLimits(a.Dir); err != nil {
 		return Turn{}, err
 	}
-	if a.Available == nil {
+	if a.Available == nil && a.Headroom == nil {
 		return Turn{}, errors.New("verify: available memory cannot be read")
+	}
+	if a.Available != nil && a.Headroom != nil {
+		return Turn{}, errors.New("verify: admission requires one memory reader")
+	}
+	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
+		return Turn{}, err
+	}
+	unlock, err := custodyMutation(a.Dir)
+	if err != nil {
+		return Turn{}, err
+	}
+	custodyError := a.checkWorkerCustody()
+	custodyError = errors.Join(custodyError, unlock())
+	if custodyError != nil {
+		return Turn{}, custodyError
 	}
 	if turn, isInside := a.inside(); isInside {
 		return turn, nil
@@ -197,11 +227,15 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				}
 				turn, err := a.take(capacity)
 				if err != nil {
-					return Turn{Waited: time.Since(start)}, err
+					turn.Waited = time.Since(start)
+					return turn, err
 				}
 				if turn.release != nil {
 					if err := ctx.Err(); err != nil {
-						turn.Release()
+						if releaseError := turn.Release(); releaseError != nil {
+							turn.Waited = time.Since(start)
+							return turn, errors.Join(err, releaseError)
+						}
 						return Turn{Waited: time.Since(start)}, err
 					}
 					turn.Waited = time.Since(start)
@@ -282,6 +316,18 @@ func inFront(line, place string) (int, error) {
 
 // short says how the machine is short of memory, or nothing when it is not.
 func (a Admission) short(floor uint64) (string, error) {
+	if a.Headroom != nil {
+		memory, err := a.Headroom()
+		if err != nil {
+			return "", fmt.Errorf("verify: machine headroom cannot be read: %w", err)
+		}
+		physical := max(floor, a.Reserve.PhysicalAvailable)
+		commit := max(floor, a.Reserve.CommitAvailable)
+		if memory.PhysicalAvailable >= physical && memory.CommitAvailable >= commit {
+			return "", nil
+		}
+		return fmt.Sprintf("physical available %.1f GB with %.1f GB required, commit available %.1f GB with %.1f GB required", Gigabytes(memory.PhysicalAvailable), Gigabytes(physical), Gigabytes(memory.CommitAvailable), Gigabytes(commit)), nil
+	}
 	available, err := a.Available()
 	if err != nil {
 		return "", fmt.Errorf("verify: available memory cannot be read: %w", err)
@@ -353,13 +399,20 @@ func (a Admission) inside() (Turn, bool) {
 			a.sayInside(name, token, now)
 		}
 	}
-	release := func() {
-		say("")
-		mu.Lock()
+	release := func(ctx context.Context) error {
+		if err := lockBefore(ctx, &mu); err != nil {
+			return err
+		}
 		defer mu.Unlock()
+		if !isReleased {
+			if err := a.sayInsideContext(ctx, name, token, ""); err != nil {
+				return err
+			}
+		}
 		isReleased = true
+		return nil
 	}
-	return Turn{token: token, release: release, say: say}, true
+	return Turn{token: token, dir: a.Dir, slot: name, release: release, say: say}, true
 }
 
 // isHeldAs reports whether the slot name is held, by a process that is
@@ -373,18 +426,31 @@ func (a Admission) isHeldAs(name, token string) bool {
 // now, while the slot is still held under token, and keeps who holds it and
 // under what budget: those are the holder's.
 func (a Admission) sayInside(name, token, now string) {
-	if !a.isHeldAs(name, token) {
-		return
+	_ = a.sayInsideContext(context.Background(), name, token, now)
+}
+
+func (a Admission) sayInsideContext(ctx context.Context, name, token, now string) error {
+	holder, err := lock.ReadNamedStrictContext(ctx, a.Dir, name)
+	if err != nil {
+		return err
+	}
+	if turnToken(name, holder) != token || !holder.VerifiedAlive() {
+		return errors.New("verify: nested turn ownership changed")
 	}
 	var says card
-	data, err := fsx.ReadFile(filepath.Join(a.Dir, name+".run"))
-	if err != nil || json.Unmarshal(data, &says) != nil {
-		return
+	data, err := fsx.ReadFileContext(ctx, filepath.Join(a.Dir, name+".run"))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &says); err != nil {
+		return err
 	}
 	says.Now = now
-	if data, err := json.Marshal(says); err == nil {
-		fsx.AtomicWriteFile(filepath.Join(a.Dir, name+".run"), data)
+	data, err = json.Marshal(says)
+	if err != nil {
+		return err
 	}
+	return fsx.AtomicWriteFileContext(ctx, filepath.Join(a.Dir, name+".run"), data)
 }
 
 // take takes a free slot or reclaims verifiably dead custody, and returns a
@@ -392,7 +458,15 @@ func (a Admission) sayInside(name, token, now string) {
 // keeps the slot regardless of its elapsed budget. Once release has run, say
 // writes nothing, so a progress note can never land beside a slot the run
 // has given back.
-func (a Admission) take(capacity int) (Turn, error) {
+func (a Admission) take(capacity int) (turn Turn, failure error) {
+	unlock, err := custodyMutation(a.Dir)
+	if err != nil {
+		return Turn{}, err
+	}
+	defer func() { failure = errors.Join(failure, unlock()) }()
+	if err := a.checkWorkerCustody(); err != nil {
+		return Turn{}, err
+	}
 	entries, err := os.ReadDir(a.Dir)
 	if err != nil {
 		return Turn{}, err
@@ -432,13 +506,35 @@ func (a Admission) take(capacity int) (Turn, error) {
 		}
 		var mu sync.Mutex
 		isReleased := false
-		release := func() {
-			mu.Lock()
-			defer mu.Unlock()
-			if !isReleased {
-				isReleased = true
-				a.remove(a.Dir, name, owner)
+		release := func(ctx context.Context) (failure error) {
+			if err := lockBefore(ctx, &mu); err != nil {
+				return err
 			}
+			defer mu.Unlock()
+			unlock, err := custodyMutationContext(ctx, a.Dir)
+			if err != nil {
+				return err
+			}
+			defer func() { failure = errors.Join(failure, unlock()) }()
+			if !isReleased {
+				guards, err := a.workerCustodyContext(ctx)
+				if err != nil {
+					return err
+				}
+				for _, guard := range guards {
+					if guard.Token == turnToken(name, owner) {
+						return fmt.Errorf("verify: execution %s still holds worker custody", guard.RunID)
+					}
+				}
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if err := a.removeContext(ctx, a.Dir, name, owner); err != nil {
+					return err
+				}
+				isReleased = true
+			}
+			return nil
 		}
 		say := func(now string) {
 			mu.Lock()
@@ -447,7 +543,7 @@ func (a Admission) take(capacity int) (Turn, error) {
 				a.say(name, owner, now)
 			}
 		}
-		return Turn{token: turnToken(name, owner), release: release, say: say}, nil
+		return Turn{token: turnToken(name, owner), dir: a.Dir, slot: name, release: release, say: say}, nil
 	}
 	return Turn{}, nil
 }
@@ -479,13 +575,25 @@ func (a Admission) leave(dir, name string, says card) error {
 // process still holds the lock: a run whose turn was taken from it leaves the
 // new holder's card alone. The card goes first, while the lock still keeps
 // every other run out.
-func (a Admission) remove(dir, name string, owner *lock.Info) {
-	current, err := lock.ReadNamedStrict(dir, name)
-	if err != nil || *current != *owner || !current.VerifiedAlive() {
-		return
+func (a Admission) remove(dir, name string, owner *lock.Info) error {
+	return a.removeContext(context.Background(), dir, name, owner)
+}
+
+func (a Admission) removeContext(ctx context.Context, dir, name string, owner *lock.Info) error {
+	current, err := lock.ReadNamedStrictContext(ctx, dir, name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	os.Remove(filepath.Join(dir, name+".run"))
-	lock.ReleaseExclusiveNamed(dir, name)
+	if err != nil {
+		return err
+	}
+	if *current != *owner || !current.VerifiedAlive() {
+		return errors.New("verify: turn ownership changed before release")
+	}
+	if err := os.Remove(filepath.Join(dir, name+".run")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return lock.ReleaseExclusiveOwned(ctx, dir, name, *owner)
 }
 
 // readCard reads what the run holding lockFile says of itself. A run whose
