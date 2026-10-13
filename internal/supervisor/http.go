@@ -155,6 +155,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.refreshConnections(w, r)
 	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
 		h.fixConnection(w, r)
+	case r.URL.Path == "/api/connections/grant" && r.Method == "POST":
+		h.grantConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
 		h.saveCredentials(w, r)
 	case r.URL.Path == "/api/credentials/terminal" && r.Method == "POST":

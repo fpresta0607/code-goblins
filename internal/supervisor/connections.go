@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -16,7 +17,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 type connectionRequest struct {
@@ -140,6 +143,79 @@ func (h *HTTP) fixConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Service.notify()
 	respond(w, 200, map[string]string{"run_id": run.ID, "message": "Your repair is ready in Command Center. Run it there to continue."})
+}
+
+// grantingBoard asks for a connector card's + or check: giving a goblin a
+// service or an MCP server, or taking it back, is the Overlord's from a board
+// of his own, or the CFO's with cfo auth.
+var grantingBoard = boardAsker("Giving a goblin a connector is the Supreme Overlord's", ": he presses it on a board of his own, or the CFO runs cfo auth grant or cfo auth revoke", "Change it in the Code Goblins window, or ask the CFO.", reopenTheWindow+"change it there.")
+
+// grantConnection gives a running task one of its project's services or MCP
+// servers from its connector card, or takes it back: what cfo auth grant and
+// cfo auth revoke do. Past the board's Host, Origin and token checks it takes
+// only a board proven to be the Overlord's own, since a goblin can read the
+// token. The task's status names him, the CFO is told by a wake, and a running
+// terminal of the task is told to load a granted service's credentials, as cfo
+// auth grant tells it. The check that follows shows the card's new state.
+func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
+	asked := time.Now()
+	input, err := decodeConnection(r)
+	if err != nil {
+		apiError(w, 400, err.Error())
+		return
+	}
+	kind, name, _ := strings.Cut(input.Connection, ":")
+	isGrant := input.Action == "grant"
+	if !isGrant && input.Action != "revoke" || name == "" || kind != "service" && kind != "mcp" && kind != "withheld" {
+		apiError(w, 400, "Choose a connector this goblin can be given or have taken back.")
+		return
+	}
+	s := h.Service
+	from, err := s.overlordsBoard(r, h.Host, asked, grantingBoard)
+	if err != nil {
+		h.refuse(w, http.StatusForbidden, "connections", "A press of a connector card on a board was refused", "", err)
+		return
+	}
+	meta, err := s.connectionTask(input.Task, input.Generation)
+	if err != nil {
+		apiError(w, 409, err.Error())
+		return
+	}
+	stateDir := s.Store.Home.State
+	refresher := spawn.AuthRefresher{StateDir: stateDir, DataDir: s.Store.Home.Data, Panes: spawn.NativeLiveness{StateDir: stateDir}, By: "the Overlord from " + from}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	var item spawn.Refreshed
+	switch {
+	case kind == "service" && isGrant:
+		item, _, err = refresher.Grant(ctx, meta.ID, []string{name})
+	case kind == "service":
+		_, _, err = refresher.Revoke(ctx, meta.ID, []string{name})
+	case isGrant:
+		_, err = refresher.GrantMCP(meta.ID, []string{name})
+	default:
+		_, err = refresher.RevokeMCP(meta.ID, []string{name})
+	}
+	if err != nil {
+		apiError(w, 409, err.Error())
+		return
+	}
+	done := map[bool]string{true: "granted", false: "revoked"}[isGrant]
+	if _, err := wake.Append(stateDir, "notify", meta.ID, "connections: the Overlord "+done+" "+name+" from "+from); err != nil {
+		s.publish(err)
+	} else if _, err := wake.PublishEpisode(stateDir); err != nil {
+		s.publish(err)
+	}
+	if item.Live && meta.Backend == "native" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path)); err != nil {
+				s.publish(fmt.Errorf("telling %s to load the credentials the Overlord granted: %w", meta.ID, err))
+			}
+		}()
+	}
+	h.connectionResponse(w, meta, true)
 }
 
 func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, plan connections.Repair) (Run, error) {
