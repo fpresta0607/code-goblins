@@ -169,8 +169,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 				err = errors.New("a browser request names no browser")
 			} else if err = goblinPipeCaller(s.Store.Home.State, req.Browser.Task, int(pid), connected); err != nil {
 				err = fmt.Errorf("browser caller: %w", err)
-			} else if lease, err = s.browsers.take(ctx, *req.Browser); err == nil && lease.URL != "" {
-				reply.Browser = &lease
+			} else {
+				if req.Browser.Action == "sign-in" {
+					lease, err = s.requestBrowserSignIn(*req.Browser)
+				} else {
+					lease, err = s.browsers.take(ctx, *req.Browser)
+				}
+				if err == nil && lease.Login != "" {
+					reply.Browser = &lease
+				}
 			}
 		default:
 			s.runRequests.Lock()

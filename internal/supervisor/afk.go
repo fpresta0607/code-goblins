@@ -646,6 +646,11 @@ func waitingOnOverlord(d Database) []heldItem {
 			items = append(items, heldItem{"credential", c.ID, c.Task, "Credentials for " + c.Project + " (" + strings.Join(c.Names, ", ") + "): " + c.Why, ""})
 		}
 	}
+	for _, card := range d.BrowserSignIns {
+		if card.State == "ready" || card.State == "opening" || card.State == "open" {
+			items = append(items, heldItem{"browser-signin", card.ID, card.Task, "Sign in to " + card.Provider + " for " + card.Project, ""})
+		}
+	}
 	return items
 }
 
@@ -892,6 +897,19 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 			return closed(c.State, c.Reason)
 		}
 		return true, "still waiting for the values"
+	case "browser-signin":
+		i := slices.IndexFunc(d.BrowserSignIns, func(card BrowserSignIn) bool { return card.ID == id })
+		if i < 0 {
+			break
+		}
+		card := d.BrowserSignIns[i]
+		if card.State == "signed_in" {
+			return closed("you signed in", "")
+		}
+		if card.State == "expired" {
+			return closed("expired", card.Reason)
+		}
+		return true, "still waiting for you to sign in"
 	}
 	return false, "no longer listed on the board"
 }

@@ -5,11 +5,12 @@ package supervisor
 // lives in the store's memory, so it is read at once, while the rest of a
 // snapshot is read from the fleet's files and can take seconds.
 type Items struct {
-	Questions   []Question          `json:"questions"`
-	Reviews     []Review            `json:"reviews"`
-	Runs        []Run               `json:"runs"`
-	Credentials []CredentialRequest `json:"credentials"`
-	Actions     []Action            `json:"actions"`
+	Questions      []Question          `json:"questions"`
+	Reviews        []Review            `json:"reviews"`
+	Runs           []Run               `json:"runs"`
+	Credentials    []CredentialRequest `json:"credentials"`
+	BrowserSignIns []BrowserSignIn     `json:"browser_signins"`
+	Actions        []Action            `json:"actions"`
 }
 
 // itemsEvent is the items alone as the board's stream sends them, between
@@ -59,6 +60,11 @@ func boardItems(d Database) Items {
 		items.Runs[i] = r
 	}
 	items.Credentials = append([]CredentialRequest{}, d.Credentials...)
+	items.BrowserSignIns = append([]BrowserSignIn{}, d.BrowserSignIns...)
+	for i := range items.BrowserSignIns {
+		items.BrowserSignIns[i].TaskGeneration = ""
+		items.BrowserSignIns[i].VerifiedAt = nil
+	}
 	return items
 }
 
