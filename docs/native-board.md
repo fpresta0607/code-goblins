@@ -941,6 +941,8 @@ A wake left untyped is recorded in `state\cfo-wake-skips.jsonl`, once for each n
 On 2026-10-13 six wakes waited 16 minutes for an idle Codex CFO and nothing said why.
 Once the oldest untyped wake has waited five minutes, the CFO cannot be told why, so the Overlord is: one Command Center item in plain words, such as "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows it in the middle of a turn. Restart the CFO so it reads them?", whose Run restarts the CFO as `goblins resume` does.
 It is made once for that oldest wake and taken back while nobody ran it once no wake waits untyped, whether the line was typed or the CFO ran `cfo drain` itself.
+A restart that ran and did not help is offered again once it has been over five minutes, and one that expired at once.
+Only a wake the supervisor chose not to type is recorded: a Claude Code CFO takes its wakes through its Stop hook, and a line typed but not proven taken is reported as before.
 A Codex or pi CFO someone starts in Herdr by hand has no wake path: it sees reports only when it checks the board or runs `cfo drain`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 

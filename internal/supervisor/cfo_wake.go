@@ -158,7 +158,7 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 	}
 	primary, _, err := readPrimary(stateDir)
 	if err != nil || primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
-		return s.untoldWakes(nil, cfoWakeSkip{}, now)
+		return nil
 	}
 	if !primary.Process.VerifiedAlive() {
 		return s.untoldWakes(fresh, cfoWakeSkip{Why: "the CFO that registered no longer runs"}, now)
@@ -170,19 +170,20 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 		line += " " + banner
 	}
 	skip, err := connection.typeWake(ctx, primary, line, fresh[len(fresh)-1].Seq, now)
-	if err != nil {
-		return errors.Join(err, s.untoldWakes(fresh, cfoWakeSkip{Why: "its terminal no longer runs the CFO that registered"}, now))
+	switch {
+	case skip.Why != "":
+		return errors.Join(err, s.untoldWakes(fresh, skip, now))
+	case err != nil:
+		return err
 	}
-	if skip.Why == "" {
-		fresh = nil
-	}
-	return s.untoldWakes(fresh, skip, now)
+	return s.untoldWakes(nil, skip, now)
 }
 
 // untoldWakes records fresh, the wakes left untyped, as skip says, once for
 // each new wake and each new reason, and keeps the Overlord's item about
 // them: made once the oldest has waited cfoWakeStuckAfter, and taken back
-// once none waits untyped. With no wake left untyped it only takes it back.
+// once none waits untyped. With no wake left untyped, typed or drained, it
+// only takes it back.
 func (s *Service) untoldWakes(fresh []wake.Record, skip cfoWakeSkip, now time.Time) error {
 	if len(fresh) == 0 {
 		return s.Store.withdrawCFOUnwoken("The CFO was told of the fleet's updates.")
@@ -224,7 +225,7 @@ func recordCFOWakeSkip(stateDir string, skip cfoWakeSkip) error {
 // goblins resume does: the CFO cannot be told why its wakes wait, since that
 // would be one more wake.
 func (s *Service) offerCFORestart(oldest, wakes int, waited time.Duration, why string, now time.Time) error {
-	if s.Store.offeredCFORestart(oldest) {
+	if s.Store.offeredCFORestart(oldest, time.Now()) {
 		return nil
 	}
 	executable, err := os.Executable()
@@ -283,12 +284,13 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 	if !readable {
 		return cfoWakeSkip{Why: "its screen is one this supervisor cannot read"}, nil
 	}
+	gone := cfoWakeSkip{Why: "its terminal no longer runs the CFO that registered"}
 	if err := c.verify(primary); err != nil {
-		return cfoWakeSkip{}, err
+		return gone, err
 	}
 	record, err := host.ReadRecord(c.State, primary.Host)
 	if err != nil {
-		return cfoWakeSkip{}, err
+		return gone, err
 	}
 	read := c.ReadScreen
 	if read == nil {
@@ -343,8 +345,10 @@ func notIdle(screens harness.Screens, screen []string) string {
 	if screens.IsWorking(screen) {
 		return "its screen shows it in the middle of a turn"
 	}
-	if row, isRunning := harness.RunningWork(screen); isRunning {
-		return "its screen shows work it started still running (" + bounded(row, 120) + ")"
+	// The row itself is redrawn as its clock ticks, so it stays in the
+	// screen kept beside the reason, never in the reason.
+	if _, isRunning := harness.RunningWork(screen); isRunning {
+		return "its screen shows work it started still running"
 	}
 	if !screens.IsReady(screen) || !screens.ComposerEmpty(screen) {
 		return "its screen does not show it waiting at an empty prompt"

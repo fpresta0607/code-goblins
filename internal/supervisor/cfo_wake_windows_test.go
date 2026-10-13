@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -346,11 +347,11 @@ func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
 		screen []string
 		why    string
 	}{
-		"in a turn":        {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
-		"its agents run":   {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
-		"at a dialog":      {[]string{"  Set up security for Daybreak mode", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
-		"holding text":     {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
-		"no prompt":        {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
+		"in a turn":      {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
+		"its agents run": {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
+		"at a dialog":    {[]string{"  Set up security for Daybreak mode", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
+		"holding text":   {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
+		"no prompt":      {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -463,5 +464,65 @@ func TestTheOverlordsItemGoesOnceTheCFODrainsItsWakes(t *testing.T) {
 	}
 	if len(states) != 1 || states[0] != "withdrawn" {
 		t.Errorf("items = %q; want the one item withdrawn", states)
+	}
+}
+
+// A row of work still running redraws its clock between looks. It is kept
+// in the screen beside the reason and never in the reason, so the record is
+// written once and the Overlord's item carries no raw screen text.
+func TestWorkStillRunningIsRecordedOnceWhateverItsClockSays(t *testing.T) {
+	// Arrange
+	ticking := func(seconds int) []string {
+		return []string{"• Ran go test ./...", fmt.Sprintf("  Running… (%ds)", seconds), "› Ask Codex to do anything", "  gpt-6-astra high · work"}
+	}
+	s, stateDir, typed, _ := typedWakeCFO(t, "codex", ticking(1), ticking(2), ticking(3), ticking(4), ticking(5), ticking(6))
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+
+	// Act
+	for look := range 3 {
+		if err := s.wakeCFO(context.Background(), now.Add(time.Duration(look)*cfoWakeEvery)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	kept := skips(t, stateDir)
+	if len(*typed) != 0 || len(kept) != 1 || kept[0].Why != "its screen shows work it started still running" || !strings.Contains(kept[0].Screen, "Running…") {
+		t.Errorf("typed %q, recorded %+v; want one record with a fixed reason and the row in its screen", *typed, kept)
+	}
+}
+
+// A Claude Code CFO takes its wakes through its Stop hook, and a typed line
+// that nothing proves taken is reported as it was: neither is a wake the
+// supervisor skipped, so neither is recorded or put before the Overlord.
+func TestNoSkipIsRecordedForAStopHookCFOOrAnUnprovenLine(t *testing.T) {
+	for name, test := range map[string]struct {
+		agent      string
+		screen     []string
+		deliverErr error
+	}{
+		"a Claude Code CFO": {"claude", []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, nil},
+		"an unproven line":  {"codex", idleCodexCFO, errors.New("nothing on its screen shows it working")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, stateDir, _, deliverErr := typedWakeCFO(t, test.agent, test.screen)
+			*deliverErr = test.deliverErr
+			queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+
+			// Act
+			_ = s.wakeCFO(context.Background(), time.Now().UTC().Add(cfoWakeStuckAfter+time.Minute))
+
+			// Assert
+			if kept := skips(t, stateDir); len(kept) != 0 {
+				t.Errorf("recorded %+v; want nothing", kept)
+			}
+			for _, r := range s.Store.Snapshot().Runs {
+				if r.CFOUnwoken != 0 {
+					t.Errorf("offered %q; want no item", r.Title)
+				}
+			}
+		})
 	}
 }

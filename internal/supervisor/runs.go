@@ -412,17 +412,36 @@ func (s *Store) withdrawCFOUnwoken(reason string) error {
 	s.mu.Unlock()
 	var err error
 	for _, id := range open {
-		err = errors.Join(err, s.withdrawRun(id, reason))
+		// One the Overlord started, or that expired, since it was read is
+		// no longer the supervisor's to take back.
+		if withdrawErr := s.withdrawRun(id, reason); withdrawErr != nil && s.runReady(id) {
+			err = errors.Join(err, withdrawErr)
+		}
 	}
 	return err
 }
 
-// offeredCFORestart reports whether an item already offered the CFO's restart
-// for the untyped wake oldest, whatever became of it.
-func (s *Store) offeredCFORestart(oldest int) bool {
+// runReady reports whether run item id waits to be run.
+func (s *Store) runReady(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.CFOUnwoken == oldest })
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
+}
+
+// offeredCFORestart reports whether an item offers the CFO's restart for the
+// untyped wake oldest now: one waiting or running, or one that ended within
+// cfoWakeStuckAfter, so a restart that did not help is offered again only
+// after as long a wait as the first, and an expired one at once.
+func (s *Store) offeredCFORestart(oldest int, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool {
+		if r.CFOUnwoken != oldest {
+			return false
+		}
+		isRecent := r.FinishedAt != nil && now.Sub(*r.FinishedAt) < cfoWakeStuckAfter && r.State != "expired"
+		return r.State == "ready" || r.State == "running" || isRecent
+	})
 }
 
 // expireRuns closes each item nobody ran within its lifetime.
