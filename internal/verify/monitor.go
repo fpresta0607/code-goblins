@@ -48,6 +48,14 @@ type Measurement struct {
 // ErrLimit is the failure of a command that ran past its limit.
 var ErrLimit = errors.New("verify: the command ran past its limit")
 
+// ErrNoTurn is the failure of a run that took no turn, so its command never
+// started, and ErrNotStarted that of one that took its turn and gave it back
+// without its command having started.
+var (
+	ErrNoTurn     = errors.New("verify: the run took no turn")
+	ErrNotStarted = errors.New("verify: the command did not start")
+)
+
 // Leftover is a process a command left running, by image name and pid.
 type Leftover struct {
 	Name string `json:"name"`
@@ -157,7 +165,7 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 			pressedSince = time.Now()
 		}
 		if !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain {
-			failure = fmt.Errorf("verify: reserve pressure for %s: physical available %d, reserve %d, commit available %d, reserve %d", monitor.Sustain, headroom.PhysicalAvailable, monitor.Reserve.PhysicalAvailable, headroom.CommitAvailable, monitor.Reserve.CommitAvailable)
+			failure = fmt.Errorf("verify: reserve pressure for %s: %.1f GB of memory and %.1f GB of commit available, under the desktop reserve of %.1f GB and %.1f GB", monitor.Sustain, Gigabytes(headroom.PhysicalAvailable), Gigabytes(headroom.CommitAvailable), Gigabytes(monitor.Reserve.PhysicalAvailable), Gigabytes(monitor.Reserve.CommitAvailable))
 			break
 		}
 		if failure = ctx.Err(); failure != nil {

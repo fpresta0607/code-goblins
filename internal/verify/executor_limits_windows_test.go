@@ -514,3 +514,135 @@ func TestExecutorRetryKeepsTheServiceItsRunSpared(t *testing.T) {
 		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, err)
 	}
 }
+
+// Given its caller's own output, as cfo gate turn gives its console or pipe,
+// the command writes there, the execution keeps no logs, and the result
+// holds no output: the caller keeps it.
+func TestExecutorWritesToItsCallersOutputWhenGivenIt(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	standin.RemoveAtCleanup(t, root)
+	program := filepath.Join(root, "workload.exe")
+	standin.Put(t, program)
+	output, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	errorsOutput, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer errorsOutput.Close()
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, Stdout: output, Stderr: errorsOutput}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Act
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "proof", Stderr: "said", Exit: 0})...)}, 0)
+
+	// Assert
+	if err != nil || result.ExitCode != 0 || len(result.Stdout) != 0 || len(result.Stderr) != 0 {
+		t.Fatalf("result = %+v, %v; want a pass with no output of its own", result, err)
+	}
+	for file, want := range map[*os.File]string{output: "proof", errorsOutput: "said"} {
+		if written, err := os.ReadFile(file.Name()); err != nil || string(written) != want {
+			t.Fatalf("%s holds %q, %v; want %q", file.Name(), written, err, want)
+		}
+	}
+	evidence := readExecution(t, record)
+	if evidence.Status != "passed" || evidence.StdoutLog != "" || evidence.StderrLog != "" {
+		t.Fatalf("evidence = %+v; want a pass that names no logs", evidence)
+	}
+	if logs, err := filepath.Glob(filepath.Join(store, "executions", "*.log")); err != nil || len(logs) != 0 {
+		t.Fatalf("logs = %v, %v; want none", logs, err)
+	}
+}
+
+// A command that shares its caller's console answers an interrupt itself, as
+// a Ctrl+C at the console reaches it directly: the run's context ending
+// leaves it running until it ends, with its own exit code. A command in a
+// group of its own is sent a Ctrl+Break and ended with its run.
+func TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt(t *testing.T) {
+	if os.Getenv(limitsRole) == "answers-late" {
+		if os.WriteFile("started", []byte("started"), 0o600) != nil {
+			os.Exit(8)
+		}
+		time.Sleep(time.Second)
+		os.Exit(3)
+	}
+	for _, test := range []struct {
+		name            string
+		isConsoleShared bool
+		wantOwnExitCode bool
+	}{
+		{name: "sharing the console", isConsoleShared: true, wantOwnExitCode: true},
+		{name: "in a group of its own", isConsoleShared: false, wantOwnExitCode: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			root := t.TempDir()
+			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: test.isConsoleShared}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				waitForFile(t, filepath.Join(root, "started"), 20*time.Second)
+				cancel()
+			}()
+
+			// Act
+			result, _, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt$"}, Env: append(os.Environ(), limitsRole+"=answers-late")}, 0)
+
+			// Assert
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("run = %+v, %v; want it recorded as interrupted", result, err)
+			}
+			if isOwn := result.ExitCode == 3; isOwn != test.wantOwnExitCode {
+				t.Fatalf("exit code = %d; want the command's own 3: %v", result.ExitCode, test.wantOwnExitCode)
+			}
+		})
+	}
+}
+
+// A run that never started its command says why in the error's kind: no
+// turn when it took none, so a caller such as cfo gate turn exits 125, and
+// not started when it took its turn and the command could not start, 126.
+func TestExecutorSaysWhyACommandNeverStarted(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		program string
+		ctx     func() context.Context
+		want    error
+	}{
+		{name: "no turn", program: os.Args[0], ctx: func() context.Context {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return ctx
+		}, want: ErrNoTurn},
+		{name: "not started", program: filepath.Join(t.TempDir(), "missing.exe"), ctx: context.Background, want: ErrNotStarted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
+
+			// Act
+			result, _, err := executor.RunWithin(test.ctx(), execx.Request{Dir: t.TempDir(), Name: test.program}, 0)
+
+			// Assert
+			if !errors.Is(err, test.want) || result.ExitCode != -1 {
+				t.Fatalf("run = %+v, %v; want %v and no exit code", result, err, test.want)
+			}
+			other := ErrNotStarted
+			if test.want == ErrNotStarted {
+				other = ErrNoTurn
+			}
+			if errors.Is(err, other) {
+				t.Fatalf("run error %v is %v as well", err, other)
+			}
+		})
+	}
+}

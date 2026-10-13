@@ -437,7 +437,7 @@ Once, when it takes a turn it waited a second or more for:
 cfo gate turn: took its turn after 3m0s
 ```
 
-Then comes the command's own output, and nothing of `cfo`'s after it but the line of an interrupted run that ended what its command left running.
+Then comes the command's own output, and after it only the lines below that name what the run ended or left running and why it ended its command.
 A gate shows a step's output only once the step has ended, so while a run waits the line is read from outside with `cfo gate turns`.
 
 **What it leaves untouched.**
@@ -452,23 +452,37 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
-| 125 | `cfo gate turn: this run takes no turn: <reason>` | The command was never started. The line's store or the machine's memory could not be read, the wait was interrupted, or the arguments named no command, which also prints the usage. |
-| 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started. |
+| 125 | `cfo gate turn: this run takes no turn: <reason>` | The command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the wait was interrupted, standard output or error was no file, as a process's always is, or the arguments named no command, which also prints the usage. |
+| 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
-A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s unless the run was interrupted and ended what its command left running.
+A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s unless the run named what its command left running or why it ended the command.
 
 **The turn.**
-The turn is held from before the command starts until it has ended, and is given back whatever its exit code.
+The turn is held from before the command starts until the command and what it left running have ended, and is given back whatever its exit code.
 A wrapper that is ended leaves a turn the next run takes at once, since the holder is recorded by process id and start time, so no lock a dead run left ever stops the machine's tests.
 The command runs in a Windows job of its own that every process it starts joins and none can leave, whatever becomes of its parent, and the job ends with the wrapper, so a wrapper ended by force ends its command with everything the command started, and no command runs on outside the turn.
 On Ctrl+C or Ctrl+Break while it waits, `cfo` leaves the line and exits 125.
 While the command runs, `cfo` keeps the turn through the signal and exits with the command's code: the command shares the console, receives the same signal and answers for itself.
-Once it has ended, `cfo` ends what it left running, sparing a machine service, and names each process it ended in one last line:
+Once the command's own process has exited, interrupted or not, what it left running may go on for ten seconds, after which `cfo` ends it and names each process it ended.
+A machine service the command started, Docker Desktop with what it runs, the no-mistakes daemon with its gate agents or the Scrawl server, serves the whole machine, so it is left running and named:
 
 ```text
-cfo gate turn: the run was interrupted, so it ended what its command left running: node.exe pid 5150
+cfo gate turn: its command left node.exe pid 5150 running after it exited, which the run ended
+cfo gate turn: its command started Docker Desktop.exe pid 6120, which serves the whole machine, so the run left it running
 ```
+
+**The measured run.**
+The command runs as a measured execution, as each `cfo verify` command does: its record holds its wait, its CPU time, its memory, its processes and how it ended, and is kept in the report store's `executions` folder with the others and pruned with them after each run.
+It holds none of the command's output, which goes to `cfo`'s own handles and is its caller's to keep.
+While free physical memory or free commit stays under the desktop reserve for ten seconds, 2 GiB of each unless the store's `reserve.json` says otherwise, `cfo` ends the command with everything it started and says so, since the run that holds the turn is the one most likely to hold the memory.
+The command then ends with the exit code Windows gives a process its job ended, 1:
+
+```text
+cfo gate turn: verify: execution 4KQ3NAWZPXDMR7YHTJ2CE6LFBU failed (interrupted): verify: reserve pressure for 10s: 1.2 GB of memory and 9.8 GB of commit available, under the desktop reserve of 2.0 GB and 2.0 GB
+```
+
+Claude goblins are launched with Claude Code's own low-memory ending of idle background shells turned off, since it ended a goblin's queued `cfo gate turn` and lost its place in the line, while this check ends the run that holds the memory.
 
 **A command that takes turns itself.**
 This repository's test command is `cfo gate test`, which takes a turn for each of its checks, and behind the wrapper it would wait for the turn its own wrapper holds, for good.
@@ -485,7 +499,7 @@ An unreadable job or process measurement returns an error, and platforms without
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
 Recovery uses `TerminateAndWait`, which spares nothing.
-The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
+The generic executor's `End` and `Release` contracts are unchanged by these additive APIs, and `cfo gate turn` runs its command through the measured executor described below.
 This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
 `internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
 Its reserve is the memory a run leaves the desktop, a cancellation threshold, not a reservation or a kernel limit.

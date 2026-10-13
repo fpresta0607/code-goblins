@@ -26,9 +26,25 @@ type Executor struct {
 	// blocked on an arbitrary reader after the process exits. Without one the
 	// command reads an empty input.
 	Stdin *os.File
+	// Stdout and Stderr, when both are set, are the command's output, as a
+	// caller's own console or pipe is, so the command sees what its caller
+	// does and the caller keeps the output: the execution keeps no logs and
+	// the result holds no output. Otherwise the command writes to the
+	// execution's logs.
+	Stdout, Stderr *os.File
 	// OutputLimit, 1 GiB unless set, is how much the command may write to
 	// its logs together before its run is interrupted.
 	OutputLimit int64
+	// IsConsoleShared starts the command in this process's console group
+	// rather than in a group of its own, so a Ctrl+C at the console reaches
+	// it as it reaches this process and it answers for itself: the context
+	// then ends only the wait for the turn, and a command that started runs
+	// until it ends. Pressure ends its job with no gentler step first, since
+	// a Ctrl+Break reaches only a whole group, this process's own included.
+	IsConsoleShared bool
+	// Took, when set, is told how long the run waited for its turn, once it
+	// has taken it and before its command starts.
+	Took func(waited time.Duration)
 
 	mu      sync.Mutex
 	pending map[string]*pendingCleanup
@@ -90,22 +106,37 @@ func (executor *Executor) RunWithin(ctx context.Context, request execx.Request, 
 			}
 		}
 	}()
-	stdout, err := os.OpenFile(execution.record.StdoutLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
+	var exitCode int
+	var failure error
+	var output, errorsOutput []byte
+	if executor.Stdout != nil && executor.Stderr != nil {
+		if err := execution.keepNoLogs(); err != nil {
+			err = fmt.Errorf("%w: %w", ErrNoTurn, err)
+			return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
+		}
+		exitCode, failure = executor.execute(ctx, request, limit, pending, executor.Stdout, executor.Stderr)
+		pending.exitCode = exitCode
+	} else {
+		stdout, err := os.OpenFile(execution.record.StdoutLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			err = fmt.Errorf("%w: %w", ErrNoTurn, err)
+			return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
+		}
+		defer stdout.Close()
+		stderr, err := os.OpenFile(execution.record.StderrLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			err = fmt.Errorf("%w: %w", ErrNoTurn, err)
+			return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
+		}
+		defer stderr.Close()
+		exitCode, failure = executor.execute(ctx, request, limit, pending, stdout, stderr)
+		pending.exitCode = exitCode
+		failure = errors.Join(failure, stdout.Sync(), stderr.Sync())
+		var outputError, errorsOutputError error
+		output, outputError = outputTail(execution.record.StdoutLog)
+		errorsOutput, errorsOutputError = outputTail(execution.record.StderrLog)
+		failure = errors.Join(failure, outputError, errorsOutputError)
 	}
-	defer stdout.Close()
-	stderr, err := os.OpenFile(execution.record.StderrLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
-	}
-	defer stderr.Close()
-	exitCode, failure := executor.execute(ctx, request, limit, pending, stdout, stderr)
-	pending.exitCode = exitCode
-	failure = errors.Join(failure, stdout.Sync(), stderr.Sync())
-	output, outputError := outputTail(execution.record.StdoutLog)
-	errorsOutput, errorsOutputError := outputTail(execution.record.StderrLog)
-	failure = errors.Join(failure, outputError, errorsOutputError)
 	if execution.record.Status == "pending" {
 		if err := ctx.Err(); err != nil {
 			failure = errors.Join(failure, err, execution.interrupt())
@@ -125,9 +156,12 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	execution := pending.execution
 	var waited time.Duration
 	refuse := func(failure error) (int, error) { return -1, errors.Join(failure, execution.Refuse(failure, waited)) }
+	// What fails once the turn is taken, before the command starts, gives the
+	// turn back with the command never started.
+	refuseStart := func(failure error) (int, error) { return refuse(fmt.Errorf("%w: %w", ErrNotStarted, failure)) }
 	monitor := executor.Monitor
 	if monitor.Headroom == nil {
-		return refuse(errors.New("verify: machine headroom reader is required"))
+		return refuse(fmt.Errorf("%w: verify: machine headroom reader is required", ErrNoTurn))
 	}
 	admission := executor.Admission
 	admission.Available = nil
@@ -153,18 +187,21 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		}
 	}()
 	if err != nil {
-		return refuse(err)
+		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
+	}
+	if executor.Took != nil {
+		executor.Took(turn.Waited)
 	}
 	// The store's desktop reserve is the least a run leaves the desktop: a
 	// caller may raise it, never lower it.
 	reserve, err := DesktopReserve(turn.dir)
 	if err != nil {
-		return refuse(err)
+		return refuseStart(err)
 	}
 	monitor.Reserve.PhysicalAvailable = max(monitor.Reserve.PhysicalAvailable, reserve.PhysicalAvailable)
 	monitor.Reserve.CommitAvailable = max(monitor.Reserve.CommitAvailable, reserve.CommitAvailable)
 	if err := execution.Admit(turn.Waited); err != nil {
-		return refuse(err)
+		return refuseStart(err)
 	}
 	guard, err := turn.Protect(execution.ID(), execution.Path())
 	if guard.RunID != "" {
@@ -172,13 +209,15 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		pending.isGuardComplete = false
 	}
 	if err != nil {
-		return refuse(err)
+		return refuseStart(err)
 	}
 	if err := execution.Start(); err != nil {
-		return refuse(err)
+		return refuseStart(err)
 	}
 	command := execx.Command(request.Name, request.Args...)
-	command.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
+	if !executor.IsConsoleShared {
+		command.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
+	}
 	command.Dir = request.Dir
 	command.Stdout, command.Stderr = stdout, stderr
 	// A nil file in the interface would hand the command a duplicate of this
@@ -193,7 +232,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	command.Env = append(append([]string(nil), environment...), TurnVariable+"="+turn.Token())
 	tree, err := execx.StartNamedTree(command, guard.Job)
 	if err != nil {
-		failure := err
+		failure := fmt.Errorf("%w: %w", ErrNotStarted, err)
 		measurement := Measurement{State: CleanupUncertain}
 		if command.Process == nil {
 			measurement = Measurement{State: Interrupted, CleanupConfirmed: true}
@@ -221,6 +260,10 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		}
 		return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(command.Process.Pid))
 	}
+	if executor.IsConsoleShared {
+		monitor.Cancel = nil
+	}
+	isLogged := executor.Stdout == nil || executor.Stderr == nil
 	outputLimit := executor.OutputLimit
 	if outputLimit <= 0 {
 		outputLimit = 1 << 30
@@ -229,12 +272,14 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	observe := monitor.Observe
 	monitor.Observe = func(measurement Measurement) error {
 		if measurement.State == Running {
-			written, err := writtenTo(stdout, stderr)
-			if err != nil {
-				return err
-			}
-			if written > outputLimit {
-				return fmt.Errorf("verify: the command wrote %d bytes of output, past its limit of %d", written, outputLimit)
+			if isLogged {
+				written, err := writtenTo(stdout, stderr)
+				if err != nil {
+					return err
+				}
+				if written > outputLimit {
+					return fmt.Errorf("verify: the command wrote %d bytes of output, past its limit of %d", written, outputLimit)
+				}
 			}
 			// A sample is kept every ten seconds, and the final measurement
 			// always, so a long run is not a file write every poll.
@@ -250,7 +295,12 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		}
 		return nil
 	}
-	runContext, stopRun := context.WithCancelCause(ctx)
+	// A command that answers an interrupt itself runs until it ends.
+	parent := ctx
+	if executor.IsConsoleShared {
+		parent = context.WithoutCancel(ctx)
+	}
+	runContext, stopRun := context.WithCancelCause(parent)
 	defer stopRun(nil)
 	if limit > 0 {
 		timer := time.AfterFunc(limit, func() { stopRun(ErrLimit) })

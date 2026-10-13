@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -43,7 +45,8 @@ const (
 	gateTurnTestPrepush = "gate-turn-test-prepush"
 	// gateTurnTestMemoryVariable names a file. While it exists the wrapper's
 	// machine is short of memory: of commit when the file is named
-	// commit-short, and of physical memory otherwise.
+	// commit-short, of physical memory under the desktop reserve when it is
+	// named reserve-short, and of physical memory under the floor otherwise.
 	gateTurnTestMemoryVariable = "CFO_GATE_TURN_TEST_MEMORY"
 )
 
@@ -60,9 +63,12 @@ func runGateTurnTestProgram() (int, bool) {
 		runtime.availableMemory = func() (supervisor.Memory, error) {
 			memory := supervisor.Memory{Available: 64 << 30, CommitAvailable: 64 << 30}
 			if _, err := os.Stat(marker); err == nil {
-				if filepath.Base(marker) == "commit-short" {
+				switch filepath.Base(marker) {
+				case "commit-short":
 					memory.CommitAvailable = 3 << 30
-				} else {
+				case "reserve-short":
+					memory.Available = 1 << 30
+				default:
 					memory.Available = 3 << 30
 				}
 			}
@@ -274,9 +280,36 @@ func (run *turnRun) running(t *testing.T, what string) {
 }
 
 // gateTurn runs cfo gate turn in this process, on a machine with memory to
-// spare.
+// spare. Its output is pipes', as a process's own is files, copied into
+// stdout and stderr as it comes.
 func gateTurn(runtime commandRuntime, stdout, stderr *lockedBuffer, args ...string) int {
-	return runWithRuntime(append([]string{"gate", "turn"}, args...), stdout, stderr, runtime)
+	outputReader, outputWriter, err := os.Pipe()
+	if err != nil {
+		panic(err)
+	}
+	errorsReader, errorsWriter, err := os.Pipe()
+	if err != nil {
+		panic(err)
+	}
+	var copied sync.WaitGroup
+	copied.Add(2)
+	go func() { defer copied.Done(); _, _ = io.Copy(stdout, outputReader) }()
+	go func() { defer copied.Done(); _, _ = io.Copy(stderr, errorsReader) }()
+	exit := runWithRuntime(append([]string{"gate", "turn"}, args...), outputWriter, errorsWriter, runtime)
+	outputWriter.Close()
+	errorsWriter.Close()
+	// A process that outlives the run, as a machine service it left running
+	// does, keeps the pipes open, so the copies are waited for a while and
+	// then cut off.
+	isCopied := make(chan struct{})
+	go func() { copied.Wait(); close(isCopied) }()
+	select {
+	case <-isCopied:
+	case <-time.After(5 * time.Second):
+	}
+	outputReader.Close()
+	errorsReader.Close()
+	return exit
 }
 
 // turnRuntime is the runtime of a machine with memory to spare.
@@ -982,5 +1015,125 @@ func TestGateTurnSaysWhenItsCommandDidNotStart(t *testing.T) {
 	}
 	if holding, waiting, err := verify.Line(slots); err != nil || len(holding) != 0 || len(waiting) != 0 {
 		t.Errorf("the line holds %+v and %+v (%v); want the turn given back", holding, waiting, err)
+	}
+}
+
+// A run keeps a record of its execution with the report store's others, and
+// none of its command's output, which its caller keeps, and prunes the store
+// after it, as a cfo verify tier does.
+func TestGateTurnKeepsARecordOfItsRunButNotItsOutput(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	executions := filepath.Join(filepath.Dir(slots), "executions")
+	if err := os.MkdirAll(executions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := filepath.Join(executions, "AAAAAAAAAAAAAAAAAAAAAAAAAA.json.stdout.log")
+	if err := os.WriteFile(abandoned, []byte("log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(abandoned, old, old); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, turnCommand(dir, "command", 0, false)...)
+
+	// Assert
+	if exit != 0 || stdout.String() != commandOutput("command") {
+		t.Fatalf("exit = %d, stdout = %q; want the command's 0 and its own output", exit, stdout.String())
+	}
+	records, err := filepath.Glob(filepath.Join(executions, "*.json"))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records = %v, %v; want the run's one", records, err)
+	}
+	record, err := verify.LoadExecution(records[0])
+	if err != nil || record.Status != "passed" || record.StdoutLog != "" || record.StderrLog != "" || record.Command[0] != os.Args[0] {
+		t.Fatalf("record = %+v, %v; want the command's pass with no logs", record, err)
+	}
+	if logs, err := filepath.Glob(filepath.Join(executions, "*.log")); err != nil || len(logs) != 0 {
+		t.Fatalf("logs = %v, %v; want none, the abandoned one pruned", logs, err)
+	}
+}
+
+// A machine service the command started, as Docker Desktop serves the whole
+// machine, is left running and named, and the run keeps its command's exit
+// code.
+func TestGateTurnLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	// A name of its own, so the test finds its stand-in among every process.
+	image := "com.docker.standin-" + strings.ToLower(rand.Text()) + ".exe"
+	service := filepath.Join(programs, image)
+	standin.Put(t, service)
+	for _, variable := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--", "cmd", "/d", "/c", "start", "", "/b", service)
+
+	// Assert
+	processes, err := proc.Processes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Whatever the run did, the stand-in it started ends with the test.
+	isRunning := false
+	for _, process := range processes {
+		if strings.EqualFold(process.ExeBase, image) {
+			standin.Hold(t, process.PID)
+			isRunning = true
+		}
+	}
+	if exit != 0 || !isRunning {
+		t.Fatalf("exit = %d, the service runs = %v; want the command's 0 and the service left running; stderr=%q", exit, isRunning, stderr.String())
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()), "cfo gate turn: its command started "+image+" pid") || !strings.Contains(stderr.String(), "which serves the whole machine, so the run left it running") {
+		t.Fatalf("stderr = %q; want a line naming the service left running", stderr.String())
+	}
+}
+
+// Free memory under the desktop reserve for its ten seconds ends the run's
+// command with everything it started, and the run says why: the line's own
+// pressure check, aimed at the run that holds the memory.
+func TestGateTurnEndsItsCommandWhenMemoryStaysUnderTheReserve(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	marker := filepath.Join(t.TempDir(), "reserve-short")
+	run := startGateTurn(t, dir, []string{gateTurnTestMemoryVariable + "=" + marker}, turnCommand(dir, "command", 0, true)...)
+	eventually(t, "the run's command starts", func() bool { return left(dir, "command", "started") })
+
+	// Act
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	exit := run.exit(t, "the run, with memory under the reserve,")
+	if exit == 0 || left(dir, "command", "ended") {
+		t.Fatalf("exit = %d and the command ended by itself = %v; want the command ended by the run; stderr=%q", exit, left(dir, "command", "ended"), run.stderr.String())
+	}
+	if !strings.Contains(run.stderr.String(), "cfo gate turn: ") || !strings.Contains(run.stderr.String(), "reserve pressure") {
+		t.Fatalf("stderr = %q; want a line saying memory stayed under the reserve", run.stderr.String())
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "command.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, isRunning := proc.StartTime(pid); isRunning {
+		t.Fatalf("the command, pid %d, still runs after its run ended it", pid)
 	}
 }

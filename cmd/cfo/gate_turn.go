@@ -49,13 +49,22 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // alone, every line of cfo gate turn's own goes to standard error and starts
 // with its name, and with the turn free and memory to spare it writes none,
 // unless the goblin whose run it is could not be told that it ended
-// (tellGoblinRunEnded). The exit code is the command's. The turn is held until the command has
-// ended, through an interrupt too, which the command is sent as well and
+// (tellGoblinRunEnded). The exit code is the command's. The turn is held
+// until the command has ended, through an interrupt too, which the command
+// is sent as well, in the console group it shares with this run, and
 // answers for itself; an interrupt while the run waits takes it out of the
-// line. The command runs as a tree (execx.StartTree): a run that is ended,
-// as its caller's time limit ends it, ends with everything its command
-// started, and an interrupted run, once its command has ended, ends what
-// the command left running and names it.
+// line.
+//
+// The command runs as a measured execution (verify.Executor), in a job of
+// its own that nothing it starts can leave: a run that is ended, as its
+// caller's time limit ends it, ends with everything its command started.
+// Once the command's own process has exited, what it left running may run
+// on for the linger, after which the run ends it and names each process,
+// but a machine service it started, which serves the whole machine, is left
+// running and named. While free memory or commit stays under the desktop
+// reserve, the run ends its command with everything it started and says so.
+// The execution's record is kept with the report store's others, and holds
+// no output, which is this run's caller's.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	as, command, err := parseGateTurn(args)
 	if err != nil {
@@ -102,43 +111,71 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		}
 		tellGoblinRunEnded(ctx, runtime, os.Getenv, "cfo gate turn", dir, what, exit, time.Since(started), stderr)
 	}
-	turn, err := takeGateTurn(ctx, "cfo gate turn", stderr, stderr, runtime.availableMemory, gateTurnWho(as, command, dir, runtime), 0, verify.NoLimit)
+	executor, err := measuredExecutor("cfo gate turn", gateTurnWho(as, command, dir, runtime), stderr, runtime.availableMemory)
 	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
 		tell(exitNoTurn)
 		return exitNoTurn
 	}
-	defer turn.Release()
-
-	process := execx.Command(command[0], command[1:]...)
-	process.Stdin, process.Stdout, process.Stderr = os.Stdin, stdout, stderr
-	process.Env = append(os.Environ(), verify.TurnVariable+"="+turn.Token())
-	tree, err := execx.StartTree(process)
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %v\n", err)
-		turn.Release()
+	// The command writes to this run's own output, which a process's always
+	// is a file of, so it sees what this run's caller gives it, console or
+	// pipe, and the caller keeps what it writes.
+	commandOutput, isOutputFile := stdout.(*os.File)
+	commandErrors, isErrorsFile := stderr.(*os.File)
+	if !isOutputFile || !isErrorsFile {
+		fmt.Fprintln(stderr, "cfo gate turn: this run takes no turn: its standard output and error are not files, as a process's own are")
+		tell(exitNoTurn)
+		return exitNoTurn
+	}
+	executor.Stdin, executor.Stdout, executor.Stderr = os.Stdin, commandOutput, commandErrors
+	executor.IsConsoleShared = true
+	result, record, runError := executor.RunWithin(ctx, execx.Request{Dir: dir, Name: command[0], Args: command[1:]}, 0)
+	// A command whose cleanup was not confirmed keeps the machine's line
+	// until it is, and this process is its only owner.
+	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := executor.RetryCleanup(cleanup); err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: what its command left may not all have ended: %s\n", oneLine(err))
+	}
+	if evidence, err := verify.LoadExecution(record); record != "" && err == nil {
+		if leftovers := evidence.Measurement.Leftovers; len(leftovers) > 0 {
+			fmt.Fprintf(stderr, "cfo gate turn: its command left %s running after it exited, which the run ended\n", processNames(leftovers))
+		}
+		if spared := evidence.Measurement.Spared; len(spared) > 0 {
+			fmt.Fprintf(stderr, "cfo gate turn: its command started %s, which serves the whole machine, so the run left it running\n", processNames(spared))
+		}
+	}
+	if err := verify.PruneExecutions(time.Now()); err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: old execution records could not all be removed: %s\n", oneLine(err))
+	}
+	switch {
+	case errors.Is(runError, verify.ErrNoTurn):
+		why := oneLine(runError)
+		if errors.Is(runError, context.Canceled) {
+			why = "it was interrupted while it waited"
+		}
+		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s\n", why)
+		tell(exitNoTurn)
+		return exitNoTurn
+	case errors.Is(runError, verify.ErrNotStarted):
+		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %s\n", oneLine(runError))
 		tell(exitNotStarted)
 		return exitNotStarted
+	case runError != nil && !isInterrupted.Load():
+		fmt.Fprintf(stderr, "cfo gate turn: %s\n", oneLine(runError))
 	}
-	// What Wait returns for a command that ended is its exit status, which
-	// the run passes on as it is.
-	process.Wait()
-	// A command Ctrl+C ended can end before this run is told of the
-	// interrupt, and its exit status says so then.
-	if isInterrupted.Load() || process.ProcessState.ExitCode() == statusControlCExit {
-		ended, err := tree.End()
-		if len(ended) > 0 {
-			fmt.Fprintf(stderr, "cfo gate turn: the run was interrupted, so it ended what its command left running: %s\n", execx.Names(ended))
-		}
-		if err != nil {
-			fmt.Fprintf(stderr, "cfo gate turn: the run was interrupted, and what its command left running may not all have ended: %v\n", err)
-		}
-	} else if err := tree.Release(); err != nil {
-		fmt.Fprintf(stderr, "cfo gate turn: what its command left running may have ended with it, since it could not be let go: %v\n", err)
+	exit := result.ExitCode
+	// A command whose own exit status could not be read failed all the same.
+	if exit < 0 {
+		exit = 1
 	}
-	exit := process.ProcessState.ExitCode()
-	turn.Release()
 	tell(exit)
 	return exit
+}
+
+// oneLine is err's text on one line, the errors it joins separated by commas.
+func oneLine(err error) string {
+	return strings.ReplaceAll(err.Error(), "\n", ", ")
 }
 
 // parseGateTurn reads cfo gate turn's arguments: its own before --, the
