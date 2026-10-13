@@ -1909,6 +1909,9 @@ Both Windows CI and the release workflow install from the lockfile, check the fr
 The runtime executable embeds those assets and requires no Node process.
 The board names the build it serves, a hash of its `index.html`, which names every hashed file of the bundle, in the page (`<meta name="cfo-build">`) and in every snapshot, on `/api/snapshot` and on the event stream.
 A tab whose loaded build differs from the one served, such as one left open across an install, reloads itself while it is hidden, the event stream is live and the Overlord is not mid-answer (the Command Center closed, no card in it and no comment on a diff keeping an answer not yet sent, no terminal listening to dictation, and no text field holding text), and otherwise shows one line, The board was updated, with Reload; a page loaded without a build, such as from the dev server, never acts.
+The AFK report and the terminals are pages the board fetches the first time they are shown, and a tab loaded before an install asks for its own build's page, which the new supervisor no longer serves.
+Such a page draws nothing in its place, so the rest of the board stays drawn, and the board tells the CFO why.
+With the event stream live and the Overlord not mid-answer, the tab then reloads onto the served build once for the build it loaded, and otherwise, or when the page is still missing after that reload, it shows The board was updated with Reload.
 For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies API calls to a supervisor on `127.0.0.1:4310`, translating only that explicit local development origin.
 `BOARD_DEV_PORT` sets the port the dev server listens on; it defaults to `5173`, and the translated origin follows it.
 `BOARD_SUPERVISOR` sets the supervisor the dev server proxies API calls to, such as an example fixture; it defaults to `http://127.0.0.1:4310`.
