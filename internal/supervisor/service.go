@@ -1257,8 +1257,11 @@ type Snapshot struct {
 	// from an older one can tell the board was updated.
 	Build string `json:"build,omitempty"`
 	// CFORuns says a CFO is registered and running or starting in its native
-	// terminal; without one the board shows its first-run page.
+	// terminal.
 	CFORuns bool `json:"cfo_runs"`
+	// CFOConfigured says the home has a valid saved harness, even when no
+	// CFO has registered yet or its last start failed.
+	CFOConfigured bool `json:"cfo_configured"`
 	// CFOStarting says native terminal cfo is up for a CFO not registered
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
@@ -1365,6 +1368,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	if firstRun := s.Options.FirstRun; firstRun != nil && firstRun.SavedAgent != nil {
+		out.CFOConfigured = firstRun.SavedAgent() != ""
+	}
 	out.CFOTerminalSince = cfo.since
 	out.CFOConversationLeft = s.cfoConversationLeft()
 	if cfo.registered {
