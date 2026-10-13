@@ -42,6 +42,7 @@ func TestDesktopReserveRefusesASettingItCannotTrust(t *testing.T) {
 		"not json":                `physical 2`,
 		"one dimension":           `{"physical_gib": 2}`,
 		"zero":                    `{"physical_gib": 0, "commit_gib": 2}`,
+		"under half a gigabyte":   `{"physical_gib": 2, "commit_gib": 0.25}`,
 		"negative":                `{"physical_gib": 2, "commit_gib": -1}`,
 		"at the admission floor":  `{"physical_gib": 4, "commit_gib": 2}`,
 		"an unknown setting":      `{"physical_gib": 2, "commit_gib": 2, "estimate_gib": 6}`,

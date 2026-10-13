@@ -19,8 +19,8 @@ import (
 var DefaultDesktopReserve = Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}
 
 // DesktopReserve reads the machine's desktop reserve from reserve.json in
-// the admission store dir, {"physical_gib": 2, "commit_gib": 2}, each above
-// zero and under the admission floor. A store without the file keeps the
+// the admission store dir, {"physical_gib": 2, "commit_gib": 2}, each at
+// least half a gigabyte and under the admission floor. A store without the file keeps the
 // default. Any other content is refused, so a broken setting never runs a
 // heavy command without its reserve.
 func DesktopReserve(dir string) (Headroom, error) {
@@ -49,8 +49,8 @@ func DesktopReserve(dir string) (Headroom, error) {
 	}
 	limit := float64(floor) / (1 << 30)
 	for _, value := range []*float64{setting.PhysicalGiB, setting.CommitGiB} {
-		if value == nil || !(*value > 0 && *value < limit) {
-			return Headroom{}, fmt.Errorf("verify: reserve.json must set physical_gib and commit_gib above 0 and under the %.0f GiB admission floor", limit)
+		if value == nil || !(*value >= 0.5 && *value < limit) {
+			return Headroom{}, fmt.Errorf("verify: reserve.json must set physical_gib and commit_gib from 0.5 to under the %.0f GiB admission floor", limit)
 		}
 	}
 	return Headroom{PhysicalAvailable: uint64(*setting.PhysicalGiB * (1 << 30)), CommitAvailable: uint64(*setting.CommitGiB * (1 << 30))}, nil

@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,7 +174,7 @@ func TestMonitorDoesNotCompleteWhenTheFinalSampleCancels(t *testing.T) {
 	}
 }
 
-func TestMonitorEndsAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) {
+func TestMonitorFailsTheRunAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) {
 	// Arrange
 	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, members: []execx.EndedProcess{{Name: "node.exe", PID: 4242}}}
 	exited := make(chan struct{})
@@ -188,8 +189,8 @@ func TestMonitorEndsAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) 
 	result, err := monitor.Watch(ctx, tree)
 
 	// Assert
-	if err != nil || result.State != Completed || !result.CleanupConfirmed || !tree.wasCleaned {
-		t.Fatalf("result = %+v, err = %v", result, err)
+	if err == nil || !strings.Contains(err.Error(), "node.exe pid 4242") || result.State != Interrupted || !result.CleanupConfirmed || !tree.wasCleaned {
+		t.Fatalf("result = %+v, err = %v, want the run failed for what it left", result, err)
 	}
 	if len(result.Leftovers) != 1 || result.Leftovers[0] != (Leftover{Name: "node.exe", PID: 4242}) {
 		t.Fatalf("leftovers = %+v, want node.exe pid 4242", result.Leftovers)

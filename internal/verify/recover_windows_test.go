@@ -31,7 +31,9 @@ const recoveryRole = "VERIFY_RECOVERY_ROLE"
 func controlAnExecution() int {
 	executor := Executor{
 		Admission: Admission{Dir: os.Getenv("VERIFY_RECOVERY_ADMISSION"), Who: "a recovery fixture", Limit: time.Minute, Poll: 5 * time.Millisecond},
-		Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: func() (Headroom, error) {
+		// The descendant must outlive the run until the test kills its
+		// controller, so the linger outlasts the test.
+		Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: time.Hour, Headroom: func() (Headroom, error) {
 			return Headroom{PhysicalAvailable: 64 << 30, CommitAvailable: 64 << 30}, nil
 		}},
 	}

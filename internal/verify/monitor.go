@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -38,6 +39,9 @@ type Measurement struct {
 	Leftovers []Leftover `json:"leftovers,omitempty"`
 }
 
+// ErrLimit is the failure of a command that ran past its limit.
+var ErrLimit = errors.New("verify: the command ran past its limit")
+
 // Leftover is a process a command left running, by image name and pid.
 type Leftover struct {
 	Name string `json:"name"`
@@ -64,8 +68,9 @@ type Monitor struct {
 	Grace    time.Duration
 	// Exited is closed once the command's own process has exited. Linger,
 	// ten seconds unless set, is how long what it left running may run on
-	// after it before the run ends that and names it. Without Exited the
-	// run waits for the whole job.
+	// after it. What still runs then fails the run, since work it may still
+	// have been doing is cut short, and is ended and named. Without Exited
+	// the run waits for the whole job.
 	Exited <-chan struct{}
 	Linger time.Duration
 	// Cancel requests graceful cancellation and must return promptly.
@@ -153,9 +158,12 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 				failure = fmt.Errorf("verify: read what the command left running: %w", err)
 				break
 			}
-			for _, member := range members {
+			named := make([]string, len(members))
+			for index, member := range members {
 				result.Leftovers = append(result.Leftovers, Leftover{Name: member.Name, PID: member.PID})
+				named[index] = fmt.Sprintf("%s pid %d", member.Name, member.PID)
 			}
+			failure = fmt.Errorf("verify: the command left %s running %s after it exited, which the run ended", strings.Join(named, ", "), monitor.Linger)
 			break
 		}
 		// The command's exit is sampled at once, so a quick command does not

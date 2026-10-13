@@ -206,7 +206,8 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime) ([]verifyrun.Result, error) {
 	executor, err := measuredExecutor(name, fmt.Sprintf("%s %s of task %s", name, scope, taskLabel(meta.ID, runtime)), stderr, runtime.availableMemory)
 	if err != nil {
-		return nil, fmt.Errorf("%s: this run takes no turn: %w", name, err)
+		// What an earlier run saved there must not stand for this one.
+		return nil, errors.Join(fmt.Errorf("%s: this run takes no turn: %w", name, err), verifyrun.Save(path, []verifyrun.Result{}))
 	}
 	res, runError := verifyrun.Runner{Commands: executor}.Run(context.Background(), cmds, scope, meta.ID, "", meta.Worktree, limit)
 	// A command whose cleanup was not confirmed keeps the machine's line
@@ -257,6 +258,15 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		cmds = append(cmds, m.Security.Deep...)
 	}
 	p := filepath.Join(meta.TaskTmp, "security.json")
+	if len(cmds) == 0 && !needsDeep {
+		// The mode asked for no scan of this change.
+		if err := verifyrun.Save(p, []verifyrun.Result{}); err != nil {
+			fmt.Fprintf(stderr, "cfo security: what the tier did could not be saved to %s: %v\n", p, err)
+			return 1
+		}
+		fmt.Fprintln(stdout, p)
+		return 0
+	}
 	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime)
 	if e != nil {
 		fmt.Fprintln(stderr, e)

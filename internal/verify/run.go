@@ -78,7 +78,7 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 		var isTimedOut bool
 		if measured, isMeasured := r.Commands.(measuredRunner); isMeasured {
 			res, record, err = measured.RunWithin(ctx, request, timeout)
-			isTimedOut = errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
+			isTimedOut = errors.Is(err, ErrLimit)
 		} else {
 			cctx := ctx
 			var cancel context.CancelFunc

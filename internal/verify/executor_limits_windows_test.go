@@ -60,8 +60,8 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 0)
 
 	// Assert
-	if err != nil || result.ExitCode != 0 {
-		t.Fatalf("a command that passed and left a child = %+v, %v", result, err)
+	if err == nil || !strings.Contains(err.Error(), "running") || result.ExitCode != 0 {
+		t.Fatalf("a command that exited 0 and left a child = %+v, %v, want its own exit code and the run failed", result, err)
 	}
 	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Second))))
 	if err != nil {
@@ -76,8 +76,8 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 	}
 	evidence := readExecution(t, record)
 	leftovers := evidence.Measurement.Leftovers
-	if evidence.Status != "passed" || len(leftovers) != 1 || leftovers[0].PID != childPID || !strings.EqualFold(leftovers[0].Name, filepath.Base(os.Args[0])) {
-		t.Fatalf("evidence = %+v, want a pass naming child pid %d as left running", evidence, childPID)
+	if evidence.Status != "failed" || evidence.ExitCode == nil || *evidence.ExitCode != 0 || len(leftovers) != 1 || leftovers[0].PID != childPID || !strings.EqualFold(leftovers[0].Name, filepath.Base(os.Args[0])) {
+		t.Fatalf("evidence = %+v, want a failure naming child pid %d as left running", evidence, childPID)
 	}
 }
 
@@ -108,20 +108,20 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 		t.Fatalf("the holder said %q, %v", line, err)
 	}
 	go func() {
-		time.Sleep(time.Second)
+		time.Sleep(4 * time.Second)
 		release.Close()
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Act
-	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 500*time.Millisecond)
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 2*time.Second)
 
 	// Assert
 	if err != nil || result.ExitCode != 0 || string(result.Stdout) != "ran" {
 		t.Fatalf("a quick command behind a longer wait = %+v, %v", result, err)
 	}
-	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 0.5 {
+	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 3 {
 		t.Fatalf("evidence = %+v, want a pass after a wait longer than the limit", evidence)
 	}
 }
@@ -143,7 +143,7 @@ func TestExecutorLimitEndsACommandThatOutrunsIt(t *testing.T) {
 	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorLimitEndsACommandThatOutrunsIt$"}, Env: append(os.Environ(), limitsRole+"=sleeper")}, 300*time.Millisecond)
 
 	// Assert
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 15*time.Second {
+	if !errors.Is(err, ErrLimit) || time.Since(started) > 15*time.Second {
 		t.Fatalf("a command past its limit = %v after %s", err, time.Since(started))
 	}
 	evidence := readExecution(t, record)
@@ -177,5 +177,22 @@ func TestExecutorRefusesAnUntrustedDesktopReserveBeforeStarting(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(executor.Admission.Dir, "slot-1")); !os.IsNotExist(err) {
 		t.Fatalf("the refused run kept its turn: %v", err)
+	}
+}
+
+func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: time.Second, Headroom: plentyOfMemory}}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Act
+	_, _, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 500*time.Millisecond)
+
+	// Assert
+	if err == nil || errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("a command that exited inside its limit = %v, want only what it left to fail the run", err)
 	}
 }

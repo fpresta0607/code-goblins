@@ -486,11 +486,13 @@ This accounting alone does not establish trusted execution evidence or authorize
 Its reserve is the memory a run leaves the desktop, a cancellation threshold, not a reservation or a kernel limit.
 It sits under the 4 GiB admission floor, since a run admitted at the floor uses the memory between the two, so a reserve at the floor would cancel nearly every run that used its headroom.
 The executor reads it from `reserve.json` in the admission store, as `{"physical_gib": 2, "commit_gib": 2}`, and keeps 2 GiB of each when the file is absent.
-Each value must be above zero and under the admission floor, and any other content, such as an unknown key, a missing dimension or trailing data, refuses the run before it starts.
+Each value must be at least half a gigabyte and under the admission floor, and any other content, such as an unknown key, a missing dimension or trailing data, refuses the run before it starts.
 A caller can raise the reserve but never lower it below the store's.
-Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it and records each process by name and pid as a leftover.
-Leftovers do not change the command's result, and until that process exits the monitor still waits for the whole job.
-`RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and a command its limit ends fails with `context.DeadlineExceeded` and an interrupted record.
+Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it, records each process by name and pid as a leftover, and fails, since work a leftover may still have been doing was cut short.
+The command's own exit code is kept beside that failure.
+Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
+`RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
+A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
 Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.

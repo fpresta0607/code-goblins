@@ -57,3 +57,39 @@ func TestTimeoutEvidence(t *testing.T) {
 		t.Fatalf("unexpected timeout evidence: %#v", got)
 	}
 }
+
+// limitedRunner is a measured runner whose every run fails with failure.
+type limitedRunner struct{ failure error }
+
+func (runner limitedRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	result, _, err := runner.RunWithin(ctx, request, 0)
+	return result, err
+}
+
+func (runner limitedRunner) RunWithin(context.Context, execx.Request, time.Duration) (execx.Result, string, error) {
+	return execx.Result{ExitCode: -1}, "record.json", runner.failure
+}
+
+func TestRunnerCallsOnlyTheCommandsLimitATimeout(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		failure    error
+		isTimedOut bool
+	}{
+		{name: "the command's limit", failure: errors.Join(context.Canceled, ErrLimit), isTimedOut: true},
+		{name: "a wait for custody", failure: context.DeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runner := Runner{Commands: limitedRunner{failure: test.failure}}
+
+			// Act
+			results, err := runner.Run(context.Background(), []project.Command{{"go", "test"}}, "fast", "t", "", "", time.Minute)
+
+			// Assert
+			if err == nil || len(results) != 1 || results[0].TimedOut != test.isTimedOut || results[0].Execution != "record.json" {
+				t.Fatalf("results = %+v, %v, want timed out %v", results, err, test.isTimedOut)
+			}
+		})
+	}
+}

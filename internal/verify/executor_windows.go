@@ -53,8 +53,9 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 // RunWithin is Run with limit, when positive, bounding the command from the
 // moment it starts, so the wait for its turn never counts against it. It
 // also returns the path of the execution's record, or nothing when no record
-// could be made. A command its limit ends fails with
-// context.DeadlineExceeded.
+// could be made. The limit stops once the command's own process exits, so
+// what it left running is judged by the linger alone. A command its limit
+// ends fails with ErrLimit.
 func (executor *Executor) RunWithin(ctx context.Context, request execx.Request, limit time.Duration) (execx.Result, string, error) {
 	if request.Dir == "" {
 		var err error
@@ -215,11 +216,18 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		}
 		return nil
 	}
-	runContext := ctx
+	runContext, stopRun := context.WithCancelCause(ctx)
+	defer stopRun(nil)
 	if limit > 0 {
-		var cancel context.CancelFunc
-		runContext, cancel = context.WithTimeout(ctx, limit)
-		defer cancel()
+		timer := time.AfterFunc(limit, func() { stopRun(ErrLimit) })
+		defer timer.Stop()
+		go func() {
+			select {
+			case <-exited:
+				timer.Stop()
+			case <-runContext.Done():
+			}
+		}()
 	}
 	measurement, failure := monitor.Watch(runContext, tree)
 	if measurement.CleanupConfirmed {
@@ -235,8 +243,8 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		}
 		return -1, failure
 	}
-	if err := runContext.Err(); err != nil {
-		failure = errors.Join(failure, err)
+	if runContext.Err() != nil {
+		failure = errors.Join(failure, context.Cause(runContext))
 		if measurement.State == Completed {
 			measurement.State = Interrupted
 		}

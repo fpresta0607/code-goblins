@@ -237,3 +237,46 @@ func TestSecurityRunsItsCommandsAsMeasuredExecutions(t *testing.T) {
 		t.Fatalf("results = %+v, want one measured security command", results)
 	}
 }
+
+// A security mode that asks for no scan of a change runs nothing and
+// passes, with an empty record.
+func TestSecurityRunsNothingWhenItsModeAsksForNoScan(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"security": {"mode": "changed", "deep": [["git", "version"]]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"security", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if results := savedResults(t, filepath.Join(taskTmp, "security.json")); len(results) != 0 {
+		t.Fatalf("results = %+v, want none", results)
+	}
+}
+
+// A tier that takes no turn overwrites what an earlier run saved, so an old
+// pass never stands for it.
+func TestVerifyClearsAnEarlierResultWhenItTakesNoTurn(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	runtime.availableMemory = nil
+	saved := filepath.Join(taskTmp, "verification-fast.json")
+	if err := os.WriteFile(saved, []byte(`[{"command": ["git", "version"], "exit_code": 0}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || !strings.Contains(stderr.String(), "takes no turn") {
+		t.Fatalf("exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if results := savedResults(t, saved); len(results) != 0 {
+		t.Fatalf("an earlier result still stands: %+v", results)
+	}
+}
