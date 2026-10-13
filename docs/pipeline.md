@@ -472,6 +472,17 @@ So the wrapper gives its command `CFO_VERIFY_TURN`, which names the turn it hold
 A `cfo gate test`, a `cfo gate prepush` or a nested `cfo gate turn` that finds it, with that turn still held by that same live process, runs inside it: it takes no turn, waits for none, and says what it is doing beside the holder's turn.
 Any other value, such as one a process kept from a run that has ended, is ignored, and the run joins the line as every run does.
 
+**Executor accounting.**
+`internal/execx.Tree.Usage` reads cumulative CPU time, current and peak private commitment, active and lifetime process counts from the Windows job, including descendants whose parents exited.
+It samples the private working set separately, which is neither commitment nor a measured lifetime peak.
+These reads are observations, not resource reservations or enforced limits.
+An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
+Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes.
+That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
+It is intended for verification workers, not a command that deliberately starts a shared machine service.
+The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
+This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
+
 **Not in the wrapper.**
 It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
 
