@@ -124,6 +124,8 @@ var arrivals atomic.Int64
 // or was left by a process whose recorded identity is verifiably gone. A
 // run whose wait fails gets the time it had waited with the error, so the
 // wait is on record even though no turn came of it.
+// If cancellation races admission and release fails, the returned turn still
+// owns that slot. Its caller must retain and retry Release despite the error.
 func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := ctx.Err(); err != nil {
 		return Turn{}, err
@@ -223,7 +225,10 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				}
 				if turn.release != nil {
 					if err := ctx.Err(); err != nil {
-						turn.Release()
+						if releaseError := turn.Release(); releaseError != nil {
+							turn.Waited = time.Since(start)
+							return turn, errors.Join(err, releaseError)
+						}
 						return Turn{Waited: time.Since(start)}, err
 					}
 					turn.Waited = time.Since(start)

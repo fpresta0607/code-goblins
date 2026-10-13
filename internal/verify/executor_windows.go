@@ -120,11 +120,8 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 	admission.Reserve.CommitAvailable = max(admission.Reserve.CommitAvailable, monitor.Reserve.CommitAvailable)
 	turn, err := admission.Wait(ctx)
 	waited = turn.Waited
-	if err != nil {
-		return refuse(err)
-	}
 	pending.turn = turn
-	pending.isTurnReleased = false
+	pending.isTurnReleased = turn.release == nil
 	defer func() {
 		if pending.usage != nil && !pending.isGuardComplete {
 			if err := pending.guard.Complete(); err != nil {
@@ -139,6 +136,9 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 			pending.isTurnReleased = true
 		}
 	}()
+	if err != nil {
+		return refuse(err)
+	}
 	_, floor, err := AdmissionLimits(turn.dir)
 	if err != nil {
 		return refuse(err)

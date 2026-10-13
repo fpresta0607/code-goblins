@@ -408,6 +408,67 @@ type delayedCleanup struct {
 	released chan struct{}
 }
 
+type canceledAdmission struct {
+	context.Context
+	cancel     context.CancelFunc
+	dir        string
+	t          *testing.T
+	isCanceled bool
+}
+
+func (ctx *canceledAdmission) Err() error {
+	if !ctx.isCanceled {
+		if _, err := os.Stat(filepath.Join(ctx.dir, "slot-1")); err == nil {
+			ctx.isCanceled = true
+			path := filepath.Join(ctx.dir, "slot-1.run")
+			if err := os.Remove(path); err != nil {
+				ctx.t.Fatal(err)
+			}
+			if err := os.Mkdir(path, 0700); err != nil {
+				ctx.t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(path, "occupied"), nil, 0600); err != nil {
+				ctx.t.Fatal(err)
+			}
+			ctx.cancel()
+		}
+	}
+	return ctx.Context.Err()
+}
+
+func TestExecutorRetainsFailedReleaseWhenAdmissionIsCanceled(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	requested := admission(t)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &canceledAdmission{Context: parent, cancel: cancel, dir: requested.Dir, t: t}
+	executor := Executor{Admission: requested, Monitor: Monitor{Headroom: func() (Headroom, error) {
+		return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
+	}}}
+
+	// Act
+	_, err := executor.Run(ctx, execx.Request{Dir: t.TempDir(), Name: "must-not-start.exe"})
+
+	// Assert
+	if !errors.Is(err, context.Canceled) || len(executor.pending) != 1 {
+		t.Fatalf("canceled admission lost release owner: %v, pending=%d", err, len(executor.pending))
+	}
+	path := filepath.Join(requested.Dir, "slot-1.run")
+	if err := os.Remove(filepath.Join(path, "occupied")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.RetryCleanup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(requested.Dir, "slot-1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recovery left slot held: %v", err)
+	}
+}
+
 func (job *delayedCleanup) Usage() (execx.TreeUsage, error) { return execx.TreeUsage{}, nil }
 func (job *delayedCleanup) TerminateAndWait(ctx context.Context) (execx.TreeUsage, error) {
 	close(job.entered)
