@@ -70,7 +70,8 @@ func tellGoblinRunEnded(ctx context.Context, runtime commandRuntime, getenv func
 	text := fmt.Sprintf("Your run %s ended with exit %d after %s; read its output and carry on from it.", what, exit, took.Round(time.Second))
 	ctx, cancel := context.WithTimeout(ctx, runEndSendWait)
 	defer cancel()
-	if err := runtime.sendText(ctx, h, id, text); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	// An interrupt that ended the send ends the run's telling with it.
+	if err := runtime.sendText(ctx, h, id, text); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "%s: %s could not be told that this run ended: %v\n", name, id, err)
 	}
 }

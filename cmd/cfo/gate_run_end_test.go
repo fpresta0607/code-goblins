@@ -325,3 +325,69 @@ func TestGatePrepushPlanTellsItsGoblinNothing(t *testing.T) {
 		t.Errorf("exit = %d, typed %q; want exit 0 and nothing typed", exit, got)
 	}
 }
+
+// A run whose command could not start tells its goblin so, with the turn
+// given back, as one that ran does: the goblin that left it in the
+// background waits on it all the same.
+func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandDidNotStart(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	h, worktree, proof := goblinTerminal(t, "codex")
+	t.Setenv(host.IDVariable, runEndGoblin)
+	t.Setenv(host.ProofVariable, proof)
+	t.Chdir(worktree)
+	sent := &sentTexts{check: heldTurns(t)}
+	runtime := turnRuntime()
+	runtime.resolveHome = func() (home.Home, error) { return h, nil }
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	missing := filepath.Join(t.TempDir(), "no-such-program.exe")
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, "--as", "suite", "--", missing)
+
+	// Assert
+	got := sent.all()
+	if exit != exitNotStarted || len(got) != 1 || !strings.HasPrefix(got[0], fmt.Sprintf("%s: Your run suite ended with exit %d after ", runEndGoblin, exitNotStarted)) {
+		t.Errorf("exit = %d, typed %q; want exit %d and one line naming the run", exit, got, exitNotStarted)
+	}
+	if strings.Join(sent.checks, "") != "" {
+		t.Errorf("the turn was held by %q as the goblin was told; want it given back first", sent.checks)
+	}
+}
+
+// An interrupted run tells its goblin nothing: whoever interrupted it knows.
+func TestGateTurnInterruptedTellsItsGoblinNothing(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	h, worktree, proof := goblinTerminal(t, "codex")
+	t.Setenv(host.IDVariable, runEndGoblin)
+	t.Setenv(host.ProofVariable, proof)
+	t.Chdir(worktree)
+	dir := commandFolder(t)
+	sent := &sentTexts{}
+	signals := make(chan os.Signal, 1)
+	runtime := turnRuntime()
+	runtime.resolveHome = func() (home.Home, error) { return h, nil }
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.interrupts = func() (<-chan os.Signal, func()) { return signals, func() {} }
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
+	go func() { exited <- gateTurn(runtime, &stdout, &stderr, turnCommand(dir, "command", 9, true)...) }()
+	eventually(t, "the run's command starts", func() bool { return left(dir, "command", "started") })
+
+	// Act
+	signals <- os.Interrupt
+	time.Sleep(100 * time.Millisecond)
+	letGo(t, dir, "command")
+
+	// Assert
+	select {
+	case exit := <-exited:
+		if got := sent.all(); exit != 9 || len(got) != 0 {
+			t.Errorf("exit = %d, typed %q; want the command's 9 and nothing typed", exit, got)
+		}
+	case <-time.After(time.Minute):
+		t.Fatalf("the run had not ended a minute after its command; stderr=%q", stderr.String())
+	}
+}
