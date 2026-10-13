@@ -314,3 +314,40 @@ func TestRemoveAllGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 		t.Errorf("RemoveAll of a folder that is not there: %v", missing)
 	}
 }
+
+// A caller's own budget bounds the wait, however long the wait of a
+// removal that names none is.
+func TestRemoveAllWithinWaitsOnlyItsOwnBudget(t *testing.T) {
+	// Arrange
+	dir := filepath.Join(t.TempDir(), "held")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "state.json")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	var waited time.Duration
+	sleep = func(wait time.Duration) {
+		waited += wait
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { sleep = time.Sleep })
+	const budget = 300 * time.Millisecond
+
+	// Act
+	err = RemoveAllWithin(dir, budget)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("RemoveAllWithin of a folder a reader holds = %v, want a failure naming %s", err, path)
+	}
+	if waited == 0 || waited > budget || transientBudget <= budget {
+		t.Errorf("RemoveAllWithin waited %s, want some wait within its own %s and not the %s of RemoveAll", waited, budget, transientBudget)
+	}
+}
