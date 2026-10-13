@@ -185,6 +185,76 @@ func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 	}
 }
 
+// Every clear is in state/reviews.audit, a page the Overlord ended as much as
+// a card he cleared: a page's cards close as cleared when he ends its review,
+// whether the page is still watched or settles.
+func TestAPageTheOverlordEndsIsAudited(t *testing.T) {
+	for name, close := range map[string]func(*Store, Review, Review) error{
+		"closed":  (*Store).closePage,
+		"settled": (*Store).settlePage,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			page := openReview("waiting-task-1-7", "task-1")
+			page.LavishPage = filepath.Join(h.Data, "task-1", "page.html")
+			store.mu.Lock()
+			store.db.Reviews = append(store.db.Reviews, page)
+			store.mu.Unlock()
+
+			// Act
+			if err := close(store, page, Review{State: "cleared", Reason: "You ended the review on its page."}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
+			if err != nil || !strings.Contains(string(audit), page.ID+" task-1 You ended the review on its page.") {
+				t.Errorf("reviews.audit = %q, %v; want the page's end recorded", audit, err)
+			}
+		})
+	}
+}
+
+// Only a goblin's wait on the Overlord is told when he clears it: any other
+// card he clears has no one waiting on it.
+func TestACommandCenterClearOfAnItemThatIsNoWaitTellsNoOne(t *testing.T) {
+	for _, item := range []Review{openReview("mockups-review-1", "task-1"), openReview("cfo-review-1", "")} {
+		t.Run(item.ID, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			if err := store.acceptReview(item); err != nil {
+				t.Fatal(err)
+			}
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			var told []string
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+				told = append(told, text)
+				return nil
+			}
+			s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+
+			// Act
+			if _, err := store.Queue(Action{ID: "clear-item", Kind: "review_clear", ReviewID: item.ID, Generation: item.Identity}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ProcessOne(context.Background(), s.execute); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			records, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(told) != 0 || slices.ContainsFunc(records, func(r wake.Record) bool { return r.Kind == "review" }) {
+				t.Errorf("a clear of %s told the goblin %q and the CFO %+v, want no one", item.ID, told, records)
+			}
+		})
+	}
+}
+
 // Closed items and their copied images go a set time after they closed; open
 // items never do, and a full list of open items defers a new one.
 func TestReviewsPruneClosedItemsAndNeverDropOpenOnes(t *testing.T) {
