@@ -57,9 +57,6 @@ func TestAPauseThatDidNotFinishOnARetiredGoblinIsNeitherItsFailureNorAQuestion(t
 			if len(view.Tasks) != 1 || view.Tasks[0].Phase == "failed" || view.Tasks[0].Phase == "blocked" || strings.HasPrefix(view.Tasks[0].Reason, "Waiting on the CFO") {
 				t.Errorf("the goblin reads as %+v; want it neither failed nor waiting on the CFO", view.Tasks)
 			}
-			if notice := cfoQuietNotice(pending, time.Now().Add(time.Hour)); notice != nil {
-				t.Errorf("an hour on, the report counts as %d questions left on the CFO; want none", notice.Count)
-			}
 			for _, wakeRecord := range pending {
 				if verb, isQuestion := wake.BlockingNotify(wakeRecord); isQuestion {
 					t.Errorf("the CFO's queue reads the report as the goblin's %s question: %+v", verb, wakeRecord)

@@ -1075,12 +1075,12 @@ A switch that keeps a running goblin's harness resumes the conversation the boar
 The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
 The CFO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
-Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
-Each connection puts its name left and its status right on one line when the Connections region is at least 520px wide, then stacks them below that width, independently of the window's width.
-Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.
+Connections groups MCP servers, repository services and credentials present in the goblin's launch environment as cards, with 16px or larger text: each card has the service's logo on a tile, bundled with the board (Simple Icons marks, and Context7's own MIT icon), or its initial where the board has none, its name, one line on what it does for a known service, and one square button.
+The button is + for a repository service the task does not carry or a project MCP server its harness was not given, and a check for one the task's record names; a credential variable and an MCP server from outside the project's `.mcp.json` have none, and a credential variable the task does not carry has no card, since its service's card offers it.
+Every name carries the board's full-text tip, so a long name the card truncates with an ellipsis still reads in full. A connector that is failing shows one faint mark whose tip and accessible name are its state and reason, with its repair icons beside it; one connected, provided, optional, being checked or not carried shows none.
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
 Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
-A service the task does not carry is not probed: it and each of its credentials read Withheld, with the `cfo auth grant` that gives it and nothing to store, since the value is stored and only kept from this task ([Credentials by need](../AGENTS.md#credentials-by-need)).
+A service the task does not carry is not probed, and its card offers + with nothing to store, since the value is stored and only kept from this task ([Credentials by need](../AGENTS.md#credentials-by-need)).
 Workspace says in one line which services' credentials the goblin's terminal carries, by name.
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
 Opening the dropdown starts a check only when the cached result is older than a minute; the refresh icon, a finished repair card and the first return to the board after each sign-in click always start one.
@@ -1088,12 +1088,13 @@ The dropdown polls only while a check runs, so an open dropdown never rechecks o
 A refresh or finished repair that arrives while a check runs queues one more check after it, and repair icons act on the shown result without starting a check.
 Native environment reads verify the host, process ancestry, working folder and spawn generation; missing runtime evidence remains Unverified.
 Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
-Project MCP servers omitted from the goblin's configuration appear as Withheld, with a token action when the project names a token variable.
+Project MCP servers omitted from the goblin's configuration show as cards with +, and a token action when the project names a token variable and they are failing.
 CLI sign-in is offered only when the service's declared credentials resolve, and launch-disabled MCP servers offer no sign-in.
 Sign-in icons open the manifest's HTTPS login page or a server-generated repair card using the existing Command Center run machinery; key icons create a store-from-clipboard card without reading the clipboard in the browser.
 Fix requests accept connection and action identities only, require the board token and origin, and reject replaced tasks; repair cards verify the task again before running.
+`POST /api/connections/grant` takes a task, its spawn generation, a `service:`, `mcp:` or `withheld:` connection and `grant` or `revoke`, and does what `cfo auth grant` and `cfo auth revoke` (with `--mcp` for a server) do. Past the token and origin checks it takes only a board proven to be the Overlord's own, as AFK mode's switch does, since any program on the PC can read the token. The task's status credits his board, the CFO gets a notify wake, a live native goblin is told to load a granted service's credentials, and the response is the check that follows. The card shows his press at once and keeps it until a finished check shows it, or puts it back with the supervisor's reason.
 Finishing a repair refreshes the cached status, and returning from a browser sign-in rechecks it.
-A stored token does not change an already running native process's environment, so its row remains Missing until the goblin receives it.
+A stored token does not change an already running native process's environment, so its card keeps its Missing mark until the goblin receives it.
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 
@@ -1481,15 +1482,15 @@ An answer the goblin received also reaches the CFO as a `review` wake that asks 
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
 An item addressed to the Overlord has one signal on a visible board: Open Command Center and its count.
-Only the CFO's own questions (`task` empty) wait on him; a goblin's blocked or failed question belongs to the CFO and enters History after it is answered.
+Only the CFO's own questions (`task` empty) wait on him, and a goblin's question the CFO has left unanswered for ten minutes unless its review page's card shows it; any other goblin's question belongs to the CFO and enters History after it is answered.
 A goblin's explicit wait on the Overlord, review page, delivered file, run item and credential request still belong in his queue.
 No item shows an in-page toast or opens the Command Center by itself, including while the CFO's terminal is open.
 Only an open item that asks the Overlord something alerts (the Overlord, 2026-10-07: "alerts should only be open command center questions"): a goblin blocked, failed or done is said on its card and raises no alert, and neither does routine progress.
 A pause or stop the CFO or the Overlord asked for is never drawn as the goblin failing: a stop that did not finish reads Stop did not finish in the action's own colour, a pause that did not finish shows what the goblin is doing, each with its problems behind Details, and its report reaches the CFO as `lifecycle-<phase>`, never as the goblin's own `blocked:` or `failed:` notify, so it holds no question for the CFO and is not counted as one.
 The first snapshot establishes the baseline for items.
-When unanswered blocked or failed wake records, or `goblin_asks` records of a question a goblin asked in prose, have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
-Its `since` is saved once for that stretch and remains the same through answers, reloads, reconnects and supervisor restarts until no question has waited ten minutes.
-The CFO's bar says the notice in place of All quiet while it lasts; it is no alert, and it never offers the goblins' questions to the Overlord.
+A goblin's question with choices waits on the CFO; once the CFO has left it unanswered for ten minutes by the snapshot's `at`, it waits in the Overlord's Command Center too, where he can answer it himself, and it raises no alert.
+The CFO's bar then says, in place of All quiet, how many such questions wait and how long the oldest has, so it never names a question his Command Center does not show.
+The bar counts as at work only the goblins in In progress whose terminals run, never one paused, pausing or resuming, whatever it waits for.
 Before an announcement the board claims the item through `POST /api/announce` (`keys`) and announces only what the answer's `claimed` names.
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
@@ -1837,7 +1838,7 @@ The page holds the same line by itself: while its snapshot says AFK mode is on, 
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
 [The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question the CFO asked him before it turned on, with the choice it recommended, an open review item or wait, a run item nobody ran, and an open credential request.
-A goblin's question waits on the CFO, which answers it, as the Command Center has it (`forOverlord`), so it is never held for him.
+A goblin's question waits on the CFO, which answers it, so it is never held for him, even once the CFO has left it ten minutes and his Command Center shows it (`forOverlord`).
 A goblin's Scrawl page filed while it is on is such a question: `cfo notify --waiting-on overlord --lavish` records its wait as `blocked: <why> (page <link>) options: <choices>` in the goblin's status and the CFO's wake queue, and `cfo review --task --lavish` puts the same notify in the queue once for each item ID, with the item's title, and writes no status line.
 Neither publishes an item for him, and the goblin's command and what it is told back are the same whether it is on or off.
 The choices are the one question the page's `data-lavish-choices` blocks declare, the recommended one marked `(Recommended)`. A page that declares none, several, or choices a question cannot offer (more than eight, one twice, an empty one, one over 500 characters, or one holding `|` or `options:`) is asked with none, and the question still reaches the board, since the page is the question.

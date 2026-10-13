@@ -65,6 +65,49 @@ test("a goblin's question is the CFO's to answer: it never waits on the Overlord
   assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:g-answered"], "answered, it is in History; still waiting on the CFO, it is not");
 });
 
+// The Overlord, 2026-10-13, at a CFO bar saying a question had waited twenty
+// minutes: "the command center is not asking me every question". A goblin's
+// question the CFO has left for ten minutes, as long as the bar waits before
+// it says so, is his to answer too: it waits in his Command Center and is
+// what its goblin has waiting on him, while one the CFO has had for less is
+// still only the CFO's.
+test("a goblin's question the CFO has left for ten minutes waits on the Overlord too", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, at: "2026-10-13T14:03:01Z",
+    tasks: [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }],
+    questions: [question("left", "billing", "2026-10-13T13:43:01Z"), question("fresh", "billing", "2026-10-13T13:55:00Z"), question("answered", "billing", "2026-10-13T13:00:00Z", "succeeded")],
+  });
+
+  // Act
+  const waiting = waitingItems(snapshot).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(waiting, ["question:left"]);
+  assert.deepEqual([...openKeys(snapshot)], ["question:left"]);
+  assert.equal(newestItemOf(snapshot, "billing")?.key, "question:left");
+});
+
+// Answered from his Command Center, the question is no longer pending, and its
+// card stays in this sitting to show how the answer went, as the CFO's own
+// questions' cards do. One its goblin asked while its review page is open is
+// its own card beside the page's, never folded into it.
+test("a goblin's question he answers keeps its card in the sitting, and one beside its goblin's open page is its own card", () => {
+  // Arrange
+  const at = "2026-10-13T14:03:01Z";
+  const tasks = [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }];
+  const sent = parseSnapshot({ healthy: true, at, tasks, questions: [question("left", "billing", "2026-10-13T13:43:01Z", "queued", { answer_id: "answer-1" })] });
+  const besideItsPage = parseSnapshot({ healthy: true, at, tasks,
+    questions: [question("beside-page", "billing", "2026-10-13T13:43:01Z")], reviews: [review("plan-billing", "billing", "2026-10-13T13:40:00Z")] });
+
+  // Act
+  const kept = waitingItems(sent, new Set(["question:left"])).map((item) => item.key);
+  const cards = waitingItems(besideItsPage).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(kept, ["question:left"], "his answered question keeps its card while he is there");
+  assert.deepEqual(cards, ["review:plan-billing", "question:beside-page"], "the page and the question each have their own card");
+});
+
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],
     tasks: ["notes", "billing", "alpha", "zeta"].map((id) => ({ id, phase: "working", generation: "g1", verified: false, archived: false, merged: false })),
