@@ -14,6 +14,7 @@ import { useDictation } from "./useDictation";
 import { useVoice } from "./useVoice";
 import { VoiceBubble } from "./VoiceBubble";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { terminalOf } from "./task-words";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 // A panel that changes size asks for its new grid at once, and while it keeps
@@ -39,6 +40,10 @@ type Connection = { sized: boolean; abort: AbortController; lease: string; frame
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, harness, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; harness: string; instance: string; visible: boolean; shown: boolean; focus?: number }) {
+  // What the CFO is told this terminal is, read when a report goes.
+  const named = task ? terminalOf(task) : "the CFO's terminal";
+  const reportAs = useRef(named);
+  useEffect(() => { reportAs.current = named; }, [named]);
   const host = useRef<HTMLDivElement>(null);
   const pastHost = useRef<HTMLDivElement>(null);
   const history = useRef<Terminal | null>(null);
@@ -214,7 +219,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       liveValue.current = false;
       setLive(false);
       setStatus("Disconnected");
-      reportToCfo("a goblin's terminal", typingHeldReason(reason));
+      reportToCfo(reportAs.current, typingHeldReason(reason));
     };
     // Typing goes one input at a time in order, each with the lease's next
     // number.

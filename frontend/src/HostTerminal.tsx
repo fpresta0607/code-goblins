@@ -22,7 +22,8 @@ const MAX_RETRIES = 5;
 // terminal the CFO runs in. A terminal that ended says how in place of
 // Reconnect. hasMicrophone is false for a command's terminal on its card,
 // which shows the voice bubble only while the dictation keys are held.
-export function HostTerminal({ query, harness, label, instance, visible, shown, focus, hasMicrophone = true }: { query: string; harness: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean }) {
+// reportAs names the terminal in what it reports to the CFO.
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -59,6 +60,8 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     }
   }, [shown]);
   useEffect(() => { harnessValue.current = harness; }, [harness]);
+  const reportAsValue = useRef(reportAs);
+  useEffect(() => { reportAsValue.current = reportAs; }, [reportAs]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
   const wantFocus = useRef(false);
   useEffect(() => {
@@ -99,7 +102,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
           retry = setTimeout(() => setAttempt((prior) => prior + 1), 400 * retries.current);
           return;
         }
-        if (why) reportToCfo("a goblin's terminal", closedReason(code, why));
+        if (why) reportToCfo(reportAsValue.current, closedReason(code, why));
         setReconnecting(false);
         setEndedWhy(ended(code) ? closedReason(code, why) : "");
         setPhase("closed");
