@@ -259,7 +259,15 @@ func TestNewTeammateOverlapExcludesViewerBotsAndStoppedTasks(t *testing.T) {
 }
 
 func TestNewTeammateOverlapKeepsUnknownTimesAndMovedHeadUnread(t *testing.T) {
-	for _, problem := range []string{"item creation", "unparseable creation", "generation", "viewer", "invalid path"} {
+	invalidPaths := map[string]string{
+		"outside path":   "../outside.go",
+		"absolute path":  "/outside.go",
+		"drive path":     "C:/outside.go",
+		"backslash root": `\outside.go`,
+		"dot segment":    "app/./retry.go",
+		"empty segment":  "app//retry.go",
+	}
+	for _, problem := range []string{"item creation", "unparseable creation", "generation", "viewer", "outside path", "absolute path", "drive path", "backslash root", "dot segment", "empty segment"} {
 		t.Run(problem, func(t *testing.T) {
 			service, h, forge, meta, now := overlapFixture(t)
 			switch problem {
@@ -269,13 +277,13 @@ func TestNewTeammateOverlapKeepsUnknownTimesAndMovedHeadUnread(t *testing.T) {
 				forge.activity = strings.Replace(forge.activity, `"createdAt":"`+now.Add(-time.Minute).Format(time.RFC3339)+`"`, `"createdAt":"unparseable"`, 1)
 			case "viewer":
 				forge.activity = strings.ReplaceAll(forge.activity, `"login":"overlord"`, `"login":""`)
-			case "invalid path":
-				forge.paths = "../outside.go\x00"
 			case "generation":
 				meta.SpawnGen = "unparseable"
 				if err := state.WriteTaskMeta(h.State, meta); err != nil {
 					t.Fatal(err)
 				}
+			default:
+				forge.paths = invalidPaths[problem] + "\x00"
 			}
 			if err := service.checkFleet(context.Background(), now); err == nil || !strings.Contains(err.Error(), "overlap") {
 				t.Fatalf("%s was not explicitly unread: %v", problem, err)
@@ -493,6 +501,38 @@ func TestNewTeammateOverlapUsesCommittedRenameAndDeletePaths(t *testing.T) {
 		}
 	}
 	t.Fatal("no committed branch diff was read")
+}
+
+// On 2026-10-13 the board kept an unread overlap warning for a goblin whose
+// branch changed Next.js routes: Git names its changed files exactly, but the
+// read checked them as paths written in prose and refused route groups,
+// bracketed segments and every other name prose would not use.
+func TestNewTeammateOverlapReadsEveryExactGitPath(t *testing.T) {
+	for _, path := range []string{
+		"app/(auth)/login/page.tsx",
+		"app/[account]/settings/page.tsx",
+		"app/@modal/default.tsx",
+		"docs/café menu.md",
+		"docs/my file.md",
+		`docs/say "hi".md`,
+		"docs/tab\there.md",
+		"docs/new\nline.md",
+	} {
+		t.Run(path, func(t *testing.T) {
+			service, h, forge, _, now := overlapFixture(t)
+			forge.paths = path + "\x00"
+			forge.activity = overlapActivity(t, now.Add(-time.Minute), "teammate", []string{path}, "")
+
+			err := service.checkFleet(context.Background(), now)
+
+			if err != nil {
+				t.Fatalf("exact Git path was unread: %v", err)
+			}
+			if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 1 {
+				t.Fatalf("overlap on %q woke %+v, want one wake", path, wakes)
+			}
+		})
+	}
 }
 
 func TestNewTeammateOverlapClaimsOnlyItsRepositoryAndLeavesConstraintsOut(t *testing.T) {
