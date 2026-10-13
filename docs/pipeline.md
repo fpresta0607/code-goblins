@@ -491,14 +491,17 @@ The record names its complete stdout and stderr logs, while the returned command
 Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits.
 Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
 Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
-A custody record names its execution's Windows job, the process that controls the execution and that process's logon session, and it is written before the job or any worker exists.
-The job is named `Local\cfo-verify-` followed by the execution's random run ID, its creation refuses a name that already exists, and no child inherits its handle.
+A custody record names its execution's Windows job and the process that controls the execution, and it is written before the job or any worker exists.
+The job is named `Global\cfo-verify-` followed by the execution's random run ID, in the machine's global namespace so a run in any logon session finds it, its creation refuses a name that already exists, and no child inherits its handle.
 When that controller is verifiably gone, the next admission, or the release of the turn it ran inside, recovers its custody instead of refusing every later run.
 Recovery ends whatever still runs in the job and waits until Windows counts it empty, or finds that no job of that name exists, which means nothing runs in it.
 It still refuses while a process the controller started after recording custody runs outside the job, as a worker created suspended and never assigned to its job would.
+A worker the job's end has just ended, or a controller still exiting, can be listed for a moment, so recovery reads the machine's processes again for a second and a half before it names one.
 A dead controller alone is never taken as proof that its workers are gone.
-A controller whose state cannot be read, a job this process cannot open, a job named in another logon session, a record that names another run's job, or a record that changed during recovery leaves custody in place and refuses admission.
-A recovered execution's record is marked failed and interrupted with a note naming the recovery, and one that had already passed with its cleanup confirmed keeps that result, so recovery never produces a pass.
+A controller whose state cannot be read, a job this process cannot open, a record that names another run's job, or a record that changed during recovery leaves custody in place and refuses admission.
+Each refusal names the custody record's file, and one that names a worker outside the job says to end that process once it is known to be the execution's.
+A recovered execution's pending record is marked failed and interrupted with a note naming the recovery, and one its controller finished keeps its result, so recovery never produces a pass.
+A record recovery cannot read or write stays as it was and never keeps the line shut, since a pending or unreadable record never passes.
 An unreadable custody record still refuses further admission rather than guessing that its workers are gone.
 The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` calls and keeps a confirmed cleanup proof if its evidence write or custody removal needs another attempt.
 Slot release reports errors and stays retryable, and an executor retains final evidence-write failures even after workers have ended.
