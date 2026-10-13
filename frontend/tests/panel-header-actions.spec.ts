@@ -2,15 +2,12 @@ import { expect, holdStream, test, type Locator, type Page } from "./site";
 
 // The Overlord, 2026-10-08 about 21:55Z, of Restart the CFO in the body of
 // the CFO's panel: "what does restart the cfo do.. i want it in header of
-// task panel please right below goblin". About 22:00Z, with a screenshot of
-// the Dev Drive row, its Set up wrapped to "Set" over "up" beside a paragraph
-// that said what a Dev Drive is twice: "setup button placement should be in
-// row with header and fit instead of wrapping and text can be note below it".
+// task panel please right below goblin". On 2026-10-13 every harness control
+// moved into a category of its own named Harness, the CFO's Restart with it.
 // The supervisor is played here: one snapshot on a held stream.
 const NOTE = "An optional drive that Defender scans in performance mode, so files open faster.";
 const EXPLAIN = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion.";
 const LINE = "absent: this machine can have one (A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion), and it is optional; Set up under Dev Drive in the board's Workspace panel puts each step in the Command Center";
-const WAITING = "Its next step waits for you in the Command Center.";
 const drive = (fields: Record<string, unknown> = {}) => ({ state: "absent", line: LINE, explain: EXPLAIN, note: NOTE, action: "set-up", ...fields });
 const snapshot = (fields: Record<string, unknown> = {}) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" },
@@ -31,11 +28,6 @@ async function open(page: Page, first: object) {
   await page.evaluate(() => document.fonts.ready);
 }
 
-async function openWorkspace(page: Page) {
-  await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
-  await expect(page.locator(".dev-drive-setting")).toBeVisible();
-}
-
 const box = async (locator: Locator) => (await locator.boundingBox())!;
 // How many lines a control's words take; a switch with none takes its one.
 const lines = (locator: Locator) => locator.evaluate((element) => {
@@ -54,94 +46,139 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
   test.describe(`at ${size} width`, () => {
     test.use({ viewport });
 
-    test("Restart the CFO sits in the CFO's header right below its name, on one line, and the panel under the header has none", async ({ page }, testInfo) => {
+    test("Restart the CFO sits under Harness in the CFO's task panel, on one line with its harness, and the header has none", async ({ page }, testInfo) => {
       // Arrange
       await open(page, snapshot());
-      const header = page.locator(".panel-header");
-      const restart = header.getByRole("button", { name: "Restart the CFO" });
+      const section = page.locator(".panel-content > .disclosure.harness");
+      const restart = section.getByRole("button", { name: "Restart the CFO" });
+      const selector = section.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
-      await header.screenshot({ path: testInfo.outputPath(`cfo-header-${size}.png`) });
+      await section.locator("> summary").click();
+      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-harness-${size}.png`) });
 
       // Assert
       await expect(restart).toBeVisible();
-      await expect(page.locator(".panel-task").getByRole("button", { name: /Restart/ })).toHaveCount(0);
-      const name = await box(header.locator("#panel-title")), button = await box(restart), status = await box(header.locator(".panel-status"));
-      expect(button.y).toBeGreaterThanOrEqual(name.y + name.height - 1);
-      expect(button.y + button.height).toBeLessThanOrEqual(status.y + 1);
-      expect(Math.abs(button.x - name.x)).toBeLessThan(2);
+      await expect(page.locator(".panel-header").getByRole("button", { name: /Restart|^Harness:/ })).toHaveCount(0);
+      const button = await box(restart);
       expect(await lines(restart)).toBe(1);
-      await expect(restart).toHaveAttribute("data-tip", "Starts the CFO again on its conversation, for a screen that froze.");
+      await expect(restart).toHaveText("Restart");
+      await expect(selector).toBeVisible();
+      const choice = await box(selector);
+      expect(Math.abs(button.y - choice.y)).toBeLessThan(2);
+      expect(choice.x).toBeGreaterThanOrEqual(button.x + button.width);
+      expect(choice.x + choice.width).toBeLessThanOrEqual(viewport.width);
+      expect(await lines(selector)).toBe(1);
       expect(await pageScroll(page)).toBe(0);
     });
 
-    test("Restart in the header still asks first, and Cancel restarts nothing", async ({ page }) => {
+    test("the harness menu dismisses without closing the task panel and Restart sends the selection", async ({ page }) => {
       // Arrange
-      const asked: string[] = [];
+      const asked: { method: string; body: string | null }[] = [];
       await open(page, snapshot());
-      await page.route("**/api/cfo/restart", (route) => { asked.push(route.request().method()); return route.fulfill({ json: {} }); });
+      await page.route("**/api/cfo/restart", (route) => { asked.push({ method: route.request().method(), body: route.request().postData() }); return route.fulfill({ json: {} }); });
+      const section = page.locator(".panel-content > .disclosure.harness");
+      await section.locator("> summary").click();
+      const selector = section.getByRole("button", { name: "Harness: Claude Code" });
 
       // Act
-      await page.locator(".panel-header").getByRole("button", { name: "Restart the CFO" }).click();
-      const dialog = page.getByRole("dialog", { name: "Restart the CFO?" });
-      await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await selector.click();
+      await page.keyboard.press("Escape");
 
       // Assert
-      await expect(dialog).toHaveCount(0);
+      await expect(page.getByRole("menu", { name: "Harness" })).toHaveCount(0);
+      await expect(selector).toBeFocused();
+      await expect(page.locator("#panel-title")).toHaveText("CFO");
       expect(asked).toEqual([]);
+      await selector.click();
+      await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
+      expect(asked).toEqual([]);
+      await section.getByRole("button", { name: "Restart the CFO" }).click();
+      await expect.poll(() => asked).toEqual([{ method: "POST", body: JSON.stringify({ harness: "codex" }) }]);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
     });
 
-    test("each row of the CFO's Workspace keeps its name and its control on one header line, and Set up fits on one line", async ({ page }, testInfo) => {
+    test("the compact terminal header has no restart controls", async ({ page }) => {
       // Arrange
       await open(page, snapshot());
 
       // Act
-      await openWorkspace(page);
-      await page.locator(".dev-drive-setting").screenshot({ path: testInfo.outputPath(`dev-drive-${size}.png`) });
+      await page.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true }).click();
 
       // Assert
-      for (const [row, name, control] of [
-        [page.locator(".start-at-login").filter({ hasText: "Start at login" }), "Start at login", page.getByRole("switch", { name: "Start at login" })],
-        [page.locator(".dev-drive-setting"), "Dev Drive", page.locator(".dev-drive-setting").getByRole("button", { name: "Set up" })],
-      ] as const) {
-        const label = await box(row.getByText(name, { exact: true })), action = await box(control), whole = await box(row);
-        const middle = label.y + label.height / 2;
-        expect(middle, name).toBeGreaterThan(action.y);
-        expect(middle, name).toBeLessThan(action.y + action.height);
-        expect(action.x + action.width, name).toBeLessThanOrEqual(whole.x + whole.width + 1);
-        expect(await lines(control), name).toBe(1);
-      }
+      await expect(page.locator(".panel-header")).toHaveClass(/compact/);
+      await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
+    });
+
+    test("the CFO task panel omits the prompt and explanation while keeping Dev Drive actions", async ({ page }, testInfo) => {
+      // Arrange
+      const settingsRequests: string[] = [];
+      page.on("request", (request) => {
+        if (request.method() === "POST" && /\/api\/(start-at-login|dev-drive)$/.test(request.url())) settingsRequests.push(request.url());
+      });
+      await open(page, snapshot({ start_at_login: { on: size === "desktop" } }));
+
+      // Act
+      await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+      await page.locator(".panel-content > .disclosure.harness > summary").click();
+
+      // Assert
+      await expect(page.getByText("CFO project root", { exact: true })).toBeVisible();
+      await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Harness: Claude Code" })).toBeVisible();
+      await expect(page.locator(".panel-content > .disclosure.connections")).toHaveCount(0);
+      await expect(page.getByText("Choose a goblin to check its connections.", { exact: true })).toHaveCount(0);
+      await expect(page.getByText("Dev Drive", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Set up", exact: true })).toBeEnabled();
+      await expect(page.getByText(NOTE, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(EXPLAIN, { exact: true })).toHaveCount(0);
+      await expect(page.getByText("Start at login", { exact: true })).toHaveCount(0);
+      expect(settingsRequests).toEqual([]);
       expect(await pageScroll(page)).toBe(0);
+      await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`cfo-panel-trimmed-${size}.png`) });
     });
 
-    test("the Dev Drive says its one short note under its header line, once, with no status word", async ({ page }) => {
-      // Arrange
-      await open(page, snapshot());
+    for (const [action, label] of [["set-up", "Set up"], ["try-again", "Try again"], ["attach", "Attach"]] as const) {
+      test(`the Dev Drive ${label} action stays available without explanatory copy`, async ({ page }) => {
+        const requests: { token: string | null; body: string | null }[] = [];
+        await open(page, snapshot({ dev_drive: drive({ action }) }));
+        await page.route("**/api/dev-drive", async (route) => {
+          requests.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postData() });
+          await route.fulfill({ json: { wanted: true } });
+        });
+        await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+        const row = page.locator(".dev-drive-setting");
+        const button = row.getByRole("button", { name: label, exact: true });
+        await expect(row.locator("p")).toHaveCount(0);
+        const nameBox = await box(row.getByText("Dev Drive", { exact: true })), buttonBox = await box(button), rowBox = await box(row);
+        expect(nameBox.y + nameBox.height / 2).toBeGreaterThan(buttonBox.y);
+        expect(nameBox.y + nameBox.height / 2).toBeLessThan(buttonBox.y + buttonBox.height);
+        expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
+        expect(await lines(button)).toBe(1);
+        await button.click();
+        await expect.poll(() => requests).toEqual([{ token: "fixture", body: '{"want":true}' }]);
+        expect(await pageScroll(page)).toBe(0);
+      });
+    }
 
-      // Act
-      await openWorkspace(page);
+    test("Dev Drive keeps its waiting status without explanatory copy", async ({ page }) => {
+      await open(page, snapshot({ dev_drive: drive({ waiting: "create", action: "" }) }));
+      await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
       const row = page.locator(".dev-drive-setting");
-
-      // Assert
-      await expect(row.locator("p")).toHaveCount(1);
-      await expect(row.locator("p")).toHaveText(NOTE);
-      expect((await row.innerText()).split("\n").filter((line) => line.trim())).toEqual(["Dev Drive", "Set up", NOTE]);
-      const note = await box(row.locator("p")), button = await box(row.getByRole("button", { name: "Set up" }));
-      expect(note.y).toBeGreaterThanOrEqual(button.y + button.height - 1);
-    });
-
-    test("a Dev Drive whose next step waits says only that, with nothing to press", async ({ page }) => {
-      // Arrange
-      await open(page, snapshot({ dev_drive: drive({ choice: "wanted", waiting: "create", action: "" }) }));
-
-      // Act
-      await openWorkspace(page);
-      const row = page.locator(".dev-drive-setting");
-
-      // Assert
+      await expect(row.getByRole("status")).toHaveText("Its next step waits for you in the Command Center.");
       await expect(row.getByRole("button")).toHaveCount(0);
-      expect((await row.innerText()).split("\n").filter((line) => line.trim())).toEqual(["Dev Drive", WAITING]);
+      await expect(row).not.toContainText(NOTE);
     });
+
+    test("Dev Drive keeps failed request feedback and allows retry", async ({ page }) => {
+      await open(page, snapshot({ dev_drive: drive({ action: "try-again" }) }));
+      await page.route("**/api/dev-drive", (route) => route.fulfill({ status: 409, json: { error: "Dev Drive setup is busy" } }));
+      await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+      const row = page.locator(".dev-drive-setting");
+      await row.getByRole("button", { name: "Try again", exact: true }).click();
+      await expect(row.locator(".click-feedback")).toHaveText("Dev Drive setup is busy.");
+      await expect(row.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
+    });
+
   });
 }

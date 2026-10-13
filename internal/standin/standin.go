@@ -4,9 +4,6 @@
 package standin
 
 import (
-	"errors"
-	"runtime"
-	"syscall"
 	"testing"
 	"time"
 
@@ -32,33 +29,10 @@ func RemoveAtCleanup(t testing.TB, dir string) {
 	t.Helper()
 	t.Cleanup(func() {
 		started := time.Now()
-		if err := removeAll(dir, releaseWait); err != nil {
+		if err := fsx.RemoveAllWithin(dir, releaseWait); err != nil {
 			t.Errorf("standin: %s could not be removed in the %s after the test: %v", dir, releaseWait, err)
 		} else if waited := time.Since(started); waited > time.Second {
 			t.Logf("standin: %s took %s to remove", dir, waited.Round(time.Millisecond))
 		}
 	})
-}
-
-// The refusals Windows gives for a file it will let go of: ERROR_ACCESS_DENIED
-// for a run program's image, ERROR_SHARING_VIOLATION for a file something
-// still has open. They are the two Go's own t.TempDir cleanup retries.
-const (
-	windowsAccessDenied     syscall.Errno = 5
-	windowsSharingViolation syscall.Errno = 32
-)
-
-// removeAll removes dir, trying again for up to wait while Windows refuses
-// something in it with one of those two.
-func removeAll(dir string, wait time.Duration) error {
-	deadline := time.Now().Add(wait)
-	for {
-		err := fsx.RemoveAll(dir)
-		var refusal syscall.Errno
-		isReleasable := runtime.GOOS == "windows" && errors.As(err, &refusal) && (refusal == windowsAccessDenied || refusal == windowsSharingViolation)
-		if !isReleasable || !time.Now().Before(deadline) {
-			return err
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 }

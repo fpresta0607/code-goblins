@@ -79,3 +79,33 @@ func TestSaveQueuedEngineRejectsBacklogInjection(t *testing.T) {
 		})
 	}
 }
+
+func TestSaveQueuedEngineRecordsExplicitEmptyOverrides(t *testing.T) {
+	h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+	path := filepath.Join(h.Data, "backlog.md")
+	if err := os.WriteFile(path, []byte("## Queued\n- **task** - Keep me (repo: project, harness: claude, model: old, effort: xhigh)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadQueuedTask(h, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = SaveQueuedEngine(h, "task", before.Revision, "", "", "")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := ReadQueuedTask(h, "task")
+	if err != nil || after.Row.Harness != "" || after.Row.Model != "" || after.Row.Effort != "" || after.Row.Repo != "project" || after.Revision == before.Revision {
+		t.Fatalf("automatic choice = %+v, %v", after, err)
+	}
+	for _, key := range []string{"harness", "model", "effort"} {
+		if !after.Row.HasSetting(key) {
+			t.Errorf("automatic %s override was omitted", key)
+		}
+	}
+	if after.Row.HasSetting("mode") {
+		t.Fatal("automatic choice invented a mode override")
+	}
+}

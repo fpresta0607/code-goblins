@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -23,6 +24,14 @@ type Result struct {
 	Status          string    `json:"status,omitempty"`
 	TimedOut        bool      `json:"timed_out,omitempty"`
 	Output          string    `json:"output,omitempty"`
+	// Error is why the command's run failed beyond its exit code, as a
+	// limit that ended it or a turn it never got.
+	Error string `json:"error,omitempty"`
+	// Execution is the path of the command's measured execution record,
+	// for a command run as one, and Leftovers what the command left running
+	// past its linger, which the run ended.
+	Execution string     `json:"execution,omitempty"`
+	Leftovers []Leftover `json:"leftovers,omitempty"`
 	// Packages are what became of each package a test command ran.
 	Packages []PackageResult `json:"packages,omitempty"`
 }
@@ -43,37 +52,75 @@ type PackageResult struct {
 
 type Runner struct{ Commands execx.Runner }
 
+// measuredRunner runs each command as a measured execution whose limit
+// starts with the command rather than with its wait for a turn.
+type measuredRunner interface {
+	RunWithin(ctx context.Context, request execx.Request, limit time.Duration) (execx.Result, string, error)
+}
+
+// Run runs a tier's commands in order until one fails. A tier that names no
+// command, or names an empty one, is refused rather than passed.
 func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task, commit, dir string, timeout time.Duration) ([]Result, error) {
+	if len(commands) == 0 {
+		return nil, fmt.Errorf("verify: the %s tier names no command", scope)
+	}
+	// A tier with an empty command runs none of its commands, so its result
+	// never reads as a pass of the ones before it.
+	for _, c := range commands {
+		if len(c) == 0 || c[0] == "" {
+			return nil, fmt.Errorf("verify: the %s tier names an empty command", scope)
+		}
+	}
 	var out []Result
 	for _, c := range commands {
-		if len(c) == 0 {
-			continue
-		}
-		cctx := ctx
-		var cancel context.CancelFunc
-		if timeout > 0 {
-			cctx, cancel = context.WithTimeout(ctx, timeout)
-		}
 		start := time.Now()
 		// A tier's command starts the checks it runs, so a run cut off ends
 		// them with it: ending the command alone leaves them running with
 		// nothing left to end them.
-		res, err := r.Commands.Run(cctx, execx.Request{Name: c[0], Args: c[1:], Dir: dir, KillTree: true})
-		if cancel != nil {
-			cancel()
+		request := execx.Request{Name: c[0], Args: c[1:], Dir: dir, KillTree: true}
+		var res execx.Result
+		var record string
+		var err error
+		var isTimedOut bool
+		if measured, isMeasured := r.Commands.(measuredRunner); isMeasured {
+			res, record, err = measured.RunWithin(ctx, request, timeout)
+			isTimedOut = errors.Is(err, ErrLimit)
+		} else {
+			cctx := ctx
+			var cancel context.CancelFunc
+			if timeout > 0 {
+				cctx, cancel = context.WithTimeout(ctx, timeout)
+			}
+			res, err = r.Commands.Run(cctx, request)
+			if cancel != nil {
+				cancel()
+			}
+			isTimedOut = cctx.Err() == context.DeadlineExceeded
+			if err != nil {
+				// Only a measured run's result holds an exit code beside
+				// its error.
+				res.ExitCode = -1
+			}
 		}
-		rr := Result{Command: append([]string(nil), c...), Start: start, DurationSeconds: time.Since(start).Seconds(), Scope: scope, Task: task, Commit: commit}
+		rr := Result{Command: append([]string(nil), c...), Start: start, DurationSeconds: time.Since(start).Seconds(), Scope: scope, Task: task, Commit: commit, Execution: record}
 		if err != nil {
-			rr.ExitCode = -1
-			rr.Output = err.Error()
-			if cctx.Err() == context.DeadlineExceeded {
-				rr.TimedOut = true
+			rr.ExitCode = res.ExitCode
+			rr.Output = string(res.Stdout)
+			rr.Error = err.Error()
+			rr.TimedOut = isTimedOut
+			rr.Status = "failed"
+			if isTimedOut {
+				rr.Status = "timed_out"
 			}
 			out = append(out, rr)
 			return out, fmt.Errorf("verify %s: %w", c[0], err)
 		}
 		rr.ExitCode = res.ExitCode
 		rr.Output = string(res.Stdout)
+		rr.Status = "passed"
+		if res.ExitCode != 0 {
+			rr.Status = "failed"
+		}
 		out = append(out, rr)
 		if res.ExitCode != 0 {
 			return out, fmt.Errorf("verify %s exited %d", c[0], res.ExitCode)
@@ -82,6 +129,13 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 	return out, nil
 }
 func Save(path string, v any) error {
+	return save(context.Background(), path, v)
+}
+
+func save(ctx context.Context, path string, v any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -89,5 +143,5 @@ func Save(path string, v any) error {
 	if e != nil {
 		return e
 	}
-	return fsx.AtomicWriteFile(path, append(b, '\n'))
+	return fsx.AtomicWriteFileContext(ctx, path, append(b, '\n'))
 }

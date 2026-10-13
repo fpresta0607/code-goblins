@@ -9,6 +9,7 @@ import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, can
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
+import { CfoUnwokenCard } from "./cfo-unwoken-card";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk, credentialSettled, onThisMachine } from "./credentials";
 import { BrowserSignInCard } from "./browser-signin-card";
@@ -320,7 +321,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   const textOf = (candidate: Item) => candidate.kind === "browser-signin" ? signInHeading(candidate.signin) : candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "browser-signin" ? candidate.signin.created_at : candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
-  const iconOf = (candidate: Item) => candidate.kind === "browser-signin" ? "lock" : candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : "play";
+  const iconOf = (candidate: Item) => candidate.kind === "browser-signin" ? "lock" : candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : candidate.run.cfo_unwoken ? "refresh" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
   const images = !item || item.kind === "run" || item.kind === "credential" || item.kind === "browser-signin" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
@@ -443,6 +444,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
               : item.kind === "browser-signin"
               ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
+              : item.kind === "run" && item.run.cfo_unwoken
+              ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
               : item.kind === "run" && item.run.update
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"

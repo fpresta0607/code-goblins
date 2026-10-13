@@ -107,6 +107,9 @@ type Run struct {
 	// DevDrive is the Dev Drive step the board made this item for: create,
 	// attach, trust or move.
 	DevDrive string `json:"dev_drive,omitempty"`
+	// CFOUnwoken is the oldest wake the supervisor could not type into the
+	// CFO, for the item that offers the Overlord its restart.
+	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -396,6 +399,51 @@ func (s *Store) withdrawRun(id, reason string) error {
 		return fmt.Errorf("the run item was withdrawn, but state/runs.audit was not written: %w", err)
 	}
 	return nil
+}
+
+// withdrawCFOUnwoken takes back the item that offers the Overlord the CFO's
+// restart, while nobody ran it, once the CFO was told of its wakes.
+func (s *Store) withdrawCFOUnwoken(reason string) error {
+	var open []string
+	s.mu.Lock()
+	for _, r := range s.db.Runs {
+		if r.CFOUnwoken != 0 && r.State == "ready" {
+			open = append(open, r.ID)
+		}
+	}
+	s.mu.Unlock()
+	var err error
+	for _, id := range open {
+		// One the Overlord started, or that expired, since it was read is
+		// no longer the supervisor's to take back.
+		if withdrawErr := s.withdrawRun(id, reason); withdrawErr != nil && s.runReady(id) {
+			err = errors.Join(err, withdrawErr)
+		}
+	}
+	return err
+}
+
+// runReady reports whether run item id waits to be run.
+func (s *Store) runReady(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
+}
+
+// offeredCFORestart reports whether an item offers the CFO's restart for the
+// untyped wake oldest now: one waiting or running, or one that ended within
+// cfoWakeStuckAfter, so a restart that did not help is offered again only
+// after as long a wait as the first, and an expired one at once.
+func (s *Store) offeredCFORestart(oldest int, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool {
+		if r.CFOUnwoken != oldest {
+			return false
+		}
+		isRecent := r.FinishedAt != nil && now.Sub(*r.FinishedAt) < cfoWakeStuckAfter && r.State != "expired"
+		return r.State == "ready" || r.State == "running" || isRecent
+	})
 }
 
 // expireRuns closes each item nobody ran within its lifetime.

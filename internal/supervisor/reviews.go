@@ -727,17 +727,7 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		prior.State, prior.Reason, prior.UpdatedAt = "cleared", bounded(r.Reason, 2000), r.UpdatedAt
-		if err := s.save(); err != nil {
-			return err
-		}
-		if err := appendReviewAudit(s.Home.State, *prior); err != nil {
-			s.db.Issues = append(s.db.Issues, prior.ID+" was cleared, but state/reviews.audit was not written: "+bounded(err.Error(), 300))
-			if len(s.db.Issues) > 20 {
-				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
-			}
-			return s.save()
-		}
-		return nil
+		s.auditClear(*prior)
 	case "version":
 		// A wait's next version of its page replaces the item in place: the
 		// same item, with its new words and links, waiting on the Overlord
@@ -780,7 +770,19 @@ func (s *Store) primaryIdentity() (string, error) {
 	return identity, err
 }
 
-// appendReviewAudit records the CFO's clear of an item in state/reviews.audit:
+// auditClear records the clear of item r in state/reviews.audit, or says
+// among the board's issues that it could not. The caller holds the store lock
+// and saves.
+func (s *Store) auditClear(r Review) {
+	if err := appendReviewAudit(s.Home.State, r); err != nil {
+		s.db.Issues = append(s.db.Issues, r.ID+" was cleared, but state/reviews.audit was not written: "+bounded(err.Error(), 300))
+		if len(s.db.Issues) > 20 {
+			s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+		}
+	}
+}
+
+// appendReviewAudit records a clear of an item in state/reviews.audit:
 // when, the item, its goblin and the reason, on one line.
 func appendReviewAudit(stateDir string, r Review) error {
 	task := r.Task
@@ -875,8 +877,12 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
+// clearedFromTheCommandCenter is the reason an item the Overlord cleared on
+// the board reads, in state/reviews.audit as on the item.
+const clearedFromTheCommandCenter = "Cleared from the Command Center."
+
 // clearReview closes open item i, which the Overlord cleared at at, with
-// reason. A page's card shows
+// reason, and records the clear in state/reviews.audit. A page's card shows
 // the question its goblin asked beside the page, so clearing it dismisses
 // that question in the same step, and the IDs of the questions dismissed come
 // back for the CFO to hear of. The caller holds the store lock.
@@ -889,6 +895,7 @@ func (s *Store) clearReview(i int, reason string, at time.Time) []string {
 		}
 	}
 	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, at
+	s.auditClear(s.db.Reviews[i])
 	return dismissed
 }
 
@@ -948,6 +955,33 @@ func noticeAnswerToCFO(stateDir string, r Review, answer string) error {
 	}
 	_, err := wake.PublishEpisode(stateDir)
 	return err
+}
+
+// tellOfAClearedWait tells a goblin whose wait on the Overlord he cleared from
+// the Command Center that it is gone from there, since the goblin still waits
+// on him, and tells the CFO, so a wait he closed is never lost unseen. It
+// returns what could not be told, for the clear's own reason.
+func (s *Service) tellOfAClearedWait(ctx context.Context, id string) string {
+	reviews := s.Store.Snapshot().Reviews
+	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == id })
+	if i < 0 || reviews[i].Task == "" || !strings.HasPrefix(id, "waiting-"+reviews[i].Task+"-") {
+		return ""
+	}
+	r := reviews[i]
+	told := "and the goblin was told"
+	if s.Options.CFO == nil {
+		told = "but the goblin could not be told: message transport is unavailable"
+	} else if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord cleared your wait %s (%s) from the Command Center, so it no longer shows there. If you still need him for it, ask again with cfo notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		told = "but the goblin could not be told: " + bounded(err.Error(), 300)
+	}
+	detail := fmt.Sprintf("the Overlord cleared %s's wait %s (%s) from the Command Center, %s", r.Task, r.ID, r.Title, told)
+	if _, err := wake.Append(s.Store.Home.State, "review", r.Task, bounded(detail, 4000)); err != nil {
+		return " The CFO could not be told: " + bounded(err.Error(), 300)
+	}
+	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
+		return " The CFO could not be told: " + bounded(err.Error(), 300)
+	}
+	return ""
 }
 
 // answerReviewToCFO hands an answer whose goblin is gone to the current CFO.
@@ -1120,15 +1154,23 @@ func carriesQuestion(r Review, q Question) bool {
 	return r.State == "open" && r.Task != "" && r.LavishPage != "" && q.Status == "pending" && q.Task == r.Task && q.Identity == r.Identity
 }
 
-// answerQuestionsOnPage closes the questions item r's page carries as
+// answerQuestionsOnPage closes only the questions captured with the receipt as
 // answered by the Overlord on the page with what he wrote there, and marks
 // their notifies answered, so the CFO's drain retires them.
-func (s *Store) answerQuestionsOnPage(r Review, answer string) error {
+func (s *Store) answerQuestionsOnPage(receipt pageAnswer) error {
 	s.mu.Lock()
+	r := receipt.Item
+	if !s.currentPageVersion(r) {
+		s.mu.Unlock()
+		return nil
+	}
+	answer := strings.Join(receipt.Poll.Prompts, "\n")
 	var seqs []int
 	at := time.Now().UTC()
 	for i := range s.db.Questions {
-		if q := &s.db.Questions[i]; carriesQuestion(r, *q) {
+		if q := &s.db.Questions[i]; carriesQuestion(r, *q) && slices.ContainsFunc(receipt.Questions, func(captured pageQuestion) bool {
+			return captured.ID == q.ID && captured.Identity == q.Identity && captured.CreatedAt.Equal(q.CreatedAt)
+		}) {
 			q.Status, q.Message, q.AnswerID = "succeeded", "Answered on its page.", ""
 			q.Answer, q.AnswerKind = bounded(answer, 4000), "other"
 			q.AnsweredBy, q.AnsweredIn, q.AnsweredAt = "overlord", "page", &at
@@ -1171,11 +1213,11 @@ func (s *Store) closePagesOfQuestion(q Question, by, reason string) {
 	}
 }
 
-// windowClosed records when the review window of open item id disconnected.
-func (s *Store) windowClosed(id string, at time.Time) error {
+// windowClosed records when the captured review's window disconnected.
+func (s *Store) windowClosed(item Review, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return samePageVersion(r, item) && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
@@ -1183,12 +1225,12 @@ func (s *Store) windowClosed(id string, at time.Time) error {
 	return s.save()
 }
 
-// reviseReview marks the open item id as waiting on its reporter's next
+// reviseReview marks the captured open version as waiting on its reporter's next
 // version, which the Overlord asked for on its page at at.
-func (s *Store) reviseReview(id string, at time.Time) error {
+func (s *Store) reviseReview(item Review, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return samePageVersion(r, item) && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
@@ -1196,12 +1238,34 @@ func (s *Store) reviseReview(id string, at time.Time) error {
 	return s.save()
 }
 
-// asksOnPage reports whether item r's page carries a goblin's question still
-// waiting, which the Overlord's word on the page answers.
-func (s *Store) asksOnPage(r Review) bool {
+// questionsOnPage captures the pending questions when a poll first reads an
+// answer. Later polls and recovery cannot extend that answer to new questions.
+func (s *Store) questionsOnPage(r Review) []pageQuestion {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.db.Questions, func(q Question) bool { return carriesQuestion(r, q) })
+	if !s.currentPageVersion(r) || !slices.ContainsFunc(s.db.Reviews, func(current Review) bool { return current.State == "open" && samePageVersion(current, r) }) {
+		return nil
+	}
+	var questions []pageQuestion
+	for _, q := range s.db.Questions {
+		if carriesQuestion(r, q) {
+			questions = append(questions, pageQuestion{ID: q.ID, Identity: q.Identity, CreatedAt: q.CreatedAt})
+		}
+	}
+	return questions
+}
+
+// The caller holds the store lock. A retained row never stands for a newer
+// publication of the same page, even when that publication has another ID.
+func (s *Store) currentPageVersion(item Review) bool {
+	isFound := false
+	for _, r := range s.db.Reviews {
+		if pageKey(r.LavishPage) == pageKey(item.LavishPage) && r.CreatedAt.After(item.CreatedAt) {
+			return false
+		}
+		isFound = isFound || samePageVersion(r, item)
+	}
+	return isFound
 }
 
 func (s *Store) withdrawReview(id, reason string) error {

@@ -417,10 +417,10 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 		want  []string
 	}{
 		{
-			name:  "the fleet's defaults",
+			name:  "automatic routing",
 			row:   "- **next-task** - Ship it (repo: code-goblins)",
 			brief: plainBrief,
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "claude", "--model", "claude-opus-5-5", "--effort", "xhigh"},
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`},
 		},
 		{
 			name:  "what the row and the brief name, the row first",
@@ -432,7 +432,31 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 			name:  "the row's repo when the brief names no project",
 			row:   "- **next-task** - Ship it (repo: PrecisionDocs-AI)",
 			brief: "# Brief\n\n## Task\n\nShip it.\n",
-			want:  []string{"spawn", "next-task", "--project", "PrecisionDocs-AI", "--harness", "claude", "--model", "claude-opus-5-5", "--effort", "xhigh"},
+			want:  []string{"spawn", "next-task", "--project", "PrecisionDocs-AI"},
+		},
+		{
+			name:  "explicit harness only",
+			row:   "- **next-task** - Ship it (harness: claude)",
+			brief: plainBrief,
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "claude"},
+		},
+		{
+			name:  "explicit provider model only",
+			row:   "- **next-task** - Ship it",
+			brief: plainBrief + "\n## Delivery\nmodel: provider/model-id\n",
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--model", "provider/model-id"},
+		},
+		{
+			name:  "explicit effort only",
+			row:   "- **next-task** - Ship it (effort: medium)",
+			brief: plainBrief,
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--effort", "medium"},
+		},
+		{
+			name:  "every row field wins over the brief",
+			row:   "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol, effort: medium, mode: local-only)",
+			brief: plainBrief + "\n## Delivery\nharness: claude\nmodel: opus\neffort: high\nmode: direct-PR\n",
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "medium", "--mode", "local-only"},
 		},
 	}
 	for _, test := range tests {
@@ -473,6 +497,46 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 				t.Fatalf("wake records = %+v, want one notify telling the CFO", records)
 			}
 		})
+	}
+}
+
+func TestQueuedSnapshotShowsOnlyExplicitEngineSettings(t *testing.T) {
+	for _, test := range []struct {
+		name, row, brief, harness, model, effort string
+	}{
+		{name: "automatic", row: "- **next-task** - Ship it", brief: plainBrief},
+		{name: "partial", row: "- **next-task** - Ship it (effort: high)", brief: plainBrief, effort: "high"},
+		{name: "row over brief", row: "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol)", brief: plainBrief + "\nharness: claude\nmodel: opus\neffort: high\n", harness: "codex", model: "gpt-6.1-sol", effort: "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+			queueBriefedTask(t, h, test.row, test.brief)
+			// Act
+			card := cardOf(t, handler, "next-task")
+			// Assert
+			if card.Harness != test.harness || card.Model != test.model || card.Effort != test.effort {
+				t.Fatalf("queued engine=%s/%s/%s, want %s/%s/%s", card.Harness, card.Model, card.Effort, test.harness, test.model, test.effort)
+			}
+		})
+	}
+}
+
+func TestAutomaticStartLeavesUnspecifiedEngineSettingsForRouting(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it (effort: medium)", plainBrief)
+	// Act
+	err := handler.Service.checkFleet(t.Context(), time.Now().UTC())
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := awaitDispatch(t, handler.Service, spawner, 1)
+	want := []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--brief", filepath.Join(h.Data, "next-task", "brief.md"), "--effort", "medium"}
+	if !slices.Equal(calls[0], want) {
+		t.Fatalf("automatic start=%q, want %q", calls[0], want)
 	}
 }
 

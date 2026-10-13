@@ -11,6 +11,15 @@ export function updateAction({ loaded, served, hidden, answering, connected, uns
   return connected && !unsent && (updated || hidden && !answering) ? "reload" : "banner";
 }
 
+// missingPageAction is what a tab does once a page of the board could not
+// arrive, as one loaded before an install meets: with a live connection and
+// nothing he is in the middle of, it reloads onto the build the supervisor
+// serves, once for the build it loaded, since a page still missing after that
+// reload would only reload again. Otherwise it offers the Reload banner.
+export function missingPageAction({ hasReloaded, answering, connected }: { hasReloaded: boolean; answering: boolean; connected: boolean }): "banner" | "reload" {
+  return connected && !answering && !hasReloaded ? "reload" : "banner";
+}
+
 // unsentComment says whether a code-review comment on a diff holds text the
 // Overlord typed and the CFO has not received: not cancelled, and still
 // sending, not sent at all, or sent and not delivered.

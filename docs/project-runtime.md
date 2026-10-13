@@ -49,9 +49,58 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
 }
 ```
 
-`cfo spawn` without `--harness` deterministically classifies the task and selects a lane: from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`cfo doctor` prints it). A lane whose provider or model scope quota-axi reports `exhausted_now` is passed over for the next usable one, and a spawn with no usable lane is refused with the reset time; a missing, stale, or unparseable quota-axi is no evidence. Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default. A project without a manifest routes from the fleet table and gets no capsule. Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory; both contain names and policy, never secret values.
+`cfo spawn` without `--harness` deterministically classifies the task and selects a lane from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`cfo doctor` prints it).
+A missing, stale, or unparseable quota-axi is no evidence of exhaustion.
+Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default.
+A project without a manifest routes from the fleet table and gets no capsule.
+Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory, containing names and policy, never secret values.
 
-Verification is tiered. `cfo verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task, and commit evidence. `cfo security` follows the project security mode. `cfo deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
+### Execution routing
+
+Board starts and automatic starts pass only the engine settings explicitly named by the backlog row or brief, with the row winning separately for each field.
+An unspecified harness, model or effort stays empty until spawn chooses it, and a generated brief preserves those empty settings.
+The queued snapshot therefore describes preferences rather than predicting a dispatched model.
+The board labels empty queued fields Automatic and saves each field independently.
+An explicitly empty backlog field overrides the brief, so returning a field to Automatic does not restore an older brief preference.
+A helper follows its own brief's classification and explicit engine settings, independently of its parent's model.
+Its mode stays local-only, its project and branch stay owned by its parent, and its brief cannot expand inherited credentials or MCP access.
+Invalid explicit settings and a conflicting helper mode are refused before its status or brief is written.
+
+When quota-axi reports a provider or model scope as `exhausted_now`, fallback follows only the capability order the policy declares:
+
+| Task | Permitted lane order |
+| --- | --- |
+| Class-specific work, including mechanical and scout | Class lane, default lane, escalation lane |
+| Ordinary work | Default lane, escalation lane |
+| High-risk work or a second attempt | Escalation lane only |
+
+Each lane is tried at most once.
+If none of the permitted lanes is usable, spawn refuses with their quota evidence and reset time when known.
+High-risk work also refuses when no escalation lane is configured.
+Available quota in an unrelated light lane cannot authorize a downgrade, and arbitrary model names do not establish equivalent capability.
+The existing `routed` diagnostic names the selected lane, class, risk, policy source, wanted lane when fallback occurred and evidence for each lane tried.
+The spawn's task record names the model and effort it actually launches.
+
+The committed `data/routing.json` currently ships Claude lanes: `deep` and `scout` use `fable` at `xhigh`, `build` uses `opus` at `high`, and `mechanical` uses `sonnet` at `medium`.
+Installation writes this table only where it is missing, so a home's tuned policy may differ.
+This routing fix changes neither that shipped table nor any private home's table.
+
+A conservative Codex proposal, to be applied separately after capability-safe fallback is installed, is:
+
+| Lane | Harness | Model | Effort | Intended work |
+| --- | --- | --- | --- | --- |
+| `mechanical` | `codex` | `gpt-6-luna` | `medium` | Narrow, explicitly specified edits with regression checks |
+| `build` (default) | `codex` | `gpt-6.1-sol` | `high` | Ordinary implementation and debugging |
+| `scout` | `codex` | `gpt-6.1-sol` | `medium` | Investigations that produce a report |
+| `deep` (escalation) | `codex` | `gpt-6-astra` | `high` | Architecture, security, migrations, rescue and retries |
+
+These identifiers and effort levels were present in the local Codex catalog on 2026-10-12.
+The allocation is a proposed policy, not a measured equivalence or a benchmark result.
+Official model documentation describes [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra).
+Local catalog availability does not prove account quota, and API pricing does not establish subscription consumption.
+No paid model probe or automatic paid-provider fallback is required to choose or validate the routing policy.
+
+Verification is tiered. `cfo verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task, and commit evidence. Each command waits its turn in the machine's one line for heavy runs and runs as a measured execution, whose record its result names, and its time limit starts when it starts, so its wait in line never counts against it. A tier that names no command, or an empty one, fails, and so does a tier whose result cannot be saved. Before it waits, a tier saves one entry with status `running`, so a tier ended in its wait never leaves an earlier pass standing, and a tier that runs nothing saves one entry with status `not_run` and why. Each command's entry says `passed`, `failed` or `timed_out`. What a command leaves running more than ten seconds after it exits is ended and named on standard error and in the command's entry, and the tier keeps the command's own result. A tier with an empty command runs none of its commands. A security mode that asks for no scan of a change runs nothing, saves an empty result and passes. `cfo security` follows the project security mode. `cfo deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
 
 When a direction is rejected, `cfo supersede <task> --reason ...` records a durable supersede event, writes cleanup instructions, and steers the worker to remove unshipped debris before continuing. `cfo hygiene <task>` reports suspicious test debris without deleting it.
 
@@ -78,7 +127,7 @@ An area passes when none of its lines is worse than `low`, and the command exits
 | Area | What it proves |
 | --- | --- |
 | `checkout` | This machine has a checkout of the project. The line says which branch and commit were read and when that branch was last fetched, and whether the remote's default branch is still at that commit. |
-| `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `cfo verify` passes with nothing run. |
+| `record` | `project.json` is there, the loader takes it, and it names the project it is filed under. Each command of its verification and security tiers is a program this machine has. A record with no verification command is reported, because `cfo verify` then has nothing to run and fails the tier. |
 | `gate` | `.no-mistakes.yaml` is on the default branch, a gate's start takes it under the home's pipeline policy, and each command it names has its program, its script files and its package script. Its test step is the repository's own command, since without one an agent chooses what runs. The repository has a workflow for the gate's ci step to wait for, and CI runs the test runners the gate's test command starts. No env file a goblin's worktree shares holds a production value the test setup does not name, and no credential a task's terminal carries is read by the repository and left unnamed by the test setup. |
 | `configs` | Git ignores every env file of the project except the examples it commits on purpose. What an env file holds decides its line, not what it is called. A credential or the address of a production store in a file git does not ignore is critical, and the report names its variable and never its value. An environment set to production is no credential and nothing to rotate, so it does not count there. A tracked env file that holds none, such as a demo setup committed on purpose, is a `low` line, `env-file-committed`, and nothing tells the reader to rotate. `worktree.json` shares files the checkout holds and installs with programs and files that exist. `services.json` names a compose file the project has, services that file declares, an env file the checkout holds and a check that can run. |
 | `connectors` | Every service `auth.json` declares has a user the check can name. Every credential the code reads from the environment, an env example names or an MCP connector in `.mcp.json` authenticates with is declared by a service. |

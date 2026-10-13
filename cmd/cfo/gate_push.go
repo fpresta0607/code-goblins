@@ -33,7 +33,8 @@ const pushLimit = 15 * time.Minute
 // memory is under the floor and none after its time limit, and ends one
 // still running at the limit. What it does not run it names as left to CI.
 // --plan prints the pick with each command and runs nothing.
-func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
+func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) (exit int) {
+	started := time.Now()
 	flags := flag.NewFlagSet("cfo gate prepush", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	planOnly := flags.Bool("plan", false, "print the pick and run nothing")
@@ -41,6 +42,14 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *limit <= 0 {
 		fmt.Fprintln(stderr, "usage: cfo gate prepush [--plan] [--limit <duration>]")
 		return 2
+	}
+	// A run its goblin may have left in the background tells it how it
+	// ended. Deferred before the turn is taken, it runs once the turn is
+	// given back.
+	if !*planOnly {
+		defer func() {
+			tellGoblinRunEnded(context.Background(), runtime, os.Getenv, "cfo gate prepush", dir, "cfo gate prepush", exit, time.Since(started), stderr)
+		}()
 	}
 	project := ""
 	// Beside a working fleet on 2026-10-10 the pick took 2 to 67 seconds

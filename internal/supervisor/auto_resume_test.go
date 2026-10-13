@@ -299,6 +299,71 @@ func TestAllowancePauseResumesAtItsResetAndTaskPauseRequiresDelivery(t *testing.
 	}
 }
 
+// A goblin given new settings while paused comes back on them, so the
+// scheduler judges its resume by the allowance of the harness it resumes on,
+// never by the one it paused on.
+func TestPausedGoblinResumesByTheAllowanceOfItsResumeChoice(t *testing.T) {
+	for _, testCase := range []struct {
+		name, reason, until, harness, chosen, chosenModel, choiceGeneration, lowProvider string
+		shouldResume                                                                   bool
+	}{
+		{name: "chosen harness at its floor", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "claude", chosen: "codex", lowProvider: "codex"},
+		{name: "paused harness at its floor", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "codex", chosen: "claude", lowProvider: "codex", shouldResume: true},
+		{name: "allowance pause of the paused harness", reason: "allowance", until: "2999-01-01T00:00:00Z", harness: "claude", chosen: "codex", shouldResume: true},
+		{name: "allowance pause kept on the same harness", reason: "allowance", until: "2999-01-01T00:00:00Z", harness: "claude", chosen: "claude"},
+		{name: "allowance pause kept on another model of the same harness", reason: "allowance", until: "2999-01-01T00:00:00Z", harness: "claude", chosen: "claude", chosenModel: "claude-other-model"},
+		{name: "choice of an earlier session", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "claude", chosen: "codex", choiceGeneration: "earlier-generation", lowProvider: "codex", shouldResume: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			now := time.Now().UTC().Truncate(time.Second)
+			meta := pausedGoblin(t, h, "chosen-task", testCase.reason, testCase.until, now.Add(-time.Hour))
+			meta.Harness, meta.Model = testCase.harness, testCase.harness+"-model"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			choice := state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: testCase.chosen, Model: testCase.chosen + "-model", Effort: "high", When: "resume", Requested: now}
+			if testCase.chosenModel != "" {
+				choice.Model = testCase.chosenModel
+			}
+			if testCase.choiceGeneration != "" {
+				choice.Generation = testCase.choiceGeneration
+			}
+			if err := state.WriteEngineChoice(h.State, choice); err != nil {
+				t.Fatal(err)
+			}
+			handler.Service.Options.Quota = func(context.Context) (quota.Report, string) {
+				providers := map[string]quota.Provider{}
+				if testCase.lowProvider != "" {
+					providers[testCase.lowProvider] = quota.Provider{Known: true, Windows: []quota.Window{{ID: "week", Kind: "weekly", PercentUsed: 98, ResetsAt: now.Add(time.Hour)}}, Scopes: map[string]quota.Scope{"all_models": {Name: "all_models", Known: true, PercentRemaining: 2, ResetsAt: now.Add(time.Hour), BoundedBy: []string{"week"}}}}
+				}
+				return quota.Report{Providers: providers}, ""
+			}
+
+			// Act
+			if err := handler.Service.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if testCase.shouldResume {
+				if calls := awaitDispatch(t, handler.Service, spawner, 1); calls[0][0] != "resume" || calls[0][1] != meta.ID {
+					t.Fatalf("dispatch=%v, want %s resumed", calls, meta.ID)
+				}
+				return
+			}
+			handler.Service.starts.Lock()
+			changing := maps.Clone(handler.Service.changing)
+			handler.Service.starts.Unlock()
+			if calls := spawner.recorded(); len(calls) != 0 || len(changing) != 0 {
+				t.Fatalf("resumed against the allowance of its resume harness: dispatches=%v changing=%v", calls, changing)
+			}
+		})
+	}
+}
+
 func TestOverlordsStartWinsOverClearedPause(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)

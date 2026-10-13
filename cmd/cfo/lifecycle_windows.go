@@ -179,8 +179,22 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		launch := func(ctx context.Context) ([]string, error) {
 			return restartLaunchSelection(ctx, commands, gate, returning)
 		}
-		if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}, launch); err != nil {
-			return err
+		branchName := strings.TrimSpace(string(branch.Stdout))
+		shouldRestart := true
+		if meta.Mode == "direct-PR" {
+			// A direct-PR task can have moved to another branch since the
+			// saved pause. Its earlier gate is no gate for the current work.
+			_, err := gate.Interruption(ctx, meta.Project, branchName)
+			if errors.Is(err, pipeline.ErrNoProgress) {
+				shouldRestart = false
+			} else if err != nil {
+				return err
+			}
+		}
+		if shouldRestart {
+			if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: branchName, Intent: prior.GateIntent}, launch); err != nil {
+				return err
+			}
 		}
 	}
 	handoff := ""

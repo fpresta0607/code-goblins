@@ -1,6 +1,7 @@
 package fsx
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -9,6 +10,43 @@ import (
 	"testing"
 	"time"
 )
+
+func TestAtomicWriteFileContextStopsAtDeadlineAndPreservesDestination(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	path := filepath.Join(dir, "record.json")
+	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	// Act
+	started := time.Now()
+	err = AtomicWriteFileContext(ctx, path, []byte("new"))
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+		t.Fatalf("write ignored deadline: %v", err)
+	}
+	data, err := ReadFile(path)
+	if err != nil || string(data) != "old" {
+		t.Fatalf("failed write changed destination: %q, %v", data, err)
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("staged file leaked: %v, %v", files, err)
+	}
+	reader.Close()
+	if err := AtomicWriteFileContext(context.Background(), path, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // A reader that opens a file the way Go's os.Open and PowerShell's
 // Get-Content do, without FILE_SHARE_DELETE, makes a rename over that file
@@ -274,5 +312,42 @@ func TestRemoveAllGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 	}
 	if missing != nil {
 		t.Errorf("RemoveAll of a folder that is not there: %v", missing)
+	}
+}
+
+// A caller's own budget bounds the wait, however long the wait of a
+// removal that names none is.
+func TestRemoveAllWithinWaitsOnlyItsOwnBudget(t *testing.T) {
+	// Arrange
+	dir := filepath.Join(t.TempDir(), "held")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "state.json")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	var waited time.Duration
+	sleep = func(wait time.Duration) {
+		waited += wait
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { sleep = time.Sleep })
+	const budget = 300 * time.Millisecond
+
+	// Act
+	err = RemoveAllWithin(dir, budget)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("RemoveAllWithin of a folder a reader holds = %v, want a failure naming %s", err, path)
+	}
+	if waited == 0 || waited > budget || transientBudget <= budget {
+		t.Errorf("RemoveAllWithin waited %s, want some wait within its own %s and not the %s of RemoveAll", waited, budget, transientBudget)
 	}
 }

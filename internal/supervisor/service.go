@@ -269,6 +269,7 @@ type Service struct {
 	// one runs. pageWork waits for the pollers and the sweep.
 	pagesMu      sync.Mutex
 	pages        map[string]bool
+	pageTellers  map[string]bool
 	pageSwept    time.Time
 	pageSweeping bool
 	// pagesFailing counts the sweeps in a row on which each page could not be
@@ -971,7 +972,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	// dismissed question, or holds the goblin's notify that did, so it hears
 	// here that the Overlord dismissed it.
 	if a.Kind == "review_clear" || a.Kind == "question_clear" {
-		evaluation := Evaluation{Reason: "Cleared from the Command Center."}
+		evaluation := Evaluation{Reason: clearedFromTheCommandCenter}
 		if a.Kind == "question_clear" && len(a.Dismissed) > 0 {
 			evaluation.Reason = "Dismissed from the Command Center."
 		}
@@ -993,6 +994,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 				}
 				evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
 			}
+		}
+		if a.Kind == "review_clear" {
+			evaluation.Reason += s.tellOfAClearedWait(ctx, a.ReviewID)
 		}
 		return evaluation, nil
 	}
