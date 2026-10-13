@@ -201,15 +201,28 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 
 // runMeasuredTier runs a tier's commands as measured executions in the
 // machine's one line for heavy runs, each limited from when it starts, and
-// saves what became of each to path. A result that cannot be saved fails
-// the tier, since nothing else would show what it did.
+// saves what became of each to path. Before it waits it saves that the tier
+// is running, so a tier ended in its wait never leaves an earlier pass
+// standing, and a tier that ran nothing saves why with status not_run. A
+// result that cannot be saved fails the tier, since nothing else would show
+// what it did.
 func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime) ([]verifyrun.Result, error) {
+	running := verifyrun.Result{Scope: scope, Task: meta.ID, Start: time.Now(), ExitCode: -1, Status: "running"}
+	if err := verifyrun.Save(path, []verifyrun.Result{running}); err != nil {
+		return nil, fmt.Errorf("%s: what the tier does could not be saved to %s: %w", name, path, err)
+	}
+	notRun := func(failure error) []verifyrun.Result {
+		return []verifyrun.Result{{Scope: scope, Task: meta.ID, Start: running.Start, ExitCode: -1, Status: "not_run", Error: failure.Error()}}
+	}
 	executor, err := measuredExecutor(name, fmt.Sprintf("%s %s of task %s", name, scope, taskLabel(meta.ID, runtime)), stderr, runtime.availableMemory)
 	if err != nil {
-		// What an earlier run saved there must not stand for this one.
-		return nil, errors.Join(fmt.Errorf("%s: this run takes no turn: %w", name, err), verifyrun.Save(path, []verifyrun.Result{}))
+		failure := fmt.Errorf("%s: this run takes no turn: %w", name, err)
+		return nil, errors.Join(failure, verifyrun.Save(path, notRun(failure)))
 	}
 	res, runError := verifyrun.Runner{Commands: executor}.Run(context.Background(), cmds, scope, meta.ID, "", meta.Worktree, limit)
+	if len(res) == 0 && runError != nil {
+		res = notRun(runError)
+	}
 	// A command whose cleanup was not confirmed keeps the machine's line
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -217,6 +230,19 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	failure := errors.Join(runError, executor.RetryCleanup(cleanup))
 	if err := verifyrun.Save(path, res); err != nil {
 		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
+	}
+	for _, result := range res {
+		if result.Execution == "" {
+			continue
+		}
+		// A record that cannot be read here still holds its leftovers.
+		if record, err := verifyrun.LoadExecution(result.Execution); err == nil && len(record.Measurement.Leftovers) > 0 {
+			named := make([]string, len(record.Measurement.Leftovers))
+			for index, leftover := range record.Measurement.Leftovers {
+				named[index] = fmt.Sprintf("%s pid %d", leftover.Name, leftover.PID)
+			}
+			fmt.Fprintf(stderr, "%s: %s left %s running after it exited, which the run ended\n", name, strings.Join(result.Command, " "), strings.Join(named, ", "))
+		}
 	}
 	return res, failure
 }

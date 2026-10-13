@@ -488,9 +488,12 @@ It sits under the 4 GiB admission floor, since a run admitted at the floor uses 
 The executor reads it from `reserve.json` in the admission store, as `{"physical_gib": 2, "commit_gib": 2}`, and keeps 2 GiB of each when the file is absent.
 Each value must be at least half a gigabyte and under the admission floor, and any other content, such as an unknown key, a missing dimension or trailing data, refuses the run before it starts.
 A caller can raise the reserve but never lower it below the store's.
-Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it, records each process by name and pid as a leftover, and fails, since work a leftover may still have been doing was cut short.
-Only a process still running counts, since Windows can count one that has exited in its job for a moment after, and when none still runs the run ends as the command did.
-The command's own exit code is kept beside that failure.
+Free memory is the whole machine's, so one sample under the reserve can be another program's spike, and the run is cancelled only once free memory stays under the reserve for ten seconds.
+Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it and records each process by name and pid as a leftover, and `cfo verify` names them on standard error.
+The run keeps the command's own result, since tools such as build servers and browser bridges leave helpers behind on purpose, and a later certification can still require a run with none.
+Only a process still running counts, since Windows can count one that has exited in its job for a moment after.
+A process a nested `cfo gate turn` lets go of when its command ends is still in the executor's job, so it is ended and named the same way.
+The command's output to its logs is limited to 1 GiB together, past which the run is interrupted, and a running sample is written to the record every ten seconds and the final measurement always.
 Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
 `RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
 A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
@@ -498,7 +501,7 @@ A failed cleanup returns `cleanup_uncertain`, so its caller must retain admissio
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
 Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
 The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
-Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits.
+Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits, and a command given none reads an empty input.
 Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
 Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
 A custody record names its execution's Windows job and the process that controls the execution, and it is written before the job or any worker exists.

@@ -23,8 +23,12 @@ type Executor struct {
 	Admission Admission
 	Monitor   Monitor
 	// A file is inherited directly, without a Go I/O pump that could remain
-	// blocked on an arbitrary reader after the process exits.
+	// blocked on an arbitrary reader after the process exits. Without one the
+	// command reads an empty input.
 	Stdin *os.File
+	// OutputLimit, 1 GiB unless set, is how much the command may write to
+	// its logs together before its run is interrupted.
+	OutputLimit int64
 
 	mu      sync.Mutex
 	pending map[string]*pendingCleanup
@@ -175,7 +179,12 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	command := execx.Command(request.Name, request.Args...)
 	command.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
 	command.Dir = request.Dir
-	command.Stdin, command.Stdout, command.Stderr = executor.Stdin, stdout, stderr
+	command.Stdout, command.Stderr = stdout, stderr
+	// A nil file in the interface would hand the command a duplicate of this
+	// process's own handle as its input, not an empty one.
+	if executor.Stdin != nil {
+		command.Stdin = executor.Stdin
+	}
 	environment := request.Env
 	if environment == nil {
 		environment = os.Environ()
@@ -202,13 +211,37 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	}()
 	monitor.Exited = exited
 	monitor.Cancel = func() error {
+		select {
+		case <-exited:
+			// The group's first process has exited, and its pid may name
+			// another process now. The job's end reaches what it left.
+			return nil
+		default:
+		}
 		return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(command.Process.Pid))
 	}
+	outputLimit := executor.OutputLimit
+	if outputLimit <= 0 {
+		outputLimit = 1 << 30
+	}
+	var persisted time.Time
 	observe := monitor.Observe
 	monitor.Observe = func(measurement Measurement) error {
 		if measurement.State == Running {
-			if err := execution.Observe(measurement); err != nil {
+			written, err := writtenTo(stdout, stderr)
+			if err != nil {
 				return err
+			}
+			if written > outputLimit {
+				return fmt.Errorf("verify: the command wrote %d bytes of output, past its limit of %d", written, outputLimit)
+			}
+			// A sample is kept every ten seconds, and the final measurement
+			// always, so a long run is not a file write every poll.
+			if time.Since(persisted) >= 10*time.Second {
+				if err := execution.Observe(measurement); err != nil {
+					return err
+				}
+				persisted = time.Now()
 			}
 		}
 		if observe != nil {
@@ -336,6 +369,19 @@ func (pending *pendingCleanup) retry(ctx context.Context) error {
 	}
 	pending.isDone = true
 	return nil
+}
+
+// writtenTo is how much has been written to files together.
+func writtenTo(files ...*os.File) (int64, error) {
+	var written int64
+	for _, file := range files {
+		info, err := file.Stat()
+		if err != nil {
+			return 0, fmt.Errorf("verify: measure the command's output: %w", err)
+		}
+		written += info.Size()
+	}
+	return written, nil
 }
 
 // Keep complete logs on disk without allocating an unbounded command result.

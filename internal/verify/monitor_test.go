@@ -34,13 +34,14 @@ func (tree *measuredTree) TerminateAndWait(context.Context) (execx.TreeUsage, er
 
 func TestMonitorInterruptsOnPressureAndUnavailableMeasurements(t *testing.T) {
 	for _, test := range []struct {
-		name        string
-		memory      Headroom
-		memoryError error
-		usageError  error
+		name         string
+		memory       Headroom
+		memoryError  error
+		usageError   error
+		wantPressure bool
 	}{
-		{name: "physical reserve", memory: Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}},
-		{name: "commit reserve", memory: Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 3 << 30}},
+		{name: "physical reserve", memory: Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}, wantPressure: true},
+		{name: "commit reserve", memory: Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 3 << 30}, wantPressure: true},
 		{name: "unreadable headroom", memoryError: errors.New("headroom unavailable")},
 		{name: "unreadable job", memory: Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, usageError: errors.New("job unavailable")},
 	} {
@@ -48,7 +49,7 @@ func TestMonitorInterruptsOnPressureAndUnavailableMeasurements(t *testing.T) {
 			// Arrange
 			tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 2, TotalProcesses: 3, CPU: time.Second, PeakCommitBytes: 8 << 20}, readError: test.usageError}
 			wasCanceled := false
-			monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 4 << 30, CommitAvailable: 4 << 30}, Poll: time.Millisecond, Grace: time.Millisecond,
+			monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 4 << 30, CommitAvailable: 4 << 30}, Sustain: time.Millisecond, Poll: time.Millisecond, Grace: time.Millisecond,
 				Headroom: func() (Headroom, error) { return test.memory, test.memoryError },
 				Cancel:   func() error { wasCanceled = true; return nil },
 			}
@@ -64,6 +65,9 @@ func TestMonitorInterruptsOnPressureAndUnavailableMeasurements(t *testing.T) {
 			}
 			if result.Usage.CPU != time.Second || result.Usage.PeakCommitBytes != 8<<20 {
 				t.Fatalf("cleanup lost cumulative usage: %+v", result)
+			}
+			if isPressure := strings.Contains(err.Error(), "reserve pressure"); isPressure != test.wantPressure {
+				t.Fatalf("err = %v, want reserve pressure %v", err, test.wantPressure)
 			}
 		})
 	}
@@ -174,7 +178,7 @@ func TestMonitorDoesNotCompleteWhenTheFinalSampleCancels(t *testing.T) {
 	}
 }
 
-func TestMonitorFailsTheRunAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) {
+func TestMonitorEndsAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) {
 	// Arrange
 	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, members: []execx.EndedProcess{{Name: "node.exe", PID: 4242}}}
 	exited := make(chan struct{})
@@ -189,8 +193,8 @@ func TestMonitorFailsTheRunAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *test
 	result, err := monitor.Watch(ctx, tree)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "node.exe pid 4242") || result.State != Interrupted || !result.CleanupConfirmed || !tree.wasCleaned {
-		t.Fatalf("result = %+v, err = %v, want the run failed for what it left", result, err)
+	if err != nil || result.State != Completed || !result.CleanupConfirmed || !tree.wasCleaned {
+		t.Fatalf("result = %+v, err = %v, want the command's own result with what it left ended", result, err)
 	}
 	if len(result.Leftovers) != 1 || result.Leftovers[0] != (Leftover{Name: "node.exe", PID: 4242}) {
 		t.Fatalf("leftovers = %+v, want node.exe pid 4242", result.Leftovers)
@@ -310,5 +314,60 @@ func TestMonitorEndsWithoutFailureWhenNothingTheCommandLeftStillRuns(t *testing.
 	// Assert
 	if err != nil || result.State != Completed || len(result.Leftovers) != 0 || !tree.wasCleaned {
 		t.Fatalf("a job counting only exited processes = %+v, %v, want a completed run with nothing left", result, err)
+	}
+}
+
+// pressureAt answers headroom for each sample in turn, under the reserve
+// where pressed says so, and ends the job after its last sample.
+type pressureAt struct {
+	tree    *measuredTree
+	pressed []bool
+	sample  int
+}
+
+func (sampler *pressureAt) headroom() (Headroom, error) {
+	if sampler.sample >= len(sampler.pressed)-1 {
+		sampler.tree.usage.ActiveProcesses = 0
+	}
+	isPressed := sampler.pressed[min(sampler.sample, len(sampler.pressed)-1)]
+	sampler.sample++
+	if isPressed {
+		return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil
+	}
+	return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
+}
+
+func TestMonitorCancelsOnlyOnPressureThatLasts(t *testing.T) {
+	spikes := make([]bool, 40)
+	for index := range spikes {
+		spikes[index] = index%2 == 0
+	}
+	lasting := make([]bool, 40)
+	for index := range lasting {
+		lasting[index] = index >= 5
+	}
+	for _, test := range []struct {
+		name         string
+		pressed      []bool
+		wantPressure bool
+	}{
+		{name: "spikes under the reserve", pressed: spikes},
+		{name: "pressure that lasts", pressed: lasting, wantPressure: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1}}
+			sampler := &pressureAt{tree: tree, pressed: test.pressed}
+			monitor := Monitor{Sustain: 50 * time.Millisecond, Poll: 5 * time.Millisecond, Grace: time.Millisecond, Headroom: sampler.headroom}
+
+			// Act
+			result, err := monitor.Watch(context.Background(), tree)
+
+			// Assert
+			isPressure := err != nil && strings.Contains(err.Error(), "reserve pressure")
+			if isPressure != test.wantPressure || (result.State == Completed) == test.wantPressure {
+				t.Fatalf("result = %+v, %v, want cancelled for pressure %v", result, err, test.wantPressure)
+			}
+		})
 	}
 }

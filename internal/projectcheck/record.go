@@ -68,7 +68,7 @@ func (c *checker) tiers(path string, manifest project.Manifest) {
 	}
 	if !verifies(manifest) {
 		c.add(AreaRecord, "tiers-empty", Medium,
-			"the record names no verification command, so cfo verify passes with nothing run",
+			"the record names no verification command, so cfo verify fails every tier with nothing to run",
 			"verification.fast, verification.full and verification.deep are empty in "+path,
 			"name the project's real test commands in verification.fast and verification.full")
 	}

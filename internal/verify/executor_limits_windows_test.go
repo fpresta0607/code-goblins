@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,8 +62,8 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 0)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "running") || result.ExitCode != 0 {
-		t.Fatalf("a command that exited 0 and left a child = %+v, %v, want its own exit code and the run failed", result, err)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("a command that exited 0 and left a child = %+v, %v, want its own result", result, err)
 	}
 	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Second))))
 	if err != nil {
@@ -76,8 +78,8 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 	}
 	evidence := readExecution(t, record)
 	leftovers := evidence.Measurement.Leftovers
-	if evidence.Status != "failed" || evidence.ExitCode == nil || *evidence.ExitCode != 0 || len(leftovers) != 1 || leftovers[0].PID != childPID || !strings.EqualFold(leftovers[0].Name, filepath.Base(os.Args[0])) {
-		t.Fatalf("evidence = %+v, want a failure naming child pid %d as left running", evidence, childPID)
+	if evidence.Status != "passed" || len(leftovers) != 1 || leftovers[0].PID != childPID || !strings.EqualFold(leftovers[0].Name, filepath.Base(os.Args[0])) {
+		t.Fatalf("evidence = %+v, want a pass naming child pid %d as left running", evidence, childPID)
 	}
 }
 
@@ -108,20 +110,20 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 		t.Fatalf("the holder said %q, %v", line, err)
 	}
 	go func() {
-		time.Sleep(4 * time.Second)
+		time.Sleep(5 * time.Second)
 		release.Close()
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Act
-	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 2*time.Second)
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 3*time.Second)
 
 	// Assert
 	if err != nil || result.ExitCode != 0 || string(result.Stdout) != "ran" {
 		t.Fatalf("a quick command behind a longer wait = %+v, %v", result, err)
 	}
-	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 3 {
+	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 4 {
 		t.Fatalf("evidence = %+v, want a pass after a wait longer than the limit", evidence)
 	}
 }
@@ -184,15 +186,185 @@ func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
 	t.Setenv("CFO_VERIFY_DIR", store)
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: time.Second, Headroom: plentyOfMemory}}
+	// The command exits well inside its limit and leaves a child past it.
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: 6 * time.Second, Headroom: plentyOfMemory}}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Act
+	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 4*time.Second)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("a command that exited inside its limit = %v, want its limit stopped at its exit", err)
+	}
+	if evidence := readExecution(t, record); evidence.Status != "passed" || len(evidence.Measurement.Leftovers) != 1 {
+		t.Fatalf("evidence = %+v, want a pass with its child named as left running", evidence)
+	}
+}
+
+func TestExecutorGivesTheCommandAnEmptyInputWithoutOne(t *testing.T) {
+	if os.Getenv(limitsRole) == "reader" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(4)
+		}
+		if len(data) != 0 {
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Act
-	_, _, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 500*time.Millisecond)
+	result, _, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorGivesTheCommandAnEmptyInputWithoutOne$"}, Env: append(os.Environ(), limitsRole+"=reader")}, 0)
 
 	// Assert
-	if err == nil || errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "running") {
-		t.Fatalf("a command that exited inside its limit = %v, want only what it left to fail the run", err)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("a command reading its input = %+v, %v, want an empty input read to its end", result, err)
+	}
+}
+
+func TestExecutorInterruptsACommandWhoseOutputPassesItsLimit(t *testing.T) {
+	if os.Getenv(limitsRole) == "chatty" {
+		os.Stdout.Write(make([]byte, 64<<10))
+		time.Sleep(time.Minute)
+		os.Exit(9)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	executor := Executor{OutputLimit: 1 << 10, Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Headroom: plentyOfMemory}}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Act
+	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorInterruptsACommandWhoseOutputPassesItsLimit$"}, Env: append(os.Environ(), limitsRole+"=chatty")}, 0)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "output") {
+		t.Fatalf("a command past its output limit = %v", err)
+	}
+	if evidence := readExecution(t, record); evidence.Status != "failed" || evidence.Measurement.State != Interrupted || !evidence.Measurement.CleanupConfirmed {
+		t.Fatalf("evidence = %+v", evidence)
+	}
+}
+
+func TestExecutorAppliesTheStoresReserveAndNeverALowerOne(t *testing.T) {
+	if os.Getenv(limitsRole) == "sleeper" {
+		time.Sleep(time.Minute)
+		os.Exit(9)
+	}
+	for _, test := range []struct {
+		name    string
+		setting string
+		given   Headroom
+		during  uint64
+	}{
+		{name: "the store's reserve over the default", setting: `{"physical_gib": 3, "commit_gib": 2}`, during: 5 << 29},
+		{name: "a lower reserve the caller gives", given: Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 1 << 30}, during: 3 << 29},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			var isStarted atomic.Bool
+			executor := Executor{Admission: admission(t), Monitor: Monitor{Reserve: test.given, Sustain: time.Millisecond, Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond,
+				Headroom: func() (Headroom, error) {
+					if isStarted.Load() {
+						return Headroom{PhysicalAvailable: test.during, CommitAvailable: 8 << 30}, nil
+					}
+					return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
+				},
+				Observe: func(Measurement) error { isStarted.Store(true); return nil },
+			}}
+			if test.setting != "" {
+				if err := os.WriteFile(filepath.Join(executor.Admission.Dir, "reserve.json"), []byte(test.setting), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Act
+			_, _, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorAppliesTheStoresReserveAndNeverALowerOne$"}, Env: append(os.Environ(), limitsRole+"=sleeper")}, 0)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "reserve pressure") {
+				t.Fatalf("free memory under the reserve the run must keep = %v, want reserve pressure", err)
+			}
+		})
+	}
+}
+
+// A nested turn in the command, as cfo gate turn under cfo verify takes,
+// runs inside the executor's turn, and what it lets go of when it ends is
+// still the executor's to end and name.
+func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
+	switch os.Getenv(limitsRole) {
+	case "nested":
+		// Taking a turn of its own would wait for the executor's for good,
+		// so a bounded wait proves the turn it gets is the executor's.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		turn, err := Admission{Dir: os.Getenv("VERIFY_LIMITS_ADMISSION"), Available: func() (uint64, error) { return 16 << 30, nil }, Limit: time.Minute, Poll: 5 * time.Millisecond}.Wait(ctx)
+		cancel()
+		if err != nil || turn.Token() == "" {
+			os.Exit(6)
+		}
+		child := execx.Command(os.Args[0], os.Args[1:]...)
+		child.Env = append(os.Environ(), limitsRole+"=nested-child")
+		tree, err := execx.StartTree(child)
+		if err != nil {
+			os.Exit(5)
+		}
+		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if data, err := os.ReadFile("child.pid"); err == nil && len(data) > 0 {
+				break
+			}
+		}
+		if err := tree.Release(); err != nil {
+			os.Exit(4)
+		}
+		if err := turn.Release(); err != nil {
+			os.Exit(3)
+		}
+		os.Exit(0)
+	case "nested-child":
+		if err := os.WriteFile("child.pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			os.Exit(7)
+		}
+		time.Sleep(time.Minute)
+		os.Exit(9)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: 300 * time.Millisecond, Headroom: plentyOfMemory}}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Act
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorNamesWhatANestedTurnLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=nested", "VERIFY_LIMITS_ADMISSION="+executor.Admission.Dir)}, 0)
+
+	// Assert
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("a command with a nested turn = %+v, %v", result, err)
+	}
+	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Second))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := readExecution(t, record)
+	if len(evidence.Measurement.Leftovers) != 1 || evidence.Measurement.Leftovers[0].PID != childPID {
+		t.Fatalf("leftovers = %+v, want the nested tree's child %d", evidence.Measurement.Leftovers, childPID)
+	}
+	if child, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(childPID)); err == nil {
+		isEnded := hasEnded(child)
+		windows.CloseHandle(child)
+		if !isEnded {
+			t.Fatal("the nested tree's child still runs after the run ended")
+		}
 	}
 }

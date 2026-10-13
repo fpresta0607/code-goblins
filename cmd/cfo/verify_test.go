@@ -181,7 +181,11 @@ func TestVerifyFailsWhenItsResultCannotBeSaved(t *testing.T) {
 // so, while another run holds the turn.
 func TestVerifyWaitsItsTurnBehindAnotherHeavyRun(t *testing.T) {
 	// Arrange
-	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	saved := filepath.Join(taskTmp, "verification-fast.json")
+	if err := os.WriteFile(saved, []byte(`[{"command": ["git", "version"], "exit_code": 0, "status": "passed"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +203,7 @@ func TestVerifyWaitsItsTurnBehindAnotherHeavyRun(t *testing.T) {
 	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "waiting for its turn") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 	}
 	said := stderr.String()
+	whileWaiting := savedResults(t, saved)
 	if err := holder.Release(); err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +217,9 @@ func TestVerifyWaitsItsTurnBehindAnotherHeavyRun(t *testing.T) {
 	// Assert
 	if !strings.Contains(said, "cfo verify: waiting for its turn") || !strings.Contains(said, "another heavy run") {
 		t.Fatalf("stderr = %q, want the wait and who holds the turn", said)
+	}
+	if len(whileWaiting) != 1 || whileWaiting[0].Status != "running" {
+		t.Fatalf("saved while waiting = %+v, want the tier running in place of the earlier pass", whileWaiting)
 	}
 	if exit != 0 {
 		t.Fatalf("exit = %d after the turn was free, stderr = %q", exit, stderr.String())
@@ -276,7 +284,56 @@ func TestVerifyClearsAnEarlierResultWhenItTakesNoTurn(t *testing.T) {
 	if exit != 1 || !strings.Contains(stderr.String(), "takes no turn") {
 		t.Fatalf("exit = %d, stderr = %q", exit, stderr.String())
 	}
-	if results := savedResults(t, saved); len(results) != 0 {
-		t.Fatalf("an earlier result still stands: %+v", results)
+	if results := savedResults(t, saved); len(results) != 1 || results[0].Status != "not_run" || !strings.Contains(results[0].Error, "takes no turn") {
+		t.Fatalf("saved = %+v, want only that the tier ran nothing and why", results)
+	}
+}
+
+// A tier that names no command saves that it ran nothing, so its file never
+// reads as a pass or as nothing at all.
+func TestVerifySavesThatATierWithNoCommandRanNothing(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": []}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if exit != 1 || len(results) != 1 || results[0].Status != "not_run" {
+		t.Fatalf("exit = %d, saved = %+v, want one not_run entry", exit, results)
+	}
+}
+
+// Each command's saved result says how it ended.
+func TestVerifySavesEachCommandsStatus(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"], ["git", "-c", "alias.fail=!exit 3", "fail"]]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) != 2 || results[0].Status != "passed" || results[1].Status != "failed" || results[1].ExitCode != 3 {
+		t.Fatalf("saved = %+v, want passed then failed", results)
+	}
+}
+
+// What a command leaves running past its linger is ended and named on
+// standard error, and the tier keeps the command's own result.
+func TestVerifyNamesWhatACommandLeftRunning(t *testing.T) {
+	// Arrange
+	runtime, _ := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "start", "/b", "ping", "-n", "60", "127.0.0.1"]]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || !strings.Contains(stderr.String(), "PING.EXE pid") && !strings.Contains(strings.ToLower(stderr.String()), "ping.exe pid") {
+		t.Fatalf("exit = %d, stderr = %q, want a pass naming ping as left running", exit, stderr.String())
 	}
 }

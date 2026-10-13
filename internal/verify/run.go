@@ -102,11 +102,19 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 			rr.Output = string(res.Stdout)
 			rr.Error = err.Error()
 			rr.TimedOut = isTimedOut
+			rr.Status = "failed"
+			if isTimedOut {
+				rr.Status = "timed_out"
+			}
 			out = append(out, rr)
 			return out, fmt.Errorf("verify %s: %w", c[0], err)
 		}
 		rr.ExitCode = res.ExitCode
 		rr.Output = string(res.Stdout)
+		rr.Status = "passed"
+		if res.ExitCode != 0 {
+			rr.Status = "failed"
+		}
 		out = append(out, rr)
 		if res.ExitCode != 0 {
 			return out, fmt.Errorf("verify %s exited %d", c[0], res.ExitCode)
