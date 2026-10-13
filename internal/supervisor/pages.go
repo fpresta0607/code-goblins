@@ -107,8 +107,8 @@ func (s *Service) watchPages(ctx context.Context) {
 // watchPage polls one page until the review on it settles, then gives the
 // CFO what happened and closes the page's open items, or until the page is no
 // longer watched because its goblin's task was retired, which leaves it to
-// the sweep. Between polls it takes the item that now stands for the page,
-// so a newer item, or one that closed meanwhile, is the one answered. A closed
+// the sweep. Between polls it takes the item that now stands for the page;
+// each poll and collected answer stay bound to that version. A closed
 // review window is not the end of the review: lavish-axi keeps the session,
 // his answers queue on the page until a poll takes them, and reopening the
 // page resumes the same review, so the poll goes on after a pause that keeps
@@ -132,13 +132,17 @@ func (s *Service) watchPages(ctx context.Context) {
 func (s *Service) watchPage(ctx context.Context, key string) {
 	failures := 0
 	reply := ""
+	var polled Review
 	var answer *pageAnswer
 	for _, pending := range s.Store.pageReceiptsSnapshot().Answers {
 		if pending.Status == "collecting" && pageKey(pending.Item.LavishPage) == key {
 			answer = &pending
 			if answer.IsPageEnd || answer.Poll.Ended {
-				s.passOnAnswer(ctx, *answer)
-				return
+				if _, isQueued := s.passOnAnswer(ctx, *answer); !isQueued {
+					return
+				}
+				answer = nil
+				continue
 			}
 			if answer.IsAnswer {
 				s.answeredOnPage(answer.Item, answer.Poll)
@@ -154,14 +158,22 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 			}
 			return
 		}
+		if answer != nil && !samePageVersion(answer.Item, r) {
+			if _, isQueued := s.passOnAnswer(ctx, *answer); !isQueued {
+				return
+			}
+			answer, reply = nil, ""
+		}
+		if !samePageVersion(polled, r) {
+			reply = ""
+		}
 		timeout := pagePollTimeout
 		if answer != nil {
 			timeout = pageAnswerSettle
 		}
+		polled = r
 		poll, err := s.Options.PollPage(ctx, r.LavishPage, reply, timeout)
-		if now, ok := s.Store.watchedPages()[key]; ok {
-			r = now
-		} else if now, ok := s.Store.review(r.ID); ok {
+		if now, ok := s.Store.review(r.ID); ok && samePageVersion(now, r) {
 			r = now
 		}
 		if err == nil {
@@ -207,12 +219,23 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 		if answer != nil {
 			whole := *answer
 			answer = nil
-			if reply = s.passOnAnswer(ctx, whole); reply == "" {
+			var isQueued bool
+			reply, isQueued = s.passOnAnswer(ctx, whole)
+			if !isQueued {
+				return
+			}
+			if reply == "" {
+				if now, ok := s.Store.watchedPages()[key]; ok && !samePageVersion(now, whole.Item) {
+					continue
+				}
 				return
 			}
 			if err == nil && (poll.Status == "ended" || poll.Ended) && poll.EndedBy == "agent" {
 				poll.Status = "ended"
 				s.handPageToCFO(ctx, r, poll, nil)
+				if now, ok := s.Store.watchedPages()[key]; ok && !samePageVersion(now, r) {
+					continue
+				}
 				return
 			}
 			if err == nil && poll.Status != "browser_disconnected" {
@@ -222,7 +245,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 		if err == nil && (poll.Status == "waiting" || poll.Status == "browser_disconnected") {
 			failures = 0
 			if poll.Status == "browser_disconnected" {
-				if err := s.Store.windowClosed(r.ID, time.Now().UTC()); err != nil {
+				if err := s.Store.windowClosed(r, time.Now().UTC()); err != nil {
 					s.publish(err)
 				}
 				select {
@@ -244,7 +267,9 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 			}
 		}
 		s.handPageToCFO(ctx, r, poll, err)
-		return
+		if now, ok := s.Store.watchedPages()[key]; !ok || samePageVersion(now, r) {
+			return
+		}
 	}
 }
 
@@ -267,7 +292,7 @@ func together(first, then axi.PagePoll) axi.PagePoll {
 // questions r's page carries with what he wrote. The boards are told at once:
 // the supervisor's cycle tells them only of what the cycle itself changed.
 func (s *Service) answeredOnPage(r Review, poll axi.PagePoll) {
-	if err := s.Store.closePage(pageKey(r.LavishPage), Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived}); err != nil {
+	if err := s.Store.closePage(r, Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived}); err != nil {
 		s.publish(err)
 	}
 	if err := s.Store.answerQuestionsOnPage(r, strings.Join(poll.Prompts, "\n")); err != nil {
@@ -278,42 +303,42 @@ func (s *Service) answeredOnPage(r Review, poll axi.PagePoll) {
 
 // passOnAnswer releases a settled answer to its durable, ordered teller.
 // Polling and its receipt never wait for a terminal to take the answer.
-func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer) string {
+func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer) (reply string, isQueued bool) {
 	r := answer.Item
 	if answer.IsPageEnd {
-		if err := s.Store.settlePage(pageKey(r.LavishPage), answer.Closed); err != nil {
+		if err := s.Store.settlePage(r, answer.Closed); err != nil {
 			s.publish(err)
-			return ""
+			return "", false
 		}
 	} else if answer.IsAnswer {
 		s.answeredOnPage(r, answer.Poll)
 	} else if r.State == "open" {
-		if err := s.Store.reviseReview(r.ID, time.Now().UTC()); err != nil {
+		if err := s.Store.reviseReview(r, time.Now().UTC()); err != nil {
 			s.publish(err)
 		}
 		s.notify()
 	}
 	if answer.IsAnswer && answer.Poll.Ended {
-		if err := s.Store.settlePage(pageKey(r.LavishPage), Review{}); err != nil {
+		if err := s.Store.settlePage(r, Review{}); err != nil {
 			s.publish(err)
 		}
 	}
 	answer.Status = "queued"
 	if !s.keepAnswer(ctx, answer) {
-		return ""
+		return "", false
 	}
 	s.tellPage(ctx, pageKey(r.LavishPage))
 	if answer.IsPageEnd || answer.IsAnswer && answer.Poll.Ended {
-		return ""
+		return "", true
 	}
 	if r.State == "open" && !answer.IsAnswer {
 		maker := "The CFO makes"
 		if r.Task != "" {
 			maker = r.Task + " makes"
 		}
-		return "Revision received. " + maker + " the next version, which replaces this page."
+		return "Revision received. " + maker + " the next version, which replaces this page.", true
 	}
-	return "Received."
+	return "Received.", true
 }
 
 // handPageToCFO wakes the CFO with what became of an item's page when its
@@ -326,7 +351,7 @@ func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer) string {
 // whatever he sent on it was passed on as it came.
 func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
 	if r.State != "open" {
-		if err := s.Store.settlePage(pageKey(r.LavishPage), Review{}); err != nil {
+		if err := s.Store.settlePage(r, Review{}); err != nil {
 			s.publish(err)
 		}
 		return
@@ -357,6 +382,16 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 // pageKey names a page by its file the way Windows does, in any case.
 func pageKey(file string) string {
 	return strings.ToLower(filepath.Clean(file))
+}
+
+func samePageVersion(a, b Review) bool {
+	return a.ID == b.ID && a.Identity == b.Identity && a.Task == b.Task && a.CreatedAt.Equal(b.CreatedAt) && pageKey(a.LavishPage) == pageKey(b.LavishPage)
+}
+
+// A page answer also closes its reporter's older cards for that page, but
+// never a replacement version of the captured item or a newer card.
+func pageVersionIncludes(item, r Review) bool {
+	return r.LavishPage != "" && pageKey(r.LavishPage) == pageKey(item.LavishPage) && r.Identity == item.Identity && r.Task == item.Task && !r.CreatedAt.After(item.CreatedAt) && (r.ID != item.ID || r.CreatedAt.Equal(item.CreatedAt))
 }
 
 // watchesPage reports whether the supervisor watches item r's page: the
@@ -400,16 +435,16 @@ func (s *Store) review(id string) (Review, bool) {
 	return reviews[i], true
 }
 
-// closePage closes every open item naming the page key names as closed says,
-// and leaves the page watched.
-func (s *Store) closePage(key string, closed Review) error {
+// closePage closes the captured version and its older cards as closed says,
+// and leaves their page watched.
+func (s *Store) closePage(item Review, closed Review) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	at := time.Now().UTC()
 	changed := false
 	for i := range s.db.Reviews {
 		r := &s.db.Reviews[i]
-		if r.State != "open" || r.LavishPage == "" || r.PageSettled != nil || pageKey(r.LavishPage) != key {
+		if r.State != "open" || r.PageSettled != nil || !pageVersionIncludes(item, *r) {
 			continue
 		}
 		r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, at
@@ -430,7 +465,7 @@ func (s *Store) explainAnswer(item Review, reason string) error {
 	changed := false
 	for i := range s.db.Reviews {
 		r := &s.db.Reviews[i]
-		if r.State != "answered" || r.Reason != pageAnswerReceived || pageKey(r.LavishPage) != pageKey(item.LavishPage) || r.CreatedAt.After(item.CreatedAt) {
+		if r.State != "answered" || r.Reason != pageAnswerReceived || !pageVersionIncludes(item, *r) {
 			continue
 		}
 		r.Reason, changed = reason, true
@@ -441,17 +476,16 @@ func (s *Store) explainAnswer(item Review, reason string) error {
 	return s.save()
 }
 
-// settlePage records that the review on the page key names has settled, on
-// every item naming it, so nothing watches it any more, and closes each of
-// them still open as closed says, when it says anything.
-func (s *Store) settlePage(key string, closed Review) error {
+// settlePage settles the captured version and its older cards, and closes
+// each still open as closed says, when it says anything.
+func (s *Store) settlePage(item Review, closed Review) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	at := time.Now().UTC()
 	changed := false
 	for i := range s.db.Reviews {
 		r := &s.db.Reviews[i]
-		if r.LavishPage == "" || r.PageSettled != nil || pageKey(r.LavishPage) != key {
+		if r.PageSettled != nil || !pageVersionIncludes(item, *r) {
 			continue
 		}
 		r.PageSettled, changed = &at, true

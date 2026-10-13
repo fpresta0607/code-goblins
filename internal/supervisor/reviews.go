@@ -1125,6 +1125,10 @@ func carriesQuestion(r Review, q Question) bool {
 // their notifies answered, so the CFO's drain retires them.
 func (s *Store) answerQuestionsOnPage(r Review, answer string) error {
 	s.mu.Lock()
+	if !slices.ContainsFunc(s.db.Reviews, func(current Review) bool { return samePageVersion(current, r) }) {
+		s.mu.Unlock()
+		return nil
+	}
 	var seqs []int
 	at := time.Now().UTC()
 	for i := range s.db.Questions {
@@ -1171,11 +1175,11 @@ func (s *Store) closePagesOfQuestion(q Question, by, reason string) {
 	}
 }
 
-// windowClosed records when the review window of open item id disconnected.
-func (s *Store) windowClosed(id string, at time.Time) error {
+// windowClosed records when the captured review's window disconnected.
+func (s *Store) windowClosed(item Review, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return samePageVersion(r, item) && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
@@ -1183,12 +1187,12 @@ func (s *Store) windowClosed(id string, at time.Time) error {
 	return s.save()
 }
 
-// reviseReview marks the open item id as waiting on its reporter's next
+// reviseReview marks the captured open version as waiting on its reporter's next
 // version, which the Overlord asked for on its page at at.
-func (s *Store) reviseReview(id string, at time.Time) error {
+func (s *Store) reviseReview(item Review, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return samePageVersion(r, item) && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
@@ -1201,7 +1205,7 @@ func (s *Store) reviseReview(id string, at time.Time) error {
 func (s *Store) asksOnPage(r Review) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.db.Questions, func(q Question) bool { return carriesQuestion(r, q) })
+	return slices.ContainsFunc(s.db.Reviews, func(current Review) bool { return samePageVersion(current, r) }) && slices.ContainsFunc(s.db.Questions, func(q Question) bool { return carriesQuestion(r, q) })
 }
 
 func (s *Store) withdrawReview(id, reason string) error {

@@ -137,7 +137,7 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 			err = s.pageFailing(failed, key, err)
 		}
 		if err == nil && isTaken && retired {
-			err = s.Store.settlePage(key, Review{})
+			err = s.Store.settlePage(owner.item, Review{})
 		}
 		problems = errors.Join(problems, err)
 	}
@@ -183,8 +183,9 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 		if !s.keepAnswer(ctx, answer) {
 			return errors.New("page feedback could not be kept")
 		}
-		reply = s.passOnAnswer(ctx, answer)
-		if reply == "" {
+		var isQueued bool
+		reply, isQueued = s.passOnAnswer(ctx, answer)
+		if !isQueued {
 			return errors.New("page feedback could not be queued")
 		}
 	}
@@ -192,7 +193,10 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 
 // pageOwner is the fleet task a page belongs to, or no task for the CFO's
 // own, and the key its review wakes go under.
-type pageOwner struct{ task, key string }
+type pageOwner struct {
+	task, key string
+	item      Review
+}
 
 // pageOwners returns how a sweep tells whose page a file is: the item that
 // last presented it, else the task whose worktree, data folder or scratch
@@ -238,9 +242,9 @@ func (s *Service) pageOwners() (func(file string) (pageOwner, bool), error) {
 	return func(file string) (pageOwner, bool) {
 		if r, found := presented[pageKey(file)]; found {
 			if r.Task == "" {
-				return pageOwner{key: r.ID}, true
+				return pageOwner{key: r.ID, item: r}, true
 			}
-			return pageOwner{task: r.Task, key: r.Task}, true
+			return pageOwner{task: r.Task, key: r.Task, item: r}, true
 		}
 		id := ""
 		for worktree, task := range worktrees {

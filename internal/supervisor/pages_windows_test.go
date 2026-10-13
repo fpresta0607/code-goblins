@@ -852,7 +852,7 @@ func TestTheNextVersionOfAPageReplacesItsItem(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	meta, _, _, page := pageOfAGoblin(t, store)
-	if err := store.reviseReview("waiting-"+meta.ID+"-7", time.Now().UTC()); err != nil {
+	if err := store.reviseReview(store.Snapshot().Reviews[0], time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 

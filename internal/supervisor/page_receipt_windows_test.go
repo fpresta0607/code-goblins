@@ -140,8 +140,8 @@ func TestPageReceiptRecoversGroupingAfterRestart(t *testing.T) {
 func TestPageReceiptsStayOrderedAndDoNotReplayUncertainDelivery(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	meta, _, connection, page := pageOfAGoblin(t, store)
-	if err := store.closePage(pageKey(page), Review{State: "answered"}); err != nil {
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	if err := store.closePage(store.Snapshot().Reviews[0], Review{State: "answered"}); err != nil {
 		t.Fatal(err)
 	}
 	previous := typeIntoGoblin
@@ -262,8 +262,8 @@ func TestPageReceiptsStayOrderedAndDoNotReplayUncertainDelivery(t *testing.T) {
 func TestClosedPageKeepsPollingBehindBusyDelivery(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, connection, page := pageOfAGoblin(t, store)
-	if err := store.closePage(pageKey(page), Review{State: "answered"}); err != nil {
+	_, _, connection, _ := pageOfAGoblin(t, store)
+	if err := store.closePage(store.Snapshot().Reviews[0], Review{State: "answered"}); err != nil {
 		t.Fatal(err)
 	}
 	previous := typeIntoGoblin
@@ -333,9 +333,9 @@ func TestPageSweepKeepsPollingBehindBusyDelivery(t *testing.T) {
 func TestPageDeliveryDoesNotCloseANewerReview(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, _, page := pageOfAGoblin(t, store)
+	pageOfAGoblin(t, store)
 	r := store.Snapshot().Reviews[0]
-	if err := store.closePage(pageKey(page), Review{State: "answered", Reason: pageAnswerReceived}); err != nil {
+	if err := store.closePage(store.Snapshot().Reviews[0], Review{State: "answered", Reason: pageAnswerReceived}); err != nil {
 		t.Fatal(err)
 	}
 	store.mu.Lock()
@@ -361,6 +361,297 @@ func TestPageDeliveryDoesNotCloseANewerReview(t *testing.T) {
 	// Assert
 	if got, _ := store.review(later.ID); got.State != "open" || got.PageSettled != nil {
 		t.Fatalf("later review = %+v, want earlier delivery to leave it alone", got)
+	}
+}
+
+func TestPageReceiptRecoveryLeavesRepublishedVersionOpen(t *testing.T) {
+	for _, kind := range []string{"approval", "pick", "revision", "agent end", "user end"} {
+		t.Run(kind, func(t *testing.T) {
+			// Arrange: the receipt committed, but its board mutation did not.
+			store, h := testStore(t)
+			meta, _, connection, page := pageOfAGoblin(t, store)
+			original := store.Snapshot().Reviews[0]
+			answer := pageAnswer{ID: "before-republish", Item: original, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Prompts: []string{"Old feedback"}, Output: "Old feedback"}}
+			switch kind {
+			case "approval":
+				answer.IsAnswer, answer.Poll.Ended, answer.Poll.EndedBy = true, true, "user"
+			case "pick":
+				answer.IsAnswer, answer.Poll.Picked = true, true
+			case "agent end", "user end":
+				answer.IsPageEnd, answer.Poll.Status = true, "ended"
+				answer.Closed = Review{State: "withdrawn", Reason: "Old agent end"}
+				if kind == "user end" {
+					answer.Closed = Review{State: "cleared", Reason: "Old user end"}
+				}
+				answer.Detail = answer.Closed.Reason
+			}
+			if err := store.keepPageAnswer(answer); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+				t.Fatal(err)
+			}
+			restarted, err := Open(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := restarted.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			latest := restarted.Snapshot().Reviews[0]
+			if latest.ID != original.ID || latest.Identity != original.Identity || !latest.CreatedAt.After(original.CreatedAt) {
+				t.Fatalf("republish did not replace the same review ID with a new version: %+v", latest)
+			}
+			previous := typeIntoGoblin
+			sent := make(chan string, 2)
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error { sent <- text; return nil }
+			ctx, cancel := context.WithCancel(context.Background())
+			polled := make(chan string, 1)
+			recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: func(ctx context.Context, _, reply string, _ time.Duration) (axi.PagePoll, error) {
+				polled <- reply
+				<-ctx.Done()
+				return axi.PagePoll{}, ctx.Err()
+			}}}
+			t.Cleanup(func() { cancel(); recovered.pageWork.Wait(); typeIntoGoblin = previous })
+
+			// Act: use the startup order, ingesting the new version before recovery.
+			recovered.watchPages(ctx)
+			select {
+			case reply := <-polled:
+				if reply != "" {
+					t.Errorf("old version's reply reached the new page: %q", reply)
+				}
+			case <-time.After(5 * time.Second):
+				t.Error("receipt recovery stopped polling the new version")
+			}
+
+			// Assert
+			if got, _ := restarted.review(latest.ID); got.State != "open" || got.AnsweredBy != "" || got.PageSettled != nil || got.RevisingSince != nil {
+				t.Errorf("old receipt changed the republished review: %+v", got)
+			}
+			for deadline := time.Now().Add(5 * time.Second); len(restarted.pageReceiptsSnapshot().Answers) != 0; time.Sleep(time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("old receipt was not delivered independently of the new page")
+				}
+			}
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 {
+				t.Errorf("recovered wakes = %+v, want old feedback delivered once", wakes)
+			}
+			if !answer.IsPageEnd {
+				select {
+				case text := <-sent:
+					if !strings.Contains(text, "Old feedback") {
+						t.Errorf("lost old feedback: %q", text)
+					}
+				default:
+					t.Error("old feedback did not reach its original reporter")
+				}
+			}
+		})
+	}
+}
+
+func TestPageReceiptRecoveryDoesNotGroupAcrossVersions(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, connection, page := pageOfAGoblin(t, store)
+	answer := pageAnswer{ID: "old-note", Item: store.Snapshot().Reviews[0], Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Prompts: []string{"Old revision"}, Output: "Old revision"}}
+	if err := store.keepPageAnswer(answer); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var sent []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		sent = append(sent, text)
+		return nil
+	}
+	scrawl := newScrawlPage(0)
+	scrawl.send(approvedAsShown)
+	recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+
+	// Act
+	recovered.watchPages(context.Background())
+	recovered.pageWork.Wait()
+
+	// Assert
+	if len(sent) != 2 || !strings.Contains(sent[0], "Old revision") || strings.Contains(sent[0], "Approved as shown") || !strings.Contains(sent[1], "Approved as shown") || strings.Contains(sent[1], "Old revision") {
+		t.Errorf("deliveries = %q, want separate ordered feedback for each version", sent)
+	}
+	if got := restarted.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredBy != "overlord" || got.PageSettled == nil {
+		t.Errorf("new version's own approval was not applied: %+v", got)
+	}
+}
+
+func TestPageReceiptRecoveryDoesNotAnswerAReplacementQuestion(t *testing.T) {
+	for _, changed := range []string{"version", "reporter"} {
+		t.Run(changed, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, page := askOnAPage(t, store)
+			original := store.Snapshot().Reviews[0]
+			answer := pageAnswer{ID: "old-approval", Item: original, IsAnswer: true, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}}
+			if err := store.keepPageAnswer(answer); err != nil {
+				t.Fatal(err)
+			}
+			if changed == "version" {
+				if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				store.mu.Lock()
+				store.db.Reviews[0].Identity = strings.Repeat("a", 64)
+				store.db.Questions[0].Identity = strings.Repeat("a", 64)
+				err := store.save()
+				store.mu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			restarted, err := Open(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := restarted.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			recovered := &Service{Store: restarted, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+				cancel()
+				return axi.PagePoll{}, context.Canceled
+			}}}
+
+			// Act
+			recovered.watchPages(ctx)
+			recovered.pageWork.Wait()
+
+			// Assert
+			if got := restarted.Snapshot().Reviews[0]; got.State != "open" || got.AnsweredBy != "" || got.PageSettled != nil {
+				t.Errorf("old approval changed the replacement review: %+v", got)
+			}
+			if got := restarted.Snapshot().Questions[0]; got.Status != "pending" || got.AnsweredBy != "" || got.AnsweredAt != nil {
+				t.Errorf("old approval answered the replacement's question: %+v", got)
+			}
+			pending, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range pending {
+				if record.Seq == restarted.Snapshot().Questions[0].Seq && record.AnsweredBy != "" {
+					t.Errorf("old approval retired the replacement question's wake: %+v", record)
+				}
+			}
+		})
+	}
+}
+
+func TestPagePollDoesNotApproveVersionPublishedWhilePolling(t *testing.T) {
+	for _, beforePublish := range []int{0, 1} {
+		t.Run([]string{"first poll", "settling poll"}[beforePublish], func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, page := pageOfAGoblin(t, store)
+			original := store.Snapshot().Reviews[0]
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			polls := 0
+			s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+				polls++
+				if polls <= beforePublish {
+					return axi.PagePoll{Status: "feedback", Output: "Old note"}, nil
+				}
+				if polls == beforePublish+1 {
+					if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+						t.Error(err)
+					}
+					if err := store.ingestReviews(); err != nil {
+						t.Error(err)
+					}
+					return axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}, nil
+				}
+				cancel()
+				return axi.PagePoll{}, context.Canceled
+			}}}
+
+			// Act
+			s.watchPages(ctx)
+			s.pageWork.Wait()
+
+			// Assert
+			if got := store.Snapshot().Reviews[0]; !got.CreatedAt.After(original.CreatedAt) || got.State != "open" || got.AnsweredBy != "" || got.PageSettled != nil {
+				t.Errorf("in-flight poll approved the replacement version: %+v", got)
+			}
+			if polls != beforePublish+2 {
+				t.Errorf("polls = %d, want polling to continue on the new version", polls)
+			}
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 {
+				t.Errorf("old feedback wakes = %+v, want one", wakes)
+			}
+		})
+	}
+}
+
+func TestPageReceiptRecoveryStopsIfOldFeedbackCannotBeQueued(t *testing.T) {
+	for _, isEnded := range []bool{false, true} {
+		t.Run(map[bool]string{false: "collecting", true: "ended"}[isEnded], func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, page := pageOfAGoblin(t, store)
+			answer := pageAnswer{ID: "old-note", Item: store.Snapshot().Reviews[0], IsAnswer: isEnded, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: isEnded, EndedBy: "user", Output: "Old feedback"}}
+			if err := store.keepPageAnswer(answer); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+				t.Fatal(err)
+			}
+			restarted, err := Open(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := restarted.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(restarted.pageReceiptsPath(), restarted.pageReceiptsPath()+".before"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(restarted.pageReceiptsPath(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			previousPause := pagePollPause
+			pagePollPause = time.Millisecond
+			t.Cleanup(func() { pagePollPause = previousPause })
+			polls := 0
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			recovered := &Service{Store: restarted, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+				polls++
+				cancel()
+				return axi.PagePoll{}, context.Canceled
+			}}}
+
+			// Act
+			recovered.watchPages(ctx)
+			recovered.pageWork.Wait()
+
+			// Assert
+			if polls != 0 {
+				t.Errorf("polled the new version %d times despite an unqueued old receipt", polls)
+			}
+			if pending := restarted.pageReceiptsSnapshot().Answers; len(pending) != 1 || pending[0].Status != "collecting" || pending[0].Poll.Output != answer.Poll.Output {
+				t.Errorf("unqueued receipt was lost: %+v", pending)
+			}
+		})
 	}
 }
 
@@ -455,10 +746,10 @@ func TestPageReceiptsRecoverQueuedAndNotifyingOnce(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			meta, _, connection, page := pageOfAGoblin(t, store)
+			meta, _, connection, _ := pageOfAGoblin(t, store)
 			r := store.Snapshot().Reviews[0]
 			r.State = "answered"
-			if err := store.settlePage(pageKey(page), r); err != nil {
+			if err := store.settlePage(r, r); err != nil {
 				t.Fatal(err)
 			}
 			for _, id := range []string{"first", "second"} {
