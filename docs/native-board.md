@@ -1458,9 +1458,9 @@ No item shows an in-page toast or opens the Command Center by itself, including 
 Only an open item that asks the Overlord something alerts (the Overlord, 2026-10-07: "alerts should only be open command center questions"): a goblin blocked, failed or done is said on its card and raises no alert, and neither does routine progress.
 A pause or stop the CFO or the Overlord asked for is never drawn as the goblin failing: a stop that did not finish reads Stop did not finish in the action's own colour, a pause that did not finish shows what the goblin is doing, each with its problems behind Details, and its report reaches the CFO as `lifecycle-<phase>`, never as the goblin's own `blocked:` or `failed:` notify, so it holds no question for the CFO and is not counted as one.
 The first snapshot establishes the baseline for items.
-When unanswered blocked or failed wake records, or `goblin_asks` records of a question a goblin asked in prose, have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
-Its `since` is saved once for that stretch and remains the same through answers, reloads, reconnects and supervisor restarts until no question has waited ten minutes.
-The CFO's bar says the notice in place of All quiet while it lasts; it is no alert, and it never offers the goblins' questions to the Overlord.
+A goblin's question with choices waits on the CFO; once the CFO has left it unanswered for ten minutes by the snapshot's `at`, it waits in the Overlord's Command Center too, where he can answer it himself, and it raises no alert.
+The CFO's bar then says, in place of All quiet, how many such questions wait and how long the oldest has, so it never names a question his Command Center does not show.
+The bar counts as at work only the goblins in In progress whose terminals run, never one paused, pausing or resuming, whatever it waits for.
 Before an announcement the board claims the item through `POST /api/announce` (`keys`) and announces only what the answer's `claimed` names.
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.

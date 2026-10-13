@@ -11,13 +11,23 @@ import { updateOutcome } from "./update-progress.ts";
 export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run }
   | { kind: "credential"; key: string; request: CredentialRequest };
 
+// CFO_QUIET_AFTER_MS is how long the CFO has a goblin's question to itself:
+// past it the CFO's bar says the question waits, and it is his too.
+export const CFO_QUIET_AFTER_MS = 10 * 60 * 1000;
+
+// leftByTheCFO says whether a goblin's question is still unanswered
+// CFO_QUIET_AFTER_MS after it was asked, at the snapshot's time at.
+export const leftByTheCFO = (question: Question, at: number) => !!question.task && question.status === "pending" && at - Date.parse(question.created_at) >= CFO_QUIET_AFTER_MS;
+
 // forOverlord says whether an item is his: a question the CFO asks him, what
 // the CFO passes up, a goblin's wait or page addressed to him, a command and
-// a credential request. A goblin's question is the CFO's to answer, never
-// his: it does not wait on him, alert him or open anything, and is in
-// History once answered. One it asked while its review page is open is shown
-// by that page's card.
-export const forOverlord = (item: Item) => item.kind !== "question" || !item.question.task;
+// a credential request. A goblin's question is the CFO's to answer: it does
+// not wait on him or open anything, and is in History once answered, until
+// the CFO has left it for ten minutes, when it waits on him too, as the
+// CFO's bar then says (the Overlord, 2026-10-13: "the command center is not
+// asking me every question"). One it asked while its review page is open is
+// shown by that page's card.
+export const forOverlord = (item: Item, at: number) => item.kind !== "question" || !item.question.task || leftByTheCFO(item.question, at);
 
 // A terminal a credential card opened shows on that card, not as a run of its own.
 export const asItems = (snapshot: Snapshot): Item[] => [
@@ -102,18 +112,18 @@ export function cardKey(snapshot: Snapshot, key: string): string {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => forOverlord(item) && (waitsOnHim(item) || kept.has(item.key)))
+    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && (waitsOnHim(item) || kept.has(item.key)))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
 // Every item of his still open: what the board has already announced.
 export function openKeys(snapshot: Snapshot): Set<string> {
-  return new Set(asItems(snapshot).filter((item) => forOverlord(item) && isOpen(item)).map((item) => item.key));
+  return new Set(asItems(snapshot).filter((item) => forOverlord(item, Date.parse(snapshot.at)) && isOpen(item)).map((item) => item.key));
 }
 
 // The newest item a goblin has waiting on the Overlord, if any.
 export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
-  return asItems(snapshot).filter((item) => forOverlord(item) && isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
+  return asItems(snapshot).filter((item) => forOverlord(item, Date.parse(snapshot.at)) && isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
 }
 
 // The item to show after the one at key: the next open item, wrapping to the

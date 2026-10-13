@@ -65,6 +65,28 @@ test("a goblin's question is the CFO's to answer: it never waits on the Overlord
   assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:g-answered"], "answered, it is in History; still waiting on the CFO, it is not");
 });
 
+// The Overlord, 2026-10-13, at a CFO bar saying a question had waited twenty
+// minutes: "the command center is not asking me every question". A goblin's
+// question the CFO has left for ten minutes, as long as the bar waits before
+// it says so, is his to answer too: it waits in his Command Center and is
+// what its goblin has waiting on him, while one the CFO has had for less is
+// still only the CFO's.
+test("a goblin's question the CFO has left for ten minutes waits on the Overlord too", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, at: "2026-10-13T14:03:01Z",
+    tasks: [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }],
+    questions: [question("left", "billing", "2026-10-13T13:43:01Z"), question("fresh", "billing", "2026-10-13T13:55:00Z"), question("answered", "billing", "2026-10-13T13:00:00Z", "succeeded")],
+  });
+
+  // Act
+  const waiting = waitingItems(snapshot).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(waiting, ["question:left"]);
+  assert.deepEqual([...openKeys(snapshot)], ["question:left"]);
+  assert.equal(newestItemOf(snapshot, "billing")?.key, "question:left");
+});
+
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],
     tasks: ["notes", "billing", "alpha", "zeta"].map((id) => ({ id, phase: "working", generation: "g1", verified: false, archived: false, merged: false })),
