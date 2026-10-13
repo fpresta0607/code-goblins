@@ -85,18 +85,33 @@ func (s *Service) continueFetch(card BrowserSignIn) {
 			s.credentialNotice(credential, detail)
 		}
 	}
+	// A fetch that stops says why on its key card too, as one the card
+	// started does.
+	stopped := func(reason, detail string) {
+		tell(detail)
+		if _, err := s.Store.updateCredential(card.Fetch, func(r *CredentialRequest) {
+			if r.Fetch != nil {
+				r.Fetch.State, r.Fetch.Reason = "", reason
+			}
+		}); err != nil {
+			s.publish(err)
+		}
+		s.notify()
+	}
 	closed, stop := context.WithTimeout(ctx, signInCloseWait)
 	defer stop()
 	for s.browsers.busy(card.Login) {
 		if err := wait(closed, time.Second); err != nil {
-			tell("the fetch for " + card.Fetch + " did not carry on after the " + card.Provider + " sign-in, since the sign-in window's browser did not close within " + signInCloseWait.String() + "; the card still takes the keys pasted")
+			reason := "the sign-in window's browser did not close within " + signInCloseWait.String()
+			stopped(reason, "the fetch for "+card.Fetch+" did not carry on after the "+card.Provider+" sign-in, since "+reason+"; the card still takes the keys pasted")
 			return
 		}
 	}
 	lease, err := s.fetchCredential(ctx, BrowserRequest{Action: "fetch", Task: card.Task, Request: card.Fetch})
 	switch {
 	case err != nil:
-		tell("the fetch for " + card.Fetch + " after the " + card.Provider + " sign-in stopped: " + bounded(err.Error(), 300) + "; the card still takes the keys pasted")
+		reason := bounded(err.Error(), 300)
+		stopped(reason, "the fetch for "+card.Fetch+" after the "+card.Provider+" sign-in stopped: "+reason+"; the card still takes the keys pasted")
 	case lease.SignIn != "":
 		tell("the fetch for " + card.Fetch + " met a " + card.Provider + " page that asks for a sign-in again; his sign-in card is back on the board")
 	}

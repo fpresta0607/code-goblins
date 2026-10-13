@@ -171,6 +171,30 @@ func TestACardFetchMeetingASignInLeavesHisSignInCardToSaySo(t *testing.T) {
 	}
 }
 
+func TestAFetchThatStoppedAfterHisSignInSaysWhyOnTheCard(t *testing.T) {
+	// Arrange
+	b := newFetchBoard(t)
+	b.signedIn("acct_fixture")
+	b.pageErr = browserlogin.ErrPageChanged
+	b.service.credentialWork.Add(1)
+
+	// Act
+	b.service.continueFetch(BrowserSignIn{Task: "pd-keys", Provider: "Stripe", Login: fetchLogin, Fetch: b.request.ID})
+
+	// Assert
+	request := b.stored()
+	if request.State != "open" || request.Fetch == nil || request.Fetch.State != "" || !strings.Contains(request.Fetch.Reason, "the page changed") {
+		t.Fatalf("request = %+v, fetch = %+v, want it open saying the page changed", request, request.Fetch)
+	}
+	pending, err := wake.Pending(b.home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || !strings.Contains(pending[0].Detail, "after the Stripe sign-in stopped") || !strings.Contains(pending[0].Detail, "the page changed") {
+		t.Fatalf("wakes = %+v, want the CFO told why the fetch stopped", pending)
+	}
+}
+
 func TestAStartingSupervisorSaysACardsFetchStopped(t *testing.T) {
 	// Arrange
 	b := newFetchBoard(t)
