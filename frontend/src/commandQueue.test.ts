@@ -87,6 +87,27 @@ test("a goblin's question the CFO has left for ten minutes waits on the Overlord
   assert.equal(newestItemOf(snapshot, "billing")?.key, "question:left");
 });
 
+// Answered from his Command Center, the question is no longer pending, and its
+// card stays in this sitting to show how the answer went, as the CFO's own
+// questions' cards do. One asked on its goblin's review page is still shown by
+// that page's card alone, however long the CFO leaves it.
+test("a goblin's question he answers keeps its card in the sitting, and one on a review page stays on that page's card", () => {
+  // Arrange
+  const at = "2026-10-13T14:03:01Z";
+  const tasks = [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }];
+  const sent = parseSnapshot({ healthy: true, at, tasks, questions: [question("left", "billing", "2026-10-13T13:43:01Z", "queued", { answer_id: "answer-1" })] });
+  const onItsPage = parseSnapshot({ healthy: true, at, tasks,
+    questions: [question("on-page", "billing", "2026-10-13T13:43:01Z", "pending", { page: "plan-billing" })], reviews: [review("plan-billing", "billing", "2026-10-13T13:40:00Z")] });
+
+  // Act
+  const kept = waitingItems(sent, new Set(["question:left"])).map((item) => item.key);
+  const pageCards = waitingItems(onItsPage).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(kept, ["question:left"], "his answered question keeps its card while he is there");
+  assert.deepEqual(pageCards, ["review:plan-billing"], "its page's card shows it, never a second card");
+});
+
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],
     tasks: ["notes", "billing", "alpha", "zeta"].map((id) => ({ id, phase: "working", generation: "g1", verified: false, archived: false, merged: false })),

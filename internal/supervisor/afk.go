@@ -580,7 +580,8 @@ func (item heldItem) key() string { return item.kind + ":" + item.id }
 // waitingOnOverlord are the items that wait on the Overlord: what the board
 // would announce to him, and a credential request, which only he can fill. A
 // goblin's question waits on the CFO, which answers it, so of the questions
-// only the CFO's own are his, as the board's forOverlord has it.
+// only the CFO's own are held for him: one the CFO left ten minutes shows in
+// his Command Center, but while he is away it is the CFO's to decide.
 func waitingOnOverlord(d Database) []heldItem {
 	var items []heldItem
 	for _, q := range d.Questions {

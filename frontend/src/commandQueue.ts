@@ -26,8 +26,8 @@ export const leftByTheCFO = (question: Question, at: number) => !!question.task 
 // the CFO has left it for ten minutes, when it waits on him too, as the
 // CFO's bar then says (the Overlord, 2026-10-13: "the command center is not
 // asking me every question"). One it asked while its review page is open is
-// shown by that page's card.
-export const forOverlord = (item: Item, at: number) => item.kind !== "question" || !item.question.task || leftByTheCFO(item.question, at);
+// shown by that page's card, however long the CFO leaves it.
+export const forOverlord = (item: Item, at: number) => item.kind !== "question" || !item.question.task || leftByTheCFO(item.question, at) && !item.question.page;
 
 // A terminal a credential card opened shows on that card, not as a run of its own.
 export const asItems = (snapshot: Snapshot): Item[] => [
@@ -112,7 +112,7 @@ export function cardKey(snapshot: Snapshot, key: string): string {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && (waitsOnHim(item) || kept.has(item.key)))
+    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && waitsOnHim(item) || kept.has(item.key))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 

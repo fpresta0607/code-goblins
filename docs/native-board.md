@@ -1452,7 +1452,7 @@ An answer the goblin received also reaches the CFO as a `review` wake that asks 
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
 An item addressed to the Overlord has one signal on a visible board: Open Command Center and its count.
-Only the CFO's own questions (`task` empty) wait on him; a goblin's blocked or failed question belongs to the CFO and enters History after it is answered.
+Only the CFO's own questions (`task` empty) wait on him, and a goblin's question the CFO has left unanswered for ten minutes unless its review page's card shows it; any other goblin's question belongs to the CFO and enters History after it is answered.
 A goblin's explicit wait on the Overlord, review page, delivered file, run item and credential request still belong in his queue.
 No item shows an in-page toast or opens the Command Center by itself, including while the CFO's terminal is open.
 Only an open item that asks the Overlord something alerts (the Overlord, 2026-10-07: "alerts should only be open command center questions"): a goblin blocked, failed or done is said on its card and raises no alert, and neither does routine progress.
@@ -1809,7 +1809,7 @@ The page holds the same line by itself: while its snapshot says AFK mode is on, 
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
 [The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question the CFO asked him before it turned on, with the choice it recommended, an open review item or wait, a run item nobody ran, and an open credential request.
-A goblin's question waits on the CFO, which answers it, as the Command Center has it (`forOverlord`), so it is never held for him.
+A goblin's question waits on the CFO, which answers it, so it is never held for him, even once the CFO has left it ten minutes and his Command Center shows it (`forOverlord`).
 A goblin's Scrawl page filed while it is on is such a question: `cfo notify --waiting-on overlord --lavish` records its wait as `blocked: <why> (page <link>) options: <choices>` in the goblin's status and the CFO's wake queue, and `cfo review --task --lavish` puts the same notify in the queue once for each item ID, with the item's title, and writes no status line.
 Neither publishes an item for him, and the goblin's command and what it is told back are the same whether it is on or off.
 The choices are the one question the page's `data-lavish-choices` blocks declare, the recommended one marked `(Recommended)`. A page that declares none, several, or choices a question cannot offer (more than eight, one twice, an empty one, one over 500 characters, or one holding `|` or `options:`) is asked with none, and the question still reaches the board, since the page is the question.
