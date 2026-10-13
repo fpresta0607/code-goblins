@@ -34,8 +34,12 @@ func ReleaseExclusiveOwned(ctx context.Context, dir, name string, owner Info) er
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		isRemoved, err := removeMatchingRecord(ctx, filepath.Join(dir, name), owner)
+		if err != nil {
 			return err
+		}
+		if !isRemoved {
+			return fmt.Errorf("lock: exclusive ownership changed for %s", name)
 		}
 	}
 	delete(exclusiveLeases.acquired, key)
@@ -45,6 +49,10 @@ func ReleaseExclusiveOwned(ctx context.Context, dir, name string, owner Info) er
 // AcquireExclusiveNamedStrictContext also bounds waiting for the in-process
 // lease registry, which unrelated acquisitions and releases share.
 func AcquireExclusiveNamedStrictContext(ctx context.Context, dir, name string) (*Info, error) {
+	return acquireExclusiveStrictReading(ctx, dir, name, ReadNamedStrictContext)
+}
+
+func acquireExclusiveStrictReading(ctx context.Context, dir, name string, read func(context.Context, string, string) (*Info, error)) (*Info, error) {
 	if err := exclusiveBefore(ctx); err != nil {
 		return nil, err
 	}
@@ -70,12 +78,23 @@ func AcquireExclusiveNamedStrictContext(ctx context.Context, dir, name string) (
 		if err == nil {
 			exclusiveLeases.acquired[key] = self.Acquired
 			_, writeError := file.Write(data)
-			return self, errors.Join(writeError, file.Close(), ctx.Err())
+			if err := errors.Join(writeError, file.Close(), ctx.Err()); err != nil {
+				return self, err
+			}
+			current, err := read(ctx, dir, name)
+			if err != nil {
+				return self, err
+			}
+			if *current != *self {
+				delete(exclusiveLeases.acquired, key)
+				return nil, fmt.Errorf("lock: exclusive ownership changed for %s", name)
+			}
+			return self, ctx.Err()
 		}
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
-		holder, err := ReadNamedStrictContext(ctx, dir, name)
+		holder, err := read(ctx, dir, name)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -85,7 +104,7 @@ func AcquireExclusiveNamedStrictContext(ctx context.Context, dir, name string) (
 		if holder.Alive() {
 			return nil, heldError(holder)
 		}
-		current, err := ReadNamedStrictContext(ctx, dir, name)
+		current, err := read(ctx, dir, name)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -98,11 +117,21 @@ func AcquireExclusiveNamedStrictContext(ctx context.Context, dir, name string) (
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if _, err := removeMatchingRecord(ctx, path, *current); err != nil {
 			return nil, err
 		}
 	}
 	return nil, fmt.Errorf("lock: strict acquisition changed during %d attempts", acquireAttempts)
+}
+
+func removeMatchingRecord(ctx context.Context, path string, expected Info) (bool, error) {
+	return fsx.RemoveFileWhen(ctx, path, func(data []byte) (bool, error) {
+		var current Info
+		if err := json.Unmarshal(data, &current); err != nil {
+			return false, fmt.Errorf("lock: unreadable holder record: %w", err)
+		}
+		return current == expected, nil
+	})
 }
 
 func ReadNamedStrictContext(ctx context.Context, dir, name string) (*Info, error) {

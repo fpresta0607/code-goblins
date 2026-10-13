@@ -497,6 +497,7 @@ Slot release reports errors and stays retryable, and an executor retains final e
 Concurrent recovery waits respect the waiting caller's deadline without holding the executor's registry mutex over job or filesystem operations.
 The deadline also bounds custody-lock, file-open and final evidence-rename contention retries.
 A failed mutation-lock release retains its exact lease identity for a later retry, and cannot reclaim a changed or foreign live owner.
+Stale lease removal claims the record against writes and replacement, validates its identity while claimed, and deletes through that same Windows handle.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
 Restart recovery and retention of the execution records and logs are not yet implemented, so these APIs remain outside the live command path.
 These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
