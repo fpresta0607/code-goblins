@@ -187,6 +187,104 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 	}
 }
 
+// Only the page AFK mode asked as the question closes with the CFO's answer,
+// and only the goblin's items on it published before the question, whether
+// the CFO answered with cfo answer or answered another way and acked: its
+// item on another page, an item of another generation of the goblin on the
+// same page and a version of the page published after the question stay open.
+func TestOnlyThePageAFKModeAskedClosesWithTheCFOsAnswer(t *testing.T) {
+	for name, answer := range map[string]func(t *testing.T, s *Service, h home.Home, connection *CFOConnection, record wake.Record){
+		"cfo answer": func(t *testing.T, s *Service, _ home.Home, connection *CFOConnection, record wake.Record) {
+			if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Build it as shown", ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Store.ingestAnswers(); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"an answer the CFO acked": func(t *testing.T, s *Service, h home.Home, _ *CFOConnection, record wake.Record) {
+			if err := wake.AckThrough(h.State, record.Seq); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Store.supersedeQuestions(); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, h, meta, _, connection := pageFixture(t)
+			page := pageFile(t, mockupsChoices)
+			before := time.Now().UTC().Add(-time.Minute)
+			item := func(id, link, identity string, at time.Time) Review {
+				return Review{ID: id, Identity: identity, Task: meta.ID, Title: "Waiting on you: " + id + " (page " + link + ")", Lavish: link, LavishPage: page, State: "open", CreatedAt: at, UpdatedAt: at}
+			}
+			s.Store.mu.Lock()
+			s.Store.db.Reviews = append(s.Store.db.Reviews,
+				item("same-page", mockupsPage, goblinIdentity(meta), before),
+				item("other-page", "http://127.0.0.1:4387/session/c4d5", goblinIdentity(meta), before),
+				item("other-generation", mockupsPage, strings.Repeat("b", 64), before))
+			err := s.Store.save()
+			s.Store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			q, record := awayPage(t, s, h, page)
+			s.Store.mu.Lock()
+			s.Store.db.Reviews = append(s.Store.db.Reviews, item("later-version", mockupsPage, goblinIdentity(meta), q.CreatedAt.Add(time.Second)))
+			err = s.Store.save()
+			s.Store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			answer(t, s, h, connection, record)
+
+			// Assert
+			want := map[string]string{"same-page": "answered", "other-page": "open", "other-generation": "open", "later-version": "open"}
+			for _, r := range s.Store.Snapshot().Reviews {
+				if state, named := want[r.ID]; named && r.State != state {
+					t.Errorf("item %s = %s (%q), want %s", r.ID, r.State, r.Reason, state)
+				}
+			}
+		})
+	}
+}
+
+// A goblin's ordinary question is never a page, even when its text ends
+// naming one as AFK mode's do: the CFO's answer to it leaves the goblin's
+// open item on that page open.
+func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
+	// Arrange
+	s, h, meta, _, _ := pageFixture(t)
+	if err := s.Store.acceptReview(Review{ID: "waiting-task-1-1", Identity: goblinIdentity(meta), Task: meta.ID, Title: "Waiting on you: the mockups (page " + mockupsPage + ")", Lavish: mockupsPage, LavishPage: pageFile(t, mockupsChoices), State: "open", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := wake.Append(h.State, "notify", meta.ID, "blocked: Which layout? (page "+mockupsPage+") options: Grid | List")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	q := s.Store.Snapshot().Questions[0]
+
+	// Act
+	err = s.Store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: "Grid", Answer: "Grid", At: time.Now().UTC()})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := s.Store.Snapshot().Reviews[0]; r.State != "open" {
+		t.Errorf("the goblin's page item = %s (%q), want it open", r.State, r.Reason)
+	}
+}
+
 // A page the CFO answered in his place is settled once AFK mode turns off, as
 // the Overlord asked on 2026-10-12: it stays in History as the goblin's
 // question with the CFO's answer, given while he was away, where he can

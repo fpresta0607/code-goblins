@@ -155,7 +155,6 @@ func TestOnlyAQuestionTheCFOAsksIsNotifiedFromTheTray(t *testing.T) {
 		"the CFO asks him":                     {`{"id":"pick-a-store","text":"Which **store**?","status":"pending","created_at":"2026-10-01T12:00:00Z"}`, []Note{{"question:pick-a-store@2026-10-01T12:00:00Z", "CFO", "The CFO asks: Which store?"}}},
 		"the CFO passes a goblin's ask up":     {`{"id":"from-billing","text":"billing asks: which store?","status":"pending","created_at":"2026-10-01T12:00:00Z"}`, []Note{{"question:from-billing@2026-10-01T12:00:00Z", "CFO", "The CFO asks: billing asks: which store?"}}},
 		"a goblin asks the CFO":                {`{"id":"notify-billing-7","text":"Which port?","status":"pending","task":"billing","generation":"g1","seq":7}`, nil},
-		"a goblin asks beside its open page":   {`{"id":"notify-billing-8","text":"Which port?","status":"pending","task":"billing","generation":"g1","seq":8,"page":"plan-billing"}`, nil},
 		"a goblin's question the CFO answered": {`{"id":"notify-billing-6","text":"Which port?","status":"succeeded","task":"billing","answered_by":"cfo"}`, nil},
 	} {
 		t.Run(name, func(t *testing.T) {

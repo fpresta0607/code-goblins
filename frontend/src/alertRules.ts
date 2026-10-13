@@ -60,8 +60,7 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
 // boardAlerts is the items new in the Command Center between two snapshots
 // that ask the Overlord something: a question, review, command or credential
 // request. The first snapshot a page sees alerts nothing: what already waits
-// is under the badge. A question that was open inside its page's card is not
-// new when it shows as a card of its own.
+// is under the badge.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
   const known = openKeys(previous);

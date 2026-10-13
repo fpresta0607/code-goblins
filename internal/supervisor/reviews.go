@@ -227,7 +227,7 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		return err
 	}
-	return SurfaceNotify(h.State, taskID, record, detail, nil)
+	return SurfaceNotify(h.State, taskID, record, detail, link, nil)
 }
 
 // publishItem records r for its reporter, proven the way reviewReporter does.
@@ -1117,13 +1117,12 @@ func (s *Store) retireItems() error {
 }
 
 // closePageQuestionAsks closes the open items of the goblin that asked q
-// showing the page q names at its end, "(page <link>)", as AFK mode asks a
-// goblin's page of the CFO: an answer to that question is the answer to that
-// page, and to no other page or wait. The caller holds the store lock.
+// showing the page AFK mode asked of the CFO as q, published before q: an
+// answer to that question is the answer to that page, and to no other page,
+// no later version of it and no wait. The caller holds the store lock.
 func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
-	link := wake.Page(q.Text)
 	for i := range s.db.Reviews {
-		if r := &s.db.Reviews[i]; link != "" && q.Task != "" && r.State == "open" && r.Task == q.Task && r.Identity == q.Identity && r.Lavish == link {
+		if r := &s.db.Reviews[i]; q.AsksPage != "" && r.State == "open" && r.Task == q.Task && r.Identity == q.Identity && r.Lavish == q.AsksPage && !r.CreatedAt.After(q.CreatedAt) {
 			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", by, "question", bounded(reason, 2000), time.Now().UTC()
 		}
 	}

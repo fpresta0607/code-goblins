@@ -163,19 +163,6 @@ test("an ID published again after its item closed alerts and is announced as a n
   assert.equal(outlived(sighting.fresh[0], snapshot({ questions: [again] })), false);
 });
 
-test("a question its page's card carried alerts nothing when the page closes and it shows as a card of its own", () => {
-  // Arrange
-  const page = { ...review("plan-1"), lavish: "http://127.0.0.1:4387/session/a", lavish_page: "C:\\work\\plan.html" };
-  const carried = snapshot({ reviews: [page], questions: [question("notify-a-4", { page: "plan-1" })] });
-  const alone = snapshot({ reviews: [{ ...page, state: "cleared" }], questions: [question("notify-a-4")] });
-
-  // Act
-  const alerts = boardAlerts(carried, alone);
-
-  // Assert
-  assert.deepEqual(alerts.map((alert) => alert.key), []);
-});
-
 test("an alert leaves with its item only once the snapshot shows the item closed", () => {
   // Arrange
   const asks = boardAlerts(snapshot({}), snapshot({ questions: [question("notify-a-4")] }))[0];

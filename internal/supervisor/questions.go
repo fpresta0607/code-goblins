@@ -71,6 +71,10 @@ type Question struct {
 	// goblin has his.
 	ChangeID       string `json:"change_id,omitempty"`
 	ReplacedAnswer string `json:"replaced_answer,omitempty"`
+	// AsksPage is the link of the goblin's Scrawl page that AFK mode asked of
+	// the CFO as this question, so an answer to it is the answer to that page.
+	// It is empty for every other question, whatever its text says.
+	AsksPage string `json:"asks_page,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -136,8 +140,10 @@ func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
 // detail is the notify as the goblin wrote it: the queue holds record's
-// one-line form, and the question keeps its own line breaks.
-func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, images []string) error {
+// one-line form, and the question keeps its own line breaks. page is the link
+// of the goblin's page AFK mode asks of the CFO as this question, and empty
+// for any other question.
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page string, images []string) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -149,7 +155,7 @@ func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, i
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
@@ -809,9 +815,9 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
 		s.closePageQuestionAsks(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
-		return nil
+	} else {
+		s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	}
-	s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	return nil
 }
 
@@ -1167,6 +1173,7 @@ func (s *Store) supersedeQuestions() error {
 			// closes as answered by the CFO, with the check of any answer.
 			at := time.Now().UTC()
 			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CFO.", "cfo", &at, switched.On
+			s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question.")
 			changed = true
 		}
 	}

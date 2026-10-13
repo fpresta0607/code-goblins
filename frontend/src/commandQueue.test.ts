@@ -55,7 +55,7 @@ test("a goblin's question is the CFO's to answer: it never waits on the Overlord
     tasks: [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }],
     questions: [question("g-asks", "billing", "2026-10-02T19:14:14Z"), question("cfo-asks", "", "2026-10-02T19:20:00Z"),
       question("g-answered", "billing", "2026-10-02T19:00:00Z", "succeeded", { answered_by: "cfo", answered_option: "A", answered_at: "2026-10-02T19:01:00Z" }),
-      question("g-on-its-page", "billing", "2026-10-02T19:10:00Z", "pending", { page: "plan-billing" })],
+      question("g-on-its-page", "billing", "2026-10-02T19:10:00Z")],
     reviews: [review("plan-billing", "billing", "2026-10-02T19:09:00Z"), review("waiting-billing-9", "billing", "2026-10-02T19:15:00Z", "open", { title: "Waiting on you: answer my question" })],
   });
   assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:cfo-asks", "review:plan-billing", "review:waiting-billing-9"], "only what is for him waits");
@@ -415,7 +415,7 @@ test("a CFO reply is queued until transport confirms it was submitted", () => {
 test("every open item of his is one the board has announced, never a goblin's question, and nothing closed", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true,
-    questions: [question("carried", "gb-a", "2026-09-26T10:00:00Z", "pending", { page: "plan" }), question("alone", "", "2026-09-26T10:00:00Z"), question("sent", "", "2026-09-26T10:00:00Z", "uncertain"), question("for-the-cfo", "gb-b", "2026-09-26T10:00:00Z")],
+    questions: [question("beside-its-page", "gb-a", "2026-09-26T10:00:00Z"), question("alone", "", "2026-09-26T10:00:00Z"), question("sent", "", "2026-09-26T10:00:00Z", "uncertain"), question("for-the-cfo", "gb-b", "2026-09-26T10:00:00Z")],
     reviews: [review("plan", "gb-a", "2026-09-26T10:00:00Z"), review("cleared", "gb-a", "2026-09-26T10:00:00Z", "cleared")],
     runs: [{ id: "install", identity: "cfo-1", title: "Install", state: "ready", created_at: "2026-09-26T10:00:00Z" }] });
 
@@ -424,7 +424,7 @@ test("every open item of his is one the board has announced, never a goblin's qu
 
   // Assert
   assert.deepEqual([...open].sort(), ["question:alone", "review:plan", "run:install"]);
-  assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "the carried question shows as its page's card");
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "a goblin's question beside its open page is never his");
 });
 
 test("a choice or written text on an item still waiting stays unsent until its send finishes successfully; one on a closed item does not", () => {
