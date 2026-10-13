@@ -90,6 +90,7 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 		report:    func(err error) { t.Errorf("a browser was not closed: %v", err) },
 		processes: map[string]browserlogin.Process{},
 		closing:   map[string]bool{},
+		signing:   map[string]string{},
 	}
 	return broker, chrome, gone, &now
 }

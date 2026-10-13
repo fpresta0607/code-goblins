@@ -50,7 +50,7 @@ func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, er
 	if provider.KeyPage == "" {
 		return BrowserLease{}, errors.New("this provider has no reviewed sign-in page")
 	}
-	meta, err := state.ReadTaskMeta(s.browsers.state, request.Task)
+	meta, err := s.browsers.grantedTask(request.Task, provider.ID)
 	if err != nil {
 		return BrowserLease{}, err
 	}
@@ -202,20 +202,14 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 			break
 		}
 		now := s.browsers.now()
-		meta, taskErr := state.ReadTaskMeta(s.browsers.state, card.Task)
+		provider, grantErr := s.browsers.signInGrant(card)
 		newState, reason := card.State, card.Reason
 		switch {
 		case card.VerifiedAt != nil:
-			if err := s.browsers.endSignIn(ctx, card); err != nil {
-				failed = append(failed, err)
-				continue
-			}
+			s.browsers.endSignIn(card)
 			newState, reason = "signed_in", ""
-		case !now.Before(card.ExpiresAt) || taskErr != nil || meta.SpawnGen != card.TaskGeneration || s.browsers.live(card.Task) != nil:
-			if err := s.browsers.endSignIn(ctx, card); err != nil {
-				failed = append(failed, err)
-				continue
-			}
+		case !now.Before(card.ExpiresAt) || grantErr != nil:
+			s.browsers.endSignIn(card)
 			newState, reason = "expired", "This sign-in request is no longer needed"
 		case card.State == "opening":
 			if err := s.browsers.startSignIn(ctx, card); err != nil {
@@ -226,23 +220,8 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 		case card.State == "open":
 			s.browsers.mu.Lock()
 			process, isRunning := s.browsers.processes[card.Login]
-			isRunning = isRunning && s.browsers.alive(process)
-			logins, err := browserlogin.Read(s.browsers.state)
+			isRunning = isRunning && s.browsers.signing[card.Login] == card.ID && s.browsers.alive(process)
 			s.browsers.mu.Unlock()
-			if err != nil {
-				failed = append(failed, err)
-				continue
-			}
-			index := slices.IndexFunc(logins, func(login browserlogin.Login) bool { return login.ID == card.Login })
-			if index < 0 {
-				failed = append(failed, errors.New("the sign-in login is missing"))
-				continue
-			}
-			provider, err := s.browsers.recipes.Provider(logins[index].Provider)
-			if err != nil {
-				failed = append(failed, err)
-				continue
-			}
 			if !isRunning {
 				newState, reason = "ready", "The window closed before you signed in. Open it again, or paste the keys on their own card."
 			} else {
@@ -265,10 +244,7 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 				}
 			}
 			if newState != "open" {
-				if err := s.browsers.endSignIn(ctx, card); err != nil {
-					failed = append(failed, err)
-					continue
-				}
+				s.browsers.endSignIn(card)
 			}
 		}
 		if newState == card.State && reason == card.Reason {
@@ -298,9 +274,44 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 	return errors.Join(failed...)
 }
 
+// signInGrant is the provider of card's login, and why card can no longer
+// open a window, nil while it can: its project still has the login, and the
+// task that asked is the same live task, still carrying the provider's
+// declared service.
+func (b *browserBroker) signInGrant(card BrowserSignIn) (keypages.Provider, error) {
+	logins, err := browserlogin.Read(b.state)
+	if err != nil {
+		return keypages.Provider{}, err
+	}
+	index := slices.IndexFunc(logins, func(login browserlogin.Login) bool {
+		return login.ID == card.Login && slices.Contains(login.Projects, card.Project)
+	})
+	if index < 0 {
+		return keypages.Provider{}, errors.New("This project no longer has this login")
+	}
+	provider, err := b.recipes.Provider(logins[index].Provider)
+	if err != nil {
+		return keypages.Provider{}, err
+	}
+	meta, err := b.grantedTask(card.Task, provider.ID)
+	if err != nil {
+		return provider, err
+	}
+	if meta.SpawnGen != card.TaskGeneration {
+		return provider, errors.New("The task that asked for this sign-in was replaced")
+	}
+	return provider, b.live(card.Task)
+}
+
+// startSignIn opens card's window: a normal Chrome on the login's profile at
+// the provider's page, not held to the provider's hosts, since he signs in
+// there himself and no task drives it.
 func (b *browserBroker) startSignIn(ctx context.Context, card BrowserSignIn) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if b.closed {
 		return errors.New("The supervisor is stopping")
 	}
@@ -313,17 +324,7 @@ func (b *browserBroker) startSignIn(ctx context.Context, card BrowserSignIn) err
 	if _, isRunning := b.processes[card.Login]; isRunning {
 		return errors.New("A task still holds this login's browser")
 	}
-	logins, err := browserlogin.Read(b.state)
-	if err != nil {
-		return err
-	}
-	index := slices.IndexFunc(logins, func(login browserlogin.Login) bool {
-		return login.ID == card.Login && slices.Contains(login.Projects, card.Project)
-	})
-	if index < 0 {
-		return errors.New("This project no longer has this login")
-	}
-	provider, err := b.recipes.Provider(logins[index].Provider)
+	provider, err := b.signInGrant(card)
 	if err != nil {
 		return err
 	}
@@ -342,29 +343,35 @@ func (b *browserBroker) startSignIn(ctx context.Context, card BrowserSignIn) err
 	if err != nil {
 		return err
 	}
-	process, err := b.start(ctx, browserlogin.Launch{Executable: executable, Profile: profile, Hosts: provider.Hosts, Page: provider.KeyPage})
+	process, err := b.start(ctx, browserlogin.Launch{Executable: executable, Profile: profile, Page: provider.KeyPage})
+	if process.PID != 0 {
+		b.processes[card.Login] = process
+	}
 	if err != nil {
+		b.closeProcess(card.Login)
 		return fmt.Errorf("The sign-in window could not open: %w", err)
 	}
-	if b.signing == nil {
-		b.signing = map[string]string{}
+	if _, err = b.signInGrant(card); err == nil {
+		err = ctx.Err()
 	}
-	b.signing[card.Login], b.processes[card.Login] = card.ID, process
+	if err != nil {
+		b.closeProcess(card.Login)
+		return err
+	}
+	b.signing[card.Login] = card.ID
 	return nil
 }
 
-func (b *browserBroker) endSignIn(ctx context.Context, card BrowserSignIn) error {
+// endSignIn closes card's window, if it still has one, in the background as
+// the broker closes every browser: its profile stays fenced until the close
+// is confirmed, and a close that cannot be confirmed is reported once and
+// keeps the profile fenced.
+func (b *browserBroker) endSignIn(card BrowserSignIn) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.signing[card.Login] != card.ID {
-		return nil
+		return
 	}
-	if process, isRunning := b.processes[card.Login]; isRunning {
-		if err := b.end(ctx, process); err != nil {
-			return err
-		}
-		delete(b.processes, card.Login)
-	}
+	b.closeProcess(card.Login)
 	delete(b.signing, card.Login)
-	return nil
 }

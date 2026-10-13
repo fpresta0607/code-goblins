@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -165,6 +167,15 @@ func proveBrowserSignInWindow(t *testing.T) {
 	if !isVisible {
 		t.Fatal("the sign-in browser has no visible window on its hidden desktop")
 	}
+	arguments, err := proc.Arguments(process.PID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(arguments, "--remote-debugging-pipe") || slices.ContainsFunc(arguments, func(argument string) bool {
+		return strings.HasPrefix(argument, "--remote-debugging-port") || strings.HasPrefix(argument, "--host-resolver-rules")
+	}) {
+		t.Fatalf("the sign-in window's arguments %q, want a private pipe and no host rules", arguments)
+	}
 	if isSignedIn, err := browserlogin.SignedIn(ctx, process.URL, broker.recipes.Providers[0]); err != nil || isSignedIn {
 		t.Fatalf("unsigned page = %t, %v", isSignedIn, err)
 	}
@@ -205,6 +216,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 	if card := store.Snapshot().BrowserSignIns[0]; card.State != "signed_in" {
 		t.Fatalf("card = %+v, want signed in", card)
 	}
+	broker.work.Wait()
 	if browserlogin.Running(process) {
 		t.Fatal("the sign-in window still runs after completion")
 	}

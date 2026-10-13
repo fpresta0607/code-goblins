@@ -56,8 +56,10 @@ func TestBrowserSignInWindowOpensOnlyForLocalClickAndCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(chrome.launches) != 1 || chrome.launches[0].Headless || chrome.launches[0].Page != service.browsers.recipes.Providers[0].KeyPage {
-		t.Fatalf("launches = %+v, want one sign-in window on the reviewed page", chrome.launches)
+	// The window is his own, a normal Chrome he signs in with, so it is not
+	// held to the provider's hosts as a goblin's headless browser is.
+	if len(chrome.launches) != 1 || chrome.launches[0].Headless || chrome.launches[0].Page != service.browsers.recipes.Providers[0].KeyPage || len(chrome.launches[0].Hosts) != 0 {
+		t.Fatalf("launches = %+v, want one normal sign-in window on the reviewed page", chrome.launches)
 	}
 	card = service.Store.Snapshot().BrowserSignIns[0]
 	if card.State != "open" || registered(t, service.browsers)[0].Browser != nil {
@@ -111,6 +113,9 @@ func TestBrowserSignInWindowCanBeRetriedAfterItCloses(t *testing.T) {
 	if card.State != "ready" || card.Reason == "" || card.ClosedAt != nil {
 		t.Fatalf("card = %+v, want a retry without success", card)
 	}
+	// What is left of the closed window is ended in the background before
+	// the profile opens again.
+	service.browsers.work.Wait()
 	if err := service.openBrowserSignIn(card.ID, card.Generation); err != nil {
 		t.Fatal(err)
 	}

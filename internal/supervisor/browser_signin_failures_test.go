@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
@@ -157,5 +159,203 @@ func TestBrowserSignInWindowEndsWhenItsTaskIsReplaced(t *testing.T) {
 	card = service.Store.Snapshot().BrowserSignIns[0]
 	if card.State != "expired" || card.ClosedAt == nil || len(chrome.endedPIDs(service.browsers)) != 1 {
 		t.Fatalf("card = %+v, want the old task's window ended", card)
+	}
+}
+
+// letGoOfFencedBrowsers forgets the stand-in browsers whose close a test
+// made fail, which hold nothing, so the board's shutdown has none to report.
+func letGoOfFencedBrowsers(broker *browserBroker) {
+	broker.work.Wait()
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	clear(broker.processes)
+	clear(broker.closing)
+}
+
+// clickSignIn files pd-keys' Stripe sign-in and clicks its button, which
+// leaves the window for the keeper's next tick to open.
+func clickSignIn(t *testing.T, service *Service) {
+	t.Helper()
+	if _, err := service.requestBrowserSignIn(BrowserRequest{Task: "pd-keys", Provider: "stripe"}); err != nil {
+		t.Fatal(err)
+	}
+	card := service.Store.Snapshot().BrowserSignIns[0]
+	if err := service.openBrowserSignIn(card.ID, card.Generation); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBrowserSignInRequiresItsDeclaredServicesEffectiveGrant(t *testing.T) {
+	for _, test := range browserGrants {
+		t.Run(test.name, func(t *testing.T) {
+			service, chrome, _ := signInBoard(t)
+			grantBrowserTask(t, service.browsers, "PrecisionDocs-AI", test)
+
+			_, err := service.requestBrowserSignIn(BrowserRequest{Task: "pd-keys", Provider: "stripe"})
+
+			cards, logins := len(service.Store.Snapshot().BrowserSignIns), len(registered(t, service.browsers))
+			if (err == nil) != test.isAllowed || (cards == 1) != test.isAllowed || (logins == 1) != test.isAllowed || len(chrome.launches) != 0 {
+				t.Fatalf("request = %v, cards %d, logins %d, launches %d, allowed %t", err, cards, logins, len(chrome.launches), test.isAllowed)
+			}
+		})
+	}
+}
+
+func TestBrowserSignInRevokedGrantRefusesTheClickAndClosesAnOpenWindow(t *testing.T) {
+	for _, stage := range []string{"before the window opens", "while the window is open"} {
+		t.Run(stage, func(t *testing.T) {
+			service, chrome, _ := signInBoard(t)
+			clickSignIn(t, service)
+			launches := 0
+			if stage == "while the window is open" {
+				if err := service.processBrowserSignIns(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				launches = 1
+			}
+			if err := state.WriteTaskCredentials(service.browsers.state, "pd-keys", nil); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := service.processBrowserSignIns(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+
+			card := service.Store.Snapshot().BrowserSignIns[0]
+			if card.State != "expired" || card.ClosedAt == nil || len(chrome.launches) != launches || len(chrome.endedPIDs(service.browsers)) != launches {
+				t.Fatalf("card = %+v, launches %d, want the revoked task's sign-in ended with no window left", card, len(chrome.launches))
+			}
+		})
+	}
+}
+
+func TestBrowserSignInWindowStartingWhileItsTaskChangesIsNotKept(t *testing.T) {
+	for _, change := range []string{"revoked", "replaced", "ended"} {
+		t.Run(change, func(t *testing.T) {
+			service, chrome, _ := signInBoard(t)
+			clickSignIn(t, service)
+			service.browsers.start = func(ctx context.Context, launch browserlogin.Launch) (browserlogin.Process, error) {
+				process, err := chrome.start(ctx, launch)
+				switch change {
+				case "revoked":
+					if err := state.WriteTaskCredentials(service.browsers.state, "pd-keys", nil); err != nil {
+						t.Fatal(err)
+					}
+				case "replaced":
+					meta, err := state.ReadTaskMeta(service.browsers.state, "pd-keys")
+					if err != nil {
+						t.Fatal(err)
+					}
+					meta.SpawnGen = "new-generation"
+					if err := state.WriteTaskMeta(service.browsers.state, meta); err != nil {
+						t.Fatal(err)
+					}
+				case "ended":
+					service.browsers.live = func(string) error { return errors.New("task ended") }
+				}
+				return process, err
+			}
+
+			if err := service.processBrowserSignIns(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+
+			card := service.Store.Snapshot().BrowserSignIns[0]
+			if card.State == "open" || len(chrome.endedPIDs(service.browsers)) != 1 {
+				t.Fatalf("card = %+v, want the window of a task that changed during startup closed", card)
+			}
+		})
+	}
+}
+
+func TestBrowserSignInFailedStartupKeepsItsUnclosedWindowFenced(t *testing.T) {
+	service, chrome, _ := signInBoard(t)
+	clickSignIn(t, service)
+	service.browsers.start = func(ctx context.Context, launch browserlogin.Launch) (browserlogin.Process, error) {
+		process, _ := chrome.start(ctx, launch)
+		return process, errors.New("readiness and cleanup failed")
+	}
+	service.browsers.end = func(context.Context, browserlogin.Process) error { return errors.New("cleanup unconfirmed") }
+	service.browsers.report = func(error) {}
+	t.Cleanup(func() { letGoOfFencedBrowsers(service.browsers) })
+	if err := service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	service.browsers.work.Wait()
+	card := service.Store.Snapshot().BrowserSignIns[0]
+	if err := service.openBrowserSignIn(card.ID, card.Generation); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	card = service.Store.Snapshot().BrowserSignIns[0]
+	_, attachErr := service.browsers.attach(context.Background(), "pd-keys", "stripe")
+	if card.State != "ready" || !strings.Contains(card.Reason, "still closing") || len(chrome.launches) != 1 || len(service.browsers.processes) != 1 || attachErr == nil {
+		t.Fatalf("card = %+v, launches %d, owned %d, attach %v, want the unclosed window's profile fenced", card, len(chrome.launches), len(service.browsers.processes), attachErr)
+	}
+}
+
+func TestBrowserSignInWindowWhoseCloseFailsStaysFencedAndIsReportedOnce(t *testing.T) {
+	service, chrome, _ := signInBoard(t)
+	clickSignIn(t, service)
+	if err := service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var reported sync.Mutex
+	reports := 0
+	service.browsers.report = func(error) {
+		reported.Lock()
+		reports++
+		reported.Unlock()
+	}
+	service.browsers.end = func(context.Context, browserlogin.Process) error { return errors.New("cleanup unconfirmed") }
+	t.Cleanup(func() { letGoOfFencedBrowsers(service.browsers) })
+	chrome.mu.Lock()
+	chrome.alive[1] = false
+	chrome.mu.Unlock()
+
+	for range 3 {
+		if err := service.processBrowserSignIns(context.Background()); err != nil {
+			t.Fatalf("a close left to the broker failed the board's tick: %v", err)
+		}
+		service.browsers.work.Wait()
+	}
+	card := service.Store.Snapshot().BrowserSignIns[0]
+	if err := service.openBrowserSignIn(card.ID, card.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	card = service.Store.Snapshot().BrowserSignIns[0]
+	reported.Lock()
+	defer reported.Unlock()
+	if reports != 1 || card.State != "ready" || !strings.Contains(card.Reason, "still closing") || len(chrome.launches) != 1 || len(service.browsers.processes) != 1 {
+		t.Fatalf("card = %+v, reports %d, launches %d, owned %d, want one report and a fenced profile", card, reports, len(chrome.launches), len(service.browsers.processes))
+	}
+}
+
+func TestBrowserSignInWindowCancelledBehindTheBrokerLockStartsNothing(t *testing.T) {
+	service, chrome, _ := signInBoard(t)
+	clickSignIn(t, service)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	service.browsers.mu.Lock()
+	answer := make(chan error, 1)
+	go func() { answer <- service.processBrowserSignIns(ctx) }()
+	<-ctx.Done()
+	service.browsers.mu.Unlock()
+
+	select {
+	case <-answer:
+		if len(chrome.launches) != 0 {
+			t.Fatalf("launches = %d, want none after the keeper's context ended", len(chrome.launches))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the cancelled tick did not return")
 	}
 }

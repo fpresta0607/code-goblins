@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func TestBrowserSignInRepeatedFailureIssuesAFreshClickGeneration(t *testing.T) {
@@ -51,32 +53,29 @@ func TestBrowserSignInSuccessfulCloseSurvivesACardSaveFailure(t *testing.T) {
 				t.Fatal(err)
 			}
 			*isSignedIn = true
-			var restore func()
-			if save == "verification" {
-				restore = blockStoreWrites(t, service.Store)
-			} else {
-				service.browsers.end = func(ctx context.Context, process browserlogin.Process) error {
-					if err := chrome.end(ctx, process); err != nil {
-						return err
-					}
-					restore = blockStoreWrites(t, service.Store)
+			if save != "verification" {
+				// A tick kept the verification, as one does before it closes
+				// the window, and the page no longer shows him signed in.
+				verified := service.browsers.now()
+				if err := service.Store.updateBrowserSignIn(card.ID, func(current *BrowserSignIn) error {
+					current.VerifiedAt = &verified
 					return nil
+				}); err != nil {
+					t.Fatal(err)
 				}
+				*isSignedIn = false
 			}
+			restore := blockStoreWrites(t, service.Store)
 			err := service.processBrowserSignIns(context.Background())
-			if restore == nil {
-				t.Fatal("the sign-in window was never closed")
-			}
 			restore()
-			service.browsers.end = chrome.end
 			if err == nil {
 				t.Fatal("a failed card save was reported as successful")
 			}
 			if save == "verification" && len(chrome.endedPIDs(service.browsers)) != 0 {
 				t.Fatal("the window closed before verification was persisted")
 			}
-			if save != "verification" {
-				*isSignedIn = false
+			if save != "verification" && len(chrome.endedPIDs(service.browsers)) != 1 {
+				t.Fatal("the verified sign-in's window was not closed")
 			}
 			if save == "completion after restart" {
 				service.Store, err = Open(service.Store.Home)
@@ -128,6 +127,12 @@ func TestBrowserSignInDeduplicatesByLoginInsteadOfProviderLabel(t *testing.T) {
 	provider := service.browsers.recipes.Providers[0]
 	provider.ID = "anotherprovider"
 	service.browsers.recipes.Providers = append(service.browsers.recipes.Providers, provider)
+	if err := state.WriteTaskCredentials(service.browsers.state, "pd-keys", []string{"stripe", provider.ID}); err != nil {
+		t.Fatal(err)
+	}
+	brokerManifest(t, service.browsers, "PrecisionDocs-AI",
+		auth.Service{Name: "stripe", Method: auth.MethodEnv, Env: []string{"STRIPE_TEST_SECRET_KEY"}},
+		auth.Service{Name: provider.ID, Method: auth.MethodEnv, Env: []string{"ANOTHERPROVIDER_TEST_SECRET_KEY"}})
 	first, err := service.requestBrowserSignIn(BrowserRequest{Task: "pd-keys", Provider: "stripe"})
 	if err != nil {
 		t.Fatal(err)
