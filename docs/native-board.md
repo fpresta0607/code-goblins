@@ -944,6 +944,17 @@ A CFO already running keeps its harness, and goblins says the choice applies to 
 A Claude Code CFO is woken by its own Stop hook, which waits on the wake queue.
 A Codex or pi CFO in a native terminal is woken by the supervisor, once it has registered by running `cfo register` in that terminal, as its first prompt tells it to: while wakes it has not been told about are queued, the supervisor types one line into its terminal, `cfo watcher wake: N queued wakes (...); run cfo drain, ...`, only when two readings of its screen a second apart show it idle at an empty composer, so never mid-turn and never over text left unsent, at most one line every 30 seconds, and each queued record is covered by one line only.
 The line is proved taken as `cfo send` proves a send, and one that nothing proves taken is reported and not typed again.
+A wake left untyped is recorded in `state\cfo-wake-skips.jsonl`, once for each new wake and each new reason, with why in plain words, such as "its screen shows it in the middle of a turn", and the screen's last eight rows; the file keeps the newest 200.
+On 2026-10-13 six wakes waited 16 minutes for an idle Codex CFO and nothing said why.
+Once the oldest untyped wake has waited five minutes while the CFO is not in a turn, the CFO cannot be told why, so the Overlord is: one Command Center item in plain words, such as "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows work it started still running. Restart the CFO so it reads them?", whose one action is the board's own Restart the CFO, with its confirmation, which the supervisor carries out.
+A CFO in the middle of a turn is never offered it, however long its wakes wait: it takes them as the turn ends, and a restart would end it at work.
+A turn is read before anything else on the screen, by the harness's working row or any row ending in its interrupt hint, so words of a dialog a busy CFO read do not count; only a command left running or a shell count is work at an idle prompt.
+That reads a CFO as busy when such a hint is merely quoted on its screen; its wakes are still recorded, and it is never offered a restart, which errs toward a CFO at work.
+The reason must hold on every look for a minute, counted afresh for each stretch of untyped wakes, before the item is made, an item already made is taken back once the CFO is at work again, and a CFO that no longer runs, or whose terminal runs another program, is offered nothing.
+The item runs no command, and the supervisor refuses to run it as one, since a CFO a run terminal started is not proven to outlive that terminal.
+It is made once for that oldest wake and taken back while nobody ran it once no wake waits untyped, whether the line was typed or the CFO ran `cfo drain` itself.
+A restart that ran and did not help is offered again once it has been over five minutes, and one that expired at once.
+Only a wake the supervisor chose not to type is recorded: a Claude Code CFO takes its wakes through its Stop hook, and a line typed but not proven taken is reported as before.
 A Codex or pi CFO someone starts in Herdr by hand has no wake path: it sees reports only when it checks the board or runs `cfo drain`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
