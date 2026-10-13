@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -241,15 +242,16 @@ func (s *Service) proveBoard(r *http.Request, board string, asked time.Time, who
 // refuse answers a board whose request the supervisor refused or could not
 // carry out: the board gets say, the one short sentence the Overlord reads,
 // and the CFO is told what happened in full through its wake queue, under
-// key. No dialog shows him the supervisor's own words for it. The same refusal
-// wakes the CFO at most once a minute, since any program on the PC can send
-// the request again and again, and each answer still reaches the board.
+// key. No dialog shows him the supervisor's own words for it. The same refusal,
+// for the same reason whatever process ids it names, wakes the CFO at most
+// once a minute, since any program on the PC can send the request again and
+// again, and each answer still reaches the board.
 func (h *HTTP) refuse(w http.ResponseWriter, status int, key, what, say string, err error) {
 	var refused *boardRefusal
 	if errors.As(err, &refused) {
 		say = refused.say
 	}
-	kind, now := key+"\n"+what, time.Now()
+	kind, now := key+"\n"+what+"\n"+refusalNumbers.ReplaceAllString(err.Error(), "#"), time.Now()
 	h.mu.Lock()
 	isRecent := now.Sub(h.refusals[kind]) < refusalWakeEvery
 	if !isRecent {
@@ -276,6 +278,10 @@ func (h *HTTP) refuse(w http.ResponseWriter, status int, key, what, say string, 
 
 // refusalWakeEvery is how often the same refused board press can wake the CFO.
 const refusalWakeEvery = time.Minute
+
+// refusalNumbers are the process ids and other numbers a refusal names, which
+// a program sending it again under a new process changes.
+var refusalNumbers = regexp.MustCompile(`[0-9]+`)
 
 // switchAFKFromBoard serves POST /api/afk: the board's AFK switch. The body is
 // read before anything is proven, so a body the endpoint does not take is
