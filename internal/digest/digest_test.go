@@ -690,7 +690,7 @@ func TestComposeTellsTheCFOAFKModeIsOnBeforeTheWakeQueue(t *testing.T) {
 	for _, want := range []string{
 		"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from his own terminal (powershell.exe pid 4242)",
 		"cfo pr merge <url> --verified",
-		"never decided for him",
+		"only what a tool refuses or needs his own sign-in stays his",
 		"a migration or command that drops or deletes data",
 	} {
 		if !strings.Contains(out.String(), want) {
