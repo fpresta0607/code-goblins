@@ -219,6 +219,21 @@ func (t *Tree) processWorkingSet(pid uint32) (uint64, error) {
 // Unlike End, no descendant is deliberately spared, and unlike
 // Release, no descendant may outlive successful cleanup.
 func (t *Tree) TerminateAndWait(ctx context.Context) (TreeUsage, error) {
+	usage, _, err := t.endAndWait(ctx, false)
+	return usage, err
+}
+
+// EndAndWait is TerminateAndWait for a run whose end must not end a machine
+// service it started: it ends every member but a machine service and what
+// runs under it (proc.EndJob), as End does, and returns the services it
+// spared once nothing else is left in the job. They run on after the job's
+// handle closes, outside its custody. With none to spare it confirms the job
+// empty as TerminateAndWait does.
+func (t *Tree) EndAndWait(ctx context.Context) (TreeUsage, []EndedProcess, error) {
+	return t.endAndWait(ctx, true)
+}
+
+func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUsage, []EndedProcess, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -226,41 +241,63 @@ func (t *Tree) TerminateAndWait(ctx context.Context) (TreeUsage, error) {
 	for !t.mu.TryLock() {
 		select {
 		case <-ctx.Done():
-			return TreeUsage{}, ctx.Err()
+			return TreeUsage{}, nil, ctx.Err()
 		case <-ticker.C:
 		}
 	}
 	defer t.mu.Unlock()
 	if t.isDone {
-		return TreeUsage{}, errors.New("execx: job custody is closed")
+		return TreeUsage{}, nil, errors.New("execx: job custody is closed")
 	}
 	if err := ctx.Err(); err != nil {
-		return TreeUsage{}, err
+		return TreeUsage{}, nil, err
 	}
-	if err := windows.TerminateJobObject(t.job, 1); err != nil {
-		return TreeUsage{}, fmt.Errorf("execx: terminate verification job: %w", err)
+	var endError error
+	if shouldSpareServices {
+		_, spared, err := proc.EndJob(t.job)
+		if err == nil && len(spared) > 0 {
+			usage, err := t.jobUsage()
+			if err != nil {
+				return TreeUsage{}, nil, err
+			}
+			if err := windows.CloseHandle(t.job); err != nil {
+				return usage, nil, fmt.Errorf("execx: close verification job: %w", err)
+			}
+			t.isDone = true
+			kept := make([]EndedProcess, len(spared))
+			for index, entry := range spared {
+				kept[index] = EndedProcess{Name: entry.ExeBase, PID: entry.PID}
+			}
+			return usage, kept, nil
+		}
+		// An end that failed either could not tell the services apart and
+		// ended the whole job, or left more than services running. Only an
+		// empty job proves the cleanup then.
+		endError = err
+	} else if err := windows.TerminateJobObject(t.job, 1); err != nil {
+		return TreeUsage{}, nil, fmt.Errorf("execx: terminate verification job: %w", err)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
-			return TreeUsage{}, err
+			return TreeUsage{}, nil, errors.Join(endError, err)
 		}
 		usage, err := t.jobUsage()
 		if err != nil {
-			return TreeUsage{}, err
+			return TreeUsage{}, nil, errors.Join(endError, err)
 		}
 		if err := ctx.Err(); err != nil {
-			return usage, err
+			return usage, nil, errors.Join(endError, err)
 		}
 		if usage.ActiveProcesses == 0 {
 			if err := windows.CloseHandle(t.job); err != nil {
-				return usage, fmt.Errorf("execx: close empty verification job: %w", err)
+				return usage, nil, fmt.Errorf("execx: close empty verification job: %w", err)
 			}
 			t.isDone = true
-			return usage, nil
+			return usage, nil, nil
 		}
 		select {
 		case <-ctx.Done():
-			return usage, ctx.Err()
+			return usage, nil, errors.Join(endError, ctx.Err())
 		case <-ticker.C:
 		}
 	}

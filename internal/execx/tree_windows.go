@@ -105,7 +105,7 @@ func (t *Tree) End() ([]EndedProcess, error) {
 		return t.ended, t.doneErr
 	}
 	t.isDone = true
-	entries, err := proc.EndJob(t.job)
+	entries, _, err := proc.EndJob(t.job)
 	for _, entry := range entries {
 		t.ended = append(t.ended, EndedProcess{Name: entry.ExeBase, PID: entry.PID})
 	}

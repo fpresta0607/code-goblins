@@ -11,6 +11,7 @@ import (
 	"time"
 
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -356,5 +357,41 @@ func TestVerifyRunsNothingOfATierWithAnEmptyCommand(t *testing.T) {
 	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
 	if exit != 1 || len(results) != 1 || results[0].Status != "not_run" || !strings.Contains(results[0].Error, "empty command") {
 		t.Fatalf("exit = %d, saved = %+v, want the tier refused before anything ran", exit, results)
+	}
+}
+
+// A machine service a tier's command started, as Docker Desktop serves the
+// whole machine, is left running and named on standard error and in the
+// command's entry, and the tier keeps its pass.
+func TestVerifyLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
+	// Arrange
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	service := filepath.Join(programs, "com.docker.standin.exe")
+	standin.Put(t, service)
+	for _, variable := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "start", "/b", service})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [`+string(command)+`]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) == 1 && len(results[0].Spared) == 1 {
+		standin.Hold(t, results[0].Spared[0].PID)
+	}
+	if exit != 0 || !strings.Contains(stderr.String(), "com.docker.standin.exe pid") || !strings.Contains(stderr.String(), "which serves the whole machine, so the run left it running") {
+		t.Fatalf("exit = %d, stderr = %q, want a pass naming the service left running", exit, stderr.String())
+	}
+	if len(results) != 1 || results[0].Status != "passed" || len(results[0].Spared) != 1 || len(results[0].Leftovers) != 0 || !strings.EqualFold(results[0].Spared[0].Name, "com.docker.standin.exe") {
+		t.Fatalf("saved = %+v, want a pass that names the service as spared and nothing as ended", results)
 	}
 }

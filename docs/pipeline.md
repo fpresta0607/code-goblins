@@ -498,6 +498,9 @@ Once the command's own process has exited, what it left running may run on for a
 The run keeps the command's own result, since tools such as build servers and browser bridges leave helpers behind on purpose, and a later certification can still require a run with none.
 Only a process still running counts, since Windows can count one that has exited in its job for a moment after.
 A process a nested `cfo gate turn` lets go of when its command ends is still in the executor's job, so it is ended and named the same way.
+A machine service the command started, Docker Desktop with what it runs, the no-mistakes daemon with its gate agents or the Scrawl server, serves the whole machine, so the run's end leaves it running, as every teardown of a goblin does, and records it apart from the leftovers it ended, and `cfo verify` names it on standard error.
+The run's cleanup is confirmed once nothing but such a service is left in its job, whose handle then closes without ending it.
+A recovery after a controller died spares nothing, since the job's kill on close has ended everything in it by then.
 The command's output to its logs is limited to 1 GiB together, past which the run is interrupted, and a running sample is written to the record every ten seconds and the final measurement always.
 Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
 `RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.

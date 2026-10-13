@@ -409,7 +409,7 @@ func (c *Console) ExitCode() uint32 {
 // output is drained here too.
 func (c *Console) Close() error {
 	close(c.closing)
-	_, err := proc.EndJob(c.job)
+	_, _, err := proc.EndJob(c.job)
 	go func() {
 		buffer := make([]byte, 32<<10)
 		for {

@@ -18,3 +18,7 @@ func (*Tree) Members() ([]EndedProcess, error) {
 func (*Tree) TerminateAndWait(context.Context) (TreeUsage, error) {
 	return TreeUsage{}, errors.New("execx: verified whole-tree termination requires Windows")
 }
+
+func (*Tree) EndAndWait(context.Context) (TreeUsage, []EndedProcess, error) {
+	return TreeUsage{}, nil, errors.New("execx: verified whole-tree termination requires Windows")
+}

@@ -189,35 +189,36 @@ const endJobFor = 5 * time.Second
 // end it. With one there, the job stops ending its processes when its last
 // handle closes, so the service outlives it, and the rest are ended one by
 // one until none is left. It returns the processes the job held as it ended
-// them, sorted by pid.
-func EndJob(job windows.Handle) ([]Entry, error) {
+// them, and the services it spared with what runs under them, once nothing
+// else is left in the job, each sorted by pid.
+func EndJob(job windows.Handle) (ended, spared []Entry, err error) {
 	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
 	if err != nil {
-		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
+		return nil, nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	services, err := RunningServicesAmong(members)
 	if err != nil {
-		return members, errors.Join(err, windows.TerminateJobObject(job, 1))
+		return members, nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	if !slices.ContainsFunc(members, func(member Entry) bool { return services[member.PID] != NoService }) {
 		if err := windows.TerminateJobObject(job, 1); err != nil {
-			return nil, fmt.Errorf("proc: end a job: %w", err)
+			return nil, nil, fmt.Errorf("proc: end a job: %w", err)
 		}
-		return members, nil
+		return members, nil, nil
 	}
 	if err := KeepJobOnClose(job); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	ended, err := endEachBut(job, members, services)
+	ended, spared, err = endEachBut(job, members, services)
 	sort.Slice(ended, func(i, j int) bool { return ended[i].PID < ended[j].PID })
-	return ended, err
+	return ended, spared, err
 }
 
 // endEachBut ends job's processes one by one, members as they were last
 // read, but the machine services and what runs under them, until none else
-// is left or endJobFor has passed, and returns the processes it ended.
-func endEachBut(job windows.Handle, members []Entry, services map[int]Service) ([]Entry, error) {
-	var ended []Entry
+// is left or endJobFor has passed, and returns the processes it ended and,
+// once none else is left, the services it spared.
+func endEachBut(job windows.Handle, members []Entry, services map[int]Service) (ended, spared []Entry, err error) {
 	for deadline := time.Now().Add(endJobFor); ; time.Sleep(50 * time.Millisecond) {
 		var rest []int
 		for _, member := range members {
@@ -230,17 +231,16 @@ func endEachBut(job windows.Handle, members []Entry, services map[int]Service) (
 			rest = append(rest, member.PID)
 		}
 		if len(rest) == 0 {
-			return ended, nil
+			return ended, members, nil
 		}
 		if time.Now().After(deadline) {
-			return ended, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running", rest)
+			return ended, nil, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running", rest)
 		}
-		var err error
 		if members, err = jobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
-			return ended, err
+			return ended, nil, err
 		}
 		if services, err = RunningServicesAmong(members); err != nil {
-			return ended, err
+			return ended, nil, err
 		}
 	}
 }

@@ -16,6 +16,7 @@ type measuredTree struct {
 	members      []execx.EndedProcess
 	membersError error
 	cleanupError error
+	spared       []execx.EndedProcess
 	wasCleaned   bool
 }
 
@@ -23,13 +24,14 @@ func (tree *measuredTree) Usage() (execx.TreeUsage, error) { return tree.usage, 
 func (tree *measuredTree) Members() ([]execx.EndedProcess, error) {
 	return tree.members, tree.membersError
 }
-func (tree *measuredTree) TerminateAndWait(context.Context) (execx.TreeUsage, error) {
+func (tree *measuredTree) EndAndWait(context.Context) (execx.TreeUsage, []execx.EndedProcess, error) {
 	tree.wasCleaned = true
 	usage := tree.usage
-	if tree.cleanupError == nil {
-		usage.ActiveProcesses = 0
+	if tree.cleanupError != nil {
+		return usage, nil, tree.cleanupError
 	}
-	return usage, tree.cleanupError
+	usage.ActiveProcesses = uint32(len(tree.spared))
+	return usage, tree.spared, nil
 }
 
 func TestMonitorInterruptsOnPressureAndUnavailableMeasurements(t *testing.T) {
@@ -272,8 +274,8 @@ func (tree exitingTree) Usage() (execx.TreeUsage, error) {
 	}
 }
 func (exitingTree) Members() ([]execx.EndedProcess, error) { return nil, nil }
-func (exitingTree) TerminateAndWait(context.Context) (execx.TreeUsage, error) {
-	return execx.TreeUsage{TotalProcesses: 1}, nil
+func (exitingTree) EndAndWait(context.Context) (execx.TreeUsage, []execx.EndedProcess, error) {
+	return execx.TreeUsage{TotalProcesses: 1}, nil, nil
 }
 
 func TestMonitorSamplesAgainAsSoonAsTheCommandExits(t *testing.T) {
@@ -386,5 +388,32 @@ func TestMonitorKeepsARunThroughABriefPressureByDefault(t *testing.T) {
 	// Assert
 	if err != nil || result.State != Completed {
 		t.Fatalf("a brief pressure under the default sustain = %+v, %v, want the run kept", result, err)
+	}
+}
+
+// A machine service the end spared is named apart from the leftovers the run
+// ended, and the run's cleanup is confirmed though the job still holds it.
+func TestMonitorNamesAServiceItsEndSparedApartFromItsLeftovers(t *testing.T) {
+	// Arrange
+	service := execx.EndedProcess{Name: "Docker Desktop.exe", PID: 41}
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 2, TotalProcesses: 3}, members: []execx.EndedProcess{service, {Name: "worker.exe", PID: 42}}, spared: []execx.EndedProcess{service}}
+	exited := make(chan struct{})
+	close(exited)
+	monitor := Monitor{Poll: time.Millisecond, Exited: exited, Linger: 5 * time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err != nil || result.State != Completed || !result.CleanupConfirmed {
+		t.Fatalf("result = %+v, %v, want a confirmed cleanup beside the spared service", result, err)
+	}
+	if len(result.Spared) != 1 || result.Spared[0] != (Leftover{Name: "Docker Desktop.exe", PID: 41}) {
+		t.Fatalf("spared = %+v, want the service", result.Spared)
+	}
+	if len(result.Leftovers) != 1 || result.Leftovers[0] != (Leftover{Name: "worker.exe", PID: 42}) {
+		t.Fatalf("leftovers = %+v, want the worker alone", result.Leftovers)
 	}
 }

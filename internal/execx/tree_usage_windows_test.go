@@ -3,7 +3,9 @@ package execx_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // usageOnce reads the tree's usage until counts says it has the processes
@@ -263,5 +266,116 @@ func TestTreeCountsAMemberItMayNotReadInsteadOfFailing(t *testing.T) {
 	defer cancel()
 	if final, err := tree.TerminateAndWait(ctx); err != nil || final.ActiveProcesses != 0 {
 		t.Fatalf("ending the locked worker = %+v, %v", final, err)
+	}
+}
+
+// A run's end that must not end a machine service, as Docker Desktop a
+// command started serves the whole machine, spares it with what runs under
+// it and ends the rest, as End does. Recovery's end spares nothing, since a
+// job whose controller died has had its kill-on-close end everything in it.
+func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
+	if programs := os.Getenv("EXECX_TEST_SERVICE"); programs != "" {
+		for _, name := range []string{"com.docker.standin", "worker"} {
+			started := exec.Command(filepath.Join(programs, name+".exe"))
+			if started.Start() != nil {
+				os.Exit(8)
+			}
+			// Written whole and then named, so the test never reads half a pid.
+			pid := filepath.Join(programs, name+".pid")
+			if os.WriteFile(pid+".tmp", []byte(strconv.Itoa(started.Process.Pid)), 0o600) != nil || os.Rename(pid+".tmp", pid) != nil {
+				os.Exit(7)
+			}
+		}
+		time.Sleep(time.Minute)
+		os.Exit(9)
+	}
+	for _, test := range []struct {
+		name          string
+		end           func(context.Context, *execx.Tree) ([]execx.EndedProcess, error)
+		isServiceKept bool
+	}{
+		{name: "EndAndWait", end: func(ctx context.Context, tree *execx.Tree) ([]execx.EndedProcess, error) {
+			_, spared, err := tree.EndAndWait(ctx)
+			return spared, err
+		}, isServiceKept: true},
+		{name: "TerminateAndWait", end: func(ctx context.Context, tree *execx.Tree) ([]execx.EndedProcess, error) {
+			_, err := tree.TerminateAndWait(ctx)
+			return nil, err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			programs := t.TempDir()
+			standin.RemoveAtCleanup(t, programs)
+			for _, name := range []string{"com.docker.standin", "worker"} {
+				standin.Put(t, filepath.Join(programs, name+".exe"))
+			}
+			command := execx.Command(os.Args[0], "-test.run=^TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo$")
+			command.Env = append(append(os.Environ(), "EXECX_TEST_SERVICE="+programs), standin.Env("", standin.Rule{Any: true, Hold: true})...)
+			tree, err := execx.StartTree(command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _, _ = tree.End(); _ = command.Wait() })
+			held := map[string]windows.Handle{}
+			pids := map[string]int{}
+			for _, name := range []string{"com.docker.standin", "worker"} {
+				pid := filepath.Join(programs, name+".pid")
+				for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+					if data, err := os.ReadFile(pid); err == nil {
+						if pids[name], err = strconv.Atoi(string(data)); err != nil {
+							t.Fatal(err)
+						}
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("%s never started", name)
+					}
+				}
+				held[name] = standin.Hold(t, pids[name])
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Act
+			spared, err := test.end(ctx, tree)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Windows can count a job empty a moment before a process its end
+			// ended signals, so an ended service is waited for, and a kept
+			// one must still run a moment later.
+			wait := uint32(5000)
+			if test.isServiceKept {
+				wait = 500
+			}
+			event, err := windows.WaitForSingleObject(held["com.docker.standin"], wait)
+			if isServiceRunning := err == nil && event == uint32(windows.WAIT_TIMEOUT); isServiceRunning != test.isServiceKept {
+				t.Fatalf("the machine service runs: %v, want %v", isServiceRunning, test.isServiceKept)
+			}
+			wantSpared := 0
+			if test.isServiceKept {
+				wantSpared = 1
+			}
+			if len(spared) != wantSpared || wantSpared == 1 && (spared[0].PID != pids["com.docker.standin"] || !strings.EqualFold(spared[0].Name, "com.docker.standin.exe")) {
+				t.Fatalf("spared = %+v, want the machine service %d alone where it is kept", spared, pids["com.docker.standin"])
+			}
+			for _, name := range []string{"worker", ""} {
+				process := held[name]
+				if name == "" {
+					handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(command.Process.Pid))
+					if err != nil {
+						continue
+					}
+					defer windows.CloseHandle(handle)
+					process, name = handle, "the tree's own process"
+				}
+				if event, err := windows.WaitForSingleObject(process, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+					t.Fatalf("%s still runs after the tree's end", name)
+				}
+			}
+		})
 	}
 }
