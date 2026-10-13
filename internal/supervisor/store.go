@@ -153,6 +153,7 @@ type Store struct {
 	readers       sync.RWMutex
 	db            Database
 	committed     Database
+	pageReceipts  pageReceiptState
 	changed       chan struct{}
 	inboxCursor   string
 	deferredUntil map[string]time.Time
@@ -203,6 +204,9 @@ func Open(h home.Home) (*Store, error) {
 		}
 	}
 	s.committed = cloneDatabase(s.db)
+	if err := s.readPageReceipts(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
