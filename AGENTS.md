@@ -639,7 +639,6 @@ You orchestrate deliberately, never by reflex.
     High-risk work and retries stay in escalation and refuse when it is unavailable or not configured, even if a lighter lane has quota.
     Unrelated lanes and model names establish no capability equivalence.
     Never downgrade by hand to save quota.
-  - The shipped table and a proposed conservative Codex tier table are described separately in [project routing](docs/project-runtime.md#execution-routing).
     Installing a build preserves a home's existing table, and tuning that private table remains the CFO's decision.
 - **Never invent goblins.** Spawn only the goblins the request needs. Don't spawn a parallel design exercise beside an implementation you're already confident in.
 
