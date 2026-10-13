@@ -423,7 +423,7 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		// What the board's view kept of the stretch before goes with its
 		// report.
 		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
-		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide everything its authority covers yourself and log each decision. Ask him nothing and hold nothing for him: what only he can do gets a backlog row and a cfo afk log --kind left line, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer. Its terms stand above this queue."); err != nil {
+		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Answer every decision yourself with your recommendation, act on it and log it. Ask him nothing and hold nothing for him: a step only he can take gets a backlog row and a cfo afk log --kind his line, one plain line in his recap, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer. Its terms stand above this queue."); err != nil {
 			return err
 		}
 		return kept
@@ -440,7 +440,7 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	if err != nil {
 		return err
 	}
-	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.settleAndAsk(current.Session, now) + "Write the report of the stretch into your terminal: cfo afk report")
+	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.settleInHistory(current.Session) + "Write the report of the stretch into your terminal: cfo afk report")
 }
 
 // afkDisk is free disk as the board's disk meter reads it now, which AFK mode
@@ -468,91 +468,51 @@ func (s *Service) keepAFKDisk() error {
 	return nil
 }
 
-// settleAndAsk ends a stretch's lines left for the Overlord that the CFO did
-// not strike or settle. Each decision the CFO answered itself in his place is
-// settled: it goes to his History as the CFO's own question, answered by the
-// CFO while he was away, when it was logged, where he can change it, and is
-// never asked of him. Each other line is put to him in the Command Center as
-// the CFO's own question, with why it is his, what is wrong, what was tried
-// and his choices: what is his reaches him there, never as a list in the
-// CFO's chat. A goblin's page the CFO answered in his place is in History
-// already, as the goblin's own question. It says what it settled and asked,
-// or what it could not, for the CFO's notice.
-func (s *Service) settleAndAsk(session string, now time.Time) string {
+// settleInHistory settles each decision the CFO answered in the Overlord's
+// place in a stretch and did not strike: it goes to his History as the CFO's
+// own question, answered by the CFO while he was away, when it was logged,
+// where he can change it. Nothing is asked of him: a step only he can take is
+// a line in his recap, never a question. A goblin's page the CFO answered in
+// his place is in History already, as the goblin's own question. It says what
+// it settled, or what it could not, for the CFO's notice.
+func (s *Service) settleInHistory(session string) string {
 	stateDir := s.Store.Home.State
 	entries, _, err := afk.Entries(stateDir, session)
 	if err != nil {
-		return "The lines left for him could not be read, so none was settled in his History or asked in the Command Center (" + err.Error() + "): ask each with cfo question. "
+		return "The decisions you answered in his place could not be read, so none was settled in his History (" + err.Error() + "). "
 	}
-	var settled, asked, failed []string
+	var settled, failed []string
 	for _, decision := range afk.Decisions(entries) {
-		if decision.Kind != afk.KindLeft || decision.Struck != "" || decision.Settled != "" || len(decision.Options) == 0 {
+		if !afk.AnsweredForHim(decision) || decision.Struck != "" {
 			continue
 		}
 		_, identity, err := readPrimary(stateDir)
 		if err == nil {
-			q := Question{ID: afk.LeftQuestionID(decision), Identity: identity, Text: leftQuestion(decision), Options: slices.Clone(decision.Options), Recommended: decision.Recommendation, CreatedAt: now}
-			if !afk.AnsweredForHim(decision) {
-				if err = s.Store.acceptQuestion(q); err == nil {
-					asked = append(asked, q.ID)
-					continue
-				}
-			} else {
-				at := decision.At
-				q.CreatedAt, q.Status, q.Message = at, "succeeded", "Answered by the CFO."
-				q.Answer, q.AnswerKind, q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = decision.Answer, "option", decision.Answer, "cfo", &at, true
-				if err = s.Store.settleQuestion(q); err == nil {
-					settled = append(settled, q.ID)
-					continue
-				}
+			at := decision.At
+			q := Question{ID: afk.LeftQuestionID(decision), Identity: identity, Text: leftQuestion(decision), Options: slices.Clone(decision.Options), Recommended: decision.Recommendation, CreatedAt: at, Status: "succeeded", Message: "Answered by the CFO."}
+			q.Answer, q.AnswerKind, q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = decision.Answer, "option", decision.Answer, "cfo", &at, true
+			if err = s.Store.settleQuestion(q); err == nil {
+				settled = append(settled, q.ID)
+				continue
 			}
 		}
 		failed = append(failed, strconv.Quote(decision.What)+" ("+err.Error()+")")
 	}
 	says := ""
 	if len(settled) > 0 {
-		says += "Each decision you answered in his place is settled in his History with your answer, where he can change it, and is not asked of him: your questions " + strings.Join(settled, ", ") + ". "
-	}
-	if len(asked) > 0 {
-		says += "What only he can decide is in the Command Center as your questions " + strings.Join(asked, ", ") + ". "
+		says += "Each decision you answered in his place is settled in his History with your answer, where he can change it: your questions " + strings.Join(settled, ", ") + ". "
 	}
 	if len(failed) > 0 {
-		says += "These lines left for him could not be put in the Command Center: " + strings.Join(failed, ", ") + ". Ask each that only he can decide with cfo question. "
+		says += "These decisions could not be settled in his History: " + strings.Join(failed, ", ") + ". Tell him each in your reply, with your answer. "
 	}
 	return says
 }
 
-// leftForHim is each line a stretch's decisions left for the Overlord that the
-// CFO did not strike, and did not answer itself, as an item for him: the
-// question it is asked as in the Command Center when the stretch ends, or what
-// became of a line the CFO settled, which is never asked. A decision the CFO
-// answered in his place is settled in his History and recapped in the report
-// on its own, so it is never an item for him.
-func leftForHim(decisions []afk.Entry) []afk.Held {
-	var held []afk.Held
-	for _, left := range decisions {
-		if left.Kind != afk.KindLeft || left.Struck != "" || afk.AnsweredForHim(left) {
-			continue
-		}
-		one := afk.Held{Item: "question:" + afk.LeftQuestionID(left), What: left.What, At: left.At, Waiting: true, Now: "still waiting on you", Recommendation: left.Recommendation, Settled: left.Settled}
-		if left.Settled != "" {
-			one.Waiting, one.Now = false, bounded("settled by the CFO: "+left.Settled, 500)
-		}
-		held = append(held, one)
-	}
-	return held
-}
-
-// leftQuestion is a line left for the Overlord as the Command Center shows
-// his question: what only he can do, then why it is his, what is wrong and
-// what was tried, each on a line of its own. A decision the CFO answered
-// itself says what its answer stood on in place of why it is his.
+// leftQuestion is a decision the CFO answered in the Overlord's place as his
+// History shows its question: what was asked, then what its answer stood on,
+// what is wrong and what was tried, each on a line of its own.
 func leftQuestion(left afk.Entry) string {
-	why := "\n- Why it is yours: "
-	if left.Answer != "" {
-		why = "\n- Evidence: "
-	}
-	return bounded(left.What+why+left.Evidence+"\n- Found: "+left.Diagnosis+"\n- Tried: "+left.Tried, 4000)
+	return bounded(left.What+"\n- Evidence: "+left.Evidence+"\n- Found: "+left.Diagnosis+"\n- Tried: "+left.Tried, 4000)
 }
 
 // afkNotice tells the CFO of the Overlord's switch through its wake queue,
@@ -686,11 +646,11 @@ func (s *Service) holdForOverlord(now time.Time) error {
 }
 
 // afkReport is the report of the stretch ended holds: the log's decisions and
-// pauses at a floor, what each goblin reported done, each item held or left
-// for the Overlord with what became of it, and the allowance read when it
-// turned on beside after, read when it turned off, with the free disk read
-// then beside the free disk read now. A reading not taken is left out, never
-// noted.
+// pauses at a floor, what each goblin reported done, each item held for the
+// Overlord in the Command Center with what became of it, and the allowance
+// read when it turned on beside after, read when it turned off, with the free
+// disk read then beside the free disk read now. A reading not taken is left
+// out, never noted.
 func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	stateDir := s.Store.Home.State
 	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after, DiskBefore: ended.Disk, DiskAfter: s.afkDisk()}
@@ -707,7 +667,7 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
 	}
 	report.Finished = finished
-	report.Held = append(s.heldOf(s.Store.Snapshot(), entries, report.Decisions), leftForHim(report.Decisions)...)
+	report.Held = s.heldOf(s.Store.Snapshot(), entries, report.Decisions)
 	return report
 }
 
@@ -753,8 +713,8 @@ type AFKView struct {
 	From  string     `json:"from,omitempty"`
 	Asked string     `json:"asked,omitempty"`
 	// Decided counts the decisions the CFO logged in the stretch that is on,
-	// and Held is what the log holds for the Overlord in it, each with what
-	// became of it.
+	// a step only he can take not among them, and Held is what the log holds
+	// for the Overlord in it, each with what became of it.
 	Decided int        `json:"decided"`
 	Held    []afk.Held `json:"held"`
 	// Report names the last stretch that ended with its report kept.
@@ -784,7 +744,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 			return view, fmt.Errorf("AFK mode's log could not be read, so the board cannot say what was decided or held: %w", err)
 		}
 		decisions := afk.Noted(afk.Decisions(entries))
-		view.Decided, view.Held = len(decisions), s.heldOf(d, entries, decisions)
+		view.Decided, view.Held = len(slices.DeleteFunc(slices.Clone(decisions), func(entry afk.Entry) bool { return entry.Kind == afk.KindHis })), s.heldOf(d, entries, decisions)
 	case switched.Session != "" && !switched.Ended.IsZero():
 		// A stretch never ends without its report kept, so the stretch the
 		// switch last ended is the one whose report there is.

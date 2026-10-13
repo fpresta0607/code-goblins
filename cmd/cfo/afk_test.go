@@ -142,7 +142,7 @@ func TestAFKOffPrintsTheReportOfTheStretch(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	for _, phrase := range []string{"AFK MODE REPORT", "Deployed (1)", "acme production (https://acme.example/health)", "/health reads 200 with commit abc1234", "For you (0)"} {
+	for _, phrase := range []string{"AFK MODE REPORT", "Deployed (1)", "acme production (https://acme.example/health)", "/health reads 200 with commit abc1234", "Nothing needs you."} {
 		if !strings.Contains(stdout, phrase) {
 			t.Errorf("stdout does not say %q:\n%s", phrase, stdout)
 		}
@@ -255,10 +255,10 @@ func TestAFKLogRefusesADecisionThatSaysTooLittle(t *testing.T) {
 	}
 }
 
-// What only he can do reaches him diagnosed: the line left for him carries
-// what is wrong, what the CFO already tried, and his choices, which his
-// Command Center question offers once he is back.
-func TestAFKLogSendsALineLeftForHimWithWhatIsWrongWhatWasTriedAndHisChoices(t *testing.T) {
+// A decision answered in his place reaches his History diagnosed: the line
+// carries what is wrong, what the CFO already tried, its choices and the
+// CFO's answer, which its question in his History shows once he is back.
+func TestAFKLogSendsADecisionWithWhatIsWrongWhatWasTriedItsChoicesAndTheAnswer(t *testing.T) {
 	// Arrange
 	runtime, h := afkRuntime(t)
 	if exit, _, stderr := afkCommand(runtime, "on"); exit != 0 {
@@ -270,16 +270,34 @@ func TestAFKLogSendsALineLeftForHimWithWhatIsWrongWhatWasTriedAndHisChoices(t *t
 		"--evidence", "Fly tokens are his; backlog row cg-fly-token-durable",
 		"--diagnosis", "the stored token was overwritten at 04:00:21Z by an old .env line",
 		"--tried", "cfo auth --fix, which has no other token to adopt",
-		"--option", "Create the token now", "--option", "Leave PrecisionDocs parked", "--recommend", "Create the token now")
+		"--option", "Create the token now", "--option", "Leave PrecisionDocs parked", "--recommend", "Create the token now", "--answer", "Create the token now")
 
 	// Assert
 	entries, _, err := afk.Entries(h.State, "")
 	if exit != 0 || err != nil || len(entries) != 2 {
-		t.Fatalf("exit=%d stderr=%q log=%+v (%v), want the line left for him logged", exit, stderr, entries, err)
+		t.Fatalf("exit=%d stderr=%q log=%+v (%v), want the decision logged", exit, stderr, entries, err)
 	}
 	left := entries[1]
-	if left.Diagnosis != "the stored token was overwritten at 04:00:21Z by an old .env line" || left.Tried != "cfo auth --fix, which has no other token to adopt" || strings.Join(left.Options, "|") != "Create the token now|Leave PrecisionDocs parked" || left.Recommendation != "Create the token now" {
-		t.Errorf("left = %+v, want its diagnosis, what was tried and his choices", left)
+	if left.Diagnosis != "the stored token was overwritten at 04:00:21Z by an old .env line" || left.Tried != "cfo auth --fix, which has no other token to adopt" || strings.Join(left.Options, "|") != "Create the token now|Leave PrecisionDocs parked" || left.Recommendation != "Create the token now" || left.Answer != "Create the token now" {
+		t.Errorf("left = %+v, want its diagnosis, what was tried, its choices and the CFO's answer", left)
+	}
+}
+
+// A step only he can take is one plain line: what it is and why the CFO
+// cannot take it, never a question.
+func TestAFKLogSendsAStepOnlyHeCanTakeAsAPlainLine(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	var sent afk.Entry
+	runtime.logAFK = func(_ home.Home, entry afk.Entry) error { sent = entry; return nil }
+
+	// Act
+	exit, stdout, stderr := afkCommand(runtime, "log", "--kind", "his", "--what", "Sign in to Vercel for nw-search-index",
+		"--evidence", "Vercel asks for his own sign-in. Backlog row nw-vercel-sign-in", "--link", "https://vercel.com/login")
+
+	// Assert
+	if exit != 0 || sent.Kind != afk.KindHis || sent.What != "Sign in to Vercel for nw-search-index" || sent.Link != "https://vercel.com/login" || len(sent.Options) != 0 {
+		t.Errorf("exit=%d stdout=%q stderr=%q sent=%+v, want his step sent as a plain line", exit, stdout, stderr, sent)
 	}
 }
 
@@ -303,12 +321,18 @@ func TestAFKLogSendsTheAnswerTheCFOGaveADecision(t *testing.T) {
 	}
 }
 
-func TestAFKLogRefusesALineLeftForHimThatIsNotDiagnosed(t *testing.T) {
-	left := []string{"--kind", "left", "--what", "Store a new Fly token?", "--evidence", "Fly tokens are his"}
+// The Overlord, 2026-10-12: "in AFK mode, you should just answer everything".
+// A decision without the CFO's answer would be left for him as a question,
+// so it is refused before it reaches the supervisor, and so is one that is
+// not diagnosed.
+func TestAFKLogRefusesADecisionThatIsUnansweredOrNotDiagnosed(t *testing.T) {
+	left := []string{"--kind", "left", "--what", "Store a new Fly token?", "--evidence", "Fly tokens are his", "--answer", "Now"}
 	for name, args := range map[string][]string{
+		"no answer":                       {"--kind", "left", "--what", "Store a new Fly token?", "--evidence", "Fly tokens are his", "--diagnosis", "overwritten", "--tried", "cfo auth --fix", "--option", "Now", "--option", "Later"},
 		"no diagnosis":                    append(slices.Clone(left), "--tried", "cfo auth --fix", "--option", "Now", "--option", "Later"),
 		"nothing tried":                   append(slices.Clone(left), "--diagnosis", "overwritten", "--option", "Now", "--option", "Later"),
 		"one choice":                      append(slices.Clone(left), "--diagnosis", "overwritten", "--tried", "cfo auth --fix", "--option", "Now"),
+		"choices on his step":             {"--kind", "his", "--what", "Sign in to Vercel", "--evidence", "his own sign-in", "--option", "Now", "--option", "Later"},
 		"a diagnosis on another decision": {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--diagnosis", "none"},
 		"an answer on another decision":   {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--answer", "Now"},
 	} {
@@ -450,6 +474,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		{Kind: afk.KindMerge, What: pr, Evidence: "gate run 41 passed"},
 		{Kind: afk.KindMerge, What: pr, Evidence: "gh pr merge", Outcome: afk.OutcomeMerged},
 		{Kind: afk.KindAnswer, What: "notify-pd-billing-12", Task: "pd-billing", Evidence: "asked: Which store? answered: SQLite"},
+		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in"},
 	} {
 		if _, err := afk.Log(h.State, entry, time.Now()); err != nil {
 			t.Fatal(err)
@@ -473,8 +498,9 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
 	for _, phrase := range []string{
-		"AFK MODE IS ON", overlordsShell, "never decided for him",
+		"AFK MODE IS ON", overlordsShell, "only what a tool refuses or needs his own sign-in stays his",
 		"Decided so far (2)", "merge: " + pr + " (merged)", "answer: pd-billing: notify-pd-billing-12",
+		"Steps only he can take so far (1)\n- Sign in to Vercel for pd-auth\n",
 		"Held for you so far (2)", "question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?\n  The CFO recommends: Keep it held.\n", "review:waiting-pd-auth-7, pd-auth's: Waiting on you: sign in to Vercel",
 	} {
 		if !strings.Contains(stdout, phrase) {
@@ -707,10 +733,10 @@ func TestAFKReportPrintsEachHeldItemAsItStandsNow(t *testing.T) {
 	unreadExit, unread, unreadErr := afkCommand(runtime, "report")
 
 	// Assert
-	if waitingExit != 0 || !strings.Contains(waiting, "For you (1), each as it stands now") || !strings.Contains(waiting, "Now: still waiting on you.") {
+	if waitingExit != 0 || !strings.Contains(waiting, "Waiting on you in the Command Center (1), each as it stands now") || !strings.Contains(waiting, "Now: still waiting on you.") {
 		t.Errorf("before his answer: exit=%d stderr=%q stdout:\n%s\nwant the question held, still waiting, said to be current", waitingExit, waitingErr, waiting)
 	}
-	if answeredExit != 0 || !strings.Contains(answered, "For you (1), each as it stands now") || !strings.Contains(answered, "Now: you answered it: Keep it held.") || strings.Contains(answered, "still waiting on you") {
+	if answeredExit != 0 || !strings.Contains(answered, "Settled (1), each as it stands now") || !strings.Contains(answered, "Now: you answered it: Keep it held.") || strings.Contains(answered, "still waiting on you") {
 		t.Errorf("after his answer: exit=%d stderr=%q stdout:\n%s\nwant the question held, answered by him", answeredExit, answeredErr, answered)
 	}
 	if unreadExit != 1 || unread != "" || !strings.Contains(unreadErr, "what became of each item held for him cannot be read") {
