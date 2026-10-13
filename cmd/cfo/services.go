@@ -144,7 +144,7 @@ func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
 		Out:    progress,
 		Turn: func(ctx context.Context, who string) (func(), error) {
 			turn, err := takeGateTurn(ctx, "cfo services", progress, progress, supervisor.MachineMemory, who, 0, verify.NoLimit)
-			return turn.Release, err
+			return func() { _ = turn.Release() }, err
 		},
 		FloorEvery:  2 * time.Second,
 		ReliefEvery: 10 * time.Second,

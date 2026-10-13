@@ -31,12 +31,18 @@ type Executor struct {
 }
 
 type pendingCleanup struct {
-	tree       MeasuredJob
-	turn       Turn
-	guard      Custody
-	execution  *Execution
-	isFinished bool
-	usage      *execx.TreeUsage
+	mu                sync.Mutex
+	tree              MeasuredJob
+	turn              Turn
+	guard             Custody
+	execution         *Execution
+	isFinished        bool
+	usage             *execx.TreeUsage
+	isGuardComplete   bool
+	isTurnReleased    bool
+	isEvidencePending bool
+	isDone            bool
+	exitCode          int
 }
 
 func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -51,11 +57,21 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 	if err != nil {
 		return execx.Result{ExitCode: -1}, err
 	}
+	pending := &pendingCleanup{execution: execution, isGuardComplete: true, isTurnReleased: true, usage: &execx.TreeUsage{}, exitCode: -1}
+	executor.mu.Lock()
+	if executor.pending == nil {
+		executor.pending = make(map[string]*pendingCleanup)
+	}
+	executor.pending[execution.ID()] = pending
+	executor.mu.Unlock()
 	defer func() {
 		executor.mu.Lock()
 		defer executor.mu.Unlock()
 		if pending := executor.pending[execution.ID()]; pending != nil {
 			pending.isFinished = true
+			if pending.usage != nil && pending.isGuardComplete && pending.isTurnReleased && !pending.isEvidencePending && execution.record.Status != "pending" {
+				delete(executor.pending, execution.ID())
+			}
 		}
 	}()
 	stdout, err := os.OpenFile(execution.record.StdoutLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -68,7 +84,8 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 		return execx.Result{ExitCode: -1}, errors.Join(err, execution.Refuse(err, 0))
 	}
 	defer stderr.Close()
-	exitCode, failure := executor.execute(ctx, request, execution, stdout, stderr)
+	exitCode, failure := executor.execute(ctx, request, pending, stdout, stderr)
+	pending.exitCode = exitCode
 	failure = errors.Join(failure, stdout.Sync(), stderr.Sync())
 	output, outputError := outputTail(execution.record.StdoutLog)
 	errorsOutput, errorsOutputError := outputTail(execution.record.StderrLog)
@@ -77,7 +94,10 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 		if err := ctx.Err(); err != nil {
 			failure = errors.Join(failure, err, execution.interrupt())
 		}
-		failure = errors.Join(failure, execution.Finish(exitCode, failure))
+		if err := execution.Finish(exitCode, failure); err != nil {
+			pending.isEvidencePending = true
+			failure = errors.Join(failure, err)
+		}
 	}
 	if failure != nil {
 		failure = fmt.Errorf("verify: execution %s failed (%s): %w", execution.ID(), execution.record.Measurement.State, failure)
@@ -85,7 +105,8 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 	return execx.Result{Stdout: output, Stderr: errorsOutput, ExitCode: exitCode}, failure
 }
 
-func (executor *Executor) execute(ctx context.Context, request execx.Request, execution *Execution, stdout, stderr *os.File) (int, error) {
+func (executor *Executor) execute(ctx context.Context, request execx.Request, pending *pendingCleanup, stdout, stderr *os.File) (exitCode int, failure error) {
+	execution := pending.execution
 	var waited time.Duration
 	refuse := func(failure error) (int, error) { return -1, errors.Join(failure, execution.Refuse(failure, waited)) }
 	monitor := executor.Monitor
@@ -102,7 +123,22 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 	if err != nil {
 		return refuse(err)
 	}
-	defer turn.Release()
+	pending.turn = turn
+	pending.isTurnReleased = false
+	defer func() {
+		if pending.usage != nil && !pending.isGuardComplete {
+			if err := pending.guard.Complete(); err != nil {
+				failure = errors.Join(failure, err)
+			} else {
+				pending.isGuardComplete = true
+			}
+		}
+		if err := turn.Release(); err != nil {
+			failure = errors.Join(failure, err)
+		} else {
+			pending.isTurnReleased = true
+		}
+	}()
 	_, floor, err := AdmissionLimits(turn.dir)
 	if err != nil {
 		return refuse(err)
@@ -116,8 +152,10 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 	if err != nil {
 		return refuse(err)
 	}
+	pending.guard = guard
+	pending.isGuardComplete = false
 	if err := execution.Start(); err != nil {
-		return refuse(errors.Join(err, guard.Complete()))
+		return refuse(err)
 	}
 	command := execx.Command(request.Name, request.Args...)
 	command.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
@@ -134,10 +172,13 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 		measurement := Measurement{State: CleanupUncertain}
 		if command.Process == nil {
 			measurement = Measurement{State: Interrupted, CleanupConfirmed: true}
-			failure = errors.Join(failure, guard.Complete())
+		} else {
+			pending.usage = nil
 		}
 		return -1, errors.Join(failure, execution.Observe(measurement))
 	}
+	pending.tree = tree
+	pending.usage = nil
 	processWait := make(chan error, 1)
 	go func() { processWait <- command.Wait() }()
 	monitor.Cancel = func() error {
@@ -156,29 +197,19 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 		return nil
 	}
 	measurement, failure := monitor.Watch(ctx, tree)
-	pending := &pendingCleanup{tree: tree, turn: turn, guard: guard, execution: execution}
-	shouldRetry := !measurement.CleanupConfirmed
 	if measurement.CleanupConfirmed {
 		pending.usage = &measurement.Usage
-		if err := guard.Complete(); err != nil {
-			failure = errors.Join(failure, err)
-			shouldRetry = true
-		}
-	}
-	if shouldRetry {
-		executor.mu.Lock()
-		if executor.pending == nil {
-			executor.pending = make(map[string]*pendingCleanup)
-		}
-		executor.pending[execution.ID()] = pending
-		executor.mu.Unlock()
 	}
 	var waitError error
 	select {
 	case waitError = <-processWait:
 	case <-time.After(5 * time.Second):
 		failure = errors.Join(failure, errors.New("verify: command wait did not finish after bounded cleanup"))
-		return -1, errors.Join(failure, execution.Observe(measurement))
+		if err := execution.Observe(measurement); err != nil {
+			pending.isEvidencePending = true
+			failure = errors.Join(failure, err)
+		}
+		return -1, failure
 	}
 	if err := ctx.Err(); err != nil {
 		failure = errors.Join(failure, err)
@@ -186,8 +217,11 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 			measurement.State = Interrupted
 		}
 	}
-	failure = errors.Join(failure, execution.Observe(measurement))
-	exitCode := -1
+	if err := execution.Observe(measurement); err != nil {
+		pending.isEvidencePending = true
+		failure = errors.Join(failure, err)
+	}
+	exitCode = -1
 	if command.ProcessState != nil {
 		exitCode = command.ProcessState.ExitCode()
 	}
@@ -202,39 +236,77 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 // cleanup proof can release custody but can never turn a failed run green.
 func (executor *Executor) RetryCleanup(ctx context.Context) error {
 	executor.mu.Lock()
-	defer executor.mu.Unlock()
+	ready := make(map[string]*pendingCleanup)
 	var failure error
 	for id, pending := range executor.pending {
-		if err := ctx.Err(); err != nil {
-			return errors.Join(failure, err)
-		}
 		if !pending.isFinished {
 			failure = errors.Join(failure, fmt.Errorf("verify: execution %s is still finalizing", id))
 			continue
 		}
-		if pending.usage == nil {
-			usage, err := pending.tree.TerminateAndWait(ctx)
-			if err == nil && usage.ActiveProcesses != 0 {
-				err = errors.New("verify: retry returned active workers")
-			}
-			if err != nil {
-				failure = errors.Join(failure, fmt.Errorf("verify: execution %s cleanup remains uncertain: %w", id, err))
-				continue
-			}
-			pending.usage = &usage
-		}
-		if err := pending.execution.recoveredCleanup(*pending.usage); err != nil {
-			failure = errors.Join(failure, err)
+		ready[id] = pending
+	}
+	executor.mu.Unlock()
+	for id, pending := range ready {
+		if err := pending.retry(ctx); err != nil {
+			failure = errors.Join(failure, fmt.Errorf("verify: execution %s recovery remains incomplete: %w", id, err))
 			continue
 		}
-		if err := pending.guard.Complete(); err != nil {
-			failure = errors.Join(failure, err)
-			continue
-		}
-		pending.turn.Release()
+		executor.mu.Lock()
 		delete(executor.pending, id)
+		executor.mu.Unlock()
 	}
 	return failure
+}
+
+func (pending *pendingCleanup) retry(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for !pending.mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	defer pending.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if pending.isDone {
+		return nil
+	}
+	if pending.usage == nil {
+		if pending.tree == nil {
+			return errors.New("verify: failed process setup requires external cleanup proof")
+		}
+		usage, err := pending.tree.TerminateAndWait(ctx)
+		if err != nil {
+			return err
+		}
+		if usage.ActiveProcesses != 0 {
+			return errors.New("verify: retry returned active workers")
+		}
+		pending.usage = &usage
+	}
+	if !pending.isGuardComplete {
+		if err := pending.guard.Complete(); err != nil {
+			return err
+		}
+		pending.isGuardComplete = true
+	}
+	if !pending.isTurnReleased {
+		if err := pending.turn.Release(); err != nil {
+			return err
+		}
+		pending.isTurnReleased = true
+	}
+	if err := pending.execution.recoveredCleanup(*pending.usage, pending.exitCode); err != nil {
+		return err
+	}
+	pending.isDone = true
+	return nil
 }
 
 // Keep complete logs on disk without allocating an unbounded command result.

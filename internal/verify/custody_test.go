@@ -43,6 +43,44 @@ func TestTurnKeepsCustodyUntilItsWorkersAreConfirmedGone(t *testing.T) {
 	}
 }
 
+func TestTurnReleaseReportsFailureAndRemainsRetryable(t *testing.T) {
+	// Arrange
+	requested := admission(t)
+	turn, err := requested.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer turn.Release()
+	card := filepath.Join(requested.Dir, "slot-1.run")
+	if err := os.Remove(card); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(card, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(card, "occupied"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	firstError := turn.Release()
+	if err := os.Remove(filepath.Join(card, "occupied")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(card); err != nil {
+		t.Fatal(err)
+	}
+	secondError := turn.Release()
+
+	// Assert
+	if firstError == nil || secondError != nil {
+		t.Fatalf("release errors = %v then %v", firstError, secondError)
+	}
+	if _, err := os.Stat(filepath.Join(requested.Dir, "slot-1")); !os.IsNotExist(err) {
+		t.Fatalf("successful retry left a held turn: %v", err)
+	}
+}
+
 func TestProtectionCannotRacePastTurnRelease(t *testing.T) {
 	for attempt := 0; attempt < 16; attempt++ {
 		admission := admission(t)

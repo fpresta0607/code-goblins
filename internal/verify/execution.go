@@ -138,12 +138,18 @@ func (execution *Execution) interrupt() error {
 	return execution.persist(next)
 }
 
-func (execution *Execution) recoveredCleanup(usage execx.TreeUsage) error {
+func (execution *Execution) recoveredCleanup(usage execx.TreeUsage, exitCode int) error {
 	if execution.record.Status == "passed" || usage.ActiveProcesses != 0 {
 		return errors.New("verify: recovery requires a failed run and an empty job")
 	}
 	next := execution.record
 	next.Status = "failed"
+	if exitCode >= 0 {
+		next.ExitCode = &exitCode
+	}
+	if next.Failure == "" {
+		next.Failure = "execution failed before cleanup and evidence were confirmed"
+	}
 	next.Measurement.State = Interrupted
 	next.Measurement.CleanupConfirmed = true
 	next.Measurement.Usage = usage

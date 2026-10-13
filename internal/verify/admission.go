@@ -65,7 +65,7 @@ type Turn struct {
 	token   string
 	dir     string
 	slot    string
-	release func()
+	release func() error
 	say     func(now string)
 }
 
@@ -90,10 +90,11 @@ func turnToken(slot string, holder *lock.Info) string {
 
 // Release gives the turn's slot back. A run inside a turn takes back what it
 // said beside it and leaves the slot with the run that holds it.
-func (t Turn) Release() {
+func (t Turn) Release() error {
 	if t.release != nil {
-		t.release()
+		return t.release()
 	}
+	return nil
 }
 
 // Say records what the run is doing now beside its turn, for whoever reads
@@ -386,11 +387,12 @@ func (a Admission) inside() (Turn, bool) {
 			a.sayInside(name, token, now)
 		}
 	}
-	release := func() {
+	release := func() error {
 		say("")
 		mu.Lock()
 		defer mu.Unlock()
 		isReleased = true
+		return nil
 	}
 	return Turn{token: token, dir: a.Dir, slot: name, release: release, say: say}, true
 }
@@ -473,27 +475,30 @@ func (a Admission) take(capacity int) (Turn, error) {
 		}
 		var mu sync.Mutex
 		isReleased := false
-		release := func() {
+		release := func() error {
 			mu.Lock()
 			defer mu.Unlock()
 			if !isReleased {
 				unlock, err := custodyMutation(a.Dir)
 				if err != nil {
-					return
+					return err
 				}
 				defer unlock()
 				guards, err := a.workerCustody()
 				if err != nil {
-					return
+					return err
 				}
 				for _, guard := range guards {
 					if guard.Token == turnToken(name, owner) {
-						return
+						return fmt.Errorf("verify: execution %s still holds worker custody", guard.RunID)
 					}
 				}
+				if err := a.remove(a.Dir, name, owner); err != nil {
+					return err
+				}
 				isReleased = true
-				a.remove(a.Dir, name, owner)
 			}
+			return nil
 		}
 		say := func(now string) {
 			mu.Lock()
@@ -534,13 +539,21 @@ func (a Admission) leave(dir, name string, says card) error {
 // process still holds the lock: a run whose turn was taken from it leaves the
 // new holder's card alone. The card goes first, while the lock still keeps
 // every other run out.
-func (a Admission) remove(dir, name string, owner *lock.Info) {
+func (a Admission) remove(dir, name string, owner *lock.Info) error {
 	current, err := lock.ReadNamedStrict(dir, name)
-	if err != nil || *current != *owner || !current.VerifiedAlive() {
-		return
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	os.Remove(filepath.Join(dir, name+".run"))
-	lock.ReleaseExclusiveNamed(dir, name)
+	if err != nil {
+		return err
+	}
+	if *current != *owner || !current.VerifiedAlive() {
+		return errors.New("verify: turn ownership changed before release")
+	}
+	if err := os.Remove(filepath.Join(dir, name+".run")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return lock.ReleaseExclusiveNamed(dir, name)
 }
 
 // readCard reads what the run holding lockFile says of itself. A run whose

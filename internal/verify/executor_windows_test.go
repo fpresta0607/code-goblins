@@ -338,3 +338,119 @@ func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T
 		t.Fatalf("confirmed retry did not release custody: %v", err)
 	}
 }
+
+func TestExecutorRetainsFinalWriteFailureAfterSuccessfulCleanup(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	standin.RemoveAtCleanup(t, root)
+	program := filepath.Join(root, "workload.exe")
+	standin.Put(t, program)
+	var recordPath string
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+		Observe: func(measurement Measurement) error {
+			if measurement.State != Completed {
+				return nil
+			}
+			files, err := filepath.Glob(filepath.Join(store, "executions", "*.json"))
+			if err != nil || len(files) != 1 {
+				return errors.New("fixture execution record missing")
+			}
+			recordPath = files[0]
+			if err := os.Rename(recordPath, recordPath+".saved"); err != nil {
+				return err
+			}
+			if err := os.Mkdir(recordPath, 0700); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(recordPath, "occupied"), nil, 0600)
+		}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Act
+	result, runError := executor.Run(ctx, execx.Request{Dir: root, Name: program})
+	if recordPath == "" || runError == nil || len(executor.pending) != 1 {
+		t.Fatalf("final-write failure was not retained: %+v, %v, pending=%d", result, runError, len(executor.pending))
+	}
+	if err := os.Remove(filepath.Join(recordPath, "occupied")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(recordPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(recordPath+".saved", recordPath); err != nil {
+		t.Fatal(err)
+	}
+	retryError := executor.RetryCleanup(ctx)
+
+	// Assert
+	if retryError != nil || len(executor.pending) != 0 {
+		t.Fatalf("final write retry = %v, pending=%d", retryError, len(executor.pending))
+	}
+	data, err := fsx.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record ExecutionRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "failed" || record.ExitCode == nil || *record.ExitCode != 0 || record.Measurement.State != Interrupted || !record.Measurement.CleanupConfirmed {
+		t.Fatalf("retry lost failure evidence: %+v", record)
+	}
+}
+
+type delayedCleanup struct {
+	entered  chan struct{}
+	released chan struct{}
+}
+
+func (job *delayedCleanup) Usage() (execx.TreeUsage, error) { return execx.TreeUsage{}, nil }
+func (job *delayedCleanup) TerminateAndWait(ctx context.Context) (execx.TreeUsage, error) {
+	close(job.entered)
+	select {
+	case <-job.released:
+		return execx.TreeUsage{}, nil
+	case <-ctx.Done():
+		return execx.TreeUsage{}, ctx.Err()
+	}
+}
+
+func TestExecutorConcurrentCleanupHonorsTheWaitingCallersDeadline(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := &delayedCleanup{entered: make(chan struct{}), released: make(chan struct{})}
+	pending := &pendingCleanup{tree: job, execution: execution, isFinished: true, isGuardComplete: true, isTurnReleased: true, exitCode: -1}
+	executor := Executor{pending: map[string]*pendingCleanup{execution.ID(): pending}}
+	finished := make(chan error, 1)
+	go func() { finished <- executor.RetryCleanup(context.Background()) }()
+	t.Cleanup(func() {
+		close(job.released)
+		if err := <-finished; err != nil {
+			t.Error(err)
+		}
+	})
+	select {
+	case <-job.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first cleanup did not start")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	// Act
+	started := time.Now()
+	err = executor.RetryCleanup(ctx)
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+		t.Fatalf("concurrent cleanup ignored deadline: %v after %s", err, time.Since(started))
+	}
+}
