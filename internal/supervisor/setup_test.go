@@ -90,12 +90,12 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 		CFORuns:         func() bool { return m.runs },
 		StartCFO:        func(agent string) error { m.started = append(m.started, agent); return nil },
 		ReopenCFO:       func() error { m.reopened++; return m.reopenErr },
-		RestartCFO: func() (CFOConversation, bool, error) {
+		RestartCFO: func(harness string) (CFOConversation, bool, error) {
 			m.restarted++
 			if m.restartErr != nil {
 				return CFOConversation{}, false, m.restartErr
 			}
-			return CFOConversation{Harness: "claude", Session: "a1b2c3d4-session"}, !m.restartEnds, nil
+			return CFOConversation{Harness: "claude", Session: "a1b2c3d4-session"}, !m.restartEnds && (harness == "" || harness == "claude"), nil
 		},
 		SignIn: func(_ context.Context, agent string) SignInState {
 			m.askedMu.Lock()
@@ -647,6 +647,10 @@ func TestTheBoardRestartsARunningCFO(t *testing.T) {
 		announced bool
 	}{
 		{"a running CFO", func(m *firstRunMachine, _ *Service) { m.runs = true }, "{}", http.StatusOK, `"restarted":true,"resumed":true,"session":"a1b2c3d4-session"`, 1, true},
+		{"an explicit running harness", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"claude"}`, http.StatusOK, `"resumed":true`, 1, true},
+		{"another harness", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"codex"}`, http.StatusOK, `"resumed":false`, 1, true},
+		{"pi", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"pi"}`, http.StatusOK, `"resumed":false`, 1, true},
+		{"unsupported harness", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"unknown"}`, http.StatusBadRequest, "not claude, codex or pi", 0, false},
 		{"a CFO whose harness could not resume its conversation", func(m *firstRunMachine, _ *Service) { m.runs, m.restartEnds = true, true }, "{}", http.StatusOK, `"resumed":false`, 1, true},
 		{"no CFO running", func(*firstRunMachine, *Service) {}, "{}", http.StatusConflict, "No CFO runs to restart", 0, false},
 		{"a CFO left running", func(m *firstRunMachine, _ *Service) {

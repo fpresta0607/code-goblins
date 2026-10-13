@@ -32,11 +32,6 @@ async function showTask(page: Page, title: string) {
 
 // Each confirmation the class draws, and the presses that open it.
 const DIALOGS: [string, (page: Page) => Promise<void>][] = [
-  ["Restart the CFO?", async (page) => {
-    await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
-    await showTask(page, "CFO");
-    await page.locator(".panel-header").getByRole("button", { name: "Restart the CFO" }).click();
-  }],
   ["Stop this task?", async (page) => {
     await page.locator(".task-card").filter({ hasText: "working-one" }).first().click();
     await showTask(page, "working-one");

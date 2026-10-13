@@ -6,8 +6,8 @@ import type { Run, Snapshot } from "./types";
 
 // The CFO cannot be told why its wakes wait untyped, since that would be one
 // more wake, so this item tells the Overlord in plain words and offers one
-// thing: the board's own Restart the CFO, the button and confirmation of the
-// CFO's panel, which the supervisor carries out itself. It runs no command.
+// thing: the board's own Restart the CFO, the control of the CFO's Harness
+// section, which the supervisor carries out itself. It runs no command.
 // Once the CFO takes its wakes, the supervisor takes the item back.
 export function CfoUnwokenCard({ run, snapshot, pager }: { run: Run; snapshot: Snapshot; pager?: ReactNode }) {
   return <article className="update-card" aria-labelledby={"cfo-unwoken-" + run.id}>
@@ -18,7 +18,7 @@ export function CfoUnwokenCard({ run, snapshot, pager }: { run: Run; snapshot: S
     <h3 id={"cfo-unwoken-" + run.id}>{run.title}</h3>
     <div className="card-actions">
       {pager}
-      {run.state === "ready" && <RestartCfoButton snapshot={snapshot} isCompact={false} />}
+      {run.state === "ready" && <RestartCfoButton snapshot={snapshot} />}
     </div>
   </article>;
 }
