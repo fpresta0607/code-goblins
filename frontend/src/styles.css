@@ -380,7 +380,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace-project { margin-bottom: 12px; }
 
 .workspace-outcome { color: var(--muted); font-size: .9375rem; margin: 12px 0; overflow-wrap: anywhere; }
-.engine-selector { container-type: inline-size; min-width: 0; margin-bottom: 18px; }
+.engine-selector { container-type: inline-size; min-width: 0; }
 .engine-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 10px; }
 .engine-fields label { display: grid; min-width: 0; gap: 8px; color: var(--muted); font-size: .9375rem; }
 .engine-fields select { width: 100%; min-width: 0; color: #edf4f3; padding-left: 10px; }
@@ -770,8 +770,19 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
    header's other controls, and what a press could not do beside it in muted
    words. */
 .cfo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
-.cfo-restart .labelled-button { min-height: 36px; padding-block: 4px; }
+.cfo-restart .labelled-button { min-height: 36px; padding: 4px 6px; gap: 6px; }
 .cfo-restart .click-feedback { color: var(--muted); }
+.cfo-restart-controls { display: flex; align-items: center; gap: 8px; }
+.cfo-restart-button { color: var(--mint); border-color: var(--accent-green); }
+.cfo-harness-selector { position: relative; }
+.cfo-harness-trigger { min-width: 140px; }
+.cfo-harness-trigger > .icon { width: 14px; height: 14px; margin-left: auto; transform: rotate(90deg); }
+.cfo-harness-selector .mark { width: 18px; height: 18px; border: 0; background: none; box-shadow: none; }
+.cfo-harness-selector .mark svg { width: 18px; height: 18px; }
+.cfo-harness-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; min-width: 100%; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.cfo-harness-menu .labelled-button { justify-content: flex-start; border-color: transparent; background: transparent; }
+.cfo-harness-menu .labelled-button[aria-checked="true"] { color: var(--mint); border-color: var(--accent-green); background: var(--glass-bg); }
+.cfo-harness-menu .labelled-button:hover, .cfo-harness-menu .labelled-button:focus-visible { background: var(--glass-bg-hover); }
 /* A queued task's line is its text in the same type, with a small pencil
    after it on its first line: the pencil, or a click on the text, turns it
    into a box of that type holding its title and detail, with Save and

@@ -48,7 +48,7 @@ type FirstRun struct {
 	CFORuns    func() bool
 	StartCFO   func(agent string) error
 	ReopenCFO  func() error
-	RestartCFO func() (CFOConversation, bool, error)
+	RestartCFO func(harness string) (CFOConversation, bool, error)
 	mu         sync.Mutex
 }
 
@@ -280,13 +280,13 @@ func (f *FirstRun) Reopen() error {
 // conversation, as goblins resume does for a CFO whose screen froze, and
 // returns that conversation and whether the CFO came back on it. It restarts
 // nothing while no CFO runs.
-func (f *FirstRun) Restart() (CFOConversation, bool, error) {
+func (f *FirstRun) Restart(harness string) (CFOConversation, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.CFORuns() {
 		return CFOConversation{}, false, StartRefusal{Reason: "No CFO runs to restart"}
 	}
-	conversation, resumed, err := f.RestartCFO()
+	conversation, resumed, err := f.RestartCFO(harness)
 	if err != nil {
 		return CFOConversation{}, false, fmt.Errorf("the CFO could not be restarted: %w", err)
 	}
@@ -296,16 +296,22 @@ func (f *FirstRun) Restart() (CFOConversation, bool, error) {
 // restartCFO serves POST /api/cfo/restart, the board's Restart for a CFO
 // that runs.
 func (h *HTTP) restartCFO(w http.ResponseWriter, r *http.Request) {
-	var input struct{}
+	var input struct {
+		Harness string `json:"harness"`
+	}
 	if err := decodeBody(w, r, &input, 4096); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if input.Harness != "" && !slices.Contains([]string{"claude", "codex", "pi"}, input.Harness) {
+		apiError(w, http.StatusBadRequest, "The harness is not claude, codex or pi")
 		return
 	}
 	if h.Service.Options.FirstRun == nil {
 		apiError(w, http.StatusConflict, "This board cannot start a CFO")
 		return
 	}
-	conversation, resumed, err := h.Service.Options.FirstRun.Restart()
+	conversation, resumed, err := h.Service.Options.FirstRun.Restart(input.Harness)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.As(err, new(StartRefusal)) {
