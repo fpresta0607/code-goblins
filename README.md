@@ -302,9 +302,10 @@ So a Codex or pi CFO always starts in a native terminal, and the first prompt go
 It has none of the hooks a Claude Code CFO has: nothing gives it the session digest, nothing guards its turns, and a closed pi CFO starts a new conversation.
 Claude Code is the recommended one, the choice of agent says in a few words what each gets, and `cfo doctor` lists what the home's CFO goes without.
 Each starts on the model its own configuration names, so a Codex whose configured model the signed-in account cannot use fails its first turn and never registers: change the model with Codex's `/model`, then tell it to run `cfo register`.
-Without a terminal, `goblins --board` opens the board, and in a home that has had no CFO the board shows its first-run screen while none runs.
-A home whose CFO was closed, however it ended, keeps its board: the CFO's bar says the CFO is closed, with one action, **Reopen the CFO**, which brings it back as `goblins` does, and no message names a process or tells you to run `cfo register`.
-It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
+Without a terminal, `goblins --board` opens the board and brings back the remembered CFO when it is not running, continuing its saved conversation where the harness can resume it.
+A home with a saved harness keeps its board even when the CFO has not registered or could not start, with **Reopen the CFO** available to try again.
+A home with no saved harness and no previous CFO shows its first-run screen while none runs.
+The first-run screen shows the home, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
 The folder that holds your projects is optional there.
 The page starts any of the three this machine has installed, with the same few words on what a CFO in each gets.
 
@@ -374,7 +375,8 @@ None of them belongs to a window.
 The board in a browser, the desktop window and `goblins attach` are only views: closing any of them leaves the supervisor, the CFO and every goblin running.
 Closing the desktop window hides it to its tray, and **Quit the window** in the tray ends the window alone.
 Open **Code Goblins** from your desktop shortcut or the Start menu, or let it open at sign-in: it finds this home's supervisor, or starts it out of sight, outside any terminal, and then shows the board.
-The board's first-run page starts the CFO while none runs.
+It keeps a running CFO or brings back the remembered one, without asking the quick start again.
+The board's first-run page starts the CFO in a home that has not chosen one.
 `goblins stop` stops only the supervisor: the CFO and the goblins keep working in their terminals.
 
 A restart or a sign-out ends all of those processes, and Code Goblins brings them back by itself.
