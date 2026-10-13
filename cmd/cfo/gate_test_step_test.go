@@ -1024,7 +1024,7 @@ func holdTheTurn(t *testing.T) verify.Turn {
 	if err != nil {
 		t.Fatalf("the test could not hold the turn: %v", err)
 	}
-	t.Cleanup(turn.Release)
+	t.Cleanup(func() { _ = turn.Release() })
 	return turn
 }
 

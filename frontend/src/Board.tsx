@@ -1,7 +1,8 @@
 import type { BoardActivity, MergeTrain, Snapshot, Task } from "./types";
 import { CfoPin } from "./CfoPin";
+import { Disclosure } from "./Disclosure";
 import { FitList } from "./FitList";
-import { isTrainOver } from "./merge-train";
+import { trainSection } from "./merge-train";
 import { MergeTrainCard } from "./MergeTrainCard";
 import { QueuedTasks } from "./QueuedTasks";
 import { RankedCards } from "./RankedCards";
@@ -40,10 +41,8 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
   const next = nextInOrder(snapshot, now);
   const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} onCount={onCount} />;
   const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
-  // A running merge train heads In progress and a finished one Completed,
-  // each as one card with its pull requests, and a column holding one is not
-  // empty.
-  const trainsIn = (name: string) => name === "Tasks" ? [] : (snapshot.merge_trains ?? []).filter((train) => isTrainOver(train) === (name === "Completed"));
+  const trainsIn = (name: string) => (snapshot.merge_trains ?? []).filter((train) => trainSection(train) === name);
+  const history = trainsIn("Train history");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
     <CfoPin snapshot={snapshot} now={now} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
@@ -65,5 +64,10 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
         </section>}
       </section>;
     })}
+    {history.length > 0 && <section className="train-history" aria-label="Train history">
+      <Disclosure title={<>Train history<span className="column-count">{history.length}</span></>}>
+        <div className="train-cards">{history.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} selected={train.id === selectedTrain} onSelect={onSelectTrain} />)}</div>
+      </Disclosure>
+    </section>}
   </section>;
 }

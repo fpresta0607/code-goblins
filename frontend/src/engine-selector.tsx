@@ -21,11 +21,12 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
   const [feedback, showFeedback] = useClickFeedback();
   const receipt = saved && (task.queue_revision === saved.before || task.queue_revision === saved.revision) ? saved : null;
   const pending = task.pending_engine?.when === "resume" ? task.pending_engine : null;
-  const current = pending || receipt?.choice || { harness: task.harness, model: task.model || "default", effort: task.effort || "default" };
+  const current = pending || receipt?.choice || { harness: task.harness, model: task.model || (isQueued ? "" : "default"), effort: task.effort || (isQueued ? "" : "default") };
   const choice = draft || current;
   const harness = catalog.data?.find((item) => item.id === choice.harness);
   const model = harness?.models.find((item) => item.id === choice.model);
-  const unavailable = harness?.reason || (!harness ? "Harness " + harnessName(choice.harness) + " is unavailable" : !model ? "Model " + choice.model + " is unavailable" : choice.effort !== "default" && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
+  const isAutomaticHarness = isQueued && !choice.harness, isAutomaticModel = isQueued && !choice.model, isAutomaticEffort = isQueued && !choice.effort;
+  const unavailable = harness?.reason || (isAutomaticHarness ? "" : !harness ? "Harness " + harnessName(choice.harness) + " is unavailable" : isAutomaticModel ? "" : !model ? "Model " + choice.model + " is unavailable" : !isAutomaticEffort && choice.effort !== "default" && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
   const isDisabled = isSending || task.starting || task.switching || !isQueued && !isPaused && task.backend !== "native";
   // A working goblin restarts at once, as the CFO does: on its own engine
   // when nothing was changed, and switched onto the one shown otherwise.
@@ -46,15 +47,15 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
     {isCompleted ? task.harness || task.model ? <div className="engine-readonly"><ConnectorMark mark={harnessMark(task.harness)} label={harnessName(task.harness)} /><span>{harnessName(task.harness)}</span><span className="mono">{[task.model, task.effort].filter(Boolean).join(" ") || "Model not recorded"}</span></div> : <p className="muted">Engine not recorded</p> : <>
       {catalog.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" onClick={catalog.reload}><Icon name="refresh" /></button> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
         <div className="engine-fields">
-          <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={harnessName(choice.harness)} /><select id={label + "-harness"} aria-label="Harness" value={choice.harness} disabled={isDisabled} onChange={(event) => {
+          <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={isAutomaticHarness ? "Automatic" : harnessName(choice.harness)} /><select id={label + "-harness"} aria-label="Harness" value={choice.harness} disabled={isDisabled} onChange={(event) => {
             const next = catalog.data?.find((item) => item.id === event.target.value), first = next?.models[0];
-            setDraft({ harness: event.target.value, model: first?.id || "default", effort: first?.default_effort && first.efforts.includes(first.default_effort) ? first.default_effort : "default" }); setOutcome("");
-          }}>{!harness && <option value={choice.harness} disabled>{harnessName(choice.harness)} (unavailable)</option>}{catalog.data.map((item) => <option key={item.id} value={item.id} disabled={!!item.reason}>{item.name}{item.reason ? " - " + item.reason : ""}</option>)}</select></span></label>
-          <label htmlFor={label + "-model"}>Model<select id={label + "-model"} value={choice.model} disabled={isDisabled || !!harness?.reason} data-tip={choice.model} onChange={(event) => {
+            setDraft(isQueued ? { ...choice, harness: event.target.value } : { harness: event.target.value, model: first?.id || "default", effort: first?.default_effort && first.efforts.includes(first.default_effort) ? first.default_effort : "default" }); setOutcome("");
+          }}>{isQueued && <option value="">Automatic</option>}{!harness && !isAutomaticHarness && <option value={choice.harness} disabled>{harnessName(choice.harness)} (unavailable)</option>}{catalog.data.map((item) => <option key={item.id} value={item.id} disabled={!!item.reason}>{item.name}{item.reason ? " - " + item.reason : ""}</option>)}</select></span></label>
+          <label htmlFor={label + "-model"}>Model<select id={label + "-model"} value={choice.model} disabled={isDisabled || !!harness?.reason || !harness && (!isQueued || !choice.model)} data-tip={choice.model} onChange={(event) => {
             const next = harness?.models.find((item) => item.id === event.target.value);
-            setDraft({ ...choice, model: event.target.value, effort: next?.default_effort && next.efforts.includes(next.default_effort) ? next.default_effort : "default" }); setOutcome("");
-          }}>{!model && <option value={choice.model} disabled>{choice.model} (unavailable)</option>}{harness?.models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isDisabled || !model} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); setOutcome(""); }}><option value="default">Default</option>{choice.effort !== "default" && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort} (unavailable)</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
+            setDraft({ ...choice, model: event.target.value, effort: isQueued ? choice.effort : next?.default_effort && next.efforts.includes(next.default_effort) ? next.default_effort : "default" }); setOutcome("");
+          }}>{isQueued && <option value="">Automatic</option>}{!model && !isAutomaticModel && <option value={choice.model} disabled>{choice.model}{isAutomaticHarness ? "" : " (unavailable)"}</option>}{harness?.models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isDisabled || !model && (!isQueued || !choice.effort)} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); setOutcome(""); }}><option value="default">Default</option>{isQueued && <option value="">Automatic</option>}{!isAutomaticEffort && choice.effort !== "default" && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort}{isAutomaticHarness || isAutomaticModel ? "" : " (unavailable)"}</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
         </div>
         {unavailable && <p className="muted">{unavailable}</p>}
         {isQueued || isPaused ? draft && <button disabled={isDisabled || !!unavailable} onClick={() => void send("")}>{isQueued ? "Save" : "Save for Resume"}</button>

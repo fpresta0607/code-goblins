@@ -173,6 +173,14 @@ func (s Screens) IsReady(screen []string) bool {
 	return !hasDialog && anyRow(screen, s.Ready) && !s.IsWorking(screen)
 }
 
+// IsIdleAtEmptyComposer reports whether screen shows the harness waiting at
+// its composer with nothing in it: no turn, no dialog, no work running on it.
+func (s Screens) IsIdleAtEmptyComposer(screen []string) bool {
+	_, dialog := s.Dialog(screen)
+	_, running := RunningWork(screen)
+	return s.IsReady(screen) && !dialog && !running && s.ComposerEmpty(screen)
+}
+
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)

@@ -58,6 +58,140 @@ func TestEngineSelectionSavesQueuedSettingsForStartAndRejectsStaleEdits(t *testi
 	}
 }
 
+func TestQueuedEngineSelectionPreservesAutomaticAndPartialPreferencesThroughStart(t *testing.T) {
+	for _, choice := range []state.EngineChoice{
+		{},
+		{Harness: "codex"},
+		{Model: "provider/model"},
+		{Effort: "high"},
+		{Harness: "codex", Model: "default"},
+		{Harness: "codex", Effort: "high"},
+		{Model: "provider/model", Effort: "high"},
+		{Harness: "codex", Model: "default", Effort: "high"},
+	} {
+		t.Run(choice.Harness+"/"+choice.Model+"/"+choice.Effort, func(t *testing.T) {
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			handler.Service.Options.FirstRun = newFirstRunMachine(t).run
+			brief := plainBrief + "\nharness: claude\nmodel: old-model\neffort: xhigh\n"
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: project)", brief)
+			before, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": "next-task", "revision": before.Revision, "harness": choice.Harness, "model": choice.Model, "effort": choice.Effort})
+
+			if response.Code != 200 {
+				t.Fatalf("queued choice = %d: %s", response.Code, response.Body)
+			}
+			card := engineCard(t, handler.Service, "next-task")
+			if card.Harness != choice.Harness || card.Model != choice.Model || card.Effort != choice.Effort {
+				t.Fatalf("saved snapshot restored brief preferences: %+v, want %+v", card, choice)
+			}
+			data, err := os.ReadFile(filepath.Join(h.Data, "next-task", "brief.md"))
+			if err != nil || string(data) != brief {
+				t.Fatalf("saved choice changed brief: %q, %v", data, err)
+			}
+			response = postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+			if response.Code != 202 {
+				t.Fatalf("start = %d: %s", response.Code, response.Body)
+			}
+			waitStarted(t, handler, "next-task")
+			calls := spawner.recorded()
+			if len(calls) != 1 {
+				t.Fatalf("dispatches = %+v", calls)
+			}
+			for _, setting := range [][2]string{{"--harness", choice.Harness}, {"--model", choice.Model}, {"--effort", choice.Effort}} {
+				index := slices.Index(calls[0], setting[0])
+				if setting[1] == "" && index != -1 || setting[1] != "" && (index < 0 || index+1 >= len(calls[0]) || calls[0][index+1] != setting[1]) {
+					t.Errorf("dispatch %v did not preserve %v", calls[0], setting)
+				}
+			}
+		})
+	}
+}
+
+func TestQueuedEngineSelectionRejectsInvalidPreferencesBeforeSaving(t *testing.T) {
+	for _, choice := range []state.EngineChoice{
+		{Harness: "unknown"},
+		{Harness: "pi"},
+		{Harness: "codex", Model: "missing-model"},
+		{Model: "bad model"},
+		{Model: "bad, effort: high"},
+		{Effort: "banana"},
+	} {
+		t.Run(choice.Harness+"/"+choice.Model+"/"+choice.Effort, func(t *testing.T) {
+			handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+			handler.Service.Options.FirstRun = newFirstRunMachine(t).run
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: project)", plainBrief)
+			before, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": "next-task", "revision": before.Revision, "harness": choice.Harness, "model": choice.Model, "effort": choice.Effort})
+
+			if response.Code != 409 {
+				t.Fatalf("invalid choice = %d: %s", response.Code, response.Body)
+			}
+			after, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil || after.Revision != before.Revision {
+				t.Fatalf("invalid choice changed queue: %+v, %v", after, err)
+			}
+		})
+	}
+}
+
+func TestLiveEngineSelectionStillRequiresCompleteCatalogChoices(t *testing.T) {
+	for _, phase := range []string{"running", "paused"} {
+		t.Run(phase, func(t *testing.T) {
+			handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+			handler.Service.Options.FirstRun = newFirstRunMachine(t).run
+			meta := state.TaskMeta{ID: "task", SpawnGen: "s1", Harness: "codex", Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "operation", Action: "pause", Phase: phase}); err != nil {
+				t.Fatal(err)
+			}
+			for _, choice := range []state.EngineChoice{{}, {Harness: "codex"}, {Harness: "codex", Model: "default"}} {
+				response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "harness": choice.Harness, "model": choice.Model, "effort": choice.Effort, "when": "turn-end"})
+				if response.Code != 409 {
+					t.Fatalf("incomplete live choice = %d: %s", response.Code, response.Body)
+				}
+			}
+			if _, err := state.ReadEngineChoice(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("incomplete choice was recorded: %v", err)
+			}
+		})
+	}
+}
+
+func TestQueuedEngineSelectionRejectsLiveActionsBeforeSaving(t *testing.T) {
+	for _, action := range []string{"update", "now", "turn-end", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+			handler.Service.Options.FirstRun = newFirstRunMachine(t).run
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: project)", plainBrief)
+			before, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": "next-task", "revision": before.Revision, "when": action, "effort": "banana"})
+
+			if response.Code != 400 {
+				t.Fatalf("queued live action = %d: %s", response.Code, response.Body)
+			}
+			after, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil || after.Revision != before.Revision {
+				t.Fatalf("queued live action changed preferences: %+v, %v", after, err)
+			}
+		})
+	}
+}
+
 func TestSnapshotReflectsChangedEngineBriefAndPendingChoice(t *testing.T) {
 	store, h := testStore(t)
 	service := &Service{Store: store}
@@ -538,7 +672,7 @@ func TestBoardRestartRestartsAGoblinOnItsOwnEngineAtOnce(t *testing.T) {
 	}{
 		{name: "working", phase: "running", wantStatus: http.StatusAccepted, wantCalls: [][]string{{"switch", "goblin", "--generation", "s1", "--restart"}}},
 		{name: "paused", phase: "paused", wantStatus: http.StatusConflict},
-		{name: "queued", isQueued: true, wantStatus: http.StatusConflict},
+		{name: "queued", isQueued: true, wantStatus: http.StatusBadRequest},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

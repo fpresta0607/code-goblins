@@ -120,7 +120,9 @@ When it is red a second time, the train is halved until the one pull request tha
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
 The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with what it tests or landed, folding a train that landed nothing into the train that retried it.
-A click on that card opens the train's panel: every pull request of the batch with its goblin, and every CI run with how it ended.
+Completed holds only finished trains that landed at least one pull request.
+Stopped or failed trains that landed nothing stay accessible under Train history, with their recorded reason.
+A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.
 `cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
 See [Merge trains](AGENTS.md#merge-trains).
 

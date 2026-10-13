@@ -1,12 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AfkActionsContext } from "./afk-actions";
 import { AfkOffer } from "./afk-offer";
+import { boardPage } from "./board-page";
 import { AFK_OFF, offerFor, turnedOff, type Occasion } from "./afk";
 import { useAfkSwitch } from "./useAfkSwitch";
 import type { Afk, Snapshot } from "./types";
 
 // The report is opened seldom, so its page arrives the first time it is shown.
-const AfkReportPage = lazy(() => import("./afk-report").then((module) => ({ default: module.AfkReportPage })));
+const AfkReportPage = boardPage(() => import("./afk-report").then((module) => module.AfkReportPage), "AFK report");
 
 // AFK mode over the whole board, whatever view it shows: the report, which
 // opens when AFK mode turns off and again when the CFO's bar asks, and the

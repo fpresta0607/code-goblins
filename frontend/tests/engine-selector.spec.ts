@@ -46,6 +46,80 @@ async function open(page: Page, phase: string, posts: unknown[], error = "", val
 for (const width of [1440, 390]) {
   test.describe(`engine selector at ${width}`, () => {
     test.use({ viewport: { width, height: 1000 } });
+    for (const choice of [
+      { name: "all settings", harness: "", model: "", effort: "" },
+      { name: "model and effort", harness: "codex", model: "", effort: "" },
+      { name: "harness and effort", harness: "", model: "current-model", effort: "" },
+      { name: "effort", harness: "codex", model: "current-model", effort: "" },
+      { name: "harness and model", harness: "", model: "", effort: "high" },
+      { name: "harness", harness: "", model: "current-model", effort: "high" },
+      { name: "model", harness: "codex", model: "", effort: "high" },
+    ]) {
+      test(`queued automatic ${choice.name} preserves unspecified routing`, async ({ page }) => {
+        const posts: unknown[] = [];
+        await open(page, "queued", posts, "", choice);
+        const engine = page.getByRole("group", { name: "Task engine", exact: true });
+        const harness = engine.getByRole("combobox", { name: "Harness", exact: true });
+        const model = engine.getByRole("combobox", { name: "Model", exact: true });
+        const effort = engine.getByRole("combobox", { name: "Effort", exact: true });
+        for (const [control, value] of [[harness, choice.harness], [model, choice.model], [effort, choice.effort]] as const) {
+          await expect(control).toHaveValue(value);
+          if (!value) await expect(control.locator("option:checked")).toHaveText("Automatic");
+        }
+        await expect(model).toBeEnabled({ enabled: !!choice.harness || !!choice.model });
+        await expect(effort).toBeEnabled({ enabled: !!choice.harness && !!choice.model || !!choice.effort });
+        await expect(engine).not.toContainText("unavailable");
+        await expect(engine.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+        expect(posts).toEqual([]);
+        const box = (await engine.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+      });
+    }
+
+    test("queued automatic routing can be replaced with an explicit engine", async ({ page }, testInfo) => {
+      const posts: unknown[] = [];
+      await open(page, "queued", posts, "", { harness: "", model: "", effort: "" });
+      const engine = page.getByRole("group", { name: "Task engine", exact: true });
+      await expect(engine.getByRole("combobox", { name: "Harness", exact: true }).locator("option:checked")).toHaveText("Automatic");
+      await engine.screenshot({ path: testInfo.outputPath("automatic-routing.png") });
+      await engine.getByRole("combobox", { name: "Harness", exact: true }).selectOption("codex");
+      await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("");
+      await expect(engine.getByRole("combobox", { name: "Effort", exact: true })).toHaveValue("");
+      await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("current-model");
+      await engine.getByRole("combobox", { name: "Effort", exact: true }).selectOption("high");
+      await engine.getByRole("button", { name: "Save", exact: true }).click();
+      await expect.poll(() => posts).toEqual([{ task: "engine-task", generation: "", revision: "q1", harness: "codex", model: "current-model", effort: "high", when: "" }]);
+      await expect(engine).toContainText("Saved for Start");
+    });
+
+    for (const field of ["Model", "Effort"] as const) {
+      test(`queued automatic ${field} can be made explicit without changing its harness`, async ({ page }) => {
+        const posts: unknown[] = [];
+        await open(page, "queued", posts, "", { model: field === "Model" ? "" : "current-model", effort: "" });
+        const engine = page.getByRole("group", { name: "Task engine", exact: true });
+        await engine.getByRole("combobox", { name: field, exact: true }).selectOption(field === "Model" ? "next-model" : "high");
+        await engine.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => posts).toEqual([{ task: "engine-task", generation: "", revision: "q1", harness: "codex", model: field === "Model" ? "next-model" : "current-model", effort: field === "Model" ? "" : "high", when: "" }]);
+      });
+    }
+
+    for (const field of ["Harness", "Model", "Effort"] as const) {
+      test(`queued ${field} can return to automatic without clearing other preferences`, async ({ page }) => {
+        const posts: unknown[] = [];
+        await open(page, "queued", posts);
+        const engine = page.getByRole("group", { name: "Task engine", exact: true });
+        await engine.getByRole("combobox", { name: field, exact: true }).selectOption("");
+        await engine.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => posts).toEqual([{ task: "engine-task", generation: "", revision: "q1", harness: field === "Harness" ? "" : "codex", model: field === "Model" ? "" : "current-model", effort: field === "Effort" ? "" : "xhigh", when: "" }]);
+        for (const name of ["Harness", "Model", "Effort"]) {
+          const control = engine.getByRole("combobox", { name, exact: true });
+          if (await control.inputValue()) await control.selectOption("");
+        }
+        await engine.getByRole("button", { name: "Save", exact: true }).click();
+        await expect.poll(() => posts.at(-1)).toEqual({ task: "engine-task", generation: "", revision: "q2", harness: "", model: "", effort: "", when: "" });
+      });
+    }
+
     for (const phase of ["queued", "paused"]) {
       test(`${phase} saves the selected engine for its next start`, async ({ page }) => {
         const posts: unknown[] = [];
@@ -53,7 +127,9 @@ for (const width of [1440, 390]) {
         const engine = page.getByRole("group", { name: "Task engine", exact: true });
         await expect(engine.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("codex");
         await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
-        await expect(engine.getByRole("combobox", { name: "Effort", exact: true }).locator("option[value=xhigh]")).toHaveCount(0);
+        await expect(engine.getByRole("combobox", { name: "Effort", exact: true }).locator("option[value=xhigh]")).toHaveCount(phase === "queued" ? 1 : 0);
+        if (phase === "queued") await expect(engine.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+        else await expect(engine.locator('option[value=""]')).toHaveCount(0);
         await engine.getByRole("combobox", { name: "Effort", exact: true }).selectOption("high");
         await engine.getByRole("button", { name: phase === "queued" ? "Save" : "Save for Resume", exact: true }).click();
         await expect.poll(() => posts).toEqual([{ task: "engine-task", generation: phase === "queued" ? "" : "s1", revision: "q1", harness: "codex", model: "next-model", effort: "high", when: "" }]);
@@ -103,6 +179,7 @@ test("unavailable values and failed saves show their reasons", async ({ page }) 
   const engine = page.getByRole("group", { name: "Task engine", exact: true });
   await expect(engine.getByRole("combobox", { name: "Harness", exact: true }).locator("option[value=pi]")).toHaveJSProperty("disabled", true);
   await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
+  await engine.getByRole("combobox", { name: "Effort", exact: true }).selectOption("high");
   await engine.getByRole("button", { name: "Save", exact: true }).click();
   await expect(engine.locator(".click-feedback")).toHaveText("The task was edited. Reload its card.");
   await expect(engine.getByRole("alert")).toHaveCount(0);

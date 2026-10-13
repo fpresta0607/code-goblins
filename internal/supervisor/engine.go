@@ -26,7 +26,15 @@ type engineIdleReading struct {
 	At        time.Time
 }
 
-func validateEngineSelection(catalog EngineCatalog, choice state.EngineChoice) error {
+func validateEngineSelection(catalog EngineCatalog, choice state.EngineChoice, isQueued bool) error {
+	if isQueued {
+		if err := (startPlan{harness: choice.Harness, model: choice.Model, effort: choice.Effort}).validateEngine(); err != nil {
+			return err
+		}
+		if choice.Harness == "" {
+			return nil
+		}
+	}
 	for _, item := range catalog.Harnesses {
 		if item.ID != choice.Harness {
 			continue
@@ -34,9 +42,12 @@ func validateEngineSelection(catalog EngineCatalog, choice state.EngineChoice) e
 		if item.Reason != "" {
 			return errors.New(item.Reason)
 		}
+		if isQueued && choice.Model == "" {
+			return nil
+		}
 		for _, model := range item.Models {
 			if model.ID == choice.Model {
-				if choice.Effort != "default" && !slices.Contains(model.Efforts, choice.Effort) {
+				if !(isQueued && choice.Effort == "") && choice.Effort != "default" && !slices.Contains(model.Efforts, choice.Effort) {
 					return fmt.Errorf("Effort %s is unavailable for %s", choice.Effort, model.Name)
 				}
 				return nil
@@ -61,7 +72,7 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update", "restart"}, input.When) {
+	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update", "restart"}, input.When) || input.Generation == "" && input.When != "" {
 		apiError(w, 400, "Invalid task engine selection")
 		return
 	}
@@ -71,14 +82,19 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 	// effort, so there is no choice to check against the catalog.
 	isUpdate, isRestart := input.When == "update", input.When == "restart"
 	if input.When != "cancel" && !isUpdate && !isRestart {
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
-		catalog, err := s.engineCatalog(ctx, execx.OSRunner{})
-		if err != nil {
-			apiError(w, 503, err.Error())
-			return
+		isQueued := input.Generation == ""
+		var catalog EngineCatalog
+		if !isQueued || choice.Harness != "" {
+			ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+			defer cancel()
+			var err error
+			catalog, err = s.engineCatalog(ctx, execx.OSRunner{})
+			if err != nil {
+				apiError(w, 503, err.Error())
+				return
+			}
 		}
-		if err := validateEngineSelection(catalog, choice); err != nil {
+		if err := validateEngineSelection(catalog, choice, isQueued); err != nil {
 			apiError(w, 409, err.Error())
 			return
 		}
@@ -90,7 +106,7 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
-	if errors.Is(err, os.ErrNotExist) && input.Generation == "" && input.When != "cancel" && !isRestart {
+	if errors.Is(err, os.ErrNotExist) && input.Generation == "" && input.When != "cancel" {
 		if err := fleet.SaveQueuedEngine(s.Store.Home, input.Task, input.Revision, input.Harness, input.Model, input.Effort); err != nil {
 			apiError(w, 409, err.Error())
 			return
@@ -344,7 +360,7 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 				failures = errors.Join(failures, err)
 				continue
 			}
-			if unavailable := validateEngineSelection(catalog, choice); unavailable != nil {
+			if unavailable := validateEngineSelection(catalog, choice, false); unavailable != nil {
 				s.starts.Lock()
 				delete(s.engineIdle, id)
 				current, readErr := state.ReadEngineChoice(s.Store.Home.State, id)
@@ -448,7 +464,7 @@ func (s *Service) engineTaskIdle(ctx context.Context, meta state.TaskMeta) (bool
 	if err != nil {
 		return false, err
 	}
-	return idleAtEmptyComposer(screens, screen), nil
+	return screens.IsIdleAtEmptyComposer(screen), nil
 }
 
 func (s *Service) engineGateIdle(ctx context.Context, meta state.TaskMeta) (bool, error) {

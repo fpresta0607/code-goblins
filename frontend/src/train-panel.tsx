@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { MergeTrain, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
+import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { batchCars, batchRuns, carLook, carName, trainLook } from "./merge-train";
 import { safeGitHubLink } from "./people";
@@ -13,18 +14,17 @@ import "./train-panel.css";
 const at = (when: string, parts: Intl.DateTimeFormatOptions) => new Date(when).toLocaleString(undefined, parts);
 const DAY_AND_TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
 
-// A merge train's panel, opened from its card: the train and where it
-// stands, its pull request one tap away, then every pull request of its
-// batch with the goblin that made it and where it stands, each row opening
-// the pull request, and every CI run of the batch with the pull requests it
-// tested, each opening on GitHub, and how it ended, opening that run, and
-// under a run whose failed checks ran again each check that failed once,
-// opening its first try. The
-// trains it took on are part of it, so their runs come first. tasks are the
-// board's, which hold a goblin still on it. row is the panel's top row (see
-// PanelRow).
+// Each pull request has one primary row. Attempt history keeps the actual
+// rider groups and earlier trains together, including checks that failed once.
 export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Task[]; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode } }) {
   const look = trainLook(train), cars = batchCars(train), runs = batchRuns(train);
+  let runOffset = 0;
+  const attempts = [...train.earlier, train].map((record) => {
+    const attemptRuns = runs.slice(runOffset, runOffset + record.history.length);
+    runOffset += record.history.length;
+    return { record, runs: attemptRuns };
+  });
+  const hasHistory = train.earlier.length > 0 || runs.length > 1 || runs.some((run) => run.once.length > 0 || run.riders.length > 1 || run.tone === "failed" || run.tone === "cancelled");
   const started = train.earlier[0]?.started || train.started;
   const link = (number: number) => safeGitHubLink(`https://github.com/${train.repository}/pull/${number}`);
   const day = (when: string) => new Date(when).toDateString();
@@ -43,40 +43,55 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
     </header>
     <div className="panel-task">
       <div className="panel-content train-panel-content">
+        {train.note && <p className="train-panel-note">{train.note}</p>}
         <section className="train-panel-section" aria-label="Pull requests">
           <h3>Pull requests<span className="column-count">{cars.length}</span></h3>
           <ol className="train-panel-rows">
             {cars.map((car) => {
               const c = carLook(car), goblin = tasks.find((task) => task.id === car.task);
+              const latest = runs.filter((run) => run.riders.includes(car.number)).at(-1);
+              const current = latest && (car.state === "riding" || car.state === "landed" && latest.tone === "passed" || car.state === "culprit" && latest.tone === "failed") ? latest : undefined;
+              const state = current ?? c;
               const content = <>
                 <span className="train-panel-number">{c.label}</span>
                 <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
                 <span className="train-panel-name">{carName(car)}</span>
-                <span className={"train-panel-state train-" + c.tone}>{c.text}</span>
               </>;
               const tip = goblin ? { "data-tip": taskName(goblin) } : {};
-              return <li key={car.url}>{c.url ? <a className="train-panel-row" href={c.url} target="_blank" rel="noreferrer" {...tip}>{content}</a> : <span className="train-panel-row" {...tip}>{content}</span>}</li>;
+              const stateClass = "train-panel-state train-" + state.tone;
+              return <li key={car.url} className="train-panel-row train-panel-car">
+                {c.url ? <a className="train-panel-pull" href={c.url} target="_blank" rel="noreferrer" {...tip}>{content}</a> : <span className="train-panel-pull" {...tip}>{content}</span>}
+                {current?.url ? <a className={stateClass} href={current.url} target="_blank" rel="noreferrer" data-tip={`Run ${current.number}: ${current.riders.map((number) => "#" + number).join(", ")}`}>{state.text}</a> : <span className={stateClass}>{state.text}</span>}
+                {c.tip && <p className="train-panel-car-note">{c.tip}</p>}
+              </li>;
             })}
           </ol>
         </section>
-        {runs.length > 0 && <section className="train-panel-section" aria-label="Runs">
-          <h3>Runs<span className="column-count">{runs.length}</span></h3>
-          <ol className="train-panel-rows">
-            {runs.map((run) => <li key={run.number} className="train-panel-row train-panel-run">
-              <span className="train-panel-run-number">Run {run.number}</span>
-              <span className="train-panel-riders">{run.riders.map((number) => {
-                const url = link(number);
-                return url ? <a key={number} className="train-panel-rider" href={url} target="_blank" rel="noreferrer">#{number}</a> : <span key={number} className="train-panel-rider">#{number}</span>;
-              })}</span>
-              <span className={"train-panel-state train-" + run.tone}>{run.text}</span>
-              {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number} data-tip={"Open run " + run.number}><Icon name="external" /></a>}
-              {run.once.length > 0 && <span className="train-panel-once">
-                <span className="train-panel-once-label">Failed once</span>
-                {run.once.map((check) => check.url ? <a key={check.name} className="train-panel-rider train-panel-check" href={check.url} target="_blank" rel="noreferrer">{check.name}</a> : <span key={check.name} className="train-panel-rider train-panel-check">{check.name}</span>)}
-              </span>}
-            </li>)}
-          </ol>
-        </section>}
+        {hasHistory && <Disclosure key={train.id} title="Attempt history">
+          {attempts.map(({ record, runs: attemptRuns }, index) => <section key={record.id} className="train-panel-attempt">
+            {train.earlier.length > 0 && <h4>{index < train.earlier.length ? `Earlier train ${index + 1}` : "Current train"}: <span className={"train-" + trainLook(record).tone}>{trainLook(record).text}</span></h4>}
+            {index < train.earlier.length && <>
+              {record.note && <p className="train-panel-attempt-note">{record.note}</p>}
+              {record.cars.filter((car) => car.note).map((car) => <p key={car.url} className="train-panel-attempt-note">#{car.number}: {car.note}</p>)}
+            </>}
+            {attemptRuns.length === 0 && <p className="train-panel-attempt-note">No CI run</p>}
+            <ol className="train-panel-rows">
+              {attemptRuns.map((run) => <li key={run.number} className="train-panel-row train-panel-run">
+                <span className="train-panel-run-number">Run {run.number}</span>
+                <span className="train-panel-riders">{run.riders.map((number) => {
+                  const url = link(number);
+                  return url ? <a key={number} className="train-panel-rider" href={url} target="_blank" rel="noreferrer">#{number}</a> : <span key={number} className="train-panel-rider">#{number}</span>;
+                })}</span>
+                <span className={"train-panel-state train-" + run.tone}>{run.text}</span>
+                {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number} data-tip={"Open run " + run.number}><Icon name="external" /></a>}
+                {run.once.length > 0 && <span className="train-panel-once">
+                  <span className="train-panel-once-label">Failed once</span>
+                  {run.once.map((check) => check.url ? <a key={check.name} className="train-panel-rider train-panel-check" href={check.url} target="_blank" rel="noreferrer">{check.name}</a> : <span key={check.name} className="train-panel-rider train-panel-check">{check.name}</span>)}
+                </span>}
+              </li>)}
+            </ol>
+          </section>)}
+        </Disclosure>}
         {Number.isFinite(new Date(started).getTime()) && <p className="card-clock train-panel-clock"><Icon name="clock" />
           <time dateTime={started}>{at(started, DAY_AND_TIME)}</time>
           {train.finished && <> to <time dateTime={train.finished}>{at(train.finished, day(train.finished) === day(started) ? { hour: "numeric", minute: "2-digit" } : DAY_AND_TIME)}</time></>}
