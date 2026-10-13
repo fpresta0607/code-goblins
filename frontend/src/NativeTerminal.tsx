@@ -41,7 +41,7 @@ type Connection = { sized: boolean; abort: AbortController; lease: string; frame
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, harness, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; harness: string; instance: string; visible: boolean; shown: boolean; focus?: number }) {
   // What the CFO is told this terminal is, read when a report goes.
-  const named = task ? terminalOf(task) : node ? "the terminal of session " + node.id : "the CFO's terminal";
+  const named = task ? terminalOf(task) : "the CFO's terminal";
   const reportAs = useRef(named);
   useEffect(() => { reportAs.current = named; }, [named]);
   const host = useRef<HTMLDivElement>(null);
