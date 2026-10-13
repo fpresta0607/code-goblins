@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // recoveryRole names what this test binary is when a recovery test starts
@@ -43,11 +45,11 @@ func controlAnExecution() int {
 // worker suspended and exits before putting it in a job, as a controller
 // that ends between the two would.
 func strandAWorker() int {
-	controller, session, err := currentController()
+	controller, err := currentController()
 	if err != nil {
 		return 4
 	}
-	guard := Custody{RunID: "stranded-run", Token: "slot-1:1:1", Job: JobName("stranded-run"), Controller: controller, Session: session, Created: time.Now().UTC()}
+	guard := Custody{RunID: "stranded-run", Token: "slot-1:1:1", Job: JobName("stranded-run"), Controller: controller, Created: time.Now().UTC()}
 	if err := writeCustody(os.Getenv("VERIFY_RECOVERY_ADMISSION"), guard); err != nil {
 		return 3
 	}
@@ -76,9 +78,9 @@ func writeCustody(admissionDir string, guard Custody) error {
 
 // exitedProcess is the identity of a process that has exited, as an
 // abandoned execution's controller is.
-func exitedProcess(t *testing.T) (lock.Info, uint32) {
+func exitedProcess(t *testing.T) lock.Info {
 	t.Helper()
-	controller, session, err := currentController()
+	controller, err := currentController()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +102,7 @@ func exitedProcess(t *testing.T) (lock.Info, uint32) {
 	}
 	controller.PID, controller.OwnerPID = process.Process.Pid, process.Process.Pid
 	controller.Start = time.Unix(0, creation.Nanoseconds()).UTC()
-	return controller, session
+	return controller
 }
 
 func readExecution(t *testing.T, path string) ExecutionRecord {
@@ -270,8 +272,8 @@ func TestRecoveryRefusesAWorkerThatNeverJoinedItsJob(t *testing.T) {
 func TestRecoveryRefusesAJobItCannotOpenUntilTheJobIsGone(t *testing.T) {
 	// Arrange
 	requested := admission(t)
-	controller, session := exitedProcess(t)
-	guard := Custody{RunID: "unreadable-run", Token: "slot-1:1:1", Job: JobName("unreadable-run"), Controller: controller, Session: session, Created: time.Now().UTC()}
+	controller := exitedProcess(t)
+	guard := Custody{RunID: "unreadable-run", Token: "slot-1:1:1", Job: JobName("unreadable-run"), Controller: controller, Created: time.Now().UTC()}
 	if err := writeCustody(requested.Dir, guard); err != nil {
 		t.Fatal(err)
 	}
@@ -333,10 +335,10 @@ func TestRecoveryNeverPassesAnExecutionItRecovers(t *testing.T) {
 			if err := execution.persist(record); err != nil {
 				t.Fatal(err)
 			}
-			controller, session := exitedProcess(t)
+			controller := exitedProcess(t)
 			// The controller recorded its custody and ended before it
 			// created its job, so no job of that name ever existed.
-			guard := Custody{RunID: execution.ID(), Token: "slot-1:1:1", Job: JobName(execution.ID()), Controller: controller, Session: session, Created: time.Now().UTC(), Evidence: execution.Path()}
+			guard := Custody{RunID: execution.ID(), Token: "slot-1:1:1", Job: JobName(execution.ID()), Controller: controller, Created: time.Now().UTC(), Evidence: execution.Path()}
 			if err := writeCustody(requested.Dir, guard); err != nil {
 				t.Fatal(err)
 			}
@@ -357,24 +359,26 @@ func TestRecoveryNeverPassesAnExecutionItRecovers(t *testing.T) {
 			if recovered.Status != wanted {
 				t.Fatalf("recovery turned %s into %s", status, recovered.Status)
 			}
-			if status != "passed" && (recovered.Measurement.State != Interrupted || !recovered.Measurement.CleanupConfirmed) {
+			if status == "pending" && (recovered.Measurement.State != Interrupted || !recovered.Measurement.CleanupConfirmed || !strings.Contains(recovered.Failure, "recovered its custody")) {
 				t.Fatalf("recovered evidence = %+v", recovered)
+			}
+			if status != "pending" && recovered.Failure != "" {
+				t.Fatalf("recovery rewrote a record its controller finished: %+v", recovered)
 			}
 		})
 	}
 }
 
 func TestRecoveryLeavesCustodyItCannotProveAbandoned(t *testing.T) {
-	live, session, err := currentController()
+	live, err := currentController()
 	if err != nil {
 		t.Fatal(err)
 	}
-	gone, goneSession := exitedProcess(t)
+	gone := exitedProcess(t)
 	for name, guard := range map[string]Custody{
-		"a live controller":              {Controller: live, Session: session},
-		"no controller":                  {Session: session},
-		"another run's job":              {Controller: gone, Session: goneSession, Job: JobName("another-run")},
-		"a job named in another session": {Controller: gone, Session: goneSession + 1},
+		"a live controller": {Controller: live},
+		"no controller":     {},
+		"another run's job": {Controller: gone, Job: JobName("another-run")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -412,8 +416,8 @@ func TestTurnReleaseRecoversANestedControllerThatEndedInsideIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer turn.Release()
-	controller, session := exitedProcess(t)
-	guard := Custody{RunID: "nested-run", Token: turn.Token(), Job: JobName("nested-run"), Controller: controller, Session: session, Created: time.Now().UTC()}
+	controller := exitedProcess(t)
+	guard := Custody{RunID: "nested-run", Token: turn.Token(), Job: JobName("nested-run"), Controller: controller, Created: time.Now().UTC()}
 	if err := writeCustody(requested.Dir, guard); err != nil {
 		t.Fatal(err)
 	}
@@ -433,8 +437,8 @@ func TestTurnReleaseRecoversANestedControllerThatEndedInsideIt(t *testing.T) {
 func TestRecoveryKeepsACustodyRecordReplacedBeforeItsRemoval(t *testing.T) {
 	// Arrange
 	requested := admission(t)
-	controller, session := exitedProcess(t)
-	proved := Custody{RunID: "replaced-run", Token: "slot-1:1:1", Job: JobName("replaced-run"), Controller: controller, Session: session, Created: time.Now().UTC(), dir: filepath.Join(requested.Dir, "custody")}
+	controller := exitedProcess(t)
+	proved := Custody{RunID: "replaced-run", Token: "slot-1:1:1", Job: JobName("replaced-run"), Controller: controller, Created: time.Now().UTC(), dir: filepath.Join(requested.Dir, "custody")}
 	replacement := proved
 	replacement.Created = proved.Created.Add(time.Second)
 	if err := writeCustody(requested.Dir, replacement); err != nil {
@@ -450,5 +454,138 @@ func TestRecoveryKeepsACustodyRecordReplacedBeforeItsRemoval(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(requested.Dir, "custody", "replaced-run.json")); err != nil {
 		t.Fatalf("the replacement record is gone: %v", err)
+	}
+}
+
+func TestRecoveryFreesTheTurnOnceAKilledControllersJobEndedWithIt(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	requested := admission(t)
+	controller := exec.Command(os.Args[0], "-test.run=^TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn$")
+	controller.Env = append(os.Environ(), recoveryRole+"=controller", "VERIFY_RECOVERY_ADMISSION="+requested.Dir, "VERIFY_RECOVERY_ROOT="+root)
+	if err := controller.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { controller.Process.Kill(); controller.Wait() })
+	descendant := openProcess(t, filepath.Join(root, "descendant.pid"))
+	records, err := filepath.Glob(filepath.Join(requested.Dir, "custody", "*.json"))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("custody = %v, %v", records, err)
+	}
+	runID := strings.TrimSuffix(filepath.Base(records[0]), ".json")
+	// Nothing else holds the job, so it ends what it holds with its
+	// controller, as it does when a caller's time limit kills a wrapper.
+	if err := controller.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	controller.Wait()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// Act
+	turn, err := requested.Wait(ctx)
+	defer turn.Release()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("a killed controller's custody kept the turn: %v", err)
+	}
+	if event, err := windows.WaitForSingleObject(descendant, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatal("the descendant outlived its controller's job")
+	}
+	record := readExecution(t, filepath.Join(store, "executions", runID+".json"))
+	if record.Status != "failed" || record.Measurement.State != Interrupted || !strings.Contains(record.Failure, "recovered its custody") {
+		t.Fatalf("recovered evidence = %+v", record)
+	}
+}
+
+func TestRecoveryRecoversEveryAbandonedExecutionAtOnce(t *testing.T) {
+	// Arrange
+	requested := admission(t)
+	controller := exitedProcess(t)
+	for _, runID := range []string{"first-run", "second-run"} {
+		if err := writeCustody(requested.Dir, Custody{RunID: runID, Token: "slot-1:1:1", Job: JobName(runID), Controller: controller, Created: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	turn, err := requested.Wait(context.Background())
+	defer turn.Release()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("two abandoned executions kept the turn: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(requested.Dir, "custody", "*.json")); len(left) != 0 {
+		t.Fatalf("custody left after recovery: %v", left)
+	}
+}
+
+func TestRecoveryProceedsWhenTheEvidenceCannotBeRead(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	requested := admission(t)
+	execution, err := BeginExecution(t.TempDir(), []string{"go", "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(execution.Path(), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard := Custody{RunID: execution.ID(), Token: "slot-1:1:1", Job: JobName(execution.ID()), Controller: exitedProcess(t), Created: time.Now().UTC(), Evidence: execution.Path()}
+	if err := writeCustody(requested.Dir, guard); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	turn, err := requested.Wait(context.Background())
+	defer turn.Release()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unreadable evidence of workers proven gone kept the turn: %v", err)
+	}
+	if data, err := os.ReadFile(execution.Path()); err != nil || string(data) != "{" {
+		t.Fatalf("recovery rewrote evidence it could not read: %q, %v", data, err)
+	}
+}
+
+func TestStraysAmongNamesOnlyTheControllersLaterChildren(t *testing.T) {
+	started := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	guard := Custody{Controller: lock.Info{PID: 100, Start: started}, Created: started.Add(time.Minute)}
+	worker := proc.Entry{PID: 200, ParentPID: 100, ExeBase: "worker.exe", Start: started.Add(2 * time.Minute)}
+	for _, test := range []struct {
+		name      string
+		processes []proc.Entry
+		want      []int
+		wantError bool
+	}{
+		{name: "a child started after custody", processes: []proc.Entry{worker}, want: []int{200}},
+		{name: "a child started before custody", processes: []proc.Entry{{PID: 201, ParentPID: 100, Start: started.Add(10 * time.Second)}}},
+		{name: "another parent's child", processes: []proc.Entry{{PID: 202, ParentPID: 101, Start: started.Add(2 * time.Minute)}}},
+		{name: "a controller still exiting", processes: []proc.Entry{{PID: 100, Start: started.Add(300 * time.Millisecond)}, worker}, wantError: true},
+		{name: "a successor's child", processes: []proc.Entry{{PID: 100, Start: started.Add(3 * time.Minute)}, {PID: 203, ParentPID: 100, Start: started.Add(4 * time.Minute)}}},
+		{name: "the controller's child beside a successor", processes: []proc.Entry{{PID: 100, Start: started.Add(3 * time.Minute)}, worker}, want: []int{200}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			strays, err := straysAmong(test.processes, guard)
+
+			// Assert
+			if (err != nil) != test.wantError {
+				t.Fatalf("error = %v, want error %v", err, test.wantError)
+			}
+			var pids []int
+			for _, stray := range strays {
+				pids = append(pids, stray.PID)
+			}
+			if !slices.Equal(pids, test.want) {
+				t.Fatalf("strays = %v, want %v", pids, test.want)
+			}
+		})
 	}
 }

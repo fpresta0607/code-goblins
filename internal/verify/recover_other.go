@@ -13,14 +13,14 @@ import (
 
 var errNoRecovery = errors.New("verify: execution custody requires Windows")
 
-func currentController() (lock.Info, uint32, error) {
-	return lock.Info{}, 0, errNoRecovery
+func currentController() (lock.Info, error) {
+	return lock.Info{}, errNoRecovery
 }
 
 func (Custody) endJob(context.Context) (execx.TreeUsage, bool, error) {
 	return execx.TreeUsage{}, false, errNoRecovery
 }
 
-func (Custody) strayWorkers() ([]proc.Entry, error) {
+func (Custody) strayWorkers(context.Context) ([]proc.Entry, error) {
 	return nil, errNoRecovery
 }

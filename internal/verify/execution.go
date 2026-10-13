@@ -161,11 +161,11 @@ func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.Tr
 	return execution.persistContext(ctx, next)
 }
 
-// markRecovered records in an execution's record that its controller ended
-// before confirming its workers gone, and how recovery confirmed it since.
-// The run fails: one its own controller never confirmed never passes. A run
-// that had passed, which needs its cleanup confirmed, keeps that result. A
-// record that is not there claims nothing.
+// markRecovered records in a pending execution's record that its controller
+// ended before confirming its workers gone, and how recovery confirmed it
+// since. The run fails: one its own controller never finished never passes.
+// A record its controller finished keeps its result, and one marked already
+// is not marked again. A record that is not there claims nothing.
 func markRecovered(ctx context.Context, path, runID string, usage execx.TreeUsage, isFound bool, note string) error {
 	if filepath.Base(path) != runID+".json" || filepath.Base(filepath.Dir(path)) != "executions" {
 		return errors.New("verify: recovery evidence names another run")
@@ -184,7 +184,7 @@ func markRecovered(ctx context.Context, path, runID string, usage execx.TreeUsag
 	if record.ID != runID {
 		return errors.New("verify: recovery evidence names another run")
 	}
-	if record.Status == "passed" {
+	if record.Status != "pending" {
 		return nil
 	}
 	recovered := &Execution{path: path, record: record}

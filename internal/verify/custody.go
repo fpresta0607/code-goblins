@@ -23,12 +23,10 @@ type Custody struct {
 	RunID string `json:"run_id"`
 	Token string `json:"token"`
 	// Job names the Windows job the execution's workers run in, and
-	// Controller and Session the process that starts them and the logon
-	// session the job's name lives in, so that once that process has gone a
-	// later run can prove its workers gone too.
+	// Controller the process that starts them, so that once that process has
+	// gone a later run can prove its workers gone too.
 	Job        string    `json:"job"`
 	Controller lock.Info `json:"controller"`
-	Session    uint32    `json:"session"`
 	// Created is when the custody was recorded, before any worker started.
 	Created time.Time `json:"created"`
 	// Evidence is the execution's record, which recovery marks interrupted.
@@ -36,9 +34,11 @@ type Custody struct {
 	dir      string
 }
 
-// jobNamespace is where the Windows jobs of executions are named. The run ID
+// jobNamespace is where the Windows jobs of executions are named: the
+// machine's global namespace, so a run in any logon session, or after the
+// controller's session has ended, finds the job by its name. The run ID
 // after it is random, so no other run can guess an execution's job.
-const jobNamespace = `Local\cfo-verify-`
+const jobNamespace = `Global\cfo-verify-`
 
 // JobName is the name of the Windows job an execution's workers run in.
 func JobName(runID string) string {
@@ -54,7 +54,7 @@ func (turn Turn) Protect(runID, evidence string) (guard Custody, failure error) 
 	if turn.dir == "" {
 		return Custody{}, errors.New("verify: cannot protect a turn without live custody")
 	}
-	controller, session, err := currentController()
+	controller, err := currentController()
 	if err != nil {
 		return Custody{}, err
 	}
@@ -66,7 +66,7 @@ func (turn Turn) Protect(runID, evidence string) (guard Custody, failure error) 
 	if !(Admission{Dir: turn.dir}).isHeldAs(turn.slot, turn.token) {
 		return Custody{}, errors.New("verify: cannot protect a turn without live custody")
 	}
-	guard = Custody{RunID: runID, Token: turn.token, Job: JobName(runID), Controller: controller, Session: session, Created: time.Now().UTC(), Evidence: evidence, dir: filepath.Join(turn.dir, "custody")}
+	guard = Custody{RunID: runID, Token: turn.token, Job: JobName(runID), Controller: controller, Created: time.Now().UTC(), Evidence: evidence, dir: filepath.Join(turn.dir, "custody")}
 	if err := os.MkdirAll(guard.dir, 0700); err != nil {
 		return Custody{}, err
 	}
@@ -254,13 +254,18 @@ func (admission Admission) checkWorkerCustody() error {
 		}
 		slot, _, _ := strings.Cut(guard.Token, ":")
 		if !admission.isHeldAs(slot, guard.Token) {
-			failure = errors.Join(failure, fmt.Errorf("verify: execution %s has unconfirmed worker cleanup", guard.RunID))
+			failure = errors.Join(failure, fmt.Errorf("verify: execution %s has unconfirmed worker cleanup (custody record %s): its controller, pid %d, cannot be shown to have exited", guard.RunID, guard.path(), guard.Controller.PID))
 		}
 	}
 	if len(abandoned) > 0 {
 		failure = errors.Join(failure, recoverAbandoned(context.Background(), abandoned))
 	}
 	return failure
+}
+
+// path is where this custody is recorded.
+func (guard Custody) path() string {
+	return filepath.Join(guard.dir, guard.RunID+".json")
 }
 
 // isAbandoned reports whether the process that recorded this custody is
@@ -275,9 +280,9 @@ func (guard Custody) isAbandoned() bool {
 // or gone, and no worker its controller started outside it. A dead
 // controller alone proves nothing. Every job is ended before any
 // controller's strays are counted, since until then the executions of one
-// controller are each other's strays. Each execution's record is marked
-// interrupted, so recovery never passes a run. The caller holds the custody
-// mutation.
+// controller are each other's strays. A pending execution's record is
+// marked failed and interrupted, so recovery never passes a run. The caller
+// holds the custody mutation.
 func recoverAbandoned(ctx context.Context, guards []Custody) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -301,14 +306,14 @@ func recoverAbandoned(ctx context.Context, guards []Custody) error {
 			err = guard.finishRecovery(ctx, endings[index].usage, endings[index].isFound)
 		}
 		if err != nil {
-			failure = errors.Join(failure, fmt.Errorf("verify: execution %s has unconfirmed worker cleanup: %w", guard.RunID, err))
+			failure = errors.Join(failure, fmt.Errorf("verify: execution %s has unconfirmed worker cleanup (custody record %s): %w", guard.RunID, guard.path(), err))
 		}
 	}
 	return failure
 }
 
 func (guard Custody) finishRecovery(ctx context.Context, usage execx.TreeUsage, isFound bool) error {
-	strays, err := guard.strayWorkers()
+	strays, err := guard.strayWorkers(ctx)
 	if err != nil {
 		return err
 	}
@@ -317,7 +322,7 @@ func (guard Custody) finishRecovery(ctx context.Context, usage execx.TreeUsage, 
 		for index, stray := range strays {
 			started[index] = fmt.Sprintf("%s pid %d", stray.ExeBase, stray.PID)
 		}
-		return fmt.Errorf("its controller, pid %d, started %s outside its job", guard.Controller.PID, strings.Join(started, ", "))
+		return fmt.Errorf("its controller, pid %d, started %s outside its job, which still runs. End it once it is known to be this execution's, and the next run recovers the custody", guard.Controller.PID, strings.Join(started, ", "))
 	}
 	if guard.Evidence != "" {
 		note := fmt.Sprintf("its controller, pid %d, ended before its workers were confirmed gone, and pid %d recovered its custody once Windows showed its job ", guard.Controller.PID, os.Getpid())
@@ -326,9 +331,10 @@ func (guard Custody) finishRecovery(ctx context.Context, usage execx.TreeUsage, 
 		} else {
 			note += "gone"
 		}
-		if err := markRecovered(ctx, guard.Evidence, guard.RunID, usage, isFound, note); err != nil {
-			return fmt.Errorf("record its recovery: %w", err)
-		}
+		// The workers are proven gone, and a record that is not marked stays
+		// pending, which never passes, so a record that cannot be read or
+		// written never keeps the machine's line shut.
+		_ = markRecovered(ctx, guard.Evidence, guard.RunID, usage, isFound, note)
 	}
 	return guard.removeIfUnchanged(ctx)
 }
@@ -336,8 +342,7 @@ func (guard Custody) finishRecovery(ctx context.Context, usage execx.TreeUsage, 
 // removeIfUnchanged removes this custody record while it is still the one
 // recovery proved, so a record replaced since is never taken for it.
 func (guard Custody) removeIfUnchanged(ctx context.Context) error {
-	path := filepath.Join(guard.dir, guard.RunID+".json")
-	data, err := fsx.ReadFileContext(ctx, path)
+	data, err := fsx.ReadFileContext(ctx, guard.path())
 	if err != nil {
 		return err
 	}
@@ -351,11 +356,11 @@ func (guard Custody) removeIfUnchanged(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return os.Remove(path)
+	return os.Remove(guard.path())
 }
 
 func (guard Custody) isSame(other Custody) bool {
-	return guard.RunID == other.RunID && guard.Token == other.Token && guard.Job == other.Job && guard.Session == other.Session &&
+	return guard.RunID == other.RunID && guard.Token == other.Token && guard.Job == other.Job &&
 		guard.Evidence == other.Evidence && guard.Created.Equal(other.Created) && guard.Controller.PID == other.Controller.PID &&
 		guard.Controller.Start.Equal(other.Controller.Start) && guard.Controller.Hostname == other.Controller.Hostname
 }
