@@ -264,10 +264,12 @@ func TestNewTeammateOverlapKeepsUnknownTimesAndMovedHeadUnread(t *testing.T) {
 		"absolute path":  "/outside.go",
 		"drive path":     "C:/outside.go",
 		"backslash root": `\outside.go`,
+		"unc path":       `\\server\share\outside.go`,
+		"backslash dots": `app\..\..\outside.go`,
 		"dot segment":    "app/./retry.go",
 		"empty segment":  "app//retry.go",
 	}
-	for _, problem := range []string{"item creation", "unparseable creation", "generation", "viewer", "outside path", "absolute path", "drive path", "backslash root", "dot segment", "empty segment"} {
+	for _, problem := range []string{"item creation", "unparseable creation", "generation", "viewer", "outside path", "absolute path", "drive path", "backslash root", "unc path", "backslash dots", "dot segment", "empty segment"} {
 		t.Run(problem, func(t *testing.T) {
 			service, h, forge, meta, now := overlapFixture(t)
 			switch problem {
