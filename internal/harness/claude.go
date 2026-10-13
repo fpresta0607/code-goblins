@@ -36,6 +36,9 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// LaunchSpec.MCPConfig, so this filter covers claude goblins alone.
 	// Project credentials ride in through the injected environment instead.
 	launch.Args = []string{"--dangerously-skip-permissions", "--strict-mcp-config"}
+	if hasValue(spec.Settings) {
+		launch.Args = append(launch.Args, "--settings", spec.Settings)
+	}
 	if hasValue(spec.MCPConfig) {
 		launch.Args = append(launch.Args, "--mcp-config", spec.MCPConfig)
 	}

@@ -252,6 +252,10 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 	// The new launch is built while the old harness still runs, so a model or
 	// an effort the new one refuses leaves the goblin as it was.
+	settings, err := s.goblinSettings(target.Harness)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
@@ -259,6 +263,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		Model:           target.Model,
 		Effort:          target.Effort,
 		MCPConfig:       mcp.Config(meta.TaskTmp),
+		Settings:        settings,
 		CodexMCPServers: codexServers,
 	})
 	if err != nil {
