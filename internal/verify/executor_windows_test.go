@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,7 +75,12 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	const roleVariable = "VERIFY_EXECUTOR_FIXTURE"
 	if role := os.Getenv(roleVariable); role != "" {
 		if role == "child" {
-			_ = os.WriteFile("child.pid", []byte(strconv.Itoa(os.Getpid())), 0600)
+			// Written whole and then named, so the run's Observe, which
+			// fails the run on a pid it cannot read, never reads an empty
+			// file between its creation and its write.
+			if os.WriteFile("child.pid.tmp", []byte(strconv.Itoa(os.Getpid())), 0600) != nil || os.Rename("child.pid.tmp", "child.pid") != nil {
+				os.Exit(7)
+			}
 			time.Sleep(20 * time.Second)
 			os.Exit(9)
 		}
@@ -96,10 +102,11 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 			windows.CloseHandle(childHandle)
 		}
 	})
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond,
+	// The child outlives the linger, so only pressure can end the run.
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond, Sustain: time.Millisecond, Linger: time.Minute,
 		Headroom: func() (Headroom, error) {
 			if isParentGone {
-				return Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}, nil
+				return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil
 			}
 			return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
 		}, Observe: func(measurement Measurement) error {
@@ -126,8 +133,8 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	result, err := executor.Run(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorTracksDescendantsAfterTheParentExits$"}, Env: append(os.Environ(), roleVariable+"=parent")})
 
 	// Assert
-	if err == nil || !isParentGone || result.ExitCode != 0 {
-		t.Fatalf("parent result = %+v, %v, parent gone = %v", result, err, isParentGone)
+	if err == nil || !strings.Contains(err.Error(), "reserve pressure") || !isParentGone || result.ExitCode != 0 {
+		t.Fatalf("parent result = %+v, %v, parent gone = %v, want reserve pressure", result, err, isParentGone)
 	}
 	data, readError := os.ReadFile(filepath.Join(root, "child.pid"))
 	if readError != nil {
@@ -305,7 +312,7 @@ func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T
 		t.Fatal(err)
 	}
 	defer turn.Release()
-	guard, err := turn.Protect(execution.ID())
+	guard, err := turn.Protect(execution.ID(), execution.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,6 +495,9 @@ func TestExecutorRetainsFailedReleaseWhenAdmissionIsCanceled(t *testing.T) {
 }
 
 func (job *delayedCleanup) Usage() (execx.TreeUsage, error) { return execx.TreeUsage{}, nil }
+func (job *delayedCleanup) Members() ([]execx.EndedProcess, error) {
+	return nil, nil
+}
 func (job *delayedCleanup) TerminateAndWait(ctx context.Context) (execx.TreeUsage, error) {
 	close(job.entered)
 	select {
@@ -563,7 +573,7 @@ func TestExecutorCleanupDeadlineCoversCustodyReleaseAndEvidence(t *testing.T) {
 				}
 				pending.isTurnReleased = false
 				if phase == "custody" {
-					pending.guard, err = pending.turn.Protect(execution.ID())
+					pending.guard, err = pending.turn.Protect(execution.ID(), execution.Path())
 					if err != nil {
 						t.Fatal(err)
 					}

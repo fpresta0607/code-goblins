@@ -12,6 +12,7 @@ import { personaFor } from "./workflow";
 import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
+import { DictatedAnswer } from "./dictated-answer";
 
 // An answered question, opened again from History: its choices with the
 // answer checked, who chose it and when, and Change answer for another
@@ -45,7 +46,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
         <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       <label className="question-choice"><input type="radio" name={"change-" + question.id} checked={shown.selection === "other"} onChange={() => onDraft({ selection: "other", written: shown.selection === "other" ? shown.written : standing.written, error: "" })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>
-      {shown.selection === "other" && <label className="written-answer"><span className="sr-only">Your written answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={shown.written} onChange={(event) => onDraft({ selection: "other", written: event.target.value, error: "" })} /></label>}
+      {shown.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} />}
     </fieldset>
     <p className="question-outcome answered-by" role="status"><AnswerMark who={who.mark} />{who.label}{who.at && " · " + age(who.at)}</p>
     {warning && <p className="change-warning">{warning}</p>}

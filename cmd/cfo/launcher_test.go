@@ -96,6 +96,7 @@ type launcherFixture struct {
 	restartErr     error
 	restartSession string
 	restartFresh   string
+	restartHarness string
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -204,8 +205,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			})
 		},
 		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
-		restartCFO: func(home.Home) (supervisor.CFOConversation, string, error) {
+		restartCFO: func(_ home.Home, harness string) (supervisor.CFOConversation, string, error) {
 			f.restarts++
+			f.restartHarness = harness
 			if f.restartErr != nil {
 				return supervisor.CFOConversation{}, "", f.restartErr
 			}

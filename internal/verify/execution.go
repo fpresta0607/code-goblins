@@ -3,11 +3,15 @@ package verify
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // ExecutionRecord is local execution evidence. Same-user files remain
@@ -60,7 +64,17 @@ func BeginExecution(root string, command []string) (*Execution, error) {
 }
 
 func (execution *Execution) Path() string { return execution.path }
-func (execution *Execution) ID() string   { return execution.record.ID }
+
+// LoadExecution reads the execution record at path.
+func LoadExecution(path string) (ExecutionRecord, error) {
+	var record ExecutionRecord
+	data, err := fsx.ReadFile(path)
+	if err != nil {
+		return record, err
+	}
+	return record, json.Unmarshal(data, &record)
+}
+func (execution *Execution) ID() string { return execution.record.ID }
 
 func (execution *Execution) Admit(waited time.Duration) error {
 	if execution.record.Measurement.State != Queued || waited < 0 {
@@ -155,6 +169,44 @@ func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.Tr
 	next.Measurement.CleanupConfirmed = true
 	next.Measurement.Usage = usage
 	return execution.persistContext(ctx, next)
+}
+
+// markRecovered records in a pending execution's record that its controller
+// ended before confirming its workers gone, and how recovery confirmed it
+// since. The run fails: one its own controller never finished never passes.
+// A record its controller finished keeps its result, and one marked already
+// is not marked again. A record that is not there claims nothing.
+func markRecovered(ctx context.Context, path, runID string, usage execx.TreeUsage, isFound bool, note string) error {
+	if filepath.Base(path) != runID+".json" || filepath.Base(filepath.Dir(path)) != "executions" {
+		return errors.New("verify: recovery evidence names another run")
+	}
+	data, err := fsx.ReadFileContext(ctx, path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var record ExecutionRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return err
+	}
+	if record.ID != runID {
+		return errors.New("verify: recovery evidence names another run")
+	}
+	if record.Status != "pending" {
+		return nil
+	}
+	recovered := &Execution{path: path, record: record}
+	next := record
+	next.Status = "failed"
+	next.Failure = strings.TrimSpace(next.Failure + "\n" + note)
+	next.Measurement.State = Interrupted
+	next.Measurement.CleanupConfirmed = true
+	if isFound {
+		next.Measurement.Usage = usage
+	}
+	return recovered.persistContext(ctx, next)
 }
 
 func (execution *Execution) persist(next ExecutionRecord) error {

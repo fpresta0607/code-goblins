@@ -18,9 +18,6 @@ func SaveQueuedEngine(h home.Home, id, revision, harness, model, effort string) 
 			return errors.New("invalid queued engine choice")
 		}
 	}
-	if harness == "" {
-		return errors.New("choose a harness")
-	}
 	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
 		return err
 	}

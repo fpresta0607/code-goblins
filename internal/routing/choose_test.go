@@ -45,23 +45,23 @@ func TestChooseNamesTheLaneAClassAsksFor(t *testing.T) {
 	}
 }
 
-func TestChooseFallsToTheNearestUsableLaneAndSaysWhy(t *testing.T) {
+func TestChooseEscalatesOrdinaryWorkAndSaysWhy(t *testing.T) {
 	usable := func(l ExecutionLane) (bool, string) {
-		if l.Name == "deep" {
-			return false, "claude model:fable exhausted_now, resets 2026-09-23T09:00:00Z"
+		if l.Name == "build" {
+			return false, "claude model:opus exhausted_now, resets 2026-09-23T09:00:00Z"
 		}
 		return true, "claude all_models 97% remaining, runway through_reset"
 	}
-	c, err := Choose(Assessment{Class: Security, Risk: "high"}, fleetTable(), usable)
+	c, err := Choose(Assessment{Class: Implementation, Risk: "normal"}, fleetTable(), usable)
 	if err != nil {
 		t.Fatalf("Choose: %v", err)
 	}
-	if c.Name != "build" || c.Wanted != "deep" || c.Model != "opus" {
-		t.Errorf("choice = %+v, want build used with deep wanted", c)
+	if c.Name != "deep" || c.Wanted != "build" || c.Model != "fable" {
+		t.Errorf("choice = %+v, want deep used with build wanted", c)
 	}
 	want := []string{
-		"deep: claude model:fable exhausted_now, resets 2026-09-23T09:00:00Z",
-		"build: claude all_models 97% remaining, runway through_reset",
+		"build: claude model:opus exhausted_now, resets 2026-09-23T09:00:00Z",
+		"deep: claude all_models 97% remaining, runway through_reset",
 	}
 	if !reflect.DeepEqual(c.Notes, want) {
 		t.Errorf("notes = %q, want every lane tried, in order", c.Notes)
@@ -74,7 +74,7 @@ func TestChooseRefusesWhenNoLaneIsUsable(t *testing.T) {
 	if err == nil {
 		t.Fatal("Choose dispatched into a wall")
 	}
-	for _, name := range []string{"build", "deep", "mechanical", "scout"} {
+	for _, name := range []string{"build", "deep"} {
 		if !strings.Contains(err.Error(), name+": claude exhausted_now") {
 			t.Errorf("err = %v, want it to name lane %s", err, name)
 		}
@@ -84,14 +84,67 @@ func TestChooseRefusesWhenNoLaneIsUsable(t *testing.T) {
 	}
 }
 
-func TestFallbackOrderIsWantedDefaultEscalationThenTheRestByName(t *testing.T) {
-	got := fallbackOrder("mechanical", fleetTable())
-	want := []string{"mechanical", "build", "deep", "scout"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("fallbackOrder = %v, want %v", got, want)
+func TestChooseTriesOnlyCapabilitySafeLanes(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		assessment Assessment
+		want       []string
+	}{
+		{"mechanical", Assessment{Class: Mechanical}, []string{"mechanical", "build", "deep"}},
+		{"scout", Assessment{Class: Scout}, []string{"scout", "build", "deep"}},
+		{"ordinary", Assessment{Class: Implementation}, []string{"build", "deep"}},
+		{"high risk", Assessment{Class: Debug, Risk: "high"}, []string{"deep"}},
+		{"security", Assessment{Class: Security}, []string{"deep"}},
+		{"architecture", Assessment{Class: Architecture}, []string{"deep"}},
+		{"migration", Assessment{Class: Migration}, []string{"deep"}},
+		{"retry", Assessment{Class: Mechanical, Attempts: 2}, []string{"deep"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			table := fleetTable()
+			table.Lanes["aaa-light"] = ExecutionLane{Name: "aaa-light", Harness: "codex", Model: "arbitrary-model"}
+			var tried []string
+			// Act
+			choice, err := Choose(test.assessment, table, func(lane ExecutionLane) (bool, string) {
+				tried = append(tried, lane.Name)
+				return lane.Name == "aaa-light", "exhausted_now, resets tomorrow"
+			})
+			// Assert
+			if err == nil || !reflect.DeepEqual(tried, test.want) {
+				t.Fatalf("choice=%+v err=%v tried=%v, want refusal after %v", choice, err, tried, test.want)
+			}
+			if len(choice.Notes) != len(test.want) || strings.Contains(err.Error(), "aaa-light") {
+				t.Fatalf("refusal includes evidence for untried lanes: %+v, %v", choice, err)
+			}
+		})
 	}
-	if got := fallbackOrder("deep", fleetTable()); !reflect.DeepEqual(got, []string{"deep", "build", "mechanical", "scout"}) {
-		t.Errorf("fallbackOrder from deep = %v", got)
+}
+
+func TestChooseMechanicalFallsBackToDefaultBeforeEscalation(t *testing.T) {
+	// Arrange
+	var tried []string
+	// Act
+	choice, err := Choose(Assessment{Class: Mechanical}, fleetTable(), func(lane ExecutionLane) (bool, string) {
+		tried = append(tried, lane.Name)
+		return lane.Name == "build", "quota evidence"
+	})
+	// Assert
+	if err != nil || choice.Name != "build" || choice.Wanted != "mechanical" || !reflect.DeepEqual(tried, []string{"mechanical", "build"}) {
+		t.Fatalf("choice=%+v err=%v tried=%v", choice, err, tried)
+	}
+}
+
+func TestChooseRefusesHighRiskWithoutAnEscalationLane(t *testing.T) {
+	for _, usable := range []Usable{nil, func(ExecutionLane) (bool, string) { return true, "available" }} {
+		// Arrange
+		table := fleetTable()
+		table.EscalateTo = ""
+		// Act
+		_, err := Choose(Assessment{Class: Security, Risk: "high"}, table, usable)
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "escalat") {
+			t.Fatalf("Choose=%v, want refusal without a configured escalation lane", err)
+		}
 	}
 }
 

@@ -286,22 +286,25 @@ func TestRunSpawnAppliesAModelFlagOverTheRoutedLaneAndSaysSo(t *testing.T) {
 }
 
 func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
-	// codex is exhausted_now in the fixture, so the spawn falls to build, and
-	// build is judged on the model:fable scope of the model that will run
-	// rather than the all-models scope of the lane's own opus.
-	_, deps := routedRuntime(t, codexDeepTable)
+	// codex is exhausted_now in the fixture, so ordinary work falls from its
+	// codex default to the claude escalation lane, and that lane is judged on
+	// the model:fable scope of the model that will run rather than the
+	// all-models scope of the lane's own opus.
+	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","escalate_to":"deep","lanes":{
+	"build":{"harness":"codex","model":"gpt-5.5","effort":"high","note":"ordinary"},
+	"deep":{"harness":"claude","model":"opus","effort":"xhigh","note":"escalation"}}}`)
 	deps.quota = fixtureQuota(t, "exhausted")
 	got := captureSpawn(&deps, "spawned g23")
-	brief := briefWith(t, "Security review of the session cookie signing before launch.")
+	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
 
 	var stdout, stderr bytes.Buffer
 	if exit := runWithRuntime([]string{"spawn", "g23", "--project", `C:\project`, "--brief", brief, "--model", "fable", "--effort", "low"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
 	if string(got.Harness) != "claude" || got.Model != "fable" || got.Effort != "low" {
-		t.Errorf("request = %+v, want the build lane with both overrides applied", *got)
+		t.Errorf("request = %+v, want the escalation lane with both overrides applied", *got)
 	}
-	if !strings.Contains(stdout.String(), " quota=deep: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; build: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
+	if !strings.Contains(stdout.String(), " quota=build: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; deep: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
 		t.Errorf("stdout = %q, want the fable scope judged on the fallback lane and both overrides reported", stdout.String())
 	}
 }
@@ -430,25 +433,29 @@ const codexDeepTable = `{"rules":[],"default_lane":"build","escalate_to":"deep",
 	"deep":{"harness":"codex","model":"gpt-5.5","effort":"xhigh","note":"high risk"},
 	"build":{"harness":"claude","model":"opus","effort":"high","note":"ordinary"}}}`
 
-func TestRunSpawnFallsToTheNextUsableLaneWhenTheWantedOneIsExhausted(t *testing.T) {
-	// The machine on 2026-09-17: codex exhausted_now until the 20th, claude
-	// fresh. A high-risk brief wants deep, which is codex here.
+func TestRunSpawnRefusesAnExhaustedHighRiskLaneDespiteAvailableOrdinaryQuota(t *testing.T) {
+	// Arrange
 	h, deps := routedRuntime(t, codexDeepTable)
 	deps.quota = fixtureQuota(t, "exhausted")
-	got := captureSpawn(&deps, "spawned g15")
+	isCalled := false
+	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
+		isCalled = true
+		return spawn.Result{}, nil
+	}
 	brief := briefWith(t, "Security review of the session cookie signing before launch.")
-
 	var stdout, stderr bytes.Buffer
-	if exit := runWithRuntime([]string{"spawn", "g15", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps); exit != 0 {
-		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+	// Act
+	exit := runWithRuntime([]string{"spawn", "g15", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
+	// Assert
+	if exit != 1 || isCalled || stdout.Len() != 0 {
+		t.Fatalf("exit=%d called=%v stdout=%q, want refusal before dispatch", exit, isCalled, stdout.String())
 	}
-	if string(got.Harness) != "claude" || got.Model != "opus" || got.Effort != "high" {
-		t.Errorf("request = %+v, want the build lane used instead of the exhausted deep lane", *got)
+	want := "cfo spawn: no usable lane: deep: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z\n"
+	if stderr.String() != want {
+		t.Errorf("stderr=%q, want %q", stderr.String(), want)
 	}
-	want := "spawned g15\nrouted lane=build wanted=deep class=security risk=high source=fleet table " + filepath.Join(h.Data, "routing.json") +
-		" quota=deep: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; build: claude all_models 97% remaining, runway through_reset\n"
-	if stdout.String() != want {
-		t.Errorf("stdout = %q, want %q", stdout.String(), want)
+	if _, err := os.Stat(filepath.Join(h.State, "g15.meta")); !os.IsNotExist(err) {
+		t.Errorf("refused spawn wrote metadata: %v", err)
 	}
 }
 

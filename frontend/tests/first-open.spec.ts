@@ -157,7 +157,8 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
 
   // Assert
   await expect(board(page)).toBeVisible();
-  await expect(page.locator(".panel-header").getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  await page.locator(".panel-content > .disclosure.harness > summary").click();
+  await expect(page.locator(".panel-content > .disclosure.harness").getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
   expect(setupRequests).toEqual([]);
 });

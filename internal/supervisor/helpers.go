@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -58,6 +59,7 @@ type helperStart struct {
 	parent state.TaskMeta
 	brief  string
 	title  string
+	engine startPlan
 }
 
 // acceptHelper admits a helper of request.Parent and starts it through cfo
@@ -146,6 +148,13 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 // start: the parent is a live native goblin at work on a branch, with no
 // helper of its own and none of its own parent.
 func (s *Service) planHelper(request HelperRequest) (helperStart, error) {
+	engine := queuedEngine(fleet.BacklogRow{}, parseBriefSettings(strings.Split(request.Brief, "\n")))
+	if err := engine.validateEngine(); err != nil {
+		return helperStart{}, err
+	}
+	if engine.mode != "" && engine.mode != "local-only" {
+		return helperStart{}, errors.New("a helper's mode must be local-only")
+	}
 	stateDir := s.Store.Home.State
 	parent, err := state.HelperParent(stateDir, request.Parent)
 	if err != nil {
@@ -172,18 +181,13 @@ func (s *Service) planHelper(request HelperRequest) (helperStart, error) {
 		parent:      parent,
 		brief:       filepath.Join(s.Store.Home.Data, id, "brief.md"),
 		title:       strings.TrimSpace(request.Title),
+		engine:      engine,
 	}, nil
 }
 
 func (p helperStart) args() []string {
-	args := []string{"spawn", p.ID, "--project", p.parent.Project, "--brief", p.brief, "--harness", p.parent.Harness}
-	// A record written by spawn names a harness's own default "default".
-	for _, flag := range [][2]string{{"--model", p.parent.Model}, {"--effort", p.parent.Effort}} {
-		if flag[1] != "" && flag[1] != "default" {
-			args = append(args, flag[0], flag[1])
-		}
-	}
-	args = append(args, "--mode", "local-only", "--parent", p.parent.ID)
+	p.engine.id, p.engine.project, p.engine.brief, p.engine.mode = p.ID, p.parent.Project, p.brief, "local-only"
+	args := append(p.engine.args(), "--parent", p.parent.ID)
 	if p.title != "" {
 		args = append(args, "--title", p.title)
 	}

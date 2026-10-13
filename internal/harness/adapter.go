@@ -23,6 +23,13 @@ const (
 	Pi     Kind = "pi"
 )
 
+// StartsTurnWhenBackgroundEnds reports whether the harness starts a turn of
+// its own when a shell it left running in the background ends, handing the
+// model what the shell printed. Claude Code does. Codex 0.160 and pi 0.85 do
+// not, so a goblin of theirs that ends its turn while such a run goes on sits
+// at its prompt once the run has ended, until something types to it.
+func (k Kind) StartsTurnWhenBackgroundEnds() bool { return k == Claude }
+
 // LaunchSpec contains the task-specific values used to build one harness
 // launch. TurnEndedPath is retained for the orchestration contract but is not
 // used by a Plan 3 Windows adapter.
