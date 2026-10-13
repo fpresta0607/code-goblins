@@ -482,9 +482,9 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
-Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes.
+Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
-It is intended for verification workers, not a command that deliberately starts a shared machine service.
+Recovery uses `TerminateAndWait`, which spares nothing.
 The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
 This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
 `internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.

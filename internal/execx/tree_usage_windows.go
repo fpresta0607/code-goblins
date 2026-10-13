@@ -264,7 +264,8 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 			if err != nil {
 				return TreeUsage{}, nil, err
 			}
-			// With no service there, the end ended the whole job.
+			// With no service left to spare, the job must empty, as after a
+			// strict end.
 			if len(spared) == 0 {
 				break
 			}
@@ -290,11 +291,11 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 				}
 			}
 			if len(running) == 0 {
-				if err := proc.KeepJobOnClose(t.job); err != nil {
-					return TreeUsage{}, nil, err
-				}
 				usage, err := t.jobUsage()
 				if err != nil {
+					return TreeUsage{}, nil, err
+				}
+				if err := proc.KeepJobOnClose(t.job); err != nil {
 					return TreeUsage{}, nil, err
 				}
 				if err := windows.CloseHandle(t.job); err != nil {

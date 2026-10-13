@@ -448,8 +448,9 @@ func withoutDebugPrivilege(t *testing.T) {
 // A member this process may not read, as a sandboxed browser process can be,
 // is in no reading the end acts on, and one it may not end outlives every
 // try. Beside a machine service the end then confirms nothing within its
-// caller's deadline, and the job still ends everything it holds when its
-// last handle closes, so the member never outlives the run's custody.
+// caller's deadline, shorter than the job end's own five seconds, and the
+// job still ends everything it holds when its last handle closes, so the
+// member never outlives the run's custody.
 func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 	for _, test := range []struct {
 		name, lock string
@@ -468,7 +469,7 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 				windows.CloseHandle(opened)
 				t.Skip("this process opens a process whose DACL denies it, so it cannot make the member")
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			started := time.Now()
 
@@ -480,7 +481,7 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 				t.Fatalf("end = %+v, %v; want no confirmation, naming the member", spared, err)
 			}
 			if took := time.Since(started); took > 4*time.Second {
-				t.Fatalf("the end took %s, past its caller's deadline of a second", took)
+				t.Fatalf("the end took %s, past its caller's deadline of two seconds", took)
 			}
 			if isArmed, err := tree.KillsOnCloseForTest(); err != nil || !isArmed {
 				t.Fatalf("kill on close armed = %v, %v; want the job still to end everything when it closes", isArmed, err)

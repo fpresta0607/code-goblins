@@ -190,9 +190,10 @@ const endJobFor = 5 * time.Second
 // end it. With one there, the rest are ended one by one until none is left,
 // within endJobFor or ctx's deadline. It returns the processes the job held
 // as it ended them, and the services it spared with what runs under them,
-// each sorted by pid. A job that ends its processes when its last handle
-// closes still does: its caller stops that (KeepJobOnClose) once the service
-// is to outlive the job, so a caller that dies first still ends the rest.
+// each sorted by pid, and an end that fails beside a service still returns
+// the services. A job that ends its processes when its last handle closes
+// still does: its caller stops that (KeepJobOnClose) once the service is to
+// outlive the job, so a caller that dies first still ends the rest.
 func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err error) {
 	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
 	if err != nil {
@@ -216,10 +217,12 @@ func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err
 // endEachBut ends job's processes one by one, members as they were last
 // read, but the machine services and what runs under them, until none else
 // is left, within endJobFor or ctx's deadline, and returns the processes it
-// ended and, once none else is left, the services it spared.
+// ended and the services it spared. A failure returns the services last
+// seen with it.
 func endEachBut(ctx context.Context, job windows.Handle, members []Entry, services map[int]Service) (ended, spared []Entry, err error) {
 	ctx, cancel := context.WithTimeout(ctx, endJobFor)
 	defer cancel()
+	seen := servicesIn(members, services)
 	for {
 		var rest []int
 		for _, member := range members {
@@ -236,16 +239,29 @@ func endEachBut(ctx context.Context, job windows.Handle, members []Entry, servic
 		}
 		select {
 		case <-ctx.Done():
-			return ended, nil, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running: %w", rest, ctx.Err())
+			return ended, seen, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running: %w", rest, ctx.Err())
 		case <-time.After(50 * time.Millisecond):
 		}
 		if members, err = jobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
-			return ended, nil, err
+			return ended, seen, err
 		}
 		if services, err = RunningServicesAmong(members); err != nil {
-			return ended, nil, err
+			return ended, seen, err
+		}
+		seen = servicesIn(members, services)
+	}
+}
+
+// servicesIn are the members services names as a machine service or as
+// running under one.
+func servicesIn(members []Entry, services map[int]Service) []Entry {
+	var kept []Entry
+	for _, member := range members {
+		if services[member.PID] != NoService {
+			kept = append(kept, member)
 		}
 	}
+	return kept
 }
 
 // endJobMember ends member if it is still in job and still the process that

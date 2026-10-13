@@ -411,9 +411,9 @@ func (c *Console) ExitCode() uint32 {
 func (c *Console) Close() error {
 	close(c.closing)
 	_, spared, err := proc.EndJob(context.Background(), c.job)
-	// What the end spared, or could not end, outlives the job's handle, so a
-	// machine service is never ended with it.
-	if len(spared) > 0 || err != nil {
+	// What the end spared outlives the job's handle, so a machine service is
+	// never ended with it, even by an end that failed beside it.
+	if len(spared) > 0 {
 		err = errors.Join(err, proc.KeepJobOnClose(c.job))
 	}
 	go func() {
