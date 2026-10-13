@@ -250,6 +250,30 @@ func TestExecutorFileInputDoesNotWaitForEOFWhenTheCommandEnds(t *testing.T) {
 	}
 }
 
+func TestExecutorAdmitsIndependentPhysicalAndCommitReserves(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	standin.RemoveAtCleanup(t, root)
+	program := filepath.Join(root, "workload.exe")
+	standin.Put(t, program)
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond,
+		Reserve:  Headroom{PhysicalAvailable: 4 << 30, CommitAvailable: 12 << 30},
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 16 << 30}, nil },
+	}}
+	executor.Admission.Limit = 10 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Act
+	result, err := executor.Run(ctx, execx.Request{Dir: root, Name: program})
+
+	// Assert
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("independent reserves incorrectly refused: %+v, %v", result, err)
+	}
+}
+
 func TestExecutorRetainsCleanupForRetryWithoutChangingFailureToPass(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())

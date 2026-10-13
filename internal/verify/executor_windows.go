@@ -93,11 +93,10 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 		return refuse(errors.New("verify: machine headroom reader is required"))
 	}
 	admission := executor.Admission
-	admission.Floor = max(admission.Floor, monitor.Reserve.PhysicalAvailable, monitor.Reserve.CommitAvailable)
-	admission.Available = func() (uint64, error) {
-		memory, err := monitor.Headroom()
-		return min(memory.PhysicalAvailable, memory.CommitAvailable), err
-	}
+	admission.Available = nil
+	admission.Headroom = monitor.Headroom
+	admission.Reserve.PhysicalAvailable = max(admission.Reserve.PhysicalAvailable, monitor.Reserve.PhysicalAvailable)
+	admission.Reserve.CommitAvailable = max(admission.Reserve.CommitAvailable, monitor.Reserve.CommitAvailable)
 	turn, err := admission.Wait(ctx)
 	waited = turn.Waited
 	if err != nil {
@@ -108,8 +107,8 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, ex
 	if err != nil {
 		return refuse(err)
 	}
-	monitor.Reserve.PhysicalAvailable = max(monitor.Reserve.PhysicalAvailable, floor)
-	monitor.Reserve.CommitAvailable = max(monitor.Reserve.CommitAvailable, floor)
+	monitor.Reserve.PhysicalAvailable = max(admission.Reserve.PhysicalAvailable, admission.Floor, floor)
+	monitor.Reserve.CommitAvailable = max(admission.Reserve.CommitAvailable, admission.Floor, floor)
 	if err := execution.Admit(turn.Waited); err != nil {
 		return refuse(err)
 	}

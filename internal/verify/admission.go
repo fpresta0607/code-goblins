@@ -32,6 +32,10 @@ type Admission struct {
 	// waits for, and Available reads it. An unavailable reading refuses admission.
 	Floor     uint64
 	Available func() (uint64, error)
+	// Headroom compares physical and commit reserves independently. A caller
+	// supplies this or Available, never both. Floor applies to both dimensions.
+	Headroom func() (Headroom, error)
+	Reserve  Headroom
 	// Who names this run to the runs behind it, and Budget is how long its
 	// checks may run. Expiry does not release a live or uncertain owner.
 	Who    string
@@ -134,8 +138,11 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if _, _, err := AdmissionLimits(a.Dir); err != nil {
 		return Turn{}, err
 	}
-	if a.Available == nil {
+	if a.Available == nil && a.Headroom == nil {
 		return Turn{}, errors.New("verify: available memory cannot be read")
+	}
+	if a.Available != nil && a.Headroom != nil {
+		return Turn{}, errors.New("verify: admission requires one memory reader")
 	}
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		return Turn{}, err
@@ -296,6 +303,18 @@ func inFront(line, place string) (int, error) {
 
 // short says how the machine is short of memory, or nothing when it is not.
 func (a Admission) short(floor uint64) (string, error) {
+	if a.Headroom != nil {
+		memory, err := a.Headroom()
+		if err != nil {
+			return "", fmt.Errorf("verify: machine headroom cannot be read: %w", err)
+		}
+		physical := max(floor, a.Reserve.PhysicalAvailable)
+		commit := max(floor, a.Reserve.CommitAvailable)
+		if memory.PhysicalAvailable >= physical && memory.CommitAvailable >= commit {
+			return "", nil
+		}
+		return fmt.Sprintf("physical available %.1f GB with %.1f GB required, commit available %.1f GB with %.1f GB required", Gigabytes(memory.PhysicalAvailable), Gigabytes(physical), Gigabytes(memory.CommitAvailable), Gigabytes(commit)), nil
+	}
 	available, err := a.Available()
 	if err != nil {
 		return "", fmt.Errorf("verify: available memory cannot be read: %w", err)
