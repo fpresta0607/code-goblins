@@ -93,7 +93,9 @@ func (execution *Execution) Finish(exitCode int, failure error) error {
 		return errors.New("verify: execution already finished")
 	}
 	next := execution.record
-	next.ExitCode = &exitCode
+	if exitCode >= 0 {
+		next.ExitCode = &exitCode
+	}
 	next.Status = "failed"
 	if failure != nil {
 		next.Failure = failure.Error()

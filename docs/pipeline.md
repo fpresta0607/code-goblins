@@ -485,6 +485,12 @@ This accounting alone does not establish trusted execution evidence or authorize
 `internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
 Its reserve cannot lower the existing 4 GiB floor and is a cancellation threshold, not a reservation.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
+`internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
+Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
+Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
+Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
+An abandoned or unreadable custody record refuses further admission rather than guessing that its workers are gone.
+These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
 
 **Not in the wrapper.**
 It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
