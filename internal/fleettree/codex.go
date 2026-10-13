@@ -85,7 +85,7 @@ func readRolloutMeta(path string) rolloutMeta {
 	}
 	return rolloutMeta{
 		read: true, id: payload.ID, cwd: payload.Cwd, parent: parent,
-		subagent: payload.ThreadSource == "subagent" || parent != "" || len(source.Subagent) > 0,
+		subagent: payload.ThreadSource == "subagent" || parent != "" || len(source.Subagent) > 0 && !bytes.Equal(source.Subagent, []byte("null")),
 		isExec:   word == "exec",
 		path:     payload.AgentPath, nickname: payload.Nickname, role: spawned.ThreadSpawn.Role,
 		started: payload.Timestamp.UTC(),
@@ -113,7 +113,8 @@ func (r *Reader) rollouts(ctx context.Context) map[string]rolloutMeta {
 
 // codexConversation is the goblin's own rollout: the one session names, or,
 // for a native goblin whose terminal names none, the rollout bound to its
-// worktree whose entries were written last, never a child agent's.
+// worktree whose entries were written last, never a child agent's nor a
+// codex exec's.
 func (r *Reader) codexConversation(ctx context.Context, worktree, session string, metas map[string]rolloutMeta) string {
 	if session != "" {
 		return SessionTranscript(r.Home, "codex", session)
