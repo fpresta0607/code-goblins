@@ -1,7 +1,7 @@
 import type { MergeTrain, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
-import { cardCars, carLook, carName, trainLook } from "./merge-train";
+import { cardCars, carLook, carName, trainLook, trainSection } from "./merge-train";
 import { taskName } from "./task-words";
 import { personaFor, stablePersona } from "./workflow";
 import "./merge-train.css";
@@ -30,6 +30,7 @@ export function MergeTrainCard({ train, tasks, selected, onSelect }: { train: Me
     {look.url
       ? <a className={"train-status train-" + look.tone} href={look.url} target="_blank" rel="noreferrer" aria-label={look.text + ": open the train's pull request"} {...tip}>{status}</a>
       : <span className={"train-status train-" + look.tone} {...tip}>{status}</span>}
+    {trainSection(train) === "Train history" && train.note && <p className="train-note">{train.note}</p>}
     {cars.length > 0 && <ol className="train-cars" aria-label="Pull requests on the train">
       {cars.map((car) => {
         const c = carLook(car), goblin = tasks.find((task) => task.id === car.task);

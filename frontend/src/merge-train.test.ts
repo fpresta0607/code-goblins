@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { batchCars, batchRuns, cardCars, carLook, carName, isTrainOver, trainLook } from "./merge-train.ts";
+import { batchCars, batchRuns, cardCars, carLook, carName, isTrainOver, trainLook, trainSection } from "./merge-train.ts";
 import type { MergeTrain, TrainCar, TrainCheck, TrainRun } from "./types.ts";
 
 const PR = "https://github.com/o/r/pull/";
@@ -28,7 +28,7 @@ test("a train says in plain words where it stands, in its tone, and opens its pu
     [train({ state: "landed", runs: 2, cars: [car(1, "landed")] }), "Landed on run 2", "passed"],
     [train({ state: "stopped", runs: 3, cars: [car(1, "landed"), car(2, "culprit"), car(3, "returned")] }), "Landed on run 3", "passed"],
     [train({ state: "stopped", cars: [car(2, "culprit"), car(3, "returned")] }), "#2 breaks CI", "failed"],
-    [train({ state: "stopped", cars: [car(1, "conflict")] }), "Nothing merged cleanly", "cancelled"],
+    [train({ state: "stopped", cars: [car(1, "conflict")] }), "Stopped", "cancelled"],
     [train({ state: "failed", cars: [car(1, "landed"), car(2, "returned")] }), "Landed", "passed"],
     [failed, "Train failed, main kept moving", "failed"],
     [train({ state: "failed", cars: [car(1, "returned")], history: [run(1, [1], "failed")] }), "Train failed, main is red", "failed"],
@@ -103,6 +103,34 @@ test("a link off GitHub is not opened", () => {
 
 test("only a testing train is still running", () => {
   assert.deepEqual(["testing", "landed", "stopped", "failed"].map((state) => isTrainOver(train({ state }))), [false, true, true, true]);
+});
+
+test("Completed holds only finished trains with landed pull requests", () => {
+  for (const [state, cars, expected] of [
+    ["testing", [], "In progress"],
+    ["testing", [car(1, "landed"), car(2, "riding")], "In progress"],
+    ["landed", [car(1, "landed")], "Completed"],
+    ["stopped", [car(1, "landed"), car(2, "culprit")], "Completed"],
+    ["failed", [car(1, "landed"), car(2, "returned")], "Completed"],
+    ["stopped", [car(729, "returned", "it was labelled hold")], "Train history"],
+    ["stopped", [car(1, "culprit"), car(2, "conflict")], "Train history"],
+    ["failed", [car(1, "returned")], "Train history"],
+    ["stopped", [], "Train history"],
+    ["landed", [], "Train history"],
+  ] as const) {
+    assert.equal(trainSection(train({ state, cars: [...cars] })), expected, `${state}: ${cars.map((each) => each.state).join(", ")}`);
+  }
+  assert.equal(trainSection(landed), "Completed");
+  assert.equal(trainSection(failed), "Train history");
+});
+
+test("a returned pull request keeps its specific hold reason when the train note is generic", () => {
+  const held = train({ state: "stopped", note: "no pull request left to test merged cleanly onto main", cars: [car(729, "returned", "it was labelled hold")], history: [run(1, [729], "changed")] });
+
+  assert.equal(trainLook(held).text, "Stopped");
+  assert.equal(carLook(batchCars(held)[0]).tip, "it was labelled hold");
+  assert.equal(batchRuns(held)[0].text, "A pull request changed");
+  assert.equal(trainSection(held), "Train history");
 });
 
 test("a car goes by its goblin's name and title, and by its pull request when its goblin had none", () => {
