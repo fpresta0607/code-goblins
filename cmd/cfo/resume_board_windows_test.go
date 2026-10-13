@@ -135,13 +135,16 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 	if os.Getenv("CFO_RESUME_BROWSER") == "1" {
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 		defer cancel()
-		command := execx.CommandContext(ctx, "node", "tests/resume-recovery-browser.mjs", server.URL, assets)
-		command.Dir = filepath.Join("..", "..", "frontend")
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("browser: %v\n%s", err, output)
+		result, err := (execx.OSRunner{}).Run(ctx, execx.Request{
+			Name:     "node",
+			Args:     []string{"tests/resume-recovery-browser.mjs", server.URL, assets},
+			Dir:      filepath.Join("..", "..", "frontend"),
+			KillTree: true,
+		})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("browser: exit %d, %v\n%s\n%s", result.ExitCode, err, result.Stdout, result.Stderr)
 		}
-		t.Log(string(output))
+		t.Log(string(result.Stdout))
 	} else {
 		for _, id := range []string{"direct-task", "managed-task"} {
 			body, err := json.Marshal(map[string]string{"task": id, "generation": "generation-1", "operation": "resume-1", "action": "resume"})
