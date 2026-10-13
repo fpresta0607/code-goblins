@@ -41,6 +41,15 @@ const RETRYING = { ...LANDED, state: "testing", finished: "", cars: LANDED.cars.
 // chance, its failed jobs ran again and passed, and the train landed.
 const CHANCE = { name: "go (conpty)", link: REPO + "/actions/runs/38033453853/job/114158952237" };
 const SECOND_TRY = { ...LANDED, earlier: [], cars: LANDED.cars.slice(0, 2), history: [{ ...run(1, [517, 519], "landed", 45), failed_once: [CHANCE] }] };
+const SINGLE = { ...RETRYING, earlier: [], cars: RETRYING.cars.slice(0, 1), history: [run(1, [517], "", 5)] };
+const STOPPED = { ...SINGLE, state: "stopped", finished: ago(2), note: "Stopped by the operator while the release was reviewed", cars: SINGLE.cars.map((each) => ({ ...each, state: "returned" })), history: [run(1, [517], "stopped", 5)] };
+const ZERO_RUN = { ...STOPPED, pr: "", runs: 0, history: [], note: "Stopped before a run was built: <release review>" };
+const HELD = {
+  id: "code-goblins-20261013-005606", repository: "fpresta0607/code-goblins", base: "main", pr: REPO + "/pull/734", state: "stopped", runs: 1,
+  started: "2026-10-13T00:56:06.48349Z", finished: "2026-10-13T01:08:32.2162188Z", note: "no pull request left to test merged cleanly onto main", earlier: [],
+  cars: [{ ...car(729, "cg-key-fetch-build", "Ned", "Build Boss", "returned", "it was labelled hold"), title: "feat(auth): broker isolated browser logins", head: "840af3c98c5c294a25bb8eefef3c55320f084e0e" }],
+  history: [{ number: 1, riders: [729], base: "9b791908d5ae24e6e417fb5ffc918a8f9f493fde", head: "06bcfc16fc5ff34e8b09ae482a55b71a729b0ec0", pushed: "2026-10-13T00:56:09.5027002Z", result: "changed", pr: REPO + "/pull/734" }],
+};
 const TASKS = [
   untilMerged("cg-rosie", "Rosie", "Inline Editor", "Edit a task inline", 517),
   untilMerged("cg-wes", "Wes", "Train Conductor", "One testing state", 519),
@@ -74,6 +83,214 @@ const colours = (part: ReturnType<Page["locator"]>) => part.evaluate((element) =
 for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { name: "on a phone", width: 390, height: 844 }]) {
   test.describe(viewport.name, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+    test("one pull request and one run share a primary row with the current run link", async ({ page }) => {
+      await open(page, [SINGLE]);
+
+      await column(page, "In progress").locator(".train-card .train-title").click();
+
+      const rows = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+      await expect(rows).toHaveText([/#517.*Rosie - Inline Editor.*Testing/]);
+      await expect(rows.getByRole("link", { name: /#517.*Rosie/ })).toHaveAttribute("href", REPO + "/pull/517");
+      await expect(rows.getByRole("link", { name: "Testing", exact: true })).toHaveAttribute("href", TRAIN_PR);
+      await rows.getByRole("link", { name: /#517.*Rosie/ }).focus();
+      await page.keyboard.press("Tab");
+      await expect(rows.getByRole("link", { name: "Testing", exact: true })).toBeFocused();
+      await expect(panel(page).getByRole("heading", { name: /^Runs/ })).toHaveCount(0);
+      await expect(panel(page).locator("details")).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath("single-pr.png"), fullPage: true });
+    });
+
+    test("a retry keeps the latest state in the primary row and folds its failed attempt", async ({ page }) => {
+      const retry = { ...SINGLE, runs: 2, history: [{ ...run(1, [517], "failed", 10), link: CHANCE.link }, run(2, [517], "", 5)] };
+      await open(page, [retry]);
+
+      await column(page, "In progress").locator(".train-card .train-title").click();
+
+      const primary = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+      await expect(primary.getByRole("link", { name: "Testing", exact: true })).toHaveAttribute("href", TRAIN_PR);
+      const history = panel(page).locator("details");
+      await expect(history).not.toHaveAttribute("open", "");
+      await expect(panel(page).locator(".train-panel-run")).toHaveCount(0);
+      await history.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      const attempts = history.locator(".train-panel-run");
+      await expect(attempts).toHaveText([/Run 1.*#517.*Failed/, /Run 2.*#517.*Testing/]);
+      await expect(attempts.first().getByRole("link", { name: "Open run 1" })).toHaveAttribute("href", CHANCE.link);
+      await expect(attempts.last().getByRole("link", { name: "Open run 2" })).toHaveAttribute("href", TRAIN_PR);
+    });
+
+    test("multiple pull requests keep their own states and the actual rider groups in history", async ({ page }) => {
+      const split = { ...RETRYING, earlier: [], runs: 2, cars: [RETRYING.cars[0], { ...RETRYING.cars[1], state: "waiting" }, LANDED.cars[4]], history: [{ ...run(1, [517, 519, 523], "failed", 10), link: CHANCE.link }, run(2, [517], "", 5)] };
+      await open(page, [split]);
+
+      await column(page, "In progress").locator(".train-card .train-title").click();
+
+      const rows = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+      await expect(rows).toHaveText([/#517.*Rosie.*Testing/, /#519.*Wes.*Waits its turn/, /#523.*Abe.*Merging main to fix a conflict/]);
+      await expect(rows.nth(1).locator("a.train-panel-state")).toHaveCount(0);
+      await expect(rows.last().locator("a.train-panel-state")).toHaveCount(0);
+      await expect(panel(page).locator(".train-panel-run")).toHaveCount(0);
+      await panel(page).locator("details > summary").click();
+      const attempts = panel(page).locator(".train-panel-run");
+      await expect(attempts.first().locator(".train-panel-rider")).toHaveText(["#517", "#519", "#523"]);
+      await expect(attempts.last().locator(".train-panel-rider")).toHaveText(["#517"]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await panel(page).locator(".panel-content").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    });
+
+    test("a riding pull request keeps the failed run link while its next build is pending", async ({ page }) => {
+      const rebuilding = { ...RETRYING, earlier: [], cars: [RETRYING.cars[0], { ...RETRYING.cars[1], state: "waiting" }], history: [{ ...run(1, [517, 519], "failed", 5), link: CHANCE.link }] };
+      await open(page, [rebuilding]);
+
+      await column(page, "In progress").locator(".train-card .train-title").click();
+
+      const rows = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+      await expect(rows.first().getByRole("link", { name: "Failed", exact: true })).toHaveAttribute("href", CHANCE.link);
+      await expect(rows.last().locator(".train-panel-state")).toHaveText("Waits its turn");
+      await expect(rows.last().locator("a.train-panel-state")).toHaveCount(0);
+    });
+
+    test("one failed attempt keeps its failure and failed-once links in history", async ({ page }) => {
+      const failed = { ...SINGLE, state: "stopped", finished: ago(2), cars: SINGLE.cars.map((each) => ({ ...each, state: "culprit" })), history: [{ ...run(1, [517], "failed", 5), link: CHANCE.link, failed_once: [CHANCE] }] };
+      await open(page, [failed]);
+
+      const history = board(page).getByRole("region", { name: "Train history", exact: true });
+      await history.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await history.getByRole("button", { name: /Open merge train/ }).focus();
+      await page.keyboard.press("Enter");
+
+      await expect(panel(page).getByRole("region", { name: "Pull requests" }).getByRole("link", { name: "Failed twice" })).toHaveAttribute("href", CHANCE.link);
+      await panel(page).locator("details > summary").focus();
+      await page.keyboard.press("Space");
+      await expect(panel(page).getByRole("link", { name: "Open run 1" })).toHaveAttribute("href", CHANCE.link);
+      await expect(panel(page).getByRole("link", { name: CHANCE.name, exact: true })).toHaveAttribute("href", CHANCE.link);
+    });
+
+    for (const [name, attempt, status] of [
+      ["stopped", STOPPED, "Stopped"],
+      ["failed", FAILED, "Train failed, main kept moving"],
+      ["zero-run", ZERO_RUN, "Stopped"],
+    ] as const) {
+      test(`a ${name} zero-merge train stays out of Completed and opens from history by keyboard`, async ({ page }) => {
+        await open(page, [attempt]);
+
+        await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
+        await expect(column(page, "Completed")).toContainText("Nothing finished yet");
+        const history = board(page).getByRole("region", { name: "Train history", exact: true });
+        await expect(history.locator("details")).not.toHaveAttribute("open", "");
+        await expect(history.locator(".train-card")).toHaveCount(0);
+        await history.locator("summary").focus();
+        await page.keyboard.press("Enter");
+
+        await expect(history.locator(".train-status")).toHaveText(status);
+        await expect(history).toContainText(attempt.note);
+        await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await history.screenshot({ path: test.info().outputPath("board-history.png") });
+        await history.getByRole("button", { name: /Open merge train/ }).focus();
+        await page.keyboard.press("Enter");
+        await expect(panel(page).locator(".panel-status")).toHaveText(status);
+        await expect(panel(page)).toContainText(attempt.note);
+        await expect(panel(page).locator(".train-panel-note")).toHaveText(attempt.note);
+        await expect(panel(page).locator(".train-panel-note > *")).toHaveCount(0);
+        if (attempt.runs === 0) {
+          await expect(panel(page).getByRole("link", { name: "Open the train's pull request" })).toHaveCount(0);
+          await expect(panel(page).locator(".train-panel-run")).toHaveCount(0);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: test.info().outputPath("stopped-detail.png"), fullPage: true });
+      });
+    }
+
+    for (const state of ["stopped", "failed"]) {
+      test(`a partially landed ${state} train stays in Completed without blaming the landed pull request`, async ({ page }) => {
+        const partial = { ...RETRYING, state, finished: ago(2), earlier: [], note: "Stopped after the first half landed", cars: [{ ...RETRYING.cars[0], state: "landed" }, { ...RETRYING.cars[1], state: "returned" }], history: [{ ...run(1, [517, 519], "failed", 5), link: CHANCE.link }] };
+        await open(page, [partial]);
+
+        const completed = column(page, "Completed").locator(".train-card");
+        await expect(completed).toHaveCount(1);
+        await expect(completed.locator(".train-status")).toHaveText("Landed");
+        await expect(completed.locator(".train-car")).toHaveText([/#517.*Landed/]);
+        await expect(board(page).getByRole("region", { name: "Train history", exact: true })).toHaveCount(0);
+        await completed.locator(".train-title").click();
+
+        const rows = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+        await expect(rows.first().locator(".train-panel-state")).toHaveText("Landed");
+        await expect(rows.first().locator(".train-panel-state")).toHaveClass(/train-passed/);
+        await expect(rows.last().locator(".train-panel-state")).toHaveText("Rides the next train");
+        await expect(rows.locator("a.train-panel-state")).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      });
+    }
+
+    test("a stopped zero-merge train keeps PR729's hold reason as plain text in its primary row", async ({ page }) => {
+      await open(page, [HELD]);
+
+      await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
+      await expect(column(page, "Completed")).toContainText("Nothing finished yet");
+      const history = board(page).getByRole("region", { name: "Train history", exact: true });
+      await history.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await history.getByRole("button", { name: /Open merge train/ }).focus();
+      await page.keyboard.press("Enter");
+
+      const primary = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+      await expect(primary).toContainText("it was labelled hold");
+      await expect(primary.locator(".train-panel-car-note")).toHaveText("it was labelled hold");
+      await expect(primary.getByRole("link")).toHaveAttribute("href", REPO + "/pull/729");
+      await expect(primary.locator(".train-panel-state")).toHaveText("Rides the next train");
+      await expect(panel(page)).toContainText(HELD.note);
+      await panel(page).locator("details > summary").focus();
+      await page.keyboard.press("Enter");
+      await expect(panel(page).locator(".train-panel-run")).toHaveText(/Run 1.*#729.*A pull request changed/);
+      await expect(panel(page).getByRole("link", { name: "Open run 1" })).toHaveAttribute("href", HELD.pr);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await panel(page).locator(".panel-content").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath("held-pr729.png"), fullPage: true });
+    });
+
+    test("an active train that already landed a half stays in progress", async ({ page }) => {
+      const partial = { ...RETRYING, earlier: [], runs: 2, cars: [{ ...RETRYING.cars[0], state: "landed" }, RETRYING.cars[1]], history: [{ ...run(1, [517], "landed", 10), pr: FIRST_PR }, run(2, [519], "", 5)] };
+      await open(page, [partial]);
+
+      await expect(column(page, "In progress").locator(".train-card")).toHaveCount(1);
+      await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
+      await expect(board(page).getByRole("region", { name: "Train history", exact: true })).toHaveCount(0);
+      await column(page, "In progress").locator(".train-card .train-title").click();
+
+      const rows = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
+      await expect(rows.first().getByRole("link", { name: "Landed", exact: true })).toHaveAttribute("href", FIRST_PR);
+      await expect(rows.last().getByRole("link", { name: "Testing", exact: true })).toHaveAttribute("href", TRAIN_PR);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+
+    test("folded failed and zero-run attempts keep their reasons beside the runs they own", async ({ page }) => {
+      const retried = { ...LANDED, earlier: [{ ...ZERO_RUN, id: "before-any-run" }, FAILED, HELD], cars: [...LANDED.cars, { ...HELD.cars[0], state: "landed", note: "" }], history: [run(1, [517, 519, 520, 524, 729], "landed", 1)] };
+      await open(page, [retried]);
+
+      await expect(column(page, "Completed").locator(".train-card")).toHaveCount(1);
+      await expect(board(page).getByRole("region", { name: "Train history", exact: true })).toHaveCount(0);
+      await column(page, "Completed").locator(".train-card .train-title").click();
+      await panel(page).locator("details > summary").focus();
+      await page.keyboard.press("Enter");
+
+      const attempts = panel(page).locator(".train-panel-attempt");
+      await expect(attempts).toHaveCount(4);
+      await expect(attempts.nth(0)).toContainText(ZERO_RUN.note);
+      await expect(attempts.nth(0).locator(".train-panel-run")).toHaveCount(0);
+      await expect(attempts.nth(0)).toContainText("No CI run");
+      await expect(attempts.nth(1)).toContainText(FAILED.note);
+      await expect(attempts.nth(1).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/]);
+      await expect(attempts.nth(2)).toContainText("#729: it was labelled hold");
+      await expect(attempts.nth(2).locator(".train-panel-run")).toHaveText([/Run 4.*#729.*A pull request changed/]);
+      await expect(attempts.nth(3).locator(".train-panel-run")).toHaveText([/Run 5.*Landed/]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await panel(page).locator(".panel-content").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath("folded-history.png"), fullPage: true });
+    });
 
     test("goblins waiting on their pull requests stay in In progress and Paused holds only the goblin stopped for memory", async ({ page }) => {
       await open(page);
@@ -124,10 +341,11 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).locator(".panel-status")).toHaveText("Landed on run 4");
       await expect(panel(page).getByRole("link", { name: "Open the train's pull request" })).toHaveAttribute("href", TRAIN_PR);
       await expect(panel(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
-      const pulls = panel(page).getByRole("region", { name: "Pull requests" }).locator("a.train-panel-row");
+      const pulls = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
       await expect(pulls).toHaveText([/#517.*Rosie - Inline Editor.*Landed/, /#519.*Wes - Train Conductor.*Landed/, /#520.*Dolly - Rank Keeper.*Landed/, /#524.*Pearl - Screen Model.*Landed/, /#523.*Abe - Screen Painter.*Merging main to fix a conflict/]);
-      expect(await pulls.evaluateAll((links) => links.map((link) => link.getAttribute("href")))).toEqual([517, 519, 520, 524, 523].map((number) => REPO + "/pull/" + number));
-      const runs = panel(page).getByRole("region", { name: "Runs" }).locator(".train-panel-run");
+      expect(await pulls.locator(".train-panel-pull").evaluateAll((links) => links.map((link) => link.getAttribute("href")))).toEqual([517, 519, 520, 524, 523].map((number) => REPO + "/pull/" + number));
+      await panel(page).locator("details > summary").click();
+      const runs = panel(page).locator(".train-panel-run");
       await expect(runs).toHaveText([/Run 1.*#517.*#519.*Main moved/, /Run 2.*#517.*#519.*Main moved/, /Run 3.*#517.*#519.*Main moved/, /Run 4.*#517.*#519.*#520.*#524.*Landed/]);
       expect(await runs.locator(".train-panel-open").evaluateAll((links) => links.map((link) => link.getAttribute("href")))).toEqual([FIRST_PR, FIRST_PR, FIRST_PR, TRAIN_PR]);
       await expect(runs.last().locator("a.train-panel-rider").first()).toHaveAttribute("href", REPO + "/pull/517");
@@ -148,7 +366,8 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
 
       // Assert
       await expect(panel(page).locator(".panel-status")).toHaveText("CI tests #517, #519, run 4");
-      await expect(panel(page).getByRole("region", { name: "Runs" }).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
+      await panel(page).locator("details > summary").click();
+      await expect(panel(page).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
       await expect(card(page, "Rosie - Inline Editor").locator(".card-status-text")).toHaveText("Testing");
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
     });
@@ -162,7 +381,8 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
 
       // Assert
       await expect(panel(page).locator(".panel-status")).toHaveText("Landed");
-      const runs = panel(page).getByRole("region", { name: "Runs" }).locator(".train-panel-run");
+      await panel(page).locator("details > summary").click();
+      const runs = panel(page).locator(".train-panel-run");
       await expect(runs).toHaveText([/Run 1.*#517.*#519.*Landed on the second try.*Failed once.*go \(conpty\)/]);
       await expect(runs.locator(".train-panel-state")).toHaveClass(/train-passed/);
       await expect(runs.locator("a.train-panel-check")).toHaveAttribute("href", CHANCE.link);
