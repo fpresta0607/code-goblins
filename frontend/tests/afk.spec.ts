@@ -498,11 +498,11 @@ test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it o
 // everything and then just tell me what you've done. Like a very clean, easy
 // to understand ... recap. Almost like a [Scrawl] page ... inside that little
 // modal", approved as shown on its page. The recap opens on a headline in
-// plain words, then reads Done, Decided for you and, last, Needs you. Each
+// plain words, then reads Needs you first, then Done and Decided for you. Each
 // line says what was done or decided in plain words with its link, and what
 // it stood on opens under it at a tap on its Evidence, never inline.
 for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }], ["on a phone", { width: 390, height: 844 }]] as const) {
-  test(`${where} the recap reads Done, Decided for you and Needs you in order, each line in plain words with its evidence behind a tap`, async ({ page }, testInfo) => {
+  test(`${where} the recap reads Needs you, Done and Decided for you in order, each line in plain words with its evidence behind a tap`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize(viewport);
     await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
@@ -518,7 +518,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await expect(title.locator("h2")).toHaveText("AFK recap");
     await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 2 things need you\. The CFO merged 1 pull request, made 1 deploy and answered 2 questions\.$/);
     await expect(title).toContainText("Turned on from your board, off from your terminal.");
-    await expect(report(page).locator(".afk-part > h3")).toHaveText(["Done", "Decided for you", "Needs you"]);
+    await expect(report(page).locator(".afk-part > h3")).toHaveText(["Needs you", "Done", "Decided for you"]);
     const groups = (part: string) => report(page).getByRole("region", { name: part, exact: true }).locator(".afk-group").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
     expect(await groups("Done")).toEqual(["Not merged", "Deployed", "Merged", "Other", "Paused at a floor", "Also finished", "Spent", "Settled"]);
     expect(await groups("Decided for you")).toEqual(["For you", "For the goblins"]);
@@ -526,6 +526,10 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await expect(report(page).locator(".afk-row-evidence")).toHaveCount(0);
     await expect(report(page).locator(".afk-evidence-toggle[aria-expanded='true']")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`recap-${viewport.width}.png`) });
+    const needsHead = report(page).getByRole("region", { name: "Needs you" }).locator("h3");
+    await expect(report(page).locator(".afk-part").first()).toHaveAccessibleName("Needs you");
+    await expect(report(page).getByRole("button", { name: "Go through them" })).toBeVisible();
+    expect((await needsHead.boundingBox())!.y).toBeLessThan((await report(page).getByRole("region", { name: "Done", exact: true }).boundingBox())!.y);
 
     // Done, in plain words with each line's link: what went live in the
     // CFO's words with its run, what merged on its repository's line with
@@ -555,11 +559,11 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await expect(forGoblins.locator(".afk-row-what")).toHaveText("Which CSV dialect?");
     await expect(forGoblins.locator(".afk-row-detail")).toHaveText("The CFO answered nw-invoice-export: RFC 4180");
 
-    // Needs you, last: the step only he can take, then what still waits on
+    // Needs you, first: the step only he can take, then what still waits on
     // him in the Command Center, each one line in the box of what waits.
     const needs = report(page).getByRole("region", { name: "Needs you" }).locator("li");
     await expect(needs.locator(".afk-row-what")).toHaveText(["Sign in to Vercel for nw-search-index", "Migration 0042 drops the legacy_invoices table. Apply it?"]);
-    await expect(needs.nth(1).getByRole("button", { name: "Answer" })).toBeVisible();
+    await expect(needs.nth(1).getByRole("button", { name: "Open in the Command Center" })).toBeVisible();
     await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveClass(/primary/);
 
     // Act: he taps a line's Evidence, then taps it again.
@@ -577,6 +581,90 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     expect(await fits(page)).toBe(true);
   });
 }
+
+// The Overlord, 2026-10-13: "Fix the formatting here" with a picture of each
+// goblin's head over the first letters of its question, "For you should use
+// the CFO", "Needs you ... should get the very, very top", with "an open
+// button" on each, and "in afk there's no button to close at the very
+// bottom". Every head has its own column beside the words, whatever the
+// width, a long question and a long answer included.
+const LONG = "Should the no-mistakes pipeline fix both ask-user review findings R1 and R3 along with auto-fix findings R2, R4 and R5 before the next push goes out?";
+for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }], ["on a phone", { width: 390, height: 844 }]] as const) {
+  for (const colorScheme of ["dark", "light"] as const) {
+    test(`${where} in ${colorScheme} no word of the recap runs under a head, For you wears the CFO's head, and the recap ends on a Close button`, async ({ page }, testInfo) => {
+      // Arrange
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme });
+      await open(page, snapshot({ questions: [QUESTIONS[0]], afk: KEPT }));
+      const long = { at: "2026-10-02T04:20:00Z", kind: "answer", what: "notify-nw-invoice-export-13", task: "nw-checkout-tax", evidence: "asked: " + LONG + " answered: Fix all five findings, then push once", item: "question:notify-nw-invoice-export-13" };
+      await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: REPORT.sections.map((section) => section.title === "For the goblins" ? { ...section, entries: [...section.entries, long] } : section) } }));
+      await openCfoPanel(page);
+
+      // Act
+      await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+      // The shipped board has the recap's stylesheet ahead of the board's, as
+      // its entry imports the one first, while this run's build splits it into
+      // a chunk that loads after, so put it where the board has it.
+      await page.evaluate(() => {
+        const links = [...document.querySelectorAll<HTMLLinkElement>("link[rel=stylesheet]")];
+        const has = (link: HTMLLinkElement, selector: string) => [...(link.sheet?.cssRules ?? [])].some((rule) => rule.cssText.startsWith(selector));
+        links.find((link) => has(link, ".goblin-avatar.small"))!.before(links.find((link) => has(link, ".afk-row-mark"))!);
+      });
+
+      // Assert: in every row with a head, the head ends before the first word
+      // of the row's text and lies inside its own box.
+      await expect(report(page).getByRole("region", { name: "For the goblins" }).locator("li")).toHaveCount(2);
+      const overlaps = await report(page).locator(".afk-row").evaluateAll((rows) => rows.flatMap((row) => {
+        const head = row.querySelector(".goblin-avatar");
+        if (!head) return [];
+        const headBox = head.getBoundingClientRect();
+        const markBox = row.querySelector(".afk-row-mark")!.getBoundingClientRect();
+        const text = [...row.querySelectorAll(".afk-row-what, .afk-row-detail")].filter((line) => (line.textContent || "").trim() !== "");
+        const words = text.flatMap((line) => { const range = document.createRange(); range.selectNodeContents(line); return [...range.getClientRects()]; });
+        const under = words.some((word) => word.left < headBox.right - 0.5 && word.right > headBox.left + 0.5 && word.top < headBox.bottom - 0.5 && word.bottom > headBox.top + 0.5);
+        const outside = headBox.left < markBox.left - 0.5 || headBox.right > markBox.right + 0.5 || headBox.bottom > markBox.bottom + 0.5;
+        return under || outside ? [(row.querySelector(".afk-row-what")?.textContent || "") + (under ? " (text under its head)" : " (head outside its box)")] : [];
+      }));
+      expect(overlaps).toEqual([]);
+      expect(await report(page).locator(".afk-row .goblin-avatar").count()).toBeGreaterThanOrEqual(4);
+      expect(await fits(page)).toBe(true);
+
+      // Assert: the CFO answered each For you row, so it wears the CFO's head.
+      const forYou = report(page).getByRole("region", { name: "For you", exact: true }).locator("li");
+      await expect(forYou.locator(".afk-row-mark .goblin-avatar.persona-cfo")).toHaveCount(1);
+
+      // Assert: the recap ends on a button that closes it.
+      const end = report(page).locator(".afk-report-end").getByRole("button", { name: "Close", exact: true });
+      await end.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`recap-heads-${viewport.width}-${colorScheme}.png`) });
+      await end.click();
+      await expect(report(page)).toHaveCount(0);
+    });
+  }
+}
+
+// Open on a line of Needs you opens that one item in the Command Center, as
+// Go through them opens the first of all of them.
+test("Open on a line of Needs you opens that item to answer, and only that item", async ({ page }) => {
+  const second = question("q-second", "Ship the board release now?");
+  await open(page, snapshot({ questions: [QUESTIONS[0], second], afk: KEPT }));
+  const held = [HELD[0], { item: "question:q-second", task: "", what: second.text, at: second.created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Do it" }];
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held } }));
+  await openCfoPanel(page);
+  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  const needs = report(page).getByRole("region", { name: "Needs you" }).locator("li");
+  await expect(needs.getByRole("button", { name: "Open in the Command Center" })).toHaveCount(2);
+
+  // Act
+  await needs.filter({ hasText: second.text }).getByRole("button", { name: "Open in the Command Center" }).click();
+
+  // Assert
+  await expect(report(page)).toHaveCount(0);
+  const dialog = page.locator("dialog.question-modal");
+  await expect(dialog.locator(".stack-pager")).toHaveCount(0);
+  await expect(dialog.locator(".question-body")).toContainText(second.text);
+});
 
 for (const isOnlySettled of [false, true]) {
   test(`with ${isOnlySettled ? "only settled items" : "nothing that needs him"} the recap has no Go through them and no Needs you, what was settled folds, and with nothing used it has no Spent`, async ({ page }) => {
