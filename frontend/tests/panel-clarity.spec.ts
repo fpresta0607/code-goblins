@@ -176,14 +176,14 @@ test("opening a task panel reads no diff; Changes reads its files when opened, a
   expect(reads("diff")).toEqual(["/api/tasks/cg-goblins-quickstart/diff?revision=&path=frontend%2Fsrc%2Fworkflow.ts"]);
 });
 
-test("Workspace and Connections are closed sections like those below them, and Workspace opens on what it showed", async ({ page }) => {
+test("Workspace, Harness and Connections are closed sections like those below them, and Workspace opens on what it showed", async ({ page }) => {
   // Arrange
   await open(page);
   await select(page, "An OpenClaw-style quick start in the goblins command");
   const sections = panel(page).locator(".panel-content > details.disclosure > summary");
 
   // Assert
-  await expect(sections).toHaveText(["Workspace", "Connections", "Changes", "Activity", "History"]);
+  await expect(sections).toHaveText(["Workspace", "Harness", "Connections", "Changes", "Activity", "History"]);
   await expect(panel(page).locator(".panel-content > details.disclosure[open]")).toHaveCount(0);
 
   // Act

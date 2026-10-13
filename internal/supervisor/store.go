@@ -725,6 +725,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
 		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && s.db.Runs[run].Update == nil && !time.Now().Before(s.db.Runs[run].ExpiresAt):
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
+		case s.db.Runs[run].CFOUnwoken != 0:
+			return Action{}, errors.New("that item restarts the CFO with Restart the CFO; it runs no command")
 		case s.db.Runs[run].State == "withdrawn":
 			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
@@ -745,7 +747,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 	case question >= 0:
 		a.Dismissed = s.clearQuestion(question)
 	case a.Kind == "review_clear":
-		a.Dismissed = s.clearReview(review, a.Text, a.CreatedAt)
+		a.Dismissed = s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
 	}
 	s.db.Actions = append(s.db.Actions, a)
 	if answer {

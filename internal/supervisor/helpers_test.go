@@ -97,7 +97,7 @@ func TestAHelperStartsThroughCfoSpawnOnABranchOffItsParentsAndTellsItsParent(t *
 	if data, err := os.ReadFile(brief); err != nil || string(data) != helperBrief {
 		t.Errorf("brief = %q, %v; want the goblin's text", data, err)
 	}
-	want := []string{"spawn", "g1-h1", "--project", filepath.Join(h.Root, "app"), "--brief", brief, "--harness", "claude", "--model", "claude-opus-5-5", "--effort", "xhigh", "--mode", "local-only", "--parent", "g1", "--title", "Accounts migration"}
+	want := []string{"spawn", "g1-h1", "--project", filepath.Join(h.Root, "app"), "--brief", brief, "--mode", "local-only", "--parent", "g1", "--title", "Accounts migration"}
 	if !slices.Equal(calls[0], want) {
 		t.Errorf("cfo ran %q\nwant %q", calls[0], want)
 	}
@@ -109,6 +109,70 @@ func TestAHelperStartsThroughCfoSpawnOnABranchOffItsParentsAndTellsItsParent(t *
 		return record.Key == "g1-h1" && strings.HasPrefix(record.Detail, "started: helper of g1")
 	}) {
 		t.Errorf("wake records = %+v, %v; want the CFO told the helper started", records, err)
+	}
+}
+
+func TestHelperRoutesItsOwnBriefUnderADeepParent(t *testing.T) {
+	for _, test := range []struct {
+		name, brief string
+		flags       []string
+	}{
+		{"ordinary", "## Task\nAdd a search field.\n", nil},
+		{"bounded", "## Task\nRename the label to Search.\n", nil},
+		{"harness", "## Task\nFix the label.\nharness: codex\n", []string{"--harness", "codex"}},
+		{"provider model", "## Task\nFix the label.\nmodel: provider/model-id\n", []string{"--model", "provider/model-id"}},
+		{"effort", "## Task\nFix the label.\neffort: medium\n", []string{"--effort", "medium"}},
+		{"default effort", "## Task\nFix the label.\neffort: default\n", []string{"--effort", "default"}},
+		{"ownership and credentials stay inherited", "## Project\nother-project\n## Task\nFix the label.\n## Authentication\ncredentials: extra-service\nmcp: extra-server\n", nil},
+		{"all overrides", "## Task\nFix the label.\n## Delivery\nharness: codex\nmodel: gpt-6.1-sol\neffort: high\nmode: local-only\n", []string{"--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "high"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			s, h := helperBoard(t, 6*gigabyte, spawner)
+			// Act
+			_, err := s.acceptHelper(HelperRequest{Parent: "g1", Brief: test.brief})
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := waitForCalls(t, spawner, 2)
+			waitStartEnds(t, s)
+			// Assert
+			want := []string{"spawn", "g1-h1", "--project", filepath.Join(h.Root, "app"), "--brief", filepath.Join(h.Data, "g1-h1", "brief.md")}
+			want = append(want, test.flags...)
+			want = append(want, "--mode", "local-only", "--parent", "g1")
+			if !slices.Equal(calls[0], want) {
+				t.Fatalf("cfo ran %q, want %q", calls[0], want)
+			}
+		})
+	}
+}
+
+func TestHelperRejectsInvalidSettingsBeforeWritingOrDispatching(t *testing.T) {
+	for _, setting := range []string{"harness: shell", "model: invalid$value", "effort: invalid$value", "effort: banana", "model: invalid model", "effort: high low", "harness: codex claude", "mode: direct-PR", "mode: no-mistakes", "mode: unknown"} {
+		t.Run(setting, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			s, h := helperBoard(t, 6*gigabyte, spawner)
+			// Act
+			_, err := s.acceptHelper(HelperRequest{Parent: "g1", Brief: "## Task\nFix the label.\n" + setting + "\n"})
+			// Assert
+			if err == nil {
+				waitStartEnds(t, s)
+				t.Fatal("invalid settings accepted")
+			}
+			if len(spawner.recorded()) != 0 {
+				t.Fatal("invalid helper dispatched")
+			}
+			for _, path := range []string{filepath.Join(h.Data, "g1-h1"), filepath.Join(h.State, "g1-h1.status")} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("invalid helper left %s: %v", path, err)
+				}
+			}
+			if s.starting != "" {
+				t.Fatal("invalid helper retained the start slot")
+			}
+		})
 	}
 }
 

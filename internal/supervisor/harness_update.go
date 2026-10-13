@@ -230,7 +230,7 @@ func (s *Service) applyCFOUpdate(ctx context.Context) {
 	problem := ""
 	if s.Options.FirstRun == nil {
 		problem = "This board cannot restart the CFO"
-	} else if _, _, err := s.Options.FirstRun.Restart(); err != nil {
+	} else if _, _, err := s.Options.FirstRun.Restart(""); err != nil {
 		problem = err.Error()
 	}
 	s.setCFOUpdate(false, problem)

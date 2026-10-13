@@ -459,6 +459,9 @@ func (s *Store) closePage(item Review, closed Review) error {
 			continue
 		}
 		r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, at
+		if r.State == "cleared" {
+			s.auditClear(*r)
+		}
 		changed = true
 	}
 	if !changed {
@@ -502,6 +505,9 @@ func (s *Store) settlePage(item Review, closed Review) error {
 		r.PageSettled, changed = &at, true
 		if r.State == "open" && closed.State != "" {
 			r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, at
+			if r.State == "cleared" {
+				s.auditClear(*r)
+			}
 		}
 	}
 	if !changed {

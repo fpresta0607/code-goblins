@@ -33,22 +33,50 @@ type Measurement struct {
 	Samples                           uint64          `json:"samples"`
 	WallSeconds                       float64         `json:"wall_seconds"`
 	CleanupConfirmed                  bool            `json:"cleanup_confirmed"`
+	// Leftovers are what the command left running once its own process had
+	// exited and its linger had passed, which the run then ended.
+	Leftovers []Leftover `json:"leftovers,omitempty"`
+}
+
+// ErrLimit is the failure of a command that ran past its limit.
+var ErrLimit = errors.New("verify: the command ran past its limit")
+
+// Leftover is a process a command left running, by image name and pid.
+type Leftover struct {
+	Name string `json:"name"`
+	PID  int    `json:"pid"`
 }
 
 // MeasuredJob retains custody until cleanup is confirmed. A caller must not
 // give its admission turn back when TerminateAndWait fails.
 type MeasuredJob interface {
 	Usage() (execx.TreeUsage, error)
+	Members() ([]execx.EndedProcess, error)
 	TerminateAndWait(context.Context) (execx.TreeUsage, error)
 }
 
-// Monitor observes an admitted job. Reserve is a cancellation threshold,
-// not a memory reservation or a kernel limit. The shared floor still applies.
+// Monitor observes an admitted job. Reserve is the memory the run leaves
+// the desktop, a cancellation threshold, not a memory reservation or a
+// kernel limit. It sits under the admission floor, since a run admitted at
+// the floor uses the memory between the two, and a dimension left at zero
+// takes DefaultDesktopReserve's.
 type Monitor struct {
 	Reserve  Headroom
 	Headroom func() (Headroom, error)
-	Poll     time.Duration
-	Grace    time.Duration
+	// Sustain, ten seconds unless set, is how long free memory must stay
+	// under the reserve before the run is cancelled. Free memory is the
+	// whole machine's, so one sample under it can be another program's
+	// spike.
+	Sustain time.Duration
+	Poll    time.Duration
+	Grace   time.Duration
+	// Exited is closed once the command's own process has exited. Linger,
+	// ten seconds unless set, is how long what it left running may run on
+	// after it. What still runs then is ended and named as a leftover, and
+	// the run keeps the command's own result. Without Exited the run waits
+	// for the whole job.
+	Exited <-chan struct{}
+	Linger time.Duration
 	// Cancel requests graceful cancellation and must return promptly.
 	Cancel func() error
 	// Observe persists a sample. Failure interrupts the run.
@@ -58,9 +86,12 @@ type Monitor struct {
 func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement, error) {
 	start := time.Now()
 	result := Measurement{State: Running}
-	floor := uint64(4 << 30)
-	monitor.Reserve.PhysicalAvailable = max(floor, monitor.Reserve.PhysicalAvailable)
-	monitor.Reserve.CommitAvailable = max(floor, monitor.Reserve.CommitAvailable)
+	if monitor.Reserve.PhysicalAvailable == 0 {
+		monitor.Reserve.PhysicalAvailable = DefaultDesktopReserve.PhysicalAvailable
+	}
+	if monitor.Reserve.CommitAvailable == 0 {
+		monitor.Reserve.CommitAvailable = DefaultDesktopReserve.CommitAvailable
+	}
 	if monitor.Poll <= 0 {
 		monitor.Poll = time.Second
 	}
@@ -68,6 +99,13 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 		monitor.Grace = 2 * time.Second
 	}
 	monitor.Grace = min(monitor.Grace, 30*time.Second)
+	if monitor.Linger <= 0 {
+		monitor.Linger = 10 * time.Second
+	}
+	if monitor.Sustain <= 0 {
+		monitor.Sustain = 10 * time.Second
+	}
+	var exitedAt, pressedSince time.Time
 	ticker := time.NewTicker(monitor.Poll)
 	defer ticker.Stop()
 	var failure error
@@ -104,8 +142,13 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 				break
 			}
 		}
-		if headroom.PhysicalAvailable < monitor.Reserve.PhysicalAvailable || headroom.CommitAvailable < monitor.Reserve.CommitAvailable {
-			failure = fmt.Errorf("verify: reserve pressure: physical available %d, reserve %d, commit available %d, reserve %d", headroom.PhysicalAvailable, monitor.Reserve.PhysicalAvailable, headroom.CommitAvailable, monitor.Reserve.CommitAvailable)
+		if headroom.PhysicalAvailable >= monitor.Reserve.PhysicalAvailable && headroom.CommitAvailable >= monitor.Reserve.CommitAvailable {
+			pressedSince = time.Time{}
+		} else if pressedSince.IsZero() {
+			pressedSince = time.Now()
+		}
+		if !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain {
+			failure = fmt.Errorf("verify: reserve pressure for %s: physical available %d, reserve %d, commit available %d, reserve %d", monitor.Sustain, headroom.PhysicalAvailable, monitor.Reserve.PhysicalAvailable, headroom.CommitAvailable, monitor.Reserve.CommitAvailable)
 			break
 		}
 		if failure = ctx.Err(); failure != nil {
@@ -114,9 +157,36 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 		if usage.ActiveProcesses == 0 {
 			break
 		}
+		if exitedAt.IsZero() && monitor.Exited != nil {
+			select {
+			case <-monitor.Exited:
+				exitedAt = time.Now()
+			default:
+			}
+		}
+		if !exitedAt.IsZero() && time.Since(exitedAt) >= monitor.Linger {
+			members, err := tree.Members()
+			if err != nil {
+				failure = fmt.Errorf("verify: read what the command left running: %w", err)
+				break
+			}
+			// Windows can count an exited process in its job for a moment
+			// after, and Members names only what still runs.
+			for _, member := range members {
+				result.Leftovers = append(result.Leftovers, Leftover{Name: member.Name, PID: member.PID})
+			}
+			break
+		}
+		// The command's exit is sampled at once, so a quick command does not
+		// wait out a whole poll before its run can end.
+		var exit <-chan struct{}
+		if exitedAt.IsZero() {
+			exit = monitor.Exited
+		}
 		select {
 		case <-ctx.Done():
 		case <-ticker.C:
+		case <-exit:
 		}
 	}
 	result.State = Completed

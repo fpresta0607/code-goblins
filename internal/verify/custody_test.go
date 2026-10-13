@@ -16,7 +16,7 @@ func TestTurnKeepsCustodyUntilItsWorkersAreConfirmedGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := turn.Protect("controlled-run")
+	guard, err := turn.Protect("controlled-run", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestProtectionCannotRacePastTurnRelease(t *testing.T) {
 		var protectionError error
 		var group sync.WaitGroup
 		group.Add(2)
-		go func() { defer group.Done(); guard, protectionError = turn.Protect("racing-run") }()
+		go func() { defer group.Done(); guard, protectionError = turn.Protect("racing-run", "") }()
 		go func() { defer group.Done(); turn.Release() }()
 		group.Wait()
 		if protectionError == nil {
@@ -115,15 +115,15 @@ func TestWorkerCustodyRejectsInvalidOrDuplicateRunIDs(t *testing.T) {
 	}
 	defer turn.Release()
 	for _, runID := range []string{"", "..", "../outside", `..\outside`, "drive:name", "has space"} {
-		if _, err := turn.Protect(runID); err == nil {
+		if _, err := turn.Protect(runID, ""); err == nil {
 			t.Fatalf("protected invalid ID %q", runID)
 		}
 	}
-	guard, err := turn.Protect("same-run")
+	guard, err := turn.Protect("same-run", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := turn.Protect("same-run"); err == nil {
+	if _, err := turn.Protect("same-run", ""); err == nil {
 		t.Fatal("replaced existing custody")
 	}
 	altered := guard
@@ -173,7 +173,7 @@ func TestNestedTurnsKeepEachWorkersCustodySeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer outer.Release()
-	first, err := outer.Protect("outer")
+	first, err := outer.Protect("outer", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestNestedTurnsKeepEachWorkersCustodySeparate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := inner.Protect("inner")
+	second, err := inner.Protect("inner", "")
 	if err != nil {
 		t.Fatal(err)
 	}

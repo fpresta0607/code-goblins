@@ -47,7 +47,7 @@ export function trainLook(train: MergeTrain): TrainLook {
   if (train.cars.some((car) => car.state === "landed")) return { text: "Landed" + onRun, tone: "passed", url };
   const culprits = train.cars.filter((car) => car.state === "culprit");
   if (culprits.length > 0) return { text: `${numbers(culprits)} breaks CI`, tone: "failed", url };
-  if (train.state === "stopped") return { text: "Nothing merged cleanly", tone: "cancelled", url };
+  if (train.state === "stopped") return { text: "Stopped", tone: "cancelled", url };
   const why: Record<string, string> = { moved: train.base + " kept moving", failed: train.base + " is red" };
   const last = train.history.at(-1)?.result ?? "";
   return { text: "Train failed" + (why[last] ? ", " + why[last] : ""), tone: "failed", url };
@@ -133,8 +133,12 @@ export function carName(car: TrainCar): string {
   return car.goblin ? [car.goblin, car.goblin_title].filter(Boolean).join(" - ") : car.title || car.task;
 }
 
-// isTrainOver says whether a train has finished, so its card belongs among
-// the completed work.
+// isTrainOver says whether a train has finished, whatever its outcome.
 export function isTrainOver(train: MergeTrain): boolean {
   return train.state !== "testing";
+}
+
+export function trainSection(train: MergeTrain): "In progress" | "Completed" | "Train history" {
+  if (!isTrainOver(train)) return "In progress";
+  return train.cars.some((car) => car.state === "landed") ? "Completed" : "Train history";
 }

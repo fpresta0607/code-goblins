@@ -727,17 +727,7 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		prior.State, prior.Reason, prior.UpdatedAt = "cleared", bounded(r.Reason, 2000), r.UpdatedAt
-		if err := s.save(); err != nil {
-			return err
-		}
-		if err := appendReviewAudit(s.Home.State, *prior); err != nil {
-			s.db.Issues = append(s.db.Issues, prior.ID+" was cleared, but state/reviews.audit was not written: "+bounded(err.Error(), 300))
-			if len(s.db.Issues) > 20 {
-				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
-			}
-			return s.save()
-		}
-		return nil
+		s.auditClear(*prior)
 	case "version":
 		// A wait's next version of its page replaces the item in place: the
 		// same item, with its new words and links, waiting on the Overlord
@@ -780,7 +770,19 @@ func (s *Store) primaryIdentity() (string, error) {
 	return identity, err
 }
 
-// appendReviewAudit records the CFO's clear of an item in state/reviews.audit:
+// auditClear records the clear of item r in state/reviews.audit, or says
+// among the board's issues that it could not. The caller holds the store lock
+// and saves.
+func (s *Store) auditClear(r Review) {
+	if err := appendReviewAudit(s.Home.State, r); err != nil {
+		s.db.Issues = append(s.db.Issues, r.ID+" was cleared, but state/reviews.audit was not written: "+bounded(err.Error(), 300))
+		if len(s.db.Issues) > 20 {
+			s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+		}
+	}
+}
+
+// appendReviewAudit records a clear of an item in state/reviews.audit:
 // when, the item, its goblin and the reason, on one line.
 func appendReviewAudit(stateDir string, r Review) error {
 	task := r.Task
@@ -875,8 +877,12 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
+// clearedFromTheCommandCenter is the reason an item the Overlord cleared on
+// the board reads, in state/reviews.audit as on the item.
+const clearedFromTheCommandCenter = "Cleared from the Command Center."
+
 // clearReview closes open item i, which the Overlord cleared at at, with
-// reason. A page's card shows
+// reason, and records the clear in state/reviews.audit. A page's card shows
 // the question its goblin asked beside the page, so clearing it dismisses
 // that question in the same step, and the IDs of the questions dismissed come
 // back for the CFO to hear of. The caller holds the store lock.
@@ -889,6 +895,7 @@ func (s *Store) clearReview(i int, reason string, at time.Time) []string {
 		}
 	}
 	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, at
+	s.auditClear(s.db.Reviews[i])
 	return dismissed
 }
 
@@ -948,6 +955,33 @@ func noticeAnswerToCFO(stateDir string, r Review, answer string) error {
 	}
 	_, err := wake.PublishEpisode(stateDir)
 	return err
+}
+
+// tellOfAClearedWait tells a goblin whose wait on the Overlord he cleared from
+// the Command Center that it is gone from there, since the goblin still waits
+// on him, and tells the CFO, so a wait he closed is never lost unseen. It
+// returns what could not be told, for the clear's own reason.
+func (s *Service) tellOfAClearedWait(ctx context.Context, id string) string {
+	reviews := s.Store.Snapshot().Reviews
+	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == id })
+	if i < 0 || reviews[i].Task == "" || !strings.HasPrefix(id, "waiting-"+reviews[i].Task+"-") {
+		return ""
+	}
+	r := reviews[i]
+	told := "and the goblin was told"
+	if s.Options.CFO == nil {
+		told = "but the goblin could not be told: message transport is unavailable"
+	} else if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord cleared your wait %s (%s) from the Command Center, so it no longer shows there. If you still need him for it, ask again with cfo notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		told = "but the goblin could not be told: " + bounded(err.Error(), 300)
+	}
+	detail := fmt.Sprintf("the Overlord cleared %s's wait %s (%s) from the Command Center, %s", r.Task, r.ID, r.Title, told)
+	if _, err := wake.Append(s.Store.Home.State, "review", r.Task, bounded(detail, 4000)); err != nil {
+		return " The CFO could not be told: " + bounded(err.Error(), 300)
+	}
+	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
+		return " The CFO could not be told: " + bounded(err.Error(), 300)
+	}
+	return ""
 }
 
 // answerReviewToCFO hands an answer whose goblin is gone to the current CFO.

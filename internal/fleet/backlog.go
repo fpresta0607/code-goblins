@@ -76,6 +76,11 @@ type BacklogRow struct {
 	Raw     string `json:"raw"`
 }
 
+// HasSetting distinguishes an explicit empty override from omitted metadata.
+func (row BacklogRow) HasSetting(key string) bool {
+	return metadataPatterns[key].MatchString(row.Raw)
+}
+
 // Blocker is one thing a queued row waits for, as a blocked-by on its title
 // line names it: a time (until 2026-10-10T00:00Z), free memory (memory 12
 // GB), a pull request merging (its GitHub URL) or a task delivering (its id).

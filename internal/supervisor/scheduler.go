@@ -73,7 +73,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Waiting = append(record.Waiting, WaitingWork{ID: id, Why: err.Error()})
 			continue
 		}
-		if allowanceBlocked(watched, plan.harness, plan.model, now) {
+		if startHeldByAllowance(s.Store.Home, plan, watched, now) {
 			continue
 		}
 		queued = append(queued, id)
