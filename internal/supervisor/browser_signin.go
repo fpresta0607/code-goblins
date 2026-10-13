@@ -35,6 +35,9 @@ type BrowserSignIn struct {
 	ExpiresAt      time.Time  `json:"expires_at"`
 	ClosedAt       *time.Time `json:"closed_at,omitempty"`
 	VerifiedAt     *time.Time `json:"verified_at,omitempty"`
+	// Fetch is the credential request whose fetch filed the card, and
+	// carries on once he has signed in.
+	Fetch string `json:"fetch,omitempty"`
 }
 
 func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, error) {
@@ -64,6 +67,15 @@ func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, er
 	}
 	for _, card := range s.Store.Snapshot().BrowserSignIns {
 		if card.Task == request.Task && card.TaskGeneration == meta.SpawnGen && card.Login == login.ID && card.ClosedAt == nil && s.browsers.now().Before(card.ExpiresAt) {
+			// A fetch that meets its task's open card carries on from it.
+			if request.Request != "" && card.Fetch != request.Request {
+				if err := s.Store.updateBrowserSignIn(card.ID, func(current *BrowserSignIn) error {
+					current.Fetch = request.Request
+					return nil
+				}); err != nil {
+					return BrowserLease{}, err
+				}
+			}
 			return BrowserLease{Login: card.Login, Provider: card.Provider, Account: card.Account, SignIn: card.ID}, nil
 		}
 	}
@@ -72,7 +84,7 @@ func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, er
 	if _, err := rand.Read(random[:]); err != nil {
 		return BrowserLease{}, err
 	}
-	card := BrowserSignIn{ID: "signin-" + hex.EncodeToString(random[:16]), Generation: hex.EncodeToString(random[16:]), Login: login.ID, Provider: provider.Name, Account: login.Account, Project: project, Task: request.Task, TaskGeneration: meta.SpawnGen, State: "ready", CreatedAt: now, ExpiresAt: now.Add(browserSignInLifetime)}
+	card := BrowserSignIn{ID: "signin-" + hex.EncodeToString(random[:16]), Generation: hex.EncodeToString(random[16:]), Login: login.ID, Provider: provider.Name, Account: login.Account, Project: project, Task: request.Task, TaskGeneration: meta.SpawnGen, State: "ready", CreatedAt: now, ExpiresAt: now.Add(browserSignInLifetime), Fetch: request.Request}
 	s.Store.mu.Lock()
 	defer s.Store.mu.Unlock()
 	for _, existing := range s.Store.db.BrowserSignIns {
@@ -117,6 +129,9 @@ func (b *browserBroker) prepareSignIn(task, project string, provider keypages.Pr
 		index = len(logins) - 1
 	}
 	login := logins[index]
+	if b.fetching[login.ID] != "" {
+		return browserlogin.Login{}, errors.New("a key fetch drives this login's browser now")
+	}
 	if login.Browser != nil {
 		if login.Browser.Holder != task {
 			return browserlogin.Login{}, errors.New("another task holds this login's browser")
@@ -226,11 +241,15 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 				newState, reason = "ready", "The window closed before you signed in. Open it again, or paste the keys on their own card."
 			} else {
 				check, cancel := context.WithTimeout(ctx, 5*time.Second)
-				isSignedIn, err := s.browsers.signedIn(check, process.URL, provider)
+				isSignedIn, account, err := s.browsers.signedIn(check, process.URL, provider)
 				cancel()
 				if err != nil {
 					newState, reason = "ready", "The page could not be checked. Open the sign-in window again."
 				} else if isSignedIn {
+					if err := s.browsers.recordSignIn(card.Login, account); err != nil {
+						failed = append(failed, err)
+						continue
+					}
 					// Keep the verification before closing the window, so a failed
 					// completion save can be retried without another sign-in.
 					if err := s.Store.updateBrowserSignIn(card.ID, func(current *BrowserSignIn) error {
@@ -267,11 +286,33 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 			return nil
 		}); err != nil {
 			failed = append(failed, err)
-		} else {
-			s.notify()
+			continue
+		}
+		s.notify()
+		if newState == "signed_in" && card.Fetch != "" {
+			s.credentialWork.Add(1)
+			go s.continueFetch(card)
 		}
 	}
 	return errors.Join(failed...)
+}
+
+// recordSignIn records that the Overlord signed in to login just now, on
+// the account the page's address named, "" when it named none.
+func (b *browserBroker) recordSignIn(id, account string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	logins, err := browserlogin.Read(b.state)
+	if err != nil {
+		return err
+	}
+	index := slices.IndexFunc(logins, func(login browserlogin.Login) bool { return login.ID == id })
+	if index < 0 {
+		return fmt.Errorf("the login %s is gone", id)
+	}
+	now := b.now()
+	logins[index].AccountID, logins[index].SignedInAt = account, &now
+	return browserlogin.Write(b.state, logins)
 }
 
 // signInGrant is the provider of card's login, and why card can no longer

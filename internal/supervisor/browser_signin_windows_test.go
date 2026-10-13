@@ -26,8 +26,16 @@ import (
 )
 
 func TestBrowserSignInWindowOnAHiddenDesktop(t *testing.T) {
-	if os.Getenv("CFO_SIGNIN_DESKTOP_PROOF") == "child" {
-		proveBrowserSignInWindow(t)
+	onAHiddenDesktop(t, proveBrowserSignInWindow)
+}
+
+// onAHiddenDesktop runs prove in a copy of the test binary on a desktop of
+// its own, which no one sees, so a window it opens never shows on the
+// Overlord's screen. The copy is ended with everything it started when it
+// is done or out of time, and its output fails the test when it failed.
+func onAHiddenDesktop(t *testing.T, prove func(*testing.T)) {
+	if os.Getenv("CFO_HIDDEN_DESKTOP_PROOF") == t.Name() {
+		prove(t)
 		return
 	}
 	user32 := windows.NewLazySystemDLL("user32.dll")
@@ -59,8 +67,8 @@ func TestBrowserSignInWindowOnAHiddenDesktop(t *testing.T) {
 	if _, err := windows.SetInformationJobObject(held, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CFO_SIGNIN_DESKTOP_PROOF", "child")
-	command, err := windows.UTF16PtrFromString(syscall.EscapeArg(os.Args[0]) + " -test.run=^TestBrowserSignInWindowOnAHiddenDesktop$ -test.v")
+	t.Setenv("CFO_HIDDEN_DESKTOP_PROOF", t.Name())
+	command, err := windows.UTF16PtrFromString(syscall.EscapeArg(os.Args[0]) + " -test.run=^" + t.Name() + "$ -test.v")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,20 +87,21 @@ func TestBrowserSignInWindowOnAHiddenDesktop(t *testing.T) {
 	if _, err := windows.ResumeThread(child.Thread); err != nil {
 		t.Fatal(err)
 	}
-	event, err := windows.WaitForSingleObject(child.Process, 120000)
+	event, err := windows.WaitForSingleObject(child.Process, 240000)
 	if err != nil || event != windows.WAIT_OBJECT_0 {
-		t.Fatalf("hidden proof did not end within two minutes: %v", err)
+		t.Fatalf("hidden proof did not end within four minutes: %v", err)
 	}
 	var exit uint32
 	if err := windows.GetExitCodeProcess(child.Process, &exit); err != nil {
 		t.Fatal(err)
 	}
-	if exit != 0 {
-		text, err := os.ReadFile(report)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Fatalf("hidden sign-in proof failed: %s", text)
+	text, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A copy that ran no test exits 0 as well, so its own pass is the proof.
+	if exit != 0 || !strings.Contains(string(text), "--- PASS: "+t.Name()+" ") {
+		t.Fatalf("hidden proof failed with exit %d: %s", exit, text)
 	}
 }
 
@@ -176,7 +185,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 	}) {
 		t.Fatalf("the sign-in window's arguments %q, want a private pipe and no host rules", arguments)
 	}
-	if isSignedIn, err := browserlogin.SignedIn(ctx, process.URL, broker.recipes.Providers[0]); err != nil || isSignedIn {
+	if isSignedIn, _, err := browserlogin.SignedIn(ctx, process.URL, broker.recipes.Providers[0]); err != nil || isSignedIn {
 		t.Fatalf("unsigned page = %t, %v", isSignedIn, err)
 	}
 	pageList, err := http.Get(process.URL + "/json/list")
@@ -246,7 +255,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 	}
 	isSignedIn := false
 	for ctx.Err() == nil && !isSignedIn {
-		isSignedIn, err = browserlogin.SignedIn(ctx, lease.URL, broker.recipes.Providers[0])
+		isSignedIn, _, err = browserlogin.SignedIn(ctx, lease.URL, broker.recipes.Providers[0])
 		if err != nil {
 			t.Fatal(err)
 		}

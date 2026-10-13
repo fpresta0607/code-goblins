@@ -19,7 +19,7 @@ func signInBoard(t *testing.T) (*Service, *fakeChrome, *bool) {
 	broker.recipes.Providers[0].KeyPage = "https://dashboard.stripe.com/test/apikeys"
 	broker.recipes.Providers[0].SignedInPath = "^/test/apikeys$"
 	isSignedIn := false
-	broker.signedIn = func(context.Context, string, keypages.Provider) (bool, error) { return isSignedIn, nil }
+	broker.signedIn = func(context.Context, string, keypages.Provider) (bool, string, error) { return isSignedIn, "", nil }
 	service := &Service{Store: store, Instance: "test-instance", browsers: broker}
 	brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
 	t.Cleanup(func() {
