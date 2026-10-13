@@ -1,0 +1,5 @@
+/* An answer box's microphone, inside the box at its bottom right corner. The
+   box keeps room under its text for it, and its corner still resizes. */
+.dictated-box { position: relative; display: grid; }
+.dictated-box textarea { padding-bottom: 56px; }
+.dictated-box > .voice-bubble { position: absolute; right: 22px; bottom: 10px; }
