@@ -680,7 +680,6 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
-	reconcileErr = errors.Join(reconcileErr, s.Store.keepCFOQuiet(time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
@@ -1241,7 +1240,6 @@ type Snapshot struct {
 	Retired    []string        `json:"retired"`
 	Actions    []Action        `json:"actions"`
 	Decisions  []wake.Record   `json:"decisions"`
-	CFOQuiet   *CFOQuiet       `json:"cfo_quiet,omitempty"`
 	Issues     []string        `json:"issues"`
 	Questions  []Question      `json:"questions"`
 	Activity   []BoardActivity `json:"activity"`
@@ -1421,12 +1419,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Decisions, err = wake.Pending(s.Store.Home.State)
 	if err != nil {
 		return out, err
-	}
-	if !d.CFOQuietSince.IsZero() {
-		out.CFOQuiet = cfoQuietNotice(out.Decisions, out.At)
-		if out.CFOQuiet != nil {
-			out.CFOQuiet.Since = d.CFOQuietSince
-		}
 	}
 	entries, err := os.ReadDir(s.Store.Home.State)
 	if err != nil {

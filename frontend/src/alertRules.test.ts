@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { alertItem, announceKey, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, unseen, type BoardAlert, type SeenAlert } from "./alertRules.ts";
-import { parseSnapshot, type Question, type Review, type Run, type Snapshot, type Task } from "./types.ts";
+import { type Question, type Review, type Run, type Snapshot, type Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
 const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
@@ -20,6 +20,7 @@ const LONG_TITLE = "Answers given in a review page's editor are never lost (a di
 // bar, never an alert.
 test("a goblin blocked, failed or done raises no alert, and neither does the CFO falling behind", () => {
   const working = snapshot({ tasks: [task("a", "working")] });
+  const left = { ...snapshot({ questions: [question("asked", { task: "a", created_at: "2026-10-13T13:43:01Z" })] }), at: "2026-10-13T14:03:01Z" };
   const cases: [string, Snapshot | null, Snapshot][] = [
     ["a goblin blocked", working, snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] })],
     ["a goblin blocked at its gate", working, snapshot({ tasks: [task("a", "blocked", { report: "blocked", activity: "blocked: Which port?", reason: GATE_BLOCK })] })],
@@ -28,8 +29,8 @@ test("a goblin blocked, failed or done raises no alert, and neither does the CFO
     ["a goblin done with its pull request", working, snapshot({ tasks: [task("a", "done", { pr: PR })] })],
     ["a goblin reporting done with its pull request", working, snapshot({ tasks: [task("a", "review", { report: "done", pr: PR })] })],
     ["a goblin restarted and blocked again", snapshot({ tasks: [task("a", "blocked")] }), snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] })],
-    ["the CFO leaving questions unanswered", parseSnapshot({ healthy: true }), parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } })],
-    ["the CFO leaving questions unanswered, on the first snapshot", null, parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } })],
+    ["the CFO leaving a goblin's question unanswered for ten minutes", { ...left, at: "2026-10-13T13:52:01Z" }, left],
+    ["the CFO leaving a goblin's question unanswered, on the first snapshot", null, left],
   ];
   for (const [name, before, next] of cases) assert.deepEqual(boardAlerts(before, next), [], name);
 });
@@ -47,8 +48,7 @@ test("a retired goblin's pause that did not finish raises no alert", () => {
   const pausing = { ...done, phase: "pausing", reason: "Requested by the operator" };
   const failed = { ...done, phase: "failed", report: "", reason: "Waiting on the CFO: " + said, activity: said, lifecycle } as Task;
   const reported = { ...failed, report: "failed", activity: "failed: " + said, reason: said } as Task;
-  const steps = [snapshot({ tasks: [done] }), snapshot({ tasks: [pausing] }), snapshot({ tasks: [failed] }), snapshot({ tasks: [reported] }),
-    { ...snapshot({ tasks: [reported] }), cfo_quiet: { since: "2026-10-07T14:59:11Z", count: 1, oldest_age: 600 } }];
+  const steps = [snapshot({ tasks: [done] }), snapshot({ tasks: [pausing] }), snapshot({ tasks: [failed] }), snapshot({ tasks: [reported] })];
 
   // Act
   const alerts = steps.slice(1).flatMap((next, i) => boardAlerts(steps[i], next));
