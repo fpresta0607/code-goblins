@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -332,13 +333,39 @@ func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin c
 	} else if err != nil {
 		return tickets.Area{}, "", "", err
 	}
-	area := tickets.BriefArea(string(brief), func(string) bool { return false })
-	area.Paths = nil
-	area, ignored := area.WithPaths(paths...)
-	if len(ignored) > 0 {
-		return tickets.Area{}, "", "", fmt.Errorf("branch paths are unread: %q", ignored)
+	var unread []string
+	for _, path := range paths {
+		if !isBranchPath(path) {
+			unread = append(unread, path)
+		}
 	}
+	if len(unread) > 0 {
+		return tickets.Area{}, "", "", fmt.Errorf("branch paths are unread: %q", unread)
+	}
+	area := tickets.BriefArea(string(brief), func(string) bool { return false })
+	slices.Sort(paths)
+	area.Paths = slices.Compact(paths)
 	return area, string(brief), branch, nil
+}
+
+var driveLetterPath = regexp.MustCompile(`^[A-Za-z]:`)
+
+// isBranchPath reports whether a path Git names as changed is one inside the
+// repository: not absolute, drive-letter or UNC, and with no empty, "." or
+// ".." segment. Any other name is the file's exact name, so a route group,
+// bracketed segment, space or quote is kept as written, never checked as a
+// path in prose would be.
+func isBranchPath(path string) bool {
+	path = strings.ReplaceAll(path, `\`, "/")
+	if strings.HasPrefix(path, "/") || driveLetterPath.MatchString(path) {
+		return false
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // branchPaths reads the files goblin's checked-out branch changes against
