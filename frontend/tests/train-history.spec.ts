@@ -162,6 +162,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await history.getByRole("button", { name: /Open merge train/ }).focus();
       await page.keyboard.press("Enter");
 
+      await expect(page.getByRole("complementary", { name: "Task review" })).toBeFocused();
       await expect(panel(page).getByRole("region", { name: "Pull requests" }).getByRole("link", { name: "Failed twice" })).toHaveAttribute("href", CHANCE.link);
       await panel(page).locator("details > summary").focus();
       await page.keyboard.press("Space");
