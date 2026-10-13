@@ -294,3 +294,21 @@ func TestMonitorSamplesAgainAsSoonAsTheCommandExits(t *testing.T) {
 		t.Fatalf("a command that exited waited for the next poll: %+v, %v after %s", result, err, time.Since(started))
 	}
 }
+
+func TestMonitorEndsWithoutFailureWhenNothingTheCommandLeftStillRuns(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}}
+	exited := make(chan struct{})
+	close(exited)
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Exited: exited, Linger: 5 * time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err != nil || result.State != Completed || len(result.Leftovers) != 0 || !tree.wasCleaned {
+		t.Fatalf("a job counting only exited processes = %+v, %v, want a completed run with nothing left", result, err)
+	}
+}

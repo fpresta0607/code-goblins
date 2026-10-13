@@ -489,6 +489,7 @@ The executor reads it from `reserve.json` in the admission store, as `{"physical
 Each value must be at least half a gigabyte and under the admission floor, and any other content, such as an unknown key, a missing dimension or trailing data, refuses the run before it starts.
 A caller can raise the reserve but never lower it below the store's.
 Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it, records each process by name and pid as a leftover, and fails, since work a leftover may still have been doing was cut short.
+Only a process still running counts, since Windows can count one that has exited in its job for a moment after, and when none still runs the run ends as the command did.
 The command's own exit code is kept beside that failure.
 Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
 `RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
@@ -521,8 +522,8 @@ Stale lease removal claims the record against writes and replacement, validates 
 Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
-Retention of the execution records and logs is not yet implemented, so these APIs remain outside the live command path.
-These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
+`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says, while retention of the execution records and logs is not yet implemented.
+These same-user records are advisory, and the measured executor is not yet wired into `cfo gate turn` or a protected publisher.
 
 `ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
 It requires complete preparation evidence and matching sizes and SHA-256 hashes, so a revision directory or ready marker alone cannot hide missing runtime files.

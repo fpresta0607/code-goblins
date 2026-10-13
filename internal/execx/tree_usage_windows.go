@@ -115,9 +115,10 @@ func (t *Tree) memberIDs() ([]uint32, error) {
 	return nil, errors.New("execx: job member sample exceeds its bound")
 }
 
-// Members names the processes the job holds now, by image name and pid,
-// sorted by pid. A process that exits while they are read is left out, and
-// so is a reused pid that names a process outside the job.
+// Members names the processes still running in the job, by image name and
+// pid, sorted by pid. A process that has exited is left out, though Windows
+// may count it in the job for a moment after, and so is a reused pid that
+// names a process outside the job.
 func (t *Tree) Members() ([]EndedProcess, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -150,9 +151,9 @@ func (t *Tree) Members() ([]EndedProcess, error) {
 	return members, nil
 }
 
-// holds reports whether pid is a process in the job now.
+// holds reports whether pid is a process still running in the job.
 func (t *Tree) holds(pid uint32) (bool, error) {
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return false, nil // The process has exited.
 	}
@@ -164,7 +165,14 @@ func (t *Tree) holds(pid uint32) (bool, error) {
 	if ok, _, err := isProcessInUsageJob.Call(uintptr(process), uintptr(t.job), uintptr(unsafe.Pointer(&isMember))); ok == 0 {
 		return false, fmt.Errorf("execx: verify job member %d: %w", pid, err)
 	}
-	return isMember != 0, nil
+	if isMember == 0 {
+		return false, nil
+	}
+	event, err := windows.WaitForSingleObject(process, 0)
+	if err != nil {
+		return false, fmt.Errorf("execx: read whether job member %d runs: %w", pid, err)
+	}
+	return event == uint32(windows.WAIT_TIMEOUT), nil
 }
 
 func (t *Tree) processWorkingSet(pid uint32) (uint64, error) {

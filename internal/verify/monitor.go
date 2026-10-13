@@ -158,6 +158,11 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 				failure = fmt.Errorf("verify: read what the command left running: %w", err)
 				break
 			}
+			// Windows can count an exited process in its job for a moment
+			// after, and Members names only what still runs.
+			if len(members) == 0 {
+				break
+			}
 			named := make([]string, len(members))
 			for index, member := range members {
 				result.Leftovers = append(result.Leftovers, Leftover{Name: member.Name, PID: member.PID})
