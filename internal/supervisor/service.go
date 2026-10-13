@@ -355,7 +355,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
-	s.browsers = newBrowserBroker(h.State, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
+	s.browsers = newBrowserBroker(h.State, h.Data, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -67,6 +69,7 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 	now := time.Date(2026, 10, 12, 15, 0, 0, 0, time.UTC)
 	broker := &browserBroker{
 		state:   t.TempDir(),
+		data:    t.TempDir(),
 		recipes: keypages.Recipes{Providers: []keypages.Provider{{ID: "stripe", Name: "Stripe", Hosts: []string{"stripe.com", "*.stripe.com"}}}},
 		memory:  func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil },
 		live: func(task string) error {
@@ -94,8 +97,24 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 // brokerTask records a live goblin task of project.
 func brokerTask(t *testing.T, broker *browserBroker, id, project string) {
 	t.Helper()
-	meta := state.TaskMeta{ID: id, Project: filepath.Join(`C:\dev`, project), Backend: "native", Window: "native", Harness: "claude", Kind: "ship", Worktree: filepath.Join(`C:\cfo\worktrees`, id)}
+	meta := state.TaskMeta{ID: id, Project: filepath.Join(`C:\dev`, project), Backend: "native", Window: "native", Harness: "claude", Kind: "ship", Worktree: filepath.Join(`C:\cfo\worktrees`, id), Credentials: []string{"stripe"}, HasCredentials: true}
 	if err := state.WriteTaskMeta(broker.state, meta); err != nil {
+		t.Fatal(err)
+	}
+	brokerManifest(t, broker, project, auth.Service{Name: "stripe", Method: auth.MethodEnv, Env: []string{"STRIPE_TEST_SECRET_KEY"}})
+}
+
+func brokerManifest(t *testing.T, broker *browserBroker, project string, services ...auth.Service) {
+	t.Helper()
+	path := auth.ManifestPath(broker.data, project)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(auth.Manifest{Project: auth.ProjectName(project), Services: services})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

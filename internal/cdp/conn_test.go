@@ -24,6 +24,10 @@ func TestCallReadsOnlyItsReplyAndReportsProtocolFailures(t *testing.T) {
 		{"command refusal", []string{`{"id":1,"error":{"code":-32601,"message":"unknown command"}}`}, "", "unknown command"},
 		{"invalid reply", []string{`not JSON`}, "", "not JSON"},
 		{"invalid result", []string{`{"id":1,"result":{"value":42}}`}, "", "cannot unmarshal"},
+		{"missing result", []string{`{"id":1}`}, "", "no result object"},
+		{"null result", []string{`{"id":1,"result":null}`}, "", "no result object"},
+		{"array result", []string{`{"id":1,"result":[]}`}, "", "no result object"},
+		{"empty result object", []string{`{"id":1,"result":{}}`}, "", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

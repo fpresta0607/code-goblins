@@ -50,6 +50,7 @@ type BrowserLease struct {
 type browserBroker struct {
 	mu      sync.Mutex
 	state   string
+	data    string
 	recipes keypages.Recipes
 	// memory reads the machine's free memory; a browser starts only above
 	// the fleet's floor.
@@ -76,13 +77,14 @@ type browserBroker struct {
 // newBrowserBroker is the broker of the home whose state is stateDir, on
 // this machine's Chrome and memory, telling report of a Chrome it could not
 // close.
-func newBrowserBroker(stateDir string, options Options, report func(error)) *browserBroker {
+func newBrowserBroker(stateDir, dataDir string, options Options, report func(error)) *browserBroker {
 	memory := func() (Memory, error) { return Memory{}, errors.New("this supervisor cannot read memory") }
 	if options.Dispatch != nil && options.Dispatch.Memory != nil {
 		memory = options.Dispatch.Memory
 	}
 	return &browserBroker{
 		state:      stateDir,
+		data:       dataDir,
 		recipes:    options.KeyPages,
 		memory:     memory,
 		live:       func(task string) error { return terminalAnswers(stateDir, task) },
@@ -134,13 +136,24 @@ func (b *browserBroker) take(ctx context.Context, request BrowserRequest) (Brows
 // Chrome when none runs. A login lent to another task is refused until it
 // is given back, since Chrome opens a profile once.
 func (b *browserBroker) attach(ctx context.Context, task, providerID string) (BrowserLease, error) {
+	if err := ctx.Err(); err != nil {
+		return BrowserLease{}, err
+	}
 	provider, err := b.recipes.Provider(providerID)
 	if err != nil {
 		return BrowserLease{}, err
 	}
-	meta, err := state.ReadTaskMeta(b.state, task)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return BrowserLease{}, err
+	}
+	if b.closed {
+		return BrowserLease{}, errors.New("the supervisor is stopping, so no browser starts")
+	}
+	meta, err := b.grantedTask(task, provider.ID)
 	if err != nil {
-		return BrowserLease{}, fmt.Errorf("task %s has no live record: %w", task, err)
+		return BrowserLease{}, err
 	}
 	if meta.Harness != "claude" {
 		return BrowserLease{}, errors.New("only a Claude Code task can explore a login. Other harnesses have no PreToolUse hook to seal browser reads")
@@ -149,11 +162,6 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 		return BrowserLease{}, err
 	}
 	project := auth.ProjectName(meta.Project)
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed {
-		return BrowserLease{}, errors.New("the supervisor is stopping, so no browser starts")
-	}
 	logins, err := browserlogin.Read(b.state)
 	if err != nil {
 		return BrowserLease{}, err
@@ -202,17 +210,57 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 	if err != nil {
 		return BrowserLease{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return BrowserLease{}, err
+	}
 	process, err := b.start(ctx, browserlogin.Launch{Executable: executable, Profile: profile, Hosts: provider.Hosts, Headless: true})
+	if process.PID != 0 {
+		b.processes[login.ID] = process
+	}
 	if err != nil {
+		b.closeProcess(login.ID)
 		return BrowserLease{}, fmt.Errorf("the %s login's browser did not start: %w", provider.Name, err)
+	}
+	if err := ctx.Err(); err != nil {
+		b.closeProcess(login.ID)
+		return BrowserLease{}, err
+	}
+	current, err := b.grantedTask(task, provider.ID)
+	if err == nil && (current.SpawnGen != meta.SpawnGen || current.Project != meta.Project || current.Harness != meta.Harness) {
+		err = errors.New("the task changed while its browser was starting")
+	}
+	if err == nil {
+		err = b.live(task)
+	}
+	if err != nil {
+		b.closeProcess(login.ID)
+		return BrowserLease{}, err
 	}
 	login.Browser = &browserlogin.Browser{PID: process.PID, Started: process.Started, URL: process.URL, Holder: task, Since: now, Hosts: provider.Hosts}
 	if err := browserlogin.Write(b.state, logins); err != nil {
-		return BrowserLease{}, errors.Join(err, b.end(ctx, process))
+		b.closeProcess(login.ID)
+		return BrowserLease{}, err
 	}
-	b.processes[login.ID] = process
 	lease.URL = process.URL
 	return lease, nil
+}
+
+// A provider is bound to the declared service with the same ID. The live
+// task record, including an explicit credentials none, controls its grant.
+func (b *browserBroker) grantedTask(task, provider string) (state.TaskMeta, error) {
+	meta, err := state.ReadTaskMeta(b.state, task)
+	if err != nil {
+		return meta, fmt.Errorf("task %s has no live record: %w", task, err)
+	}
+	manifest, err := auth.LoadManifest(b.data, meta.Project)
+	if err != nil {
+		return meta, fmt.Errorf("the project's browser service grant cannot be read: %w", err)
+	}
+	grant := manifest.Grant(auth.Need{Services: meta.Credentials, IsUnstated: !meta.HasCredentials})
+	if !slices.Contains(grant.Services, provider) {
+		return meta, fmt.Errorf("task %s does not carry the project's declared %s service", task, provider)
+	}
+	return meta, nil
 }
 
 // projectLogin is the index of project's login of provider, or -1 when it
@@ -297,11 +345,12 @@ func (b *browserBroker) sweep() error {
 			continue
 		}
 		process, ok := b.processes[login.ID]
+		_, grantErr := b.grantedTask(login.Browser.Holder, login.Provider)
 		switch {
 		case !ok:
 			logins[index].Browser = nil
 			changed = true
-		case !b.alive(process) || b.now().Sub(login.Browser.Since) > browserLease || b.live(login.Browser.Holder) != nil:
+		case !b.alive(process) || b.now().Sub(login.Browser.Since) > browserLease || b.live(login.Browser.Holder) != nil || grantErr != nil:
 			if err := b.close(logins, index); err != nil {
 				failed = append(failed, err)
 			}

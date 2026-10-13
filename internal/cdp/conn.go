@@ -5,6 +5,7 @@
 package cdp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -87,7 +88,11 @@ func (c *Conn) Call(ctx context.Context, method string, params, result any) erro
 		if answer.Error != nil {
 			return &Error{Method: method, Code: answer.Error.Code, Message: answer.Error.Message}
 		}
-		if result == nil || len(answer.Result) == 0 {
+		body := bytes.TrimSpace(answer.Result)
+		if len(body) == 0 || body[0] != '{' {
+			return fmt.Errorf("%s: the browser's reply has no result object", method)
+		}
+		if result == nil {
 			return nil
 		}
 		return json.Unmarshal(answer.Result, result)

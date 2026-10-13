@@ -12,7 +12,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/proc"
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func TestBrowserPipeRefusesAnotherTasksCallerBeforeLendingOrReleasing(t *testing.T) {
@@ -83,7 +82,7 @@ func TestHelperPipeRefusesAnotherTasksCaller(t *testing.T) {
 func TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	broker := newBrowserBroker(h.State, Options{
+	broker := newBrowserBroker(h.State, h.Data, Options{
 		KeyPages: keypages.Recipes{Providers: []keypages.Provider{{ID: "stripe", Name: "Stripe", Hosts: []string{"stripe.com", "*.stripe.com"}}}},
 		Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }},
 	}, func(err error) { t.Errorf("a browser was not closed: %v", err) })
@@ -95,9 +94,7 @@ func TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses(t 
 	terminal := hostTerminal(t, h.State, "pd-keys")
 	terminal.standIn(t)
 	runPipe(t, &Service{Store: store, browsers: broker})
-	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "pd-keys", Project: `C:\dev\PrecisionDocs-AI`, Backend: "native", Window: "native", Harness: "claude", Kind: "ship", Worktree: `C:\cfo\worktrees\pd-keys`}); err != nil {
-		t.Fatal(err)
-	}
+	brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
 
 	// Act
 	reply, err := askPipe(h.State, runPipeRequest{Kind: "browser", Browser: &BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}})
