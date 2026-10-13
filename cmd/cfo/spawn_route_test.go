@@ -286,22 +286,25 @@ func TestRunSpawnAppliesAModelFlagOverTheRoutedLaneAndSaysSo(t *testing.T) {
 }
 
 func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
-	// codex is exhausted_now in the fixture, so the spawn falls to build, and
-	// build is judged on the model:fable scope of the model that will run
-	// rather than the all-models scope of the lane's own opus.
-	_, deps := routedRuntime(t, codexDeepTable)
+	// codex is exhausted_now in the fixture, so ordinary work falls from its
+	// codex default to the claude escalation lane, and that lane is judged on
+	// the model:fable scope of the model that will run rather than the
+	// all-models scope of the lane's own opus.
+	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","escalate_to":"deep","lanes":{
+	"build":{"harness":"codex","model":"gpt-5.5","effort":"high","note":"ordinary"},
+	"deep":{"harness":"claude","model":"opus","effort":"xhigh","note":"escalation"}}}`)
 	deps.quota = fixtureQuota(t, "exhausted")
 	got := captureSpawn(&deps, "spawned g23")
-	brief := briefWith(t, "Security review of the session cookie signing before launch.")
+	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
 
 	var stdout, stderr bytes.Buffer
 	if exit := runWithRuntime([]string{"spawn", "g23", "--project", `C:\project`, "--brief", brief, "--model", "fable", "--effort", "low"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
 	if string(got.Harness) != "claude" || got.Model != "fable" || got.Effort != "low" {
-		t.Errorf("request = %+v, want the build lane with both overrides applied", *got)
+		t.Errorf("request = %+v, want the escalation lane with both overrides applied", *got)
 	}
-	if !strings.Contains(stdout.String(), " quota=deep: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; build: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
+	if !strings.Contains(stdout.String(), " quota=build: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; deep: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
 		t.Errorf("stdout = %q, want the fable scope judged on the fallback lane and both overrides reported", stdout.String())
 	}
 }
