@@ -512,7 +512,10 @@ func TestNoSkipIsRecordedForAStopHookCFOOrAnUnprovenLine(t *testing.T) {
 			queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
 
 			// Act
-			_ = s.wakeCFO(context.Background(), time.Now().UTC().Add(cfoWakeStuckAfter+time.Minute))
+			err := s.wakeCFO(context.Background(), time.Now().UTC().Add(cfoWakeStuckAfter+time.Minute))
+			if (err != nil) != (test.deliverErr != nil) {
+				t.Errorf("wake = %v; want the unproven line reported, and nothing else", err)
+			}
 
 			// Assert
 			if kept := skips(t, stateDir); len(kept) != 0 {
@@ -524,5 +527,46 @@ func TestNoSkipIsRecordedForAStopHookCFOOrAnUnprovenLine(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A CFO switched to Claude Code takes its wakes through its Stop hook, so an
+// item offering the Codex CFO's restart is taken back.
+func TestTheOverlordsItemGoesOnceTheCFOTakesItsWakesItself(t *testing.T) {
+	// Arrange
+	busy := []string{"• Working (40m • esc to interrupt)", "› Ask Codex to do anything"}
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", busy)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	primary, _, err := readPrimary(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary.Agent = "claude"
+	data, err := json.Marshal(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	var states []string
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.CFOUnwoken != 0 {
+			states = append(states, r.State)
+		}
+	}
+	if len(states) != 1 || states[0] != "withdrawn" {
+		t.Errorf("items = %q; want the one item withdrawn", states)
 	}
 }

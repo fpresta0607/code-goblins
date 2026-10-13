@@ -157,8 +157,12 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	primary, _, err := readPrimary(stateDir)
-	if err != nil || primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
+	if err != nil {
 		return nil
+	}
+	// A CFO its Stop hook wakes, or one in Herdr, takes its wakes itself.
+	if primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
+		return s.Store.withdrawCFOUnwoken("The CFO now takes its wakes itself.")
 	}
 	if !primary.Process.VerifiedAlive() {
 		return s.untoldWakes(fresh, cfoWakeSkip{Why: "the CFO that registered no longer runs"}, now)
