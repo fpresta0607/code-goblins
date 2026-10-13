@@ -196,12 +196,16 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 	default:
 		_, err = refresher.RevokeMCP(meta.ID, []string{name})
 	}
-	if err != nil {
+	// A change that stands is told and shown as one, whatever failed after it.
+	if err != nil && !spawn.ChangeStands(err) {
 		apiError(w, 409, err.Error())
 		return
 	}
-	done := map[bool]string{true: "granted", false: "revoked"}[isGrant]
-	if _, err := wake.Append(stateDir, "notify", meta.ID, "connections: the Overlord "+done+" "+name+" from "+from); err != nil {
+	told := "connections: the Overlord " + map[bool]string{true: "granted", false: "revoked"}[isGrant] + " " + name + " from " + from
+	if err != nil {
+		told += ", but " + err.Error()
+	}
+	if _, err := wake.Append(stateDir, "notify", meta.ID, told); err != nil {
 		s.publish(err)
 	} else if _, err := wake.PublishEpisode(stateDir); err != nil {
 		s.publish(err)
@@ -210,6 +214,10 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
+			// A task replaced since the press is told nothing of the grant.
+			if current, err := state.ReadTaskMeta(stateDir, meta.ID); err != nil || current.SpawnGen != meta.SpawnGen {
+				return
+			}
 			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path)); err != nil {
 				s.publish(fmt.Errorf("telling %s to load the credentials the Overlord granted: %w", meta.ID, err))
 			}

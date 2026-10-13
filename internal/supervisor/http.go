@@ -37,6 +37,8 @@ type HTTP struct {
 	Host          string
 	Assets        fs.FS
 	mu            sync.Mutex
+	// refusals holds when each kind of refused board press last woke the CFO.
+	refusals map[string]time.Time
 	cache         map[string]cachedResponse
 	gitSlots      chan struct{}
 	streams       chan struct{}

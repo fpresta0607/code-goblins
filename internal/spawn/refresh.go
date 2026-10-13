@@ -402,13 +402,29 @@ func (r AuthRefresher) RevokeMCP(id string, servers []string) ([]string, error) 
 	return named, r.statusAfterChange(id, "credentials: "+r.actor()+" revoked the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+namesOr(named, "no server whose entry holds a value")+". The harness running now keeps them until it ends")
 }
 
+// changeStands is an error that follows a grant or a revoke that changed the
+// task's record: the change stands, and only saying so in its status log or
+// rewriting its credential script failed.
+type changeStands struct{ err error }
+
+func (e changeStands) Error() string { return e.err.Error() }
+func (e changeStands) Unwrap() error { return e.err }
+
+// ChangeStands reports whether err followed a change to the task's record
+// that stands, so its caller says what failed after it, never that nothing
+// changed.
+func ChangeStands(err error) bool {
+	var stands changeStands
+	return errors.As(err, &stands)
+}
+
 // statusAfterChange writes line, which says what a command just changed in
 // task id's record, into the task's status log. A failure is said as one that
 // follows a change that stands, since the same command run again finds
 // nothing left to change.
 func (r AuthRefresher) statusAfterChange(id, line string) error {
 	if err := state.AppendStatus(r.StateDir, id, line); err != nil {
-		return fmt.Errorf("spawn: the record of %s changed as asked, but no record of the change reached its status log: %w", id, err)
+		return changeStands{fmt.Errorf("spawn: the record of %s changed as asked, but no record of the change reached its status log: %w", id, err)}
 	}
 	return nil
 }
@@ -421,7 +437,7 @@ func (r AuthRefresher) statusAfterChange(id, line string) error {
 func (r AuthRefresher) scriptAfterChange(ctx context.Context, id string) (Refreshed, error) {
 	item, err := r.RefreshTask(ctx, id)
 	if err != nil {
-		return item, fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh %s: %w", id, id, err)
+		return item, changeStands{fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh %s: %w", id, id, err)}
 	}
 	return item, nil
 }
