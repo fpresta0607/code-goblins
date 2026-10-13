@@ -320,6 +320,10 @@ func TestTheTypedWakeLineSaysAFKModeIsOn(t *testing.T) {
 	}
 }
 
+// idleWithWorkRunning is a Codex CFO idle at its prompt while work it started
+// still runs, the shape suspected of 2026-10-13 01:17Z to 01:33Z.
+var idleWithWorkRunning = []string{"• Ran cfo drain", "  Running… (12m)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}
+
 // skips reads the record of the wakes the supervisor did not type.
 func skips(t *testing.T, stateDir string) []cfoWakeSkip {
 	t.Helper()
@@ -383,7 +387,7 @@ func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
 // restarts the CFO, made once, and taken back once the CFO is told.
 func TestTheOverlordIsToldOnceWhenTheCFOCannotBeWoken(t *testing.T) {
 	// Arrange
-	busy := []string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything"}
+	busy := idleWithWorkRunning
 	s, stateDir, typed, _ := typedWakeCFO(t, "codex", busy)
 	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
 	queueWake(t, stateDir, "notify", "g2", "blocked: which one?")
@@ -416,9 +420,9 @@ func TestTheOverlordIsToldOnceWhenTheCFOCannotBeWoken(t *testing.T) {
 	if len(items) != 1 || items[0].State != "ready" {
 		t.Fatalf("items = %+v; want one item waiting on the Overlord", items)
 	}
-	want := "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows it in the middle of a turn. Restart the CFO so it reads them?"
-	if items[0].Title != want || !strings.Contains(items[0].Command, " resume") {
-		t.Errorf("item = %q running %q; want %q running resume", items[0].Title, items[0].Command, want)
+	want := "The CFO has not been told of 2 fleet updates for 5 minutes, because its screen shows work it started still running. Restart the CFO so it reads them?"
+	if items[0].Title != want || !strings.HasPrefix(items[0].Command, "# ") {
+		t.Errorf("item = %q with command %q; want %q, with no command to run", items[0].Title, items[0].Command, want)
 	}
 
 	// Act and assert: the CFO takes the wakes, and the item goes.
@@ -435,7 +439,7 @@ func TestTheOverlordIsToldOnceWhenTheCFOCannotBeWoken(t *testing.T) {
 // turn runs cfo drain itself: once none waits, the item goes as well.
 func TestTheOverlordsItemGoesOnceTheCFODrainsItsWakes(t *testing.T) {
 	// Arrange
-	busy := []string{"• Working (40m • esc to interrupt)", "› Ask Codex to do anything"}
+	busy := idleWithWorkRunning
 	s, stateDir, _, _ := typedWakeCFO(t, "codex", busy)
 	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
 	now := time.Now().UTC()
@@ -534,7 +538,7 @@ func TestNoSkipIsRecordedForAStopHookCFOOrAnUnprovenLine(t *testing.T) {
 // item offering the Codex CFO's restart is taken back.
 func TestTheOverlordsItemGoesOnceTheCFOTakesItsWakesItself(t *testing.T) {
 	// Arrange
-	busy := []string{"• Working (40m • esc to interrupt)", "› Ask Codex to do anything"}
+	busy := idleWithWorkRunning
 	s, stateDir, _, _ := typedWakeCFO(t, "codex", busy)
 	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
 	now := time.Now().UTC()
@@ -569,4 +573,74 @@ func TestTheOverlordsItemGoesOnceTheCFOTakesItsWakesItself(t *testing.T) {
 	if len(states) != 1 || states[0] != "withdrawn" {
 		t.Errorf("items = %q; want the one item withdrawn", states)
 	}
+}
+
+// A CFO in the middle of a turn takes its wakes as the turn ends, and a
+// restart would end it at work, so its untyped wakes are recorded and never
+// put before the Overlord, however long they wait.
+func TestACFOInATurnIsNeverOfferedARestart(t *testing.T) {
+	// Arrange
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", []string{"• Working (3h 01m • esc to interrupt)", "› Ask Codex to do anything"})
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+
+	// Act
+	for _, after := range []time.Duration{cfoWakeStuckAfter + time.Second, time.Hour, 3 * time.Hour} {
+		if err := s.wakeCFO(context.Background(), now.Add(after)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.CFOUnwoken != 0 {
+			t.Errorf("offered %q to a CFO in a turn", r.Title)
+		}
+	}
+	if kept := skips(t, stateDir); len(kept) != 1 || kept[0].Why != whyInTurn {
+		t.Errorf("recorded %+v; want the one untyped wake with its reason", kept)
+	}
+}
+
+// The item restarts the CFO only through the board's Restart the CFO, which
+// the supervisor does itself: pressed as a command it runs nothing, since a
+// CFO a run terminal started is not proven to outlive that terminal.
+func TestTheRestartItemIsNeverRunAsACommand(t *testing.T) {
+	// Arrange
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleWithWorkRunning)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	if err := s.wakeCFO(context.Background(), time.Now().UTC().Add(cfoWakeStuckAfter+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	launched := 0
+	s.Options.Runs = &countingRuns{launched: &launched}
+	s.Store.mu.Lock()
+	var item Run
+	for i := range s.Store.db.Runs {
+		if s.Store.db.Runs[i].CFOUnwoken != 0 {
+			s.Store.db.Runs[i].RunAction, s.Store.db.Runs[i].State = "action", "running"
+			item = s.Store.db.Runs[i]
+		}
+	}
+	err := s.Store.save()
+	s.Store.mu.Unlock()
+	if err != nil || item.ID == "" {
+		t.Fatalf("item %+v, %v", item, err)
+	}
+
+	// Act
+	_, err = s.startRun(context.Background(), Action{ID: "action", RunID: item.ID, Generation: item.Identity})
+
+	// Assert
+	if err == nil || launched != 0 || !strings.Contains(err.Error(), "Restart the CFO") {
+		t.Errorf("run = %v after %d launches; want it refused with nothing launched", err, launched)
+	}
+}
+
+// countingRuns counts the run terminals a test's supervisor launched.
+type countingRuns struct{ launched *int }
+
+func (c *countingRuns) Launch(context.Context, RunLaunch) (RunStarted, error) {
+	*c.launched++
+	return RunStarted{}, nil
 }

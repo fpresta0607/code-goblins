@@ -66,6 +66,11 @@ type cfoWakeSkip struct {
 	Screen string    `json:"screen,omitempty"`
 }
 
+// whyInTurn is why a wake is not typed into a CFO in the middle of a turn,
+// which takes its wakes once the turn ends: it is never the Overlord's to
+// restart for that, since a restart would end a CFO at work.
+const whyInTurn = "its screen shows it in the middle of a turn"
+
 // cfoWokenFile holds the highest wake sequence a typed wake line covered:
 // the line sends the CFO to cfo drain, which shows all of them, so a record a
 // line covered is never typed about again, answered or not.
@@ -201,7 +206,7 @@ func (s *Service) untoldWakes(fresh []wake.Record, skip cfoWakeSkip, now time.Ti
 		}
 	}
 	waited := now.Sub(fresh[0].Time)
-	if waited < cfoWakeStuckAfter {
+	if waited < cfoWakeStuckAfter || skip.Why == whyInTurn {
 		return recordErr
 	}
 	return errors.Join(recordErr, s.offerCFORestart(fresh[0].Seq, len(fresh), waited, skip.Why, now))
@@ -225,16 +230,14 @@ func recordCFOWakeSkip(stateDir string, skip cfoWakeSkip) error {
 }
 
 // offerCFORestart puts before the Overlord, once for the oldest untyped wake
-// oldest, a Command Center item in plain words that restarts the CFO as
-// goblins resume does: the CFO cannot be told why its wakes wait, since that
-// would be one more wake.
+// oldest, a Command Center item in plain words whose one action is the
+// board's own Restart the CFO, which the supervisor does itself: the CFO
+// cannot be told why its wakes wait, since that would be one more wake. The
+// item is never run as a command, since a CFO a run terminal started is not
+// proven to outlive that terminal.
 func (s *Service) offerCFORestart(oldest, wakes int, waited time.Duration, why string, now time.Time) error {
 	if s.Store.offeredCFORestart(oldest, time.Now()) {
 		return nil
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		return err
 	}
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -247,13 +250,11 @@ func (s *Service) offerCFORestart(oldest, wakes int, waited time.Duration, why s
 		updates = "fleet update"
 	}
 	title := fmt.Sprintf("The CFO has not been told of %d %s for %d minutes, because %s. Restart the CFO so it reads them?", wakes, updates, int(waited/time.Minute), why)
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 	h := s.Store.Home
-	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(h.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(h.State) + "\n" +
-		"& " + quote(executable) + " resume\nexit $LASTEXITCODE\n"
+	command := "# This item restarts the CFO with the board's Restart the CFO, never as a command.\n"
 	// The item is made when it is, whichever moment the look was for.
 	made := time.Now().UTC()
-	_, err = s.recordBoardRun(Run{ID: id, Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: h.Root, State: "ready", CreatedAt: made, ExpiresAt: made.Add(runLifetime), CFOUnwoken: oldest})
+	_, err := s.recordBoardRun(Run{ID: id, Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: h.Root, State: "ready", CreatedAt: made, ExpiresAt: made.Add(runLifetime), CFOUnwoken: oldest})
 	return err
 }
 
@@ -347,7 +348,7 @@ func notIdle(screens harness.Screens, screen []string) string {
 		return "its screen shows " + dialog.Name
 	}
 	if screens.IsWorking(screen) {
-		return "its screen shows it in the middle of a turn"
+		return whyInTurn
 	}
 	// The row itself is redrawn as its clock ticks, so it stays in the
 	// screen kept beside the reason, never in the reason.
