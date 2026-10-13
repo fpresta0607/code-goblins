@@ -91,3 +91,54 @@ func TestJobProcessStartRejectsAPIDThatNoLongerBelongsToTheJob(t *testing.T) {
 		t.Fatalf("unrelated replacement authorized by old membership: %v %v", started, belongs)
 	}
 }
+
+// TestJobMemberFixture is a process a job holds, which waits to be ended.
+func TestJobMemberFixture(t *testing.T) {
+	if os.Getenv("CFO_JOB_MEMBER_FIXTURE") != "1" {
+		return
+	}
+	time.Sleep(time.Minute)
+}
+
+// A member is ended only while its pid still names the process that started
+// when the member did, so a pid Windows gave a later process in the job, such
+// as one a spared service started, never ends that process.
+func TestEndJobMemberEndsOnlyTheProcessItListed(t *testing.T) {
+	// Arrange
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = windows.TerminateJobObject(job, 1); _ = windows.CloseHandle(job) })
+	member := exec.Command(os.Args[0], "-test.run=^TestJobMemberFixture$")
+	member.Env = append(os.Environ(), "CFO_JOB_MEMBER_FIXTURE=1")
+	if err := member.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = member.Process.Kill(); _ = member.Wait() })
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(member.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(process)
+	if err := windows.AssignProcessToJobObject(job, process); err != nil {
+		t.Fatal(err)
+	}
+	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
+	if err != nil || len(members) != 1 {
+		t.Fatalf("members = %+v, %v; want the one process", members, err)
+	}
+	reused := members[0]
+	reused.Start = reused.Start.Add(-time.Second)
+
+	// Act
+	isEnded := endJobMember(job, reused)
+
+	// Assert
+	if event, err := windows.WaitForSingleObject(process, 500); isEnded || err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatalf("ended = %v, wait = %d, %v; want a process that started at another time left running", isEnded, event, err)
+	}
+	if !endJobMember(job, members[0]) {
+		t.Fatal("the process the job listed was not ended")
+	}
+}

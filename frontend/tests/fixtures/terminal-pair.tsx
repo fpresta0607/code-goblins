@@ -10,10 +10,10 @@ function Fixture() {
   const [isSecondShown, setSecondShown] = useState(true);
   return <div style={{ display: "flex", gap: 8, height: "100vh", width: "100vw" }}>
     <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
-      <HostTerminal query="run=first" harness="" label="First terminal" instance="fixture" visible shown focus={1} />
+      <HostTerminal query="run=first" harness="" label="First terminal" reportAs="the first terminal" instance="fixture" visible shown focus={1} />
     </div>
     <div style={{ display: isSecondShown ? "flex" : "none", flex: 1, minWidth: 0 }}>
-      <HostTerminal query="run=second" harness="" label="Second terminal" instance="fixture" visible shown={isSecondShown} focus={0} />
+      <HostTerminal query="run=second" harness="" label="Second terminal" reportAs="the second terminal" instance="fixture" visible shown={isSecondShown} focus={0} />
     </div>
     <button style={{ position: "fixed", top: 0, left: 0, zIndex: 10 }} onClick={() => setSecondShown((isShown) => !isShown)}>Switch terminal</button>
   </div>;

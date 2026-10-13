@@ -28,10 +28,12 @@ type Result struct {
 	// limit that ended it or a turn it never got.
 	Error string `json:"error,omitempty"`
 	// Execution is the path of the command's measured execution record,
-	// for a command run as one, and Leftovers what the command left running
-	// past its linger, which the run ended.
+	// for a command run as one, Leftovers what the command left running
+	// past its linger, which the run ended, and Spared the machine services
+	// it started, which the run left running.
 	Execution string     `json:"execution,omitempty"`
 	Leftovers []Leftover `json:"leftovers,omitempty"`
+	Spared    []Leftover `json:"spared,omitempty"`
 	// Packages are what became of each package a test command ran.
 	Packages []PackageResult `json:"packages,omitempty"`
 }

@@ -498,13 +498,13 @@ func (job *delayedCleanup) Usage() (execx.TreeUsage, error) { return execx.TreeU
 func (job *delayedCleanup) Members() ([]execx.EndedProcess, error) {
 	return nil, nil
 }
-func (job *delayedCleanup) TerminateAndWait(ctx context.Context) (execx.TreeUsage, error) {
+func (job *delayedCleanup) EndAndWait(ctx context.Context) (execx.TreeUsage, []execx.EndedProcess, error) {
 	close(job.entered)
 	select {
 	case <-job.released:
-		return execx.TreeUsage{}, nil
+		return execx.TreeUsage{}, nil, nil
 	case <-ctx.Done():
-		return execx.TreeUsage{}, ctx.Err()
+		return execx.TreeUsage{}, nil, ctx.Err()
 	}
 }
 
@@ -697,5 +697,52 @@ func TestExecutorNestedCleanupDeadlineCoversProgressCard(t *testing.T) {
 	}
 	if !requested.isHeldAs("slot-1", outer.Token()) {
 		t.Fatal("nested release removed outer custody")
+	}
+}
+
+// sparingCleanup is a job whose end spares a machine service.
+type sparingCleanup struct{}
+
+func (sparingCleanup) Usage() (execx.TreeUsage, error)        { return execx.TreeUsage{}, nil }
+func (sparingCleanup) Members() ([]execx.EndedProcess, error) { return nil, nil }
+func (sparingCleanup) EndAndWait(context.Context) (execx.TreeUsage, []execx.EndedProcess, error) {
+	return execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, []execx.EndedProcess{{Name: "Docker Desktop.exe", PID: 41}}, nil
+}
+
+// A cleanup retried after a run's end spared a machine service completes,
+// whether the run's own end or the retry spared it, and records the service.
+func TestExecutorRetryCompletesARunWhoseEndSparedAService(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		pending func(*Execution) *pendingCleanup
+	}{
+		{name: "spared at the run's end", pending: func(execution *Execution) *pendingCleanup {
+			return &pendingCleanup{execution: execution, usage: &execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, spared: []Leftover{{Name: "Docker Desktop.exe", PID: 41}}, isFinished: true, isGuardComplete: true, isTurnReleased: true, exitCode: 0}
+		}},
+		{name: "spared by the retry", pending: func(execution *Execution) *pendingCleanup {
+			return &pendingCleanup{tree: sparingCleanup{}, execution: execution, isFinished: true, isGuardComplete: true, isTurnReleased: true, exitCode: 0}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			execution, err := BeginExecution(t.TempDir(), []string{"controlled fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			executor := Executor{pending: map[string]*pendingCleanup{execution.ID(): test.pending(execution)}}
+
+			// Act
+			err = executor.RetryCleanup(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatalf("retry = %v, want the run's custody completed beside the spared service", err)
+			}
+			record := readExecution(t, execution.Path())
+			if !record.Measurement.CleanupConfirmed || len(record.Measurement.Spared) != 1 || record.Measurement.Spared[0].PID != 41 {
+				t.Fatalf("evidence = %+v, want the cleanup confirmed and the service named", record.Measurement)
+			}
+		})
 	}
 }

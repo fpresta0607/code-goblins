@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { knowInstance } from "../../src/api";
 import { CommandCenter } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
@@ -36,4 +37,5 @@ function Page() {
   </main>;
 }
 
+knowInstance(base.instance);
 createRoot(document.getElementById("root")!).render(<Page />);
