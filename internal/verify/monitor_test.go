@@ -144,3 +144,26 @@ func TestMonitorRetainsFailuresFromCancellationCleanupAndRecording(t *testing.T)
 		})
 	}
 }
+
+func TestMonitorDoesNotCompleteWhenTheFinalSampleCancels(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tree := &measuredTree{}
+	monitor := Monitor{Headroom: func() (Headroom, error) {
+		return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
+	}, Observe: func(measurement Measurement) error {
+		if measurement.State == Running {
+			cancel()
+		}
+		return nil
+	}}
+
+	// Act
+	result, err := monitor.Watch(ctx, tree)
+
+	// Assert
+	if !errors.Is(err, context.Canceled) || result.State != Interrupted || !result.CleanupConfirmed {
+		t.Fatalf("final sample cancellation = %+v, %v", result, err)
+	}
+}

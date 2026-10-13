@@ -137,6 +137,9 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if a.Available == nil {
 		return Turn{}, errors.New("verify: available memory cannot be read")
 	}
+	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
+		return Turn{}, err
+	}
 	unlock, err := custodyMutation(a.Dir)
 	if err != nil {
 		return Turn{}, err

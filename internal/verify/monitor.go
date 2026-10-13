@@ -108,6 +108,9 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 			failure = fmt.Errorf("verify: reserve pressure: physical available %d, reserve %d, commit available %d, reserve %d", headroom.PhysicalAvailable, monitor.Reserve.PhysicalAvailable, headroom.CommitAvailable, monitor.Reserve.CommitAvailable)
 			break
 		}
+		if failure = ctx.Err(); failure != nil {
+			break
+		}
 		if usage.ActiveProcesses == 0 {
 			break
 		}

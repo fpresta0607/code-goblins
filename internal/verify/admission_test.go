@@ -55,6 +55,23 @@ func admission(t *testing.T) Admission {
 	}
 }
 
+func TestAdmissionCreatesAFreshStoreBeforeTakingCustody(t *testing.T) {
+	// Arrange
+	requested := admission(t)
+	requested.Dir = filepath.Join(requested.Dir, "fresh", "slots")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	// Act
+	turn, err := requested.Wait(ctx)
+	defer turn.Release()
+
+	// Assert
+	if err != nil || turn.Token() == "" {
+		t.Fatalf("fresh store admission = %+v, %v", turn, err)
+	}
+}
+
 // take waits for a turn in the background and delivers it. A run still
 // waiting when the test ends is cancelled there, before its folder goes.
 func take(t *testing.T, a Admission) <-chan Turn {
