@@ -186,6 +186,7 @@ test("unavailable values and failed saves show their reasons", async ({ page }) 
   const engine = page.getByRole("group", { name: "Task engine", exact: true });
   await expect(engine.getByRole("combobox", { name: "Harness", exact: true }).locator("option[value=pi]")).toHaveJSProperty("disabled", true);
   await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
+  await engine.getByRole("combobox", { name: "Effort", exact: true }).selectOption("high");
   await engine.getByRole("button", { name: "Save", exact: true }).click();
   await expect(engine.locator(".click-feedback")).toHaveText("The task was edited. Reload its card.");
   await expect(engine.getByRole("alert")).toHaveCount(0);
