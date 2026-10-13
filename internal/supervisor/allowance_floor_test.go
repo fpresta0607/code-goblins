@@ -324,7 +324,8 @@ func TestAWeekUsedUpUnderAFloorOf0IsWaitedOutAsASpentSessionIs(t *testing.T) {
 // The scheduler reads the same setting: under a floor of 0 a queued task the
 // shipped lane table routes to Claude starts with 1 percent of the week
 // left, and under the default it waits for the reset. A table that routes
-// the task to Codex starts it while Claude waits.
+// the task to Codex starts it while Claude waits, and a row without a brief
+// is routed by the brief Start would write for it.
 func TestTheSchedulerStartsAQueuedGoblinByTheHomesFloor(t *testing.T) {
 	shipped, err := os.ReadFile(filepath.Join("..", "..", "data", "routing.json"))
 	if err != nil {
@@ -332,18 +333,24 @@ func TestTheSchedulerStartsAQueuedGoblinByTheHomesFloor(t *testing.T) {
 	}
 	for _, testCase := range []struct {
 		name, settings, lanes string
+		isBriefless           bool
 		shouldStart           bool
 	}{
 		{name: "the default floor"},
 		{name: "a floor of 0", settings: `{"weekly_floor_percent":{"claude":0}}`, shouldStart: true},
 		{name: "a floor of 0 for codex alone", settings: `{"weekly_floor_percent":{"codex":0}}`},
 		{name: "a table routing to codex", lanes: `{"default_lane":"build","lanes":{"build":{"harness":"codex","model":"gpt-5.5","effort":"high"}}}`, shouldStart: true},
+		{name: "a row without a brief", isBriefless: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
 			spawner := &spawnRecorder{}
 			handler, h := startBoard(t, 8*gigabyte, spawner)
-			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+			if testCase.isBriefless {
+				writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Ship it (repo: code-goblins)\n")
+			} else {
+				queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+			}
 			lanes := string(shipped)
 			if testCase.lanes != "" {
 				lanes = testCase.lanes

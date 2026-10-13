@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -102,7 +103,8 @@ func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time
 // renew. A start naming its harness waits on that provider's floor. One that
 // leaves the harness to routing waits while every lane cfo spawn may choose
 // for its brief is at its floor, so it is held rather than started into a
-// spawn that refuses. A lane table or brief that cannot be read holds
+// spawn that refuses. A queued row without a brief is routed by the brief
+// Start will write for it. A lane table or brief that cannot be read holds
 // nothing: the start runs and cfo spawn reports why it cannot route.
 func startHeldByAllowance(h home.Home, plan startPlan, watched *fleetWakes, now time.Time) bool {
 	if plan.harness != "" {
@@ -112,8 +114,10 @@ func startHeldByAllowance(h home.Home, plan startPlan, watched *fleetWakes, now 
 	if err != nil {
 		return false
 	}
-	brief, err := fsx.ReadFile(plan.brief)
-	if err != nil {
+	var brief []byte
+	if plan.missingBrief != nil {
+		brief = []byte(fleet.QueuedBriefText(*plan.missingBrief))
+	} else if brief, err = fsx.ReadFile(plan.brief); err != nil {
 		return false
 	}
 	if plan.model != "" {
