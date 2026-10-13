@@ -521,9 +521,21 @@ func (a Admission) take(capacity int) (turn Turn, failure error) {
 				if err != nil {
 					return err
 				}
+				// A nested controller that ended inside this turn leaves its
+				// custody to be recovered before the slot can go back.
+				var abandoned []Custody
 				for _, guard := range guards {
-					if guard.Token == turnToken(name, owner) {
+					if guard.Token != turnToken(name, owner) {
+						continue
+					}
+					if !guard.isAbandoned() {
 						return fmt.Errorf("verify: execution %s still holds worker custody", guard.RunID)
+					}
+					abandoned = append(abandoned, guard)
+				}
+				if len(abandoned) > 0 {
+					if err := recoverAbandoned(ctx, abandoned); err != nil {
+						return err
 					}
 				}
 				if err := ctx.Err(); err != nil {
