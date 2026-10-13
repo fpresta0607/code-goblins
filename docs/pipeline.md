@@ -526,7 +526,10 @@ Stale lease removal claims the record against writes and replacement, validates 
 Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
-`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says, while retention of the execution records and logs is not yet implemented.
+`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says.
+After each tier the executions store keeps the newest 100 passes and, apart from them, the newest 50 other records, so a burst of passes never evicts a failure's evidence, and what it keeps fits 2 GiB with its logs, the oldest passes going first.
+A record whose custody is still held, or one still pending and younger than a week, is never removed or counted, and a log whose record is gone is removed once it is a week old.
+It removes only files named as the store names them, counts a record it cannot read as no pass, and a removal that fails is named on standard error, tried again after the next tier, and never fails the tier.
 These same-user records are advisory, and the measured executor is not yet wired into `cfo gate turn` or a protected publisher.
 
 `ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.

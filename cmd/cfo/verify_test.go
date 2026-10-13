@@ -358,3 +358,34 @@ func TestVerifyRunsNothingOfATierWithAnEmptyCommand(t *testing.T) {
 		t.Fatalf("exit = %d, saved = %+v, want the tier refused before anything ran", exit, results)
 	}
 }
+
+// Each tier prunes the executions store, so its records and logs never grow
+// past what it keeps.
+func TestVerifyPrunesTheExecutionsStore(t *testing.T) {
+	// Arrange
+	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	executions := filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "executions")
+	if err := os.MkdirAll(executions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := filepath.Join(executions, "AAAAAAAAAAAAAAAAAAAAAAAAAA.json.stdout.log")
+	if err := os.WriteFile(abandoned, []byte("log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(abandoned, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
+		t.Fatalf("an abandoned log outlived the tier's pruning: %v", err)
+	}
+}
