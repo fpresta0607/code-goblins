@@ -153,6 +153,7 @@ type Store struct {
 	readers       sync.RWMutex
 	db            Database
 	committed     Database
+	pageReceipts  pageReceiptState
 	changed       chan struct{}
 	inboxCursor   string
 	deferredUntil map[string]time.Time
@@ -203,6 +204,9 @@ func Open(h home.Home) (*Store, error) {
 		}
 	}
 	s.committed = cloneDatabase(s.db)
+	if err := s.readPageReceipts(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -721,6 +725,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
 		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && s.db.Runs[run].Update == nil && !time.Now().Before(s.db.Runs[run].ExpiresAt):
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
+		case s.db.Runs[run].CFOUnwoken != 0:
+			return Action{}, errors.New("that item restarts the CFO with Restart the CFO; it runs no command")
 		case s.db.Runs[run].State == "withdrawn":
 			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":

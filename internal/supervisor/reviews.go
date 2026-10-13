@@ -1120,15 +1120,23 @@ func carriesQuestion(r Review, q Question) bool {
 	return r.State == "open" && r.Task != "" && r.LavishPage != "" && q.Status == "pending" && q.Task == r.Task && q.Identity == r.Identity
 }
 
-// answerQuestionsOnPage closes the questions item r's page carries as
+// answerQuestionsOnPage closes only the questions captured with the receipt as
 // answered by the Overlord on the page with what he wrote there, and marks
 // their notifies answered, so the CFO's drain retires them.
-func (s *Store) answerQuestionsOnPage(r Review, answer string) error {
+func (s *Store) answerQuestionsOnPage(receipt pageAnswer) error {
 	s.mu.Lock()
+	r := receipt.Item
+	if !s.currentPageVersion(r) {
+		s.mu.Unlock()
+		return nil
+	}
+	answer := strings.Join(receipt.Poll.Prompts, "\n")
 	var seqs []int
 	at := time.Now().UTC()
 	for i := range s.db.Questions {
-		if q := &s.db.Questions[i]; carriesQuestion(r, *q) {
+		if q := &s.db.Questions[i]; carriesQuestion(r, *q) && slices.ContainsFunc(receipt.Questions, func(captured pageQuestion) bool {
+			return captured.ID == q.ID && captured.Identity == q.Identity && captured.CreatedAt.Equal(q.CreatedAt)
+		}) {
 			q.Status, q.Message, q.AnswerID = "succeeded", "Answered on its page.", ""
 			q.Answer, q.AnswerKind = bounded(answer, 4000), "other"
 			q.AnsweredBy, q.AnsweredIn, q.AnsweredAt = "overlord", "page", &at
@@ -1171,11 +1179,11 @@ func (s *Store) closePagesOfQuestion(q Question, by, reason string) {
 	}
 }
 
-// windowClosed records when the review window of open item id disconnected.
-func (s *Store) windowClosed(id string, at time.Time) error {
+// windowClosed records when the captured review's window disconnected.
+func (s *Store) windowClosed(item Review, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return samePageVersion(r, item) && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
@@ -1183,12 +1191,12 @@ func (s *Store) windowClosed(id string, at time.Time) error {
 	return s.save()
 }
 
-// reviseReview marks the open item id as waiting on its reporter's next
+// reviseReview marks the captured open version as waiting on its reporter's next
 // version, which the Overlord asked for on its page at at.
-func (s *Store) reviseReview(id string, at time.Time) error {
+func (s *Store) reviseReview(item Review, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return samePageVersion(r, item) && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
@@ -1196,12 +1204,34 @@ func (s *Store) reviseReview(id string, at time.Time) error {
 	return s.save()
 }
 
-// asksOnPage reports whether item r's page carries a goblin's question still
-// waiting, which the Overlord's word on the page answers.
-func (s *Store) asksOnPage(r Review) bool {
+// questionsOnPage captures the pending questions when a poll first reads an
+// answer. Later polls and recovery cannot extend that answer to new questions.
+func (s *Store) questionsOnPage(r Review) []pageQuestion {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.db.Questions, func(q Question) bool { return carriesQuestion(r, q) })
+	if !s.currentPageVersion(r) || !slices.ContainsFunc(s.db.Reviews, func(current Review) bool { return current.State == "open" && samePageVersion(current, r) }) {
+		return nil
+	}
+	var questions []pageQuestion
+	for _, q := range s.db.Questions {
+		if carriesQuestion(r, q) {
+			questions = append(questions, pageQuestion{ID: q.ID, Identity: q.Identity, CreatedAt: q.CreatedAt})
+		}
+	}
+	return questions
+}
+
+// The caller holds the store lock. A retained row never stands for a newer
+// publication of the same page, even when that publication has another ID.
+func (s *Store) currentPageVersion(item Review) bool {
+	isFound := false
+	for _, r := range s.db.Reviews {
+		if pageKey(r.LavishPage) == pageKey(item.LavishPage) && r.CreatedAt.After(item.CreatedAt) {
+			return false
+		}
+		isFound = isFound || samePageVersion(r, item)
+	}
+	return isFound
 }
 
 func (s *Store) withdrawReview(id, reason string) error {

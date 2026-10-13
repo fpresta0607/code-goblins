@@ -9,6 +9,8 @@
 .train-card:hover { transform: var(--lift); border-color: var(--glass-border-hover); background: var(--glass-bg-hover), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .train-card.selected { border-color: var(--accent-green); box-shadow: var(--selected-glow); }
 .train-cards { display: grid; gap: 10px; margin-bottom: 10px; }
+.train-history { grid-column: 1 / -1; min-width: 0; }
+.train-note { margin: 0; color: var(--muted); font-size: .9375rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .train-head { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; color: inherit; text-align: left; }
 .train-mark { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: rgba(171, 125, 248, 0.14); color: var(--merged); }
 .train-mark .icon { width: 22px; height: 22px; }
