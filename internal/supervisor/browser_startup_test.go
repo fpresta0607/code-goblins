@@ -118,3 +118,19 @@ func TestBrowserRequestCancelledBehindTheMutexStartsNothing(t *testing.T) {
 		t.Fatal("cancelled request did not return")
 	}
 }
+
+func TestBrowserShutdownReportsUnconfirmedCleanupAndRetainsOwnership(t *testing.T) {
+	broker, _, _, _ := testBroker(t)
+	brokerTask(t, broker, "pd-keys", "throwaway")
+	if _, err := broker.attach(context.Background(), "pd-keys", "stripe"); err != nil {
+		t.Fatal(err)
+	}
+	broker.end = func(context.Context, browserlogin.Process) error { return errors.New("cleanup unconfirmed") }
+	broker.report = func(error) {}
+
+	err := broker.closeAll()
+
+	if err == nil || !strings.Contains(err.Error(), "confirmed closed") || len(broker.processes) != 1 || !broker.closing["stripe-throwaway"] {
+		t.Fatalf("shutdown = %v, owned %d, closing %v, want reported failure with retained ownership", err, len(broker.processes), broker.closing)
+	}
+}

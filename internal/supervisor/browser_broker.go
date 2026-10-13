@@ -363,7 +363,7 @@ func (b *browserBroker) sweep() error {
 }
 
 // closeAll closes every browser the broker runs, as the supervisor stops,
-// and returns once each is gone.
+// and reports any cleanup that could not be confirmed.
 func (b *browserBroker) closeAll() error {
 	b.mu.Lock()
 	b.closed = true
@@ -379,6 +379,11 @@ func (b *browserBroker) closeAll() error {
 	}
 	b.mu.Unlock()
 	b.work.Wait()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id := range b.processes {
+		failed = append(failed, fmt.Errorf("the browser of login %s could not be confirmed closed", id))
+	}
 	return errors.Join(failed...)
 }
 
