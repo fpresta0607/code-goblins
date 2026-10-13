@@ -410,6 +410,8 @@ Everything before `--` is `cfo`'s, and everything after it is the command's, its
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
 `cfo` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `cfo gate test`.
+When the run ends in a Codex or pi goblin's own terminal and worktree, it types one line into that goblin, as `cfo send` would, naming the run, its exit code and how long it took, since neither harness starts a turn when a background run ends; `cfo gate prepush` does the same.
+A gate the goblin started inherits its terminal's environment, but runs its steps in the gate's own worktree, so a gate's run types nothing.
 
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.

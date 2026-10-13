@@ -33,7 +33,8 @@ const pushLimit = 15 * time.Minute
 // memory is under the floor and none after its time limit, and ends one
 // still running at the limit. What it does not run it names as left to CI.
 // --plan prints the pick with each command and runs nothing.
-func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
+func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) (exit int) {
+	started := time.Now()
 	flags := flag.NewFlagSet("cfo gate prepush", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	planOnly := flags.Bool("plan", false, "print the pick and run nothing")
@@ -89,6 +90,10 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		fmt.Fprintf(stdout, "cfo gate prepush: nothing ran, since the machine gave this run no turn: %v. CI is the only check of this push.\n", err)
 		return 1
 	}
+	// Deferred first, so it runs once the turn is given back.
+	defer func() {
+		tellGoblinRunEnded(runtime, os.Getenv, "cfo gate prepush", pick.Root, "cfo gate prepush", exit, time.Since(started), stderr)
+	}()
 	defer turn.Release()
 
 	began := time.Now()

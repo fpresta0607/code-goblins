@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -67,6 +68,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		return exitNoTurn
 	}
 
+	started := time.Now()
 	signals, stop := runtime.interrupts()
 	defer stop()
 	ctx, leave := context.WithCancel(context.Background())
@@ -117,7 +119,16 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	} else if err := tree.Release(); err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: what its command left running may have ended with it, since it could not be let go: %v\n", err)
 	}
-	return process.ProcessState.ExitCode()
+	exit := process.ProcessState.ExitCode()
+	if !isInterrupted.Load() {
+		turn.Release()
+		what := strings.Join(command, " ")
+		if as != "" {
+			what = as
+		}
+		tellGoblinRunEnded(runtime, os.Getenv, "cfo gate turn", dir, what, exit, time.Since(started), stderr)
+	}
+	return exit
 }
 
 // parseGateTurn reads cfo gate turn's arguments: its own before --, the
