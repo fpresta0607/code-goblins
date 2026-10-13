@@ -22,7 +22,7 @@ func TestAClearClosesItsItemWhenTheBoardTakesIt(t *testing.T) {
 		{"a question he dismisses", Action{ID: "dismiss-1", Kind: "question_clear", QuestionID: "merge-the-train", Generation: identity},
 			func(d Database) string { return d.Questions[0].Status + ": " + d.Questions[0].Message }, "cleared: You dismissed it: answered elsewhere or no longer needed."},
 		{"a review he clears", Action{ID: "clear-1", Kind: "review_clear", ReviewID: "mockups-review-1", Generation: strings.Repeat("a", 64)},
-			func(d Database) string { return d.Reviews[0].State + ": " + d.Reviews[0].Reason }, "cleared: "},
+			func(d Database) string { return d.Reviews[0].State + ": " + d.Reviews[0].Reason }, "cleared: Cleared from the Command Center."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
