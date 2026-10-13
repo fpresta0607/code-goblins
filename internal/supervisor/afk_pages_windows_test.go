@@ -135,16 +135,21 @@ func TestWhileAFKModeIsOnAGoblinsPageIsTheCFOsDecision(t *testing.T) {
 
 // The CFO answers the page with cfo answer: the goblin gets the answer once,
 // the notify reads answered, the question closes as the CFO's answer while he
-// was away, the goblin's page items still open close with it, and the AFK log
-// keeps the answer with the page, the question and the CFO's choice.
+// was away, the goblin's items still open on that same page close with it,
+// its open item on another page stays open, and the AFK log keeps the answer
+// with the page, the question and the CFO's choice.
 func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
 	page := pageFile(t, mockupsChoices)
 	before := time.Now().UTC()
 	earlier := Review{ID: "waiting-task-1-1", Identity: goblinIdentity(meta), Task: meta.ID, Title: "Waiting on you: the first mockups (page " + mockupsPage + ")", Lavish: mockupsPage, LavishPage: page, State: "open", CreatedAt: before, UpdatedAt: before}
-	if err := s.Store.acceptReview(earlier); err != nil {
-		t.Fatal(err)
+	other := earlier
+	other.ID, other.Title, other.Lavish = "waiting-task-1-2", "Waiting on you: the harness cards (page http://127.0.0.1:4387/session/c4d5)", "http://127.0.0.1:4387/session/c4d5"
+	for _, r := range []Review{earlier, other} {
+		if err := s.Store.acceptReview(r); err != nil {
+			t.Fatal(err)
+		}
 	}
 	q, record := awayPage(t, s, h, page)
 
@@ -172,8 +177,8 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 	if got := snapshot.Questions[0]; got.ID != q.ID || got.Status != "succeeded" || got.AnsweredBy != "cfo" || !got.AnsweredAway || got.AnsweredOption != "Build it as shown" {
 		t.Errorf("the question = %+v, want it closed as the CFO's answer while he was away", got)
 	}
-	if len(snapshot.Reviews) != 1 || snapshot.Reviews[0].State == "open" {
-		t.Errorf("reviews = %+v, want the goblin's earlier page item closed", snapshot.Reviews)
+	if len(snapshot.Reviews) != 2 || snapshot.Reviews[0].State == "open" || snapshot.Reviews[1].State != "open" {
+		t.Errorf("reviews = %+v, want the goblin's earlier item on the same page closed and the one on another page open", snapshot.Reviews)
 	}
 	entries := afkEntries(t, h.State)
 	logged := entries[len(entries)-1]

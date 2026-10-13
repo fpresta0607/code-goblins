@@ -71,9 +71,6 @@ type Question struct {
 	// goblin has his.
 	ChangeID       string `json:"change_id,omitempty"`
 	ReplacedAnswer string `json:"replaced_answer,omitempty"`
-	// Page is, on the board only, the open review item whose page carries
-	// this question, so the Command Center shows the two as one.
-	Page string `json:"page,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -360,7 +357,7 @@ type cfoAnswer struct {
 // that is a delivery, submitted once, and it is recorded like one, so neither
 // the CFO nor the board sends a second decision.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
-	identity, release, err := c.CallerIdentity()
+	_, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", false, err
 	}
@@ -424,7 +421,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
 	if onBoard {
-		if err := c.recordAnswer(identity, q, id, chosen, answer, ""); err != nil {
+		if err := c.recordAnswer(q, id, chosen, answer, ""); err != nil {
 			unrecorded = append(unrecorded, err)
 		}
 	}
@@ -471,7 +468,7 @@ var answerPlace = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{0,39}$`)
 // ID, notify-<task>-<sequence> for a goblin's. It returns the choice it
 // recorded.
 func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error) {
-	identity, release, err := c.CallerIdentity()
+	_, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", err
 	}
@@ -530,7 +527,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := c.recordAnswer(identity, q, q.ID, chosen, withNote(chosen, note), in); err != nil {
+	if err := c.recordAnswer(q, q.ID, chosen, withNote(chosen, note), in); err != nil {
 		return "", err
 	}
 	if in == "" {
@@ -574,30 +571,19 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 	return nil
 }
 
-// recordAnswer tells the board which choice closed a goblin's question and
-// closes the goblin's waits on the Overlord up to it, since the goblin has
-// what it waited for; a later wait is its own request.
-func (c *CFOConnection) recordAnswer(identity string, q Question, id, chosen, answer, in string) error {
-	var unrecorded []error
+// recordAnswer tells the board which choice closed a goblin's question. It
+// closes only that question: the goblin's waits on the Overlord, such as a
+// sign-in only he can clear, stay his.
+func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
 	if !slices.Contains(q.Options, chosen) {
 		option = ""
 	}
 	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, At: time.Now().UTC()}}); err != nil {
-		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
+		return fmt.Errorf("the board could not record it: %w", err)
 	}
-	if q.Task == "" {
-		return errors.Join(unrecorded...)
-	}
-	waiting := func(r Review) bool {
-		n, err := strconv.Atoi(strings.TrimPrefix(r.ID, "waiting-"+q.Task+"-"))
-		return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") && err == nil && n <= q.Seq
-	}
-	if err := clearReviews(c.State, identity, "The CFO answered "+q.Task+"'s question.", waiting, false); err != nil {
-		unrecorded = append(unrecorded, fmt.Errorf("its waits on the Overlord stay open: %w", err))
-	}
-	return errors.Join(unrecorded...)
+	return nil
 }
 
 // questionSeq reads the wake sequence a goblin question reference names: the
@@ -822,10 +808,10 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
-		s.closePagesOfQuestion(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
+		s.closePageQuestionAsks(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
 		return nil
 	}
-	s.closePagesOfQuestion(*q, "cfo", "The CFO answered its question: "+a.Answer)
+	s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	return nil
 }
 

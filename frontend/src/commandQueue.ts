@@ -15,8 +15,7 @@ export type Item = { kind: "question"; key: string; question: Question } | { kin
 // the CFO passes up, a goblin's wait or page addressed to him, a command and
 // a credential request. A goblin's question is the CFO's to answer, never
 // his: it does not wait on him, alert him or open anything, and is in
-// History once answered. One it asked while its review page is open is shown
-// by that page's card.
+// History once answered.
 export const forOverlord = (item: Item) => item.kind !== "question" || !item.question.task;
 
 // A terminal a credential card opened shows on that card, not as a run of its own.
@@ -86,13 +85,6 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
 
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
-}
-
-// The card that shows the item at key: its page's card for a question folded
-// into one, else its own.
-export function cardKey(snapshot: Snapshot, key: string): string {
-  const item = itemFor(snapshot, key);
-  return item?.kind === "question" && item.question.page ? "review:" + item.question.page : key;
 }
 
 // The stack he works through: the CFO's own items first, then goblins in the

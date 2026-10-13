@@ -93,12 +93,9 @@ type Review struct {
 	// without ending its review: the item then waits on its reporter's next
 	// version, which replaces the page in this same item, not on him.
 	RevisingSince *time.Time `json:"revising_since,omitempty"`
-	// Question is, on the board only, the goblin's pending question this
-	// item's page carries, so the Command Center shows the two as one.
-	Question  string    `json:"question,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Reason        string     `json:"reason,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 func validReview(r Review) error {
@@ -343,42 +340,23 @@ func ClearReview(h home.Home, id, reason string) error {
 	if !reviewID.MatchString(id) || strings.TrimSpace(reason) == "" || len(reason) > 1900 {
 		return errors.New("a clear names the review ID and a reason of at most 1900 characters")
 	}
-	return clearReviews(h.State, identity, "Cleared by the CFO: "+strings.TrimSpace(reason), func(r Review) bool { return r.ID == id }, true)
-}
-
-// clearReviews spools the registered CFO's clear of every open item match
-// picks, under the publish lock. With one set, an item that is not open is
-// refused rather than skipped.
-func clearReviews(stateDir, identity, reason string, match func(Review) bool, one bool) error {
-	unlock, err := reviewPublishLock(stateDir)
+	unlock, err := reviewPublishLock(h.State)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	reviews, err := reportedReviews(stateDir)
+	reviews, err := reportedReviews(h.State)
 	if err != nil {
 		return err
 	}
-	found := false
-	for _, r := range reviews {
-		if !match(r) {
-			continue
-		}
-		found = true
-		if r.State != "open" {
-			if one {
-				return errors.New("the review is already " + r.State)
-			}
-			continue
-		}
-		if err := recordReview(stateDir, Review{ID: r.ID, Identity: identity, Task: r.Task, State: "cleared", Reason: reason, UpdatedAt: time.Now().UTC()}); err != nil {
-			return err
-		}
-	}
-	if one && !found {
+	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == id })
+	if i < 0 {
 		return errors.New("no review with that ID to clear")
 	}
-	return nil
+	if r := reviews[i]; r.State != "open" {
+		return errors.New("the review is already " + r.State)
+	}
+	return recordReview(h.State, Review{ID: id, Identity: identity, Task: reviews[i].Task, State: "cleared", Reason: "Cleared by the CFO: " + strings.TrimSpace(reason), UpdatedAt: time.Now().UTC()})
 }
 
 // reviewPublishLock serializes reporters, waiting briefly for another one.
@@ -882,21 +860,12 @@ func (s *Store) pruneReviews(now time.Time) error {
 const clearedFromTheCommandCenter = "Cleared from the Command Center."
 
 // clearReview closes open item i, which the Overlord cleared at at, with
-// reason, and records the clear in state/reviews.audit. A page's card shows
-// the question its goblin asked beside the page, so clearing it dismisses
-// that question in the same step, and the IDs of the questions dismissed come
-// back for the CFO to hear of. The caller holds the store lock.
-func (s *Store) clearReview(i int, reason string, at time.Time) []string {
-	var dismissed []string
-	for j := range s.db.Questions {
-		if q := &s.db.Questions[j]; carriesQuestion(s.db.Reviews[i], *q) && q.AnswerID == "" {
-			q.Status, q.Message = "cleared", "You cleared its page's card."
-			dismissed = append(dismissed, q.ID)
-		}
-	}
+// reason, and records the clear in state/reviews.audit. It closes only that
+// item: a question its goblin asked stays its own. The caller holds the store
+// lock.
+func (s *Store) clearReview(i int, reason string, at time.Time) {
 	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, at
 	s.auditClear(s.db.Reviews[i])
-	return dismissed
 }
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
@@ -1147,67 +1116,14 @@ func (s *Store) retireItems() error {
 	return nil
 }
 
-// carriesQuestion reports whether item r's page carries question q: an open
-// item with a page, and a pending question its goblin asked in the generation
-// that published it.
-func carriesQuestion(r Review, q Question) bool {
-	return r.State == "open" && r.Task != "" && r.LavishPage != "" && q.Status == "pending" && q.Task == r.Task && q.Identity == r.Identity
-}
-
-// answerQuestionsOnPage closes only the questions captured with the receipt as
-// answered by the Overlord on the page with what he wrote there, and marks
-// their notifies answered, so the CFO's drain retires them.
-func (s *Store) answerQuestionsOnPage(receipt pageAnswer) error {
-	s.mu.Lock()
-	r := receipt.Item
-	if !s.currentPageVersion(r) {
-		s.mu.Unlock()
-		return nil
-	}
-	answer := strings.Join(receipt.Poll.Prompts, "\n")
-	var seqs []int
-	at := time.Now().UTC()
-	for i := range s.db.Questions {
-		if q := &s.db.Questions[i]; carriesQuestion(r, *q) && slices.ContainsFunc(receipt.Questions, func(captured pageQuestion) bool {
-			return captured.ID == q.ID && captured.Identity == q.Identity && captured.CreatedAt.Equal(q.CreatedAt)
-		}) {
-			q.Status, q.Message, q.AnswerID = "succeeded", "Answered on its page.", ""
-			q.Answer, q.AnswerKind = bounded(answer, 4000), "other"
-			q.AnsweredBy, q.AnsweredIn, q.AnsweredAt = "overlord", "page", &at
-			seqs = append(seqs, q.Seq)
-		}
-	}
-	err := s.save()
-	s.mu.Unlock()
-	if err != nil || len(seqs) == 0 {
-		return err
-	}
-	for _, seq := range seqs {
-		err = errors.Join(err, wake.MarkAnswered(s.Home.State, seq, wake.AnsweredByOverlord, "on its page: "+bounded(answer, 2000)))
-	}
-	return err
-}
-
-// closeWaitsOfQuestion closes a goblin's waits on the Overlord up to its
-// question q, which his answer to q gives it; a wait filed after q is its
-// own request. The caller holds the store lock.
-func (s *Store) closeWaitsOfQuestion(q Question, reason string) {
-	prefix := "waiting-" + q.Task + "-"
+// closePageQuestionAsks closes the open items of the goblin that asked q
+// showing the page q names at its end, "(page <link>)", as AFK mode asks a
+// goblin's page of the CFO: an answer to that question is the answer to that
+// page, and to no other page or wait. The caller holds the store lock.
+func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
+	link := wake.Page(q.Text)
 	for i := range s.db.Reviews {
-		r := &s.db.Reviews[i]
-		if n, err := strconv.Atoi(strings.TrimPrefix(r.ID, prefix)); q.Task != "" && r.State == "open" && r.Task == q.Task && strings.HasPrefix(r.ID, prefix) && err == nil && n <= q.Seq {
-			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", "overlord", "question", bounded(reason, 2000), time.Now().UTC()
-		}
-	}
-}
-
-// closePagesOfQuestion closes the open items whose page carries question q,
-// now that q has its answer, as answered by whoever answered q through it.
-// The caller holds the store lock.
-func (s *Store) closePagesOfQuestion(q Question, by, reason string) {
-	for i := range s.db.Reviews {
-		r := &s.db.Reviews[i]
-		if r.State == "open" && r.Task != "" && r.LavishPage != "" && r.Task == q.Task && r.Identity == q.Identity {
+		if r := &s.db.Reviews[i]; link != "" && q.Task != "" && r.State == "open" && r.Task == q.Task && r.Identity == q.Identity && r.Lavish == link {
 			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", by, "question", bounded(reason, 2000), time.Now().UTC()
 		}
 	}
@@ -1236,23 +1152,6 @@ func (s *Store) reviseReview(item Review, at time.Time) error {
 	}
 	s.db.Reviews[i].RevisingSince = &at
 	return s.save()
-}
-
-// questionsOnPage captures the pending questions when a poll first reads an
-// answer. Later polls and recovery cannot extend that answer to new questions.
-func (s *Store) questionsOnPage(r Review) []pageQuestion {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.currentPageVersion(r) || !slices.ContainsFunc(s.db.Reviews, func(current Review) bool { return current.State == "open" && samePageVersion(current, r) }) {
-		return nil
-	}
-	var questions []pageQuestion
-	for _, q := range s.db.Questions {
-		if carriesQuestion(r, q) {
-			questions = append(questions, pageQuestion{ID: q.ID, Identity: q.Identity, CreatedAt: q.CreatedAt})
-		}
-	}
-	return questions
 }
 
 // The caller holds the store lock. A retained row never stands for a newer

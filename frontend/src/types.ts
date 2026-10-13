@@ -429,10 +429,9 @@ export interface Question {
   answered_option: string; answered_by: string; answered_at: string;
   // task names the goblin that asked; it is empty for the CFO's own question.
   task: string;
-  // page is the open review item whose page carries this question, which
-  // shows it; answered_in says where an answer given outside its card came
-  // from, such as "page".
-  page: string; answered_in: string;
+  // answered_in says where an answer given outside its card came from, such
+  // as "chat".
+  answered_in: string;
   // image_count is how many review images the goblin attached, one for each choice in order.
   image_count: number;
   // generation is the asking goblin's session; empty for the CFO's question.
@@ -455,9 +454,8 @@ export interface Review {
   // answered_by and answered_in say who answered the item outside the
   // Command Center and where, such as "overlord" on its "page".
   answered_by: string; answered_in: string;
-  // question is the goblin's pending question this item's page carries, and
-  // window_closed_at when the page's review window last closed, if it has.
-  question: string; window_closed_at: string;
+  // window_closed_at is when the page's review window last closed, if it has.
+  window_closed_at: string;
   // revising_since is when he sent a revision from the page without ending
   // its review: the item waits on its goblin's next version, not on him.
   revising_since: string;
@@ -698,7 +696,7 @@ function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), answered_in: string(q.answered_in),
         answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
     }),
     reviews: array(v.reviews).map((value) => {
@@ -706,7 +704,7 @@ function itemLists(v: Record<string, unknown>) {
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, download }) => ({ name: string(name), size: number(size), kind: string(kind), download: download === true }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {

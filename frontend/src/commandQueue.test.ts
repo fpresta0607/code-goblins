@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, cardKey, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -277,17 +277,6 @@ test("a review he answered on its own page reads as answered by him there, with 
   }
   assert.equal(answeredElsewhere(itemFor(snapshot, "review:waiting-notes-2")!), false, "a withdrawn item was not answered");
   assert.equal(answeredElsewhere(itemFor(snapshot, "review:r1")!), false, "an answer sent from its card is not an answer given elsewhere");
-});
-
-test("a question asked with its review page open is that page's card, never a second one", () => {
-  const page = "http://127.0.0.1:4387/session/ec2e";
-  const snapshot = parseSnapshot({ healthy: true,
-    questions: [question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "pending", { page: "waiting-polish-3584" }), question("pick-a-theme", "", "2026-09-30T23:44:00Z")],
-    reviews: [review("waiting-polish-3584", "polish", "2026-09-30T23:42:53Z", "open", { lavish: page, lavish_page: "C:/data/review-kanban/index.html", question: "notify-polish-3585" })],
-  });
-  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:pick-a-theme", "review:waiting-polish-3584"], "one card for the page and its question");
-  assert.equal(cardKey(snapshot, "question:notify-polish-3585"), "review:waiting-polish-3584", "the question is shown by its page's card");
-  assert.equal(cardKey(snapshot, "question:pick-a-theme"), "question:pick-a-theme");
 });
 
 test("a question answered on the page that carried it says so", () => {
