@@ -557,7 +557,7 @@ An interrupted publication that leaves an incomplete record still refuses admiss
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
 `cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says.
 After each tier, and after each `cfo gate turn` run, the executions store keeps the newest 100 passes, 50 failures and 20 runs that never started, each kept apart, so a burst of one never evicts the evidence of another, and apart from them the newest 200 runs that kept no logs, as `cfo gate turn`'s, whose output their caller keeps.
-What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then runs that kept no logs, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
+What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
 A record whose custody is still held, one still pending, and one it cannot read or that a newer cfo wrote, while younger than a week, is never removed or counted, so the 2 GiB covers only what it counts.
 A log whose record is gone is removed once it is a week old, and a record goes only once its logs are gone.
 It removes only plain files named as the store names them, refuses an executions folder that is a junction or link, and a removal that fails is named on standard error, tried again after the next tier, and never fails the tier.

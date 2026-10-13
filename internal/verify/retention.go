@@ -18,10 +18,11 @@ import (
 // The executions store keeps the newest passes, failures and refusals each
 // apart, so a burst of one never evicts the evidence of another, and apart
 // from them the runs that kept no logs. What it counts fits executionBudget
-// together, passes going first, then refusals, then runs that kept no logs,
-// then failures, but never past the newest pass and the newest
-// keptAlwaysFailures failures, so a run's own evidence outlives a budget it
-// overran alone.
+// together, passes going first, then refusals, then failures, but never past
+// the newest pass and the newest keptAlwaysFailures failures, so a run's own
+// evidence outlives a budget it overran alone. Runs that kept no logs are a
+// record each, which would free next to nothing, so only their count bounds
+// them.
 const (
 	keptPasses         = 100
 	keptFailures       = 50
@@ -168,7 +169,7 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 	for _, evictable := range []struct {
 		list  *[]stored
 		floor int
-	}{{&passes, 1}, {&refusals, 0}, {&unlogged, 0}, {&failures, keptAlwaysFailures}} {
+	}{{&passes, 1}, {&refusals, 0}, {&failures, keptAlwaysFailures}} {
 		for total > budget && len(*evictable.list) > evictable.floor {
 			last := (*evictable.list)[len(*evictable.list)-1]
 			*evictable.list = (*evictable.list)[:len(*evictable.list)-1]

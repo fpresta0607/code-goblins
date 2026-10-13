@@ -331,3 +331,32 @@ func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
 		}
 	}
 }
+
+// A run that kept no logs is a record alone, which would free next to
+// nothing, so a store over its budget keeps it, bounded by its count only.
+func TestPruneExecutionsKeepsRunsWithoutLogsOverItsBudget(t *testing.T) {
+	// Arrange
+	now := time.Now()
+	dir := t.TempDir()
+	passes := storedRun(t, dir, "passed", 3, now)
+	id := rand.Text()
+	data, err := json.Marshal(ExecutionRecord{Version: 1, ID: id, Status: "passed", Created: now.Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAged(t, filepath.Join(dir, id+".json"), data, now.Add(-time.Hour))
+
+	// Act
+	err = pruneExecutions(dir, t.TempDir(), 1, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, id+".json")); err != nil {
+		t.Fatalf("a run without logs was evicted for the budget: %v", err)
+	}
+	if !isStored(dir, passes[len(passes)-1]) || isStored(dir, passes[0]) {
+		t.Fatal("the budget did not trim the passes to the newest")
+	}
+}

@@ -95,9 +95,10 @@ type Monitor struct {
 	Grace   time.Duration
 	// Exited is closed once the command's own process has exited. Linger,
 	// ten seconds unless set, is how long what it left running may run on
-	// after it. What still runs then is ended and named as a leftover, and
-	// the run keeps the command's own result. Without Exited the run waits
-	// for the whole job.
+	// after it. What still runs then, or once free memory has stayed under
+	// the reserve for Sustain after the exit, is ended and named as a
+	// leftover, and the run keeps the command's own result. Without Exited
+	// the run waits for the whole job, and pressure fails it.
 	Exited <-chan struct{}
 	Linger time.Duration
 	// Cancel requests graceful cancellation and must return promptly.

@@ -458,3 +458,35 @@ func TestMonitorEndsWhatAnExitedCommandLeftUnderPressureWithoutFailing(t *testin
 		t.Fatalf("the run took %s, waiting out its linger under pressure", took)
 	}
 }
+
+// The command's exit is read before the pressure is judged, so a command
+// that exits in the very sample its pressure comes of age keeps its result.
+func TestMonitorReadsTheCommandsExitBeforeItsPressure(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, members: []execx.EndedProcess{{Name: "helper.exe", PID: 42}}}
+	exited := make(chan struct{})
+	sustain := 50 * time.Millisecond
+	var pressedSince time.Time
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Sustain: sustain, Exited: exited, Linger: time.Minute,
+		Headroom: func() (Headroom, error) {
+			if pressedSince.IsZero() {
+				pressedSince = time.Now()
+			} else if time.Since(pressedSince) >= sustain {
+				select {
+				case <-exited:
+				default:
+					close(exited)
+				}
+			}
+			return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil
+		},
+	}
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err != nil || result.State != Completed || len(result.Leftovers) != 1 {
+		t.Fatalf("result = %+v, %v; want the command's own result, the helper named", result, err)
+	}
+}
