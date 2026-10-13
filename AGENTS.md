@@ -112,7 +112,12 @@ A goblin started before this keeps the `TMP` it was started with until it is res
 - Every goblin's first instruction, a helper's and a takeover's too, says that what it starts is its own to end: browsers headless and programs hidden in tests unless a picture needs a window, every start tracked by its pid and ended by that pid, never by its name, and no retry or polling loop without a cap. `cfo brief` and the board's Start write the same into a brief's Constraints, and the supervisor tells you what it sees of it ([Supervision](#supervision)).
 - `--class` is `ordinary` (default), `high-risk`, or `mechanical`; it freezes the task's review repair budget at spawn - two cycles for ordinary and mechanical, three for high-risk - and a running task's snapshot never changes ([docs/pipeline.md](docs/pipeline.md)).
 - `--yolo` lets you decide routine gates inside the Supreme Overlord's request; without it, every merge asks the Supreme Overlord.
-- The Supreme Overlord can start a queued task himself with **Start** on the board, which runs this same `cfo spawn` with the task's brief and the harness, model, effort and mode its backlog row or brief names (else `claude` on `claude-opus-5-5` at `xhigh`), refused under 5 GB of free memory or of free commit (RAM plus page file), while its row waits for something that has not cleared, or for good once the task already finished, which its card says. A task with no brief gets one written from its queued row first, with a `brief created: ...` notify so you can amend it. It puts the task at the top of In progress and wakes you with a notify: `started: the Overlord started this from the board, ...` means it is dispatched, so update its backlog row as after your own dispatch; `start failed: ...` names why `cfo spawn` refused.
+- The Supreme Overlord can start a queued task himself with **Start** on the board, which runs this same `cfo spawn` with the task's brief and only the harness, model, effort and mode its backlog row or brief explicitly names, with the row taking precedence for each field.
+  Unspecified engine fields stay empty for the lane table to choose, both on the queued card and in a brief written from its row, and automatic starts use the same rule.
+  Start is refused under 5 GB of free memory or of free commit (RAM plus page file), while its row waits for something that has not cleared, or for good once the task already finished, which its card says.
+  A task with no brief gets one written from its queued row first, with a `brief created: ...` notify so you can amend it.
+  It puts the task at the top of In progress and wakes you with a notify: `started: the Overlord started this from the board, ...` means it is dispatched, so update its backlog row as after your own dispatch.
+  A `start failed: ...` names why `cfo spawn` refused.
 
 ### Heavy local runs
 
@@ -148,7 +153,10 @@ A refusal says why and when to ask again, and one goblin starts at a time, so a 
 The board's Start and Resume are one click: one clicked while another goblin starts or resumes, or while memory or disk is short, waits its turn on the supervisor rather than being refused, and one that fails reaches you as `start failed:` or `resume failed:`.
 A message the Overlord types to a paused, resuming or starting goblin is queued and delivered once, and one its goblin cannot take within ten minutes reaches you as `message not delivered:` with his words, yours to relay.
 A start that meets a `cfo spawn` you run by hand, which holds the home's spawn lock until its terminal runs, waits for its turn, and one that gives up after waiting 10 minutes tries once more as soon as the lock frees, as Start, Resume and the scheduler's own starts and resumes do.
-The helper is a local-only ship task named `<parent>-h<n>`, a number no earlier helper of that parent had, on the parent's harness, model and effort, in a worktree of its own on `<parent-branch>-h<n>`, cut from the parent's last commit; its brief is kept at `data/<helper>/brief.md`.
+The helper is a local-only ship task named `<parent>-h<n>`, a number no earlier helper of that parent had, in a worktree of its own on `<parent-branch>-h<n>`, cut from the parent's last commit.
+Its brief is kept at `data/<helper>/brief.md`, and its own task determines its routing independently of the parent's harness, model and effort.
+Explicit engine settings in the helper's brief override routing, while a mode other than local-only is refused before the start is recorded.
+Its project and credentials still come from its parent, and its brief grants no additional service or MCP access.
 It reports to its parent, not to you: its `cfo notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `cfo fleet-view` names each helper's parent.
 The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
@@ -625,7 +633,13 @@ You orchestrate deliberately, never by reflex.
 - **Classify before you spawn.** `ship` produces a code change and is the default when the request implies one. `scout` produces a report and is only for a plan, audit, or diagnosis the Supreme Overlord explicitly asked for, or a question whose answer could change what gets built.
 - **Let the lane table choose harness, model, and effort.** `cfo spawn` without `--harness` classifies the brief and routes it through `data/routing.json`; `cfo doctor` prints the table. As shipped: `deep` (claude, fable, xhigh) for architecture, security, migration, rescue and anything high risk; `build` (claude, opus, high) for ordinary implementation, the default; `mechanical` (claude, sonnet, medium) for renames, config edits, docs and tightly specified changes; `scout` (claude, fable, xhigh) for investigations that produce a report. The spawn reads quota-axi first and moves to the next usable lane when the wanted one is exhausted, saying so on the `routed` line, or refuses when none is usable.
   - Pass `--harness`, `--model`, or `--effort` only for the Supreme Overlord's stated preference; an explicit flag wins and the spawn line reports it. Never `max` without the Supreme Overlord saying so.
-  - A quota-driven lane change is never silent: the `routed` line names the wanted lane, the lane used, and the evidence. Never downgrade by hand to save quota.
+  - A quota-driven lane change is never silent: the `routed` line names the wanted lane, the lane used, and the evidence.
+    Class-specific work may try its requested lane, then the default, then escalation, while ordinary work may try only the default and escalation.
+    High-risk work and retries stay in escalation and refuse when it is unavailable or not configured, even if a lighter lane has quota.
+    Unrelated lanes and model names establish no capability equivalence.
+    Never downgrade by hand to save quota.
+  - The shipped table and a proposed conservative Codex tier table are described separately in [project routing](docs/project-runtime.md#execution-routing).
+    Installing a build preserves a home's existing table, and tuning that private table remains the CFO's decision.
 - **Never invent goblins.** Spawn only the goblins the request needs. Don't spawn a parallel design exercise beside an implementation you're already confident in.
 
 ## Secondmates

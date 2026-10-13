@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -32,18 +33,17 @@ const (
 // outside the supervisor: a verification run waits for it before its tests.
 const MemoryFloor = memoryFloor
 
-// The fleet's defaults for a goblin whose backlog row and brief name none.
+// Claude engine catalog defaults, separate from automatic task routing.
 const (
-	defaultHarness = "claude"
-	defaultModel   = "claude-opus-5-5"
-	defaultEffort  = "xhigh"
+	defaultModel  = "claude-opus-5-5"
+	defaultEffort = "xhigh"
 )
 
 var (
 	spawnHarnesses = []string{"claude", "codex", "pi"}
 	spawnModes     = []string{"no-mistakes", "direct-PR", "local-only"}
 	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]~-]{1,200}$`)
-	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S+)\s*$`)
+	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S.*?)\s*$`)
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
@@ -109,8 +109,8 @@ type startPlan struct {
 }
 
 func (p startPlan) args() []string {
-	args := []string{"spawn", p.id, "--project", p.project, "--brief", p.brief, "--harness", p.harness}
-	for _, flag := range [][2]string{{"--model", p.model}, {"--effort", p.effort}, {"--mode", p.mode}} {
+	args := []string{"spawn", p.id, "--project", p.project, "--brief", p.brief}
+	for _, flag := range [][2]string{{"--harness", p.harness}, {"--model", p.model}, {"--effort", p.effort}, {"--mode", p.mode}} {
 		if flag[1] != "" {
 			args = append(args, flag[0], flag[1])
 		}
@@ -330,7 +330,7 @@ func spawnFailure(output string, err error) string {
 // planStart is the cfo spawn a Start of id runs, or why it cannot: id must be
 // queued work with a brief and a project, not already running and not
 // already finished. Harness, model, effort and mode come from the backlog
-// row, then the brief, then the fleet's defaults.
+// row, then the brief. Unspecified engine settings are routed by spawn.
 func planStart(h home.Home, id string, finished *finishedWork, reading rowReading) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
 		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress", Held: true}
@@ -367,13 +367,8 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	}
 	settings := queuedEngine(row, briefSettings(brief))
 	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
-	switch {
-	case !slices.Contains(spawnHarnesses, plan.harness):
-		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names harness " + plan.harness + ", which cfo spawn does not run"}
-	case plan.mode != "" && !slices.Contains(spawnModes, plan.mode):
-		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names mode " + plan.mode + ", which cfo spawn does not run"}
-	case plan.model != "" && !spawnValue.MatchString(plan.model), plan.effort != "" && !spawnValue.MatchString(plan.effort):
-		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names a model or effort cfo spawn cannot take"}
+	if err := plan.validateEngine(); err != nil {
+		return startPlan{}, StartRefusal{Reason: err.Error()}
 	}
 	if errors.Is(briefErr, os.ErrNotExist) {
 		queued.Row.Repo, queued.Row.Mode, queued.Row.Harness, queued.Row.Model, queued.Row.Effort = plan.project, plan.mode, plan.harness, plan.model, plan.effort
@@ -382,35 +377,45 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	return plan, nil
 }
 
+func (p startPlan) validateEngine() error {
+	switch {
+	case p.harness != "" && !slices.Contains(spawnHarnesses, p.harness):
+		return fmt.Errorf("the brief or backlog row names harness %s, which cfo spawn does not run", p.harness)
+	case p.mode != "" && !slices.Contains(spawnModes, p.mode):
+		return fmt.Errorf("the brief or backlog row names mode %s, which cfo spawn does not run", p.mode)
+	case p.model != "" && !spawnValue.MatchString(p.model), p.effort != "" && p.effort != "default" && !slices.Contains(harness.Efforts(harness.Claude), p.effort):
+		return errors.New("the brief or backlog row names a model or effort cfo spawn cannot take")
+	}
+	return nil
+}
+
 func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
-	pick := func(fromRow, key, fallback string) string {
-		switch {
-		case fromRow != "":
+	pick := func(fromRow, key string) string {
+		if fromRow != "" {
 			return fromRow
-		case named[key] != "":
-			return named[key]
 		}
-		return fallback
+		return named[key]
 	}
-	plan := startPlan{harness: pick(row.Harness, "harness", defaultHarness)}
-	fallbackModel, fallbackEffort := "", ""
-	if plan.harness == defaultHarness {
-		fallbackModel, fallbackEffort = defaultModel, defaultEffort
+	return startPlan{
+		harness: pick(row.Harness, "harness"),
+		model:   pick(row.Model, "model"),
+		effort:  pick(row.Effort, "effort"),
+		mode:    pick(row.Mode, "mode"),
 	}
-	plan.model = pick(row.Model, "model", fallbackModel)
-	plan.effort = pick(row.Effort, "effort", fallbackEffort)
-	plan.mode = pick(row.Mode, "mode", "")
-	return plan
 }
 
 // briefSettings are the harness, model, effort and mode a brief names on
 // lines of their own, such as "mode: direct-PR" under its Delivery heading.
 func briefSettings(path string) map[string]string {
-	settings := map[string]string{}
 	lines, err := fsx.ReadLines(path)
 	if err != nil {
-		return settings
+		return map[string]string{}
 	}
+	return parseBriefSettings(lines)
+}
+
+func parseBriefSettings(lines []string) map[string]string {
+	settings := map[string]string{}
 	for _, line := range lines {
 		if match := briefSetting.FindStringSubmatch(line); match != nil {
 			key := strings.ToLower(match[1])
