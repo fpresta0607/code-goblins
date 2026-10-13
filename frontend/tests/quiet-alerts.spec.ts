@@ -26,14 +26,14 @@ const board = (fields: Record<string, unknown> = {}) => ({ healthy: true, instan
 // failed by its own report, one blocked at its gate, and the retired goblin's
 // pause that did not finish once its session had ended, which an older
 // supervisor served as the goblin failed and waiting on the CFO and this one
-// serves as paused; then that unanswered report counted as a question left on
-// the CFO for ten minutes.
-const news = () => board({ tasks: [
+// serves as paused; then a goblin's question the CFO has left for ten minutes,
+// which waits in the Command Center without an alert.
+const news = () => board({ at: "2026-10-07T15:09:11Z", questions: [{ ...question("theme-asks", "Which accent colour should the board use?", "2026-10-07T14:59:11Z"), task: "cg-theme" }], tasks: [
   task("pd-small-cleanups", RETIRED, { project: "PrecisionDocs-AI", phase: "paused", report: "", pr: "https://github.com/fpresta0607/PrecisionDocs-AI/pull/1507", reason: LIFECYCLE_SAID, activity: LIFECYCLE_SAID,
     lifecycle: { phase: "paused", action: "pause", at: "2026-10-07T14:49:11Z", kept: ["worktree C:\\dev\\PrecisionDocs-AI\\.worktrees\\gb-pd-small-cleanups"], stopped: [], problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "context deadline exceeded"], handoff_saved: false, validation_restarts: false } }),
   task("cg-probe", "Probe the DNS", { phase: "failed", report: "failed", activity: "failed: go test timed out at 9f3c2a1e" }),
   task("cg-theme", "Board theme", { phase: "blocked", reason: "Pipeline decision required at review; use cfo pipeline respond" }),
-], cfo_quiet: { since: "2026-10-07T14:59:11Z", count: 1, oldest_age: 600 } });
+] });
 
 // Every board the test opens gets its snapshots from the test, through a
 // stand-in event stream: nothing arrives that the test did not send.

@@ -50,9 +50,9 @@
 .afk-dialog:focus-visible { outline: none; }
 
 /* The recap: one page over the board, laid out as a Scrawl page is. Its
-   headline in plain words beside Go through them, which a narrow header puts
-   under the words, then Done, Decided for you and Needs you, each a heading
-   in the display face over its groups. A group is one card of lines with a
+   headline in plain words, then Needs you with Go through them beside it, then
+   Done and Decided for you, each a heading in the display face over its
+   groups, and a Close button at the end. A group is one card of lines with a
    rule between them: a line's mark, its words and how it ended, and on its
    right its link, Change, Evidence and time. Evidence opens under the words.
    A phone puts the right side under the words. */
@@ -61,9 +61,14 @@
 .afk-report-title p { margin: 0; overflow-wrap: anywhere; }
 .afk-headline { color: #eef3f1; font: 400 1.1875rem/1.55 var(--font-body); }
 .afk-headline strong { color: #fff; }
-.go-through { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.go-through .icon { width: 18px; height: 18px; }
+.go-through { white-space: nowrap; }
 .afk-part { margin-top: 30px; }
+/* Needs you is first, with Go through them beside its heading. */
+.afk-part.needs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 12px; }
+.afk-part.needs > h3 { margin-bottom: 12px; }
+.afk-part.needs .go-through { min-height: 36px; margin-bottom: 12px; padding: 0 14px; font-size: .9375rem; }
+.afk-part.needs > .afk-rows { grid-column: 1 / -1; }
+.afk-report-end { display: flex; justify-content: flex-end; margin-top: 30px; }
 .afk-part:first-of-type { margin-top: 6px; }
 .question-modal.afk-report .afk-part > h3 { margin: 0 0 6px; font: 400 1.5rem/1.3 var(--font-display); color: #f4fbff; }
 .afk-part-note { margin: 0 0 4px; color: var(--muted); }
@@ -75,7 +80,11 @@
 .afk-row.note { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .afk-row-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--field-bg); color: var(--mint); }
 .afk-row-mark .icon { width: 16px; height: 16px; }
-.afk-row-mark .goblin-avatar { width: 28px; height: 28px; }
+/* A goblin's head takes a column of its own beside the words, so no word runs
+   under it. The board's own rule for a small head comes later and as strong,
+   so this one also names the head's size class. */
+.afk-row-mark:has(> .goblin-avatar) { width: 44px; height: 44px; background: none; }
+.afk-row-mark .goblin-avatar.small { width: 44px; height: 44px; }
 .afk-row.warning .afk-row-mark { color: var(--amber); }
 .afk-row-text { display: grid; gap: 2px; min-width: 0; padding-top: 3px; }
 .afk-row-what { color: #eef3f1; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
@@ -85,14 +94,15 @@
 .afk-row.answered .afk-row-detail { color: var(--mint); }
 .afk-row.warning .afk-row-detail { color: var(--amber); }
 .afk-row-evidence { margin: 8px 0 2px; padding: 10px 12px; border-left: 2px solid var(--glass-border-hover); border-radius: 0 8px 8px 0; background: var(--field-bg); color: var(--muted); font-size: .9375rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-line; }
-.afk-row-side { display: flex; align-items: center; gap: 14px; padding-top: 4px; white-space: nowrap; }
+.afk-row-side { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .afk-row-side time { color: var(--muted); font-size: .9375rem; }
 .afk-row-link { display: inline-flex; align-items: center; gap: 5px; color: var(--mint); font-size: .9375rem; font-weight: 700; text-decoration: none; }
 .afk-row-link:hover { text-decoration: underline; }
 .afk-row-link .icon { width: 14px; height: 14px; }
-.afk-evidence-toggle { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
-.afk-evidence-toggle svg { width: 14px; height: 14px; }
-.afk-evidence-toggle[aria-expanded="true"] { color: #eef3f1; }
+/* Its buttons are the Command Center's raised round ones. */
+.icon-button.afk-icon-button { width: 36px; height: 36px; min-height: 36px; }
+.afk-icon-button .icon { width: 18px; height: 18px; }
+.afk-evidence-toggle[aria-expanded="true"] { border-color: var(--mint); color: var(--mint); }
 /* Needs you wears the lantern box of what waits on him, one box to a line. */
 .afk-rows.needs { display: grid; gap: 10px; border: 0; background: none; }
 .afk-rows.needs > .afk-row + .afk-row { border-top: 0; }

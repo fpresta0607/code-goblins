@@ -365,7 +365,6 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
-  cfo_quiet: { since: string; count: number; oldest_age: number } | null;
   // cfo_closed says the home's CFO registered and has since ended, with no
   // terminal up for a new one: the board says so and offers Reopen, and
   // shows no first-run page.
@@ -789,7 +788,6 @@ export function parseSnapshot(value: unknown): Snapshot {
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
-    cfo_quiet: v.cfo_quiet == null ? null : ((quiet) => ({ since: string(quiet.since), count: number(quiet.count), oldest_age: number(quiet.oldest_age) }))(object(v.cfo_quiet)),
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     cfo_configured: v.cfo_configured === undefined ? false : boolean(v.cfo_configured),
     inbox: number(v.inbox),
