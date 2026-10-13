@@ -278,3 +278,85 @@ func TestPruneExecutionsOfAStoreThatHasNoneIsNoError(t *testing.T) {
 		t.Fatalf("pruning a store with no executions = %v", err)
 	}
 }
+
+// A run that kept no logs, as cfo gate turn's, whose output its caller
+// keeps, is kept apart, so a burst of them never evicts a run's logs.
+func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
+	// Arrange
+	now := time.Now()
+	dir := t.TempDir()
+	logged := storedExecution(t, dir, "passed", now.Add(-time.Hour), now.Add(-time.Hour))
+	failures := storedRun(t, dir, "failed", keptFailures, now.Add(-time.Hour))
+	// A record its run left pending a week ago, with no logs, as a wrapper
+	// ended while it waited leaves: newer than every failure by when it was
+	// begun, it must not take a failure's place.
+	abandoned := rand.Text()
+	abandonedRecord, err := json.Marshal(ExecutionRecord{Version: 1, ID: abandoned, Status: "pending", Created: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAged(t, filepath.Join(dir, abandoned+".json"), abandonedRecord, now.Add(-2*abandonedExecutionAge))
+	var unlogged []string
+	for index := range keptUnlogged + 3 {
+		id := rand.Text()
+		created := now.Add(-time.Duration(keptUnlogged+3-index) * time.Second)
+		data, err := json.Marshal(ExecutionRecord{Version: 1, ID: id, Status: "passed", Created: created})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeAged(t, filepath.Join(dir, id+".json"), data, created)
+		unlogged = append(unlogged, id)
+	}
+
+	// Act
+	err = pruneExecutions(dir, t.TempDir(), executionBudget, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isStored(dir, logged) {
+		t.Fatal("a burst of runs without logs evicted a run's logs")
+	}
+	for _, id := range failures {
+		if !isStored(dir, id) {
+			t.Fatal("a run without logs, left pending, evicted a failure's logs")
+		}
+	}
+	for index, id := range unlogged {
+		_, statError := os.Stat(filepath.Join(dir, id+".json"))
+		// The abandoned record is a run without logs too, the newest of them.
+		if isKept := statError == nil; isKept != (index >= 4) {
+			t.Fatalf("run %d of %d without logs kept = %v; want the newest %d kept", index, len(unlogged), isKept, keptUnlogged)
+		}
+	}
+}
+
+// A run that kept no logs is a record alone, which would free next to
+// nothing, so a store over its budget keeps it, bounded by its count only.
+func TestPruneExecutionsKeepsRunsWithoutLogsOverItsBudget(t *testing.T) {
+	// Arrange
+	now := time.Now()
+	dir := t.TempDir()
+	passes := storedRun(t, dir, "passed", 3, now)
+	id := rand.Text()
+	data, err := json.Marshal(ExecutionRecord{Version: 1, ID: id, Status: "passed", Created: now.Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAged(t, filepath.Join(dir, id+".json"), data, now.Add(-time.Hour))
+
+	// Act
+	err = pruneExecutions(dir, t.TempDir(), 1, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, id+".json")); err != nil {
+		t.Fatalf("a run without logs was evicted for the budget: %v", err)
+	}
+	if !isStored(dir, passes[len(passes)-1]) || isStored(dir, passes[0]) {
+		t.Fatal("the budget did not trim the passes to the newest")
+	}
+}
