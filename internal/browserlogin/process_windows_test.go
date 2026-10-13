@@ -8,11 +8,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+
 	"github.com/fpresta0607/code-goblins/internal/cdp"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // startChrome starts a headless Chrome on a fresh profile and ends it with
@@ -115,6 +120,105 @@ func TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked(t *testing.T) {
 	// handler included, so Forget can delete it at once.
 	if err := os.RemoveAll(profile); err != nil {
 		t.Fatalf("the profile cannot be removed after End: %v", err)
+	}
+}
+
+func TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent(t *testing.T) {
+	process, profile := startChrome(t, []string{"localhost"})
+	if _, err := os.Stat(filepath.Join(profile, activePortFile)); !os.IsNotExist(err) {
+		t.Fatalf("Chrome published a raw debugger port file: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	command := execx.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf("$ErrorActionPreference = 'Stop'; @(Get-NetTCPConnection -State Listen | Where-Object OwningProcess -eq %d).Count", process.PID))
+	output, err := command.Output()
+	if err != nil || strings.TrimSpace(string(output)) != "0" {
+		t.Fatalf("Chrome's TCP listener check failed: %v, count %q", err, output)
+	}
+	socket, err := browserSocket(ctx, process.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cdp.Dial(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := cdp.Dial(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	finished := make(chan error, 2)
+	for _, connection := range []*cdp.Conn{first, second} {
+		go func() { finished <- connection.Call(ctx, "Browser.getVersion", nil, nil) }()
+	}
+	for range 2 {
+		if err := <-finished; err != nil {
+			t.Fatal(err)
+		}
+	}
+	first.Close()
+	if err := second.Call(ctx, "Target.getTargets", nil, nil); err != nil {
+		t.Fatal("closing one client broke the other: ", err)
+	}
+}
+
+func TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents(t *testing.T) {
+	process, _ := startChrome(t, []string{"localhost"})
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	socket, err := browserSocket(ctx, process.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.Dial(ctx, socket, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.CloseNow()
+	if err := wsjson.Write(ctx, connection, devToolsMessage{ID: 1, Method: "Target.setAutoAttach", Params: json.RawMessage(`{"autoAttach":true,"waitForDebuggerOnStart":false,"flatten":true}`)}); err != nil {
+		t.Fatal(err)
+	}
+	var session string
+	var isAttached bool
+	for !isAttached || session == "" {
+		var message devToolsMessage
+		if err := wsjson.Read(ctx, connection, &message); err != nil {
+			t.Fatal(err)
+		}
+		if len(message.Error) != 0 {
+			t.Fatal("Chrome refused auto attachment")
+		}
+		if message.ID == 1 {
+			isAttached = true
+		}
+		if message.Method == "Target.attachedToTarget" {
+			var attached struct {
+				Session string                `json:"sessionId"`
+				Target  struct{ Type string } `json:"targetInfo"`
+			}
+			if err := json.Unmarshal(message.Params, &attached); err != nil {
+				t.Fatal(err)
+			}
+			if attached.Target.Type == "page" {
+				if message.Session != "" {
+					t.Fatal("the client's private root session leaked into an event")
+				}
+				session = attached.Session
+			}
+		}
+	}
+	if err := wsjson.Write(ctx, connection, devToolsMessage{ID: 2, Method: "Runtime.evaluate", Session: session, Params: json.RawMessage(`{"expression":"6 * 7","returnByValue":true}`)}); err != nil {
+		t.Fatal(err)
+	}
+	var response devToolsMessage
+	if err := wsjson.Read(ctx, connection, &response); err != nil {
+		t.Fatal(err)
+	}
+	var result struct{ Result struct{ Value int } }
+	if err := json.Unmarshal(response.Result, &result); err != nil || response.ID != 2 || response.Session != session || result.Result.Value != 42 {
+		t.Fatal("an auto-attached page did not receive its command and reply")
 	}
 }
 

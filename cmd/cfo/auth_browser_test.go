@@ -122,11 +122,19 @@ func TestAuthBrowserIsRefused(t *testing.T) {
 
 // browserTool is a runner standing in for chrome-devtools-axi.
 type browserTool struct {
-	runs []execx.Request
+	runs     []execx.Request
+	security *execx.Result
+	failure  error
 }
 
 func (b *browserTool) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	b.runs = append(b.runs, request)
+	if len(request.Args) > 0 && request.Args[0] == "security" {
+		if b.security != nil {
+			return *b.security, b.failure
+		}
+		return execx.Result{Stdout: []byte(`{"version":"0.1.35-codegoblins.1","platform":"win32","bridge_transport":"windows-user-v1"}`)}, b.failure
+	}
 	return execx.Result{}, nil
 }
 
@@ -141,11 +149,11 @@ func TestHandingOverRestartsTheSessionsBridgeOnTheLentBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tool.runs) != 2 || tool.runs[0].Args[0] != "stop" || tool.runs[1].Args[0] != "start" || tool.runs[0].Name != "chrome-devtools-axi" {
-		t.Fatalf("runs = %+v, want chrome-devtools-axi stop then start", tool.runs)
+	if len(tool.runs) != 3 || !slices.Equal(tool.runs[0].Args, []string{"security", "--json"}) || tool.runs[1].Args[0] != "stop" || tool.runs[2].Args[0] != "start" || tool.runs[0].Name != "chrome-devtools-axi" {
+		t.Fatal("want chrome-devtools-axi security, stop, then start")
 	}
-	if !slices.Contains(tool.runs[1].Env, "CHROME_DEVTOOLS_AXI_BROWSER_URL=http://127.0.0.1:9333") || slices.ContainsFunc(tool.runs[0].Env, func(entry string) bool { return strings.HasPrefix(entry, "CHROME_DEVTOOLS_AXI_BROWSER_URL=") }) {
-		t.Fatalf("start env names the lent browser: %v, stop env: %v", slices.Contains(tool.runs[1].Env, "CHROME_DEVTOOLS_AXI_BROWSER_URL=http://127.0.0.1:9333"), tool.runs[0].Env)
+	if !slices.Contains(tool.runs[2].Env, "CHROME_DEVTOOLS_AXI_BROWSER_URL=http://127.0.0.1:9333") || len(tool.runs[0].Env) != 0 || len(tool.runs[1].Env) != 0 {
+		t.Fatal("only start may receive the lent browser's URL")
 	}
 }
 
@@ -159,5 +167,35 @@ func TestLettingGoOnlyStopsTheSessionsBridge(t *testing.T) {
 	// Assert
 	if err != nil || len(tool.runs) != 1 || tool.runs[0].Args[0] != "stop" {
 		t.Fatalf("runs = %+v (%v), want chrome-devtools-axi stop alone", tool.runs, err)
+	}
+}
+
+func TestBrowserHandoffRefusesAnUnsecuredBridgeBeforeSendingTheLoginURL(t *testing.T) {
+	for _, test := range []struct {
+		name, output string
+		code         int
+		failure      error
+	}{
+		{"old command", "unknown command", 1, nil},
+		{"missing capability", `{"version":"99.0.0","platform":"win32"}`, 0, nil},
+		{"wrong transport", `{"version":"99.0.0","platform":"win32","bridge_transport":"loopback"}`, 0, nil},
+		{"wrong platform", `{"version":"99.0.0","platform":"linux","bridge_transport":"windows-user-v1"}`, 0, nil},
+		{"missing version", `{"platform":"win32","bridge_transport":"windows-user-v1"}`, 0, nil},
+		{"invalid json", `not json`, 0, nil},
+		{"extra output", `{"version":"99.0.0","platform":"win32","bridge_transport":"windows-user-v1"} trailing`, 0, nil},
+		{"failed launch", "", 0, errors.New("tool unavailable")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tool := &browserTool{security: &execx.Result{Stdout: []byte(test.output), ExitCode: test.code}, failure: test.failure}
+
+			err := handBrowserSession(tool)(context.Background(), "http://127.0.0.1:9333")
+
+			if err == nil || !strings.Contains(err.Error(), "Windows user") {
+				t.Fatalf("handoff = %v, want a secured bridge required", err)
+			}
+			if len(tool.runs) != 1 || !slices.Equal(tool.runs[0].Args, []string{"security", "--json"}) || len(tool.runs[0].Env) != 0 {
+				t.Fatal("the unproven tool received the login URL or changed its session")
+			}
+		})
 	}
 }

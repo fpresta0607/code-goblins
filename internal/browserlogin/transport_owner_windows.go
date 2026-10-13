@@ -30,6 +30,10 @@ func ownerOnlyDevTools(owner string, next http.Handler) http.Handler {
 			refuse()
 			return
 		}
+		if r.Host != local.String() || r.Header.Get("Origin") != "" && r.Header.Get("Origin") != "http://"+local.String() {
+			refuse()
+			return
+		}
 		pid, err := proc.TCPPeerProcess(peer, local)
 		if err != nil {
 			refuse()

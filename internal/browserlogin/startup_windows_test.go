@@ -33,7 +33,7 @@ func TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed(t *testing.T) 
 	readinessFailure := errors.New("readiness failed")
 	cleanupFailure := errors.New("cleanup unconfirmed")
 	var owned Process
-	await := func(context.Context, string) (string, error) { return "", readinessFailure }
+	await := func(context.Context, *devToolsPipe) error { return readinessFailure }
 	cleanup := func(process Process) error {
 		owned = process
 		return cleanupFailure
@@ -61,9 +61,9 @@ func TestCancellationDuringReadinessClosesBeforeReturning(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var owned Process
-	await := func(context.Context, string) (string, error) {
+	await := func(context.Context, *devToolsPipe) error {
 		cancel()
-		return "http://127.0.0.1:1", nil
+		return nil
 	}
 	cleanup := func(process Process) error {
 		owned = process

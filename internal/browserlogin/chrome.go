@@ -8,9 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -29,12 +27,11 @@ type Launch struct {
 }
 
 // Arguments are Chrome's command line for the launch: the login's profile,
-// a DevTools port Chrome picks on 127.0.0.1, which it writes into the
-// profile, and no first-run pages.
+// a private inherited DevTools pipe, and no first-run pages.
 func (l Launch) Arguments() []string {
 	arguments := []string{
 		"--user-data-dir=" + l.Profile,
-		"--remote-debugging-port=0",
+		"--remote-debugging-pipe",
 		"--no-first-run",
 		"--no-default-browser-check",
 	}
@@ -68,27 +65,6 @@ func ClearPort(profile string) error {
 		return nil
 	}
 	return err
-}
-
-// AwaitDevTools waits for the Chrome on profile to write its DevTools port
-// and answer on it, and returns its address, http://127.0.0.1:<port>.
-func AwaitDevTools(ctx context.Context, profile string) (string, error) {
-	for {
-		if data, err := fsx.ReadFile(filepath.Join(profile, activePortFile)); err == nil {
-			line, _, _ := strings.Cut(string(data), "\n")
-			if port, err := strconv.Atoi(strings.TrimSpace(line)); err == nil && port > 0 && port < 65536 {
-				address := "http://127.0.0.1:" + strconv.Itoa(port)
-				if _, err := browserSocket(ctx, address); err == nil {
-					return address, nil
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return "", fmt.Errorf("chrome did not open its DevTools port: %w", ctx.Err())
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
 }
 
 // browserSocket is the browser's own DevTools WebSocket at address.

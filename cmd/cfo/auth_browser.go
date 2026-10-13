@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -99,6 +100,17 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 // session reuses while that browser answers.
 func handBrowserSession(runner execx.Runner) func(context.Context, string) error {
 	return func(ctx context.Context, url string) error {
+		if url != "" {
+			result, err := runner.Run(ctx, execx.Request{Name: "chrome-devtools-axi", Args: []string{"security", "--json"}, KillTree: true})
+			var security struct {
+				Version         string `json:"version"`
+				Platform        string `json:"platform"`
+				BridgeTransport string `json:"bridge_transport"`
+			}
+			if err != nil || result.ExitCode != 0 || len(result.Stdout) > 8192 || json.Unmarshal(result.Stdout, &security) != nil || security.Version == "" || security.Platform != "win32" || security.BridgeTransport != "windows-user-v1" {
+				return fmt.Errorf("chrome-devtools-axi must enforce the Windows user boundary (security capability windows-user-v1) before it can take a login's browser")
+			}
+		}
 		if err := runBrowserTool(ctx, runner, nil, "stop"); err != nil {
 			return err
 		}

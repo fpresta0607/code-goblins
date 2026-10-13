@@ -119,9 +119,14 @@ func TestChromeOnALoginIsHeadlessAndReachesOnlyItsHosts(t *testing.T) {
 
 	arguments := launch.Arguments()
 
-	for _, want := range []string{`--user-data-dir=C:\cfo\state\browser-logins\stripe-x`, "--remote-debugging-port=0", "--headless", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE stripe.com, EXCLUDE *.stripe.com"} {
+	for _, want := range []string{`--user-data-dir=C:\cfo\state\browser-logins\stripe-x`, "--remote-debugging-pipe", "--headless", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE stripe.com, EXCLUDE *.stripe.com"} {
 		if !slices.Contains(arguments, want) {
 			t.Errorf("arguments %q lack %q", arguments, want)
+		}
+	}
+	for _, argument := range arguments {
+		if strings.HasPrefix(argument, "--remote-debugging-port") {
+			t.Fatal("the login exposes Chrome's raw debugging TCP listener")
 		}
 	}
 }
