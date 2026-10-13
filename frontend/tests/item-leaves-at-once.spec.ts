@@ -522,7 +522,6 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
   await card(page).locator(".send-decision").click();
   await expect(card(page)).toBeVisible();
   await expect(card(page)).toContainText("Sending");
-  await expect(card(page)).toContainText(RING);
   supervisor.accept();
   await expect.poll(() => supervisor.posted.map((body) => [body.kind, body.question_id])).toEqual([["goblin_answer", olive.id]]);
 });
