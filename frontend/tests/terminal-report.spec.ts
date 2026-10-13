@@ -38,7 +38,7 @@ test("a terminal that did not answer is named to the CFO, its own and a goblin's
   // Act: he opens the goblin's terminal.
   const boardTab = page.getByRole("button", { name: "Board", exact: true });
   if (await boardTab.isVisible()) await boardTab.click();
-  await page.locator(".task-board .task-card-shell").filter({ hasText: "Export invoices as CSV" }).locator(".task-card").click();
+  await page.locator(".task-board .task-card-shell").filter({ hasText: "Zora" }).locator(".task-card").click();
 
   // Assert
   await expect.poll(() => reports).toContainEqual({ where: "the terminal of Zora - Invoice Imp (nw-invoice-export)", text: "The terminal of this task did not answer." });
