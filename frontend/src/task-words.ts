@@ -26,6 +26,12 @@ export function goblinName(task: Pick<Task, "id" | "title" | "goblin_name" | "go
   return task.goblin_name ? [task.goblin_name, task.goblin_title].filter(Boolean).join(" - ") : taskName(task);
 }
 
+// terminalOf names a goblin's terminal to the CFO: by the goblin and its task,
+// since a report that says only "a goblin's terminal" names none of them.
+export function terminalOf(task: Pick<Task, "id" | "title" | "goblin_name" | "goblin_title">): string {
+  return "the terminal of " + goblinName(task) + " (" + task.id + ")";
+}
+
 // A goblin's report starts with its state, which the status above it says.
 const STATE_WORD = /^(?:(?:working|blocked|failed|done|lifecycle-[a-z]+):|waiting on [^\s:]+:|Waiting on the CFO:)\s*/;
 
