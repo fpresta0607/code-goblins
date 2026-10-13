@@ -15,4 +15,7 @@ func TestTreeAccountingRequiresWholeTreeSupport(t *testing.T) {
 	if _, err := tree.TerminateAndWait(context.Background()); err == nil {
 		t.Fatal("unsupported cleanup reported success")
 	}
+	if _, _, err := tree.EndAndWait(context.Background()); err == nil {
+		t.Fatal("unsupported cleanup reported success")
+	}
 }

@@ -42,6 +42,7 @@ type pendingCleanup struct {
 	execution         *Execution
 	isFinished        bool
 	usage             *execx.TreeUsage
+	spared            []Leftover
 	isGuardComplete   bool
 	isTurnReleased    bool
 	isEvidencePending bool
@@ -265,6 +266,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	measurement, failure := monitor.Watch(runContext, tree)
 	if measurement.CleanupConfirmed {
 		pending.usage = &measurement.Usage
+		pending.spared = measurement.Spared
 	}
 	select {
 	case <-exited:
@@ -340,14 +342,17 @@ func (pending *pendingCleanup) retry(ctx context.Context) error {
 		if pending.tree == nil {
 			return errors.New("verify: failed process setup requires external cleanup proof")
 		}
-		usage, err := pending.tree.TerminateAndWait(ctx)
+		usage, spared, err := pending.tree.EndAndWait(ctx)
 		if err != nil {
 			return err
 		}
-		if usage.ActiveProcesses != 0 {
+		if len(spared) == 0 && usage.ActiveProcesses != 0 {
 			return errors.New("verify: retry returned active workers")
 		}
 		pending.usage = &usage
+		for _, process := range spared {
+			pending.spared = append(pending.spared, Leftover{Name: process.Name, PID: process.PID})
+		}
 	}
 	if !pending.isGuardComplete {
 		if err := pending.guard.CompleteContext(ctx); err != nil {
@@ -361,7 +366,7 @@ func (pending *pendingCleanup) retry(ctx context.Context) error {
 		}
 		pending.isTurnReleased = true
 	}
-	if err := pending.execution.recoveredCleanup(ctx, *pending.usage, pending.exitCode); err != nil {
+	if err := pending.execution.recoveredCleanup(ctx, *pending.usage, pending.spared, pending.exitCode); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {

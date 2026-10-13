@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { knowInstance } from "../../src/api";
 import { WorkspaceDetails } from "../../src/WorkspaceDetails";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
@@ -12,4 +13,5 @@ const render = (runs: unknown[]) => {
   board.render(<main className="panel-content" style={{ maxWidth: 720, margin: "auto" }}><WorkspaceDetails task={snapshot.tasks[0]} runs={snapshot.runs} snapshot={snapshot} onRepair={(key) => { document.title = key; }} /></main>);
 };
 Object.assign(window, { finishRepair: (id: string) => render([{ id, state: "succeeded", finished_at: new Date().toISOString(), connection_task: "connection-proof", connection_generation: "first" }]) });
+knowInstance("connections-proof");
 render([]);

@@ -192,7 +192,12 @@ func (j *job) end(pid int) error {
 			return fmt.Errorf("unassigned chrome %d did not exit", pid)
 		}
 	}
-	members, err := proc.EndJob(j.handle)
+	members, spared, err := proc.EndJob(context.Background(), j.handle)
+	// What the end spared outlives the job's handle, so a machine service is
+	// never ended with it, even by an end that failed beside it.
+	if len(spared) > 0 {
+		err = errors.Join(err, proc.KeepJobOnClose(j.handle))
+	}
 	if err != nil {
 		return fmt.Errorf("end chrome %d's job: %w", pid, err)
 	}

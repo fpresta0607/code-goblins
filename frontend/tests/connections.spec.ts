@@ -179,3 +179,25 @@ test("returning from sign-in rechecks once per sign-in attempt", async ({ page, 
   await expect(page.getByRole("button", { name: "Recheck connections" })).toBeEnabled();
   expect(forcedChecks).toBe(2);
 });
+
+// The connections that could not be read are named to the CFO by goblin and
+// task: "a goblin's connections" told it nothing it could act on.
+test("connections that cannot be read are named to the CFO by goblin and task", async ({ page }) => {
+  // Arrange
+  const reports: { where: string; text: string }[] = [];
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/engines") return route.fulfill({ json: engines });
+    if (path === "/api/cfo/report") { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); }
+    if (path === "/api/connections") return route.fulfill({ status: 503, json: { error: "Connections cannot be checked now." } });
+    return route.fulfill({ status: 404, json: { error: "Unknown fixture request" } });
+  });
+
+  // Act
+  await page.goto("/tests/fixtures/connections.html");
+  await page.getByText("Connections", { exact: true }).click();
+
+  // Assert
+  await expect.poll(() => reports.map((report) => report.where)).toContain("reading the connections of Build review panel (connection-proof)");
+  expect(reports.map((report) => report.where)).not.toContain("reading a goblin's connections");
+});
