@@ -17,10 +17,10 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // box with its name on the tab, which says nothing of what waits: its lantern
 // Open Command Center carries how many wait, and that is the whole signal, as
 // he chose on 2026-10-07 ("i liked the lantern box button"). With no CFO
-// running, which he sees only after choosing the board without one, its button
-// leads back to the first-run page to start one. A CFO that was closed,
-// however it ended, is said to be closed, with Reopen as its one action, which
-// brings it back as goblins does. Restart is in the CFO's panel, off the bar.
+// running in a home with no saved harness, its button leads back to the
+// first-run page to start one. A saved CFO that is not running offers Reopen.
+// A CFO that was closed, however it ended, is said to be closed, with Reopen
+// to bring it back as goblins does. Restart is in the CFO's panel, off the bar.
 // A CFO still starting has not registered yet: Claude Code registers through
 // its SessionStart hook after onboarding and sign-in, and a Codex or pi CFO
 // when its first prompt runs cfo register. While the board cannot reach the
@@ -47,10 +47,10 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       setReopening(false);
     }
   };
-  if (snapshot.cfo_closed) return <div className="cfo-pin">
+  if (snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs) return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
-      <p>The CFO is closed.</p>
+      <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
       <button className="labelled-button primary" disabled={reopening} onClick={reopen}><Icon name="play" />{reopening ? "Reopening the CFO…" : "Reopen the CFO"}</button>
       <ClickFeedback text={feedback} />
     </div>

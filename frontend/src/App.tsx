@@ -220,8 +220,8 @@ export function App() {
   // a start that failed shows why on its card instead.
   const outcome = awaitingStart && snapshot ? startOutcome(awaitingStart, snapshot) : "wait";
   if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
-  // The board's root is the first-run page whenever no CFO runs.
-  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, choice: firstRunChoice });
+  // A home that already chose its CFO stays on the board while it comes back.
+  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, cfoConfigured: snapshot.cfo_configured, choice: firstRunChoice });
   // The first time this browser shows the board of a home whose CFO runs, it
   // opens as the Overlord keeps his own: the Board with the CFO's terminal
   // beside it and the keyboard in that terminal. A window too narrow for two

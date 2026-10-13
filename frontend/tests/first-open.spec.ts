@@ -56,6 +56,54 @@ const panel = (page: Page) => page.getByRole("complementary", { name: "Task revi
 const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
 const columns = (page: Page) => page.locator(".task-board").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
 
+test("reopening a configured home with no registered CFO stays on the board and can retry", async ({ page }) => {
+  // Arrange
+  const setupRequests: string[] = [];
+  const reopenRequests: { token: string | null; body: string | null }[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/setup")) setupRequests.push(request.url());
+  });
+  await open(page, { ...running, cfo_runs: false, cfo_terminal: "", cfo_harness: "", cfo_configured: true });
+  await page.route("**/api/cfo/reopen", async (route) => {
+    reopenRequests.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postData() });
+    return route.fulfill({ status: 500, json: { error: "The CFO could not be reopened" } });
+  });
+
+  // Act
+  await expect(board(page)).toBeVisible();
+  await page.getByRole("button", { name: "Reopen the CFO" }).click();
+
+  // Assert
+  await expect(page.locator(".cfo-pin .click-feedback")).toHaveText("The CFO could not be reopened.");
+  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  expect(reopenRequests).toEqual([{ token: "fixture", body: "{}" }]);
+  await page.reload();
+  await expect(board(page)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
+  expect(setupRequests).toEqual([]);
+});
+
+test("reopening with the saved CFO running keeps the board and its Restart control", async ({ page }) => {
+  // Arrange
+  const setupRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/setup")) setupRequests.push(request.url());
+  });
+  await open(page, { ...running, cfo_configured: true }, { "cfo-first-open": "shown", "cfo-pane-width": "650" });
+
+  // Act
+  await page.reload();
+  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task", exact: true }).click();
+
+  // Assert
+  await expect(board(page)).toBeVisible();
+  await expect(page.locator(".panel-header").getByRole("button", { name: "Restart the CFO" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Start Code Goblins" })).toHaveCount(0);
+  expect(setupRequests).toEqual([]);
+});
+
 // besideTheBoard is the default view: the Board with the CFO's panel on its
 // Terminal view to the right of it, neither covering the other.
 async function besideTheBoard(page: Page) {

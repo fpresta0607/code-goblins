@@ -28,8 +28,8 @@ export type FirstRunChoice = "" | "started" | "board";
 // showsFirstRun is whether the board's root shows the first-run page: whenever
 // no CFO runs in a home that has had none, which is how the installer and its
 // shortcut open it, unless he just started one or chose to see the board
-// without a CFO. A home whose CFO was closed has had one: its board stays,
+// without a CFO. A home with a saved harness or whose CFO was closed stays,
 // with Reopen on the CFO's bar.
-export function showsFirstRun({ cfoRuns, cfoClosed, choice }: { cfoRuns: boolean; cfoClosed: boolean; choice: FirstRunChoice }): boolean {
-  return !cfoRuns && !cfoClosed && choice === "";
+export function showsFirstRun({ cfoRuns, cfoClosed, cfoConfigured, choice }: { cfoRuns: boolean; cfoClosed: boolean; cfoConfigured: boolean; choice: FirstRunChoice }): boolean {
+  return !cfoRuns && !cfoClosed && !cfoConfigured && choice === "";
 }

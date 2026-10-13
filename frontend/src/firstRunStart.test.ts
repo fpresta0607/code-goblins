@@ -29,14 +29,16 @@ test("Start uses the picked agent, or the one the quick start remembered, or the
   for (const [name, given, picked, lookedAtFolder, want] of cases) assert.deepEqual(startState(given, picked, lookedAtFolder), want, name);
 });
 
-test("the board's root shows the first-run page only in a home that has had no CFO, unless he just started one or chose the board", () => {
+test("the board's root keeps configured homes out of quick start", () => {
   const cases: [string, Parameters<typeof showsFirstRun>[0], boolean][] = [
-    ["no CFO", { cfoRuns: false, cfoClosed: false, choice: "" }, true],
-    ["a CFO runs", { cfoRuns: true, cfoClosed: false, choice: "" }, false],
-    ["just started, before the board sees it", { cfoRuns: false, cfoClosed: false, choice: "started" }, false],
-    ["the board without a CFO, by his choice", { cfoRuns: false, cfoClosed: false, choice: "board" }, false],
-    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, cfoClosed: false, choice: "" }, true],
-    ["a CFO that was closed: the home has had one, so the board stays", { cfoRuns: false, cfoClosed: true, choice: "" }, false],
+    ["no CFO", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "" }, true],
+    ["a CFO runs", { cfoRuns: true, cfoClosed: false, cfoConfigured: false, choice: "" }, false],
+    ["just started, before the board sees it", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "started" }, false],
+    ["the board without a CFO, by his choice", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "board" }, false],
+    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, cfoClosed: false, cfoConfigured: false, choice: "" }, true],
+    ["a CFO that was closed: the home has had one, so the board stays", { cfoRuns: false, cfoClosed: true, cfoConfigured: false, choice: "" }, false],
+    ["a configured home before its CFO registers", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "" }, false],
+    ["a configured home whose CFO start failed", { cfoRuns: false, cfoClosed: false, cfoConfigured: true, choice: "started" }, false],
   ];
   for (const [name, given, want] of cases) assert.equal(showsFirstRun(given), want, name);
 });

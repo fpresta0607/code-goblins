@@ -370,6 +370,7 @@ export interface Snapshot {
   // terminal up for a new one: the board says so and offers Reopen, and
   // shows no first-run page.
   cfo_closed: boolean;
+  cfo_configured: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -787,6 +788,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     cfo_quiet: v.cfo_quiet == null ? null : ((quiet) => ({ since: string(quiet.since), count: number(quiet.count), oldest_age: number(quiet.oldest_age) }))(object(v.cfo_quiet)),
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
+    cfo_configured: v.cfo_configured === undefined ? false : boolean(v.cfo_configured),
     inbox: number(v.inbox),
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
