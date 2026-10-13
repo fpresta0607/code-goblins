@@ -127,6 +127,64 @@ func TestClearActionsCloseOnlyWhatTheOverlordMayClear(t *testing.T) {
 	}
 }
 
+// On 2026-10-13 Olive's wait on the Overlord for a Google Groups sign-in,
+// waiting-pd-billing-margin-review-1001404, read cleared four minutes after
+// she filed it, with no reason and no line in state/reviews.audit, so no one
+// could tell who closed it or that he never saw it. A clear from the Command
+// Center is recorded there as the CFO's are, and a wait it closes is told to
+// its goblin, which still waits, and to the CFO.
+func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := state.TaskMeta{ID: "olive-task", Backend: "native", SpawnGen: "g1", Worktree: h.Root}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	wait := openReview("waiting-olive-task-1001404", meta.ID)
+	wait.Identity, wait.Title = goblinIdentity(meta), "Sign in to Google Groups"
+	if err := store.acceptReview(wait); err != nil {
+		t.Fatal(err)
+	}
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var told []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		told = append(told, text)
+		return nil
+	}
+	s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+
+	// Act
+	if _, err := store.Queue(Action{ID: "clear-wait", Kind: "review_clear", ReviewID: wait.ID, Generation: wait.Identity}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(context.Background(), s.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	cleared := store.Snapshot().Reviews[0]
+	if cleared.State != "cleared" || cleared.Reason != "Cleared from the Command Center." {
+		t.Errorf("the wait reads %s: %q, want cleared from the Command Center", cleared.State, cleared.Reason)
+	}
+	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
+	if err != nil || !strings.Contains(string(audit), wait.ID+" "+meta.ID+" Cleared from the Command Center.") {
+		t.Errorf("reviews.audit = %q, %v; want the clear recorded", audit, err)
+	}
+	if len(told) != 1 || !strings.Contains(told[0], wait.ID) || !strings.Contains(told[0], "Command Center") {
+		t.Errorf("the goblin was told %q, want one note that its wait was cleared", told)
+	}
+	records, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(records, func(r wake.Record) bool {
+		return r.Kind == "review" && r.Key == meta.ID && strings.Contains(r.Detail, wait.ID) && strings.Contains(r.Detail, "cleared")
+	}) {
+		t.Errorf("wakes = %+v, want the CFO told the Overlord cleared the wait", records)
+	}
+}
+
 // Closed items and their copied images go a set time after they closed; open
 // items never do, and a full list of open items defers a new one.
 func TestReviewsPruneClosedItemsAndNeverDropOpenOnes(t *testing.T) {

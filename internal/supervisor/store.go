@@ -745,7 +745,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 	case question >= 0:
 		a.Dismissed = s.clearQuestion(question)
 	case a.Kind == "review_clear":
-		a.Dismissed = s.clearReview(review, a.Text, a.CreatedAt)
+		a.Dismissed = s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
 	}
 	s.db.Actions = append(s.db.Actions, a)
 	if answer {
