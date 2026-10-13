@@ -499,6 +499,13 @@ Recovery preserves failure status, and an executor with pending cleanup must not
 Restart recovery and retention of the execution records and logs are not yet implemented, so these APIs remain outside the live command path.
 These same-user records are advisory, and the measured executor is not yet wired into the CLI wrapper or a protected publisher.
 
+`ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
+It requires complete preparation evidence and matching sizes and SHA-256 hashes, so a revision directory or ready marker alone cannot hide missing runtime files.
+Incomplete or interrupted preparation, unreadable evidence or files, path traversal, symlinks and reparse points are refused.
+It only reads the named generation and does not discover, reinstall, repair or remove shared caches.
+Same-user mutable generations remain advisory because their contents can change during or after validation.
+Trusted reuse still requires a protected immutable generation, trusted inventory and a successful runtime initialization probe under admission.
+
 **Not in the wrapper.**
 It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.
 
