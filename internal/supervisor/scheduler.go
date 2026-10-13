@@ -125,9 +125,11 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			problems = errors.Join(problems, fmt.Errorf("parent of %s: %w", meta.ID, err))
 			continue
 		}
-		// An allowance pause waits out the allowance it paused on, which
-		// is no wait for a goblin resuming on other settings.
-		isOtherAllowance := record.Pause.Reason == "allowance" && (harness != meta.Harness || model != meta.Model)
+		// An allowance pause waits out the allowance of the harness it paused
+		// on, which is no wait for a goblin resuming on another harness. One
+		// resuming on another model of the same harness still waits, since
+		// without a reading the account's own floor may be what paused it.
+		isOtherAllowance := record.Pause.Reason == "allowance" && harness != meta.Harness
 		isReady = isReady || isWithParent || isOtherAllowance
 		if isReady {
 			ready = append(ready, record)

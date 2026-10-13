@@ -304,13 +304,15 @@ func TestAllowancePauseResumesAtItsResetAndTaskPauseRequiresDelivery(t *testing.
 // never by the one it paused on.
 func TestPausedGoblinResumesByTheAllowanceOfItsResumeChoice(t *testing.T) {
 	for _, testCase := range []struct {
-		name, reason, until, harness, chosen, lowProvider string
-		shouldResume                                      bool
+		name, reason, until, harness, chosen, chosenModel, choiceGeneration, lowProvider string
+		shouldResume                                                                   bool
 	}{
 		{name: "chosen harness at its floor", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "claude", chosen: "codex", lowProvider: "codex"},
 		{name: "paused harness at its floor", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "codex", chosen: "claude", lowProvider: "codex", shouldResume: true},
 		{name: "allowance pause of the paused harness", reason: "allowance", until: "2999-01-01T00:00:00Z", harness: "claude", chosen: "codex", shouldResume: true},
 		{name: "allowance pause kept on the same harness", reason: "allowance", until: "2999-01-01T00:00:00Z", harness: "claude", chosen: "claude"},
+		{name: "allowance pause kept on another model of the same harness", reason: "allowance", until: "2999-01-01T00:00:00Z", harness: "claude", chosen: "claude", chosenModel: "claude-other-model"},
+		{name: "choice of an earlier session", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "claude", chosen: "codex", choiceGeneration: "earlier-generation", lowProvider: "codex", shouldResume: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
@@ -322,7 +324,14 @@ func TestPausedGoblinResumesByTheAllowanceOfItsResumeChoice(t *testing.T) {
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			if err := state.WriteEngineChoice(h.State, state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: testCase.chosen, Model: testCase.chosen + "-model", Effort: "high", When: "resume", Requested: now}); err != nil {
+			choice := state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: testCase.chosen, Model: testCase.chosen + "-model", Effort: "high", When: "resume", Requested: now}
+			if testCase.chosenModel != "" {
+				choice.Model = testCase.chosenModel
+			}
+			if testCase.choiceGeneration != "" {
+				choice.Generation = testCase.choiceGeneration
+			}
+			if err := state.WriteEngineChoice(h.State, choice); err != nil {
 				t.Fatal(err)
 			}
 			handler.Service.Options.Quota = func(context.Context) (quota.Report, string) {
