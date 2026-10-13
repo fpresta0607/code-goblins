@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,10 +97,11 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 			windows.CloseHandle(childHandle)
 		}
 	})
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond,
+	// The child outlives the linger, so only pressure can end the run.
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond, Sustain: time.Millisecond, Linger: time.Minute,
 		Headroom: func() (Headroom, error) {
 			if isParentGone {
-				return Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}, nil
+				return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil
 			}
 			return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
 		}, Observe: func(measurement Measurement) error {
@@ -126,8 +128,8 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	result, err := executor.Run(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorTracksDescendantsAfterTheParentExits$"}, Env: append(os.Environ(), roleVariable+"=parent")})
 
 	// Assert
-	if err == nil || !isParentGone || result.ExitCode != 0 {
-		t.Fatalf("parent result = %+v, %v, parent gone = %v", result, err, isParentGone)
+	if err == nil || !strings.Contains(err.Error(), "reserve pressure") || !isParentGone || result.ExitCode != 0 {
+		t.Fatalf("parent result = %+v, %v, parent gone = %v, want reserve pressure", result, err, isParentGone)
 	}
 	data, readError := os.ReadFile(filepath.Join(root, "child.pid"))
 	if readError != nil {
@@ -488,6 +490,9 @@ func TestExecutorRetainsFailedReleaseWhenAdmissionIsCanceled(t *testing.T) {
 }
 
 func (job *delayedCleanup) Usage() (execx.TreeUsage, error) { return execx.TreeUsage{}, nil }
+func (job *delayedCleanup) Members() ([]execx.EndedProcess, error) {
+	return nil, nil
+}
 func (job *delayedCleanup) TerminateAndWait(ctx context.Context) (execx.TreeUsage, error) {
 	close(job.entered)
 	select {
