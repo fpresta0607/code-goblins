@@ -11,6 +11,7 @@ import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrde
 import { MessageBox } from "./message-box";
 import { takesMessages } from "./messages";
 import { taskStatus } from "./task-status";
+import { terminalOf } from "./task-words";
 
 // The terminal deck: every terminal the Overlord opens stays mounted and live
 // while the board is open, so a switch only shows another terminal, with no
@@ -49,7 +50,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
         if (entry === CFO_KEY) {
           const view = cfoView(snapshot);
           if (view.kind === "empty") return slot(entry, here, <TerminalEmpty text={view.text} />);
-          return slot(entry, here, view.kind === "host" ? <HostTerminal query={view.query} harness={snapshot.sessions.filter((session) => session.role === "cfo" && session.host_id === snapshot.cfo_terminal).at(-1)?.harness || ""} label="CFO terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+          return slot(entry, here, view.kind === "host" ? <HostTerminal query={view.query} harness={snapshot.sessions.filter((session) => session.role === "cfo" && session.host_id === snapshot.cfo_terminal).at(-1)?.harness || ""} label="CFO terminal" reportAs="the CFO's terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
             : <NativeTerminal harness={snapshot.cfo_harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
         }
         const each = snapshot.tasks.find((candidate) => candidate.id === entry);
@@ -63,7 +64,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
         const view = goblinView(each);
         if (view.kind === "empty") return takesMessages(each) ? messaging(entry, here, <TerminalEmpty text={view.text} />, each) : slot(entry, here, <TerminalEmpty text={view.text} />);
         return slot(entry, here, view.kind === "host"
-          ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+          ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
           : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} harness={each.harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
       })}
       {shown && agent && task && <div className="deck-slot"><AgentTerminal task={task} child={agent} visible={connected} /></div>}
