@@ -1,6 +1,7 @@
 package execx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -105,7 +106,12 @@ func (t *Tree) End() ([]EndedProcess, error) {
 		return t.ended, t.doneErr
 	}
 	t.isDone = true
-	entries, err := proc.EndJob(t.job)
+	entries, spared, err := proc.EndJob(context.Background(), t.job)
+	// What the end spared outlives the job's handle, so a machine service is
+	// never ended with it, even by an end that failed beside it.
+	if len(spared) > 0 {
+		err = errors.Join(err, proc.KeepJobOnClose(t.job))
+	}
 	for _, entry := range entries {
 		t.ended = append(t.ended, EndedProcess{Name: entry.ExeBase, PID: entry.PID})
 	}

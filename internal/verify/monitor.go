@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -36,6 +38,11 @@ type Measurement struct {
 	// Leftovers are what the command left running once its own process had
 	// exited and its linger had passed, which the run then ended.
 	Leftovers []Leftover `json:"leftovers,omitempty"`
+	// Spared are the machine services the command started, with what runs
+	// under them, which the run's end left running: Docker Desktop, the
+	// no-mistakes daemon or the page server serves the whole machine
+	// (proc.ServiceOf).
+	Spared []Leftover `json:"spared,omitempty"`
 }
 
 // ErrLimit is the failure of a command that ran past its limit.
@@ -48,11 +55,13 @@ type Leftover struct {
 }
 
 // MeasuredJob retains custody until cleanup is confirmed. A caller must not
-// give its admission turn back when TerminateAndWait fails.
+// give its admission turn back when EndAndWait fails. EndAndWait spares a
+// machine service and what runs under it, and returns them once nothing
+// else is left in the job.
 type MeasuredJob interface {
 	Usage() (execx.TreeUsage, error)
 	Members() ([]execx.EndedProcess, error)
-	TerminateAndWait(context.Context) (execx.TreeUsage, error)
+	EndAndWait(context.Context) (execx.TreeUsage, []execx.EndedProcess, error)
 }
 
 // Monitor observes an admitted job. Reserve is the memory the run leaves
@@ -202,8 +211,8 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 	}
 	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	usage, cleanupError := tree.TerminateAndWait(cleanupContext)
-	if cleanupError == nil && usage.ActiveProcesses != 0 {
+	usage, spared, cleanupError := tree.EndAndWait(cleanupContext)
+	if cleanupError == nil && len(spared) == 0 && usage.ActiveProcesses != 0 {
 		cleanupError = errors.New("verify: cleanup returned active workers")
 	}
 	if cleanupError != nil {
@@ -212,6 +221,13 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 	} else {
 		result.CleanupConfirmed = true
 		result.Usage = usage
+		// A service the end spared is no leftover it ended.
+		for _, process := range spared {
+			result.Spared = append(result.Spared, Leftover{Name: process.Name, PID: process.PID})
+			result.Leftovers = slices.DeleteFunc(result.Leftovers, func(leftover Leftover) bool {
+				return leftover.PID == process.PID && strings.EqualFold(leftover.Name, process.Name)
+			})
+		}
 	}
 	result.WallSeconds = time.Since(start).Seconds()
 	if monitor.Observe != nil {

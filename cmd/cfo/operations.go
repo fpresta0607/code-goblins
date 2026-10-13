@@ -234,13 +234,16 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 			continue
 		}
 		// A record that cannot be read here still holds its leftovers.
-		if record, err := verifyrun.LoadExecution(result.Execution); err == nil && len(record.Measurement.Leftovers) > 0 {
-			res[index].Leftovers = record.Measurement.Leftovers
-			named := make([]string, len(record.Measurement.Leftovers))
-			for at, leftover := range record.Measurement.Leftovers {
-				named[at] = fmt.Sprintf("%s pid %d", leftover.Name, leftover.PID)
-			}
-			fmt.Fprintf(stderr, "%s: %s left %s running after it exited, which the run ended\n", name, strings.Join(result.Command, " "), strings.Join(named, ", "))
+		record, err := verifyrun.LoadExecution(result.Execution)
+		if err != nil {
+			continue
+		}
+		res[index].Leftovers, res[index].Spared = record.Measurement.Leftovers, record.Measurement.Spared
+		if len(record.Measurement.Leftovers) > 0 {
+			fmt.Fprintf(stderr, "%s: %s left %s running after it exited, which the run ended\n", name, strings.Join(result.Command, " "), processNames(record.Measurement.Leftovers))
+		}
+		if len(record.Measurement.Spared) > 0 {
+			fmt.Fprintf(stderr, "%s: %s started %s, which serves the whole machine, so the run left it running\n", name, strings.Join(result.Command, " "), processNames(record.Measurement.Spared))
 		}
 	}
 	if err := verifyrun.Save(path, res); err != nil {
@@ -253,6 +256,15 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 		fmt.Fprintf(stderr, "%s: old execution records could not all be removed: %v\n", name, err)
 	}
 	return res, failure
+}
+
+// processNames names processes by image name and pid.
+func processNames(processes []verifyrun.Leftover) string {
+	named := make([]string, len(processes))
+	for index, process := range processes {
+		named[index] = fmt.Sprintf("%s pid %d", process.Name, process.PID)
+	}
+	return strings.Join(named, ", ")
 }
 
 func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
