@@ -1,6 +1,7 @@
 package fleettree
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -21,6 +22,9 @@ type rolloutMeta struct {
 	cwd      string
 	parent   string
 	subagent bool
+	// isExec marks a thread codex exec ran, as a gate's reviewer or a
+	// goblin's own one-shot run does: never a goblin's conversation.
+	isExec   bool
 	path     string
 	nickname string
 	role     string
@@ -47,14 +51,10 @@ func readRolloutMeta(path string) rolloutMeta {
 			ThreadSource string    `json:"thread_source"`
 			AgentPath    string    `json:"agent_path"`
 			Nickname     string    `json:"agent_nickname"`
-			Source       struct {
-				Subagent struct {
-					ThreadSpawn struct {
-						ParentThread string `json:"parent_thread_id"`
-						Role         string `json:"agent_role"`
-					} `json:"thread_spawn"`
-				} `json:"subagent"`
-			} `json:"source"`
+			// Source is a word for a thread a person or a program started,
+			// as "cli" for a goblin's own and "exec" for codex exec's, and
+			// an object only for a child agent's, so it is read apart.
+			Source json.RawMessage `json:"source"`
 		} `json:"payload"`
 	}
 	if json.NewDecoder(io.LimitReader(file, TranscriptEntryReach)).Decode(&entry) != nil {
@@ -64,14 +64,30 @@ func readRolloutMeta(path string) rolloutMeta {
 		return rolloutMeta{read: true}
 	}
 	payload := entry.Payload
+	// The entry was read whole, so a source of a shape this reader does not
+	// know still leaves it read, with no spawning thread taken from it.
+	var word string
+	var source struct {
+		Subagent json.RawMessage `json:"subagent"`
+	}
+	var spawned struct {
+		ThreadSpawn struct {
+			ParentThread string `json:"parent_thread_id"`
+			Role         string `json:"agent_role"`
+		} `json:"thread_spawn"`
+	}
+	if json.Unmarshal(payload.Source, &word) != nil && json.Unmarshal(payload.Source, &source) == nil && bytes.HasPrefix(source.Subagent, []byte("{")) {
+		_ = json.Unmarshal(source.Subagent, &spawned)
+	}
 	parent := payload.ParentThread
 	if parent == "" {
-		parent = payload.Source.Subagent.ThreadSpawn.ParentThread
+		parent = spawned.ThreadSpawn.ParentThread
 	}
 	return rolloutMeta{
 		read: true, id: payload.ID, cwd: payload.Cwd, parent: parent,
-		subagent: payload.ThreadSource == "subagent" || parent != "",
-		path:     payload.AgentPath, nickname: payload.Nickname, role: payload.Source.Subagent.ThreadSpawn.Role,
+		subagent: payload.ThreadSource == "subagent" || parent != "" || len(source.Subagent) > 0 && !bytes.Equal(source.Subagent, []byte("null")),
+		isExec:   word == "exec",
+		path:     payload.AgentPath, nickname: payload.Nickname, role: spawned.ThreadSpawn.Role,
 		started: payload.Timestamp.UTC(),
 	}
 }
@@ -97,7 +113,8 @@ func (r *Reader) rollouts(ctx context.Context) map[string]rolloutMeta {
 
 // codexConversation is the goblin's own rollout: the one session names, or,
 // for a native goblin whose terminal names none, the rollout bound to its
-// worktree whose entries were written last, never a child agent's.
+// worktree whose entries were written last, never a child agent's nor a
+// codex exec's.
 func (r *Reader) codexConversation(ctx context.Context, worktree, session string, metas map[string]rolloutMeta) string {
 	if session != "" {
 		return SessionTranscript(r.Home, "codex", session)
@@ -116,7 +133,7 @@ func (r *Reader) codexConversation(ctx context.Context, worktree, session string
 		if ctx.Err() != nil {
 			break
 		}
-		if !meta.read || meta.subagent || meta.cwd == "" {
+		if !meta.read || meta.subagent || meta.isExec || meta.cwd == "" {
 			continue
 		}
 		isOwned, seen := owned[meta.cwd]

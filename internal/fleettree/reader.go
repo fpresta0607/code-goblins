@@ -279,7 +279,7 @@ func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
 // is in, as the harness records it itself, for a switch that resumes it when
 // the board recorded none: Claude Code's record of its own process, or the
 // Codex rollout of the goblin's worktree written last, never a child
-// agent's. It is empty while the harness does not run, and for pi, whose
+// agent's nor a codex exec's. It is empty while the harness does not run, and for pi, whose
 // conversation no switch resumes.
 func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
 	r.mu.Lock()
