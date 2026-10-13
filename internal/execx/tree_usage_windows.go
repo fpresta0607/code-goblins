@@ -38,10 +38,18 @@ type processMemoryUsage struct {
 func (t *Tree) Usage() (TreeUsage, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.usage()
+	usage, err := t.jobUsage()
+	if err != nil {
+		return TreeUsage{}, err
+	}
+	usage.SampledPrivateWorkingSetBytes, err = t.privateWorkingSet()
+	if err != nil {
+		return TreeUsage{}, err
+	}
+	return usage, nil
 }
 
-func (t *Tree) usage() (TreeUsage, error) {
+func (t *Tree) jobUsage() (TreeUsage, error) {
 	if t.isDone {
 		return TreeUsage{}, errors.New("execx: job accounting is closed")
 	}
@@ -54,15 +62,10 @@ func (t *Tree) usage() (TreeUsage, error) {
 	if err := windows.QueryInformationJobObject(t.job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&memory)), uint32(unsafe.Sizeof(memory)), nil); err != nil {
 		return TreeUsage{}, fmt.Errorf("execx: read job commitment: %w", err)
 	}
-	workingSet, err := t.privateWorkingSet()
-	if err != nil {
-		return TreeUsage{}, err
-	}
 	return TreeUsage{
 		CPU:         time.Duration(accounting.UserTime+accounting.KernelTime) * 100,
 		CommitBytes: memory.Commit, PeakCommitBytes: memory.PeakCommit,
-		SampledPrivateWorkingSetBytes: workingSet,
-		ActiveProcesses:               accounting.ActiveProcesses, TotalProcesses: accounting.TotalProcesses,
+		ActiveProcesses: accounting.ActiveProcesses, TotalProcesses: accounting.TotalProcesses,
 	}, nil
 }
 
@@ -128,7 +131,15 @@ func (t *Tree) processWorkingSet(pid uint32) (uint64, error) {
 func (t *Tree) TerminateAndWait(ctx context.Context) (TreeUsage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	t.mu.Lock()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for !t.mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return TreeUsage{}, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 	defer t.mu.Unlock()
 	if t.isDone {
 		return TreeUsage{}, errors.New("execx: job custody is closed")
@@ -139,15 +150,16 @@ func (t *Tree) TerminateAndWait(ctx context.Context) (TreeUsage, error) {
 	if err := windows.TerminateJobObject(t.job, 1); err != nil {
 		return TreeUsage{}, fmt.Errorf("execx: terminate verification job: %w", err)
 	}
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
 	for {
 		if err := ctx.Err(); err != nil {
 			return TreeUsage{}, err
 		}
-		usage, err := t.usage()
+		usage, err := t.jobUsage()
 		if err != nil {
 			return TreeUsage{}, err
+		}
+		if err := ctx.Err(); err != nil {
+			return usage, err
 		}
 		if usage.ActiveProcesses == 0 {
 			if err := windows.CloseHandle(t.job); err != nil {
