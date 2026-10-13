@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // childMode names, for the child run of this test binary, how its test
@@ -148,16 +150,18 @@ func TestRemovalGivesUpAtItsBoundOnAProgramNeverLetGo(t *testing.T) {
 	defer release()
 	started := time.Now()
 
-	err := removeAll(dir, 300*time.Millisecond)
+	err := fsx.RemoveAllWithin(dir, 300*time.Millisecond)
 
 	if err == nil || !strings.Contains(err.Error(), "program.exe") {
 		t.Fatalf("removing a folder whose program is never let go returned %v, want a failure naming program.exe", err)
 	}
-	if waited := time.Since(started); waited < 300*time.Millisecond || waited > 5*time.Second {
+	// It gives up within its last pause of the bound, and a loaded machine
+	// adds what it adds: never another removal's whole wait on top of it.
+	if waited := time.Since(started); waited < 150*time.Millisecond || waited > 300*time.Millisecond+time.Second {
 		t.Fatalf("the removal gave up after %s, want its bound of 300ms", waited)
 	}
 	release()
-	if err := removeAll(dir, 300*time.Millisecond); err != nil {
+	if err := fsx.RemoveAllWithin(dir, 300*time.Millisecond); err != nil {
 		t.Fatalf("the folder could not be removed once its program was let go: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -181,7 +185,7 @@ func TestRemovalWaitsOutAFileStillHeldOpen(t *testing.T) {
 	defer release()
 	time.AfterFunc(300*time.Millisecond, release)
 
-	err := removeAll(dir, 10*time.Second)
+	err := fsx.RemoveAllWithin(dir, 10*time.Second)
 
 	if err != nil {
 		t.Fatalf("removing a folder whose file was held open for a moment returned %v, want it removed", err)

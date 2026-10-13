@@ -363,6 +363,36 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 	return turn, err
 }
 
+// measuredExecutor runs commands as measured executions in the machine's one
+// line for heavy runs, the line takeGateTurn waits in, and says on says why a
+// command waits for its turn, as takeGateTurn does. Its caller retries its
+// pending cleanup before it exits.
+func measuredExecutor(label, who string, says io.Writer, available func() (supervisor.Memory, error)) (*verify.Executor, error) {
+	if available == nil {
+		return nil, errors.New("the machine's memory cannot be read")
+	}
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		return nil, err
+	}
+	return &verify.Executor{
+		Admission: verify.Admission{
+			Dir:   store,
+			Floor: supervisor.MemoryFloor,
+			Who:   who,
+			Limit: verify.NoLimit,
+			Poll:  time.Second,
+			Waiting: func(waited time.Duration, why string) {
+				fmt.Fprintf(says, "%s: waiting for its turn (%s so far): %s\n", label, waited.Round(time.Second), why)
+			},
+		},
+		Monitor: verify.Monitor{Headroom: func() (verify.Headroom, error) {
+			memory, err := available()
+			return verify.Headroom{PhysicalAvailable: memory.Available, CommitAvailable: memory.CommitAvailable}, err
+		}},
+	}, nil
+}
+
 // gateDiskShortfall reads the free disk of the drive the run's checkout is on
 // against the disk floor, the one the fleet's home sets when this runs for a
 // home and the default otherwise, and says why the run does not fit, or ""

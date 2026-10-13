@@ -112,6 +112,26 @@ test("Stop ends the command from its card, and the card reads Stopped", async ({
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining("Stopped"));
 });
 
+// A command's terminal that did not answer is named to the CFO by the
+// command, never as "a goblin's terminal".
+test("a command's terminal that did not answer is named to the CFO by its command", async ({ page }) => {
+  // Arrange
+  const reports: { where: string; text: string }[] = [];
+  await page.route("**/api/cfo/report", (route) => { reports.push(route.request().postDataJSON() as { where: string; text: string }); return route.fulfill({ status: 202, json: { reported: true } }); });
+  const wire = await openRunCard(page);
+  const dialog = page.locator("dialog.question-modal");
+  await dialog.getByRole("button", { name: "Run in PowerShell" }).click();
+  await step(page, "running");
+  await expect(dialog.locator(".run-live .xterm-rows")).toContainText("Your fly.io email:");
+
+  // Act
+  await wire.sockets.at(-1)?.close({ code: 1008, reason: "The terminal of this task did not answer." });
+
+  // Assert
+  await expect.poll(() => reports.map((report) => report.where)).toContain("the terminal of the command " + RUN);
+  expect(reports.map((report) => report.where)).not.toContain("a goblin's terminal");
+});
+
 test("a command that failed says so in a plain sentence with its last line, and keeps what it showed", async ({ page }) => {
   // Arrange
   await openRunCard(page);

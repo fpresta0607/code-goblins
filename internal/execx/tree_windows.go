@@ -1,6 +1,7 @@
 package execx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -42,6 +43,11 @@ func StartTree(cmd *exec.Cmd) (*Tree, error) {
 	if err != nil {
 		return nil, fmt.Errorf("execx: create a job: %w", err)
 	}
+	return startTreeIn(cmd, job)
+}
+
+// startTreeIn starts cmd in job, which it owns from here on.
+func startTreeIn(cmd *exec.Cmd, job windows.Handle) (*Tree, error) {
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
@@ -100,7 +106,12 @@ func (t *Tree) End() ([]EndedProcess, error) {
 		return t.ended, t.doneErr
 	}
 	t.isDone = true
-	entries, err := proc.EndJob(t.job)
+	entries, spared, err := proc.EndJob(context.Background(), t.job)
+	// What the end spared outlives the job's handle, so a machine service is
+	// never ended with it, even by an end that failed beside it.
+	if len(spared) > 0 {
+		err = errors.Join(err, proc.KeepJobOnClose(t.job))
+	}
 	for _, entry := range entries {
 		t.ended = append(t.ended, EndedProcess{Name: entry.ExeBase, PID: entry.PID})
 	}

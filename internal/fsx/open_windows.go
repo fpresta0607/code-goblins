@@ -26,6 +26,22 @@ func open(path string) (*os.File, error) {
 	return os.NewFile(uintptr(handle), path), nil
 }
 
+func createNewUnshared(path string, perm os.FileMode) (*os.File, error) {
+	name, err := windows.UTF16PtrFromString(longPathName(path))
+	if err != nil {
+		return nil, &os.PathError{Op: "create", Path: path, Err: err}
+	}
+	attributes := uint32(windows.FILE_ATTRIBUTE_NORMAL)
+	if perm&0200 == 0 {
+		attributes = windows.FILE_ATTRIBUTE_READONLY
+	}
+	handle, err := windows.CreateFile(name, windows.GENERIC_WRITE, 0, nil, windows.CREATE_NEW, attributes, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "create", Path: path, Err: err}
+	}
+	return os.NewFile(uintptr(handle), path), nil
+}
+
 // longPathName spells an absolute path of 248 characters or more in the
 // \\?\ form, as os.Open does, so it is not cut off at MAX_PATH.
 func longPathName(path string) string {

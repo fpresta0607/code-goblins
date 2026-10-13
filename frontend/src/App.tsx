@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { useItemState } from "./use-item-state";
 import { useTaskClicks } from "./use-task-clicks";
@@ -19,7 +19,8 @@ import { PaneDivider } from "./PaneDivider";
 import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
 import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
-import { unsentComment, updateAction } from "./boardUpdate";
+import { missingPageAction, unsentComment, updateAction } from "./boardUpdate";
+import { boardPage, usePageMissing } from "./board-page";
 import { useWindowMove } from "./useWindowMove";
 import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
@@ -38,7 +39,12 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TrainPanel } from "./train-panel";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
-const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
+const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
+// The build this tab last reloaded onto the supervisor's because a page could
+// not arrive, kept for the tab's life. A browser that cannot keep it never
+// reloads for a missing page, since it could not tell a second reload from
+// the first.
+const MISSING_PAGE_RELOAD_KEY = "cfo-missing-page-reload";
 
 const PANE_WIDTH_KEY = "cfo-pane-width";
 // Recorded once this browser has shown the board, so its first open, and
@@ -160,7 +166,8 @@ export function App() {
   const connected = connection === "Live";
   const [hasUnsentAnswers, setHasUnsentAnswers] = useState(false);
   const hasUnsent = hasUnsentAnswers || Object.values(reviews.drafts).some((draft) => unsentComment(draft, reviews.outcome(draft)));
-  const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
+  const isPageMissing = usePageMissing();
+  const updated = isPageMissing || updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
   const hasRecentUpdate = updateSucceededRecently(snapshot, now);
   useEffect(() => {
     const check = () => {
@@ -170,6 +177,14 @@ export function App() {
     document.addEventListener("visibilitychange", check);
     return () => document.removeEventListener("visibilitychange", check);
   }, [served, connected, hasRecentUpdate, hasUnsent]);
+  useEffect(() => {
+    if (!isPageMissing) return;
+    let hasReloaded = true;
+    try { hasReloaded = sessionStorage.getItem(MISSING_PAGE_RELOAD_KEY) === LOADED_BUILD; } catch { /* no record, so no reload */ }
+    if (missingPageAction({ hasReloaded, answering: answering(hasUnsent), connected }) !== "reload") return;
+    try { sessionStorage.setItem(MISSING_PAGE_RELOAD_KEY, LOADED_BUILD); } catch { return; }
+    location.reload();
+  }, [isPageMissing, connected, hasUnsent]);
   // The desktop window moves onto the program an update installed once
   // this page is idle.
   useWindowMove(snapshot?.instance || "", connected, useCallback(() => answering(hasUnsent), [hasUnsent]));

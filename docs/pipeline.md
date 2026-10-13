@@ -410,6 +410,10 @@ Everything before `--` is `cfo`'s, and everything after it is the command's, its
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
 `cfo` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `cfo gate test`.
+When the run ends in a Codex or pi goblin's own terminal and worktree while the goblin sits idle at its prompt, it types one `CFO:` line into that goblin, as `cfo send` would, naming the run, its exit code and how long it took, since neither harness starts a turn when a background run ends; `cfo gate prepush` does the same, and an interrupted run tells nothing.
+A goblin in a turn is not told, since one that waited on the run there has read how it ended.
+If the line cannot be typed, the run says so in one line on standard error, and its exit code stays the command's.
+A gate the goblin started inherits its terminal's environment, but runs its steps in the gate's own worktree, so a gate's run types nothing.
 
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
@@ -471,6 +475,79 @@ This repository's test command is `cfo gate test`, which takes a turn for each o
 So the wrapper gives its command `CFO_VERIFY_TURN`, which names the turn it holds: the slot, the holder's process id and the moment it was taken.
 A `cfo gate test`, a `cfo gate prepush` or a nested `cfo gate turn` that finds it, with that turn still held by that same live process, runs inside it: it takes no turn, waits for none, and says what it is doing beside the holder's turn.
 Any other value, such as one a process kept from a run that has ended, is ignored, and the run joins the line as every run does.
+
+**Executor accounting.**
+`internal/execx.Tree.Usage` reads cumulative CPU time, current and peak private commitment, active and lifetime process counts from the Windows job, including descendants whose parents exited.
+It samples the private working set separately, which is neither commitment nor a measured lifetime peak, and counts apart the members this process may not read, as a sandboxed browser's, which the sample leaves out.
+A member it may not open counts as still running, since nothing shows it has exited.
+These reads are observations, not resource reservations or enforced limits.
+An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
+Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
+That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
+Recovery uses `TerminateAndWait`, which spares nothing.
+The generic executor's `End` and `Release` contracts and the wrapper above are unchanged by these additive APIs.
+This accounting alone does not establish trusted execution evidence or authorize a GitHub check.
+`internal/verify.Monitor` uses those measurements to wait for the whole job, retain cumulative and sampled peaks separately, and interrupt on unreadable measurements, failed evidence writes, or physical or commit headroom below its reserve.
+Its reserve is the memory a run leaves the desktop, a cancellation threshold, not a reservation or a kernel limit.
+It sits under the 4 GiB admission floor, since a run admitted at the floor uses the memory between the two, so a reserve at the floor would cancel nearly every run that used its headroom.
+The executor reads it from `reserve.json` in the admission store, as `{"physical_gib": 2, "commit_gib": 2}`, and keeps 2 GiB of each when the file is absent.
+Each value must be at least half a gigabyte and under the admission floor, and any other content, such as an unknown key, a missing dimension or trailing data, refuses the run before it starts.
+A caller can raise the reserve but never lower it below the store's.
+Free memory is the whole machine's, so one sample under the reserve can be another program's spike, and the run is cancelled only once free memory stays under the reserve for ten seconds.
+Once the command's own process has exited, what it left running may run on for a linger of ten seconds, after which the run ends it and records each process by name and pid as a leftover, and `cfo verify` names them on standard error.
+The run keeps the command's own result, since tools such as build servers and browser bridges leave helpers behind on purpose, and a later certification can still require a run with none.
+Only a process still running counts, since Windows can count one that has exited in its job for a moment after.
+A process a nested `cfo gate turn` lets go of when its command ends is still in the executor's job, so it is ended and named the same way.
+A machine service the command started, Docker Desktop with what it runs, the no-mistakes daemon with its gate agents or the Scrawl server, serves the whole machine, so the run's end leaves it running, as every teardown of a goblin does, and records it apart from the leftovers it ended, and `cfo verify` names it on standard error.
+The run's cleanup is confirmed once nothing but such a service runs in its job, by the job's own list of its processes, where a process the run may not open counts as running.
+Only then does the job stop ending what it holds when its handle closes, so a controller that dies first, or an end that fails, still ends everything in it.
+A recovery after a controller died spares nothing, since that controller's job ended everything in it when its handle closed.
+The command's output to its logs is limited to 1 GiB together, past which the run is interrupted, and a running sample is written to the record every ten seconds and the final measurement always.
+Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
+`RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
+A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
+A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
+`internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
+Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
+The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
+Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits, and a command given none reads an empty input.
+Interruption requests Ctrl+Break only for the command's own process group, then performs bounded whole-job cleanup even when no shared console can deliver that request.
+Each custody record prevents slot release until its execution confirms cleanup, including when a parent wrapper tries to release a nested command's turn.
+A custody record names its execution's Windows job and the process that controls the execution, and it is written before the job or any worker exists.
+The job is named `Global\cfo-verify-` followed by the execution's random run ID, in the machine's global namespace so a run in any logon session finds it, its creation refuses a name that already exists, and no child inherits its handle.
+When that controller is verifiably gone, the next admission, or the release of the turn it ran inside, recovers its custody instead of refusing every later run.
+Recovery ends whatever still runs in the job and waits until Windows counts it empty, or finds that no job of that name exists, which means nothing runs in it.
+It still refuses while a process the controller started after recording custody runs outside the job, as a worker created suspended and never assigned to its job would.
+A worker the job's end has just ended, or a controller still exiting, can be listed for a moment, so recovery reads the machine's processes again for a second and a half before it names one.
+A dead controller alone is never taken as proof that its workers are gone.
+A controller whose state cannot be read, a job this process cannot open, a record that names another run's job, or a record that changed during recovery leaves custody in place and refuses admission.
+Each refusal names the custody record's file, and one that names a worker outside the job says to end that process once it is known to be the execution's.
+A recovered execution's pending record is marked failed and interrupted with a note naming the recovery, and one its controller finished keeps its result, so recovery never produces a pass.
+A record recovery cannot read or write stays as it was and never keeps the line shut, since a pending or unreadable record never passes.
+An unreadable custody record still refuses further admission rather than guessing that its workers are gone.
+The executor retains failed cleanup jobs for its owner's bounded `RetryCleanup` calls and keeps a confirmed cleanup proof if its evidence write or custody removal needs another attempt.
+Slot release reports errors and stays retryable, and an executor retains final evidence-write failures even after workers have ended.
+Concurrent recovery waits respect the waiting caller's deadline without holding the executor's registry mutex over job or filesystem operations.
+The deadline also bounds custody-lock, file-open and final evidence-rename contention retries.
+A failed mutation-lock release retains its exact lease identity for a later retry, and cannot reclaim a changed or foreign live owner.
+Stale lease removal claims the record against writes and replacement, validates its identity while claimed, and deletes through that same Windows handle.
+Mutation-lease creation excludes readers until the writer closes, so contenders cannot mistake an in-progress publication for a corrupt record.
+An interrupted publication that leaves an incomplete record still refuses admission.
+Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
+`cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says.
+After each tier the executions store keeps the newest 100 passes, 50 failures and 20 runs that never started, each kept apart, so a burst of one never evicts the evidence of another.
+What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
+A record whose custody is still held, one still pending, and one it cannot read or that a newer cfo wrote, while younger than a week, is never removed or counted, so the 2 GiB covers only what it counts.
+A log whose record is gone is removed once it is a week old, and a record goes only once its logs are gone.
+It removes only plain files named as the store names them, refuses an executions folder that is a junction or link, and a removal that fails is named on standard error, tried again after the next tier, and never fails the tier.
+These same-user records are advisory, and the measured executor is not yet wired into `cfo gate turn` or a protected publisher.
+
+`ValidatePreparedGeneration` checks an explicitly owned artifact generation against an independently supplied preparation identity and required file inventory.
+It requires complete preparation evidence and matching sizes and SHA-256 hashes, so a revision directory or ready marker alone cannot hide missing runtime files.
+Incomplete or interrupted preparation, unreadable evidence or files, path traversal, symlinks and reparse points are refused.
+It only reads the named generation and does not discover, reinstall, repair or remove shared caches.
+Same-user mutable generations remain advisory because their contents can change during or after validation.
+Trusted reuse still requires a protected immutable generation, trusted inventory and a successful runtime initialization probe under admission.
 
 **Not in the wrapper.**
 It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for itself, and no report file, since its caller keeps the log.

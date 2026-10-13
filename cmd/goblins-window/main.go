@@ -75,6 +75,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window asks the goblins beside it")
 		os.Exit(2)
 	}
+	if err := keepOutput(*stateDir); err != nil {
+		log.Printf("keep the window's output in %s: %v", *stateDir, err)
+	}
 	login := loginCommand(launcher, self, *board, *stateDir)
 	userEnv, err := userEnvironment()
 	if err != nil {
@@ -139,6 +142,9 @@ func main() {
 		Icon:        icon,
 		Services:    services,
 		Windows:     windows,
+		// A release build's Wails logs to nowhere, so its errors, and the
+		// fatal one it exits on, go to the window's log.
+		ErrorHandler: func(err error) { log.Print(err) },
 		// What the board's page asks of the window: that it is there, each
 		// link it would open in a new tab, and each notification it raises.
 		RawMessageHandler: func(_ application.Window, message string, sender *application.OriginInfo) {

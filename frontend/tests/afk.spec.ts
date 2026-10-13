@@ -1,4 +1,6 @@
-import { expect, test, type Page, type Route } from "./site";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, ORIGIN, test, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
 // bar says while it is on, the offer when he is back and the report when it
@@ -882,5 +884,102 @@ test.describe("in the desktop window", () => {
       });
       expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
     }
+  });
+});
+
+// The Overlord, 2026-10-13: turning AFK off made the whole board black, and
+// only killing the app brought it back. His board was loaded before an update
+// installed a new build, and the report is a page that arrives the first time
+// it is shown: the new supervisor no longer had the old build's page.
+test.describe("a board left open across an update", () => {
+  // serveBuilds answers each load of the board with the build named next in
+  // builds, the last one from then on, as the supervisor names it in the page,
+  // and the report's page only while isServed says the loaded build has it.
+  // count is the loads asked for, and loaded the pages that took their place:
+  // a reload is asked for before the page it replaces is gone, so a test that
+  // reaches into the page after a reload waits for loaded.
+  async function serveBuilds(page: Page, builds: string[], isServed: (loads: number) => boolean) {
+    const site = process.env.BOARD_TEST_SITE!;
+    const index = await readFile(join(site, "index.html"), "utf8");
+    const loads = { count: 0, loaded: 0 };
+    page.on("domcontentloaded", () => { loads.loaded++; });
+    await page.route(ORIGIN + "/", (route) => {
+      const build = builds[Math.min(loads.count, builds.length - 1)];
+      loads.count++;
+      return route.fulfill({ contentType: "text/html", body: index.replace("<head>", `<head><meta name="cfo-build" content="${build}">`) });
+    });
+    await page.route("**/assets/afk-report-*", (route) => isServed(loads.count) ? route.fallback() : route.fulfill({ status: 404, body: "" }));
+    return loads;
+  }
+  const loadedBuild = (page: Page) => page.locator('meta[name="cfo-build"]').getAttribute("content");
+
+  test("turning AFK off reloads it once onto the new build, where the last report opens", async ({ page }) => {
+    // Arrange
+    const loads = await serveBuilds(page, ["old", "new"], (count) => count > 1);
+    const supervisor = await open(page, snapshot({ build: "new", afk: on() }));
+    await openCfoPanel(page);
+
+    // Act
+    await toggle(page).click();
+
+    // Assert
+    await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
+    await expect.poll(() => loads.loaded).toBe(2);
+    await expect.poll(() => push(page, snapshot({ build: "new", afk: KEPT }))).toBeGreaterThan(0);
+    await expect(page.locator(".board-column").first()).toBeVisible();
+    expect(await loadedBuild(page)).toBe("new");
+    await openCfoPanel(page);
+    await page.getByRole("button", { name: "Open the last AFK report" }).click();
+    await expect(report(page)).toContainText("8h25m");
+    expect(loads.count).toBe(2);
+  });
+
+  test("with text he typed it keeps the board and the text, and Reload is his to press", async ({ page }) => {
+    // Arrange
+    const loads = await serveBuilds(page, ["old", "new"], (count) => count > 1);
+    const pausedAt = new Date(Date.now() - HOURS).toISOString();
+    const bernie = task("bernie", { goblin_name: "Bernie", goblin_title: "Merge Maestro", backend: "native", harness: "claude", session: "claude/bernie", phase: "paused", at: pausedAt,
+      lifecycle: { phase: "paused", action: "pause", at: pausedAt, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", until: "", at: pausedAt }, kept_messages: [] } });
+    await open(page, snapshot({ build: "new", afk: on(), tasks: [...TASKS, bernie] }));
+    await page.locator(".task-card").filter({ hasText: "Bernie" }).click();
+    const draft = page.getByRole("textbox", { name: "Message Bernie - Merge Maestro" });
+    await draft.fill("Hold the release until I look");
+    await openCfoPanel(page);
+
+    // Act
+    const missing = page.waitForResponse("**/assets/afk-report-*");
+    await toggle(page).click();
+    await missing;
+
+    // Assert
+    const banner = page.locator(".update-banner");
+    await expect(banner.getByRole("button", { name: "Reload" })).toBeVisible();
+    await expect(page.locator(".board-column").first()).toBeVisible();
+    await page.locator(".task-card").filter({ hasText: "Bernie" }).click();
+    await expect(draft).toHaveValue("Hold the release until I look");
+    await page.waitForTimeout(300);
+    expect(loads.count).toBe(1);
+  });
+
+  test("a page still missing after its one reload leaves the board drawn with Reload, and reloads no more", async ({ page }) => {
+    // Arrange
+    const loads = await serveBuilds(page, ["new"], () => false);
+    await open(page, snapshot({ build: "new", afk: on() }));
+    await openCfoPanel(page);
+
+    // Act
+    await toggle(page).click();
+    await expect.poll(() => loads.loaded).toBe(2);
+    await expect.poll(() => push(page, snapshot({ build: "new", afk: KEPT }))).toBeGreaterThan(0);
+    await openCfoPanel(page);
+    const missing = page.waitForResponse("**/assets/afk-report-*");
+    await page.getByRole("button", { name: "Open the last AFK report" }).click();
+    await missing;
+
+    // Assert
+    await expect(page.locator(".update-banner").getByRole("button", { name: "Reload" })).toBeVisible();
+    await expect(page.locator(".board-column").first()).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(loads.count).toBe(2);
   });
 });

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -46,8 +47,9 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // added (verify.TurnVariable) so that a command that takes turns itself, as
 // cfo gate test does, runs inside this one. Standard output is the command's
 // alone, every line of cfo gate turn's own goes to standard error and starts
-// with its name, and with the turn free and memory to spare it writes none.
-// The exit code is the command's. The turn is held until the command has
+// with its name, and with the turn free and memory to spare it writes none,
+// unless the goblin whose run it is could not be told that it ended
+// (tellGoblinRunEnded). The exit code is the command's. The turn is held until the command has
 // ended, through an interrupt too, which the command is sent as well and
 // answers for itself; an interrupt while the run waits takes it out of the
 // line. The command runs as a tree (execx.StartTree): a run that is ended,
@@ -67,6 +69,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		return exitNoTurn
 	}
 
+	started := time.Now()
 	signals, stop := runtime.interrupts()
 	defer stop()
 	ctx, leave := context.WithCancel(context.Background())
@@ -87,8 +90,21 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 			}
 		}
 	}()
+	// A run its goblin may have left in the background tells it how it
+	// ended, once the turn is given back, unless it was interrupted.
+	tell := func(exit int) {
+		if isInterrupted.Load() || exit == statusControlCExit {
+			return
+		}
+		what := strings.Join(command, " ")
+		if as != "" {
+			what = as
+		}
+		tellGoblinRunEnded(ctx, runtime, os.Getenv, "cfo gate turn", dir, what, exit, time.Since(started), stderr)
+	}
 	turn, err := takeGateTurn(ctx, "cfo gate turn", stderr, stderr, runtime.availableMemory, gateTurnWho(as, command, dir, runtime), 0, verify.NoLimit)
 	if err != nil {
+		tell(exitNoTurn)
 		return exitNoTurn
 	}
 	defer turn.Release()
@@ -99,6 +115,8 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	tree, err := execx.StartTree(process)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %v\n", err)
+		turn.Release()
+		tell(exitNotStarted)
 		return exitNotStarted
 	}
 	// What Wait returns for a command that ended is its exit status, which
@@ -117,7 +135,10 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	} else if err := tree.Release(); err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: what its command left running may have ended with it, since it could not be let go: %v\n", err)
 	}
-	return process.ProcessState.ExitCode()
+	exit := process.ProcessState.ExitCode()
+	turn.Release()
+	tell(exit)
+	return exit
 }
 
 // parseGateTurn reads cfo gate turn's arguments: its own before --, the

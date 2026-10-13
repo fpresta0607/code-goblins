@@ -27,7 +27,7 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 	}
 	evidence := RuntimeEvidence{State: "unknown", Reason: "Current " + source + " liveness evidence is unavailable"}
 	observation, err := s.observation(meta.ID)
-	if err != nil || observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() || observation.LastObserved.Before(node.UpdatedAt) || (node.Generation != "" && node.Generation != meta.SpawnGen) {
+	if err != nil || observation.Reason == monitor.LifecycleOperation || observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() || observation.LastObserved.Before(node.UpdatedAt) || (node.Generation != "" && node.Generation != meta.SpawnGen) {
 		return evidence
 	}
 	evidence.At = observation.LastObserved

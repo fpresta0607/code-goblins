@@ -3,7 +3,6 @@ package routing
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -75,11 +74,12 @@ type Choice struct {
 type Usable func(ExecutionLane) (ok bool, note string)
 
 // Choose picks the lane an assessment asks for and then, when a usable check
-// is given, walks the fallback order (the wanted lane, the default, the
-// escalation, then the rest by name) until a lane passes. No usable lane is
-// an error naming every lane's finding, so a spawn refuses rather than
-// dispatching into a wall.
+// is given, tries the wanted lane, the default and the escalation. Escalated
+// work stays in its lane. No usable lane is an error naming the findings.
 func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
+	if a.ExplicitHarness == "" && escalates(a) && t.EscalateTo == "" {
+		return Choice{}, fmt.Errorf("no escalation lane configured for class=%s risk=%s", a.Class, a.Risk)
+	}
 	wanted := ChooseExecution(a, t.Lanes, t.DefaultLane, t.EscalateTo)
 	c := Choice{ExecutionLane: wanted, Wanted: wanted.Name}
 	if usable == nil {
@@ -99,11 +99,13 @@ func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
 	return c, fmt.Errorf("no usable lane: %s", strings.Join(c.Notes, "; "))
 }
 
-// fallbackOrder is the wanted lane, the default, the escalation, then every
-// other lane by name: the nearest lane in capability first, so a spawn moved
-// by quota lands as close as possible to what the class asked for.
+// fallbackOrder uses only the capability ordering declared by the policy.
+// Model names and unrelated lanes provide no evidence of equivalence.
 func fallbackOrder(wanted string, t Table) []string {
 	order := []string{wanted}
+	if wanted == t.EscalateTo {
+		return order
+	}
 	seen := map[string]bool{wanted: true}
 	add := func(name string) {
 		if _, ok := t.Lanes[name]; ok && !seen[name] {
@@ -113,14 +115,7 @@ func fallbackOrder(wanted string, t Table) []string {
 	}
 	add(t.DefaultLane)
 	add(t.EscalateTo)
-	rest := make([]string, 0, len(t.Lanes))
-	for name := range t.Lanes {
-		if !seen[name] {
-			rest = append(rest, name)
-		}
-	}
-	sort.Strings(rest)
-	return append(order, rest...)
+	return order
 }
 
 // The classes a brief can ask for, as phrases matched against the ask only.

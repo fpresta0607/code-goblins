@@ -1,11 +1,11 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, useState } from "react";
 import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
 import { messagesTo, messageState } from "./messages";
 import { goblinName } from "./task-words";
-import { useDictation } from "./useDictation";
-import { VoiceBars } from "./voice-bars";
+import { appendDictation, useDictation } from "./useDictation";
+import { DictationButton } from "./dictation-button";
 import "./message-box.css";
 
 // How many of his latest messages the box shows above itself.
@@ -30,9 +30,8 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
   // One ID for what he is about to send, so a send retried after its answer
   // was lost is the same message, never a second one.
   const sendID = useRef("");
-  // What he dictates joins what he wrote, after a space.
   const dictation = useDictation((text) => {
-    setDraft((prior) => [prior.trimEnd(), text.trim()].filter(Boolean).join(" "));
+    setDraft((prior) => appendDictation(prior, text));
     sendID.current = "";
   }, snapshot.instance);
   const sent = messagesTo(snapshot, task.id).slice(-SHOWN);
@@ -65,14 +64,6 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
       setDeleting("");
     }
   };
-  // The microphone listens while it is held, by pointer or by key, and keeps
-  // the keyboard in the box.
-  const hold = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dictation.start(event.timeStamp);
-  };
   return <section className="message-box" aria-label={"Messages to " + name}>
     {sent.length + kept.length > 0 && <ol className="message-list">
       {sent.map((action) => <li key={action.id}><span className="message-text">{action.text}</span><span className="message-state">{messageState(action)}</span></li>)}
@@ -94,13 +85,7 @@ export function MessageBox({ snapshot, task }: { snapshot: Snapshot; task: Task 
       }}
       onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
     <div className="message-actions">
-      <button type="button" className={"voice-bubble" + (dictation.listening ? " recording" : "")} aria-label={dictation.listening ? "Listening" : "Hold to dictate"}
-        data-tip={dictation.listening ? "Release to add what you said" : "Hold to dictate"}
-        onPointerDown={hold} onPointerUp={dictation.stop} onPointerCancel={dictation.stop}
-        onKeyDown={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); dictation.start(event.timeStamp); } }}
-        onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") dictation.stop(); }}>
-        {dictation.listening ? <VoiceBars level={dictation.level} /> : <Icon name="mic" />}
-      </button>
+      <DictationButton dictation={dictation} />
       <button type="button" className="primary send-decision" disabled={isSending || !draft.trim()} onClick={() => void send()}>
         <Icon name={isSending ? "clock" : "send"} />{isSending ? "Sending" : "Send"}
       </button>
