@@ -875,7 +875,7 @@ func TestARevisingWaitStandsWhileItsGoblinWorksOnTheNextVersion(t *testing.T) {
 	if err := store.acceptReview(wait); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.reviseReview(wait.ID, time.Now().UTC()); err != nil {
+	if err := store.reviseReview(wait, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.AppendStatus(h.State, "task-1", "working: making the cards bigger"); err != nil {

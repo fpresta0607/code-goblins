@@ -92,8 +92,10 @@ func pageExists(page string) error {
 }
 
 // sweeper is a service whose sweep meets scrawl.
-func sweeper(store *Store, scrawl *fakeScrawl, cfo *CFOConnection) *Service {
-	return &Service{Store: store, Options: Options{CFO: cfo, PollPage: scrawl.poll, PageSessions: scrawl.list, EndPage: scrawl.end}}
+func sweeper(t *testing.T, store *Store, scrawl *fakeScrawl, cfo *CFOConnection) *Service {
+	s := &Service{Store: store, Options: Options{CFO: cfo, PollPage: scrawl.poll, PageSessions: scrawl.list, EndPage: scrawl.end}}
+	t.Cleanup(s.pageWork.Wait)
+	return s
 }
 
 // writePage writes an HTML page at path and returns it.
@@ -131,11 +133,12 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 	retire(t, h.State, "task-1")
 	scrawl := newFakeScrawl()
 	scrawl.add(page, "feedback", "Make the goblin heads bigger")
-	s := sweeper(store, scrawl, nil)
+	s := sweeper(t, store, scrawl, nil)
 
 	// Act
 	first := s.sweepSessions(context.Background())
 	second := s.sweepSessions(context.Background())
+	s.pageWork.Wait()
 
 	// Assert
 	if first != nil || second != nil {
@@ -153,7 +156,7 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 	if !slices.Equal(scrawl.ended, []string{page}) {
 		t.Errorf("ended %q, want the retired goblin's page ended once", scrawl.ended)
 	}
-	want := []string{"task-1 has been retired, so this review is closed. Anything you sent here went to the CFO.", "Received. task-1 has been retired, so the CFO has it."}
+	want := []string{"task-1 has been retired, so this review is closed. Anything you sent here went to the CFO.", "Received."}
 	if got := scrawl.replies[page]; !slices.Equal(got, want) {
 		t.Errorf("replies on the page = %q, want %q", got, want)
 	}
@@ -199,7 +202,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	ended := writePage(t, filepath.Join(h.Data, "task-2", "old.html"))
 	scrawl.add(ended, "ended")
 	scrawl.add(watched, "feedback", "Bigger")
-	s := sweeper(store, scrawl, nil)
+	s := sweeper(t, store, scrawl, nil)
 	s.pages = map[string]bool{pageKey(watched): true}
 
 	// Act
@@ -238,8 +241,8 @@ func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 		wake  string
 		reply string
 	}{
-		"a goblin that runs":           {true, "the Overlord wrote on the page %s, and task-1 has it: Make the heads bigger", "Received. task-1 has it."},
-		"a goblin that cannot take it": {false, "relay it to task-1", "Received. The CFO has it and passes it to task-1."},
+		"a goblin that runs":           {true, "the Overlord wrote on the page %s, and task-1 has it: Make the heads bigger", "Received."},
+		"a goblin that cannot take it": {false, "relay it to task-1", "Received."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -258,11 +261,12 @@ func TestASweepHandsUnreadFeedbackToTheGoblinThatStillStands(t *testing.T) {
 			page := writePage(t, filepath.Join(meta.Worktree, ".lavish", "walkthrough.html"))
 			scrawl := newFakeScrawl()
 			scrawl.add(page, "feedback", "Make the heads bigger")
-			s := sweeper(store, scrawl, cfo)
+			s := sweeper(t, store, scrawl, cfo)
 
 			// Act
 			first := s.sweepSessions(context.Background())
 			second := s.sweepSessions(context.Background())
+			s.pageWork.Wait()
 
 			// Assert
 			if first != nil || second != nil {
@@ -312,11 +316,12 @@ func TestASweepCountsASessionWhosePageIsGoneAsEnded(t *testing.T) {
 			page := filepath.Join(h.Data, "task-1", "mockups", "priority.html")
 			scrawl := newFakeScrawl()
 			scrawl.add(page, "open", test.prompts...)
-			s := sweeper(store, scrawl, nil)
+			s := sweeper(t, store, scrawl, nil)
 
 			// Act
 			first := s.sweepSessions(context.Background())
 			second := s.sweepSessions(context.Background())
+			s.pageWork.Wait()
 
 			// Assert
 			if first != nil || second != nil {
@@ -350,7 +355,7 @@ func TestASweepTellsOfAPageItCannotReadOnlyOnceItKeepsFailing(t *testing.T) {
 	}
 	page := writePage(t, filepath.Join(meta.Worktree, ".lavish", "walkthrough.html"))
 	scrawl := newFakeScrawl()
-	s := sweeper(store, scrawl, nil)
+	s := sweeper(t, store, scrawl, nil)
 	isTimingOut := false
 	s.Options.PollPage = func(ctx context.Context, file, reply string, wait time.Duration) (axi.PagePoll, error) {
 		if isTimingOut {

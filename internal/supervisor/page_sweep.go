@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -76,18 +77,34 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 	}
 	var problems error
 	failed := map[string]bool{}
+	var claimed []string
+	defer func() {
+		s.pagesMu.Lock()
+		defer s.pagesMu.Unlock()
+		for _, key := range claimed {
+			delete(s.pages, key)
+		}
+	}()
 	for _, session := range sessions {
 		if ctx.Err() != nil {
 			return nil
 		}
 		key := pageKey(session.File)
-		s.pagesMu.Lock()
-		watched := s.pages[key]
-		s.pagesMu.Unlock()
 		owner, found := ownerOf(session.File)
-		if watched || !found {
+		if !found {
 			continue
 		}
+		s.pagesMu.Lock()
+		if s.pages[key] {
+			s.pagesMu.Unlock()
+			continue
+		}
+		if s.pages == nil {
+			s.pages = map[string]bool{}
+		}
+		s.pages[key] = true
+		claimed = append(claimed, key)
+		s.pagesMu.Unlock()
 		retired := owner.task != "" && !s.Store.taskStands(owner.task)
 		_, statErr := os.Stat(session.File)
 		isGone := errors.Is(statErr, fs.ErrNotExist)
@@ -120,7 +137,7 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 			err = s.pageFailing(failed, key, err)
 		}
 		if err == nil && isTaken && retired {
-			err = s.Store.settlePage(key, Review{})
+			err = s.Store.settlePage(owner.item, Review{})
 		}
 		problems = errors.Join(problems, err)
 	}
@@ -162,15 +179,24 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 		if err != nil || poll.Status != "feedback" {
 			return err
 		}
-		if reply = s.passOnPageFeedback(ctx, file, owner.task, identity, owner.key, poll, s.keepPageFeedback(owner.key, poll)); reply == "" {
-			return nil
+		answer := pageAnswer{ID: rand.Text(), Item: Review{ID: owner.key, Task: owner.task, Identity: identity, LavishPage: file}, Poll: poll, Status: "collecting"}
+		if !s.keepAnswer(ctx, answer) {
+			return errors.New("page feedback could not be kept")
+		}
+		var isQueued bool
+		reply, isQueued = s.passOnAnswer(ctx, answer)
+		if !isQueued {
+			return errors.New("page feedback could not be queued")
 		}
 	}
 }
 
 // pageOwner is the fleet task a page belongs to, or no task for the CFO's
 // own, and the key its review wakes go under.
-type pageOwner struct{ task, key string }
+type pageOwner struct {
+	task, key string
+	item      Review
+}
 
 // pageOwners returns how a sweep tells whose page a file is: the item that
 // last presented it, else the task whose worktree, data folder or scratch
@@ -216,9 +242,9 @@ func (s *Service) pageOwners() (func(file string) (pageOwner, bool), error) {
 	return func(file string) (pageOwner, bool) {
 		if r, found := presented[pageKey(file)]; found {
 			if r.Task == "" {
-				return pageOwner{key: r.ID}, true
+				return pageOwner{key: r.ID, item: r}, true
 			}
-			return pageOwner{task: r.Task, key: r.Task}, true
+			return pageOwner{task: r.Task, key: r.Task, item: r}, true
 		}
 		id := ""
 		for worktree, task := range worktrees {
