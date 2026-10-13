@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -366,5 +367,150 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 		if !isEnded {
 			t.Fatal("the nested tree's child still runs after the run ended")
 		}
+	}
+}
+
+// A machine service the command started, as cfo services up starts Docker
+// Desktop, serves the whole machine: the run's end leaves it running and
+// names it apart from what it ended, and the run keeps its pass and gives
+// its turn back.
+func TestExecutorSparesAMachineServiceTheCommandStarted(t *testing.T) {
+	if os.Getenv(limitsRole) == "service-starter" {
+		for _, name := range []string{"com.docker.standin", "worker"} {
+			started := exec.Command(filepath.Join(os.Getenv("VERIFY_LIMITS_PROGRAMS"), name+".exe"))
+			if started.Start() != nil {
+				os.Exit(8)
+			}
+			// Written whole and then named, so the test never reads half a pid.
+			if os.WriteFile(name+".pid.tmp", []byte(strconv.Itoa(started.Process.Pid)), 0o600) != nil || os.Rename(name+".pid.tmp", name+".pid") != nil {
+				os.Exit(7)
+			}
+		}
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	for _, name := range []string{"com.docker.standin", "worker"} {
+		standin.Put(t, filepath.Join(programs, name+".exe"))
+	}
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: 300 * time.Millisecond, Headroom: plentyOfMemory}}
+	environment := append(os.Environ(), limitsRole+"=service-starter", "VERIFY_LIMITS_PROGRAMS="+programs)
+	environment = append(environment, standin.Env("", standin.Rule{Any: true, Hold: true})...)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Act
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorSparesAMachineServiceTheCommandStarted$"}, Env: environment}, 0)
+
+	// Assert
+	pids := map[string]int{}
+	for _, name := range []string{"com.docker.standin", "worker"} {
+		pid, parseError := strconv.Atoi(string(waitForFile(t, filepath.Join(root, name+".pid"), time.Second)))
+		if parseError != nil {
+			t.Fatal(parseError)
+		}
+		pids[name] = pid
+	}
+	service := standin.Hold(t, pids["com.docker.standin"])
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("a command that started a machine service = %+v, %v", result, err)
+	}
+	evidence := readExecution(t, record)
+	if evidence.Status != "passed" || !evidence.Measurement.CleanupConfirmed {
+		t.Fatalf("evidence = %+v, want a pass with its cleanup confirmed", evidence)
+	}
+	if spared := evidence.Measurement.Spared; len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] || !strings.EqualFold(spared[0].Name, "com.docker.standin.exe") {
+		t.Fatalf("spared = %+v, want the machine service %d", spared, pids["com.docker.standin"])
+	}
+	if leftovers := evidence.Measurement.Leftovers; len(leftovers) != 1 || leftovers[0].PID != pids["worker"] {
+		t.Fatalf("leftovers = %+v, want the worker %d alone", leftovers, pids["worker"])
+	}
+	if event, err := windows.WaitForSingleObject(service, 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatal("the machine service was ended with the run")
+	}
+	if worker, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pids["worker"])); err == nil {
+		isEnded := endsSoon(worker)
+		windows.CloseHandle(worker)
+		if !isEnded {
+			t.Fatal("the worker still runs after the run ended")
+		}
+	}
+	holders, waiters, err := Line(executor.Admission.Dir)
+	if err != nil || len(holders)+len(waiters) != 0 {
+		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, err)
+	}
+}
+
+// A run whose end spared a machine service but whose evidence could not be
+// written keeps the service in what it retries, so the retry completes the
+// run's custody beside the service rather than waiting for a job that never
+// empties.
+func TestExecutorRetryKeepsTheServiceItsRunSpared(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	for _, name := range []string{"com.docker.standin", "worker"} {
+		standin.Put(t, filepath.Join(programs, name+".exe"))
+	}
+	var record string
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Linger: 300 * time.Millisecond, Headroom: plentyOfMemory,
+		Observe: func(measurement Measurement) error {
+			if measurement.State == Running || record != "" {
+				return nil
+			}
+			// The record's place is taken once the end is measured, so the
+			// run cannot write what became of it.
+			records, err := filepath.Glob(filepath.Join(store, "executions", "*.json"))
+			if err != nil || len(records) != 1 {
+				return fmt.Errorf("records = %v, %v", records, err)
+			}
+			record = records[0]
+			if err := os.Rename(record, record+".saved"); err != nil {
+				return err
+			}
+			if err := os.Mkdir(record, 0o700); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(record, "occupied"), nil, 0o600)
+		}}}
+	environment := append(os.Environ(), limitsRole+"=service-starter", "VERIFY_LIMITS_PROGRAMS="+programs)
+	environment = append(environment, standin.Env("", standin.Rule{Any: true, Hold: true})...)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, _, runError := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorSparesAMachineServiceTheCommandStarted$"}, Env: environment}, 0)
+	service, err := strconv.Atoi(string(waitForFile(t, filepath.Join(root, "com.docker.standin.pid"), time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	standin.Hold(t, service)
+	if runError == nil || record == "" {
+		t.Fatalf("run = %v with record %q, want its evidence write to fail", runError, record)
+	}
+	for _, step := range []error{os.Remove(filepath.Join(record, "occupied")), os.Remove(record), os.Rename(record+".saved", record)} {
+		if step != nil {
+			t.Fatal(step)
+		}
+	}
+
+	// Act
+	err = executor.RetryCleanup(context.Background())
+
+	// Assert
+	if err != nil {
+		t.Fatalf("retry = %v, want the run's custody completed beside the service", err)
+	}
+	evidence := readExecution(t, record)
+	if !evidence.Measurement.CleanupConfirmed || len(evidence.Measurement.Spared) != 1 || evidence.Measurement.Spared[0].PID != service {
+		t.Fatalf("evidence = %+v, want the cleanup confirmed and the service %d named", evidence.Measurement, service)
+	}
+	holders, waiters, err := Line(executor.Admission.Dir)
+	if err != nil || len(holders)+len(waiters) != 0 {
+		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, err)
 	}
 }

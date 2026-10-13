@@ -153,9 +153,9 @@ func (execution *Execution) interrupt() error {
 	return execution.persist(next)
 }
 
-func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.TreeUsage, exitCode int) error {
-	if execution.record.Status == "passed" || usage.ActiveProcesses != 0 {
-		return errors.New("verify: recovery requires a failed run and an empty job")
+func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.TreeUsage, spared []Leftover, exitCode int) error {
+	if execution.record.Status == "passed" || len(spared) == 0 && usage.ActiveProcesses != 0 {
+		return errors.New("verify: recovery requires a failed run and a job holding nothing but the services it spared")
 	}
 	next := execution.record
 	next.Status = "failed"
@@ -168,6 +168,7 @@ func (execution *Execution) recoveredCleanup(ctx context.Context, usage execx.Tr
 	next.Measurement.State = Interrupted
 	next.Measurement.CleanupConfirmed = true
 	next.Measurement.Usage = usage
+	next.Measurement.Spared = spared
 	return execution.persistContext(ctx, next)
 }
 
