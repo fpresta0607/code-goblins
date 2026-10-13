@@ -402,12 +402,12 @@ export interface Snapshot {
   // hours, newest first.
   merge_trains?: MergeTrain[];
 }
-// AfkHeld is an item held or left for the Overlord while AFK mode is on: its
-// key in the Command Center, its goblin (empty for the CFO's own), what it
-// asks, whether it still waits on him and what became of it, what its goblin
-// reported meanwhile, the choice its asker recommends, empty for none, and
-// what became of a line left for him that the CFO settled, which was never
-// asked.
+// AfkHeld is an item that waited on the Overlord in the Command Center while
+// AFK mode was on: its key there, its goblin (empty for the CFO's own), what
+// it asks, whether it still waits on him and what became of it, what its
+// goblin reported meanwhile, the choice its asker recommends, empty for none,
+// and, in a report kept before nothing was left for him, what became of a
+// line the CFO left for him and settled, which was never asked.
 export interface AfkHeld {
   item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string; settled: string;
 }

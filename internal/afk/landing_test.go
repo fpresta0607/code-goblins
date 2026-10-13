@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -73,18 +74,20 @@ func TestTheStretchOf10OctoberReportsOneMergedGroupAndNoWarning(t *testing.T) {
 	sections, text := report.Sections(), rendered(t, report)
 
 	// Assert
-	// The 8 decisions the CFO answered for him that stretch come first, recapped.
-	if got := titled(sections); len(got) < 2 || got[0] != "Answered for you 8" || got[1] != "Merged 80" {
-		t.Fatalf("the stretch's headings = %q, want Answered for you 8, then Merged 80", got)
+	// The 8 decisions the CFO answered for him that stretch are recapped under
+	// For you, and every merge is under one Merged heading.
+	if got := titled(sections); !slices.Contains(got, "Merged 80") || !slices.Contains(got, "For you 8") {
+		t.Fatalf("the stretch's headings = %q, want Merged 80 and For you 8", got)
 	}
-	for _, section := range sections[2:] {
+	merged := sections[slices.IndexFunc(sections, func(section Section) bool { return section.Title == "Merged" })]
+	for _, section := range sections {
 		for _, entry := range section.Entries {
-			if entry.Kind == KindMerge && section.Title != "Struck by the CFO" {
+			if entry.Kind == KindMerge && section.Title != "Merged" && section.Title != "Struck by the CFO" {
 				t.Errorf("a merge is under %q, not Merged: %+v", section.Title, entry)
 			}
 		}
 	}
-	for _, entry := range sections[1].Entries {
+	for _, entry := range merged.Entries {
 		if entry.Outcome != OutcomeMerged {
 			t.Errorf("under Merged: %+v, want only what merged", entry)
 		}
@@ -192,10 +195,10 @@ func TestALineTheCFOWroteForALandingIsWithTheMergeItNames(t *testing.T) {
 
 // What did not land is the one warning in the report: under Not merged, each
 // with what the CFO did about it, then what happened, each in one sentence.
-// The CFO's own line about it is what it did, a line left for the Overlord
-// about it is his question in the Command Center, and with neither the
-// report says the CFO logged nothing. A line the CFO wrote that names no
-// merge says what it says itself.
+// The CFO's own line about it is what it did, a step only the Overlord can
+// take about it says it needs him, and with neither the report says the CFO
+// logged nothing. A line the CFO wrote that names no merge says what it says
+// itself.
 func TestANotMergedRowSaysWhatTheCFODidAndWhatHappened(t *testing.T) {
 	pr := "https://github.com/acme/api/pull/13"
 	word := Entry{At: night, Kind: KindMerge, What: pr, Link: pr, Evidence: "verified: 15 checks green"}
@@ -204,13 +207,13 @@ func TestANotMergedRowSaysWhatTheCFODidAndWhatHappened(t *testing.T) {
 	}
 	failed := ended("not merged: gh exited 1: Pull request is not mergeable")
 	sentBack := Entry{At: night.Add(2 * time.Minute), Kind: KindMerge, What: "Sent it back to nw-export to merge main in", Link: pr, Evidence: "Its head was behind main."}
-	left := Entry{At: night.Add(3 * time.Minute), Kind: KindLeft, What: "Merge #13 past its failing check?", Link: pr, Evidence: "his call", Diagnosis: "a flaky check", Tried: "two reruns", Options: []string{"Hold it", "Merge it"}, Recommendation: "Hold it"}
+	his := Entry{At: night.Add(3 * time.Minute), Kind: KindHis, What: "Merge #13, a teammate's pull request", Link: pr, Evidence: "cfo pr merge refused it"}
 	for name, tc := range map[string]struct {
 		lines []Entry
 		says  []string
 	}{
 		"the CFO sent it back":      {[]Entry{word, failed, sentBack}, []string{"The CFO: Sent it back to nw-export to merge main in. Its head was behind main.", "Not merged: gh exited 1: Pull request is not mergeable."}},
-		"the CFO left it for him":   {[]Entry{word, failed, left}, []string{"Left for you as question:afk-left-20261002T021300.000000000Z.", "Not merged: gh exited 1: Pull request is not mergeable."}},
+		"only he can take it":       {[]Entry{word, failed, his}, []string{"The CFO: It needs you: Merge #13, a teammate's pull request.", "Not merged: gh exited 1: Pull request is not mergeable."}},
 		"the CFO logged nothing":    {[]Entry{word, failed}, []string{"The CFO logged nothing about it.", "Not merged: gh exited 1: Pull request is not mergeable."}},
 		"it joined a merge queue":   {[]Entry{word, ended("added to the merge queue")}, []string{"The CFO logged nothing about it.", "Added to the merge queue."}},
 		"nothing followed its word": {[]Entry{word}, []string{"The CFO logged nothing about it.", "No merge was recorded."}},
@@ -224,8 +227,8 @@ func TestANotMergedRowSaysWhatTheCFODidAndWhatHappened(t *testing.T) {
 			sections, text := report.Sections(), rendered(t, report)
 
 			// Assert
-			if got := titled(sections); strings.Join(got, ",") != "Not merged 1" {
-				t.Fatalf("headings = %q, want Not merged 1:\n%s", got, text)
+			if got := titled(sections); len(got) == 0 || got[0] != "Not merged 1" {
+				t.Fatalf("headings = %q, want Not merged 1 first:\n%s", got, text)
 			}
 			_, under, _ := strings.Cut(text, "Not merged (1)\n")
 			lines := strings.Split(under, "\n")
@@ -290,7 +293,7 @@ func TestAKeptReportFoldsTheCFOsLinesAsTheyStandWhenItIsRead(t *testing.T) {
 
 // A decision the CFO answered itself about a merge that did not land is what
 // the CFO did about it: the merge's row says it with the CFO's answer, nothing
-// is left for him, and the decision is recapped under Answered for you.
+// is left for him, and the decision is recapped under For you.
 func TestANotMergedRowSaysWhatTheCFOAnsweredAboutIt(t *testing.T) {
 	// Arrange
 	pr := "https://github.com/acme/api/pull/13"
@@ -303,11 +306,8 @@ func TestANotMergedRowSaysWhatTheCFOAnsweredAboutIt(t *testing.T) {
 	sections, text := report.Sections(), rendered(t, report)
 
 	// Assert
-	if got := titled(sections); strings.Join(got, ",") != "Answered for you 1,Not merged 1" {
-		t.Fatalf("headings = %q, want the decision recapped and the merge not merged:\n%s", got, text)
-	}
-	if merge := sections[1].Entries[0]; merge.Asked != "" {
-		t.Errorf("the merge = %+v, want nothing left for him about it", merge)
+	if got := titled(sections); strings.Join(got, ",") != "Not merged 1,For you 1" {
+		t.Fatalf("headings = %q, want the merge not merged and the decision recapped:\n%s", got, text)
 	}
 	if got, want := following(text, "- "+pr), "  The CFO: Merge #13 past its failing check? the check fails on main too. It answered: Hold it."; got != want {
 		t.Errorf("the merge's row says %q, want %q:\n%s", got, want, text)

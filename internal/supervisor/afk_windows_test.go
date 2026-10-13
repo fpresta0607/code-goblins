@@ -204,8 +204,8 @@ func TestTheOverlordsSwitchTurnsAFKModeOnAndTheCFOIsToldInItsQueue(t *testing.T)
 		t.Errorf("the CFO's queue = %+v, %v, want one notice that the Overlord turned AFK mode on", pending, err)
 	}
 	// AFK mode is complete autopilot: the notice holds nothing for him.
-	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "cfo afk log --kind left")) {
-		t.Errorf("the notice = %q, want what only he can do left for him in the backlog, never held for him", pending[0].Detail)
+	if len(pending) == 1 && (strings.Contains(pending[0].Detail, "held for him") || !strings.Contains(pending[0].Detail, "Answer every decision yourself with your recommendation") || !strings.Contains(pending[0].Detail, "backlog row") || !strings.Contains(pending[0].Detail, "cfo afk log --kind his")) {
+		t.Errorf("the notice = %q, want every decision answered by the CFO and a step only he can take as a line with a backlog row, never held for him", pending[0].Detail)
 	}
 	if entries := afkEntries(t, h.State); len(entries) != 1 || entries[0].Kind != afk.KindOn {
 		t.Errorf("the AFK log = %+v, want the line that turned it on", entries)

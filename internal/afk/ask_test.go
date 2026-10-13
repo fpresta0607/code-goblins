@@ -179,9 +179,10 @@ func TestTheReportSaysTheCFOMadeASwitchAtHisAskAndQuotesHim(t *testing.T) {
 	}
 }
 
-// Coming back, the Overlord reads what is held for him first, then what the
-// CFO decided.
-func TestTheReportListsWhatIsHeldBeforeWhatWasDecided(t *testing.T) {
+// The Overlord, 2026-10-12: "just tell me what you've done". The report reads
+// as his recap does: what was done, then what the CFO decided, and last what
+// needs him.
+func TestTheReportReadsDoneThenDecidedThenWhatNeedsHimLast(t *testing.T) {
 	// Act
 	var out bytes.Buffer
 	if err := Render(&out, nightReport()); err != nil {
@@ -191,7 +192,7 @@ func TestTheReportListsWhatIsHeldBeforeWhatWasDecided(t *testing.T) {
 	// Assert
 	report := out.String()
 	var at []int
-	for _, phrase := range []string{"AFK mode was on from", "For you (2)", "Migration 0042 drops legacy_invoices. Apply it?", "Merged (1)", "Answered for goblins (1)", "Goblins finished (1)", "Spent"} {
+	for _, phrase := range []string{"AFK mode was on from", "DONE", "Not merged (1)", "Deployed (1)", "Merged (1)", "Goblins finished (1)", "Spent", "Settled (1)", "DECIDED FOR YOU", "For the goblins (1)", "NEEDS YOU", "Needs you (1)", "Waiting on you in the Command Center (1)", "Migration 0042 drops legacy_invoices. Apply it?"} {
 		index := strings.Index(report, phrase)
 		if index < 0 {
 			t.Fatalf("the report does not say %q:\n%s", phrase, report)
@@ -200,7 +201,7 @@ func TestTheReportListsWhatIsHeldBeforeWhatWasDecided(t *testing.T) {
 	}
 	for i := 1; i < len(at); i++ {
 		if at[i] <= at[i-1] {
-			t.Fatalf("the report's order is %v, want what is held right after its first line and before every decision:\n%s", at, report)
+			t.Fatalf("the report's order is %v, want Done, then Decided for you, then Needs you last:\n%s", at, report)
 		}
 	}
 }
