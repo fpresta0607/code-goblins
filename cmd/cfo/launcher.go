@@ -129,7 +129,7 @@ func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, backgro
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	board, _, ok := launchBoard(context.Background(), runtime, h, stdout, stderr)
+	board, ok := launchAppBoard(runtime, h, stdout, stderr)
 	if !ok {
 		return 1
 	}
@@ -154,7 +154,7 @@ func runWindowLocator(stdout, stderr io.Writer, runtime commandRuntime) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	board, _, ok := launchBoard(context.Background(), runtime, h, io.Discard, stderr)
+	board, ok := launchAppBoard(runtime, h, io.Discard, stderr)
 	if !ok {
 		return 1
 	}
@@ -165,15 +165,15 @@ func runWindowLocator(stdout, stderr io.Writer, runtime commandRuntime) int {
 
 // runBoardLauncher is goblins --board. It finds or starts the supervisor as
 // goblins does and opens the board in the browser every time, and starts or
-// shows no CFO in this terminal: the board shows the CFO, and its first-run
-// screen while none is registered.
+// shows no CFO in this terminal: the board shows the remembered CFO, and its
+// first-run screen when the home has no saved harness.
 func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	board, _, ok := launchBoard(context.Background(), runtime, h, stdout, stderr)
+	board, ok := launchAppBoard(runtime, h, stdout, stderr)
 	if !ok {
 		return 1
 	}
@@ -182,6 +182,24 @@ func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 		return 1
 	}
 	return 0
+}
+
+func launchAppBoard(runtime commandRuntime, h home.Home, stdout, stderr io.Writer) (string, bool) {
+	board, _, ok := launchBoard(context.Background(), runtime, h, stdout, stderr)
+	if !ok || cfoRuns(runtime, h.State) {
+		return board, ok
+	}
+	_, err := os.Stat(cfoHarnessPath(h.State))
+	if errors.Is(err, os.ErrNotExist) {
+		return board, true
+	}
+	if err == nil {
+		err = reopenCFO(h, runtime.startNativeCFO, runtime.nativeTerminalRuns)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "goblins: the CFO could not be reopened: %v\nOpen the board at %s to try Reopen again.\n", err, board)
+	}
+	return board, true
 }
 
 // launchBoard finds the supervisor, or starts one detached from this
