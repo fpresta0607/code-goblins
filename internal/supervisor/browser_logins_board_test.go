@@ -199,6 +199,35 @@ func TestALoginThatSignsOutAfterEachFetchKeepsNoSession(t *testing.T) {
 	}
 }
 
+func TestALoginThatSignsOutAfterEachFetchEndsTheSessionWhenTheLentBrowserItReadInCloses(t *testing.T) {
+	// Arrange
+	b := newFetchBoard(t)
+	declareLogin(t, b.broker, "PrecisionDocs-AI", auth.BrowserLogin{Provider: "stripe", Account: "PrecisionDocs-AI", AccountID: "acct_fixture", SignsOutAfterFetch: true})
+	lendToTheGoblin(t, b)
+	if lease, err := b.fetch(); err != nil || len(lease.Fetched) != 2 {
+		t.Fatalf("fetch = %+v, %v, want both keys stored", lease, err)
+	}
+	b.service.credentialWork.Wait()
+	if _, err := os.Stat(browserlogin.ProfileDir(b.broker.state, fetchLogin)); err != nil {
+		t.Fatalf("the profile = %v, want it kept while the goblin's browser runs on it", err)
+	}
+
+	// Act
+	err := b.broker.release("pd-keys", "stripe")
+	b.broker.work.Wait()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(browserlogin.ProfileDir(b.broker.state, fetchLogin)); !os.IsNotExist(err) {
+		t.Fatalf("the profile = %v, want it gone once the browser the fetch read in closed", err)
+	}
+	if logins := registered(t, b.broker); logins[0].SignedInAt != nil {
+		t.Fatalf("registry = %+v, want the login recorded signed out", logins)
+	}
+}
+
 func TestAFetchMeetingASignInPageRecordsItsLoginSignedOut(t *testing.T) {
 	// Arrange
 	b := newFetchBoard(t)

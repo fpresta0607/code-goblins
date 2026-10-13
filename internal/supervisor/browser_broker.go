@@ -337,13 +337,17 @@ func (b *browserBroker) release(task, providerID string) error {
 	return nil
 }
 
-// close records the browser of logins[index] given back and closes its
-// Chrome in the background. The caller holds b.mu.
+// close records the browser of logins[index] given back, and the login
+// signed out when a fetch read in it for a project that signs out after each
+// fetch, and closes its Chrome in the background. The caller holds b.mu.
 func (b *browserBroker) close(logins []browserlogin.Login, index int) error {
 	login := &logins[index]
 	b.closeProcess(login.ID)
 	used := b.now()
 	login.Browser, login.UsedAt = nil, &used
+	if b.signOuts[login.ID] {
+		login.SignedInAt = nil
+	}
 	return browserlogin.Write(b.state, logins)
 }
 

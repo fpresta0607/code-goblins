@@ -193,9 +193,13 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 	// The fetch reads on the account the project's manifest names, or else
 	// on the one his last sign-in showed.
 	account := login.AccountID
-	if declared, found := manifest.LoginFor(provider.ID); found && declared.AccountID != "" {
+	declared, isDeclared := manifest.LoginFor(provider.ID)
+	if isDeclared && declared.AccountID != "" {
 		account = declared.AccountID
 	}
+	// A login the project names to sign out after each fetch keeps no
+	// session once the browser the fetch reads in has closed.
+	signsOut := isDeclared && declared.SignsOutAfterFetch
 	reading := *login
 	reading.AccountID = account
 	switch {
@@ -220,6 +224,9 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 			return refuse(*login, fmt.Errorf("the browser lent to %s could not be sealed, so nothing was read in it: %w", task, err))
 		}
 		b.fetching[login.ID] = task
+		if signsOut {
+			b.signOuts[login.ID] = true
+		}
 		return reading, process, true, nil
 	case b.closing[login.ID]:
 		return refuse(*login, fmt.Errorf("%s's %s login's last browser is still closing, and Chrome opens a profile once. Ask again in a minute", project, provider.Name))
@@ -267,9 +274,7 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 		return refuse(*login, err)
 	}
 	b.fetching[login.ID] = task
-	// A login the project names to sign out after each fetch keeps no
-	// session once the fetch's own browser has closed.
-	if declared, found := manifest.LoginFor(provider.ID); found && declared.SignsOutAfterFetch {
+	if signsOut {
 		b.signOuts[login.ID] = true
 	}
 	return reading, process, false, nil
@@ -294,9 +299,6 @@ func (b *browserBroker) endFetch(id, task string, isLent bool) error {
 	if index < 0 || logins[index].Browser == nil {
 		b.closeProcess(id)
 		return nil
-	}
-	if b.signOuts[id] {
-		logins[index].SignedInAt = nil
 	}
 	return b.close(logins, index)
 }
