@@ -60,6 +60,8 @@ Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task tempora
 Board starts and automatic starts pass only the engine settings explicitly named by the backlog row or brief, with the row winning separately for each field.
 An unspecified harness, model or effort stays empty until spawn chooses it, and a generated brief preserves those empty settings.
 The queued snapshot therefore describes preferences rather than predicting a dispatched model.
+The board labels empty queued fields Automatic and saves each field independently.
+An explicitly empty backlog field overrides the brief, so returning a field to Automatic does not restore an older brief preference.
 A helper follows its own brief's classification and explicit engine settings, independently of its parent's model.
 Its mode stays local-only, its project and branch stay owned by its parent, and its brief cannot expand inherited credentials or MCP access.
 Invalid explicit settings and a conflicting helper mode are refused before its status or brief is written.

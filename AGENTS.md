@@ -114,6 +114,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
 - `--yolo` lets you decide routine gates inside the Supreme Overlord's request; without it, every merge asks the Supreme Overlord.
 - The Supreme Overlord can start a queued task himself with **Start** on the board, which runs this same `cfo spawn` with the task's brief and only the harness, model, effort and mode its backlog row or brief explicitly names, with the row taking precedence for each field.
   Unspecified engine fields stay empty for the lane table to choose, both on the queued card and in a brief written from its row, and automatic starts use the same rule.
+  A queued field saved as Automatic writes an explicit empty row override, keeping the brief and the other preferences intact.
   Start is refused under 5 GB of free memory or of free commit (RAM plus page file), while its row waits for something that has not cleared, or for good once the task already finished, which its card says.
   A task with no brief gets one written from its queued row first, with a `brief created: ...` notify so you can amend it.
   It puts the task at the top of In progress and wakes you with a notify: `started: the Overlord started this from the board, ...` means it is dispatched, so update its backlog row as after your own dispatch.

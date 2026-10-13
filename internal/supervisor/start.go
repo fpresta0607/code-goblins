@@ -391,7 +391,7 @@ func (p startPlan) validateEngine() error {
 
 func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
 	pick := func(fromRow, key string) string {
-		if fromRow != "" {
+		if fromRow != "" || row.HasSetting(key) {
 			return fromRow
 		}
 		return named[key]
