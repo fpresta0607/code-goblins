@@ -45,16 +45,23 @@ var pagePollPause = 10 * time.Second
 // pageAnswer keeps consumed feedback and its delivery intent across restarts.
 // A collecting answer remains open to the next poll's Send & End.
 type pageAnswer struct {
-	ID         string       `json:"id"`
-	Poll       axi.PagePoll `json:"poll"`
-	Item       Review       `json:"item"`
-	IsAnswer   bool         `json:"is_answer,omitempty"`
-	HasRetried bool         `json:"has_retried,omitempty"`
-	Status     string       `json:"status"`
-	Detail     string       `json:"detail,omitempty"`
-	Reason     string       `json:"reason,omitempty"`
-	IsPageEnd  bool         `json:"is_page_end,omitempty"`
-	Closed     Review       `json:"closed,omitempty"`
+	ID         string         `json:"id"`
+	Poll       axi.PagePoll   `json:"poll"`
+	Item       Review         `json:"item"`
+	Questions  []pageQuestion `json:"questions,omitempty"`
+	IsAnswer   bool           `json:"is_answer,omitempty"`
+	HasRetried bool           `json:"has_retried,omitempty"`
+	Status     string         `json:"status"`
+	Detail     string         `json:"detail,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
+	IsPageEnd  bool           `json:"is_page_end,omitempty"`
+	Closed     Review         `json:"closed,omitempty"`
+}
+
+type pageQuestion struct {
+	ID        string    `json:"id"`
+	Identity  string    `json:"identity"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // watchPages keeps one poller for each page the supervisor watches: the
@@ -145,7 +152,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 				continue
 			}
 			if answer.IsAnswer {
-				s.answeredOnPage(answer.Item, answer.Poll)
+				s.answeredOnPage(*answer)
 			}
 			break
 		}
@@ -186,14 +193,17 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 			} else {
 				answer.Poll = together(answer.Poll, poll)
 			}
-			if answer.Item.State == "open" && !answer.IsAnswer && (answer.Poll.Ended && answer.Poll.EndedBy != "agent" || answer.Poll.Picked || s.Store.asksOnPage(answer.Item)) {
-				answer.IsAnswer = true
+			if answer.Item.State == "open" && !answer.IsAnswer {
+				questions := s.Store.questionsOnPage(answer.Item)
+				if answer.Poll.Ended && answer.Poll.EndedBy != "agent" || answer.Poll.Picked || len(questions) > 0 {
+					answer.IsAnswer, answer.Questions = true, questions
+				}
 			}
 			if !s.keepAnswer(ctx, *answer) {
 				return
 			}
 			if answer.IsAnswer {
-				s.answeredOnPage(answer.Item, answer.Poll)
+				s.answeredOnPage(*answer)
 			}
 			reply = "Received."
 			if !answer.Poll.Ended && ctx.Err() == nil {
@@ -287,15 +297,16 @@ func together(first, then axi.PagePoll) axi.PagePoll {
 	return whole
 }
 
-// answeredOnPage closes every open item naming the page of item r the moment
+// answeredOnPage closes the captured version and its older cards the moment
 // a poll reads his answer there, before anyone is told it, and closes the
-// questions r's page carries with what he wrote. The boards are told at once:
+// captured questions with what he wrote. The boards are told at once:
 // the supervisor's cycle tells them only of what the cycle itself changed.
-func (s *Service) answeredOnPage(r Review, poll axi.PagePoll) {
+func (s *Service) answeredOnPage(answer pageAnswer) {
+	r := answer.Item
 	if err := s.Store.closePage(r, Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived}); err != nil {
 		s.publish(err)
 	}
-	if err := s.Store.answerQuestionsOnPage(r, strings.Join(poll.Prompts, "\n")); err != nil {
+	if err := s.Store.answerQuestionsOnPage(answer); err != nil {
 		s.publish(err)
 	}
 	s.notify()
@@ -311,7 +322,7 @@ func (s *Service) passOnAnswer(ctx context.Context, answer pageAnswer) (reply st
 			return "", false
 		}
 	} else if answer.IsAnswer {
-		s.answeredOnPage(r, answer.Poll)
+		s.answeredOnPage(answer)
 	} else if r.State == "open" {
 		if err := s.Store.reviseReview(r, time.Now().UTC()); err != nil {
 			s.publish(err)

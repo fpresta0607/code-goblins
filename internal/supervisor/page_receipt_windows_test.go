@@ -556,6 +556,182 @@ func TestPageReceiptRecoveryDoesNotAnswerAReplacementQuestion(t *testing.T) {
 	}
 }
 
+func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) {
+	// Arrange: the old card closed after its approval was journaled, so the
+	// next publication creates a distinct item while retaining the old row.
+	store, h := testStore(t)
+	meta, _, page := askOnAPage(t, store)
+	original := store.Snapshot().Reviews[0]
+	answer := pageAnswer{ID: "historical-approval", Item: original, IsAnswer: true, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}}
+	answer.Questions = store.questionsOnPage(original)
+	if len(answer.Questions) != 1 {
+		t.Fatal("old question was not captured")
+	}
+	if err := store.keepPageAnswer(answer); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.closePage(original, Review{State: "answered", AnsweredBy: "overlord", Reason: pageAnswerReceived}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := wake.Append(h.State, "notify", meta.ID, "blocked: Approve the new version? options: Yes | No")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(h, meta.ID, record.Seq+20, "review the new version", pageLink, page, ""); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	latest := restarted.watchedPages()[pageKey(page)]
+	if latest.ID == original.ID || latest.State != "open" || latest.Identity != original.Identity || !latest.CreatedAt.After(original.CreatedAt) {
+		t.Fatalf("new publication did not retain a distinct old review: %+v", restarted.Snapshot().Reviews)
+	}
+	if historical, exists := restarted.review(original.ID); !exists || !samePageVersion(historical, original) || historical.State != "answered" {
+		t.Fatalf("closed historical version missing: %+v", historical)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	polled := false
+	recovered := &Service{Store: restarted, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+		polled = true
+		cancel()
+		return axi.PagePoll{}, context.Canceled
+	}}}
+
+	// Act
+	recovered.watchPages(ctx)
+	recovered.pageWork.Wait()
+
+	// Assert
+	if !polled {
+		t.Error("new review was no longer polled")
+	}
+	if got, _ := restarted.review(latest.ID); got.State != "open" || got.PageSettled != nil || got.AnsweredBy != "" {
+		t.Errorf("new review changed: %+v", got)
+	}
+	isQuestionFound := false
+	for _, question := range restarted.Snapshot().Questions {
+		if question.Seq == record.Seq {
+			isQuestionFound = true
+			if question.Status != "pending" || question.AnsweredBy != "" || question.AnsweredAt != nil {
+				t.Errorf("historical approval answered new question: %+v", question)
+			}
+		}
+	}
+	if !isQuestionFound {
+		t.Fatal("new question missing")
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isWakeFound := false
+	for _, candidate := range pending {
+		if candidate.Seq == record.Seq {
+			isWakeFound = true
+			if candidate.AnsweredBy != "" || candidate.Answered != "" {
+				t.Errorf("historical approval retired new question's wake: %+v", candidate)
+			}
+		}
+	}
+	if !isWakeFound {
+		t.Fatal("new question's wake missing")
+	}
+	if receipts := restarted.pageReceiptsSnapshot().Answers; len(receipts) != 0 {
+		t.Errorf("old feedback not delivered: %+v", receipts)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 {
+		t.Errorf("old feedback wakes = %+v, want once", wakes)
+	}
+}
+
+func TestPageReceiptRecoveryAnswersOnlyItsCapturedQuestion(t *testing.T) {
+	for _, hasLaterQuestion := range []bool{false, true} {
+		t.Run(map[bool]string{false: "captured question", true: "later question on same version"}[hasLaterQuestion], func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, firstWake, page := askOnAPage(t, store)
+			original := store.Snapshot().Reviews[0]
+			answer := pageAnswer{ID: "captured-question", Item: original, Questions: store.questionsOnPage(original), IsAnswer: true, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}}
+			if len(answer.Questions) != 1 {
+				t.Fatal("pending question not captured")
+			}
+			if err := store.keepPageAnswer(answer); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.closePage(original, Review{State: "answered", AnsweredBy: "overlord", Reason: pageAnswerReceived}); err != nil {
+				t.Fatal(err)
+			}
+			wantedWake := firstWake
+			if hasLaterQuestion {
+				record, err := wake.Append(h.State, "notify", meta.ID, "blocked: Another choice? options: Yes | No")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, nil); err != nil {
+					t.Fatal(err)
+				}
+				wantedWake = record
+			}
+			restarted, err := Open(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := restarted.ingestQuestions(); err != nil {
+				t.Fatal(err)
+			}
+			if got := restarted.questionsOnPage(original); len(got) != 0 {
+				t.Errorf("closed historical row captured current questions: %+v", got)
+			}
+			recovered := &Service{Store: restarted, Options: Options{PollPage: newScrawlPage(0).poll}}
+
+			// Act
+			recovered.watchPages(context.Background())
+			recovered.pageWork.Wait()
+
+			// Assert
+			for _, question := range restarted.Snapshot().Questions {
+				if question.Seq != wantedWake.Seq {
+					continue
+				}
+				if hasLaterQuestion {
+					if question.Status != "pending" || question.AnsweredBy != "" {
+						t.Errorf("uncaptured question answered: %+v", question)
+					}
+				} else if question.Status != "succeeded" || question.AnsweredBy != "overlord" {
+					t.Errorf("captured question lost its answer: %+v", question)
+				}
+			}
+			pending, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range pending {
+				if record.Seq != wantedWake.Seq {
+					continue
+				}
+				if hasLaterQuestion && record.AnsweredBy != "" || !hasLaterQuestion && record.AnsweredBy != wake.AnsweredByOverlord {
+					t.Errorf("incorrect wake answer: %+v", record)
+				}
+			}
+			if _, isWatched := restarted.watchedPages()[pageKey(page)]; isWatched {
+				t.Error("its own review did not settle")
+			}
+		})
+	}
+}
+
 func TestPagePollDoesNotApproveVersionPublishedWhilePolling(t *testing.T) {
 	for _, beforePublish := range []int{0, 1} {
 		t.Run([]string{"first poll", "settling poll"}[beforePublish], func(t *testing.T) {
