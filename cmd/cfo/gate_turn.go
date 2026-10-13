@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -68,11 +69,20 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // reserve, the run ends its command with everything it started and says so.
 // The execution's record is kept with the report store's others, and holds
 // no output, which is this run's caller's.
+//
+// A command that waits on a gate (gateWait) takes no turn: the gate's test
+// step takes its own, and a turn held through the gate's agents' work would
+// only keep every other run waiting.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	as, command, err := parseGateTurn(args)
 	if err != nil {
 		fmt.Fprintln(stderr, gateTurnUsage)
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
+		return exitNoTurn
+	}
+	if waits := gateWait(command); waits != "" {
+		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s waits on a gate, whose test step takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work\n", waits)
+		fmt.Fprintf(stderr, "cfo gate turn: run it without cfo gate turn: %s\n", strings.Join(command, " "))
 		return exitNoTurn
 	}
 	dir, err := os.Getwd()
@@ -216,6 +226,27 @@ func parseGateTurn(args []string) (as string, command []string, err error) {
 		}
 	}
 	return "", nil, errors.New("no -- comes before a command")
+}
+
+// gateWait names the words of command that wait on a no-mistakes gate, as
+// no-mistakes axi run, respond and answer and cfo pipeline run and respond
+// wait for the gate's next decision, or is empty. Every argument's words are
+// read, so a shell's command string, as cmd /c and powershell -Command take,
+// is read too. A script the command runs is not.
+func gateWait(command []string) string {
+	words := strings.FieldsFunc(strings.Join(command, " "), func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(`"'&|;()`, r)
+	})
+	for at := 0; at+2 < len(words); at++ {
+		program := strings.ToLower(words[at][strings.LastIndexAny(words[at], `/\`)+1:])
+		program = strings.TrimSuffix(program, ".exe")
+		step := words[at+1] + " " + words[at+2]
+		if program == "no-mistakes" && (step == "axi run" || step == "axi respond" || step == "axi answer") ||
+			(program == "cfo" || program == "goblins") && (step == "pipeline run" || step == "pipeline respond") {
+			return program + " " + step
+		}
+	}
+	return ""
 }
 
 // gateTurnWho names a run to the runs that wait behind it and to cfo gate
