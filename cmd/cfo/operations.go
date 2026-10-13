@@ -228,21 +228,22 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	failure := errors.Join(runError, executor.RetryCleanup(cleanup))
-	if err := verifyrun.Save(path, res); err != nil {
-		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
-	}
-	for _, result := range res {
+	for index, result := range res {
 		if result.Execution == "" {
 			continue
 		}
 		// A record that cannot be read here still holds its leftovers.
 		if record, err := verifyrun.LoadExecution(result.Execution); err == nil && len(record.Measurement.Leftovers) > 0 {
+			res[index].Leftovers = record.Measurement.Leftovers
 			named := make([]string, len(record.Measurement.Leftovers))
-			for index, leftover := range record.Measurement.Leftovers {
-				named[index] = fmt.Sprintf("%s pid %d", leftover.Name, leftover.PID)
+			for at, leftover := range record.Measurement.Leftovers {
+				named[at] = fmt.Sprintf("%s pid %d", leftover.Name, leftover.PID)
 			}
 			fmt.Fprintf(stderr, "%s: %s left %s running after it exited, which the run ended\n", name, strings.Join(result.Command, " "), strings.Join(named, ", "))
 		}
+	}
+	if err := verifyrun.Save(path, res); err != nil {
+		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
 	}
 	return res, failure
 }

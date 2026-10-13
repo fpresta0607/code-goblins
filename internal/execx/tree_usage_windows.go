@@ -45,7 +45,7 @@ func (t *Tree) Usage() (TreeUsage, error) {
 	if err != nil {
 		return TreeUsage{}, err
 	}
-	usage.SampledPrivateWorkingSetBytes, err = t.privateWorkingSet()
+	usage.SampledPrivateWorkingSetBytes, usage.UnreadableMembers, err = t.privateWorkingSet()
 	if err != nil {
 		return TreeUsage{}, err
 	}
@@ -72,20 +72,25 @@ func (t *Tree) jobUsage() (TreeUsage, error) {
 	}, nil
 }
 
-func (t *Tree) privateWorkingSet() (uint64, error) {
+// privateWorkingSet sums the private working set of the job's members, and
+// counts the members this process may not read, which the sum leaves out.
+func (t *Tree) privateWorkingSet() (total uint64, unreadable uint32, err error) {
 	ids, err := t.memberIDs()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	var total uint64
 	for _, pid := range ids {
 		memory, err := t.processWorkingSet(pid)
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			unreadable++
+			continue
+		}
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		total += memory
 	}
-	return total, nil
+	return total, unreadable, nil
 }
 
 // memberIDs reads the ids of the processes the job holds now.
@@ -151,11 +156,16 @@ func (t *Tree) Members() ([]EndedProcess, error) {
 	return members, nil
 }
 
-// holds reports whether pid is a process still running in the job.
+// holds reports whether pid is a process still running in the job. A pid
+// the job lists that this process may not open is counted as running, since
+// nothing shows it has exited.
 func (t *Tree) holds(pid uint32) (bool, error) {
 	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, pid)
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return false, nil // The process has exited.
+	}
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return true, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("execx: open job member %d: %w", pid, err)

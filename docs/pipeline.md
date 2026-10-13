@@ -474,7 +474,8 @@ Any other value, such as one a process kept from a run that has ended, is ignore
 
 **Executor accounting.**
 `internal/execx.Tree.Usage` reads cumulative CPU time, current and peak private commitment, active and lifetime process counts from the Windows job, including descendants whose parents exited.
-It samples the private working set separately, which is neither commitment nor a measured lifetime peak.
+It samples the private working set separately, which is neither commitment nor a measured lifetime peak, and counts apart the members this process may not read, as a sandboxed browser's, which the sample leaves out.
+A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes.

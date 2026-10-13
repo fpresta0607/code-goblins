@@ -326,14 +326,35 @@ func TestVerifySavesEachCommandsStatus(t *testing.T) {
 // standard error, and the tier keeps the command's own result.
 func TestVerifyNamesWhatACommandLeftRunning(t *testing.T) {
 	// Arrange
-	runtime, _ := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "start", "/b", "ping", "-n", "60", "127.0.0.1"]]}`)
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "start", "/b", "ping", "-n", "60", "127.0.0.1"]]}`)
 
 	// Act
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
 
 	// Assert
-	if exit != 0 || !strings.Contains(stderr.String(), "PING.EXE pid") && !strings.Contains(strings.ToLower(stderr.String()), "ping.exe pid") {
+	if exit != 0 || !strings.Contains(strings.ToLower(stderr.String()), "ping.exe pid") {
 		t.Fatalf("exit = %d, stderr = %q, want a pass naming ping as left running", exit, stderr.String())
+	}
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) != 1 || results[0].Status != "passed" || len(results[0].Leftovers) != 1 || !strings.EqualFold(results[0].Leftovers[0].Name, "ping.exe") {
+		t.Fatalf("saved = %+v, want a pass that names ping as left running", results)
+	}
+}
+
+// A tier with an empty command after a good one runs none of them, so its
+// file never shows only a pass.
+func TestVerifyRunsNothingOfATierWithAnEmptyCommand(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"], []]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if exit != 1 || len(results) != 1 || results[0].Status != "not_run" || !strings.Contains(results[0].Error, "empty command") {
+		t.Fatalf("exit = %d, saved = %+v, want the tier refused before anything ran", exit, results)
 	}
 }

@@ -371,3 +371,20 @@ func TestMonitorCancelsOnlyOnPressureThatLasts(t *testing.T) {
 		})
 	}
 }
+
+// The default sustain outlasts a few samples under the reserve, which a
+// short burst of another program's memory gives.
+func TestMonitorKeepsARunThroughABriefPressureByDefault(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1}}
+	sampler := &pressureAt{tree: tree, pressed: []bool{true, true, true, true, false}}
+	monitor := Monitor{Poll: time.Millisecond, Grace: time.Millisecond, Headroom: sampler.headroom}
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err != nil || result.State != Completed {
+		t.Fatalf("a brief pressure under the default sustain = %+v, %v, want the run kept", result, err)
+	}
+}

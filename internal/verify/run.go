@@ -28,8 +28,10 @@ type Result struct {
 	// limit that ended it or a turn it never got.
 	Error string `json:"error,omitempty"`
 	// Execution is the path of the command's measured execution record,
-	// for a command run as one.
-	Execution string `json:"execution,omitempty"`
+	// for a command run as one, and Leftovers what the command left running
+	// past its linger, which the run ended.
+	Execution string     `json:"execution,omitempty"`
+	Leftovers []Leftover `json:"leftovers,omitempty"`
 	// Packages are what became of each package a test command ran.
 	Packages []PackageResult `json:"packages,omitempty"`
 }
@@ -62,11 +64,15 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 	if len(commands) == 0 {
 		return nil, fmt.Errorf("verify: the %s tier names no command", scope)
 	}
-	var out []Result
+	// A tier with an empty command runs none of its commands, so its result
+	// never reads as a pass of the ones before it.
 	for _, c := range commands {
 		if len(c) == 0 || c[0] == "" {
-			return out, fmt.Errorf("verify: the %s tier names an empty command", scope)
+			return nil, fmt.Errorf("verify: the %s tier names an empty command", scope)
 		}
+	}
+	var out []Result
+	for _, c := range commands {
 		start := time.Now()
 		// A tier's command starts the checks it runs, so a run cut off ends
 		// them with it: ending the command alone leaves them running with
