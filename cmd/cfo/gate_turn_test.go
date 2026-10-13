@@ -14,8 +14,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/standin"
@@ -237,6 +240,10 @@ func startGateTurn(t *testing.T, dir string, env []string, args ...string) *turn
 	t.Helper()
 	run := &turnRun{process: exec.Command(os.Args[0], append([]string{gateTurnTestWrapper}, args...)...), stdout: &lockedBuffer{}, stderr: &lockedBuffer{}, exited: make(chan int, 1)}
 	run.process.Dir, run.process.Env = dir, append(os.Environ(), env...)
+	// A console of its own, with no window, so a console event the run sends,
+	// by design or by a fault, reaches the run and what it starts, and never
+	// the console the tests run in.
+	run.process.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	run.process.Stdout, run.process.Stderr = run.stdout, run.stderr
 	// A command that outlives its wrapper keeps the wrapper's output open,
 	// and the wait for the wrapper does not wait for the command.
