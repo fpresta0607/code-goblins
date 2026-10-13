@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,21 +16,36 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // runEndGoblin is the task whose terminal the tests of a run's end run in.
 const runEndGoblin = "cg-run-end"
 
-// sentTexts keeps what a runtime's sendText was asked to type, by target.
+// The screens a goblin's terminal shows, as Codex 0.160 and pi 0.85 draw
+// them: idle at an empty composer, and in a turn.
+var (
+	codexIdle    = []string{"• Ran go test ./...", "", "› Ask Codex to do anything", "", "  gpt-6-astra xhigh · ~\\cg-run-end"}
+	codexWorking = []string{"• Working (2m 10s • esc to interrupt)", "", "› Ask Codex to do anything", "", "  gpt-6-astra xhigh · ~\\cg-run-end"}
+	piIdle       = []string{"Done.", "────────────────────", "", "────────────────────", "0.8%/1.0M (auto)"}
+)
+
+// sentTexts keeps what a runtime's sendText was asked to type, by target,
+// and what check said each time it was.
 type sentTexts struct {
-	mu    sync.Mutex
-	texts []string
+	mu     sync.Mutex
+	texts  []string
+	checks []string
+	check  func() string
 }
 
 func (s *sentTexts) send(_ context.Context, _ home.Home, target, text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.texts = append(s.texts, target+": "+text)
+	if s.check != nil {
+		s.checks = append(s.checks, s.check())
+	}
 	return nil
 }
 
@@ -45,7 +61,10 @@ func (s *sentTexts) all() []string {
 func goblinTerminal(t *testing.T, harnessName string) (h home.Home, worktree, proof string) {
 	t.Helper()
 	h = testHome(t)
-	worktree = t.TempDir()
+	worktree = filepath.Join(t.TempDir(), "cg-run-end")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(h.State, "hosts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -60,32 +79,41 @@ func goblinTerminal(t *testing.T, harnessName string) (h home.Home, worktree, pr
 	return h, worktree, proof
 }
 
-// A run ends unseen only by a goblin whose harness starts no turn when a
-// background run ends, and the goblin is told only of its own run: one in its
-// own terminal, proven by the proof that terminal gave it, and in one of its
-// worktrees, where a gate it started never runs its steps.
-func TestTellGoblinRunEndedTellsOnlyAGoblinThatWouldNotSeeItsOwnRunEnd(t *testing.T) {
+// showing is a runtime's screen reader for a terminal that shows screen.
+func showing(screen []string) func(string, string) ([]string, error) {
+	return func(string, string) ([]string, error) { return screen, nil }
+}
+
+// A run's end is told only to a goblin whose harness starts no turn when a
+// background run ends, and that sits idle at its prompt, since one in a turn
+// has read how a run it waited on ended. It is told only of its own run: one
+// in its own terminal, proven by the proof that terminal gave it, and in one
+// of its worktrees, where a gate it started never runs its steps.
+func TestTellGoblinRunEndedTellsOnlyAnIdleGoblinOfItsOwnRun(t *testing.T) {
 	cases := []struct {
 		name        string
 		harness     string
-		inWorktree  bool
+		screen      []string
+		folder      string
 		isProven    bool
 		hasHostID   bool
 		isToldOfEnd bool
 	}{
-		{name: "codex goblin's own run", harness: "codex", inWorktree: true, isProven: true, hasHostID: true, isToldOfEnd: true},
-		{name: "pi goblin's own run", harness: "pi", inWorktree: true, isProven: true, hasHostID: true, isToldOfEnd: true},
-		{name: "claude goblin, whose harness starts a turn itself", harness: "claude", inWorktree: true, isProven: true, hasHostID: true},
-		{name: "a gate step outside its worktrees", harness: "codex", isProven: true, hasHostID: true},
-		{name: "a proof its terminal never gave", harness: "codex", inWorktree: true, hasHostID: true},
-		{name: "no native terminal", harness: "codex", inWorktree: true, isProven: true},
+		{name: "codex goblin idle at its prompt", harness: "codex", screen: codexIdle, folder: "frontend", isProven: true, hasHostID: true, isToldOfEnd: true},
+		{name: "pi goblin idle at its prompt", harness: "pi", screen: piIdle, folder: ".", isProven: true, hasHostID: true, isToldOfEnd: true},
+		{name: "codex goblin in a turn", harness: "codex", screen: codexWorking, folder: "frontend", isProven: true, hasHostID: true},
+		{name: "claude goblin, whose harness starts a turn itself", harness: "claude", screen: codexIdle, folder: ".", isProven: true, hasHostID: true},
+		{name: "a gate step outside its worktrees", harness: "codex", screen: codexIdle, folder: "elsewhere", isProven: true, hasHostID: true},
+		{name: "a folder beside the worktree named like it", harness: "codex", screen: codexIdle, folder: "../cg-run-end-2", isProven: true, hasHostID: true},
+		{name: "a proof its terminal never gave", harness: "codex", screen: codexIdle, folder: ".", hasHostID: true},
+		{name: "no native terminal", harness: "codex", screen: codexIdle, folder: ".", isProven: true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
 			h, worktree, proof := goblinTerminal(t, c.harness)
-			dir := filepath.Join(worktree, "frontend")
-			if !c.inWorktree {
+			dir := filepath.Join(worktree, c.folder)
+			if c.folder == "elsewhere" {
 				dir = t.TempDir()
 			}
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -100,11 +128,11 @@ func TestTellGoblinRunEndedTellsOnlyAGoblinThatWouldNotSeeItsOwnRunEnd(t *testin
 			}
 			sent := &sentTexts{}
 			runtime := testCommandRuntimeForHome(h)
-			runtime.sendText = sent.send
+			runtime.sendText, runtime.screen = sent.send, showing(c.screen)
 			var stderr strings.Builder
 
 			// Act
-			tellGoblinRunEnded(runtime, func(name string) string { return environment[name] }, "cfo gate turn", dir, "npm test", 3, 95*time.Second, &stderr)
+			tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate turn", dir, "npm test", 3, 95*time.Second, &stderr)
 
 			// Assert
 			want := []string(nil)
@@ -121,7 +149,28 @@ func TestTellGoblinRunEndedTellsOnlyAGoblinThatWouldNotSeeItsOwnRunEnd(t *testin
 	}
 }
 
-// Text typed while the goblin is in a turn reaches it at its next tool call,
+// The line names the run on one line and no longer than runEndWhatReach,
+// whatever its command held.
+func TestTellGoblinRunEndedNamesTheRunOnOneBoundedLine(t *testing.T) {
+	// Arrange
+	h, worktree, proof := goblinTerminal(t, "codex")
+	sent := &sentTexts{}
+	runtime := testCommandRuntimeForHome(h)
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	environment := map[string]string{host.IDVariable: runEndGoblin, host.ProofVariable: proof}
+	what := "cmd.exe /c\r\nnpm test " + strings.Repeat("x", 300)
+
+	// Act
+	tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate turn", worktree, what, 0, time.Second, &strings.Builder{})
+
+	// Assert
+	want := runEndGoblin + ": Your run cmd.exe /c npm test " + strings.Repeat("x", runEndWhatReach-len("cmd.exe /c npm test ")) + "... ended with exit 0 after 1s; read its output and carry on from it."
+	if got := sent.all(); len(got) != 1 || got[0] != want {
+		t.Errorf("typed %q; want %q", got, want)
+	}
+}
+
+// Text typed while the goblin turned busy reaches it at its next tool call,
 // which is no failure; a terminal that does not take the text is said on
 // stderr, and the run's own exit code is left as it was.
 func TestTellGoblinRunEndedSaysOnlyADeliveryThatFailed(t *testing.T) {
@@ -138,11 +187,12 @@ func TestTellGoblinRunEndedSaysOnlyADeliveryThatFailed(t *testing.T) {
 			h, worktree, proof := goblinTerminal(t, "codex")
 			runtime := testCommandRuntimeForHome(h)
 			runtime.sendText = func(context.Context, home.Home, string, string) error { return c.sendErr }
+			runtime.screen = showing(codexIdle)
 			environment := map[string]string{host.IDVariable: runEndGoblin, host.ProofVariable: proof}
 			var stderr strings.Builder
 
 			// Act
-			tellGoblinRunEnded(runtime, func(name string) string { return environment[name] }, "cfo gate prepush", worktree, "cfo gate prepush", 0, time.Minute, &stderr)
+			tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate prepush", worktree, "cfo gate prepush", 0, time.Minute, &stderr)
 
 			// Assert
 			if stderr.String() != c.want {
@@ -152,11 +202,31 @@ func TestTellGoblinRunEndedSaysOnlyADeliveryThatFailed(t *testing.T) {
 	}
 }
 
+// heldTurns says which runs hold a turn in the line the test named.
+func heldTurns(t *testing.T) func() string {
+	t.Helper()
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func() string {
+		holding, _, err := verify.Line(store)
+		if err != nil {
+			return err.Error()
+		}
+		var who []string
+		for _, run := range holding {
+			who = append(who, run.Who)
+		}
+		return strings.Join(who, "; ")
+	}
+}
+
 // cfo gate turn, run in a Codex goblin's own terminal from its worktree,
 // tells the goblin how its command ended once it has, with the turn given
 // back first: a goblin that ended its turn while the run waited sits at its
 // prompt otherwise (2026-10-13, 17 to 26 minutes each).
-func TestGateTurnTellsItsCodexGoblinThatItsCommandEnded(t *testing.T) {
+func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandEnded(t *testing.T) {
 	// Arrange
 	turnLine(t)
 	h, worktree, proof := goblinTerminal(t, "codex")
@@ -164,10 +234,10 @@ func TestGateTurnTellsItsCodexGoblinThatItsCommandEnded(t *testing.T) {
 	t.Setenv(host.ProofVariable, proof)
 	t.Chdir(worktree)
 	dir := commandFolder(t)
-	sent := &sentTexts{}
+	sent := &sentTexts{check: heldTurns(t)}
 	runtime := turnRuntime()
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText = sent.send
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
 	var stdout, stderr lockedBuffer
 
 	// Act
@@ -178,16 +248,62 @@ func TestGateTurnTellsItsCodexGoblinThatItsCommandEnded(t *testing.T) {
 	if exit != 4 || len(got) != 1 || !strings.HasPrefix(got[0], runEndGoblin+": Your run frontend suite ended with exit 4 after ") {
 		t.Errorf("exit = %d, typed %q; want exit 4 and one line naming the run and its exit", exit, got)
 	}
+	if strings.Join(sent.checks, "") != "" {
+		t.Errorf("the turn was held by %q as the goblin was told; want it given back first", sent.checks)
+	}
 }
 
-// cfo gate prepush tells its Codex goblin how the checks ended, failed or
-// passed, once it has given back its turn.
-func TestGatePrepushTellsItsCodexGoblinThatItsChecksEnded(t *testing.T) {
+// cfo gate prepush tells its Codex goblin how the checks ended once it has
+// given back its turn, and so does one that ends before it took one, as a
+// pick with nothing to run does.
+func TestGatePrepushTellsItsIdleCodexGoblinThatItsChecksEnded(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		changed map[string]string
+	}{
+		{name: "checks ran", changed: map[string]string{"frontend/src/RunCard.tsx": "changed\n"}},
+		{name: "nothing picked", changed: map[string]string{"README.md": "changed\n"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			turnLine(t)
+			repository := testStepModule(t,
+				map[string]string{"config/verify.json": quiet, "frontend/node_modules/.keep": "", "frontend/src/RunCard.tsx": ""},
+				c.changed)
+			h, _, proof := goblinTerminal(t, "codex")
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: runEndGoblin, Harness: "codex", Worktree: repository, Project: repository, Backend: "native"}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(host.IDVariable, runEndGoblin)
+			t.Setenv(host.ProofVariable, proof)
+			t.Chdir(repository)
+			sent := &sentTexts{check: heldTurns(t)}
+			var ran []string
+			runtime := recorded(&ran)
+			runtime.resolveHome = func() (home.Home, error) { return h, nil }
+			runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := gatePrepushWith(runtime, &stdout, &stderr)
+
+			// Assert
+			got := sent.all()
+			if exit != 0 || len(got) != 1 || !strings.HasPrefix(got[0], runEndGoblin+": Your run cfo gate prepush ended with exit 0 after ") {
+				t.Errorf("exit = %d, typed %q; want exit 0 and one line naming the run\nstdout=%s", exit, got, stdout.String())
+			}
+			if strings.Join(sent.checks, "") != "" {
+				t.Errorf("the turn was held by %q as the goblin was told; want it given back first", sent.checks)
+			}
+		})
+	}
+}
+
+// --plan runs nothing, so it tells nothing.
+func TestGatePrepushPlanTellsItsGoblinNothing(t *testing.T) {
 	// Arrange
 	turnLine(t)
-	repository := testStepModule(t,
-		map[string]string{"config/verify.json": quiet, "frontend/node_modules/.keep": "", "frontend/src/RunCard.tsx": ""},
-		map[string]string{"frontend/src/RunCard.tsx": "changed\n"})
+	repository := testStepModule(t, map[string]string{"config/verify.json": quiet}, map[string]string{"README.md": "changed\n"})
 	h, _, proof := goblinTerminal(t, "codex")
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: runEndGoblin, Harness: "codex", Worktree: repository, Project: repository, Backend: "native"}); err != nil {
 		t.Fatal(err)
@@ -199,15 +315,13 @@ func TestGatePrepushTellsItsCodexGoblinThatItsChecksEnded(t *testing.T) {
 	var ran []string
 	runtime := recorded(&ran)
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText = sent.send
-	var stdout, stderr lockedBuffer
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
 
 	// Act
-	exit := gatePrepushWith(runtime, &stdout, &stderr)
+	exit := gatePrepushWith(runtime, &bytes.Buffer{}, &bytes.Buffer{}, "--plan")
 
 	// Assert
-	got := sent.all()
-	if exit != 0 || len(got) != 1 || !strings.HasPrefix(got[0], runEndGoblin+": Your run cfo gate prepush ended with exit 0 after ") {
-		t.Errorf("exit = %d, typed %q; want exit 0 and one line naming the run\nstdout=%s", exit, got, stdout.String())
+	if got := sent.all(); exit != 0 || len(got) != 0 {
+		t.Errorf("exit = %d, typed %q; want exit 0 and nothing typed", exit, got)
 	}
 }

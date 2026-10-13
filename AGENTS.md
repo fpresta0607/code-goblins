@@ -130,7 +130,8 @@ cfo gate turn: took its turn after 3m0s
 ```
 
 The wait has no time limit, so a goblin starts the run where its tool's time limit cannot cut the wait short, such as in the background, and reports a long wait with `cfo notify <id> --waiting-on <the holder's task, or memory> "<why>"`.
-Claude Code starts a turn when a background run ends, and Codex and pi do not, so a `cfo gate turn` or `cfo gate prepush` run in a Codex or pi goblin's own terminal and worktree types one line into that goblin as it ends, as `cfo send` would: what ran, its exit code and how long it took.
+Claude Code starts a turn when a background run ends, and Codex and pi do not, so a `cfo gate turn` or `cfo gate prepush` run in a Codex or pi goblin's own terminal and worktree types one `CFO:` line into that goblin as it ends, as `cfo send` would, when the goblin sits idle at its prompt: what ran, its exit code and how long it took.
+A goblin in a turn is not told, since one that waited on the run there has read how it ended, and an interrupted run tells nothing.
 On 2026-10-13 Codex goblins sat at their prompt 17 to 26 minutes after their own run had ended.
 `cfo gate turns` shows the line from anywhere.
 

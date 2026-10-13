@@ -43,6 +43,14 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		fmt.Fprintln(stderr, "usage: cfo gate prepush [--plan] [--limit <duration>]")
 		return 2
 	}
+	// A run its goblin may have left in the background tells it how it
+	// ended. Deferred before the turn is taken, it runs once the turn is
+	// given back.
+	if !*planOnly {
+		defer func() {
+			tellGoblinRunEnded(context.Background(), runtime, os.Getenv, "cfo gate prepush", dir, "cfo gate prepush", exit, time.Since(started), stderr)
+		}()
+	}
 	project := ""
 	// Beside a working fleet on 2026-10-10 the pick took 2 to 67 seconds
 	// for sixteen pull requests, nearly all of it go list, and over two
@@ -90,10 +98,6 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		fmt.Fprintf(stdout, "cfo gate prepush: nothing ran, since the machine gave this run no turn: %v. CI is the only check of this push.\n", err)
 		return 1
 	}
-	// Deferred first, so it runs once the turn is given back.
-	defer func() {
-		tellGoblinRunEnded(runtime, os.Getenv, "cfo gate prepush", pick.Root, "cfo gate prepush", exit, time.Since(started), stderr)
-	}()
 	defer turn.Release()
 
 	began := time.Now()

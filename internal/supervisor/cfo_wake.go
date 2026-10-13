@@ -193,7 +193,7 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 		// dialog or with text in its composer, is looked at again on the next
 		// tick.
 		screen, err := read(record)
-		if err != nil || !idleAtEmptyComposer(screens, screen) {
+		if err != nil || !screens.IsIdleAtEmptyComposer(screen) {
 			return nil
 		}
 	}
@@ -208,14 +208,6 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 		return fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
 	}
 	return nil
-}
-
-// idleAtEmptyComposer reports whether screen shows a harness waiting at its
-// composer with nothing in it: no turn, no dialog, no work running on it.
-func idleAtEmptyComposer(screens harness.Screens, screen []string) bool {
-	_, dialog := screens.Dialog(screen)
-	_, running := harness.RunningWork(screen)
-	return screens.IsReady(screen) && !dialog && !running && screens.ComposerEmpty(screen)
 }
 
 // deliverNative submits text in terminal's native terminal as cfo send does
