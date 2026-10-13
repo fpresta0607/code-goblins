@@ -76,7 +76,7 @@ test("a failed first Start keeps its error and selection while configuration sna
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/setup?*", (route) => route.fulfill({ json: {
     home: "C:\\fixture", agent: "claude", projects_root: "", checkouts: [], cfo_runs: false,
-    agents: [{ id: "claude", name: "Claude Code", recommended: true, installed: true, sign_in: "signed_in" }, { id: "codex", name: "Codex", installed: true, sign_in: "signed_in" }],
+    agents: [{ id: "claude", name: "Claude Code", recommended: true, installed: true, sign_in: "signed_in" }, { id: "codex", name: "Codex", recommended: false, installed: true, sign_in: "signed_in" }],
   } }));
   let release = () => {};
   const pending = new Promise<void>((resolve) => { release = resolve; });
