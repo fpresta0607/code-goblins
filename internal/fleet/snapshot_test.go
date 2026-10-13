@@ -59,6 +59,41 @@ type snapshotEndpoint struct {
 	calls      []string
 }
 
+func TestFleetDropsAnOldLifecycleObservationAfterRelaunch(t *testing.T) {
+	for _, phase := range []string{"paused", "resuming", "stopped"} {
+		t.Run(phase, func(t *testing.T) {
+			// Arrange
+			h := snapshotHome(t)
+			t.Setenv("CFO_HOME", h.Root)
+			t.Setenv("CFO_STATE_OVERRIDE", h.State)
+			t.Setenv("CFO_PROJECTS_ROOT", t.TempDir())
+			meta := writeSnapshotMeta(t, h, "task", t.TempDir(), t.TempDir())
+			meta.SpawnGen = "replacement"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: "previous", Operation: "pause-1", Action: "pause", Phase: phase}); err != nil {
+				t.Fatal(err)
+			}
+			health := map[string]monitor.Health{"paused": monitor.HealthPaused, "resuming": monitor.HealthLaunching, "stopped": monitor.HealthParked}[phase]
+			writeObservation(t, h, monitor.Observation{TaskID: meta.ID, Endpoint: "fleet:pane-task", EndpointVerdict: monitor.ProbeUnknown, LastObserved: time.Now().Add(-time.Minute), Health: health, Reason: monitor.LifecycleOperation})
+			endpoint := &snapshotEndpoint{exists: map[string]bool{"fleet:pane-task": true}, busy: map[string]herdr.BusyState{"fleet:pane-task": herdr.BusyWorking}}
+
+			// Act
+			snapshot, err := BuildSnapshot(t.Context(), h, endpoint)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := snapshot.Tasks[0]
+			if row.Current.State != crewstate.Working || row.Monitor.Health != monitor.HealthUnknown || row.Pause != nil || row.Endpoint.Exists == nil || !*row.Endpoint.Exists {
+				t.Fatalf("old lifecycle observation survived the relaunch: %+v", row)
+			}
+		})
+	}
+}
+
 func TestCompletedFleetOutcomeHasNoRunnableQueueRow(t *testing.T) {
 	for _, row := range []string{"- **delivered** - Delivered", "- [ ] delivered - Delivered"} {
 		t.Run(row, func(t *testing.T) {
