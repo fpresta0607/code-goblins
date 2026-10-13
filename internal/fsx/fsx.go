@@ -158,7 +158,13 @@ func Remove(path string) error {
 // it could follow a link is a folder swapped for one while it runs, by a
 // process still writing there.
 func RemoveAll(path string) error {
-	return retryTransient(func() error { return os.RemoveAll(path) })
+	return RemoveAllWithin(path, transientBudget)
+}
+
+// RemoveAllWithin is RemoveAll that waits out a holder for budget at most,
+// for a caller whose own wait is longer or shorter than transientBudget.
+func RemoveAllWithin(path string, budget time.Duration) error {
+	return retryTransientWithin(budget, func() error { return os.RemoveAll(path) })
 }
 
 // transientBudget is how long a state file operation waits out another
@@ -180,7 +186,12 @@ var sleep = time.Sleep
 // waiting 10 ms after the first attempt and twice as long after each next
 // one, up to longestPause.
 func retryTransient(op func() error) error {
-	deadline := time.Now().Add(transientBudget)
+	return retryTransientWithin(transientBudget, op)
+}
+
+// retryTransientWithin is retryTransient with budget for transientBudget.
+func retryTransientWithin(budget time.Duration, op func() error) error {
+	deadline := time.Now().Add(budget)
 	wait := 10 * time.Millisecond
 	for {
 		err := op()
