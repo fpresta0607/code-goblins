@@ -584,8 +584,6 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 	switch {
 	case err != nil || runDigest(data) != r.ScriptSum:
 		err = errors.New("its script file is missing or changed")
-	case r.CFOUnwoken != 0:
-		err = errors.New("it restarts the CFO with Restart the CFO, never as a command")
 	case s.Options.Runs == nil:
 		err = errors.New("this supervisor cannot start run terminals")
 	case r.Update != nil:

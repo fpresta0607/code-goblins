@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"regexp"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -66,10 +67,26 @@ type cfoWakeSkip struct {
 	Screen string    `json:"screen,omitempty"`
 }
 
+// backgroundWork is a running row that is no turn: a command the CFO left
+// running, or the count of its background shells, at a prompt it waits at.
+var backgroundWork = regexp.MustCompile(`^(?:[^(]*Running…|.*(^|·)\s*\d+ shells?\s*(·|$))`)
+
+// cfoWakeSteady is how long one reason a CFO not in a turn was not told must
+// hold, on every look, before the Overlord is: a CFO between two steps of a
+// turn can show a frame that reads otherwise.
+const cfoWakeSteady = time.Minute
+
 // whyInTurn is why a wake is not typed into a CFO in the middle of a turn,
 // which takes its wakes once the turn ends: it is never the Overlord's to
 // restart for that, since a restart would end a CFO at work.
 const whyInTurn = "its screen shows it in the middle of a turn"
+
+// whyEnded and whyGone are why a wake is not typed into a CFO that no longer
+// runs, or whose terminal now runs another program.
+const (
+	whyEnded = "the CFO that registered no longer runs"
+	whyGone  = "its terminal no longer runs the CFO that registered"
+)
 
 // cfoWokenFile holds the highest wake sequence a typed wake line covered:
 // the line sends the CFO to cfo drain, which shows all of them, so a record a
@@ -170,7 +187,7 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 		return s.Store.withdrawCFOUnwoken("The CFO now takes its wakes itself.")
 	}
 	if !primary.Process.VerifiedAlive() {
-		return s.untoldWakes(fresh, cfoWakeSkip{Why: "the CFO that registered no longer runs"}, now)
+		return s.untoldWakes(fresh, cfoWakeSkip{Why: whyEnded}, now)
 	}
 	line := wakeLine(fresh)
 	// While AFK mode is on the line says so, since a CFO with no Stop hook
@@ -205,8 +222,19 @@ func (s *Service) untoldWakes(fresh []wake.Record, skip cfoWakeSkip, now time.Ti
 			connection.skipped = key
 		}
 	}
+	// A CFO at work takes its wakes as the turn ends, and one that no longer
+	// runs has no Restart to offer: neither is the Overlord's to restart, and
+	// an item made earlier is taken back.
+	switch skip.Why {
+	case whyInTurn, whyGone, whyEnded:
+		connection.steadySince, connection.steadyWhy = time.Time{}, ""
+		return errors.Join(recordErr, s.Store.withdrawCFOUnwoken("The CFO is not one to restart now."))
+	}
+	if skip.Why != connection.steadyWhy {
+		connection.steadySince, connection.steadyWhy = now, skip.Why
+	}
 	waited := now.Sub(fresh[0].Time)
-	if waited < cfoWakeStuckAfter || skip.Why == whyInTurn {
+	if waited < cfoWakeStuckAfter || now.Sub(connection.steadySince) < cfoWakeSteady {
 		return recordErr
 	}
 	return errors.Join(recordErr, s.offerCFORestart(fresh[0].Seq, len(fresh), waited, skip.Why, now))
@@ -289,7 +317,7 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 	if !readable {
 		return cfoWakeSkip{Why: "its screen is one this supervisor cannot read"}, nil
 	}
-	gone := cfoWakeSkip{Why: "its terminal no longer runs the CFO that registered"}
+	gone := cfoWakeSkip{Why: whyGone}
 	if err := c.verify(primary); err != nil {
 		return gone, err
 	}
@@ -344,15 +372,25 @@ func idleAtEmptyComposer(screens harness.Screens, screen []string) bool {
 // notIdle says in plain words why screen does not show a harness waiting at
 // an empty composer, or "" when it does.
 func notIdle(screens harness.Screens, screen []string) string {
+	// A turn is read first: a CFO at work may show a dialog's words in what
+	// it read, and a status row whose heading the harness's own pattern
+	// does not know still ends with the interrupt hint.
+	isRunning, isInTurn := false, screens.IsWorking(screen)
+	for _, row := range screen {
+		if found, isWork := harness.RunningWork([]string{row}); isWork {
+			isRunning = true
+			isInTurn = isInTurn || strings.Contains(found, "esc to interrupt") || !backgroundWork.MatchString(found)
+		}
+	}
+	if isInTurn {
+		return whyInTurn
+	}
 	if dialog, isShown := screens.Dialog(screen); isShown {
 		return "its screen shows " + dialog.Name
 	}
-	if screens.IsWorking(screen) {
-		return whyInTurn
-	}
 	// The row itself is redrawn as its clock ticks, so it stays in the
 	// screen kept beside the reason, never in the reason.
-	if _, isRunning := harness.RunningWork(screen); isRunning {
+	if isRunning {
 		return "its screen shows work it started still running"
 	}
 	if !screens.IsReady(screen) || !screens.ComposerEmpty(screen) {

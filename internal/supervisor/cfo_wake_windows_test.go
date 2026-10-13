@@ -351,11 +351,13 @@ func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
 		screen []string
 		why    string
 	}{
-		"in a turn":      {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
-		"its agents run": {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
-		"at a dialog":    {[]string{"  Set up security for Daybreak mode", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
-		"holding text":   {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
-		"no prompt":      {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
+		"in a turn":                       {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
+		"a turn's own heading":            {[]string{"• Investigating the CFO's wake path (2m 05s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
+		"a dialog's words read in a turn": {[]string{"  Hooks need review", "• Working (12s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
+		"its agents run":                  {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
+		"at a dialog":                     {[]string{"  Set up security for Daybreak mode", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
+		"holding text":                    {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
+		"no prompt":                       {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -403,7 +405,7 @@ func TestTheOverlordIsToldOnceWhenTheCFOCannotBeWoken(t *testing.T) {
 	}
 
 	// Act and assert: nothing before the wait is long enough.
-	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter-time.Second)); err != nil {
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter-cfoWakeSteady)); err != nil {
 		t.Fatal(err)
 	}
 	if items := untold(); len(items) != 0 {
@@ -443,9 +445,7 @@ func TestTheOverlordsItemGoesOnceTheCFODrainsItsWakes(t *testing.T) {
 	s, stateDir, _, _ := typedWakeCFO(t, "codex", busy)
 	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
 	now := time.Now().UTC()
-	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	raiseItem(t, s, now)
 	pending, err := wake.Pending(stateDir)
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("pending = %+v, %v", pending, err)
@@ -542,9 +542,7 @@ func TestTheOverlordsItemGoesOnceTheCFOTakesItsWakesItself(t *testing.T) {
 	s, stateDir, _, _ := typedWakeCFO(t, "codex", busy)
 	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
 	now := time.Now().UTC()
-	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	raiseItem(t, s, now)
 	primary, _, err := readPrimary(stateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -609,31 +607,28 @@ func TestTheRestartItemIsNeverRunAsACommand(t *testing.T) {
 	// Arrange
 	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleWithWorkRunning)
 	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
-	if err := s.wakeCFO(context.Background(), time.Now().UTC().Add(cfoWakeStuckAfter+time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	launched := 0
-	s.Options.Runs = &countingRuns{launched: &launched}
-	s.Store.mu.Lock()
+	raiseItem(t, s, time.Now().UTC())
 	var item Run
-	for i := range s.Store.db.Runs {
-		if s.Store.db.Runs[i].CFOUnwoken != 0 {
-			s.Store.db.Runs[i].RunAction, s.Store.db.Runs[i].State = "action", "running"
-			item = s.Store.db.Runs[i]
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.CFOUnwoken != 0 {
+			item = r
 		}
 	}
-	err := s.Store.save()
-	s.Store.mu.Unlock()
-	if err != nil || item.ID == "" {
-		t.Fatalf("item %+v, %v", item, err)
+	if item.ID == "" {
+		t.Fatal("no item was offered")
 	}
 
 	// Act
-	_, err = s.startRun(context.Background(), Action{ID: "action", RunID: item.ID, Generation: item.Identity})
+	_, err := s.Store.Queue(Action{ID: "action", Kind: "run", RunID: item.ID, Generation: item.Identity})
 
 	// Assert
-	if err == nil || launched != 0 || !strings.Contains(err.Error(), "Restart the CFO") {
-		t.Errorf("run = %v after %d launches; want it refused with nothing launched", err, launched)
+	if err == nil || !strings.Contains(err.Error(), "Restart the CFO") {
+		t.Errorf("queue = %v; want it refused", err)
+	}
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.ID == item.ID && r.State != "ready" {
+			t.Errorf("the item is %s; want it still ready", r.State)
+		}
 	}
 }
 
@@ -643,4 +638,100 @@ type countingRuns struct{ launched *int }
 func (c *countingRuns) Launch(context.Context, RunLaunch) (RunStarted, error) {
 	*c.launched++
 	return RunStarted{}, nil
+}
+
+// raiseItem looks at the CFO a minute before its wakes have waited
+// cfoWakeStuckAfter and again once they have, which raises the Overlord's
+// item for a CFO whose screen keeps one reason.
+func raiseItem(t *testing.T, s *Service, now time.Time) {
+	t.Helper()
+	for _, at := range []time.Duration{cfoWakeStuckAfter - cfoWakeSteady, cfoWakeStuckAfter + time.Second} {
+		if err := s.wakeCFO(context.Background(), now.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// cfoUnwokenItems are the states of the items that offer the CFO's restart.
+func cfoUnwokenItems(s *Service) []string {
+	var states []string
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.CFOUnwoken != 0 {
+			states = append(states, r.State)
+		}
+	}
+	return states
+}
+
+// One frame is not a CFO stuck: a CFO between two steps of a turn can show
+// one that reads otherwise, so a reason must hold a minute of looks first.
+func TestOneFrameNeverRaisesTheRestartItem(t *testing.T) {
+	// Arrange
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleWithWorkRunning)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+
+	// Act
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if states := cfoUnwokenItems(s); len(states) != 0 {
+		t.Errorf("items = %q after one look; want none", states)
+	}
+}
+
+// An item raised for a CFO that then goes back to work is taken back: it
+// takes its wakes as that turn ends.
+func TestTheRestartItemGoesOnceTheCFOIsAtWorkAgain(t *testing.T) {
+	// Arrange
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleWithWorkRunning)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	now := time.Now().UTC()
+	raiseItem(t, s, now)
+	s.Options.CFO.ReadScreen = func(host.Record) ([]string, error) {
+		return []string{"• Working (3s • esc to interrupt)", "› Ask Codex to do anything"}, nil
+	}
+
+	// Act
+	if err := s.wakeCFO(context.Background(), now.Add(cfoWakeStuckAfter+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if states := cfoUnwokenItems(s); len(states) != 1 || states[0] != "withdrawn" {
+		t.Errorf("items = %q; want the one item withdrawn", states)
+	}
+}
+
+// A CFO that no longer runs has no Restart the CFO to offer, so its untyped
+// wakes are recorded and the Overlord is given no item he cannot act on.
+func TestACFOThatNoLongerRunsIsOfferedNothing(t *testing.T) {
+	// Arrange
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleWithWorkRunning)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+	primary, _, err := readPrimary(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary.Process.Start = primary.Process.Start.Add(-time.Hour)
+	data, err := json.Marshal(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	raiseItem(t, s, time.Now().UTC())
+
+	// Assert
+	if states := cfoUnwokenItems(s); len(states) != 0 {
+		t.Errorf("items = %q; want none", states)
+	}
+	if kept := skips(t, stateDir); len(kept) != 1 || kept[0].Why != whyEnded {
+		t.Errorf("recorded %+v; want the wake with why", kept)
+	}
 }

@@ -70,6 +70,10 @@ type CFOConnection struct {
 	// skipped is the newest untyped wake and why, as last recorded in
 	// cfoWakeSkipsFile, so each is recorded once.
 	skipped string
+	// steadyWhy is the reason the CFO, not in a turn, was last not told, and
+	// steadySince since when every look found that same reason.
+	steadyWhy   string
+	steadySince time.Time
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
