@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -186,78 +187,101 @@ const endJobFor = 5 * time.Second
 // machine service started in it and what runs under it there
 // (RunningServicesAmong): Docker Desktop or the no-mistakes daemon a goblin
 // started serves the whole machine, and the end of what started it must not
-// end it. With one there, the job stops ending its processes when its last
-// handle closes, so the service outlives it, and the rest are ended one by
-// one until none is left. It returns the processes the job held as it ended
-// them, sorted by pid.
-func EndJob(job windows.Handle) ([]Entry, error) {
+// end it. With one there, the rest are ended one by one until none is left,
+// within endJobFor or ctx's deadline. It returns the processes the job held
+// as it ended them, and the services it spared with what runs under them,
+// each sorted by pid, and an end that fails beside a service still returns
+// the services. A job that ends its processes when its last handle closes
+// still does: its caller stops that (KeepJobOnClose) once the service is to
+// outlive the job, so a caller that dies first still ends the rest.
+func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err error) {
 	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
 	if err != nil {
-		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
+		return nil, nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	services, err := RunningServicesAmong(members)
 	if err != nil {
-		return members, errors.Join(err, windows.TerminateJobObject(job, 1))
+		return members, nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	if !slices.ContainsFunc(members, func(member Entry) bool { return services[member.PID] != NoService }) {
 		if err := windows.TerminateJobObject(job, 1); err != nil {
-			return nil, fmt.Errorf("proc: end a job: %w", err)
+			return nil, nil, fmt.Errorf("proc: end a job: %w", err)
 		}
-		return members, nil
+		return members, nil, nil
 	}
-	if err := KeepJobOnClose(job); err != nil {
-		return nil, err
-	}
-	ended, err := endEachBut(job, members, services)
+	ended, spared, err = endEachBut(ctx, job, members, services)
 	sort.Slice(ended, func(i, j int) bool { return ended[i].PID < ended[j].PID })
-	return ended, err
+	return ended, spared, err
 }
 
 // endEachBut ends job's processes one by one, members as they were last
 // read, but the machine services and what runs under them, until none else
-// is left or endJobFor has passed, and returns the processes it ended.
-func endEachBut(job windows.Handle, members []Entry, services map[int]Service) ([]Entry, error) {
-	var ended []Entry
-	for deadline := time.Now().Add(endJobFor); ; time.Sleep(50 * time.Millisecond) {
+// is left, within endJobFor or ctx's deadline, and returns the processes it
+// ended and the services it spared. A failure returns the services last
+// seen with it.
+func endEachBut(ctx context.Context, job windows.Handle, members []Entry, services map[int]Service) (ended, spared []Entry, err error) {
+	ctx, cancel := context.WithTimeout(ctx, endJobFor)
+	defer cancel()
+	seen := servicesIn(members, services)
+	for {
 		var rest []int
 		for _, member := range members {
 			if services[member.PID] != NoService {
 				continue
 			}
-			if endJobMember(job, member.PID) && !slices.Contains(ended, member) {
+			if endJobMember(job, member) && !slices.Contains(ended, member) {
 				ended = append(ended, member)
 			}
 			rest = append(rest, member.PID)
 		}
 		if len(rest) == 0 {
-			return ended, nil
+			return ended, members, nil
 		}
-		if time.Now().After(deadline) {
-			return ended, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running", rest)
+		select {
+		case <-ctx.Done():
+			return ended, seen, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running: %w", rest, ctx.Err())
+		case <-time.After(50 * time.Millisecond):
 		}
-		var err error
 		if members, err = jobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
-			return ended, err
+			return ended, seen, err
 		}
 		if services, err = RunningServicesAmong(members); err != nil {
-			return ended, err
+			return ended, seen, err
 		}
+		seen = servicesIn(members, services)
 	}
 }
 
-// endJobMember ends process pid if it is still in job, so a reused ID never
-// ends another process, and reports whether it ended it.
-func endJobMember(job windows.Handle, pid int) bool {
-	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+// servicesIn are the members services names as a machine service or as
+// running under one.
+func servicesIn(members []Entry, services map[int]Service) []Entry {
+	var kept []Entry
+	for _, member := range members {
+		if services[member.PID] != NoService {
+			kept = append(kept, member)
+		}
+	}
+	return kept
+}
+
+// endJobMember ends member if it is still in job and still the process that
+// started when member did, so a reused ID never ends another process, and
+// reports whether it ended it.
+func endJobMember(job windows.Handle, member Entry) bool {
+	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(member.PID))
 	if err != nil {
 		return false
 	}
 	defer windows.CloseHandle(process)
 	var isMember int32
-	if ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok != 0 && isMember != 0 {
-		return windows.TerminateProcess(process, 1) == nil
+	if ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok == 0 || isMember == 0 {
+		return false
 	}
-	return false
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil || !time.Unix(0, creation.Nanoseconds()).UTC().Equal(member.Start) {
+		return false
+	}
+	return windows.TerminateProcess(process, 1) == nil
 }
 
 // endingWait is how long a holder that refused a handle is given to show an
