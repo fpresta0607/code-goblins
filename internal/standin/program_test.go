@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 func sumOf(t *testing.T, path string) [32]byte {
@@ -83,6 +86,68 @@ func TestABuildElsewhereIsTheSameBytes(t *testing.T) {
 	}
 	if got := sumOf(t, elsewhere); got != here {
 		t.Errorf("a second build is %x, want the same bytes as the first, %x", got, here)
+	}
+}
+
+func TestAColdBuildUsesTheInitialCompilerAfterPATHChanges(t *testing.T) {
+	// Arrange
+	if expected := os.Getenv("CFO_STANDIN_COLD_BUILD"); expected != "" {
+		t.Setenv("PATH", "")
+		t.Setenv("GOROOT", t.TempDir())
+
+		// Act
+		path, err := ensure(t.TempDir())
+
+		// Assert
+		if expected != "success" {
+			if err == nil || !strings.Contains(err.Error(), expected) {
+				t.Fatalf("cold build error = %v, want %q", err, expected)
+			}
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isBuilt(path) {
+			t.Fatal("the cold build did not produce a verified stand-in")
+		}
+		return
+	}
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var environment []string
+	for _, variable := range os.Environ() {
+		name, _, _ := strings.Cut(variable, "=")
+		if !strings.EqualFold(name, "GOROOT") && !strings.EqualFold(name, "PATH") {
+			environment = append(environment, variable)
+		}
+	}
+	for _, testCase := range []struct {
+		name, root, path, expected string
+	}{
+		{"no initial GOROOT", "", os.Getenv("PATH"), "success"},
+		{"initial GOROOT without PATH", runtime.GOROOT(), "", "success"},
+		{"unavailable initial GOROOT", t.TempDir(), os.Getenv("PATH"), "find the initial Go compiler"},
+		{"no initial compiler", "", "", "find the initial Go compiler"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			command := execx.Command(program, "-test.run=^TestAColdBuildUsesTheInitialCompilerAfterPATHChanges$", "-test.timeout=2m")
+			command.Env = append(append([]string{}, environment...), "PATH="+testCase.path, "CFO_STANDIN_COLD_BUILD="+testCase.expected)
+			if testCase.root != "" {
+				command.Env = append(command.Env, "GOROOT="+testCase.root)
+			}
+
+			// Act
+			output, err := command.CombinedOutput()
+
+			// Assert
+			if err != nil {
+				t.Fatalf("cold build: %v\n%s", err, output)
+			}
+		})
 	}
 }
 

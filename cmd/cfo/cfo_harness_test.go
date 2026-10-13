@@ -11,6 +11,47 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
+func TestGoblinsResumeAcceptsAHarnessChoice(t *testing.T) {
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.nativeCFO = supervisor.NativeCFOTerminal
+			f.restartSession = "current-session"
+
+			// Act
+			exit, _, stderr := f.launch("resume", "--harness", harness)
+
+			// Assert
+			if exit != 0 || f.restarts != 1 || f.restartHarness != harness {
+				t.Fatalf("exit=%d restarts=%d stderr=%q, want the CFO restarted", exit, f.restarts, stderr)
+			}
+		})
+	}
+}
+
+func TestGoblinsResumeRejectsInvalidHarnessArgumentsBeforeRestarting(t *testing.T) {
+	for _, args := range [][]string{
+		{"resume", "--harness", "unknown"},
+		{"resume", "--harness"},
+		{"resume", "--harness", "codex", "task"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.nativeCFO = supervisor.NativeCFOTerminal
+
+			// Act
+			exit, _, stderr := f.launch(args...)
+
+			// Assert
+			if exit != 2 || stderr == "" || f.restarts != 0 {
+				t.Fatalf("exit=%d restarts=%d stderr=%q, want invalid arguments refused", exit, f.restarts, stderr)
+			}
+		})
+	}
+}
+
 // goblins --harness chooses the harness the CFO starts as, and the home
 // remembers it: a later goblins starts that harness until another is chosen.
 // A CFO that is not Claude Code is told how it is woken.

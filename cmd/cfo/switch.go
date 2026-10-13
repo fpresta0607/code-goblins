@@ -29,7 +29,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	effort := flags.String("effort", "", "reasoning effort for the new harness")
 	generation := flags.String("generation", "", "switch only the selected task session")
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
-	restart := flags.Bool("restart", false, "start the goblin's own harness, model and effort again on its conversation, onto an update of its harness")
+	restart := flags.Bool("restart", false, "start the goblin's own harness, model and effort again on its conversation, onto any update of its harness")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -73,7 +73,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
 	}
 	if *restart {
-		request.ResumeNote = "The Overlord restarted you onto the update of your harness installed since you started."
+		request.ResumeNote = "The Overlord restarted you on your own harness, model and effort."
 	}
 	if request.Harness == "" || string(request.Harness) == meta.Harness {
 		if request.ResumeSession, err = fleettree.OwnedSession(h.State, meta); err != nil {

@@ -60,7 +60,7 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 	list.Keep()
 	restarted := false
 	if restart {
-		conversation, fresh, err := runtime.restartCFO(h)
+		conversation, fresh, err := runtime.restartCFO(h, harness)
 		switch {
 		case err == nil:
 			notes := runtime.settleCFO(ctx, h.State, conversation.Harness)

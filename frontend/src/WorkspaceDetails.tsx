@@ -1,5 +1,5 @@
 import { useResource } from "./api";
-import { object, string, strings, type Run, type Session, type DevDriveView, type Task } from "./types";
+import { object, string, strings, type Run, type Session, type Snapshot, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { harnessMark, modelMark } from "./connectors";
@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
 import { DevDriveSetting } from "./dev-drive-setting";
+import { isCfoRestartOffered, RestartCfoButton } from "./restart-cfo-button";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -21,10 +22,11 @@ function splitModel(model: string): { name: string; basis: string } {
   return name === undefined ? { name: model, basis: "" } : { name, basis };
 }
 
-// Where the work lives and what it runs on: the Workspace and Connections
-// sections of a panel, each closed until it is opened, like the sections
-// below them.
-export function WorkspaceDetails({ task, node, runs, instance, devDrive, onRepair }: { task?: Task; node?: Session; runs?: Run[]; instance: string; devDrive?: DevDriveView; onRepair?: (key: string) => void }) {
+// Where the work lives, what it runs on and what it reaches: the Workspace,
+// Harness and Connections sections of a panel, each closed until it is
+// opened, like the sections below them. Harness holds every harness control,
+// the CFO's Restart among them, and Connections names no harness.
+export function WorkspaceDetails({ task, node, runs, snapshot, onRepair }: { task?: Task; node?: Session; runs?: Run[]; snapshot: Snapshot; onRepair?: (key: string) => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const isArchived = !!task?.archived;
@@ -35,20 +37,27 @@ export function WorkspaceDetails({ task, node, runs, instance, devDrive, onRepai
   const harness = details ? harnessName(child ? node.harness : details.harness) : "";
   const model = details ? splitModel(child ? sessionModel(node, task) : details.model) : { name: "", basis: "" };
   const provider = modelMark(model.name);
+  const isCfo = !task && !node;
+  const hasConnections = child || !!task && !queued && !isArchived;
   return <>
     <Disclosure kind="workspace-details" title="Workspace">
       {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <p className="workspace-project">{task.project || "Project not specified"}</p> : resource.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" onClick={resource.reload}><Icon name="refresh" /></button> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
         <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}
-      {!task && !node && devDrive && <DevDriveSetting drive={devDrive} instance={instance} />}
+      {isCfo && snapshot.dev_drive && <DevDriveSetting drive={snapshot.dev_drive} instance={snapshot.instance} />}
     </Disclosure>
-    <Disclosure kind="connections" title="Connections">
-      {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={instance} /> : <ul className="connection-list" aria-label="Harness and model">
-        {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details?.harness || "")} label={harness} /><span className="connection-name">{harness}<span className="chip">Harness</span></span></li>}
-        {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
-      </ul>}
-      {child ? <p>No separate connections were reported for this child.</p> : task && !queued && !isArchived && <ConnectionsPanel key={task.id + task.generation} task={task} runs={runs} onRepair={onRepair} />}
+    <Disclosure kind="harness" title="Harness">
+      {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={snapshot.instance} /> : <>
+        {!(isCfo && isCfoRestartOffered(snapshot)) && <ul className="connection-list" aria-label="Harness and model">
+          {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details?.harness || "")} label={harness} /><span className="connection-name">{harness}</span></li>}
+          {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
+        </ul>}
+        {isCfo && <RestartCfoButton snapshot={snapshot} />}
+      </>}
     </Disclosure>
+    {hasConnections && <Disclosure kind="connections" title="Connections">
+      {child ? <p>No separate connections were reported for this child.</p> : task && <ConnectionsPanel key={task.id + task.generation} task={task} runs={runs} onRepair={onRepair} />}
+    </Disclosure>}
   </>;
 }

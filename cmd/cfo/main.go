@@ -63,7 +63,7 @@ commands:
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
-  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal, then bring back every goblin whose terminal ended; cfo resume <id> resumes a paused task
+  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, or bring a closed one back, then bring back every goblin whose terminal ended. goblins resume --harness <claude|codex|pi> starts fresh when the harness changes and remembers the choice. Run outside the CFO's own terminal. cfo resume <id> resumes a paused task
   update    run as the home's own build: update the home from the newest published release, checked against its SHA256SUMS (--check only says how this build stands; --to <tag> refuses a newer one published since); run by a verified candidate build: install it as this home's bin\cfo.exe and bin\goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; bin keeps the current build alone, the previous one kept in state\update for the rollback; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
@@ -203,7 +203,7 @@ type commandRuntime struct {
 	// restartCFO restarts the CFO running in native terminal cfo and returns
 	// the conversation it last registered with and, when it did not come back
 	// on that conversation, why it started a new one.
-	restartCFO func(h home.Home) (supervisor.CFOConversation, string, error)
+	restartCFO func(h home.Home, harness string) (supervisor.CFOConversation, string, error)
 	// admitLaunch says why the machine has no room yet for another harness,
 	// or nil when it has, as a spawn admits one.
 	admitLaunch func(h home.Home) error
@@ -496,8 +496,22 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		}
 		return runQuickstart(stdout, stderr, runtime, true, false, "")
 	}
-	if len(args) == 1 && args[0] == "resume" {
-		return runQuickstart(stdout, stderr, runtime, false, true, "")
+	if len(args) > 0 && args[0] == "resume" && (len(args) == 1 || runtime.goblins && strings.HasPrefix(args[1], "-")) {
+		fs := flag.NewFlagSet("goblins resume", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		harness := fs.String("harness", "", "the harness to restart the CFO as: claude, codex or pi")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if fs.NArg() != 0 {
+			fmt.Fprintln(stderr, "usage: goblins resume [--harness <claude|codex|pi>]")
+			return 2
+		}
+		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {
+			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
+			return 2
+		}
+		return runQuickstart(stdout, stderr, runtime, false, true, *harness)
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
