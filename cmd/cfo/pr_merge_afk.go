@@ -85,7 +85,7 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 		return "", errors.New("GitHub did not say whose pull request this is, so it cannot be told from a teammate's")
 	}
 	if !strings.EqualFold(proof.Author, viewer) {
-		return "", fmt.Errorf("this pull request is %s's, and merging a teammate's pull request stays the Overlord's alone: leave it for him", proof.Author)
+		return "", fmt.Errorf("this pull request is %s's, and merging a teammate's pull request stays the Overlord's alone: log it as one line of his recap with cfo afk log --kind his", proof.Author)
 	}
 	if proof.BaseRefName == "" {
 		return "", errors.New("GitHub did not say which branch this pull request merges into")

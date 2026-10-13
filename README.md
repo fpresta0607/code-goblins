@@ -797,14 +797,13 @@ While it is on:
 
 - The CFO decides what you authorised by itself and logs each decision with its evidence.
   It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
-- These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
-  They are never decided for you, and while you are away you are not asked about them either.
-  AFK mode is complete autopilot: the CFO gives each a backlog row, works around it, and your report lists it with what was held for you.
-  When you turn AFK mode off, each of them waits in the Command Center as a question with what is wrong, what the CFO already tried and its choices.
-  One the CFO saw to while you were away, its backlog row done, its task finished or its own later decision, is settled with what became of it and never asked.
-- Any other decision you would have been asked, the CFO answers itself and acts on.
+- Out of AFK mode these stay yours: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
+  While you are away only what a tool refuses or needs your own sign-in stays yours, as you chose on 12 October: a teammate's pull request, an update of Code Goblins, spend your account refuses, and your sign-ins and identity checks.
+  The CFO decides the rest, and deletes data only after a backup it can restore.
+  It asks you nothing: each step only you can take gets a backlog row and one plain line at the end of your recap, never a question, and the work goes around it.
+- Every decision you would have been asked, the CFO answers itself with its recommendation and acts on.
   When you turn AFK mode off, each is settled: it is in the Command Center's **History** with the CFO's answer, marked as given while you were away, never in your queue.
-  **Change answer** there sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
+  **Change** on the recap, or **Change answer** in History, sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
 - A goblin's Scrawl page that asks for your answer goes to the CFO, which reads it and answers it in your place, and never waits in your Command Center.
   Each page the CFO answered is settled the same way: the goblin's question is in **History** with the CFO's answer, and a change you make there goes to the goblin.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
@@ -815,20 +814,18 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the report of the stretch on the board as one page.
-It opens on a headline in plain words, how long you were away, how many things wait on you and what the CFO merged, deployed, migrated and installed, beside who turned it on and off and **Go through them**.
-**For you** lists what was held or left for you that still waits on you in the Command Center, each as it stands now, with its recommendation and its goblin's progress.
-What no longer waits, answered or settled with what became of it, folds under **Settled**.
-**What the CFO did** follows, a drawer for each heading that holds something, closed until you open it: first **Answered for you**, each decision the CFO answered in your place with its answer, which you can change in History, then what merged, deployed, migrated and installed, each with its link and its verification, what it answered for goblins, the goblins paused at a floor and what each goblin finished.
-What merged is one **Merged** drawer, each pull request with what the CFO wrote of it riding on it.
-A merge that did not land is the report's one warning, under **Not merged**, which stays open.
-Each of its rows says in one sentence what the CFO did about it, then what happened.
-One the CFO left for you has **Answer it**, which opens its question in the Command Center.
-**Spent** and the short **Not read** section stay open too.
-**Go through them** opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
+Turning it off shows the recap of the stretch on the board, one page laid out as a Scrawl page is.
+It opens on a headline in plain words: how long you were away, whether anything needs you, and what the CFO merged, deployed, migrated, installed and answered, beside who turned it on and off.
+**Done** comes first, a heading for each kind of thing done, each line in plain words with its link.
+It leads with a merge that did not land, the recap's one warning, which says in one sentence what the CFO did about it.
+Then come what went live, migrations applied and builds installed, in the CFO's own words with their run or pull request, then what merged, one line to a repository with each pull request a link, anything else the CFO did, the goblins paused at a floor, what goblins finished that did not merge, and **Spent**.
+What waited on you in the Command Center and no longer does folds under **Settled**, and a line the CFO logged by mistake folds under **Struck by the CFO** with its reason.
+**Decided for you** follows: each question the CFO answered with its recommendation, yours under **For you** and the goblins' under **For the goblins**, each with its answer and **Change**, which opens it in History.
+**Needs you** comes last, and only when something does, in the lantern box of what waits on you: each step only you can take, such as your own sign-in or a step a tool refused, as one plain line, then each item that still waits on you in the Command Center, with **Answer**.
+What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
+**Go through them** at the top opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
 **Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
 The Command Center's list offers **Go through them** too whenever two or more things wait on you.
-A line the CFO logged by mistake and struck is shown struck through under **Struck by the CFO**, with its reason, and never as something that needs you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
 A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
 Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
@@ -837,31 +834,23 @@ Credit rows show the amount spent without a percent bar.
 The last row is **Disk** with its drive, the one the **Disk free** meter reads: what is free now, such as **337.0 GB free**, beside **AFK used 3.3 GB**, or **AFK freed 11.4 GB** when free disk rose, on a bar of the whole drive.
 Its arrow points forward over disk AFK used and back over disk AFK freed, and a change under a tenth of a gigabyte shows no arrow.
 The row is there only when free disk was read on the same drive both when AFK turned on and when it turned off.
-The button beside the toggle opens the last report again.
-Each time you open it, For you is checked again, so an item you answered moves to Settled.
+The button beside the toggle opens the last recap again.
+Each time you open it, what waits on you in the Command Center is checked again, so an item you answered moves to Settled.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
-The text report keeps held items' current dispositions and the allowance and free disk readings at both ends, as in the example below; the board uses the presentation above.
+The text report reads in the recap's order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.
+The board uses the presentation above.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text
 AFK MODE REPORT
 AFK mode was on from 2026-10-02 02:10 UTC to 2026-10-02 12:31 UTC (10h21m): turned on from his own terminal (powershell.exe pid 4242), off from his own terminal (powershell.exe pid 5151).
 
-For you (3), each as it stands now
-- question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
-  The CFO recommends: Keep it held.
-  Now: still waiting on you.
-- question:afk-left-20261002T031000.000000000Z, the CFO's: Sign in to Vercel for pd-auth?
-  The CFO recommends: I will sign in.
-  Now: still waiting on you.
-- question:afk-left-20261002T044000.000000000Z, the CFO's: Finish or abort your parked gate run?
-  The CFO recommended: Abort it.
-  Now: settled by the CFO: the run finished on its own.
+DONE
 
 Merged (1)
 - https://github.com/you/northwind-api/pull/412: merged
-  Evidence: verified: gate run 41 passed and its test output was read; head 3f1a9c0; 7 checks completed green; mergeable; ...
+  Evidence: merge train northwind-api-20261002-031000: CI passed on https://github.com/you/northwind-api/pull/413 at 3f1a9c0, built on main at 9c2e7b1
 
 Goblins finished (1)
 - northwind-invoices: https://github.com/you/northwind-api/pull/412 (03:14 UTC)
@@ -869,6 +858,23 @@ Goblins finished (1)
 Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 - disk (C:): 340.3 GB free when it turned on, 337 GB when it turned off (3.3 GB used)
+
+DECIDED FOR YOU
+
+For you (1)
+- Which fallback does the gate policy take?
+  The CFO answered: Drop it from the machine config. You can change it in History.
+
+NEEDS YOU
+
+Needs you (1)
+- Sign in to Vercel for pd-auth
+  Evidence: Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in
+
+Waiting on you in the Command Center (1), each as it stands now
+- question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
+  The CFO recommends: Keep it held.
+  Now: still waiting on you.
 ```
 
 AFK mode shares the supervisor's allowance pause at each provider's weekly floor and its automatic resume at the reset.
