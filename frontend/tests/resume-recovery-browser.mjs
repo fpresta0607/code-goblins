@@ -17,7 +17,7 @@ try {
   await context.addInitScript(() => globalThis.localStorage.setItem("cfo-tour", "seen"));
   const page = await context.newPage();
   await page.goto(origin);
-  await page.getByRole("button", { name: "Open the board without a CFO", exact: true }).click();
+  await page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board", exact: true }).click();
   const card = (id) => page.locator(".task-card-shell").filter({ has: page.getByRole("button", { name: "Stop " + id, exact: true }) });
   await expect(card("direct-task").locator(".card-status-text")).toHaveText("Paused by you");
   await page.getByRole("button", { name: "Resume direct-task", exact: true }).click();

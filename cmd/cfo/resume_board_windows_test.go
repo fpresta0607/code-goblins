@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -77,11 +79,6 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	store, err := supervisor.Open(h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	board := &supervisor.Service{Store: store, Instance: "resume-proof"}
 	runtime := commandRuntime{goblins: true, resolveHome: func() (home.Home, error) { return h, nil }}
 	runtime.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 		meta, err := state.ReadTaskMeta(h.State, request.ID)
@@ -110,7 +107,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 		}}
 		return controller.Run(ctx, request)
 	}
-	board.Options.Dispatch = &supervisor.Dispatch{
+	dispatch := &supervisor.Dispatch{
 		Memory: func() (supervisor.Memory, error) {
 			return supervisor.Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil
 		},
@@ -123,12 +120,42 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 			return output.String(), nil
 		},
 	}
+	board, err := supervisor.Start(t.Context(), h, supervisor.Options{Dispatch: dispatch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer board.Close()
 	assets := t.TempDir()
 	server := httptest.NewUnstartedServer(nil)
 	handler := supervisor.NewHTTP(board, server.Listener.Addr().String(), os.DirFS(assets))
 	server.Config.Handler = handler
 	server.Start()
 	defer server.Close()
+	streamContext, cancelStream := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancelStream()
+	streamRequest, err := http.NewRequestWithContext(streamContext, "GET", server.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := server.Client().Do(streamRequest)
+	if err != nil {
+		t.Fatalf("board event stream: %v", err)
+	}
+	defer stream.Body.Close()
+	reader := bufio.NewReader(stream.Body)
+	var event strings.Builder
+	for !strings.HasSuffix(event.String(), "\n\n") {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("board event stream ended before its snapshot: %v", err)
+		}
+		event.WriteString(line)
+	}
+	if !strings.Contains(event.String(), "event: snapshot") || !strings.Contains(event.String(), "direct-task") || !strings.Contains(event.String(), "managed-task") {
+		t.Fatalf("board event stream lost its tasks: %s", event.String())
+	}
+	stream.Body.Close()
+	cancelStream()
 
 	// Act: the browser variant clicks the shipped board against this same
 	// backend. Ordinary CI exercises the identical request through the CLI.
