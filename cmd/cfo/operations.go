@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supersede"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	verifyrun "github.com/fpresta0607/code-goblins/internal/verify"
 	"io"
 	"os"
@@ -108,7 +109,7 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "cfo route: %v\n", e)
 		return 1
 	}
-	inputs, e := loadRouteInputs(h.Data, checkout)
+	inputs, e := supervisor.LoadRouteInputs(h.Data, checkout)
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
@@ -119,12 +120,12 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "cfo route: %v\n", e)
 		return 1
 	}
-	choice, e := routing.Choose(a, inputs.table, usableLane(report, skipped, settings))
+	choice, e := routing.Choose(a, inputs.Table, usableLane(report, skipped, settings))
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
 	}
-	out := map[string]any{"task_class": a.Class, "risk": a.Risk, "lane": choice.ExecutionLane, "wanted": choice.Wanted, "source": inputs.table.Source}
+	out := map[string]any{"task_class": a.Class, "risk": a.Risk, "lane": choice.ExecutionLane, "wanted": choice.Wanted, "source": inputs.Table.Source}
 	if skipped != "" {
 		out["quota"] = "check skipped (" + skipped + ")"
 	} else {

@@ -11,8 +11,11 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/update"
 )
@@ -93,6 +96,40 @@ func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time
 		floor = watched.AllowanceFloors[provider+"/all_models"]
 	}
 	return floor.IsLow && (floor.Reset.IsZero() || now.Before(floor.Reset))
+}
+
+// startHeldByAllowance is whether a queued start waits for an allowance to
+// renew. A start naming its harness waits on that provider's floor. One that
+// leaves the harness to routing waits while every lane cfo spawn may choose
+// for its brief is at its floor, so it is held rather than started into a
+// spawn that refuses. A lane table or brief that cannot be read holds
+// nothing: the start runs and cfo spawn reports why it cannot route.
+func startHeldByAllowance(h home.Home, plan startPlan, watched *fleetWakes, now time.Time) bool {
+	if plan.harness != "" {
+		return allowanceBlocked(watched, plan.harness, plan.model, now)
+	}
+	inputs, err := LoadRouteInputs(h.Data, plan.project)
+	if err != nil {
+		return false
+	}
+	brief, err := fsx.ReadFile(plan.brief)
+	if err != nil {
+		return false
+	}
+	if plan.model != "" {
+		for name, lane := range inputs.Table.Lanes {
+			lane.Model = plan.model
+			inputs.Table.Lanes[name] = lane
+		}
+	}
+	assessment := routing.Classify(string(brief))
+	if _, err := routing.Choose(assessment, inputs.Table, nil); err != nil {
+		return false
+	}
+	_, err = routing.Choose(assessment, inputs.Table, func(lane routing.ExecutionLane) (bool, string) {
+		return !allowanceBlocked(watched, lane.Harness, lane.Model, now), lane.Harness + " at its weekly allowance floor"
+	})
+	return err != nil
 }
 
 // pauseAtAllowanceFloor is the fleet reading's allowance pass: it reads each
