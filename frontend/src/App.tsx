@@ -220,8 +220,8 @@ export function App() {
   // a start that failed shows why on its card instead.
   const outcome = awaitingStart && snapshot ? startOutcome(awaitingStart, snapshot) : "wait";
   if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
-  // The board's root is the first-run page whenever no CFO runs.
-  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, choice: firstRunChoice });
+  // A home that already chose its CFO stays on the board while it comes back.
+  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, cfoConfigured: snapshot.cfo_configured, choice: firstRunChoice });
   // The first time this browser shows the board of a home whose CFO runs, it
   // opens as the Overlord keeps his own: the Board with the CFO's terminal
   // beside it and the keyboard in that terminal. A window too narrow for two
@@ -337,7 +337,7 @@ export function App() {
     {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
-      {snapshot && <FirstRun instance={snapshot.instance} devDrive={snapshot.dev_drive} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
+      {snapshot && <FirstRun instance={snapshot.instance} devDrive={snapshot.dev_drive} onStarting={() => setFirstRunChoice("setup")} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>

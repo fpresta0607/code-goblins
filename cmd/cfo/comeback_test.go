@@ -153,7 +153,7 @@ func TestTheComebackReportsWhetherTheTerminalRunsAfterASwitchError(t *testing.T)
 }
 
 func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T) {
-	for _, path := range []string{"goblins", "reopen", "comeback"} {
+	for _, path := range []string{"goblins", "reopen", "comeback", "app"} {
 		for _, isOtherRunning := range []bool{false, true} {
 			name := path + "/empty after wait"
 			if isOtherRunning {
@@ -192,6 +192,13 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 						finished <- reopenCFO(fixture.home, fixture.runtime.startNativeCFO, fixture.runtime.nativeTerminalRuns)
 					case "comeback":
 						finished <- comebackCFO(t.Context(), fixture.home, fixture.runtime)
+					case "app":
+						exit, _, stderr := fixture.launch("--window", "--locate")
+						if exit != 0 || stderr != "" {
+							finished <- errors.New(stderr)
+						} else {
+							finished <- nil
+						}
 					}
 				}()
 				select {
