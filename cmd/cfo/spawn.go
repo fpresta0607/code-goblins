@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +18,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
-	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -147,9 +145,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	assessment := routing.Classify(string(briefText))
 	routed := *harnessName == ""
-	var inputs routeInputs
+	var inputs supervisor.RouteInputs
 	if routed || *auto {
-		if inputs, err = loadRouteInputs(h.Data, *project); err != nil {
+		if inputs, err = supervisor.LoadRouteInputs(h.Data, *project); err != nil {
 			fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
 			return 1
 		}
@@ -164,7 +162,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	taskClass, routeLane, repairRounds := *class, "explicit", 0
 	var route string
 	if routed {
-		if len(inputs.table.Lanes) == 0 {
+		if len(inputs.Table.Lanes) == 0 {
 			fmt.Fprintf(stderr, "cfo spawn: no execution lanes: define lanes in %s (cfo doctor prints the table) or pass --harness\n", filepath.Join(h.Data, routing.FileName))
 			return 1
 		}
@@ -175,16 +173,16 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		if *effort != "" {
 			overrides = append(overrides, "--effort "+*effort)
 		}
-		for name, lane := range inputs.table.Lanes {
+		for name, lane := range inputs.Table.Lanes {
 			if *model != "" {
 				lane.Model = *model
 			}
 			if *effort != "" {
 				lane.Effort = *effort
 			}
-			inputs.table.Lanes[name] = lane
+			inputs.Table.Lanes[name] = lane
 		}
-		choice, err := routing.Choose(assessment, inputs.table, usableLane(report, skipped, settings))
+		choice, err := routing.Choose(assessment, inputs.Table, usableLane(report, skipped, settings))
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
 			return 1
@@ -195,7 +193,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 		*harnessName, *model, *effort = choice.Harness, choice.Model, choice.Effort
 		routeLane = choice.Name
-		route = routeLine(choice, assessment, inputs.table.Source, skipped)
+		route = routeLine(choice, assessment, inputs.Table.Source, skipped)
 		if len(overrides) > 0 {
 			route += " overrides=" + strings.Join(overrides, " ")
 		}
@@ -220,15 +218,15 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if routed || *auto {
 		taskClass = string(assessment.Class)
-		if b, ok := inputs.manifest.Budgets[taskClass]; ok {
+		if b, ok := inputs.Manifest.Budgets[taskClass]; ok {
 			repairRounds = b.MaxRepairRounds
-		} else if b, ok := inputs.manifest.Budgets["builder"]; ok {
+		} else if b, ok := inputs.Manifest.Budgets["builder"]; ok {
 			repairRounds = b.MaxRepairRounds
 		}
 	}
 	var writeCapsule func(string) (string, error)
-	if (routed || *auto) && inputs.manifestPath != "" {
-		m := inputs.manifest
+	if (routed || *auto) && inputs.ManifestPath != "" {
+		m := inputs.Manifest
 		writeCapsule = func(taskTmp string) (string, error) {
 			if err := os.MkdirAll(taskTmp, 0o700); err != nil {
 				return "", err
@@ -239,7 +237,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 			capsule := map[string]any{
 				"objective_file":    *brief,
-				"project_manifest":  inputs.manifestPath,
+				"project_manifest":  inputs.ManifestPath,
 				"runtime_capsule":   runtimePath,
 				"task_class":        taskClass,
 				"route_lane":        routeLane,
@@ -311,49 +309,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 	}
 	return 0
-}
-
-// routeInputs is what a spawn routes with: the lane table and, when the
-// project has a manifest, that manifest for its budgets and capsule.
-type routeInputs struct {
-	table        routing.Table
-	manifest     projectcfg.Manifest
-	manifestPath string // "" when the project has no manifest
-}
-
-// loadRouteInputs reads the fleet lane table from data/routing.json and the
-// project's manifest when it has one. A manifest that defines lanes
-// overrides the fleet table for that project. A project without a manifest
-// routes from the fleet table alone; a manifest that exists but does not
-// load is an error, never silently ignored.
-func loadRouteInputs(dataDir, project string) (routeInputs, error) {
-	policy, err := routing.Load(dataDir)
-	if err != nil {
-		return routeInputs{}, err
-	}
-	table, err := policy.LaneTable()
-	if err != nil {
-		return routeInputs{}, err
-	}
-	in := routeInputs{table: table}
-	if project == "" {
-		return in, nil
-	}
-	m, path, err := projectcfg.LoadForCheckout(dataDir, project)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return in, nil
-	case err != nil:
-		return routeInputs{}, err
-	}
-	in.manifest, in.manifestPath = m, path
-	if len(m.Routing.Lanes) > 0 {
-		in.table = routing.Table{Lanes: map[string]routing.ExecutionLane{}, DefaultLane: m.Routing.DefaultLane, EscalateTo: m.Routing.EscalateTo, Source: "project override " + path}
-		for name, l := range m.Routing.Lanes {
-			in.table.Lanes[name] = routing.ExecutionLane{Name: name, Harness: l.Harness, Model: l.Model, Effort: l.Effort}
-		}
-	}
-	return in, nil
 }
 
 // readQuota runs the quota check under a bound. A runtime without a reader

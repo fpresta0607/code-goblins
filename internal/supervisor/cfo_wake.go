@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"regexp"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -364,12 +364,6 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 		return cfoWakeSkip{}, fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
 	}
 	return cfoWakeSkip{}, nil
-}
-
-// idleAtEmptyComposer reports whether screen shows a harness waiting at its
-// composer with nothing in it: no turn, no dialog, no work running on it.
-func idleAtEmptyComposer(screens harness.Screens, screen []string) bool {
-	return notIdle(screens, screen) == ""
 }
 
 // notIdle says in plain words why screen does not show a harness waiting at

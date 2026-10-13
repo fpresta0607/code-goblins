@@ -28,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
@@ -157,6 +158,8 @@ type commandRuntime struct {
 	sendKey       func(home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
 	peek          func(home.Home, string, int) (string, error)
+	// screen reads the rows a native terminal shows now.
+	screen func(stateDir, id string) ([]string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -389,6 +392,13 @@ func defaultCommandRuntime() commandRuntime {
 			}
 		},
 		peek: peekTerminal,
+		screen: func(stateDir, id string) ([]string, error) {
+			record, err := host.ReadRecord(stateDir, id)
+			if err != nil {
+				return nil, err
+			}
+			return host.ReadScreen(record)
+		},
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(h.State, &herdr.Client{Commands: execx.OSRunner{}}))
 		},
