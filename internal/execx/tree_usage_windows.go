@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 var (
@@ -70,6 +73,23 @@ func (t *Tree) jobUsage() (TreeUsage, error) {
 }
 
 func (t *Tree) privateWorkingSet() (uint64, error) {
+	ids, err := t.memberIDs()
+	if err != nil {
+		return 0, err
+	}
+	var total uint64
+	for _, pid := range ids {
+		memory, err := t.processWorkingSet(pid)
+		if err != nil {
+			return 0, err
+		}
+		total += memory
+	}
+	return total, nil
+}
+
+// memberIDs reads the ids of the processes the job holds now.
+func (t *Tree) memberIDs() ([]uint32, error) {
 	// Two DWORD counts precede pointer-sized process IDs. Growth is bounded
 	// so a changing job cannot turn one sample into an unbounded allocation.
 	const headerWords = 8 / unsafe.Sizeof(uintptr(0))
@@ -80,23 +100,71 @@ func (t *Tree) privateWorkingSet() (uint64, error) {
 			continue
 		}
 		if err != nil {
-			return 0, fmt.Errorf("execx: read job members: %w", err)
+			return nil, fmt.Errorf("execx: read job members: %w", err)
 		}
 		counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
 		if counts[0] != counts[1] || counts[1] > uint32(capacity) {
-			return 0, errors.New("execx: incomplete job member sample")
+			return nil, errors.New("execx: incomplete job member sample")
 		}
-		var total uint64
-		for _, pid := range buffer[int(headerWords) : int(headerWords)+int(counts[1])] {
-			memory, err := t.processWorkingSet(uint32(pid))
-			if err != nil {
-				return 0, err
-			}
-			total += memory
+		ids := make([]uint32, counts[1])
+		for index, pid := range buffer[int(headerWords) : int(headerWords)+int(counts[1])] {
+			ids[index] = uint32(pid)
 		}
-		return total, nil
+		return ids, nil
 	}
-	return 0, errors.New("execx: job member sample exceeds its bound")
+	return nil, errors.New("execx: job member sample exceeds its bound")
+}
+
+// Members names the processes the job holds now, by image name and pid,
+// sorted by pid. A process that exits while they are read is left out, and
+// so is a reused pid that names a process outside the job.
+func (t *Tree) Members() ([]EndedProcess, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.isDone {
+		return nil, errors.New("execx: job accounting is closed")
+	}
+	ids, err := t.memberIDs()
+	if err != nil {
+		return nil, err
+	}
+	processes, err := proc.Processes()
+	if err != nil {
+		return nil, fmt.Errorf("execx: name job members: %w", err)
+	}
+	names := make(map[int]string, len(processes))
+	for _, process := range processes {
+		names[process.PID] = process.ExeBase
+	}
+	var members []EndedProcess
+	for _, pid := range ids {
+		isMember, err := t.holds(pid)
+		if err != nil {
+			return nil, err
+		}
+		if isMember {
+			members = append(members, EndedProcess{Name: names[int(pid)], PID: int(pid)})
+		}
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].PID < members[j].PID })
+	return members, nil
+}
+
+// holds reports whether pid is a process in the job now.
+func (t *Tree) holds(pid uint32) (bool, error) {
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return false, nil // The process has exited.
+	}
+	if err != nil {
+		return false, fmt.Errorf("execx: open job member %d: %w", pid, err)
+	}
+	defer windows.CloseHandle(process)
+	var isMember int32
+	if ok, _, err := isProcessInUsageJob.Call(uintptr(process), uintptr(t.job), uintptr(unsafe.Pointer(&isMember))); ok == 0 {
+		return false, fmt.Errorf("execx: verify job member %d: %w", pid, err)
+	}
+	return isMember != 0, nil
 }
 
 func (t *Tree) processWorkingSet(pid uint32) (uint64, error) {

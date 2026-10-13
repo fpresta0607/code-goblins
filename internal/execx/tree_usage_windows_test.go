@@ -3,6 +3,8 @@ package execx_test
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,5 +102,44 @@ func TestTreeTerminationRetainsCustodyWhenCancellationPreventsProof(t *testing.T
 	final, err := tree.TerminateAndWait(ctx)
 	if err != nil || final.ActiveProcesses != 0 {
 		t.Fatalf("retry cleanup = %+v, %v", final, err)
+	}
+}
+
+func TestTreeMembersNamesEachProcessStillInTheJob(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	command := execx.Command(os.Args[0], treetest.Args(folder, false)...)
+	tree, err := execx.StartTree(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := treetest.Find(folder)
+	defer found.End()
+	defer func() { tree.End(); command.Wait() }()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	members, err := tree.Members()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := make(map[int]string)
+	for _, member := range members {
+		named[member.PID] = member.Name
+	}
+	for _, process := range found.Members() {
+		if !strings.EqualFold(named[process.PID], filepath.Base(os.Args[0])) {
+			t.Fatalf("members = %+v, want pid %d named %s", members, process.PID, filepath.Base(os.Args[0]))
+		}
+	}
+	if _, err := tree.TerminateAndWait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if members, err := tree.Members(); err == nil {
+		t.Fatalf("a closed job still names members: %+v", members)
 	}
 }

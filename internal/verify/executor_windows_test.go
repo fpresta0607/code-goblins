@@ -99,7 +99,7 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Grace: time.Millisecond,
 		Headroom: func() (Headroom, error) {
 			if isParentGone {
-				return Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}, nil
+				return Headroom{PhysicalAvailable: 1 << 30, CommitAvailable: 8 << 30}, nil
 			}
 			return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
 		}, Observe: func(measurement Measurement) error {
@@ -488,6 +488,9 @@ func TestExecutorRetainsFailedReleaseWhenAdmissionIsCanceled(t *testing.T) {
 }
 
 func (job *delayedCleanup) Usage() (execx.TreeUsage, error) { return execx.TreeUsage{}, nil }
+func (job *delayedCleanup) Members() ([]execx.EndedProcess, error) {
+	return nil, nil
+}
 func (job *delayedCleanup) TerminateAndWait(ctx context.Context) (execx.TreeUsage, error) {
 	close(job.entered)
 	select {

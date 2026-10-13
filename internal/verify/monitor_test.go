@@ -12,11 +12,16 @@ import (
 type measuredTree struct {
 	usage        execx.TreeUsage
 	readError    error
+	members      []execx.EndedProcess
+	membersError error
 	cleanupError error
 	wasCleaned   bool
 }
 
 func (tree *measuredTree) Usage() (execx.TreeUsage, error) { return tree.usage, tree.readError }
+func (tree *measuredTree) Members() ([]execx.EndedProcess, error) {
+	return tree.members, tree.membersError
+}
 func (tree *measuredTree) TerminateAndWait(context.Context) (execx.TreeUsage, error) {
 	tree.wasCleaned = true
 	usage := tree.usage
@@ -165,5 +170,87 @@ func TestMonitorDoesNotCompleteWhenTheFinalSampleCancels(t *testing.T) {
 	// Assert
 	if !errors.Is(err, context.Canceled) || result.State != Interrupted || !result.CleanupConfirmed {
 		t.Fatalf("final sample cancellation = %+v, %v", result, err)
+	}
+}
+
+func TestMonitorEndsAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1, TotalProcesses: 2}, members: []execx.EndedProcess{{Name: "node.exe", PID: 4242}}}
+	exited := make(chan struct{})
+	close(exited)
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Exited: exited, Linger: 20 * time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	result, err := monitor.Watch(ctx, tree)
+
+	// Assert
+	if err != nil || result.State != Completed || !result.CleanupConfirmed || !tree.wasCleaned {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+	if len(result.Leftovers) != 1 || result.Leftovers[0] != (Leftover{Name: "node.exe", PID: 4242}) {
+		t.Fatalf("leftovers = %+v, want node.exe pid 4242", result.Leftovers)
+	}
+}
+
+func TestMonitorWaitsForTheWholeJobUntilTheCommandExits(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1}}
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Grace: time.Millisecond, Exited: make(chan struct{}), Linger: time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Act
+	result, err := monitor.Watch(ctx, tree)
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) || result.State != Interrupted || len(result.Leftovers) != 0 {
+		t.Fatalf("a command still running was cut short as finished: %+v, %v", result, err)
+	}
+}
+
+func TestMonitorInterruptsWhenItCannotNameWhatTheCommandLeft(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1}, membersError: errors.New("job members unreadable")}
+	exited := make(chan struct{})
+	close(exited)
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Grace: time.Millisecond, Exited: exited, Linger: time.Millisecond,
+		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
+	}
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err == nil || result.State != Interrupted || !tree.wasCleaned {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+}
+
+func TestMonitorLetsARunUseTheMemoryBetweenTheFloorAndItsReserve(t *testing.T) {
+	// Arrange
+	tree := &measuredTree{usage: execx.TreeUsage{ActiveProcesses: 1}}
+	samples := 0
+	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond,
+		Headroom: func() (Headroom, error) {
+			samples++
+			if samples == 3 {
+				tree.usage.ActiveProcesses = 0
+			}
+			return Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 3 << 30}, nil
+		},
+	}
+
+	// Act
+	result, err := monitor.Watch(context.Background(), tree)
+
+	// Assert
+	if err != nil || result.State != Completed {
+		t.Fatalf("a run above its reserve and under the admission floor was cut: %+v, %v", result, err)
 	}
 }

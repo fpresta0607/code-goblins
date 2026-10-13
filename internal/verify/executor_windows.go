@@ -46,16 +46,26 @@ type pendingCleanup struct {
 }
 
 func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	result, _, err := executor.RunWithin(ctx, request, 0)
+	return result, err
+}
+
+// RunWithin is Run with limit, when positive, bounding the command from the
+// moment it starts, so the wait for its turn never counts against it. It
+// also returns the path of the execution's record, or nothing when no record
+// could be made. A command its limit ends fails with
+// context.DeadlineExceeded.
+func (executor *Executor) RunWithin(ctx context.Context, request execx.Request, limit time.Duration) (execx.Result, string, error) {
 	if request.Dir == "" {
 		var err error
 		request.Dir, err = os.Getwd()
 		if err != nil {
-			return execx.Result{ExitCode: -1}, err
+			return execx.Result{ExitCode: -1}, "", err
 		}
 	}
 	execution, err := BeginExecution(request.Dir, append([]string{request.Name}, request.Args...))
 	if err != nil {
-		return execx.Result{ExitCode: -1}, err
+		return execx.Result{ExitCode: -1}, "", err
 	}
 	pending := &pendingCleanup{execution: execution, isGuardComplete: true, isTurnReleased: true, usage: &execx.TreeUsage{}, exitCode: -1}
 	executor.mu.Lock()
@@ -76,15 +86,15 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 	}()
 	stdout, err := os.OpenFile(execution.record.StdoutLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return execx.Result{ExitCode: -1}, errors.Join(err, execution.Refuse(err, 0))
+		return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
 	}
 	defer stdout.Close()
 	stderr, err := os.OpenFile(execution.record.StderrLog, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return execx.Result{ExitCode: -1}, errors.Join(err, execution.Refuse(err, 0))
+		return execx.Result{ExitCode: -1}, execution.Path(), errors.Join(err, execution.Refuse(err, 0))
 	}
 	defer stderr.Close()
-	exitCode, failure := executor.execute(ctx, request, pending, stdout, stderr)
+	exitCode, failure := executor.execute(ctx, request, limit, pending, stdout, stderr)
 	pending.exitCode = exitCode
 	failure = errors.Join(failure, stdout.Sync(), stderr.Sync())
 	output, outputError := outputTail(execution.record.StdoutLog)
@@ -102,10 +112,10 @@ func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx
 	if failure != nil {
 		failure = fmt.Errorf("verify: execution %s failed (%s): %w", execution.ID(), execution.record.Measurement.State, failure)
 	}
-	return execx.Result{Stdout: output, Stderr: errorsOutput, ExitCode: exitCode}, failure
+	return execx.Result{Stdout: output, Stderr: errorsOutput, ExitCode: exitCode}, execution.Path(), failure
 }
 
-func (executor *Executor) execute(ctx context.Context, request execx.Request, pending *pendingCleanup, stdout, stderr *os.File) (exitCode int, failure error) {
+func (executor *Executor) execute(ctx context.Context, request execx.Request, limit time.Duration, pending *pendingCleanup, stdout, stderr *os.File) (exitCode int, failure error) {
 	execution := pending.execution
 	var waited time.Duration
 	refuse := func(failure error) (int, error) { return -1, errors.Join(failure, execution.Refuse(failure, waited)) }
@@ -139,12 +149,14 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 	if err != nil {
 		return refuse(err)
 	}
-	_, floor, err := AdmissionLimits(turn.dir)
+	// The store's desktop reserve is the least a run leaves the desktop: a
+	// caller may raise it, never lower it.
+	reserve, err := DesktopReserve(turn.dir)
 	if err != nil {
 		return refuse(err)
 	}
-	monitor.Reserve.PhysicalAvailable = max(admission.Reserve.PhysicalAvailable, admission.Floor, floor)
-	monitor.Reserve.CommitAvailable = max(admission.Reserve.CommitAvailable, admission.Floor, floor)
+	monitor.Reserve.PhysicalAvailable = max(monitor.Reserve.PhysicalAvailable, reserve.PhysicalAvailable)
+	monitor.Reserve.CommitAvailable = max(monitor.Reserve.CommitAvailable, reserve.CommitAvailable)
 	if err := execution.Admit(turn.Waited); err != nil {
 		return refuse(err)
 	}
@@ -181,8 +193,13 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 	}
 	pending.tree = tree
 	pending.usage = nil
-	processWait := make(chan error, 1)
-	go func() { processWait <- command.Wait() }()
+	exited := make(chan struct{})
+	var waitError error
+	go func() {
+		waitError = command.Wait()
+		close(exited)
+	}()
+	monitor.Exited = exited
 	monitor.Cancel = func() error {
 		return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(command.Process.Pid))
 	}
@@ -198,13 +215,18 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 		}
 		return nil
 	}
-	measurement, failure := monitor.Watch(ctx, tree)
+	runContext := ctx
+	if limit > 0 {
+		var cancel context.CancelFunc
+		runContext, cancel = context.WithTimeout(ctx, limit)
+		defer cancel()
+	}
+	measurement, failure := monitor.Watch(runContext, tree)
 	if measurement.CleanupConfirmed {
 		pending.usage = &measurement.Usage
 	}
-	var waitError error
 	select {
-	case waitError = <-processWait:
+	case <-exited:
 	case <-time.After(5 * time.Second):
 		failure = errors.Join(failure, errors.New("verify: command wait did not finish after bounded cleanup"))
 		if err := execution.Observe(measurement); err != nil {
@@ -213,7 +235,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, pe
 		}
 		return -1, failure
 	}
-	if err := ctx.Err(); err != nil {
+	if err := runContext.Err(); err != nil {
 		failure = errors.Join(failure, err)
 		if measurement.State == Completed {
 			measurement.State = Interrupted
