@@ -77,6 +77,10 @@ const column = (page: Page, name: string) => board(page).getByRole("region", { n
 const pausedSection = (page: Page) => column(page, "Paused");
 const card = (page: Page, name: string) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").filter({ hasText: name }) });
 const panel = (page: Page) => page.locator(".train-panel");
+// Opening a train hands the keyboard to its panel on the next frame (App's
+// select), so a test that types into the panel waits for that handoff first:
+// one that lands between its focus and its key takes the key from under it.
+const panelTakesKeyboard = (page: Page) => expect(page.getByRole("complementary", { name: "Task review" })).toBeFocused();
 // Every colour drawn inside an element, its own and its children's.
 const colours = (part: ReturnType<Page["locator"]>) => part.evaluate((element) => [element, ...element.querySelectorAll("*")].flatMap((each) => { const style = getComputedStyle(each); return [style.color, style.backgroundColor]; }));
 
@@ -88,6 +92,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page, [SINGLE]);
 
       await column(page, "In progress").locator(".train-card .train-title").click();
+      await panelTakesKeyboard(page);
 
       const rows = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
       await expect(rows).toHaveText([/#517.*Rosie - Inline Editor.*Testing/]);
@@ -107,6 +112,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page, [retry]);
 
       await column(page, "In progress").locator(".train-card .train-title").click();
+      await panelTakesKeyboard(page);
 
       const primary = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
       await expect(primary.getByRole("link", { name: "Testing", exact: true })).toHaveAttribute("href", TRAIN_PR);
@@ -162,7 +168,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await history.getByRole("button", { name: /Open merge train/ }).focus();
       await page.keyboard.press("Enter");
 
-      await expect(page.getByRole("complementary", { name: "Task review" })).toBeFocused();
+      await panelTakesKeyboard(page);
       await expect(panel(page).getByRole("region", { name: "Pull requests" }).getByRole("link", { name: "Failed twice" })).toHaveAttribute("href", CHANCE.link);
       await panel(page).locator("details > summary").focus();
       await page.keyboard.press("Space");
@@ -237,6 +243,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await page.keyboard.press("Enter");
       await history.getByRole("button", { name: /Open merge train/ }).focus();
       await page.keyboard.press("Enter");
+      await panelTakesKeyboard(page);
 
       const primary = panel(page).getByRole("region", { name: "Pull requests" }).getByRole("listitem");
       await expect(primary).toContainText("it was labelled hold");
@@ -275,6 +282,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(1);
       await expect(board(page).getByRole("region", { name: "Train history", exact: true })).toHaveCount(0);
       await column(page, "Completed").locator(".train-card .train-title").click();
+      await panelTakesKeyboard(page);
       await panel(page).locator("details > summary").focus();
       await page.keyboard.press("Enter");
 
