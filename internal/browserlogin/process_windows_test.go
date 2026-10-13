@@ -32,14 +32,16 @@ func startChrome(t *testing.T, hosts []string) (Process, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	process, err := Start(ctx, Launch{Executable: executable, Profile: profile, Hosts: hosts, Headless: true})
+	if process.PID != 0 {
+		t.Cleanup(func() {
+			if err := End(context.Background(), process); err != nil {
+				t.Errorf("end chrome %d: %v", process.PID, err)
+			}
+		})
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := End(context.Background(), process); err != nil {
-			t.Errorf("end chrome %d: %v", process.PID, err)
-		}
-	})
 	return process, profile
 }
 

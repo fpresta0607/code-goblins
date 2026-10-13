@@ -57,8 +57,8 @@ func HostRules(hosts []string) string {
 // activePortFile is where Chrome writes the DevTools port it picked.
 const activePortFile = "DevToolsActivePort"
 
-// ClearPort removes the port file an earlier Chrome of the profile left, so
-// the next one's port is the only one read.
+// ClearPort removes an old debugger advertisement before the profile is
+// opened through a private pipe.
 func ClearPort(profile string) error {
 	err := fsx.Remove(filepath.Join(profile, activePortFile))
 	if errors.Is(err, fs.ErrNotExist) {

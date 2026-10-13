@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -86,16 +87,25 @@ func TestPrivateDevToolsPipeKeepsClientIDsAndNestedSessionsSeparate(t *testing.T
 }
 
 func TestPrivateDevToolsPipeCancellationInterruptsABlockedWrite(t *testing.T) {
-	commands, input := io.Pipe()
-	output, replies := io.Pipe()
+	commands, input, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer commands.Close()
+	defer input.Close()
+	output, replies, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	pipe := newDevToolsPipe(output, input)
 	defer pipe.close()
-	defer commands.Close()
 	defer replies.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 	answer := make(chan error, 1)
-	go func() { answer <- pipe.call(ctx, "Browser.getVersion", nil, nil) }()
+	go func() {
+		answer <- pipe.call(ctx, "Runtime.evaluate", map[string]string{"expression": strings.Repeat("x", 128<<10)}, nil)
+	}()
 
 	select {
 	case err := <-answer:

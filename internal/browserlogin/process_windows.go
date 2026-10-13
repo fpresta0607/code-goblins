@@ -53,8 +53,9 @@ type job struct {
 
 // Start starts launch's Chrome and returns once its DevTools answer. It is
 // started suspended and put in a job of its own before it runs, so nothing
-// it starts escapes the job. A Chrome that does not get as far as its
-// DevTools is ended.
+// it starts escapes the job. A failed start closes its Chrome. If cleanup
+// cannot be confirmed, it returns the owned Process alongside the error,
+// and the caller must retain that ownership and refuse profile reuse.
 func Start(ctx context.Context, launch Launch) (Process, error) {
 	return start(ctx, launch, func(ctx context.Context, pipe *devToolsPipe) error {
 		return pipe.call(ctx, "Browser.getVersion", nil, nil)
