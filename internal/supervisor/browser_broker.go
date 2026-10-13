@@ -77,6 +77,9 @@ type browserBroker struct {
 	// fetching are the logins whose Chrome a fetch drives now, by the task
 	// it fetches for, which no task is lent while it does.
 	fetching map[string]string
+	// signOuts are the logins whose profile goes once their browser has
+	// closed, which signs them out after a fetch.
+	signOuts map[string]bool
 	signedIn func(context.Context, string, keypages.Provider) (bool, string, error)
 	readKeys func(context.Context, string, keypages.Provider, string, []keypages.Key) (map[string]string, error)
 	work     sync.WaitGroup
@@ -109,6 +112,7 @@ func newBrowserBroker(stateDir, dataDir string, options Options, report func(err
 		closing:    map[string]bool{},
 		signing:    map[string]string{},
 		fetching:   map[string]string{},
+		signOuts:   map[string]bool{},
 		signedIn:   browserlogin.SignedIn,
 		readKeys:   browserlogin.ReadKeys,
 	}
@@ -172,7 +176,7 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 	if b.closed {
 		return BrowserLease{}, errors.New("the supervisor is stopping, so no browser starts")
 	}
-	meta, err := b.grantedTask(task, provider.ID)
+	meta, manifest, err := b.grantedTask(task, provider.ID)
 	if err != nil {
 		return BrowserLease{}, err
 	}
@@ -187,13 +191,9 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 	if err != nil {
 		return BrowserLease{}, err
 	}
-	index, err := projectLogin(logins, provider, project)
+	logins, index, err := projectLogin(logins, provider, project, manifest)
 	if err != nil {
 		return BrowserLease{}, err
-	}
-	if index < 0 {
-		logins = append(logins, browserlogin.Login{ID: browserlogin.DefaultID(provider.ID, project), Provider: provider.ID, Account: project, Projects: []string{project}})
-		index = len(logins) - 1
 	}
 	login := &logins[index]
 	if b.signing[login.ID] != "" {
@@ -252,7 +252,7 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 		b.closeProcess(login.ID)
 		return BrowserLease{}, err
 	}
-	current, err := b.grantedTask(task, provider.ID)
+	current, _, err := b.grantedTask(task, provider.ID)
 	if err == nil && (current.SpawnGen != meta.SpawnGen || current.Project != meta.Project || current.Harness != meta.Harness) {
 		err = errors.New("the task changed while its browser was starting")
 	}
@@ -274,36 +274,50 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 
 // A provider is bound to the declared service with the same ID. The live
 // task record, including an explicit credentials none, controls its grant.
-func (b *browserBroker) grantedTask(task, provider string) (state.TaskMeta, error) {
+// The task's project's manifest comes back with it, for the logins it names.
+func (b *browserBroker) grantedTask(task, provider string) (state.TaskMeta, auth.Manifest, error) {
 	meta, err := state.ReadTaskMeta(b.state, task)
 	if err != nil {
-		return meta, fmt.Errorf("task %s has no live record: %w", task, err)
+		return meta, auth.Manifest{}, fmt.Errorf("task %s has no live record: %w", task, err)
 	}
 	manifest, err := auth.LoadManifest(b.data, meta.Project)
 	if err != nil {
-		return meta, fmt.Errorf("the project's browser service grant cannot be read: %w", err)
+		return meta, manifest, fmt.Errorf("the project's browser service grant cannot be read: %w", err)
 	}
 	grant := manifest.Grant(auth.Need{Services: meta.Credentials, IsUnstated: !meta.HasCredentials})
 	if !slices.Contains(grant.Services, provider) {
-		return meta, fmt.Errorf("task %s does not carry the project's declared %s service", task, provider)
+		return meta, manifest, fmt.Errorf("task %s does not carry the project's declared %s service", task, provider)
 	}
-	return meta, nil
+	return meta, manifest, nil
 }
 
-// projectLogin is the index of project's login of provider, or -1 when it
-// has none yet. A login whose ID the project's would take but that another
-// project holds is refused rather than shared.
-func projectLogin(logins []browserlogin.Login, provider keypages.Provider, project string) (int, error) {
-	for index, login := range logins {
-		if login.Provider == provider.ID && slices.Contains(login.Projects, project) {
-			return index, nil
-		}
+// projectLogin is the index in logins of the login project uses for
+// provider, with logins as it is once that login is added or joined: the
+// one project's manifest names, which every project naming the same
+// provider and account shares, or else project's own. A login another
+// project made its own is shared only once a project on it names it, so
+// naming another project's account never reaches that project's own.
+func projectLogin(logins []browserlogin.Login, provider keypages.Provider, project string, manifest auth.Manifest) ([]browserlogin.Login, int, error) {
+	account, isDeclared := project, false
+	if declared, found := manifest.LoginFor(provider.ID); found {
+		account, isDeclared = declared.Account, true
 	}
-	id := browserlogin.DefaultID(provider.ID, project)
-	if slices.ContainsFunc(logins, func(login browserlogin.Login) bool { return login.ID == id }) {
-		return -1, fmt.Errorf("the login %s belongs to another project, so %s gets no %s login of its own", id, project, provider.Name)
+	id := browserlogin.DefaultID(provider.ID, account)
+	index := slices.IndexFunc(logins, func(login browserlogin.Login) bool { return login.ID == id })
+	switch {
+	case index < 0:
+		logins = append(logins, browserlogin.Login{ID: id, Provider: provider.ID, Account: account, Projects: []string{project}, IsShared: isDeclared})
+		return logins, len(logins) - 1, nil
+	case logins[index].Provider != provider.ID:
+		return logins, -1, fmt.Errorf("the login %s is another provider's", id)
+	case slices.Contains(logins[index].Projects, project):
+		logins[index].IsShared = logins[index].IsShared || isDeclared
+	case isDeclared && logins[index].IsShared:
+		logins[index].Projects = append(logins[index].Projects, project)
+	default:
+		return logins, -1, fmt.Errorf("the login %s belongs to another project, so %s gets no %s login of its own", id, project, provider.Name)
 	}
-	return -1, nil
+	return logins, index, nil
 }
 
 // release closes the browser task holds of provider. A task that holds none
@@ -347,7 +361,18 @@ func (b *browserBroker) closeProcess(id string) {
 			b.report(fmt.Errorf("the browser of login %s: %w", id, err))
 			return
 		}
+		// The profile stays fenced while it goes, since the login still
+		// counts as closing.
 		b.mu.Lock()
+		isSigningOut := b.signOuts[id]
+		b.mu.Unlock()
+		if isSigningOut {
+			if err := browserlogin.RemoveProfile(b.state, id); err != nil {
+				b.report(fmt.Errorf("login %s was not signed out after its fetch: %w", id, err))
+			}
+		}
+		b.mu.Lock()
+		delete(b.signOuts, id)
 		delete(b.processes, id)
 		delete(b.closing, id)
 		b.mu.Unlock()
@@ -372,7 +397,7 @@ func (b *browserBroker) sweep() error {
 			continue
 		}
 		process, ok := b.processes[login.ID]
-		_, grantErr := b.grantedTask(login.Browser.Holder, login.Provider)
+		_, _, grantErr := b.grantedTask(login.Browser.Holder, login.Provider)
 		switch {
 		case !ok:
 			logins[index].Browser = nil
@@ -418,9 +443,12 @@ func (b *browserBroker) closeAll() error {
 // them.
 func (s *Service) keepBrowsers(ctx context.Context) {
 	// A supervisor that starts runs no fetch, so a seal one that stopped
-	// mid-fetch left behind lifts now.
+	// mid-fetch left behind lifts now, and a card's fetch says it stopped.
 	if err := browserlogin.ClearSeals(s.browsers.state); err != nil {
 		s.publish(fmt.Errorf("browser seals: %w", err))
+	}
+	if err := s.Store.stopCardFetches(); err != nil {
+		s.publish(fmt.Errorf("card fetches: %w", err))
 	}
 	if err := s.browsers.sweep(); err != nil {
 		s.publish(fmt.Errorf("browser logins: %w", err))

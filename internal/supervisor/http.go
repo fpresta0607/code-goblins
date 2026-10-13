@@ -157,8 +157,14 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fixConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
 		h.saveCredentials(w, r)
+	case r.URL.Path == "/api/credentials/fetch" && r.Method == "POST":
+		h.fetchFromCard(w, r)
 	case r.URL.Path == "/api/browser-signins/open" && r.Method == "POST":
 		h.openBrowserSignIn(w, r)
+	case r.URL.Path == "/api/browser-logins/sign-out" && r.Method == "POST":
+		h.endBrowserLogin(w, r, false)
+	case r.URL.Path == "/api/browser-logins/forget" && r.Method == "POST":
+		h.endBrowserLogin(w, r, true)
 	case r.URL.Path == "/api/credentials/terminal" && r.Method == "POST":
 		h.openCredentialTerminal(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":

@@ -1,3 +1,4 @@
+import { parseBrowserLogins } from "./browser-logins";
 import { array, object, string, strings } from "./types";
 
 export function parseConnections(value: unknown) {
@@ -11,6 +12,7 @@ export function parseConnections(value: unknown) {
       const entry = object(value);
       return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), checkedAt: string(entry.checked_at), actions: strings(entry.actions) };
     }),
+    browserLogins: parseBrowserLogins(result.browser_logins),
   };
 }
 

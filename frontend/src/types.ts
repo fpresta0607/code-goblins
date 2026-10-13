@@ -530,7 +530,13 @@ export interface CredentialRequest {
   // state is open, saved or expired; typed are the saved names typed in its terminal, and fetched those a fetch read from its key page.
   state: string; saved: string[]; replaced: string[]; typed: string[]; fetched: string[]; written: string[]; reason: string;
   created_at: string; expires_at: string; closed_at: string;
+  // fetch is what the card offers to fetch from a reviewed key page, null for none.
+  fetch: CredentialFetch | null;
 }
+// What a request's card offers to fetch: the names a reviewed key page
+// reads, by provider and the login a fetch reads with, a fetch running now
+// (state "fetching"), and why the last one stopped.
+export interface CredentialFetch { provider: string; login: string; names: string[]; state: string; reason: string }
 // A name's format hint from its project's auth.json: how its value should
 // start, and advice for values that start a certain way.
 export interface CredentialHint { name: string; prefixes: string[]; warn: { prefix: string; say: string }[] }
@@ -682,6 +688,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     }),
     state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), fetched: strings(c.fetched), written: strings(c.written), reason: string(c.reason),
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
+    fetch: c.fetch == null ? null : (() => { const f = object(c.fetch); return { provider: string(f.provider), login: string(f.login), names: strings(f.names), state: string(f.state), reason: string(f.reason) }; })(),
   };
 }
 export function parseAfkHeld(value: unknown): AfkHeld {

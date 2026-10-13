@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -59,10 +60,19 @@ func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error
 
 func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, refresh bool) {
 	checks, _ := h.Service.connections()
+	logins := []browserLoginEntry{}
+	if h.Service.browsers != nil {
+		var err error
+		if logins, err = h.Service.browsers.projectLogins(auth.ProjectName(meta.Project)); err != nil {
+			apiError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	respond(w, 200, struct {
 		connections.Snapshot
-		Instance string `json:"instance"`
-	}{checks.Get(meta.ID+"\n"+meta.SpawnGen, refresh), h.Service.Instance})
+		Instance      string              `json:"instance"`
+		BrowserLogins []browserLoginEntry `json:"browser_logins"`
+	}{checks.Get(meta.ID+"\n"+meta.SpawnGen, refresh), h.Service.Instance, logins})
 }
 
 func (h *HTTP) readConnections(w http.ResponseWriter, r *http.Request) {

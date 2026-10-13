@@ -21,6 +21,16 @@
 .connection-verdict.is-connected { color: var(--mint); }
 .connection-verdict.is-provided { color: #c5d3df; }
 .connection-verdict.needs-attention { color: var(--amber); }
+.connection-verdict.is-signed-out { color: var(--amber); }
+.browser-login-mark { display: grid; place-items: center; width: 40px; height: 40px; flex: none; margin-top: 3px; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: #635bff; color: #fff; font: 800 1.25rem/1 var(--font-body); }
+.forget-login { width: min(520px, calc(100vw - 28px)); padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.forget-login::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+.forget-login h2 { margin: 0 0 10px; font-size: 1.5rem; }
+.forget-login p { margin: 0 0 22px; line-height: 1.55; overflow-wrap: anywhere; }
+.forget-login-choices { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.forget-login-choices button { display: inline-flex; align-items: center; gap: 8px; }
+.forget-login-choices .icon { width: 18px; height: 18px; }
+.forget-login-confirm { background: var(--amber); border-color: var(--amber); color: #2b1d02; font-weight: 700; }
 .connection-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 96px; }
 .connections .chip { font-size: 1rem; color: #c5d3df; }
 @container connections (width < 520px) {

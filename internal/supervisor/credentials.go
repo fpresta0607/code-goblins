@@ -103,6 +103,9 @@ type CredentialRequest struct {
 	Typed []string `json:"typed,omitempty"`
 	// Fetched are the saved names a fetch read from the request's key page.
 	Fetched []string `json:"fetched,omitempty"`
+	// Fetch is what the card offers to fetch, for a request of a goblin
+	// whose keys a reviewed key page shows.
+	Fetch *CredentialFetch `json:"fetch,omitempty"`
 	// Written are the saved names also set in EnvFile.
 	Written []string `json:"written,omitempty"`
 	// Told are the running goblins told to re-source their credentials.
@@ -135,6 +138,11 @@ func (r CredentialRequest) clone() CredentialRequest {
 	if r.ClosedAt != nil {
 		closed := *r.ClosedAt
 		r.ClosedAt = &closed
+	}
+	if r.Fetch != nil {
+		fetch := *r.Fetch
+		fetch.Names = slices.Clone(r.Fetch.Names)
+		r.Fetch = &fetch
 	}
 	return r
 }
@@ -357,7 +365,7 @@ func (s *Service) ingestCredentialRequests() error {
 // fresh generation, with the names its scope already holds and each name's
 // format hint, open for a day.
 func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialRequest, error) {
-	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Fetched, r.Written, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil
+	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Fetched, r.Written, r.Reason, r.ClosedAt, r.Fetch = nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil, nil
 	if err := validCredentialRequest(r); err != nil {
 		return r, err
 	}
@@ -396,6 +404,11 @@ func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialReques
 				}
 			}
 		}
+	}
+	// A fetch acts for a goblin's grant, so only a request a goblin needs
+	// offers one.
+	if r.Task != "" && s.browsers != nil {
+		r.Fetch = s.browsers.fetchOffer(r.Link, r.Names, r.Project)
 	}
 	now := time.Now().UTC()
 	r.State, r.CreatedAt, r.ExpiresAt = "open", now, now.Add(credentialLifetime)
