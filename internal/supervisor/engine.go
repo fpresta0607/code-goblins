@@ -72,7 +72,7 @@ func (h *HTTP) selectTaskEngine(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update"}, input.When) {
+	if state.ValidTaskID(input.Task) != nil || !slices.Contains([]string{"", "turn-end", "now", "cancel", "update"}, input.When) || input.Generation == "" && input.When != "" {
 		apiError(w, 400, "Invalid task engine selection")
 		return
 	}

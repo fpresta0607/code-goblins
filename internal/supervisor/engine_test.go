@@ -167,6 +167,30 @@ func TestLiveEngineSelectionStillRequiresCompleteCatalogChoices(t *testing.T) {
 	}
 }
 
+func TestQueuedEngineSelectionRejectsLiveActionsBeforeSaving(t *testing.T) {
+	for _, action := range []string{"update", "now", "turn-end", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+			handler.Service.Options.FirstRun = newFirstRunMachine(t).run
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: project)", plainBrief)
+			before, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": "next-task", "revision": before.Revision, "when": action, "effort": "banana"})
+
+			if response.Code != 400 {
+				t.Fatalf("queued live action = %d: %s", response.Code, response.Body)
+			}
+			after, err := fleet.ReadQueuedTask(h, "next-task")
+			if err != nil || after.Revision != before.Revision {
+				t.Fatalf("queued live action changed preferences: %+v, %v", after, err)
+			}
+		})
+	}
+}
+
 func TestSnapshotReflectsChangedEngineBriefAndPendingChoice(t *testing.T) {
 	store, h := testStore(t)
 	service := &Service{Store: store}
