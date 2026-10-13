@@ -458,7 +458,7 @@ func (s *Service) engineTaskIdle(ctx context.Context, meta state.TaskMeta) (bool
 	if err != nil {
 		return false, err
 	}
-	return idleAtEmptyComposer(screens, screen), nil
+	return screens.IsIdleAtEmptyComposer(screen), nil
 }
 
 func (s *Service) engineGateIdle(ctx context.Context, meta state.TaskMeta) (bool, error) {
