@@ -226,11 +226,14 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 					return Turn{Waited: time.Since(start)}, err
 				}
 				turn, err := a.take(capacity)
-				if err != nil {
+				// A custody change that found the custody busy did nothing,
+				// so the run keeps its place and tries again.
+				if errors.Is(err, errCustodyBusy) {
+					why = join(why, "the line's custody is busy")
+				} else if err != nil {
 					turn.Waited = time.Since(start)
 					return turn, err
-				}
-				if turn.release != nil {
+				} else if turn.release != nil {
 					if err := ctx.Err(); err != nil {
 						if releaseError := turn.Release(); releaseError != nil {
 							turn.Waited = time.Since(start)

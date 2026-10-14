@@ -363,6 +363,8 @@ Only test binaries can use explicitly isolated admission stores.
 
 A command also waits while either physical or commit availability is under the shared floor: 4 GiB at capacity one or 8 GiB at capacity two.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
+A run at the head of the line that finds the line's custody busy for all the five seconds a custody change is given, as a loaded machine can keep it, keeps its place, says `the line's custody is busy`, and tries again at its next look.
+On 2026-10-14 such a run, after an hour and fourteen minutes in line, ended with no turn on one busy custody change.
 
 While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
 

@@ -129,12 +129,31 @@ func custodyMutation(dir string) (func() error, error) {
 	return custodyMutationContext(context.Background(), dir)
 }
 
+// errCustodyBusy says a custody change found the line's custody busy for all
+// the few seconds it is given, as a loaded machine can keep it, while its
+// caller still waits: the change did nothing, and its caller may try again.
+var errCustodyBusy = errors.New("verify: the line's custody stayed busy")
+
+// busy marks err as errCustodyBusy when it came of a custody change's own
+// seconds running out while caller still waits.
+func busy(caller context.Context, err error) error {
+	if caller.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", errCustodyBusy, err)
+	}
+	return err
+}
+
 var custodyMutations = struct {
 	sync.Mutex
 	pending map[string]lock.Info
 }{pending: make(map[string]lock.Info)}
 
 func custodyMutationContext(caller context.Context, dir string) (func() error, error) {
+	unlock, err := takeCustodyMutation(caller, dir)
+	return unlock, busy(caller, err)
+}
+
+func takeCustodyMutation(caller context.Context, dir string) (func() error, error) {
 	key, err := fsx.AbsClean(dir)
 	if err != nil {
 		return nil, err

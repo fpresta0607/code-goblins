@@ -956,3 +956,84 @@ func TestAdmissionSaysTheTighterShortOfMemoryAndCommit(t *testing.T) {
 		})
 	}
 }
+
+// A run at the head of the line whose take of the turn finds the line's
+// custody busy past the few seconds a custody change is given, as a loaded
+// machine can keep it, keeps its place and takes the turn once the custody
+// is free, rather than ending its wait with no turn after all it waited.
+// The custody is busy in this process, or by its lock as another process
+// holds it.
+func TestAWaitingRunKeepsItsPlaceWhileTheLinesCustodyIsBusy(t *testing.T) {
+	for name, hold := range map[string]func(t *testing.T, dir string) (release func()){
+		"in this process": func(t *testing.T, dir string) func() {
+			custodyMutations.Lock()
+			return custodyMutations.Unlock
+		},
+		"by its lock": func(t *testing.T, dir string) func() {
+			if _, err := lock.AcquireExclusiveNamedStrict(dir, "custody-mutation"); err != nil {
+				t.Fatal(err)
+			}
+			return func() {
+				if err := lock.ReleaseExclusiveNamed(dir, "custody-mutation"); err != nil {
+					t.Error(err)
+				}
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			a := admission(t)
+			var isShort atomic.Bool
+			isShort.Store(true)
+			a.Available = func() (uint64, error) {
+				if isShort.Load() {
+					return gigabyte, nil
+				}
+				return 16 * gigabyte, nil
+			}
+			var says said
+			a.Waiting = says.waiting
+			taken := take(t, a)
+			says.atLeast(t, 1)
+			release := hold(t, a.Dir)
+			isShort.Store(false)
+			time.Sleep(6 * time.Second)
+			release()
+
+			// Act
+			turn := within(t, taken, "the run that found the custody busy")
+
+			// Assert
+			if err := turn.Release(); err != nil {
+				t.Errorf("Release: %v", err)
+			}
+		})
+	}
+}
+
+// Only a custody change's own seconds running out while its caller still
+// waits is the custody being busy: the caller's own deadline, or another
+// failure, is not.
+func TestBusyIsOnlyACustodyChangesOwnSecondsRunningOut(t *testing.T) {
+	ended, end := context.WithCancel(context.Background())
+	end()
+	for name, row := range map[string]struct {
+		caller context.Context
+		err    error
+		isBusy bool
+	}{
+		"its own seconds":  {caller: context.Background(), err: context.DeadlineExceeded, isBusy: true},
+		"the caller's end": {caller: ended, err: context.DeadlineExceeded},
+		"another failure":  {caller: context.Background(), err: errors.New("access is denied")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			err := busy(row.caller, row.err)
+
+			// Assert
+			if errors.Is(err, errCustodyBusy) != row.isBusy || !errors.Is(err, row.err) {
+				t.Errorf("busy = %v; want busy %v, keeping %v", err, row.isBusy, row.err)
+			}
+		})
+	}
+}
