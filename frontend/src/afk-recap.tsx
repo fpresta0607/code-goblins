@@ -1,4 +1,5 @@
 import { Avatar } from "./Avatar";
+import { Disclosure } from "./Disclosure";
 import { Icon, type IconName } from "./Icon";
 import { AfkIconButton } from "./afk-icon-button";
 import { AfkRecapGroup } from "./afk-recap-group";
@@ -14,7 +15,10 @@ import "./lantern.css";
 const MARKS: Record<string, IconName> = { merge: "merge", deploy: "external", migration: "database", install: "download", other: "check", pause: "pause", strike: "close", left: "comment", his: "warning" };
 
 // AfkRecap is the recap's three parts under its headline: Needs you first and
-// only when something does, then Done and Decided for you.
+// only when something does, then Done and Decided for you. Done and Decided
+// for you open and close with the board's one thin caret, starting open, and
+// so does every heading inside them, starting closed with its name and count,
+// so the whole recap reads in one screen.
 export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report: AfkReport; tasks: Task[]; now: number; onGoThrough: (keys: string[]) => void; onChange: (key: string) => void }) {
   const goblin = (task: string) => tasks.find((one) => one.id === task)?.goblin_name || task;
   const avatar = (task: string) => <Avatar persona={task ? personaFor(tasks.find((one) => one.id === task)) : "cfo"} small />;
@@ -59,20 +63,17 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
         {needs.flatMap((section) => section.entries).map((entry) => <AfkRecapRow key={entry.at + entry.what} mark={<Icon name="warning" />} what={entry.what} link={entry.link} tone="warning" at={entry.at} now={now} evidence={entry.evidence} />)}
       </ul>}
     </section>}
-    {(done.length > 0 || alsoFinished.length > 0 || spent.length > 0 || report.disk || settledItems.length > 0) && <section className="afk-part" aria-label="Done">
-      <h3>Done</h3>
+    {(done.length > 0 || alsoFinished.length > 0 || spent.length > 0 || report.disk || settledItems.length > 0) && <section className="afk-part" aria-label="Done"><Disclosure kind="afk-part-drawer" title="Done" defaultOpen>
       {done.filter((section) => !section.entries.every((entry) => entry.struck)).map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length}>{doneRows(section)}</AfkRecapGroup>)}
       {alsoFinished.length > 0 && <AfkRecapGroup title="Also finished" count={alsoFinished.length}>{pulls(alsoFinished.map((finish) => finish.pr), by, "pull-request")}</AfkRecapGroup>}
       {(spent.length > 0 || report.disk) && <section className="afk-group" aria-label="Spent">
-        <h4>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />While AFK <i className="left" />Left</span></h4>
-        <AfkSpent spent={spent} disk={report.disk} />
+        <Disclosure kind="afk-drawer" title={<>Spent <span className="afk-spent-legend"><i className="before" />Before AFK <i className="used" />While AFK <i className="left" />Left</span></>}><AfkSpent spent={spent} disk={report.disk} /></Disclosure>
       </section>}
-      {settledItems.length > 0 && <AfkRecapGroup title="Settled" count={settledItems.length} folded>{settledItems.map((one) =>
+      {settledItems.length > 0 && <AfkRecapGroup title="Settled" count={settledItems.length}>{settledItems.map((one) =>
         <AfkRecapRow key={one.item + one.at} mark={avatar(one.task)} what={one.what} detail={heldSays(one)} tone="answered" at={one.at} now={now} />)}</AfkRecapGroup>}
-      {done.filter((section) => section.entries.every((entry) => entry.struck)).map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length} folded>{doneRows(section)}</AfkRecapGroup>)}
-    </section>}
-    {decided.length > 0 && <section className="afk-part" aria-label="Decided for you">
-      <h3>Decided for you</h3>
+      {done.filter((section) => section.entries.every((entry) => entry.struck)).map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length}>{doneRows(section)}</AfkRecapGroup>)}
+    </Disclosure></section>}
+    {decided.length > 0 && <section className="afk-part" aria-label="Decided for you"><Disclosure kind="afk-part-drawer" title="Decided for you" defaultOpen>
       <p className="afk-part-note">The CFO answered each with its recommendation and acted on it. Change any of them here or in History.</p>
       {decided.map((section) => <AfkRecapGroup key={section.title} title={section.title} count={section.entries.length}>{section.entries.map((entry) => {
         if (entry.kind === "answer") {
@@ -81,7 +82,7 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
         }
         return <AfkRecapRow key={entry.at + entry.what} mark={avatar("")} what={entry.what} detail={"The CFO answered: " + entry.answer} tone="answered" at={entry.at} now={now} evidence={decisionSays(entry).basis} action={change(entry)} />;
       })}</AfkRecapGroup>)}
-    </section>}
+    </Disclosure></section>}
     {report.notes.length > 0 && <section className="afk-part" aria-label="Not read">
       <h3>Not read</h3>
       <ul className="afk-rows">{report.notes.map((note) => <li key={note} className="afk-row note">{note}</li>)}</ul>

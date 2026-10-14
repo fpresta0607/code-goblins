@@ -841,6 +841,8 @@ What waited on you in the Command Center and no longer does folds under **Settle
 **Needs you** comes last, and only when something does: it says how many things wait for you in the Command Center, one card each, with **Open Command Center**.
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
 A step whose card could not be made stays a plain line.
+**Done** and **Decided for you** open and close behind the board's one thin caret, the same one History and the task panel use, and start open.
+Every heading inside them, **Deployed**, **Merged**, **Spent**, **For the goblins** and the rest, does the same and starts closed, showing only its name and its count, so the whole recap reads in one screen and you open only what you want to read.
 What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
 **Open Command Center** at the top of Needs you opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
 **Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
