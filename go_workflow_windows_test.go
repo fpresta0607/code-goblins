@@ -398,7 +398,8 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 				t.Errorf("%s runs on pull_request types %v, want %v", name, workflow.On.PullRequest.Types, want)
 			}
 			for job, spec := range workflow.Jobs {
-				if (len(spec.Needs) == 0 || strings.Contains(spec.If, "always()")) && !strings.Contains(spec.If, draftCondition) {
+				isPushOnly := spec.If == "github.event_name == 'push'"
+				if (len(spec.Needs) == 0 || strings.Contains(spec.If, "always()")) && !strings.Contains(spec.If, draftCondition) && !isPushOnly {
 					t.Errorf("%s job %s runs if %q, which a draft does not stop", name, job, spec.If)
 				}
 			}
@@ -641,5 +642,53 @@ func TestGoWorkflowKeepsThePinnedSQLiteReleaseInTheCache(t *testing.T) {
 	version := strings.TrimSuffix(link[strings.LastIndex(link, "-")+1:], ".zip")
 	if len(pin) != 64 || !strings.HasPrefix(link, "https://www.sqlite.org/") || version == "" || !strings.Contains(key, version) || !strings.HasSuffix(key, "-"+pin[:16]) {
 		t.Errorf("the cache key %q, the release %q and its SHA-256 %q: want a release of sqlite.org, and a key that names its version and ends with the first 16 characters of its SHA-256", key, link, pin)
+	}
+}
+
+// A push whose plan found a pull request run that passed its exact tree on
+// the same main started no job, and its check passes naming that run. A plan
+// that says so on any other event, or names no run, passes nothing: only a
+// push reads the records, and only by a run's number.
+func TestGoWorkflowsRequiredCheckPassesAPushWhoseTreeAPullRequestRunPassed(t *testing.T) {
+	pwsh, err := exec.LookPath("pwsh.exe")
+	if err != nil {
+		t.Skip("the step runs in PowerShell 7, which is not installed")
+	}
+	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "test", "Require every job to have passed")
+	reused := func(plan, run string) string {
+		outputs, _ := json.Marshal(map[string]string{"frontend": "false", "browser": "false", "go": "[]", "everything": "false", "reused": run})
+		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":"skipped","outputs":{}},"browser":{"result":"skipped","outputs":{}},"go":{"result":"skipped","outputs":{}}}`, plan, outputs)
+	}
+	for name, test := range map[string]struct {
+		results, event string
+		wantOK         bool
+	}{
+		"a push whose tree a pull request run passed": {reused("success", "38578690102"), "push", true},
+		"a push whose plan named no run":              {reused("success", ""), "push", false},
+		"a push whose plan named something but a run": {reused("success", "run=7"), "push", false},
+		"a push whose plan failed":                    {reused("failure", "38578690102"), "push", false},
+		"a train's run that says it reused one":       {reused("success", "38578690102"), "pull_request", false},
+		"a merge queue run that says it reused one":   {reused("success", "38578690102"), "merge_group", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			script := filepath.Join(t.TempDir(), "step.ps1")
+			if err := os.WriteFile(script, []byte("$ErrorActionPreference = 'stop'\r\n"+step), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-File", script)
+			cmd.Env = append(os.Environ(), "RESULTS="+test.results, "OWN_RUN=false", "EVENT="+test.event)
+
+			// Act
+			out, err := cmd.CombinedOutput()
+
+			// Assert
+			if test.wantOK && (err != nil || !strings.Contains(string(out), "pull request run 38578690102 passed this tree")) {
+				t.Errorf("the check failed or named no run: %v\n%s", err, out)
+			}
+			if !test.wantOK && err == nil {
+				t.Errorf("the check passed:\n%s", out)
+			}
+		})
 	}
 }
