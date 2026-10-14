@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -290,5 +291,64 @@ func TestPRTrainNeedsItsProject(t *testing.T) {
 	// Assert
 	if code != 2 || !strings.Contains(stderr.String(), "<project> is required") {
 		t.Fatalf("cfo pr train = %d, stderr %s", code, stderr.String())
+	}
+}
+
+// A train the CFO starts detached does not run under the registered CFO, so
+// the log of a decision refused its landings and nothing it merged was logged:
+// the eight pull requests of 2026-10-13 and #821 of 2026-10-14. The landing is
+// asked of the supervisor, which reads the train's record and the pull request.
+func TestPRTrainAsksTheSupervisorToLogEachLandingWhileAFKModeIsOn(t *testing.T) {
+	// Arrange
+	forge := newTrainForge(t)
+	h := testHome(t)
+	first, second := forge.pull(51, "feat/a", "a.txt"), forge.pull(52, "feat/b", "b.txt")
+	doneGoblin(t, h, "g51", forge.project, first)
+	doneGoblin(t, h, "g52", forge.project, second)
+	if _, _, err := afk.TurnOn(h.State, "his own terminal (powershell.exe pid 4242)", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runtime := testCommandRuntimeForHome(h)
+	runtime.trainEvery = time.Millisecond
+	var asked []string
+	runtime.logTrainLanding = func(_ home.Home, trainID, url string) error { asked = append(asked, trainID+" "+url); return nil }
+	runtime.logAFK = func(home.Home, afk.Entry) error {
+		t.Error("the train wrote the decision log itself: a train that does not run under the registered CFO is refused it")
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runPR("train", []string{forge.project}, &stdout, &stderr, forge, runtime)
+
+	// Assert
+	trains, err := train.List(h.State)
+	if code != 0 || err != nil || len(trains) != 1 {
+		t.Fatalf("cfo pr train = %d, stderr %s, trains %+v, %v", code, stderr.String(), trains, err)
+	}
+	if want := []string{trains[0].ID + " " + first.URL, trains[0].ID + " " + second.URL}; !slices.Equal(asked, want) {
+		t.Errorf("the supervisor was asked to log %q, want each landing with its train", asked)
+	}
+}
+
+func TestPRTrainAsksNothingOfTheSupervisorWhileAFKModeIsOff(t *testing.T) {
+	// Arrange
+	forge := newTrainForge(t)
+	h := testHome(t)
+	first, second := forge.pull(61, "feat/a", "a.txt"), forge.pull(62, "feat/b", "b.txt")
+	doneGoblin(t, h, "g61", forge.project, first)
+	doneGoblin(t, h, "g62", forge.project, second)
+	runtime := testCommandRuntimeForHome(h)
+	runtime.trainEvery = time.Millisecond
+	asked := 0
+	runtime.logTrainLanding = func(home.Home, string, string) error { asked++; return nil }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runPR("train", []string{forge.project}, &stdout, &stderr, forge, runtime)
+
+	// Assert
+	if code != 0 || asked != 0 {
+		t.Errorf("cfo pr train = %d, asked %d times, want it to land and ask nothing with AFK mode off", code, asked)
 	}
 }

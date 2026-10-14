@@ -20,7 +20,9 @@ var movedCaches = []string{"uv", "pnpm", "npm", "go-build", "go-mod", "playwrigh
 // its cache variables when it starts, so one started before the move still
 // builds against the home's caches; they stay while any such terminal runs,
 // and so does everything while a task still runs in a Herdr pane, whose start
-// no record keeps.
+// no record keeps. Each removal starts only while the machine's heavy line is
+// free, as each of the caches' prunes does (trimCaches), though a run that
+// takes its turn once one has started is not stopped.
 func (cfg Config) retireMovedCaches(record *Record) {
 	if cfg.Home.DevDrive == "" {
 		return
@@ -38,6 +40,10 @@ func (cfg Config) retireMovedCaches(record *Record) {
 	for _, name := range movedCaches {
 		path := filepath.Join(old, name)
 		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if err := cfg.lineFree(); err != nil {
+			record.Kept = append(record.Kept, Item{Kind: "cache", Path: path, Detail: "kept for the next sweep, as the machine's heavy line is not free: " + err.Error()})
 			continue
 		}
 		bytes := Size(path)

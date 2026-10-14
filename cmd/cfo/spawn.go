@@ -153,6 +153,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 	}
 	report, skipped := readQuota(runtime)
+	now := quotaClock(runtime)
 	settings, err := fleetconfig.Read(h.Root)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
@@ -182,7 +183,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 			inputs.Table.Lanes[name] = lane
 		}
-		choice, err := routing.Choose(assessment, inputs.Table, usableLane(report, skipped, settings))
+		choice, err := routing.Choose(assessment, inputs.Table, usableLane(report, skipped, settings, now))
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
 			return 1
@@ -207,7 +208,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if skipped == "" {
 		floor := settings.WeeklyFloor(*harnessName)
-		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, floor, time.Now().UTC()); isLow {
+		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, floor, now); isLow {
 			if reset.IsZero() {
 				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at its %v percent weekly floor, and its reset time is unknown\n", *harnessName, floor)
 			} else {
@@ -323,18 +324,26 @@ func readQuota(runtime commandRuntime) (quota.Report, string) {
 	return runtime.quota(ctx)
 }
 
+// quotaClock is the time the runtime's quota reading is judged at.
+func quotaClock(runtime commandRuntime) time.Time {
+	if runtime.now == nil {
+		return time.Now().UTC()
+	}
+	return runtime.now().UTC()
+}
+
 // usableLane is the quota check a routed spawn walks its lanes with: a lane
 // whose provider or model scope is exhausted now, or at the weekly floor
 // settings keep for its provider, is unusable; no evidence is usable. A
 // skipped check means no check at all.
-func usableLane(report quota.Report, skipped string, settings fleetconfig.Settings) routing.Usable {
+func usableLane(report quota.Report, skipped string, settings fleetconfig.Settings, now time.Time) routing.Usable {
 	if skipped != "" {
 		return nil
 	}
 	return func(lane routing.ExecutionLane) (bool, string) {
 		headroom := report.Headroom(lane.Harness, lane.Model)
 		floor := settings.WeeklyFloor(lane.Harness)
-		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, floor, time.Now().UTC()); isLow {
+		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, floor, now); isLow {
 			note := fmt.Sprintf("%s at its %v percent weekly allowance floor", lane.Harness, floor)
 			if !reset.IsZero() {
 				note += ", resets " + reset.UTC().Format(time.RFC3339)

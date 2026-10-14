@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -221,11 +223,28 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 			return 2
 		}
 	}
+	merged := false
+	if url := afk.PullRequestURL(entry.Link, entry.What); entry.Kind == afk.KindMerge && url != "" {
+		// A merge logged by hand records no outcome of its own, so what
+		// GitHub says of the pull request is the outcome.
+		ctx, cancel := context.WithTimeout(context.Background(), pullRequestReadTimeout)
+		info, err := runtime.pullRequestStateReader()(ctx, url)
+		cancel()
+		switch {
+		case err != nil:
+			fmt.Fprintf(stderr, "cfo afk log: GitHub did not say whether %s merged (%v), so the line records no outcome, and the report asks again when AFK mode turns off\n", url, err)
+		case info.State == "MERGED":
+			entry.Outcome, merged = afk.OutcomeMerged, true
+		}
+	}
 	if err := runtime.afkLog()(h, entry); err != nil {
 		fmt.Fprintln(stderr, "cfo afk log: "+err.Error())
 		return 1
 	}
 	fmt.Fprintf(stdout, "logged %s: %s\n", *kind, strings.TrimSpace(*what))
+	if merged {
+		fmt.Fprintln(stdout, "GitHub says it merged, so the line records the outcome merged.")
+	}
 	return 0
 }
 
@@ -250,6 +269,19 @@ func hisCommand(file string) (shell, command string, err error) {
 		return "", "", fmt.Errorf("%s: %w", file, err)
 	}
 	return shell, command, nil
+}
+
+// pullRequestReadTimeout bounds the one read of a pull request that logging a
+// merge by hand makes.
+const pullRequestReadTimeout = 20 * time.Second
+
+// pullRequestStateReader is how the command asks GitHub about a pull request:
+// through gh, unless the runtime names another way.
+func (r commandRuntime) pullRequestStateReader() func(context.Context, string) (supervisor.PullRequestInfo, error) {
+	if r.pullRequestState != nil {
+		return r.pullRequestState
+	}
+	return supervisor.GitHubPullRequestState(execx.OSRunner{})
 }
 
 // runAFKStrike sends the strike of one line the CFO logged by mistake.

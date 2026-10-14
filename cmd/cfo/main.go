@@ -95,7 +95,7 @@ commands:
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed, the packages that import them and the packages config/verify.json names for a changed file their tests read, without the fleet's home; it lists the changed files no Go check reads, and a changed file the policy does not account for requires every package; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
   cfo gate prepush [--plan] [--limit <duration>]   what a goblin runs before it pushes: picks what the branch's change can break and runs it one check at a time, stopping with one plain line at the first failure: go vet of the packages the change reaches, the tests that read the whole tree, the changed packages and the packages that import them, nearest first, and for a change under frontend the type check, the lint, the unit tests and the browser specs the change touched or names. A slow package runs without the tests this machine timed at 2 seconds or longer, unless the change touched their file. It takes its turn on the machine, starts no check under the memory floor or after its time limit, 15 minutes unless --limit says otherwise, and names what it left to CI. --plan prints the pick and runs nothing
-  cfo gate turn [--as <name>] [--detach <log-file>] -- <program> [<argument>...]   run any heavy command in the line cfo gate test and cfo gate prepush take their turns in, one run at a time on the machine whoever started it: it waits while another run holds the turn and while free memory or commit is under 4 GiB, with no limit of its own, says on standard error which run it waits for, and then runs the command with its output, its input and its exit code untouched; exit 125 means it took no turn and ran nothing. --detach starts the run in the background, hidden in a console with no window, appends its output to <log-file> with a last line that says how it ended, writes its pid to <log-file>.pid and returns at once: the one way a goblin starts a heavy run in the background
+  cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]   run any heavy command in the line cfo gate test and cfo gate prepush take their turns in, one run at a time on the machine whoever started it: it waits while another run holds the turn and while free memory or commit is under 4 GiB, with no limit of its own unless --wait bounds the wait for the turn, says on standard error which run it waits for, and then runs the command with its output, its input and its exit code untouched; exit 125 means it took no turn and ran nothing. --detach starts the run in the background, hidden in a console with no window, appends its output to <log-file> with a last line that says how it ended, writes its pid to <log-file>.pid and returns at once: the one way a goblin starts a heavy run in the background
   cfo gate turns        show which cfo gate test, cfo gate prepush and cfo gate turn runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
@@ -175,6 +175,9 @@ type commandRuntime struct {
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
+	// now is the clock a quota reading is judged by, so a test's reading
+	// keeps the date it was taken on; nil is the real clock.
+	now func() time.Time
 	// goblins is true when this binary runs under the name goblins, where no
 	// command means the launcher; cfo alone keeps printing its usage for
 	// scripts. startServe and openURL are the launcher's two effects on the
@@ -257,6 +260,12 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
 	logAFK    func(h home.Home, entry afk.Entry) error
+	// logTrainLanding asks the supervisor to log a pull request a merge
+	// train landed while AFK mode is on; nil is the supervisor's pipe.
+	logTrainLanding func(h home.Home, trainID, url string) error
+	// pullRequestState asks GitHub whether a pull request is open, closed or
+	// merged, for cfo afk log --kind merge; nil asks through gh.
+	pullRequestState func(ctx context.Context, url string) (supervisor.PullRequestInfo, error)
 	// strikeAFK asks the supervisor to strike through a line the CFO logged
 	// by mistake.
 	strikeAFK func(h home.Home, at time.Time, reason string) error

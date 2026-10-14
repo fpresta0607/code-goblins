@@ -224,3 +224,107 @@ func TestASoundWithNothingLoudInItIsHandedAsItIs(t *testing.T) {
 		t.Fatalf("the model was handed %d pieces for one quiet sound", len(api.accepted))
 	}
 }
+
+// leveled is a stretch of a test sound at a level: speech whose RMS is
+// decibels of full scale, or, at 0, the room it is said in.
+type leveled struct {
+	decibels float64
+	seconds  float64
+}
+
+// spokenAt builds a 16 kHz sound of stretches at their levels, in a quiet
+// room whose hiss is at room decibels. It returns where each stretch of
+// speech lies.
+func spokenAt(room float64, parts ...leveled) (sound []float32, speech [][2]int) {
+	random := rand.New(rand.NewPCG(20261014, 1))
+	hissAmplitude := math.Sqrt(3) * math.Pow(10, room/20)
+	phase := 0.0
+	for _, part := range parts {
+		count := int(part.seconds * testRate)
+		if part.decibels != 0 {
+			speech = append(speech, [2]int{len(sound), len(sound) + count})
+		}
+		amplitude := math.Sqrt2 * math.Pow(10, part.decibels/20)
+		for index := range count {
+			sample := (random.Float64()*2 - 1) * hissAmplitude
+			if part.decibels != 0 {
+				pitch := 160 + 90*math.Sin(float64(len(sound)+index)/testRate*1.7)
+				phase += 2 * math.Pi * pitch / testRate
+				sample += amplitude * math.Sin(phase)
+			}
+			sound = append(sound, float32(sample))
+		}
+	}
+	return sound, speech
+}
+
+// A quiet microphone, or a word said softly, is speech all the same: on real
+// recordings turned down by 25 dB, a microphone set low, the board lost 691
+// words of 2252 that the model hears when handed the same sound whole,
+// because only a part at -40 dB of full scale counted as speech. Every part
+// of the speech reaches the model, and each piece still ends half a second
+// after it.
+func TestSpeechSofterThanFortyDecibelsReachesTheModel(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		room  float64
+		parts []leveled
+	}{
+		{"a quiet microphone whose loudest syllable just reaches -40 dB", -80, []leveled{{0, 0.3}, {-38, 0.2}, {-50, 2.8}, {0, 0.6}, {-52, 3}, {0, 0.7}, {-50, 3.5}, {0, 1.5}}},
+		{"a soft last word after a loud phrase", -65, []leveled{{0, 0.3}, {-15, 3}, {-48, 0.9}, {0, 1.5}}},
+		{"a soft first word before a loud phrase", -65, []leveled{{0, 1.2}, {-47, 0.8}, {-15, 3}, {0, 1}}},
+		{"a long quiet dictation with one loud word", -78, []leveled{{0, 0.5}, {-48, 6}, {0, 0.6}, {-30, 0.4}, {-50, 7}, {0, 0.8}, {-49, 6}, {0, 1}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sound, speech := spokenAt(test.room, test.parts...)
+			api, _ := recognizeSound(t, sound)
+			covered := make([]bool, len(sound))
+			for index, piece := range api.accepted {
+				at, length := within(sound, piece, 0)
+				if at < 0 {
+					t.Fatalf("piece %d is not a stretch of the sound", index+1)
+				}
+				last := -1
+				for _, run := range speech {
+					if run[0] < at+length && at < run[1] {
+						last = min(run[1], at+length) - at
+					}
+				}
+				if after := float64(len(piece)-last) / testRate; last < 0 || after < 0.49 || after > 0.51 {
+					t.Errorf("piece %d of %d goes on %.3f s after its last speech, want 0.5 s", index+1, len(api.accepted), after)
+				}
+				for sample := at; sample < at+length; sample++ {
+					covered[sample] = true
+				}
+			}
+			for _, run := range speech {
+				for sample := run[0]; sample < run[1]; sample++ {
+					if !covered[sample] {
+						t.Fatalf("the speech at %.2f s was in no piece", float64(sample)/testRate)
+					}
+				}
+			}
+		})
+	}
+}
+
+// Room noise is never speech, however loud the room or quiet the speaker:
+// steady hiss alone, between two phrases said 20 dB over it, is left out.
+func TestRoomNoiseAloneIsLeftOutAtAnyLevel(t *testing.T) {
+	for _, room := range []float64{-75, -62, -50} {
+		t.Run(fmt.Sprintf("a room at %.0f dB", room), func(t *testing.T) {
+			sound, speech := spokenAt(room, leveled{room + 20, 3}, leveled{0, 12}, leveled{room + 20, 3})
+			api, _ := recognizeSound(t, sound)
+			for index, piece := range api.accepted {
+				at, length := within(sound, piece, 0)
+				heard := false
+				for _, run := range speech {
+					heard = heard || run[0] < at+length && at < run[1]
+				}
+				if !heard {
+					t.Errorf("piece %d, %.2f s to %.2f s, is room noise alone", index+1, float64(at)/testRate, float64(at+length)/testRate)
+				}
+			}
+		})
+	}
+}

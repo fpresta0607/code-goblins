@@ -60,9 +60,14 @@ export function downsample(sound: Sound, rate: number): Sound {
   return { samples, rate };
 }
 
-// A part of a sound is loud when its 10 ms reach this RMS, -40 dB of full
-// scale: above a room's hum, below a voice. The engine reads it alike.
+// A part of a sound is loud, holding speech, when its 10 ms reach this RMS,
+// -40 dB of full scale: above a room's hum, below a voice. For a quiet
+// microphone or a soft word it is enough to stand OVER_QUIET_DB over the
+// sound's own quiet, its quietest QUIET_SPAN_SECONDS, and above QUIET_FLOOR.
+// The engine reads it alike.
 const LOUD = 0.01;
+const OVER_QUIET_DB = 12;
+const QUIET_FLOOR = 0.0003;
 // A piece is handed on once this much quiet follows speech in it,
 const PAUSE_SECONDS = 0.3;
 // and it is at least this long, a phrase or more.
@@ -73,8 +78,20 @@ const PIECE_MOST_SECONDS = 20;
 // judged over stretches this long: a pause between words, not a dip in one.
 const QUIET_SPAN_SECONDS = 0.2;
 
-function isLoud(power: number): boolean {
-  return Math.sqrt(power) >= LOUD;
+// loudPower is the power, the mean square of 10 ms, at which a part of a
+// sound of frames of power holds speech: LOUD at most, lower when the
+// sound's quiet, the mean of its quietest QUIET_SPAN_SECONDS, is low enough,
+// and never under QUIET_FLOOR.
+function loudPower(frames: number[]): number {
+  const span = Math.min(Math.round(QUIET_SPAN_SECONDS * 100), frames.length);
+  let sum = 0;
+  for (let index = 0; index < span; index++) sum += frames[index];
+  let quiet = sum;
+  for (let index = span; index < frames.length; index++) {
+    sum += frames[index] - frames[index - span];
+    quiet = Math.min(quiet, sum);
+  }
+  return Math.min(LOUD * LOUD, Math.max(QUIET_FLOOR * QUIET_FLOOR, (span ? quiet / span : 0) * 10 ** (OVER_QUIET_DB / 10)));
 }
 
 // power is the mean square of each whole 10 ms of samples at rate.
@@ -90,7 +107,9 @@ function power(samples: Float32Array, rate: number, frames: number[] = []): numb
 
 // isSpoken says whether any 10 ms of a sound is loud.
 export function isSpoken(sound: Sound): boolean {
-  return power(sound.samples, sound.rate).some(isLoud);
+  const frames = power(sound.samples, sound.rate);
+  const loud = loudPower(frames);
+  return frames.some((frame) => frame >= loud);
 }
 
 // Pieces takes a recording as it arrives, at its own rate, and hands on each
@@ -123,9 +142,10 @@ export class Pieces {
     this.length += chunk.length;
     const known = this.frames.length;
     power(this.samples.subarray(0, this.length), this.rate, this.frames);
+    let loud = loudPower(this.frames);
     for (let count = known + 1; count <= this.frames.length; count++) {
-      if (this.pausedAt(count)) { this.cut(count); count = 0; }
-      else if (count >= PIECE_MOST_SECONDS * 100) { const at = this.quietest(); this.cut(at); count -= at; }
+      if (this.pausedAt(count, loud)) { this.cut(count); count = 0; loud = loudPower(this.frames); }
+      else if (count >= PIECE_MOST_SECONDS * 100) { const at = this.quietest(); this.cut(at); count -= at; loud = loudPower(this.frames); }
     }
   }
 
@@ -134,12 +154,12 @@ export class Pieces {
   }
 
   // pausedAt says whether the first count frames make a piece that ends in a
-  // pause after speech.
-  private pausedAt(count: number): boolean {
+  // pause after speech, speech being a frame at loud power.
+  private pausedAt(count: number, loud: number): boolean {
     const pause = Math.round(PAUSE_SECONDS * 100);
     if (count < PIECE_LEAST_SECONDS * 100) return false;
-    for (let index = count - pause; index < count; index++) if (isLoud(this.frames[index])) return false;
-    for (let index = 0; index < count - pause; index++) if (isLoud(this.frames[index])) return true;
+    for (let index = count - pause; index < count; index++) if (this.frames[index] >= loud) return false;
+    for (let index = 0; index < count - pause; index++) if (this.frames[index] >= loud) return true;
     return false;
   }
 
