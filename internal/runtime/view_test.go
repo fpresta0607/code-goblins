@@ -202,6 +202,43 @@ func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
 	}
 }
 
+// A bucket the janitor could not read whole is named under the table, so its
+// size reads as at least what is shown, and a home read whole says nothing.
+func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {
+	// Arrange
+	partial := Build(`C:\dev\code-goblins`, reportFixture())
+	partial.Storage.Incomplete = []string{"state", `caches\go-build`}
+	whole := Build(`C:\dev\code-goblins`, reportFixture())
+
+	// Act
+	out, wholeOut := render(t, partial), render(t, whole)
+
+	// Assert
+	want := `Some entries could not be read, so these buckets, and the home in all, hold at least the size shown: state, caches\go-build.`
+	if !strings.Contains(out, want) {
+		t.Errorf("output is missing %q\n%s", want, out)
+	}
+	if strings.Contains(wholeOut, "could not be read, so these buckets") {
+		t.Errorf("a home read whole names buckets read in part\n%s", wholeOut)
+	}
+}
+
+// What the janitor's last sweep noted, as a cache trim it left for the next
+// one, is said under its summary, since nothing else shows it.
+func TestRenderMarkdownSaysWhatTheJanitorNoted(t *testing.T) {
+	// Arrange
+	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report.Janitor = &janitor.Record{Time: time.Date(2026, 10, 14, 6, 0, 0, 0, time.UTC), Notes: []string{"the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: cfo gate test (pid 4242) holds the machine's heavy line"}}
+
+	// Act
+	out := render(t, report)
+
+	// Assert
+	if want := "- note: the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: cfo gate test (pid 4242) holds the machine's heavy line"; !strings.Contains(out, want) {
+		t.Errorf("output is missing %q\n%s", want, out)
+	}
+}
+
 // The janitor's sweep of processes is read here: what it ended as a
 // terminal's own, and each process it left for the CFO with its pid, when it
 // started, the memory of its tree and its command.

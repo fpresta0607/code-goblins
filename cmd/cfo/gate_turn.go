@@ -36,15 +36,16 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
 // whoever started it: another repository's test command under its gate, a
 // goblin's own suite, a run one of the Overlord's sessions starts. It waits
 // while another run holds the turn and while free physical memory or free
-// commit is under the floor, for as long as that lasts: it sets no limit of
-// its own, and the limits that end a run are its command's and its caller's.
+// commit is under the floor, for as long as that lasts unless --wait bounds
+// that wait: it sets no other limit of its own, and the limits that end a run
+// are its command's and its caller's.
 // While it waits it says on standard error, as it starts to, whenever its
 // place in line changes and once a minute, which run holds the turn and
 // since when, and where this run stands.
@@ -107,7 +108,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 // runGateTurnCommand waits for the turn and runs the request's command in
 // dir, as runGateTurn says, and returns the run's exit code.
 func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, stdout, stderr io.Writer, runtime commandRuntime) int {
-	as, command := request.as, request.command
+	as, wait, command := request.as, request.wait, request.command
 	signals, stop := runtime.interrupts()
 	defer stop()
 	ctx, leave := context.WithCancel(context.Background())
@@ -165,7 +166,41 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	}
 	executor.Stdin, executor.Stdout, executor.Stderr = os.Stdin, commandOutput, commandErrors
 	executor.IsConsoleShared = true
-	result, record, runError := executor.RunWithin(ctx, execx.Request{Dir: dir, Name: command[0], Args: command[1:]}, 0)
+	// A run given a wait takes its turn within it or runs nothing. Whichever
+	// comes first, the wait running out or the turn, decides once: a turn
+	// taken first is never cut by the wait, so the command runs until it
+	// ends, and a wait run out first starts no command though the turn came a
+	// moment later. The wait ends only the wait, so the goblin is still told
+	// how the run ended.
+	waiting, stopWaiting := context.WithCancel(ctx)
+	defer stopWaiting()
+	const (
+		waitUndecided int32 = iota
+		waitTurnTaken
+		waitOver
+	)
+	var decided atomic.Int32
+	if wait > 0 {
+		timer := time.AfterFunc(wait, func() {
+			if decided.CompareAndSwap(waitUndecided, waitOver) {
+				stopWaiting()
+			}
+		})
+		defer timer.Stop()
+		took := executor.Took
+		executor.Took = func(waited time.Duration) {
+			if !decided.CompareAndSwap(waitUndecided, waitTurnTaken) {
+				// The timer may not have cancelled the wait yet, and the
+				// command must see it cancelled before it starts.
+				stopWaiting()
+				return
+			}
+			if took != nil {
+				took(waited)
+			}
+		}
+	}
+	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: command[0], Args: command[1:]}, 0)
 	// A command whose cleanup was not confirmed keeps the machine's line
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -189,7 +224,10 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	switch {
 	case errors.Is(runError, verify.ErrNoTurn):
 		why := oneLine(runError)
-		if errors.Is(runError, context.Canceled) {
+		switch {
+		case errors.Is(runError, context.Canceled) && decided.Load() == waitOver && !isInterrupted.Load():
+			why = fmt.Sprintf("it took no turn within its wait of %s", wait)
+		case errors.Is(runError, context.Canceled):
 			why = "it was interrupted before its command started"
 		}
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s\n", why)
@@ -226,6 +264,8 @@ func oneLine(err error) string {
 type gateTurnRequest struct {
 	// as is the name the run goes by in the line, empty for its command's.
 	as string
+	// wait, when set, bounds the wait for the turn.
+	wait time.Duration
 	// detachLog, when set, asks for the run to be started detached and
 	// hidden, its output appended to this file.
 	detachLog string
@@ -242,7 +282,19 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 	var request gateTurnRequest
 	for at := 0; at < len(args); at++ {
 		name, isNamed := strings.CutPrefix(args[at], "--as=")
+		waitText, isWaitGiven := strings.CutPrefix(args[at], "--wait=")
+		if args[at] == "--wait" && at+1 < len(args) && args[at+1] != "--" {
+			at++
+			waitText, isWaitGiven = args[at], true
+		}
+		// A duration just taken is read as one first, however it is spelled.
 		switch {
+		case isWaitGiven:
+			wait, err := time.ParseDuration(waitText)
+			if err != nil || wait <= 0 {
+				return gateTurnRequest{}, fmt.Errorf("--wait takes a duration over nothing, as 30s, not %q", waitText)
+			}
+			request.wait = wait
 		case args[at] == "--":
 			if at+1 == len(args) {
 				return gateTurnRequest{}, errors.New("no command follows --")
@@ -254,12 +306,16 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			return request, nil
 		case isNamed:
 			request.as = name
-		case args[at] == "--as" && at+1 < len(args) && args[at+1] != "--":
+		// A flag after --as or --detach is never its value, so a bound such
+		// as --wait=30s is never lost as a name or a log file.
+		case args[at] == "--as" && at+1 < len(args) && !strings.HasPrefix(args[at+1], "-"):
 			at++
 			request.as = args[at]
 		case args[at] == "--as":
 			return gateTurnRequest{}, errors.New("--as is given no name")
-		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "--" && args[at+1] != "":
+		case args[at] == "--wait":
+			return gateTurnRequest{}, errors.New("--wait is given no duration")
+		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
 			at++
 			request.detachLog = args[at]
 		case args[at] == "--detach":
@@ -298,8 +354,13 @@ func detachGateTurn(request gateTurnRequest, dir string, stdout, stderr io.Write
 		return exitNoTurn
 	}
 	args := append(append([]string(nil), self[1:]...), "--detached")
+	// Each value goes in one argument, so one that starts with a dash is
+	// never read as a flag.
 	if request.as != "" {
-		args = append(args, "--as", request.as)
+		args = append(args, "--as="+request.as)
+	}
+	if request.wait > 0 {
+		args = append(args, "--wait="+request.wait.String())
 	}
 	args = append(append(args, "--"), request.command...)
 	command, err := startDetached(self[0], dir, log, args...)

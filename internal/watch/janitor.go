@@ -15,12 +15,63 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // janitorBudget bounds one janitor pass: a tool's cache prune can take
 // minutes, a worktree's removal seconds each.
 const janitorBudget = 30 * time.Minute
+
+// pruneTurnWait bounds a prune's wait for its turn in the heavy line, which
+// it finds free just before, so a run that takes the line first defers the
+// prune to the next sweep rather than queue it behind a build.
+const pruneTurnWait = 30 * time.Second
+
+// heavyLine is the machine's heavy line as the janitor sees it: the
+// admission store this build's runs take their turns in, and this build's
+// cfo gate turn, which takes one for a prune.
+type heavyLine struct {
+	// executable is this build, whose gate turn the prunes run in.
+	executable string
+}
+
+// Free is nil while the line has one slot, which no run holds or waits for.
+// A line of two slots is never free, since a turn in one leaves a build in
+// the other beside the prune.
+func (line heavyLine) Free() error {
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		return err
+	}
+	capacity, _, err := verify.AdmissionLimits(store)
+	if err != nil {
+		return err
+	}
+	if capacity != 1 {
+		return fmt.Errorf("the line has %d slots, and a turn in one leaves a build beside it in another", capacity)
+	}
+	holding, waiting, err := verify.Line(store)
+	switch {
+	case err != nil:
+		return err
+	case len(holding) > 0:
+		return fmt.Errorf("%s (pid %d) holds the machine's heavy line", holding[0].Who, holding[0].PID)
+	case len(waiting) > 0:
+		return fmt.Errorf("%s (pid %d) waits for the machine's heavy line", waiting[0].Who, waiting[0].PID)
+	}
+	return nil
+}
+
+// Wrap is command run by this build's cfo gate turn, which waits for its turn,
+// runs the command as a measured execution, and gives the turn back as it
+// ends. A gate turn that dies leaves its turn to the line's recovery of a
+// dead holder, so the long-lived watcher never holds one itself. A run that
+// took the turn after Free waits pruneTurnWait at most, and the prune then
+// runs nothing.
+func (line heavyLine) Wrap(who string, command []string) []string {
+	return append([]string{line.executable, "gate", "turn", "--as", who, "--wait", pruneTurnWait.String(), "--"}, command...)
+}
 
 // janitorRunning keeps this process to one janitor pass at a time.
 var janitorRunning sync.Mutex
@@ -66,6 +117,11 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	if profile, err := os.UserHomeDir(); err == nil {
 		browserSessions = filepath.Join(profile, ".chrome-devtools-axi", "sessions")
 	}
+	// A sweep that cannot name this build deletes no cache.
+	var line janitor.HeavyLine
+	if executable, err := os.Executable(); err == nil {
+		line = heavyLine{executable: executable}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), janitorBudget)
 	defer cancel()
 	record := janitor.Sweep(ctx, janitor.Config{
@@ -91,6 +147,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		Watched:    previous.Processes.Watched,
 
 		BrowserSessions: browserSessions,
+		Line:            line,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return

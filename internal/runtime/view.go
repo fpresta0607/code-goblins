@@ -414,6 +414,10 @@ func renderStorage(out *writer, report Report) {
 	out.row("the home in all", Bytes(storage.Total()))
 	out.row("Docker's share", Bytes(report.Headroom.DockerTotal()))
 	out.line("")
+	if len(storage.Incomplete) > 0 {
+		out.line("Some entries could not be read, so these buckets, and the home in all, hold at least the size shown: " + text(strings.Join(storage.Incomplete, ", ")) + ".")
+		out.line("")
+	}
 	if report.Janitor == nil {
 		out.line("The janitor has not swept this home yet; the watcher's sweep runs it every hour.")
 		return
@@ -423,6 +427,9 @@ func renderStorage(out *writer, report Report) {
 		record.Time.Format(time.RFC3339), len(record.Removed), Bytes(record.Freed()), len(record.Kept), len(record.Strays)))
 	for _, stray := range record.Strays {
 		out.line("- stray: " + text(stray.Path) + " (" + text(stray.Detail) + ")")
+	}
+	for _, note := range record.Notes {
+		out.line("- note: " + text(note))
 	}
 	processes := record.Processes
 	if len(processes.Ended)+len(processes.Left)+len(processes.Watched) == 0 {

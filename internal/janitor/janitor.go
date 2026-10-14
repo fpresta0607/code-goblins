@@ -76,6 +76,10 @@ type Config struct {
 	// BrowserSessions is the folder chrome-devtools-axi keeps a folder for
 	// each named session in. Empty removes none.
 	BrowserSessions string
+	// Line is the machine's heavy line, which the sweep finds free before it
+	// deletes from the package caches and runs each prune in a turn of. Nil
+	// deletes no cache.
+	Line HeavyLine
 }
 
 // Item is one thing a sweep removed, kept or reports.

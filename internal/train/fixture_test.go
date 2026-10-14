@@ -165,7 +165,7 @@ func (s *scratch) engine(gh *fakeGitHub) Engine {
 			return nil
 		},
 		Landed: func(_ context.Context, t Train, car Car) {
-			s.landed = append(s.landed, car.URL+" by "+t.Evidence())
+			s.landed = append(s.landed, car.URL+" by "+t.LandingEvidence(car))
 		},
 	}
 }
