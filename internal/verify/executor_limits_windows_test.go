@@ -771,3 +771,42 @@ func TestExecutorKeepsRunningWhenASampleCannotBeWritten(t *testing.T) {
 		t.Fatal("no sample's record was taken away, so the test proved nothing")
 	}
 }
+
+// A shared run's command answers an interrupt itself and runs to its own
+// end, so the source is read once it has ended whatever the interrupt: the
+// read is not made on the interrupted context.
+func TestExecutorReadsTheEndOfASharedRunPastAnInterrupt(t *testing.T) {
+	if os.Getenv(limitsRole) == "ends-a-moment-later" {
+		time.Sleep(time.Second)
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var endRead error
+	reads := 0
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: true}
+	executor.Source = func(read context.Context, dir string) (Source, error) {
+		reads++
+		if reads == 1 {
+			time.AfterFunc(200*time.Millisecond, cancel)
+		} else {
+			endRead = read.Err()
+		}
+		return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
+	}
+
+	// Act
+	_, path, _ := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorReadsTheEndOfASharedRunPastAnInterrupt$"}, Env: append(os.Environ(), limitsRole+"=ends-a-moment-later")}, 0)
+
+	// Assert
+	record, err := LoadExecution(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 || endRead != nil || record.Source.End == nil {
+		t.Errorf("reads = %d, the end read's context said %v, record reads = %+v; want the end read made on a context no interrupt ended", reads, endRead, record.Source)
+	}
+}

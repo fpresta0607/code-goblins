@@ -740,3 +740,22 @@ func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
 		t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs; stderr=%q", exit, runs(t, counter), stderr.String())
 	}
 }
+
+// A command that never started read no source, so the tier says nothing of
+// its source, only that it took no turn.
+func TestVerifySaysNothingOfTheSourceOfACommandThatNeverStarted(t *testing.T) {
+	// Arrange
+	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	runtime.availableMemory = func() (supervisor.Memory, error) {
+		return supervisor.Memory{}, errors.New("memory cannot be read")
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || strings.Contains(stderr.String(), "tested no one source") {
+		t.Errorf("exit = %d, stderr = %q; want a failure that says nothing of a source", exit, stderr.String())
+	}
+}
