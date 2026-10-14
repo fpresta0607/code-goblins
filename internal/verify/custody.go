@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -136,8 +137,14 @@ func custodyMutation(dir string) (func() error, error) {
 }
 
 // custodyMutationBudget is how long a custody change waits for the line's
-// lock, which another run's change holds for milliseconds.
-var custodyMutationBudget = 5 * time.Second
+// lock, which another run's change holds for milliseconds. It is read
+// atomically because a test shortens it only while it holds the lock, as
+// runs read it, so the test's other changes keep the whole budget.
+var custodyMutationBudget = func() *atomic.Int64 {
+	var budget atomic.Int64
+	budget.Store(int64(5 * time.Second))
+	return &budget
+}()
 
 // errCustodyBusy says a custody change found the line's lock busy for all of
 // custodyMutationBudget, as a loaded machine can keep it, while its caller
@@ -183,7 +190,7 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 		return nil, err
 	}
 	key = strings.ToLower(key)
-	ctx, cancel := context.WithTimeout(caller, custodyMutationBudget)
+	ctx, cancel := context.WithTimeout(caller, time.Duration(custodyMutationBudget.Load()))
 	defer cancel()
 	const name = "custody-mutation"
 	ticker := time.NewTicker(time.Millisecond)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // listedPull is one open pull request as gh pr list gives it, in owner's
@@ -325,5 +326,98 @@ func TestPRHealthCallsAPullRequestNobodysWhileTheAccountCannotBeRead(t *testing.
 	}
 	if strings.Contains(wakes[0].Detail, "teammate") || strings.Contains(wakes[0].Detail, "its own account") {
 		t.Errorf("wake %q says whose the pull request is, which was not read", wakes[0].Detail)
+	}
+}
+
+// gitForge answers the git that reads a goblin's worktrees from git itself,
+// and the rest as its health forge does.
+type gitForge struct{ *healthForge }
+
+func (f gitForge) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "git" && len(request.Args) > 0 && slices.Contains([]string{"worktree", "branch", "reflog"}, request.Args[0]) {
+		return execx.OSRunner{}.Run(ctx, request)
+	}
+	return f.healthForge.Run(ctx, request)
+}
+
+// On 2026-10-14 pr_health called three pull requests of live goblins "the
+// Overlord's own" and never told their goblins (#847): each came from a
+// branch made in a worktree the goblin added in its own scratch folder, which
+// is neither its worktree nor an extra the fleet made for it, so no branch it
+// was known to hold was the pull request's. A worktree of the project in the
+// task's own folders is the task's, and so is every branch it had checked
+// out, while one outside them is not. A task an older build spawned records
+// no scratch folder, and its scratch folder is its Go temporary folder.
+func TestPRHealthNamesTheGoblinOfAPullRequestFromAWorktreeInItsOwnFolders(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		isScratchRecorded bool
+	}{
+		{"a task that records its scratch folder", true},
+		{"a task an older build spawned", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			project, elsewhere := t.TempDir(), t.TempDir()
+			scratch := t.TempDir()
+			if !test.isScratchRecorded {
+				var err error
+				if scratch, err = state.GoTmpDir(h.State, "cg-health"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			git := func(dir string, args ...string) {
+				t.Helper()
+				command := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+				if out, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+			git(project, "init", "-q", "--initial-branch=main")
+			git(project, "commit", "-q", "--allow-empty", "-m", "seed")
+			worktree := filepath.Join(project, ".worktrees", "gb-cg-health")
+			second, third := filepath.Join(scratch, "claude", "scratchpad", "second"), filepath.Join(scratch, "claude", "scratchpad", "third")
+			git(project, "worktree", "add", "-q", "-b", "feat/first", worktree)
+			git(project, "worktree", "add", "-q", "-b", "feat/second", second, "main")
+			git(project, "worktree", "add", "-q", "--detach", third, "main")
+			git(third, "switch", "-q", "--create", "feat/third")
+			git(third, "switch", "-q", "--detach", "main")
+			git(project, "worktree", "add", "-q", "-b", "feat/by-hand", filepath.Join(elsewhere, "by-hand"), "main")
+			meta := state.TaskMeta{ID: "cg-health", Project: project, Worktree: worktree, Harness: "claude", Backend: "native", SpawnGen: "s1"}
+			if test.isScratchRecorded {
+				meta.Scratch = scratch
+			}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			forge := gitForge{&healthForge{fakeForge: &fakeForge{repo: project, worktree: worktree, runs: "[]"}}}
+			forge.pulls = "[" + strings.Join([]string{
+				listedPull("o", 210, "feat/second", "head-two", "CONFLICTING", "o"),
+				listedPull("o", 211, "feat/third", "head-three", "CONFLICTING", "o"),
+				listedPull("o", 212, "feat/by-hand", "head-hand", "CONFLICTING", "o"),
+			}, ",") + "]"
+			forge.comparisons = behindBy(map[int]comparedHead{210: {"head-two", 0}, 211: {"head-three", 0}, 212: {"head-hand", 0}})
+			service.Options.CI = forge
+
+			// Act
+			if err := service.checkFleet(context.Background(), time.Date(2026, 10, 14, 18, 0, 0, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			wakes := prWakes(t, h, "pr_health")
+			if len(wakes) != 1 {
+				t.Fatalf("health wakes = %+v, want one", wakes)
+			}
+			for _, want := range []string{
+				"cg-health's PR #210 (feat/second)", "cg-health's PR #211 (feat/third)", "tell cg-health to merge",
+				"o's PR #212 (feat/by-hand)", "the fleet reports a pull request its own account opened from a branch no live goblin holds",
+			} {
+				if !strings.Contains(wakes[0].Detail, want) {
+					t.Errorf("wake %q lacks %q", wakes[0].Detail, want)
+				}
+			}
+		})
 	}
 }

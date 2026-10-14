@@ -51,7 +51,7 @@ func runStop(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	f := flag.NewFlagSet("stop", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	force := f.Bool("force", false, "end the supervisor's process tree instead of asking it to stop")
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	h, err := runtime.resolveHome()

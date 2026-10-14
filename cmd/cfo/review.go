@@ -38,7 +38,7 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		images = append(images, v)
 		return nil
 	})
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	if *withdraw != "" && (*title != "" || *lavish != "" || len(images) > 0) {

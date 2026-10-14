@@ -38,7 +38,7 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	project := fs.String("project", "", "project checkout path")
 	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
 	kind := fs.String("kind", "ship", "ship or scout")
-	if err := fs.Parse(args[1:]); err != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	if *project == "" {
@@ -255,12 +255,12 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		return 2
 	}
 	url := args[0]
-	fs := flag.NewFlagSet("pr-merge", flag.ContinueOnError)
+	fs := flag.NewFlagSet("pr merge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	method := fs.String("method", "merge", "merge, squash, or rebase")
 	deleteBranch := fs.Bool("delete-branch", false, "delete the branch after merge")
 	verified := fs.String("verified", "", "while AFK mode is on, what verified the pull request: the gate run or the local checks, and the output you read")
-	if err := fs.Parse(args[1:]); err != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	if !strings.HasPrefix(url, "https://") {
