@@ -63,6 +63,8 @@ func newStartWatchFleet(t *testing.T) *startWatchFleet {
 	}
 	service.Options.Windows = func() (map[int]bool, error) { return fleet.windows, nil }
 	service.Options.ConsoleShown = func(int, map[int]bool) (bool, error) { return false, nil }
+	// No fixture pid is a real process of the test's: none is ever hidden.
+	service.Options.HideConsole = func(int) (bool, error) { return false, nil }
 	return fleet
 }
 
@@ -226,5 +228,43 @@ func TestAGoblinRestingWithAProcessLeftRunningWakesTheCFOOnce(t *testing.T) {
 	}
 	if !strings.Contains(wakes[0].Detail, "cg-a reported done") || !strings.Contains(wakes[0].Detail, `pid 102 bash.exe "bash -c eval 'bash tools/run.sh'" (under it node.exe pid 103)`) {
 		t.Errorf("wake = %q, want the shell cg-a left holding its dev server", wakes[0].Detail)
+	}
+}
+
+// A console window a goblin's careless start opened is hidden at the
+// reading that sees it, once, and the CFO is woken once naming the task and
+// the command line. A console shared by a program and what it runs is
+// hidden through the first of them, which the wake names. A program of the
+// Overlord's own is never touched.
+func TestACarelessConsoleOfAGoblinsProcessIsHiddenAndToldOnce(t *testing.T) {
+	// Arrange
+	fleet := newStartWatchFleet(t)
+	now := time.Now().UTC()
+	// The child is listed first, as a reading may list it.
+	fleet.processes = append(fleet.processes, fleettree.Process{PID: 104, ParentPID: 103, Exe: "goblins.exe", Created: 104, Started: now.Add(-time.Minute)})
+	fleet.commands[104] = `goblins.exe gate turn -- go test ./...`
+	fleet.start(103, "cmd.exe", `cmd /c goblins.exe gate turn -- go test ./...`, now.Add(-2*time.Minute))
+	fleet.service.Options.ConsoleShown = func(pid int, _ map[int]bool) (bool, error) { return pid == 103 || pid == 104 || pid == 510, nil }
+	var hidden []int
+	fleet.service.Options.HideConsole = func(pid int) (bool, error) {
+		hidden = append(hidden, pid)
+		// The two share one console, which the first hide hides.
+		return len(hidden) == 1, nil
+	}
+
+	// Act
+	fleet.read(t, now)
+	fleet.read(t, now.Add(5*time.Second))
+
+	// Assert
+	if len(hidden) != 2 || hidden[0] != 103 || hidden[1] != 104 {
+		t.Fatalf("hidden = %v, want 103 then 104, each once", hidden)
+	}
+	wakes := fleet.wakes(t, "window_shown:")
+	if len(wakes) != 1 {
+		t.Fatalf("window wakes = %+v, want one", wakes)
+	}
+	if wakes[0].Key != "cg-a" || !strings.Contains(wakes[0].Detail, "cg-a's cmd.exe (pid 103)") || !strings.Contains(wakes[0].Detail, "which the supervisor hid") || !strings.Contains(wakes[0].Detail, "gate turn -- go test ./...") {
+		t.Errorf("wake = %+v, want cg-a's cmd.exe hidden, with its command line", wakes[0])
 	}
 }
