@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"io"
 	"net/http"
@@ -159,8 +158,11 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 	if code != 200 || json.Unmarshal(data, &snapshot) != nil || len(snapshot.Tasks) != 1 {
 		t.Fatalf("snapshot %d %s", code, data)
 	}
+	// The stream's first event waits on a snapshot built from disk and git,
+	// which a busy machine slows, so the stream is read until its first
+	// event's id. The bound only fails a stream that never sends one.
 	for i := 0; i < 2; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		req, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 		req.Header.Set("Last-Event-ID", "obsolete-instance:999")
 		response, err := http.DefaultClient.Do(req)
@@ -168,12 +170,18 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 			cancel()
 			t.Fatal(err)
 		}
-		buf := make([]byte, 512)
-		n, _ := response.Body.Read(buf)
+		id := ""
+		lines := bufio.NewScanner(response.Body)
+		lines.Buffer(make([]byte, 64<<10), 16<<20)
+		for id == "" && lines.Scan() {
+			if after, isID := strings.CutPrefix(lines.Text(), "id: "); isID {
+				id = after
+			}
+		}
 		response.Body.Close()
 		cancel()
-		if !strings.Contains(string(buf[:n]), fmt.Sprintf("id: %s:", s.Instance)) {
-			t.Fatal("reconnect did not receive authoritative snapshot")
+		if !strings.HasPrefix(id, s.Instance+":") {
+			t.Fatalf("reconnect's first event is %q (%v), want the authoritative snapshot of instance %s", id, lines.Err(), s.Instance)
 		}
 	}
 }

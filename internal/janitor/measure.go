@@ -21,12 +21,23 @@ type Buckets struct {
 	Bin       int64            `json:"bin"`
 	State     int64            `json:"state"`
 	Data      int64            `json:"data"`
+	// Verification is what the verification store at VerificationStore holds
+	// outside the home: the execution records and their logs, the kept
+	// passes and the reports, and the line's own store where the store is in
+	// its usual place. Its own retention bounds what it keeps of executions
+	// (verify.PruneExecutions), and Total, the home's, leaves it out. An
+	// empty VerificationStore is a store whose folder could not be named,
+	// which measures nothing.
+	Verification      int64  `json:"verification"`
+	VerificationStore string `json:"verification_store,omitempty"`
 	// Incomplete names, as cfo runtime's table does, the buckets that held an
 	// entry the sweep could not read, whose bytes are then what it could
 	// count, not all they hold: "task <id> worktrees", "task <id> scratch",
 	// "caches\<tool>", "caches" when the folder could not be listed, "bin",
-	// "state" or "data". Links are not followed and count as nothing, and a
-	// path that is not there, as on a volume not mounted, holds nothing.
+	// "state", "data" or "verification", which is also named when the
+	// store's folder could not be named. Links are not followed and count as
+	// nothing, and a path that is not there, as on a volume not mounted,
+	// holds nothing.
 	Incomplete []string `json:"incomplete,omitempty"`
 }
 
@@ -50,9 +61,11 @@ func Sum(group map[string]int64) int64 {
 	return total
 }
 
-// Measure walks the home's buckets for the tasks given. A task's worktree
-// outside the home, where an older build put it, is measured where it is.
-func Measure(h home.Home, tasks []state.TaskMeta) Buckets {
+// Measure walks the home's buckets for the tasks given, and the
+// verification store at verificationStore, which is empty when it was not
+// found. A task's worktree outside the home, where an older build put it, is
+// measured where it is.
+func Measure(h home.Home, tasks []state.TaskMeta, verificationStore string) Buckets {
 	buckets := Buckets{Worktrees: map[string]int64{}, Scratch: map[string]int64{}, Caches: map[string]int64{}}
 	incomplete := func(bucket string) {
 		if !slices.Contains(buckets.Incomplete, bucket) {
@@ -92,6 +105,12 @@ func Measure(h home.Home, tasks []state.TaskMeta) Buckets {
 	buckets.Bin = measure("bin", h.Bin())
 	buckets.State = measure("state", h.State)
 	buckets.Data = measure("data", h.Data)
+	buckets.VerificationStore = verificationStore
+	if verificationStore == "" {
+		incomplete("verification")
+	} else {
+		buckets.Verification = measure("verification", verificationStore)
+	}
 	return buckets
 }
 
