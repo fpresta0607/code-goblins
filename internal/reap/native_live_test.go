@@ -339,6 +339,40 @@ func TestAProcessARunningTerminalOwnsIsNoOrphan(t *testing.T) {
 	}
 }
 
+// The listing a sweep is handed is the machine it judges, and its own session
+// must come from that same machine. On 2026-10-14 main's CI failed
+// TestAProcessARunningTerminalOwnsIsNoOrphan twice in one job, at whatever
+// time it ran: the sweep read this test process's real parents beside the
+// fixture's listing, a real parent there held the fixture's pid 500 or 520,
+// and so the fixture's orphans read as the sweep's own session.
+func TestAFixturePIDARealParentHoldsIsStillJudged(t *testing.T) {
+	// Arrange
+	h, _ := nativeHome(t)
+	parent := os.Getppid()
+	standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
+	processes := stubProcesses{
+		process(parent, 9999, "go.exe", `go test ./internal/spawn/`, fixtureLatest),
+		process(510, parent, "spawn.test.exe", `C:\tmp\spawn.test.exe -test.timeout=10m0s`, fixtureLatest),
+		process(520, 510, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest),
+		process(530, 520, "cmd.exe", standIn, fixtureLatest),
+	}
+	collector := Collector{Home: h, Session: "default", Processes: processes, Sightings: stillRunning(processes, nil)}
+
+	// Act
+	inv, _, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphans := classOf(Classify(inv), OrphanProcess)
+
+	// Assert
+	for _, pid := range []int{520, 530} {
+		if !reportsPID(orphans, pid) {
+			t.Errorf("a fixture process under pid %d, this test's real parent: pid %d reported = false, want true: %v", parent, pid, lines(orphans))
+		}
+	}
+}
+
 // The listing costs a subprocess and can be seconds old before anything else
 // about a process is read, and a spawn test's stand-ins last about ten
 // seconds. On 2026-10-10 a sweep that began at 11:12:27Z recorded a

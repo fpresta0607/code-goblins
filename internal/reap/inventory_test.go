@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -14,6 +15,20 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// The machine's own lister is what keeps the sweep from reporting the CFO
+// session it runs inside: its ancestry names this process and its parent.
+func TestTheProcessTableNamesTheSweepsOwnSession(t *testing.T) {
+	// Act
+	ancestry := CIMProcesses{}.SelfAncestry()
+
+	// Assert
+	for _, pid := range []int{os.Getpid(), os.Getppid()} {
+		if !slices.Contains(ancestry, pid) {
+			t.Errorf("self ancestry = %v, want it to hold pid %d", ancestry, pid)
+		}
+	}
+}
 
 // registerEverything answers git worktree list with every directory under the
 // queried root's .worktrees/, so a test about which directories are scanned is
