@@ -76,6 +76,17 @@ type AuthRefresher struct {
 	// which is what production and the env-redirected tests both want.
 	Store auth.Store
 	Panes PaneLiveness
+	// By names who grants or revokes, as the task's status says it. Empty is
+	// the CFO, whose cfo auth makes the change. The Overlord's press on a
+	// connector card on the board names him.
+	By string
+}
+
+func (r AuthRefresher) actor() string {
+	if r.By == "" {
+		return "the CFO"
+	}
+	return r.By
 }
 
 // GrantMCP adds MCP servers of the project's .mcp.json to the ones task id's
@@ -130,7 +141,7 @@ func (r AuthRefresher) GrantMCP(id string, servers []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return named, r.statusAfterChange(id, "credentials: the CFO granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
+	return named, r.statusAfterChange(id, "credentials: "+r.actor()+" granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
 }
 
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
@@ -287,7 +298,7 @@ func (r AuthRefresher) Grant(ctx context.Context, id string, services []string) 
 	if err != nil {
 		return Refreshed{}, nil, err
 	}
-	statusErr := r.statusAfterChange(id, "credentials: the CFO granted "+strings.Join(services, ", ")+", so the task carries "+strings.Join(recorded, ", "))
+	statusErr := r.statusAfterChange(id, "credentials: "+r.actor()+" granted "+strings.Join(services, ", ")+", so the task carries "+strings.Join(recorded, ", "))
 	item, scriptErr := r.scriptAfterChange(ctx, id)
 	return item, recorded, errors.Join(statusErr, scriptErr)
 }
@@ -347,7 +358,7 @@ func (r AuthRefresher) Revoke(ctx context.Context, id string, services []string)
 	if err != nil {
 		return Refreshed{}, nil, err
 	}
-	statusErr := r.statusAfterChange(id, "credentials: the CFO revoked "+strings.Join(services, ", ")+", so the task's later terminals carry "+namesOr(recorded, "no service's credentials")+". A terminal of the task running now keeps what it already holds of them until it ends")
+	statusErr := r.statusAfterChange(id, "credentials: "+r.actor()+" revoked "+strings.Join(services, ", ")+", so the task's later terminals carry "+namesOr(recorded, "no service's credentials")+". A terminal of the task running now keeps what it already holds of them until it ends")
 	item, scriptErr := r.scriptAfterChange(ctx, id)
 	return item, recorded, errors.Join(statusErr, scriptErr)
 }
@@ -388,7 +399,23 @@ func (r AuthRefresher) RevokeMCP(id string, servers []string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	return named, r.statusAfterChange(id, "credentials: the CFO revoked the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+namesOr(named, "no server whose entry holds a value")+". The harness running now keeps them until it ends")
+	return named, r.statusAfterChange(id, "credentials: "+r.actor()+" revoked the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+namesOr(named, "no server whose entry holds a value")+". The harness running now keeps them until it ends")
+}
+
+// changeStands is an error that follows a grant or a revoke that changed the
+// task's record: the change stands, and only saying so in its status log or
+// rewriting its credential script failed.
+type changeStands struct{ err error }
+
+func (e changeStands) Error() string { return e.err.Error() }
+func (e changeStands) Unwrap() error { return e.err }
+
+// ChangeStands reports whether err followed a change to the task's record
+// that stands, so its caller says what failed after it, never that nothing
+// changed.
+func ChangeStands(err error) bool {
+	var stands changeStands
+	return errors.As(err, &stands)
 }
 
 // statusAfterChange writes line, which says what a command just changed in
@@ -397,7 +424,7 @@ func (r AuthRefresher) RevokeMCP(id string, servers []string) ([]string, error) 
 // nothing left to change.
 func (r AuthRefresher) statusAfterChange(id, line string) error {
 	if err := state.AppendStatus(r.StateDir, id, line); err != nil {
-		return fmt.Errorf("spawn: the record of %s changed as asked, but no record of the change reached its status log: %w", id, err)
+		return changeStands{fmt.Errorf("spawn: the record of %s changed as asked, but no record of the change reached its status log: %w", id, err)}
 	}
 	return nil
 }
@@ -410,7 +437,7 @@ func (r AuthRefresher) statusAfterChange(id, line string) error {
 func (r AuthRefresher) scriptAfterChange(ctx context.Context, id string) (Refreshed, error) {
 	item, err := r.RefreshTask(ctx, id)
 	if err != nil {
-		return item, fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh %s: %w", id, id, err)
+		return item, changeStands{fmt.Errorf("spawn: the record of %s changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh %s: %w", id, id, err)}
 	}
 	return item, nil
 }

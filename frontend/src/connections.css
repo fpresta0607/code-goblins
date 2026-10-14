@@ -8,21 +8,25 @@
 .connections-group { margin-top: 24px; }
 .connection-notice { display: grid; gap: 12px; justify-items: start; }
 .connections-group h4 { margin: 0 0 8px; color: #edf4f3; font-weight: 700; }
-.connections-group ul { padding: 0; margin: 0; list-style: none; }
-.connection-row { display: flex; gap: 14px; align-items: flex-start; padding: 24px 0; border-bottom: 1px solid var(--border); }
-.connection-row > .mark { margin-top: 3px; flex-shrink: 0; }
-.connection-copy { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px 14px; }
-.connection-copy strong { min-width: 0; font-size: 1.125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.connection-copy > p, .connection-copy > time { grid-column: 1 / -1; }
-.connection-copy p { overflow-wrap: anywhere; }
-.connection-copy time { color: #c5d3df; }
-.connection-verdict { display: flex; align-items: center; justify-self: end; gap: 7px; font-weight: 700; white-space: nowrap; }
-.connection-verdict .icon { width: 20px; height: 20px; }
-.connection-verdict.is-connected { color: var(--mint); }
-.connection-verdict.is-provided { color: #c5d3df; }
-.connection-verdict.needs-attention { color: var(--amber); }
-.connection-verdict.is-signed-out { color: var(--amber); }
-.browser-login-mark { display: grid; place-items: center; width: 40px; height: 40px; flex: none; margin-top: 3px; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: #635bff; color: #fff; font: 800 1.25rem/1 var(--font-body); }
+.connections-group ul { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.connector-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid var(--glass-border); border-radius: 20px; background: var(--glass-bg), var(--hero-surface); min-width: 0; }
+.connector-logo { display: grid; place-items: center; width: 56px; height: 56px; flex: none; border: 1px solid var(--border); border-radius: 14px; background: #0b1016; }
+.connector-logo svg { width: 30px; height: 30px; }
+.connector-initial { font-size: 1.5rem; font-weight: 800; color: var(--mint); }
+.connector-copy { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.connector-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.connector-name strong { min-width: 0; font-size: 1.125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connector-about { color: var(--muted); overflow-wrap: anywhere; }
+.connector-trouble { display: inline-grid; place-items: center; flex: none; color: var(--amber); opacity: 0.6; }
+.connector-trouble .icon { width: 16px; height: 16px; }
+.connector-trouble:hover, .connector-trouble:focus-visible { opacity: 1; }
+.connector-toggle { display: grid; place-items: center; width: 44px; height: 44px; flex: none; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: var(--ghost-bg); color: #edf4f3; }
+.connector-toggle .icon { width: 20px; height: 20px; }
+.connector-toggle.is-carried { color: var(--accent-green); }
+.browser-login-state { display: inline-flex; align-items: center; flex: none; gap: 6px; font-weight: 700; white-space: nowrap; }
+.browser-login-state .icon { width: 18px; height: 18px; }
+.browser-login-state.is-signed-in { color: var(--mint); }
+.browser-login-state.is-signed-out { color: var(--amber); }
 .forget-login { width: min(520px, calc(100vw - 28px)); padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .forget-login::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
 .forget-login h2 { margin: 0 0 10px; font-size: 1.5rem; }
@@ -31,15 +35,9 @@
 .forget-login-choices button { display: inline-flex; align-items: center; gap: 8px; }
 .forget-login-choices .icon { width: 18px; height: 18px; }
 .forget-login-confirm { background: var(--amber); border-color: var(--amber); color: #2b1d02; font-weight: 700; }
-.connection-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 96px; }
 .connections .chip { font-size: 1rem; color: #c5d3df; }
-@container connections (width < 520px) {
-  .connection-copy { grid-template-columns: minmax(0, 1fr); }
-  .connection-copy strong { white-space: normal; overflow-wrap: anywhere; }
-  .connection-verdict { justify-self: start; }
-}
 @media (max-width: 480px) {
-  .connection-row { gap: 10px; }
-  .connection-actions { max-width: 44px; }
+  .connector-card { gap: 12px; padding: 12px; }
+  .connector-logo { width: 48px; height: 48px; }
   .connections-panel { padding: 0 2px; }
 }
