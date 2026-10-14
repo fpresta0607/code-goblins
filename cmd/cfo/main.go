@@ -42,6 +42,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -429,10 +430,13 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		localRuntime: func(ctx context.Context, h home.Home) (runtime.Inventory, error) {
 			commands := execx.OSRunner{}
+			// A store whose folder cannot be named is measured as not named.
+			verificationStore, _ := verify.StoreDir()
 			return runtime.Collector{
-				Home:   h,
-				Docker: runtime.Docker{Commands: commands},
-				System: runtime.System{Commands: commands},
+				Home:              h,
+				Docker:            runtime.Docker{Commands: commands},
+				System:            runtime.System{Commands: commands},
+				VerificationStore: verificationStore,
 			}.Collect(ctx)
 		},
 		cleanup:       defaultCleanup,

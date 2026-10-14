@@ -98,14 +98,23 @@ func TestHarnessJobsReadsTheLiveProcessTable(t *testing.T) {
 		_ = command.Process.Kill()
 		_, _ = command.Process.Wait()
 	})
-	time.Sleep(300 * time.Millisecond)
 
 	// Act
-	processes, err := Processes()
-	if err != nil {
-		t.Fatal(err)
+	// The table is read again until the busy child has been charged its
+	// first processor time, which a busy machine can hold back for seconds.
+	// The child spins for thirty, after which it never can be.
+	var read harnessProcesses
+	var ok bool
+	for spun, isCharged := time.Now().Add(30*time.Second), false; !isCharged && time.Now().Before(spun); time.Sleep(50 * time.Millisecond) {
+		processes, err := Processes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		read, ok = readHarness(os.Getpid(), processes, 0)
+		for _, job := range read.jobs {
+			isCharged = isCharged || job.root.PID == command.Process.Pid && job.cpu() >= 100*time.Millisecond
+		}
 	}
-	read, ok := readHarness(os.Getpid(), processes, 0)
 
 	// Assert
 	if !ok || read.harness.PID != os.Getpid() || read.harness.Memory == 0 || read.harness.Started.IsZero() {
