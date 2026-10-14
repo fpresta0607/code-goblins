@@ -23,8 +23,8 @@ func runLifecycle(command string, args []string, stdout, stderr io.Writer, runti
 	if command == "kill" {
 		action = "stop"
 	}
-	if len(args) == 0 {
-		fmt.Fprintln(stderr, "task ID is required")
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintf(stderr, "cfo %s: the task ID comes first: cfo %s <task-id> [flags]\n", command, command)
 		return 2
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)

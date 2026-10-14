@@ -26,13 +26,13 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		f.Usage()
 		return 2
 	}
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return refuse("a question ID or a goblin notify's wake sequence is required")
-	}
 	option := f.String("option", "", "the choice that answers the question, in full or by its first word such as a")
 	note := f.String("note", "", "text the goblin receives after the choice")
 	recordOnly := f.Bool("record-only", false, "record on the board a choice already given another way, sending nothing; takes the question ID, and for a goblin's question only a notify already acknowledged or answered")
 	in := f.String("in", "", "with --record-only, where the Overlord gave the answer, such as chat; the card then reads as his answer there, recorded by the CFO, and the CFO's own question needs it")
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return refuse("a question ID or a goblin notify's wake sequence is required")
+	}
 	if !parseFlags(f, args[1:]) {
 		return 2
 	}

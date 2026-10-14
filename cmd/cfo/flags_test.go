@@ -72,6 +72,31 @@ func TestACommandRefusesAnArgumentItDoesNotTakeSayingWhich(t *testing.T) {
 		{"update", func(stdout, stderr io.Writer, runtime commandRuntime) int {
 			return runUpdate([]string{"stray"}, stdout, stderr, runtime)
 		}},
+		// These went on to run as if the stray word were not there.
+		{"brief", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runBrief([]string{"cg-task", "--project", `C:\project`, "stray"}, stdout, stderr, runtime)
+		}},
+		{"pr merge", func(stdout, stderr io.Writer, _ commandRuntime) int {
+			return runPRMerge([]string{"https://github.com/o/r/pull/1", "stray"}, stdout, stderr, nil, nil)
+		}},
+		{"drain", func(stdout, stderr io.Writer, _ commandRuntime) int {
+			return runDrain(home.Home{}, []string{"stray"}, stdout, stderr)
+		}},
+		{"switch", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runSwitch([]string{"cg-task", "--restart", "stray"}, stdout, stderr, runtime)
+		}},
+		{"verify", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runVerify([]string{"cg-task", "stray"}, stdout, stderr, runtime)
+		}},
+		{"security", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runSecurity([]string{"cg-task", "stray"}, stdout, stderr, runtime)
+		}},
+		{"deploy", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runDeploy([]string{"cg-task", "stray"}, stdout, stderr, runtime)
+		}},
+		{"supersede", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runSupersede([]string{"cg-task", "--reason", "x", "stray"}, stdout, stderr, runtime)
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -90,5 +115,45 @@ func TestACommandRefusesAnArgumentItDoesNotTakeSayingWhich(t *testing.T) {
 				t.Fatalf("exit=%d stderr=%q, want 2 naming the stray argument, with the command's flags or that it takes none", exit, stderr.String())
 			}
 		})
+	}
+}
+
+// A command that takes a task ID first was refused with exit 2 and nothing
+// said when the ID was missing, and a flag given before it was read as a
+// stray word after it. Each says the ID comes first.
+func TestACommandRefusesAMissingOrMisplacedTaskIDSayingSo(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
+		want string
+	}{
+		{"verify", runVerify, "usage: cfo verify <task-id>"},
+		{"security", runSecurity, "usage: cfo security <task-id>"},
+		{"deploy", runDeploy, "usage: cfo deploy <task-id>"},
+		{"supersede", runSupersede, "usage: cfo supersede <task-id>"},
+		{"evidence", runEvidence, "usage: cfo evidence <task-id>"},
+		{"hygiene", runHygiene, "usage: cfo hygiene <task-id>"},
+		{"kill", func(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runLifecycle("kill", args, stdout, stderr, runtime)
+		}, "cfo kill: the task ID comes first"},
+	} {
+		for _, args := range [][]string{nil, {"--reason", "cg-task"}} {
+			t.Run(test.name+" "+strings.Join(args, " "), func(t *testing.T) {
+				// Arrange
+				runtime := commandRuntime{resolveHome: func() (home.Home, error) {
+					t.Fatal("a refused command resolved the home")
+					return home.Home{}, nil
+				}}
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := test.run(args, &stdout, &stderr, runtime)
+
+				// Assert
+				if exit != 2 || !strings.Contains(stderr.String(), test.want) {
+					t.Fatalf("exit=%d stderr=%q, want 2 saying %q", exit, stderr.String(), test.want)
+				}
+			})
+		}
 	}
 }
