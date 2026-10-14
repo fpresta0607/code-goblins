@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -529,5 +530,24 @@ func TestVerifyLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Status != "passed" || len(results[0].Spared) != 1 || len(results[0].Leftovers) != 0 || !strings.EqualFold(results[0].Spared[0].Name, image) {
 		t.Fatalf("saved = %+v, want a pass that names the service as spared and nothing as ended", results)
+	}
+}
+
+// A command that never started read no source, so the tier says nothing of
+// its source, only that it took no turn.
+func TestVerifySaysNothingOfTheSourceOfACommandThatNeverStarted(t *testing.T) {
+	// Arrange
+	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	runtime.availableMemory = func() (supervisor.Memory, error) {
+		return supervisor.Memory{}, errors.New("memory cannot be read")
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || strings.Contains(stderr.String(), "tested no one source") {
+		t.Errorf("exit = %d, stderr = %q; want a failure that says nothing of a source", exit, stderr.String())
 	}
 }
