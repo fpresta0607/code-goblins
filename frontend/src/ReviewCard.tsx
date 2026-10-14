@@ -41,17 +41,15 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const status = waitsOnOverlord(review);
   const answersHere = pending && !review.watched && !status;
   const target = status ? waitTarget(review, snapshot) : null;
-  // The goblin's question this page carries, which the card shows as its own.
-  const asked = review.question ? (snapshot.questions || []).find((question) => question.id === review.question) : undefined;
   // The goblin's own words, formatted: its lead line heads the card, and the
   // details, a table of values to enter, or a closing line follow it. Words
   // that open with a table have no lead line and are all body.
   const { lead, rest } = leadAndRest(status ? waitReason(review) : review.title);
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
-    {asked || !lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked ? asked.text : rest, copyValues)}</div>
+    {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
-    {!asked && lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
+    {lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
     {/* The page itself, live and scaled down, from its own file: a preview
         to look at, never a review window of its own. */}
     {review.lavish && review.watched && <div className="page-preview" aria-hidden="true">

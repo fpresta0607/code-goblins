@@ -120,7 +120,7 @@ func TestQuestionImagesServedOnlyWhileTheAskerLives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, images); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", images); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
