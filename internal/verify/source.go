@@ -51,6 +51,19 @@ var repositoryVariables = []string{
 	"GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
 }
 
+// repositoryFreeEnvironment is this process's environment without
+// repositoryVariables.
+func repositoryFreeEnvironment() []string {
+	var environment []string
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(strings.ToUpper(entry), "=")
+		if !slices.Contains(repositoryVariables, name) && !strings.HasPrefix(name, "GIT_CONFIG_KEY_") && !strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
+			environment = append(environment, entry)
+		}
+	}
+	return environment
+}
+
 // ReadSource reads the source of the worktree dir. It stages what is on disk
 // into an index and an object store of its own, which it removes after, so
 // it leaves the worktree's index as it was and writes nothing into the
@@ -67,13 +80,7 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source 
 			source, err = Source{}, errors.Join(err, fmt.Errorf("verify: read the source: its store %s was not removed: %w", folder, removeError))
 		}
 	}()
-	var environment []string
-	for _, entry := range os.Environ() {
-		name, _, _ := strings.Cut(strings.ToUpper(entry), "=")
-		if !slices.Contains(repositoryVariables, name) && !strings.HasPrefix(name, "GIT_CONFIG_KEY_") && !strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
-			environment = append(environment, entry)
-		}
-	}
+	environment := repositoryFreeEnvironment()
 	git := func(args ...string) (string, error) {
 		// A file system monitor would answer status for the read, and with
 		// core.ignoreStat a change after the add would go unseen.
