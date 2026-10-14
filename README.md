@@ -370,6 +370,7 @@ At the first press after the window takes the focus it may still be opening, for
 A note says **Nothing was heard** only of a hold it recorded with no words in it.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
 The install sets the model up, Parakeet TDT 0.6B, so the first dictation works at once.
+Parakeet TDT 0.6B v2 is by NVIDIA ([nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and converted to ONNX and quantized to int8 by the [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, whose release the install downloads unchanged.
 If the install could not, as offline, the first dictation downloads it, 460 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
 Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
 If Windows blocks the microphone, the note says so and where to turn it back on: Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone on.
