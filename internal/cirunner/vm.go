@@ -76,13 +76,19 @@ func (h HyperV) IsRunning(ctx context.Context) (bool, error) {
 	return state != "Off", nil
 }
 
-// run runs script in Windows PowerShell, stopping at its first error, with
-// extra added to the environment, and returns what it wrote, trimmed. Windows
-// PowerShell is named by its full path, and gets its own module path, as the
-// one-line install gives it, since one inherited from PowerShell 7 lists
-// modules it cannot load. A script that runs past hyperVLimit is ended with
-// all it started, so a Hyper-V call that hangs never outlasts a job's limits.
+// run runs script as powerShell does, within hyperVLimit, so a Hyper-V call
+// that hangs never outlasts a job's limits.
 func (h HyperV) run(ctx context.Context, doing, script string, extra ...string) (string, error) {
+	return powerShell(ctx, h.Commands, hyperVLimit, doing, script, extra...)
+}
+
+// powerShell runs script in Windows PowerShell with commands, stopping at its
+// first error, with extra added to the environment, and returns what it
+// wrote, trimmed. Windows PowerShell is named by its full path, and gets its
+// own module path, as the one-line install gives it, since one inherited from
+// PowerShell 7 lists modules it cannot load. A script that runs past limit is
+// ended with all it started.
+func powerShell(ctx context.Context, commands execx.Runner, limit time.Duration, doing, script string, extra ...string) (string, error) {
 	systemRoot := os.Getenv("SystemRoot")
 	if systemRoot == "" {
 		return "", errors.New("cirunner: SystemRoot is not set, so Windows PowerShell cannot be found")
@@ -90,9 +96,9 @@ func (h HyperV) run(ctx context.Context, doing, script string, extra ...string) 
 	environment := slices.DeleteFunc(os.Environ(), func(entry string) bool {
 		return strings.HasPrefix(strings.ToUpper(entry), "PSMODULEPATH=")
 	})
-	ctx, cancel := context.WithTimeout(ctx, hyperVLimit)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	result, err := h.Commands.Run(ctx, execx.Request{
+	result, err := commands.Run(ctx, execx.Request{
 		Name:     filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
 		Args:     []string{"-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; " + script},
 		Env:      append(environment, extra...),
