@@ -122,8 +122,13 @@ func TestTheInstallRefusesAFolderAnotherCouldHold(t *testing.T) {
 			want:    "is here already",
 		},
 		"a parent the user owns": {
-			arrange: func(t *testing.T) string { return filepath.Join(t.TempDir(), "ci-runner") },
-			want:    "is owned by " + thisUser(t),
+			arrange: func(t *testing.T) string {
+				parent := t.TempDir()
+				protectFolder(t, parent)
+				ownByThisUser(t, parent)
+				return filepath.Join(parent, "ci-runner")
+			},
+			want: "is owned by " + thisUser(t),
 		},
 		"a parent that is a link": {
 			arrange: func(t *testing.T) string {
