@@ -40,7 +40,8 @@ type Admission struct {
 	// checks may run. Expiry does not release a live or uncertain owner.
 	Who    string
 	Budget time.Duration
-	// Limit bounds the floor wait at the head of the line. Expiry refuses a turn.
+	// Limit bounds the floor wait at the head of the line, and how long a run
+	// tries again while the line's lock is busy. Expiry refuses a turn.
 	Limit time.Duration
 	// Poll is how often a waiting run looks again.
 	Poll time.Duration
@@ -67,6 +68,9 @@ type Turn struct {
 	slot    string
 	release func(context.Context) error
 	say     func(now string)
+	// busyLimit is how long a custody change of the turn's tries again while
+	// the line's lock is busy: its admission's limit.
+	busyLimit time.Duration
 }
 
 // TurnVariable is the environment variable that names, to a command a turn
@@ -156,7 +160,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		return Turn{}, err
 	}
-	unlock, err := custodyMutation(a.Dir)
+	unlock, err := custodyMutationWhileBusy(ctx, a.Dir, a.Limit)
 	if err != nil {
 		return Turn{}, err
 	}
@@ -189,6 +193,10 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	// under the floor, and zero while it is not the head or memory is not
 	// short: the limit is on the wait for memory, not on the time in line.
 	var shortSince time.Time
+	// busySince is when this run, at the head of the line, first found the
+	// line's lock busy as it took its turn, and zero while it is not.
+	var busySince time.Time
+	isToldBusy := false
 	for {
 		if err := ctx.Err(); err != nil {
 			return Turn{Waited: time.Since(start)}, err
@@ -226,11 +234,20 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 					return Turn{Waited: time.Since(start)}, err
 				}
 				turn, err := a.take(capacity)
-				if err != nil {
+				// A take that found the line's lock busy took no slot and
+				// wrote no card, so the run keeps its place and tries again,
+				// within its limit.
+				if !errors.Is(err, errCustodyBusy) {
+					busySince = time.Time{}
+				} else if busySince.IsZero() {
+					busySince = time.Now()
+				}
+				if errors.Is(err, errCustodyBusy) && time.Since(busySince) < a.Limit {
+					why = join(why, "the line's lock is busy")
+				} else if err != nil {
 					turn.Waited = time.Since(start)
 					return turn, err
-				}
-				if turn.release != nil {
+				} else if turn.release != nil {
 					if err := ctx.Err(); err != nil {
 						if releaseError := turn.Release(); releaseError != nil {
 							turn.Waited = time.Since(start)
@@ -243,9 +260,10 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				}
 			}
 		}
-		if a.Waiting != nil && (told.IsZero() || ahead != toldAhead || time.Since(told) >= time.Minute) {
+		isBusy := !busySince.IsZero()
+		if a.Waiting != nil && (told.IsZero() || ahead != toldAhead || isBusy != isToldBusy || time.Since(told) >= time.Minute) {
 			a.Waiting(waited, join(why, standing(ahead)))
-			told, toldAhead = time.Now(), ahead
+			told, toldAhead, isToldBusy = time.Now(), ahead, isBusy
 		}
 		select {
 		case <-ctx.Done():
@@ -418,7 +436,7 @@ func (a Admission) inside() (Turn, bool) {
 		isReleased = true
 		return nil
 	}
-	return Turn{token: token, dir: a.Dir, slot: name, release: release, say: say}, true
+	return Turn{token: token, dir: a.Dir, slot: name, release: release, say: say, busyLimit: a.Limit}, true
 }
 
 // isHeldAs reports whether the slot name is held, by a process that is
@@ -561,7 +579,7 @@ func (a Admission) take(capacity int) (turn Turn, failure error) {
 				a.say(name, owner, now)
 			}
 		}
-		return Turn{token: turnToken(name, owner), dir: a.Dir, slot: name, release: release, say: say}, nil
+		return Turn{token: turnToken(name, owner), dir: a.Dir, slot: name, release: release, say: say, busyLimit: a.Limit}, nil
 	}
 	return Turn{}, nil
 }
