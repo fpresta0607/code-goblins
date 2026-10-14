@@ -175,6 +175,9 @@ type commandRuntime struct {
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
+	// now is the clock a quota reading is judged by, so a test's reading
+	// keeps the date it was taken on; nil is the real clock.
+	now func() time.Time
 	// goblins is true when this binary runs under the name goblins, where no
 	// command means the launcher; cfo alone keeps printing its usage for
 	// scripts. startServe and openURL are the launcher's two effects on the
