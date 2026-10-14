@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { credentialAsk, credentialHeading, credentialSettled, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
+import { credentialAsk, credentialHeading, credentialSettled, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
 import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
 import { waitingItems } from "./commandQueue.ts";
@@ -10,7 +10,7 @@ const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest =>
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
   project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], why: "Charge test cards", link: "", steps: [],
   env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",
-  created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", ...changes,
+  created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", fetch: null, ...changes,
 });
 
 const board = (credentials: CredentialRequest[], runs: Run[] = []): Snapshot =>
@@ -83,6 +83,13 @@ test("a row's tips say where its value goes and how it was stored, naming the va
   assert.equal(storedTip(request({ saved: ["DATABASE_URL"], replaced: ["DATABASE_URL"], typed: ["DATABASE_URL"], written: ["DATABASE_URL"], env_file: ".env" }), "DATABASE_URL"), "Replaced in the precisiondocs vault, typed in the terminal, and set in .env");
   assert.equal(storedTip(request({ saved: ["STRIPE_TEST_SECRET_KEY"], fetched: ["STRIPE_TEST_SECRET_KEY"] }), "STRIPE_TEST_SECRET_KEY"), "Stored in the precisiondocs vault, fetched from the page");
   assert.equal(heldTip(request()), "Already in the precisiondocs vault");
+});
+
+test("a card offers to fetch the keys a reviewed page reads, saying where from and that no agent sees them", () => {
+  const fetch = { provider: "Stripe", login: "PrecisionDocs", names: ["STRIPE_TEST_SECRET_KEY", "STRIPE_TEST_PUBLISHABLE_KEY"], state: "", reason: "" };
+  assert.equal(fetchOffer(fetch), "The fleet can read both keys from Stripe's test key page with the PrecisionDocs login, straight into the vault. No agent sees them.");
+  assert.equal(fetchOffer({ ...fetch, names: ["STRIPE_TEST_SECRET_KEY"] }), "The fleet can read STRIPE_TEST_SECRET_KEY from Stripe's test key page with the PrecisionDocs login, straight into the vault. No agent sees it.");
+  assert.equal(fetchOffer({ ...fetch, provider: "Resend", names: ["RESEND_API_KEY", "RESEND_AUDIENCE", "RESEND_DOMAIN"] }), "The fleet can read the 3 keys from Resend's key page with the PrecisionDocs login, straight into the vault. No agent sees them.");
 });
 
 test("values are typed only on the board on this PC", () => {

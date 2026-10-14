@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { message, reportToCfo, request } from "./api";
+import { BrowserLoginRow } from "./browser-login-row";
+import { parseBrowserLogins, type BrowserLogin } from "./browser-logins";
 import { ConnectorCard } from "./connector-card";
 import { parseConnections, type ConnectionEntry } from "./connections";
 import { Icon } from "./Icon";
 import { object, string, type Run, type Task } from "./types";
 import "./connections.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { ForgetLoginDialog } from "./forget-login-dialog";
 import { goblinName } from "./task-words";
 
 export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; runs?: Run[]; onRepair?: (key: string) => void }) {
@@ -16,6 +19,10 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   const [loginURL, setLoginURL] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [reads, setReads] = useState(0);
+  const [forgetting, setForgetting] = useState<BrowserLogin>();
+  // When the panel last read its connections, which a login's times are
+  // told from.
+  const [readAt, setReadAt] = useState(0);
   // What his + or check asked for each card, shown at once and kept until a
   // finished check shows it.
   const [asked, setAsked] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -36,6 +43,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
         isChecking = next.checking;
         if (!controller.signal.aborted) {
           setData(next);
+          setReadAt(Date.now());
           if (!next.checking) setAsked((prior) => new Map([...prior].filter(([id, isCarried]) => next.entries.find((entry) => entry.id === id)?.grant !== (isCarried ? "revoke" : "grant"))));
         }
       } catch (error: unknown) {
@@ -52,7 +60,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   }, [data?.instance, task.id, task.generation]);
   const refresh = useCallback(async () => {
     setIsBusy(true);
-    try { setData(parseConnections(await post("/api/connections/check"))); setReads((count) => count + 1); }
+    try { setData(parseConnections(await post("/api/connections/check"))); setReadAt(Date.now()); setReads((count) => count + 1); }
     catch (error: unknown) { showFeedback(message(error)); }
     finally { setIsBusy(false); }
   }, [post, showFeedback]);
@@ -80,6 +88,15 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
     } catch (error: unknown) { showFeedback(message(error)); }
     finally { setIsBusy(false); }
   };
+  const endLogin = async (login: BrowserLogin, action: "sign-out" | "forget") => {
+    setIsBusy(true);
+    try {
+      const logins = parseBrowserLogins(object(await post("/api/browser-logins/" + action, { login: login.id })).browser_logins);
+      setData((current) => current && { ...current, browserLogins: logins });
+    } catch (error: unknown) { showFeedback(message(error)); }
+    finally { setIsBusy(false); }
+  };
+  const logins = data?.browserLogins || [];
   // His + gives the task the connector and his check takes it back, as cfo
   // auth grant and cfo auth revoke do; the card changes at once.
   const toggle = async (entry: ConnectionEntry) => {
@@ -102,6 +119,10 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
       const entries = data?.entries.filter((entry) => entry.kind === kind && !(kind === "credential" && entry.status === "withheld")) || [];
       return entries.length > 0 && <div className="connections-group" key={kind}><h4>{label}</h4><ul aria-label={label}>{entries.map((entry) => <ConnectorCard key={entry.id} entry={entry} isCarried={asked.get(entry.id) ?? entry.grant === "revoke"} isBusy={isBusy || !!data?.checking} isChanging={asked.has(entry.id) && !!data?.checking} onFix={(entry, action) => void fix(entry, action)} onToggle={(entry) => void toggle(entry)} />)}</ul></div>;
     })}
-    {data && !data.checking && data.entries.length === 0 && !data.error && <p>No connections.</p>}
+    {logins.length > 0 && <div className="connections-group"><h4>Browser logins</h4><ul aria-label="Browser logins">
+      {logins.map((login) => <BrowserLoginRow key={login.id} login={login} now={readAt} isBusy={isBusy} onSignOut={() => void endLogin(login, "sign-out")} onForget={() => setForgetting(login)} />)}
+    </ul></div>}
+    {forgetting && <ForgetLoginDialog login={forgetting} onCancel={() => setForgetting(undefined)} onForget={() => { setForgetting(undefined); void endLogin(forgetting, "forget"); }} />}
+    {data && !data.checking && data.entries.length === 0 && logins.length === 0 && !data.error && <p>No connections.</p>}
   </section>;
 }
