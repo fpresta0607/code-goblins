@@ -33,6 +33,9 @@ type Custody struct {
 	// Evidence is the execution's record, which recovery marks interrupted.
 	Evidence string `json:"evidence,omitempty"`
 	dir      string
+	// busyLimit is how long completing the custody tries the line's lock
+	// again while it is busy: the limit of the turn that made it.
+	busyLimit time.Duration
 }
 
 // jobNamespace is where the Windows jobs of executions are named: the
@@ -73,7 +76,7 @@ func (turn Turn) ProtectContext(ctx context.Context, runID, evidence string) (gu
 	if !(Admission{Dir: turn.dir}).isHeldAs(turn.slot, turn.token) {
 		return Custody{}, errors.New("verify: cannot protect a turn without live custody")
 	}
-	guard = Custody{RunID: runID, Token: turn.token, Job: JobName(runID), Controller: controller, Created: time.Now().UTC(), Evidence: evidence, dir: filepath.Join(turn.dir, "custody")}
+	guard = Custody{RunID: runID, Token: turn.token, Job: JobName(runID), Controller: controller, Created: time.Now().UTC(), Evidence: evidence, dir: filepath.Join(turn.dir, "custody"), busyLimit: turn.busyLimit}
 	if err := os.MkdirAll(guard.dir, 0700); err != nil {
 		return Custody{}, err
 	}
@@ -96,15 +99,20 @@ func (turn Turn) ProtectContext(ctx context.Context, runID, evidence string) (gu
 
 // Complete removes only this run's record after its caller proves cleanup.
 // A failed removal leaves the slot protected and must fail the execution.
+// It tries a busy line's lock again for the turn's limit, and for 5 seconds
+// at most, as Release does.
 func (guard Custody) Complete() error {
-	return guard.CompleteContext(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return guard.CompleteContext(ctx)
 }
 
+// CompleteContext is Complete while ctx lasts.
 func (guard Custody) CompleteContext(ctx context.Context) (failure error) {
 	if guard.dir == "" || guard.RunID == "" || guard.Token == "" || strings.Trim(guard.RunID, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != "" {
 		return errors.New("verify: no execution custody to complete")
 	}
-	unlock, err := custodyMutationContext(ctx, filepath.Dir(guard.dir))
+	unlock, err := custodyReleaseWhileBusy(ctx, filepath.Dir(guard.dir), guard.busyLimit)
 	if err != nil {
 		return err
 	}
@@ -165,9 +173,23 @@ func markCustodyBusy(caller context.Context, err error) error {
 // waited its turn keeps it through a busy moment of the lock. Each try is the
 // change custodyMutation makes, so ctx ends only the trying again.
 func custodyMutationWhileBusy(ctx context.Context, dir string, limit time.Duration) (func() error, error) {
+	return whileBusy(ctx, limit, func() (func() error, error) { return custodyMutation(dir) })
+}
+
+// custodyReleaseWhileBusy is custodyMutationWhileBusy for a change that gives
+// custody back, a turn's release or an execution's completion, whose caller's
+// deadline, as a cleanup's, ends a try as well as the trying again. A try
+// ended part way leaves its lock to the next change to give back.
+func custodyReleaseWhileBusy(ctx context.Context, dir string, limit time.Duration) (func() error, error) {
+	return whileBusy(ctx, limit, func() (func() error, error) { return custodyMutationContext(ctx, dir) })
+}
+
+// whileBusy tries a custody change again while it finds the line's lock busy,
+// for at most limit and while ctx lasts.
+func whileBusy(ctx context.Context, limit time.Duration, try func() (func() error, error)) (func() error, error) {
 	start := time.Now()
 	for {
-		unlock, err := custodyMutation(dir)
+		unlock, err := try()
 		if !errors.Is(err, errCustodyBusy) || ctx.Err() != nil || time.Since(start) >= limit {
 			return unlock, err
 		}
