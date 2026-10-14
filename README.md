@@ -839,6 +839,8 @@ Then come what went live, migrations applied and builds installed, in the CFO's 
 What waited on you in the Command Center and no longer does folds under **Settled**, and a line the CFO logged by mistake folds under **Struck by the CFO** with its reason.
 **Decided for you** follows: each question the CFO answered with its recommendation, yours under **For you** and the goblins' under **For the goblins**, each with its answer and **Change**, which opens it in History.
 **Needs you** comes last, and only when something does, in the lantern box of what waits on you: each step only you can take, such as your own sign-in or a step a tool refused, as one plain line, then each item that still waits on you in the Command Center, with **Answer**.
+**Done** and **Decided for you** open and close behind the board's one thin caret, the same one History and the task panel use, and start open.
+Every heading inside them, **Deployed**, **Merged**, **Spent**, **For the goblins** and the rest, does the same and starts closed, showing only its name and its count, so the whole recap reads in one screen and you open only what you want to read.
 What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
 **Go through them** at the top opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
 **Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
