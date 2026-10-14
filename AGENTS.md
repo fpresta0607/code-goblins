@@ -1036,6 +1036,11 @@ Write the body for a public repository: what happens, the cause when known, and 
 A root met again is filed the same way: the command finds the open issue of the same root and adds a dated comment with the new evidence.
 A goblin whose terminal carries no GitHub credential cannot file, so its report gives the title and body and you file it.
 
+The fleet files what its own signals already name, through the same command path, its screen and its dedup:
+- **A test that failed by chance.** Each test a merge train's passing run saw fail once and pass on its second try is filed on the train's repository, keyed by its suite and name whatever job ran it, once a run.
+- **An error the supervisor meets again.** A line of the supervisor's errors met again an hour or more after it was first met is filed on the repository of the home's own checkout, keyed by its class: the line with its paths, quoted text, hashes and numbers taken out, once a class in each run of the supervisor.
+A filing that fails, such as one the screen refuses, reaches you as a `root_unfiled:` check wake with the reason, and you file it by hand.
+
 The fleet picks those issues up by itself, project by project.
 Every 30 minutes `cfo serve` reads the open `ops-root` issues of the GitHub repository of each project the home keeps a record for under `data/projects/`, one call a repository, and passes over a project with no checkout here or no GitHub origin.
 It takes an issue, oldest first, only when its author is the repository's owner, a member of its organisation or a collaborator, no one is assigned to it, no `cfo:` state label is on it, it is not on record in `state/root-pickups.json` as picked up already, and no queued or live task of the project names it to take up.
