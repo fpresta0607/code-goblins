@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -17,7 +18,7 @@ import (
 )
 
 // liveVoice is the engine and the model config/voice.json pins, downloaded
-// once, about 51 MB, into the folder VOICE_LIVE_DIR names, where a second run
+// once, about 483 MB, into the folder VOICE_LIVE_DIR names, where a second run
 // finds them. The live tests are the ones here that use the network, so they
 // run only when asked.
 func liveVoice(t *testing.T) *Voice {
@@ -41,6 +42,56 @@ func liveVoice(t *testing.T) *Voice {
 	t.Logf("%s %s on %s %s in %s; downloaded now: %d bytes", settings.Model.Name, settings.Model.Version, settings.Engine.Name, settings.Engine.Version, dir, arrived)
 	t.Cleanup(voice.Close)
 	return voice
+}
+
+// What a fetch keeps is what config/voice.json pins: the engine's and the
+// model's folders, each holding exactly its pinned files, recorded under its
+// pinned SHA-256 with the size each file has, and no other engine or model.
+func TestThePinnedModelIsWhatSetupInstalls(t *testing.T) {
+	voice := liveVoice(t)
+	if err := voice.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []Part{voice.Settings.Engine, voice.Settings.Model} {
+		data, err := os.ReadFile(filepath.Join(voice.folder(part), verifiedName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var record verified
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.SHA256 != part.SHA256 || len(record.Files) != len(part.Files) {
+			t.Fatalf("%s %s was kept as %+v, want SHA-256 %s and the files %v", part.Name, part.Version, record, part.SHA256, part.Files)
+		}
+		entries, err := os.ReadDir(voice.folder(part))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kept []string
+		for _, entry := range entries {
+			if entry.Name() == verifiedName {
+				continue
+			}
+			kept = append(kept, entry.Name())
+			info, err := entry.Info()
+			if err != nil || info.Size() != record.Files[entry.Name()] {
+				t.Errorf("%s holds %s, which is not one of its pinned files at its recorded size", part.Name, entry.Name())
+			}
+		}
+		if len(kept) != len(part.Files) {
+			t.Errorf("%s holds %v, want exactly %v", part.Name, kept, part.Files)
+		}
+	}
+	entries, err := os.ReadDir(voice.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if name := entry.Name(); entry.IsDir() && name != filepath.Base(voice.folder(voice.Settings.Engine)) && name != filepath.Base(voice.folder(voice.Settings.Model)) {
+			t.Errorf("%s holds %s, which this pin does not name", voice.Dir, name)
+		}
+	}
 }
 
 // The engine recognises a spoken line.

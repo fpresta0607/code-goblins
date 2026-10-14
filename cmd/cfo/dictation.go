@@ -16,6 +16,13 @@ import (
 // where dictation looks, and removes an engine or model an earlier pin left.
 // What is there already is not downloaded again.
 func runDictation(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	// The install runs the setup as a child with no window of its own, which
+	// Windows throttles onto slow scheduling: unpacking the pinned model took
+	// 480 s throttled and 57 s not. It asks for the scheduling cfo serve asks
+	// for; without it the setup is only slower.
+	if err := serveScheduling(); err != nil {
+		fmt.Fprintf(stderr, "dictation: %v\n", err)
+	}
 	if len(args) != 1 || args[0] != "setup" {
 		fmt.Fprintln(stderr, "usage: cfo dictation setup")
 		return 2
