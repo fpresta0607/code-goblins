@@ -502,6 +502,9 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		if isWeighed && run.Estimate > 0 {
 			line += fmt.Sprintf(", expected to use %.1f GB", verify.Gigabytes(run.Estimate))
 		}
+		if run.IsLowPriority {
+			line += ", at the lowest priority"
+		}
 		fmt.Fprintln(stdout, line)
 	}
 	if available == nil {
