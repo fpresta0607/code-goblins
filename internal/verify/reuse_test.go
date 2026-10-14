@@ -394,27 +394,36 @@ func TestFindPassFindsNothingInAPassThatIsNotWhole(t *testing.T) {
 }
 
 // A pass file under a key's name that holds another key's pass is no pass of
-// that key.
+// that key, though the other key has the same source and its pass is whole,
+// as only the key itself shows what else the pass depended on.
 func TestFindPassFindsNothingInAPassOfAnotherKey(t *testing.T) {
-	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
-	key, other := sealedKey(), sealedKey()
-	other.Source.Tree = "t2"
-	other.Source.CommitTree = "t2"
-	now := time.Now()
-	if err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(keptAt(other), keptAt(key)); err != nil {
-		t.Fatal(err)
-	}
+	for name, differ := range map[string]func(key *ReuseKey){
+		"another input":    func(key *ReuseKey) { key.Inputs = "i2" },
+		"another base":     func(key *ReuseKey) { key.Base = "b2" },
+		"another tool":     func(key *ReuseKey) { key.Tools = []string{"git version 3"} },
+		"another platform": func(key *ReuseKey) { key.Platform = "windows/arm64" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			key, other := sealedKey(), sealedKey()
+			differ(&other)
+			now := time.Now()
+			if err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(keptAt(other), keptAt(key)); err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	pass, err := FindPass(key, now, 24*time.Hour, "t1")
+			// Act
+			pass, err := FindPass(key, now, 24*time.Hour, "t1")
 
-	// Assert
-	if !errors.Is(err, ErrNoPass) {
-		t.Errorf("FindPass = %+v, %v; want ErrNoPass", pass, err)
+			// Assert
+			if !errors.Is(err, ErrNoPass) || !strings.Contains(err.Error(), "is not this key's") {
+				t.Errorf("FindPass = %+v, %v; want ErrNoPass for a pass of another key", pass, err)
+			}
+		})
 	}
 }
 
