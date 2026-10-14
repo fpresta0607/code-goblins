@@ -15,7 +15,7 @@ import (
 // just tell me what you've done". Under AFK mode the CFO answers every
 // decision itself with its recommendation and acts on it, and nothing it logs
 // becomes a Command Center question. A step only he can take, his own sign-in
-// or a step a tool refuses, is one plain line at the end of his recap.
+// or a step a tool refuses, is one card in his Command Center once he is back.
 
 // hisStep is a step only the Overlord can take, which a tool refused the CFO.
 func hisStep() afk.Entry {
@@ -53,46 +53,41 @@ func TestADecisionLoggedUnderAFKNeverBecomesACommandCenterQuestion(t *testing.T)
 	var pending []string
 	for _, q := range s.Store.Snapshot().Questions {
 		if q.Status == "pending" {
-			pending = append(pending, q.ID+": "+q.Text)
+			pending = append(pending, q.ID)
 		}
 	}
-	if len(pending) != 0 {
-		t.Errorf("questions waiting on him once AFK mode turned off = %q, want none", pending)
+	if len(pending) != 1 || !strings.HasPrefix(pending[0], "afk-his-") {
+		t.Errorf("questions waiting on him once AFK mode turned off = %q, want only the card of his step, none for a decision", pending)
 	}
 	if settled := questionAbout(t, s, decided.What); settled.Status != "succeeded" || settled.AnsweredBy != "cfo" || !settled.AnsweredAway || settled.AnsweredOption != decided.Answer {
 		t.Errorf("the decision on the board = %+v, want it in History with the CFO's answer, given while he was away", settled)
 	}
 }
 
-func TestARefusedStepIsOneLineAtTheEndOfTheRecap(t *testing.T) {
+func TestARefusedStepIsOneCardInTheCommandCenterAndTheRecapPointsToIt(t *testing.T) {
 	// Arrange
 	s, h, _ := asTheCFO(t)
 	step := hisStep()
 
 	// Act
-	awayAndBack(t, s, h, decidedLine(), step)
+	logged := awayAndBack(t, s, h, decidedLine(), step)
 
 	// Assert
 	report, found, err := ReadAFKReport(h)
 	if err != nil || !found {
 		t.Fatalf("ReadAFKReport = %v, %v, want the report", found, err)
 	}
-	if len(report.Held) != 0 {
-		t.Errorf("held for him = %+v, want nothing: his step is a line of the recap, not a Command Center item", report.Held)
+	if len(report.Held) != 1 || report.Held[0].Item != afk.HisCardItem(logged[1]) || !report.Held[0].Waiting || report.Held[0].What != step.What {
+		t.Errorf("held for him = %+v, want his step as one card, waiting", report.Held)
 	}
-	sections := report.Sections()
-	last := sections[len(sections)-1]
-	if last.Group != afk.GroupNeeds || last.Title != "Needs you" || len(last.Entries) != 1 || last.Entries[0].What != step.What || last.Entries[0].Evidence != step.Evidence || last.Entries[0].Link != step.Link {
-		t.Errorf("the recap ends with %+v, want Needs you holding his one step with its evidence and link", last)
-	}
-	if n := slices.IndexFunc(sections, func(section afk.Section) bool { return section.Group == afk.GroupNeeds }); n != len(sections)-1 {
-		t.Errorf("sections = %+v, want Needs you once, last", sections)
+	if n := slices.IndexFunc(report.Sections(), func(section afk.Section) bool { return section.Group == afk.GroupNeeds }); n >= 0 {
+		t.Errorf("sections = %+v, want no Needs you line: its card tells the step", report.Sections())
 	}
 	var text bytes.Buffer
 	if err := afk.Render(&text, report); err != nil {
 		t.Fatal(err)
 	}
-	if want := "\nNEEDS YOU\n\nNeeds you (1)\n- " + step.What + " (" + step.Link + ")\n  Evidence: " + step.Evidence + "\n"; !strings.HasSuffix(text.String(), want) {
-		t.Errorf("the CFO's text of the report ends:\n%s\nwant it to end with his one step:\n%s", text.String(), want)
+	if want := "\nNEEDS YOU\n\nWaiting on you in the Command Center (1), each as it stands now\n- " + afk.HisCardItem(logged[1]) + ", the CFO's: " + step.What + "\n  Now: still waiting on you.\n"; !strings.HasSuffix(text.String(), want) {
+		t.Errorf("the CFO's text of the report ends:\n%s\nwant it to end with his one card:\n%s", text.String(), want)
 	}
 }

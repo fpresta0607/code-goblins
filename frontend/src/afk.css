@@ -67,7 +67,7 @@
 .afk-part.needs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 12px; }
 .afk-part.needs > h3 { margin-bottom: 12px; }
 .afk-part.needs .go-through { min-height: 36px; margin-bottom: 12px; padding: 0 14px; font-size: .9375rem; }
-.afk-part.needs > .afk-rows { grid-column: 1 / -1; }
+.afk-part.needs > .afk-rows, .afk-part.needs > .afk-part-note { grid-column: 1 / -1; }
 .afk-report-end { display: flex; justify-content: flex-end; margin-top: 30px; }
 .afk-part:first-of-type { margin-top: 6px; }
 .question-modal.afk-report .afk-part > h3 { margin: 0 0 6px; font: 400 1.5rem/1.3 var(--font-display); color: #f4fbff; }

@@ -407,7 +407,7 @@ The offer after he was away says who turned it on, with his words when the CFO d
 Either one takes the focus itself, so keys he was typing press neither button, and Escape stays.
 A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
 When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`.
-See [AFK mode in the README](../README.md#afk-mode) for its recap: its headline, Done, Decided for you and Needs you, each line's Evidence, Spent display and Go through them.
+See [AFK mode in the README](../README.md#afk-mode) for its recap: its headline, Done, Decided for you and Needs you, each line's Evidence, Spent display and Open Command Center.
 Each decision row links to what it names only when that is an https link and folds its evidence to two lines with Show more.
 His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
 An answer is named by its goblin, since the log keeps a question's id.
@@ -1826,7 +1826,8 @@ While it is off it carries `report`, the last stretch that ended, whose report i
 The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
 `GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its lines under the headings `cfo afk report` prints, each heading's `group` the part of the recap it is in (`done`, `decided` or `needs`, in that order), what each goblin finished, what waited on him in the Command Center with what became of each item as it stands now, open ones first and each in the order it came to him, how long it lasted and what was spent, with every list present.
 A decision under `decided` carries `item`, the question in his History where he changes its answer: `question:afk-left-<when it was logged>` for one the CFO answered in his place, and `question:<its ID>` for a goblin's question.
-A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`, and one still open under Needs you, in `needs`.
+A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`.
+A `his` line still open when AFK mode turns off becomes one card in the Command Center, and the report holds that card among its held items: a line with a card is told by the card and is in no section, so Needs you lists only a step whose card could not be made, as a report kept before cards were made lists them all.
 A report kept before nothing was left for him can hold a line the CFO left him unanswered: when it has a held question, it appears only through that question's current state, under Needs you while waiting or Done once handled.
 `spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
 A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
@@ -1862,7 +1863,10 @@ A question that ends with its page, `(page <link>)`, offers no choices, so a tit
 Its `answer` line in `afk.audit` carries the page as `link`, with the goblin's question and the CFO's answer as its evidence.
 A page item a goblin filed before it turned on stays his and is held, and closes with the CFO's answer only to the question AFK mode makes of that same page, never with an answer to any other question of the goblin's.
 Nothing is asked of him, while he is away or when he is back, as the Overlord ruled on 2026-10-12: `cfo question` refuses while AFK mode is on, and nothing the CFO logs becomes a Command Center question.
-A step only he can take is a `his` line, one plain line under Needs you in his recap.
+A step only he can take is a `his` line.
+When AFK mode turns off each open one becomes a card, made by the supervisor under the registered CFO's identity: a run item when the line carries a `command` and its `shell`, from `cfo afk log --kind his --run <file>`, and otherwise a question titled with the step and its link in backticks, whose choices are Done and Later.
+The card's id is `afk-his-` and the line's `at`, so a line is one card however often it is made, and a card that cannot be made leaves its line under Needs you.
+When he closes the card, in whichever way, the supervisor appends a settle line to the log for it, once, with how the card ended, and the recap folds the step under Settled.
 When the stretch ends, each decision the CFO answered in his place is settled: its question goes straight to History as the CFO's own, `afk-left-<when it was logged>`, closed as `succeeded` with the CFO's answer as `answered_option`, `answered_by: cfo`, `answered_away` and `answered_at` when the line was logged, so it never waits on him, his recap lists it under Decided for you, For you, and the CFO is told which it settled and which it could not.
 An answer to a goblin's page needs nothing more: the goblin's question is in History already, closed as the CFO's answer while he was away, and the recap lists it under Decided for you, For the goblins.
 His change to either from History is an `answer_change` like any other: it reaches the CFO once for the CFO's own question, and the goblin, or the CFO when that goblin has ended, for a goblin's.

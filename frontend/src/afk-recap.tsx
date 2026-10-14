@@ -3,7 +3,7 @@ import { Icon, type IconName } from "./Icon";
 import { AfkIconButton } from "./afk-icon-button";
 import { AfkRecapGroup } from "./afk-recap-group";
 import { AfkRecapRow } from "./afk-recap-row";
-import { askedAndAnswered, byRepository, decisionSays, heldRecommends, heldSays, inGroup, notLanded, safeLink, settled, shownUnder, stillWaiting, type AfkDecision, type AfkReport, type AfkSection } from "./afk";
+import { askedAndAnswered, byRepository, decisionSays, heldSays, inGroup, notLanded, safeLink, settled, shownUnder, stillWaiting, type AfkDecision, type AfkReport, type AfkSection } from "./afk";
 import { AfkSpent } from "./afk-spent";
 import { personaFor, pullRequestLabel } from "./workflow";
 import type { Task } from "./types";
@@ -53,12 +53,11 @@ export function AfkRecap({ report, tasks, now, onGoThrough, onChange }: { report
   return <>
     {(needs.length > 0 || waiting.length > 0) && <section className="afk-part needs" aria-label="Needs you">
       <h3>Needs you</h3>
-      {waiting.length > 0 && <button className="primary go-through" onClick={() => onGoThrough(waiting.map((one) => one.item))}>Go through them</button>}
-      <ul className="afk-rows needs">
+      {waiting.length > 0 && <button className="primary go-through" onClick={() => onGoThrough(waiting.map((one) => one.item))}>Open Command Center</button>}
+      {waiting.length > 0 && <p className="afk-part-note">{waiting.length === 1 ? "1 thing waits" : waiting.length + " things wait"} for you in the Command Center, one card each.</p>}
+      {needs.length > 0 && <ul className="afk-rows needs">
         {needs.flatMap((section) => section.entries).map((entry) => <AfkRecapRow key={entry.at + entry.what} mark={<Icon name="warning" />} what={entry.what} link={entry.link} tone="warning" at={entry.at} now={now} evidence={entry.evidence} />)}
-        {waiting.map((one) => <AfkRecapRow key={one.item + one.at} mark={avatar(one.task)} what={one.what} detail={[heldRecommends(one), heldSays(one)].filter(Boolean).join(" ")} tone="warning" at={one.at} now={now}
-          action={<AfkIconButton icon="question" label="Open in the Command Center" onClick={() => onGoThrough([one.item])} />} />)}
-      </ul>
+      </ul>}
     </section>}
     {(done.length > 0 || alsoFinished.length > 0 || spent.length > 0 || report.disk || settledItems.length > 0) && <section className="afk-part" aria-label="Done">
       <h3>Done</h3>
