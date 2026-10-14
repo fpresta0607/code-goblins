@@ -187,6 +187,42 @@ func TestServiceSIDIsWhatWindowsSays(t *testing.T) {
 	}
 }
 
+// The install's first step refuses a program anywhere but in Program Files,
+// which only Administrators may change, before it runs anything: the
+// service runs the program in Hyper-V Administrators, holding the App's key.
+func TestTheInstallRefusesAProgramOutsideProgramFiles(t *testing.T) {
+	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, row := range map[string]struct {
+		program   string
+		isRefused bool
+	}{
+		"in Program Files":           {program: filepath.Join(programFiles, "Code Goblins", "ci-runner", "cg-ci-runner.exe")},
+		"in the user's own folder":   {program: filepath.Join(t.TempDir(), "cg-ci-runner.exe"), isRefused: true},
+		"beside Program Files":       {program: programFiles + ` Evil\cg-ci-runner.exe`, isRefused: true},
+		"out of Program Files by ..": {program: filepath.Join(programFiles, "..") + `\Users\cg-ci-runner.exe`, isRefused: true},
+		"Program Files' own folder":  {program: programFiles, isRefused: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			commands := &recorder{}
+			options, _ := installOptions(t, t.TempDir(), commands)
+			options.Program = row.program
+
+			// Act
+			err := InstallSteps(options)[0].Run(context.Background())
+
+			// Assert
+			isRefused := err != nil && strings.Contains(err.Error(), "which only Administrators may change")
+			if isRefused != row.isRefused || row.isRefused && len(commands.ran) != 0 {
+				t.Errorf("the check = %v, having run %d script(s); want it refused %v, and nothing run when refused", err, len(commands.ran), row.isRefused)
+			}
+		})
+	}
+}
+
 // runStubbed runs script as the install does, after stubs, functions that
 // stand in for the Hyper-V and account cmdlets it calls, and returns what it
 // wrote.

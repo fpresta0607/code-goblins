@@ -178,7 +178,7 @@ func checkMachine(found machine, programFiles string) []Finding {
 		finding("the service's account is in Hyper-V Administrators", found.IsServiceInHyperVAdministrators, "it is not"),
 		finding("the service's folder is open to SYSTEM, Administrators and the service alone", !found.IsFolderInheriting && slices.Equal(access, wantAccess), fmt.Sprintf("it is open to %s, inheriting %v", strings.Join(access, ", "), found.IsFolderInheriting)),
 		finding("what the service trusts is owned by SYSTEM, Administrators or the service", len(owned) == 0, strings.Join(owned, ", and ")),
-		finding("the service runs its program from "+programFiles, found.ServiceProgram != "" && relErr == nil && filepath.IsLocal(relative), "it runs "+orNothing(found.ServiceProgram)),
+		finding("the service runs its program from "+programFiles, relErr == nil && filepath.IsLocal(relative) && relative != ".", "it runs "+orNothing(found.ServiceProgram)),
 		finding("the VM "+VMName+" is here, generation 2, with 4 processors and 6 GB at most", found.IsVM && found.VMGeneration == 2 && found.VMProcessors == 4 && found.VMMemoryMaximum == 6<<30, fmt.Sprintf("is here %v, generation %d, %d processors, %d bytes at most", found.IsVM, found.VMGeneration, found.VMProcessors, found.VMMemoryMaximum)),
 		finding("the VM's "+CleanCheckpoint+" checkpoint is here", found.IsCheckpoint, "it is not"),
 		finding("the VM's jobs reach the host and the LAN by DNS and DHCP alone, and the VM may not answer as a DHCP server or a router", isNetworkClosed, fmt.Sprintf("its guards are %s, it closes %s, and opens %s", orNothing(strings.Join(found.VMGuards, ", ")), orNothing(strings.Join(closed, ", ")), orNothing(strings.Join(opened, ", ")))),

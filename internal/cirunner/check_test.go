@@ -108,6 +108,8 @@ func TestCheckMachineSaysWhatIsNotAsTheInstallLeftIt(t *testing.T) {
 		"an owner unread":                {change: func(m *machine) { delete(m.Owners, "the VM's folder") }, want: "5 of its 6 owners were read"},
 		"a program in Downloads":         {change: func(m *machine) { m.ServiceProgram = `C:\Users\u\Downloads\cg-ci-runner.exe` }, want: `it runs C:\Users\u\Downloads\cg-ci-runner.exe`},
 		"a program beside Program Files": {change: func(m *machine) { m.ServiceProgram = `C:\Program Files Evil\cg-ci-runner.exe` }, want: "Program Files Evil"},
+		"Program Files as the program":   {change: func(m *machine) { m.ServiceProgram = `C:\Program Files` }, want: `it runs C:\Program Files`},
+		"no program read":                {change: func(m *machine) { m.ServiceProgram = "" }, want: "it runs nothing"},
 		"a VM open to the LAN":           {change: func(m *machine) { m.VMRules = m.VMRules[1:] }, want: "it closes 172.16.0.0/12"},
 		"a VM open to the host's files":  {change: func(m *machine) { m.VMRules = append(m.VMRules, vmRule{"Allow", "Outbound", "", "445"}) }, want: "opens 53, 53, 67, 445"},
 		"a VM that may answer as router": {change: func(m *machine) { m.VMGuards = []string{"On Off"} }, want: "its guards are On Off"},

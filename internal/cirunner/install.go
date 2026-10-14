@@ -301,7 +301,7 @@ func checkProgram(program string) error {
 	if err != nil {
 		return err
 	}
-	if relative, err := filepath.Rel(programFiles, program); err != nil || !filepath.IsLocal(relative) {
+	if relative, err := filepath.Rel(programFiles, program); err != nil || !filepath.IsLocal(relative) || relative == "." {
 		return fmt.Errorf("cirunner: %s is not in %s, which only Administrators may change, so the service will not run it: install from the release's ci-runner-install.ps1, which puts it there", program, programFiles)
 	}
 	return nil
