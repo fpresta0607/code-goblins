@@ -223,8 +223,8 @@ func TestServiceRefusesAPublicRepository(t *testing.T) {
 // answer is given again until it is pendingFresh old, so a client asking
 // without end cannot spend the App's rate limit.
 func TestPendingAsksGitHubOnceForManyAsks(t *testing.T) {
-	// Arrange
-	f := &fakeJob{}
+	// Arrange: GitHub answers slowly enough that the asks overlap.
+	f := &fakeJob{asking: 50 * time.Millisecond}
 	var config string
 	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
 	var asked sync.WaitGroup
