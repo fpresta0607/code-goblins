@@ -41,6 +41,11 @@ const leftAfter = time.Minute
 // host beside each hidden console program.
 var carriers = []string{"bash", "sh", "cmd", "powershell", "pwsh", "conhost", "openconsole", "timeout", "sleep"}
 
+// filters only pass on, in a pipeline, what the program before them writes,
+// so a loop is that program: a loop over repositories runs another gh api
+// for each, and the same base64 -d after each.
+var filters = []string{"base64", "grep", "head", "tail", "sed", "awk", "cut", "sort", "uniq", "tr", "wc", "jq", "cat", "tee"}
+
 // Process is one process of an owner's at one reading.
 type Process struct {
 	fleettree.Placed
@@ -143,14 +148,14 @@ func (w *Watch) Read(reading Reading) []Finding {
 }
 
 // isStart says a new process is one its owner started, as a loop counts
-// starts: not a carrier, not a machine service, which works for every
+// starts: not a carrier or a filter, not a machine service, which works for every
 // goblin, not one the harness started itself, which is a turn of its
 // goblin's, a tool call or a hook, and not one a test run or a build
 // started, which starts the same tools again and again within its own time
 // limit.
 func isStart(process Process) bool {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(process.Exe)), ".exe")
-	return process.Command != "" && !process.Service && !process.ByHarness && !process.InRun && !slices.Contains(carriers, name)
+	return process.Command != "" && !process.Service && !process.ByHarness && !process.InRun && !slices.Contains(carriers, name) && !slices.Contains(filters, name)
 }
 
 // loopKey is the owner, its generation and the command line, the last as

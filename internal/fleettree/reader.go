@@ -48,6 +48,11 @@ type Reader struct {
 	// job is shown. It is asked once for each process that reaches no
 	// harness, since a mark never changes.
 	Owner func(pid int) string
+	// InTurn says a process runs inside a turn of the machine's heavy line,
+	// which its environment names to everything the run starts, a process
+	// left without its parent too. Nil reads none. It is asked once for each
+	// process Placed places, since its environment's turn never changes.
+	InTurn func(pid int) bool
 	// Console reads the process id of the host of the console a process is
 	// attached to; nil reads it through Windows.
 	Console func(pid int) (int, error)
@@ -56,6 +61,7 @@ type Reader struct {
 
 	mu           sync.Mutex
 	owners       map[processKey]string
+	turns        map[processKey]bool
 	logs         map[string]*claudeLog
 	records      map[string]childRecords
 	rolloutMetas map[string]rolloutMeta
@@ -605,6 +611,11 @@ func (r *Reader) forgetEnded(processes []Process) {
 	for key := range r.owners {
 		if !running[key] {
 			delete(r.owners, key)
+		}
+	}
+	for key := range r.turns {
+		if !running[key] {
+			delete(r.turns, key)
 		}
 	}
 	for key := range r.commands {

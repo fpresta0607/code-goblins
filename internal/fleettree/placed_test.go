@@ -73,3 +73,51 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 		t.Errorf("command lines read %v times over two readings, want each once", reads)
 	}
 }
+
+// A test run in the machine's heavy line starts stand-ins such as
+// cmd /c "ping -n 30 127.0.0.1 >NUL" and ends the cmd, which leaves the
+// ping running with no parent: on 2026-10-14 ten such pings in 45 seconds
+// woke the CFO as one goblin's loop. Without its parent nothing says what
+// started it but the turn its environment names (verify.TurnVariable), which
+// every process of the run inherits, so a process that names one is in a
+// run. A detached process that names none is not.
+func TestPlacedPutsWhatAHeavyLineRunLeftWithoutAParentInTheRun(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	later := func(minutes int) time.Time { return launched.Add(time.Duration(minutes) * time.Minute) }
+	processes := append(goblinProcesses(launched, 0),
+		Process{PID: 300, ParentPID: 906, Exe: "PING.EXE", Created: 30, Started: later(50)},
+		Process{PID: 310, ParentPID: 907, Exe: "node.exe", Created: 31, Started: later(51)},
+	)
+	commands := maps.Clone(goblinCommands)
+	commands[300], commands[310] = "ping -n 30 127.0.0.1", "node server.js"
+	asked := map[int]int{}
+	reader := Reader{
+		Processes:   func() ([]Process, error) { return processes, nil },
+		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+		Owner:       func(pid int) string { return map[int]string{300: "tree", 310: "tree"}[pid] },
+		InTurn:      func(pid int) bool { asked[pid]++; return pid == 300 },
+	}
+	owners := []Goblin{{Meta: state.TaskMeta{ID: "tree"}, HarnessPID: 100}}
+
+	// Act: two readings.
+	if _, err := reader.Placed(owners); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := reader.Placed(owners)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	inRun := map[int]bool{}
+	for _, process := range placed {
+		inRun[process.PID] = process.InRun
+	}
+	if !inRun[300] || inRun[310] {
+		t.Errorf("in a run: the ping %v and the server %v, want the ping in the heavy line's run and the server in none", inRun[300], inRun[310])
+	}
+	if asked[300] != 1 || asked[310] != 1 {
+		t.Errorf("asked whether each runs in a turn %v times over two readings, want once in each process's life", asked)
+	}
+}

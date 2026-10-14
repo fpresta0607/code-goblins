@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // Admission is how verification runs take turns on one machine. A run holds
@@ -78,6 +79,23 @@ type Turn struct {
 // as cfo gate test does behind cfo gate turn, would otherwise wait for the
 // turn its own starter holds, for good.
 const TurnVariable = "CFO_VERIFY_TURN"
+
+// RunsInTurn says process pid runs inside a turn of the heavy line: its
+// environment names one, as it does to everything a run starts, a process
+// whose parent has ended too. One whose environment cannot be read names
+// none. It reads only that variable, and keeps nothing it read.
+func RunsInTurn(pid int) bool {
+	environment, err := proc.Environment(pid)
+	if err != nil {
+		return false
+	}
+	for _, entry := range environment {
+		if name, value, _ := strings.Cut(entry, "="); strings.EqualFold(name, TurnVariable) && value != "" {
+			return true
+		}
+	}
+	return false
+}
 
 // Token names the turn for TurnVariable, or is empty for a turn that was
 // never taken. A run inside a turn hands on the token it was started with.
