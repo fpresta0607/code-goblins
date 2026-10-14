@@ -34,6 +34,8 @@ var (
 	// ErrPageChanged is a key page without the recipe's controls, or with
 	// more than one of them.
 	ErrPageChanged = errors.New("the page changed")
+	// errKeyMasked is a key row whose key never showed whole.
+	errKeyMasked = errors.New("the key stayed hidden or masked on the page, so nothing was read")
 )
 
 // tokensNearLabel climbs from the node a row's accessible name belongs to,
@@ -145,11 +147,11 @@ func callBrowser(ctx context.Context, address, method string, params, result any
 // openKeyPage loads page and waits until it shows account signed in. A page
 // that settles off the signed-in address is ErrSignedOut, and one signed in
 // on another account is refused before anything on it is read.
-func openKeyPage(ctx context.Context, connection *cdp.Conn, provider keypages.Provider, page, account string) error {
-	if err := loadPage(ctx, connection, page); err != nil {
+func openKeyPage(caller context.Context, connection *cdp.Conn, provider keypages.Provider, page, account string) error {
+	if err := loadPage(caller, connection, page); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, keyWait)
+	ctx, cancel := context.WithTimeout(caller, keyWait)
 	defer cancel()
 	var signedOutSince time.Time
 	for {
@@ -157,6 +159,8 @@ func openKeyPage(ctx context.Context, connection *cdp.Conn, provider keypages.Pr
 		switch {
 		case errors.Is(err, errPageChanging):
 			signedOutSince = time.Time{}
+		case err != nil && isWaitOver(ctx, caller):
+			return errors.New("the key page did not load in time")
 		case err != nil:
 			return err
 		case isSignedIn && shown == account:
@@ -229,11 +233,14 @@ func named(ctx context.Context, connection *cdp.Conn, name, role string) ([]axNo
 
 // waitNamed waits for the page to show nodes named name, as named finds
 // them. A page that shows none in time has changed.
-func waitNamed(ctx context.Context, connection *cdp.Conn, name, role string) ([]axNode, error) {
-	ctx, cancel := context.WithTimeout(ctx, keyWait)
+func waitNamed(caller context.Context, connection *cdp.Conn, name, role string) ([]axNode, error) {
+	ctx, cancel := context.WithTimeout(caller, keyWait)
 	defer cancel()
 	for {
 		nodes, err := named(ctx, connection, name, role)
+		if err != nil && isWaitOver(ctx, caller) {
+			return nil, ErrPageChanged
+		}
 		if err != nil || len(nodes) > 0 {
 			return nodes, err
 		}
@@ -280,17 +287,33 @@ func clickControl(ctx context.Context, connection *cdp.Conn, name string) error 
 // readKey reads key's value from beside its row's name once the page shows
 // it whole. Two different whole values beside the name are refused rather
 // than one guessed at.
-func readKey(ctx context.Context, connection *cdp.Conn, key keypages.Key) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, keyWait)
+func readKey(caller context.Context, connection *cdp.Conn, key keypages.Key) (string, error) {
+	ctx, cancel := context.WithTimeout(caller, keyWait)
 	defer cancel()
+	// timedOut is the read's answer once its bound ran out: the row was
+	// never there, or its key never showed whole.
+	labelsSeen := 0
+	timedOut := func() (string, error) {
+		if labelsSeen == 0 {
+			return "", ErrPageChanged
+		}
+		return "", errKeyMasked
+	}
 	for {
 		labels, err := named(ctx, connection, key.Row, "")
+		if err != nil && isWaitOver(ctx, caller) {
+			return timedOut()
+		}
 		if err != nil {
 			return "", err
 		}
+		labelsSeen = len(labels)
 		var whole []string
 		for _, label := range labels {
 			words, err := wordsNear(ctx, connection, label, key.Prefix)
+			if err != nil && isWaitOver(ctx, caller) {
+				return timedOut()
+			}
 			if err != nil {
 				return "", err
 			}
@@ -307,12 +330,17 @@ func readKey(ctx context.Context, connection *cdp.Conn, key keypages.Key) (strin
 			return "", ErrPageChanged
 		}
 		if sleep(ctx, keyPoll) != nil {
-			if len(labels) == 0 {
-				return "", ErrPageChanged
-			}
-			return "", errors.New("the key stayed hidden or masked on the page, so nothing was read")
+			return timedOut()
 		}
 	}
+}
+
+// isWaitOver says a read failed because its wait's own bound ran out inside
+// it while its caller's had not: on a slow machine a read of the page can
+// take long enough that the bound ends during it rather than between two,
+// and then what the wait found stands, not the read's own failure.
+func isWaitOver(wait, caller context.Context) bool {
+	return wait.Err() != nil && caller.Err() == nil
 }
 
 // wordsNear runs tokensNearLabel on label's DOM node.
