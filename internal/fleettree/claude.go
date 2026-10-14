@@ -24,8 +24,11 @@ import (
 // task id when the command was left running; the Monitor call whose result
 // names its task id; a TaskStop that ends one; and a task-notification, once
 // queued and once delivered, when a background task or sub-agent completes,
-// fails, is killed or stopped, or a monitor reports an event. Each sub-agent
-// keeps its own transcript under <session>/subagents/agent-<id>.jsonl.
+// fails, is killed or stopped, or a monitor reports an event, its last when
+// it ran out its time. Each sub-agent keeps its own transcript under
+// <session>/subagents/agent-<id>.jsonl. A shell or monitor stopped from
+// Claude Code's own screen, or ended with the conversation it ran in, is
+// recorded nowhere.
 type claudeLog struct {
 	path string
 	// read is how many bytes of whole entries were parsed, written the
@@ -42,15 +45,17 @@ type claudeLog struct {
 	// pending are the calls that become children only when their result
 	// says they kept running, by call id.
 	pending map[string]pendingCall
-	// agents and outputs are each sub-agent's id and each shell's output
-	// file, by call id, and commands each background shell's command, by
-	// its node's id.
+	// agents, outputs and events are each sub-agent's id, each shell's
+	// output file and each monitor's newest event lines, by call id, and
+	// commands each background shell's and monitor's command, by its node's
+	// id.
 	agents   map[string]string
 	outputs  map[string]string
+	events   map[string][]string
 	commands map[string]string
-	// transcripts are each sub-agent's own transcript, by its node's id, as
-	// the last read of the children found them.
-	transcripts map[string]string
+	// records are each child's own output, by its node's id, as the last
+	// read of the children found them.
+	records map[string]childRecord
 }
 
 type pendingCall struct {
@@ -83,7 +88,7 @@ type claudeBlock struct {
 }
 
 func newClaudeLog(path string) *claudeLog {
-	return &claudeLog{path: path, children: map[string]*Node{}, tasks: map[string]string{}, pending: map[string]pendingCall{}, agents: map[string]string{}, outputs: map[string]string{}, commands: map[string]string{}, transcripts: map[string]string{}}
+	return &claudeLog{path: path, children: map[string]*Node{}, tasks: map[string]string{}, pending: map[string]pendingCall{}, agents: map[string]string{}, outputs: map[string]string{}, events: map[string][]string{}, commands: map[string]string{}, records: map[string]childRecord{}}
 }
 
 // claudeReadChunk bounds one read of new entries.
@@ -166,13 +171,13 @@ func (l *claudeLog) entry(line []byte) {
 	if entry.Type == "queue-operation" {
 		var content string
 		if entry.Operation == "enqueue" && json.Unmarshal(entry.Content, &content) == nil {
-			l.notification(content, entry.Timestamp)
+			l.notification(content, entry.Timestamp, true)
 		}
 		return
 	}
 	var text string
 	if json.Unmarshal(entry.Message.Content, &text) == nil {
-		l.notification(text, entry.Timestamp)
+		l.notification(text, entry.Timestamp, false)
 		return
 	}
 	var blocks []claudeBlock
@@ -282,6 +287,7 @@ func (l *claudeLog) result(block claudeBlock, raw json.RawMessage, at time.Time)
 		}
 		l.children[block.ToolUseID] = &Node{ID: "monitor:" + result.TaskID, Kind: KindMonitor, Label: call.label, Detail: "monitor", Task: task(call.command), State: Working, Started: call.started, LastActivity: at}
 		l.tasks[result.TaskID] = block.ToolUseID
+		l.commands["monitor:"+result.TaskID] = call.command
 	case "TaskStop", "KillShell":
 		target := result.StoppedTaskID
 		if target == "" {
@@ -296,9 +302,14 @@ func (l *claudeLog) result(block claudeBlock, raw json.RawMessage, at time.Time)
 
 var notificationTag = regexp.MustCompile(`(?s)<(task-id|tool-use-id|status|summary|event|output-file)>(.*?)</(?:task-id|tool-use-id|status|summary|event|output-file)>`)
 
+// monitorEnded is the event Claude Code ends a monitor with when it ran out
+// its time.
+var monitorEnded = regexp.MustCompile(`^\[Monitor (expired|timed out)\b`)
+
 // notification records a task-notification: a child's end, or a monitor's
-// event.
-func (l *claudeLog) notification(text string, at time.Time) {
+// event. Each comes twice, queued and then delivered, and a monitor's event
+// is kept from the queued copy, which every delivered one follows.
+func (l *claudeLog) notification(text string, at time.Time, isQueued bool) {
 	if !strings.Contains(text, "<task-notification>") {
 		return
 	}
@@ -327,9 +338,18 @@ func (l *claudeLog) notification(text string, at time.Time) {
 			child.LastLine = bounded(tags["summary"], 200)
 		}
 	case "":
-		if event := tags["event"]; event != "" {
-			child.LastActivity = later(child.LastActivity, at)
-			child.LastLine = bounded(firstLine(event), 200)
+		event := tags["event"]
+		if event == "" {
+			break
+		}
+		if isQueued {
+			l.events[id] = append(l.events[id], outputLines(event)...)
+			l.events[id] = l.events[id][max(0, len(l.events[id])-ChildLinesKept):]
+		}
+		child.LastActivity = later(child.LastActivity, at)
+		child.LastLine = bounded(firstLine(event), 200)
+		if monitorEnded.MatchString(event) {
+			finish(child, Done, at)
 		}
 	}
 }
@@ -360,10 +380,16 @@ const claudeChildrenKept = 40
 func (l *claudeLog) nodes(now time.Time) []Node {
 	session := strings.TrimSuffix(l.path, filepath.Ext(l.path))
 	agentsByCall := l.agentFiles(session)
-	l.transcripts = map[string]string{}
+	l.records = map[string]childRecord{}
 	var out []Node
 	for id, child := range l.children {
 		node := *child
+		switch node.Kind {
+		case KindShell:
+			l.records[node.ID] = childRecord{lines: typed(l.commands[node.ID]), output: l.outputs[id]}
+		case KindMonitor:
+			l.records[node.ID] = childRecord{lines: append(typed(l.commands[node.ID]), l.events[id]...)}
+		}
 		if node.Kind == KindSubagent {
 			agent := l.agents[id]
 			if agent == "" {
@@ -373,7 +399,7 @@ func (l *claudeLog) nodes(now time.Time) []Node {
 			// an id of the harness's own shape is followed.
 			if sessionID.MatchString(agent) {
 				transcript := filepath.Join(session, "subagents", "agent-"+agent+".jsonl")
-				l.transcripts[node.ID] = transcript
+				l.records[node.ID] = childRecord{transcript: transcript}
 				if written, line := claudeTail(transcript); !written.IsZero() {
 					node.SourceUpdatedAt = written
 					node.LastActivity = later(node.LastActivity, written)

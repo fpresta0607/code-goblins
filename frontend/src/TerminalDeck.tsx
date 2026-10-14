@@ -18,8 +18,8 @@ import { terminalOf } from "./task-words";
 // reconnect, no replay and no blank frame. A native terminal keeps its own
 // socket; Herdr views stay within Herdr's stream limit. The shown terminal
 // fills the panel; the Overlord picks the goblin on the board. A goblin's
-// sub-agent (child) shows its own record as its terminal; any other baby
-// goblin shows its goblin's terminal. A goblin's slot whose terminal cannot
+// baby goblin (child) shows its own output as its terminal, never its
+// goblin's (the Overlord, 2026-10-13). A goblin's slot whose terminal cannot
 // take typing now, a goblin paused, resuming or starting, has a message box
 // under what it shows, so what he writes is queued and delivered once (the
 // Overlord, 2026-10-08). The CFO's slot has none: while no CFO runs, closed
@@ -28,8 +28,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
   snapshot: Snapshot; task?: Task; node?: Session; child?: TreeNode; cfo: boolean; shown: boolean; connected: boolean; focus: number; onOwner?: () => void;
 }) {
   const owner = !!task && (!!task.generation || !!sessionEnd(task)) && (!node || ownsTaskSession(node, task));
-  const agent = child?.kind === "subagent" ? child : undefined;
-  const key = cfo ? CFO_KEY : owner && !agent ? task.id : "";
+  const key = cfo ? CFO_KEY : owner && !child ? task.id : "";
   const [live, setLive] = useState<string[]>([]);
   const herdr = (candidate: string) => {
     if (candidate === CFO_KEY) return cfoView(snapshot).kind === "herdr";
@@ -67,9 +66,9 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
           ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
           : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} harness={each.harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
       })}
-      {shown && agent && task && <div className="deck-slot"><AgentTerminal task={task} child={agent} visible={connected} /></div>}
+      {shown && child && task && <div className="deck-slot"><AgentTerminal task={task} child={child} visible={connected} /></div>}
       {/* A queued task or a child session has no terminal of its own to keep. */}
-      {shown && !key && !agent && (task && takesMessages(task) ? messaging("idle", true, <TerminalEmpty text={idle.text} />, task)
+      {shown && !key && !child && (task && takesMessages(task) ? messaging("idle", true, <TerminalEmpty text={idle.text} />, task)
         : slot("idle", true, <TerminalEmpty text={idle.text} onOwner={node ? onOwner : undefined} />))}
     </div>
   </div>;

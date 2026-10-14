@@ -4,23 +4,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// agentRecords are a goblin's sub-agents' own records, by node id, and the
-// harness that keeps them.
-type agentRecords struct {
-	harness string
-	paths   map[string]string
+// childRecords are a goblin's children's own outputs, by node id, and the
+// harness that keeps its sub-agents' records.
+type childRecords struct {
+	harness  string
+	children map[string]childRecord
 }
 
-// keepAgents keeps task's sub-agents' records as a read of its tree found
-// them. The caller holds the reader's lock.
-func (r *Reader) keepAgents(task, harness string, paths map[string]string) {
-	if r.agents == nil {
-		r.agents = map[string]agentRecords{}
-	}
-	r.agents[task] = agentRecords{harness: harness, paths: paths}
+// childRecord is where one child's own output is: the record its harness
+// keeps of a sub-agent, or the lines the read itself holds of any other
+// child, followed for a background shell by the newest lines of its output
+// file.
+type childRecord struct {
+	transcript string
+	lines      []string
+	output     string
 }
 
 // AgentTranscript is the record the harness keeps of the sub-agent node of
@@ -30,26 +35,86 @@ func (r *Reader) keepAgents(task, harness string, paths map[string]string) {
 func (r *Reader) AgentTranscript(task, node string) (string, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	records := r.agents[task]
-	if path := records.paths[node]; path != "" {
+	records := r.records[task]
+	if path := records.children[node].transcript; path != "" {
 		return path, records.harness
 	}
 	return "", ""
 }
 
-// ErrNoRecord says the last read of a goblin's tree kept no record of the
+// ErrNoRecord says the last read of a goblin's tree kept no output of the
 // child named.
-var ErrNoRecord = errors.New("no record of that child is kept")
+var ErrNoRecord = errors.New("no output of that child is kept")
 
-// ChildLines are the newest lines of a child's own output.
+// ChildLines are the newest lines of a child of task's goblin's own output,
+// as the reader last read that goblin's tree: a sub-agent's work as its own
+// record holds it (AgentLines), a background shell's command and what it
+// wrote, a monitor's command and its events, the programs a job of
+// processes runs, or a gate run's steps. Never the goblin's, and never
+// another child's.
 func (r *Reader) ChildLines(task, node string) ([]string, error) {
-	return nil, ErrNoRecord
+	r.mu.Lock()
+	records := r.records[task]
+	record, isKept := records.children[node]
+	r.mu.Unlock()
+	switch {
+	case !isKept:
+		return nil, ErrNoRecord
+	case record.transcript != "":
+		return AgentLines(record.transcript, records.harness)
+	case record.output != "":
+		output, err := outputFileLines(record.output)
+		if err != nil {
+			return nil, err
+		}
+		lines := append(slices.Clone(record.lines), output...)
+		return lines[max(0, len(lines)-ChildLinesKept):], nil
+	}
+	return record.lines, nil
 }
 
-// AgentLinesKept is how many of a sub-agent's newest lines its terminal
-// holds, and agentLineLimit how long each may run.
+// outputFileLines are the newest lines a background shell wrote to its
+// output file.
+func outputFileLines(path string) ([]string, error) {
+	file, err := fsx.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("the shell's output cannot be read: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("the shell's output cannot be read: %w", err)
+	}
+	start := max(0, info.Size()-outputFileReach)
+	data := make([]byte, info.Size()-start)
+	if _, err := file.ReadAt(data, start); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("the shell's output cannot be read: %w", err)
+	}
+	lines := outputLines(string(data))
+	return lines[max(0, len(lines)-ChildLinesKept):], nil
+}
+
+// outputFileReach bounds how much of an output file's end its terminal
+// reads.
+const outputFileReach = 256 << 10
+
+// outputLines are text's lines as a terminal shows them: its colors and
+// cursor moves dropped, a carriage return starting a line, blank lines left
+// out and each line bounded.
+func outputLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(strings.ReplaceAll(ansi.ReplaceAllString(text, ""), "\r", "\n"), "\n") {
+		if line = strings.TrimRight(line, " \t"); strings.TrimSpace(line) != "" {
+			lines = append(lines, bounded(line, agentLineLimit))
+		}
+	}
+	return lines
+}
+
+// ChildLinesKept is how many of a child's newest lines its terminal holds,
+// and agentLineLimit how long each may run.
 const (
-	AgentLinesKept = 400
+	ChildLinesKept = 400
 	agentLineLimit = 400
 )
 
@@ -74,7 +139,7 @@ func AgentLines(path, harness string) ([]string, error) {
 			lines = append(lines, bounded(line, agentLineLimit))
 		}
 	}
-	return lines[max(0, len(lines)-AgentLinesKept):], nil
+	return lines[max(0, len(lines)-ChildLinesKept):], nil
 }
 
 // claudeAgentEntry draws one entry of a Claude Code transcript.

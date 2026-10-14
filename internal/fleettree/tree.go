@@ -7,6 +7,7 @@
 package fleettree
 
 import (
+	"slices"
 	"time"
 )
 
@@ -117,6 +118,9 @@ type Node struct {
 	// gate is a gate run's step at work or parked, which the supervisor
 	// judges the goblin's wait on it by.
 	gate GateStep
+	// lines are the child's own output when the read itself holds it: what
+	// a job's processes run, or a gate run's steps.
+	lines []string
 }
 
 // Tree is one goblin with what runs under it.
@@ -137,6 +141,17 @@ type Tree struct {
 	Unread          []string  `json:"unread,omitempty"`
 	SourceUpdatedAt time.Time `json:"source_updated_at"`
 	FetchedAt       time.Time `json:"fetched_at"`
+
+	// own are the jobs of the goblin's own commands, which count in the
+	// goblin rather than as children: what a command it runs in the
+	// foreground starts, and a helper such as a waiter a script left. The
+	// monitor reads their processor use as the goblin's.
+	own []Node
+}
+
+// withOwn is the goblin's children and the jobs of its own commands.
+func (t Tree) withOwn() []Node {
+	return append(slices.Clone(t.Children), t.own...)
 }
 
 // Working says a child of the goblin is working: the goblin counts as
@@ -144,7 +159,7 @@ type Tree struct {
 // goblin's is no such child: a server or a browser it left detached, which
 // must not hide a goblin that has stalled, and a machine service.
 func (t Tree) Working() bool {
-	for _, child := range t.Children {
+	for _, child := range t.withOwn() {
 		if child.State == Working && child.isWork() {
 			return true
 		}
@@ -187,7 +202,7 @@ func (t Tree) ActivityAt() time.Time {
 // used the processor, of the jobs whose processor use is its work.
 func (t Tree) Busy() time.Time {
 	var busy time.Time
-	for _, child := range t.Children {
+	for _, child := range t.withOwn() {
 		if child.Kind == KindProcess && child.isWork() && child.LastActivity.After(busy) {
 			busy = child.LastActivity
 		}
@@ -202,7 +217,7 @@ func (t Tree) Busy() time.Time {
 func (t Tree) Jobs() ([]string, time.Duration) {
 	var names []string
 	var used time.Duration
-	for _, child := range t.Children {
+	for _, child := range t.withOwn() {
 		switch {
 		case child.process != "":
 			names = append(names, child.process)

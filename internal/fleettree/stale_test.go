@@ -234,8 +234,8 @@ func TestReadDrawsNoHelperProcessAsAChildOfItsOwn(t *testing.T) {
 	if monitor := child(t, tree, "monitor:m1"); monitor.Memory != 13*megabyte {
 		t.Errorf("monitor memory = %d MB, want its shell, its console's host and its sleep, 13 MB", monitor.Memory/megabyte)
 	}
-	if tree.Memory != 696*megabyte {
-		t.Errorf("the goblin's memory = %d MB, want every process counted once, 696 MB", tree.Memory/megabyte)
+	if tree.Memory != 687*megabyte {
+		t.Errorf("the goblin's memory = %d MB, want every process counted once, 687 MB", tree.Memory/megabyte)
 	}
 	if names, _ := tree.Jobs(); !slices.Contains(names, "cmd.exe (pid 400)") {
 		t.Errorf("Jobs() = %v, want the goblin's own command still named for the monitor", names)

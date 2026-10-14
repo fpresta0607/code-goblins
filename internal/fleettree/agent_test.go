@@ -208,7 +208,7 @@ func TestAgentLinesKeepTheNewestLines(t *testing.T) {
 	// Arrange
 	path := filepath.Join(t.TempDir(), "agent-a1.jsonl")
 	var entries []any
-	for i := range AgentLinesKept + 50 {
+	for i := range ChildLinesKept + 50 {
 		entries = append(entries, said(fmt.Sprintf("step %d %s", i, strings.Repeat("x", 600)), at))
 	}
 	writeLines(t, path, at, entries...)
@@ -220,8 +220,8 @@ func TestAgentLinesKeepTheNewestLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != AgentLinesKept || !strings.HasPrefix(lines[len(lines)-1], fmt.Sprintf("● step %d ", AgentLinesKept+49)) {
-		t.Fatalf("kept %d lines ending %q, want the newest %d", len(lines), lines[len(lines)-1], AgentLinesKept)
+	if len(lines) != ChildLinesKept || !strings.HasPrefix(lines[len(lines)-1], fmt.Sprintf("● step %d ", ChildLinesKept+49)) {
+		t.Fatalf("kept %d lines ending %q, want the newest %d", len(lines), lines[len(lines)-1], ChildLinesKept)
 	}
 	for _, line := range lines {
 		if len([]rune(line)) > 400 {
