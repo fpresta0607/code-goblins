@@ -121,16 +121,16 @@ func TestReadEndsAChildWhoseProcessesEndedOnceSilentPastTheMark(t *testing.T) {
 			)
 			goblin.HarnessPID = 100
 			reader := Reader{
-				Home:        home,
-				Processes:   func() ([]Process, error) { return staleHarness(tc.running...), nil },
-				Listeners:   func() (map[int][]int, error) { return nil, nil },
+				Home:      home,
+				Processes: func() ([]Process, error) { return staleHarness(tc.running...), nil },
+				Listeners: func() (map[int][]int, error) { return nil, nil },
 				CommandLine: func(pid int) (string, error) {
 					if tc.unreadable {
 						return "", errors.New("access is denied")
 					}
 					return tc.lines[pid], nil
 				},
-				Now:         func() time.Time { return at },
+				Now: func() time.Time { return at },
 			}
 
 			// Act
@@ -372,8 +372,10 @@ func TestReadGivesAJobToTheShellThatStartedNearestIt(t *testing.T) {
 	)
 	goblin.HarnessPID = 100
 	reader := Reader{
-		Home:      home,
-		Processes: func() ([]Process, error) { return staleHarness(Process{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: second}), nil },
+		Home: home,
+		Processes: func() ([]Process, error) {
+			return staleHarness(Process{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: second}), nil
+		},
 		Listeners: func() (map[int][]int, error) { return nil, nil },
 		CommandLine: func(pid int) (string, error) {
 			return `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'npm run dev' < /dev/null"`, nil
