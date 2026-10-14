@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -23,6 +24,9 @@ const (
 	maxRequest   = 4 << 10
 	// pendingLimit bounds the GitHub calls that find a waiting job.
 	pendingLimit = 30 * time.Second
+	// maxClients bounds the clients answered at once. One past them is
+	// dropped as it connects.
+	maxClients = 16
 	// fleetAccess is what the fleet's user may do with the pipe: read and
 	// write it, FILE_GENERIC_READ and FILE_GENERIC_WRITE, less
 	// FILE_CREATE_PIPE_INSTANCE, which on a pipe is FILE_APPEND_DATA's bit,
@@ -58,6 +62,7 @@ func (p *Pipe) Serve(ctx context.Context, s *Service) error {
 	defer stop()
 	var clients sync.WaitGroup
 	defer clients.Wait()
+	answering := make(chan struct{}, maxClients)
 	for {
 		connection, err := p.accept()
 		if ctx.Err() != nil {
@@ -72,9 +77,17 @@ func (p *Pipe) Serve(ctx context.Context, s *Service) error {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
+		select {
+		case answering <- struct{}{}:
+		default:
+			connection.Close()
+			s.refuse(fmt.Sprintf("a client past the %d the service answers at once", maxClients))
+			continue
+		}
 		clients.Add(1)
 		go func() {
 			defer clients.Done()
+			defer func() { <-answering }()
 			s.answer(ctx, connection)
 		}()
 	}
@@ -121,16 +134,30 @@ func (s *Service) answer(ctx context.Context, connection *os.File) {
 			_, _ = connection.Read(rest[:])
 			cancel()
 		}()
-		s.Log("a run was asked for")
+		// A run that started something says so, and is logged whole. One
+		// that started nothing, as no job waited, is tallied, so runs
+		// asked for without end cannot push a job's lines out of the log.
+		var isStarted atomic.Bool
 		outcome, err := s.Run(running, func(line string) {
+			isStarted.Store(true)
 			s.Log(line)
 			_ = reply.Encode(Reply{Kind: ReplyProgress, Line: line})
 		})
 		done := Reply{Kind: ReplyDone, Outcome: outcome}
-		s.Log("the run ended: " + string(outcome))
+		ending := string(outcome)
 		if err != nil {
 			done.Error = err.Error()
-			s.Log("the run's error: " + done.Error)
+			ending += ": " + done.Error
+		}
+		if isStarted.Load() {
+			s.Log("the run ended: " + string(outcome))
+			if err != nil {
+				s.Log("the run's error: " + done.Error)
+			}
+		} else {
+			s.note(&s.idle, func(count int) string {
+				return fmt.Sprintf("%d run(s) asked for started nothing, the last ending %s", count, ending)
+			})
 		}
 		_ = reply.Encode(done)
 	default:

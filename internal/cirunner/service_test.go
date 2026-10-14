@@ -219,6 +219,62 @@ func TestServiceRefusesAPublicRepository(t *testing.T) {
 	}
 }
 
+// Runs asked for one after another take GitHub's answer as asks for the
+// waiting job do, so a client asking for runs without end cannot spend the
+// App's rate limit either: one ask whether the repository is private and
+// one for a waiting job, until the answer is pendingFresh old.
+func TestRunsAskGitHubOnceWhileItsAnswerIsFresh(t *testing.T) {
+	for name, row := range map[string]struct {
+		queuedErr error
+		want      Outcome
+	}{
+		"no job waits":   {want: NoJob},
+		"GitHub refuses": {queuedErr: errors.New("GitHub answered HTTP 403"), want: Failed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{queued: &Pending{}, queuedErr: row.queuedErr}
+			var config string
+			s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+
+			// Act
+			for range 20 {
+				if outcome, _ := s.Run(context.Background(), func(string) {}); outcome != row.want {
+					t.Fatalf("Run ended %q; want %q", outcome, row.want)
+				}
+			}
+			once, privateOnce := f.asks, f.privacyAsks
+			s.Deps.Sleep(context.Background(), pendingFresh)
+			_, _ = s.Run(context.Background(), func(string) {})
+
+			// Assert
+			if once != 1 || privateOnce != 1 || f.asks != 2 || f.privacyAsks != 2 {
+				t.Errorf("GitHub was asked %d time(s) for a job and %d whether the repository is private for 20 runs, and %d and %d in all once the answer was %v old; want 1, 1, 2 and 2", once, privateOnce, f.asks, f.privacyAsks, pendingFresh)
+			}
+		})
+	}
+}
+
+// An ask its client gave up on is no answer, so the next ask asks GitHub
+// again rather than being given the client's own end.
+func TestPendingKeepsNoAnswerItsClientGaveUpOn(t *testing.T) {
+	// Arrange
+	f := &fakeJob{}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = s.Pending(gone)
+
+	// Act
+	pending, err := s.Pending(context.Background())
+
+	// Assert
+	if err != nil || !pending.IsWaiting {
+		t.Errorf("Pending = %+v, %v after a client gave up; want GitHub asked again and the waiting job", pending, err)
+	}
+}
+
 // Many asks at once for the waiting job make one ask of GitHub, and an
 // answer is given again until it is pendingFresh old, so a client asking
 // without end cannot spend the App's rate limit.
