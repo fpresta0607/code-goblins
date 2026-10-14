@@ -229,6 +229,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
 		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
+		FileRoot:         fileRootFrom(runtime, *example),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
 		VerifyReports:    verify.Reports,

@@ -60,13 +60,13 @@ type Options struct {
 	// or MERGED; without it a finished task whose merge no fleet history
 	// shows reads Finished.
 	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
-	// Tickets keeps a GitHub issue for each task in a repository other
-	// people work in; without it no ticket is kept.
-	Tickets *Tickets
 	// FileRoot files a root issue on the repository of a project, a name or
 	// a path, through the screen cfo issue file uses, or comments on the
 	// open issue of the same root; without it the supervisor files none.
 	FileRoot func(ctx context.Context, project string, root tickets.Root) (tickets.FiledRoot, error)
+	// Tickets keeps a GitHub issue for each task in a repository other
+	// people work in; without it no ticket is kept.
+	Tickets *Tickets
 	// VerifyReports reads a project's cfo gate test reports, the newest
 	// first, which put each task's newest run on its card; without it no
 	// card shows one.

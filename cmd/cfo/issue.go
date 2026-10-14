@@ -181,3 +181,14 @@ func isPublicProject(ctx context.Context, github tickets.GitHub, runtime command
 	isPublic, err := github.IsPublic(ctx, repository)
 	return err == nil && isPublic
 }
+
+// fileRootFrom is the supervisor's filing path, the one cfo issue file uses,
+// or nil on the example board, whose made-up work must never reach GitHub.
+func fileRootFrom(runtime commandRuntime, isExample bool) func(context.Context, string, tickets.Root) (tickets.FiledRoot, error) {
+	if isExample {
+		return nil
+	}
+	return func(ctx context.Context, project string, root tickets.Root) (tickets.FiledRoot, error) {
+		return fileRoot(ctx, runtime, project, root, time.Now())
+	}
+}

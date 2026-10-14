@@ -115,3 +115,39 @@ func TestATrainLandsAndSaysSoWhenTheTestsThatFailedOnceCannotBeRead(t *testing.T
 		})
 	}
 }
+
+// Each test a run that passed saw fail once is heard of once, with the train
+// it rode, as a root issue to file, and a run read already is not heard of
+// again.
+func TestATrainHearsOfEachTestThatFailedOnceOnceARun(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	tests := []string{"go (rest): example.test/internal/train TestTrainLands"}
+	s := newScratch(t)
+	gh := newFakeGitHub(s)
+	first := gh.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+	gh.once = onceAnswer(tests...)
+	riders, _ := Riders([]PullRequest{first}, "main", fleetAccount, goblinsFor(first), nil)
+	engine := s.engine(gh)
+	var heard [][]string
+	engine.FailedOnce = func(_ context.Context, train Train, named []string) {
+		heard = append(heard, append([]string{train.ID}, named...))
+	}
+	started, err := engine.Start(context.Background(), s.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	landed := s.step(engine, started.ID)
+	again := landed
+	noteErr := engine.noteFailedOnce(context.Background(), &again)
+
+	// Assert
+	if noteErr != nil || landed.State != StateLanded {
+		t.Fatalf("train %s, note %v, want it landed", landed.State, noteErr)
+	}
+	if len(heard) != 1 || !slices.Equal(heard[0], append([]string{started.ID}, tests...)) {
+		t.Fatalf("heard %v, want the test once with its train", heard)
+	}
+}

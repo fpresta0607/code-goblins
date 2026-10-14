@@ -110,3 +110,18 @@ func TestNoRootIsFiledWithoutAFilingPath(t *testing.T) {
 		t.Fatal("classes were kept for a board that files nothing")
 	}
 }
+
+func TestTheSupervisorsErrorWakeFilesALineMetAgainAnHourLater(t *testing.T) {
+	// Arrange
+	service, filings := filingBoard(t, nil)
+	first := time.Date(2026, 10, 14, 18, 0, 0, 0, time.UTC)
+
+	// Act
+	service.wakeForNewErrors(errors.New("page sweep: read 3 pages failed"), first)
+	service.wakeForNewErrors(errors.New("page sweep: read 5 pages failed"), first.Add(time.Hour))
+
+	// Assert
+	if filing := nextFiling(t, filings); filing.root.RootKey() != "error:page sweep: read n pages failed" {
+		t.Fatalf("filing = %+v", filing)
+	}
+}
