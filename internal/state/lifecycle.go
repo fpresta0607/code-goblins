@@ -90,6 +90,27 @@ func (record Lifecycle) SuppressesMonitoring(directory string) bool {
 	return false
 }
 
+// IsInterruptedResume reports whether record is the last resume of meta's
+// task, cut short or failed, which a Resume takes up again.
+func (record Lifecycle) IsInterruptedResume(meta TaskMeta) bool {
+	return record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") && meta.ResumeOperation == record.Operation
+}
+
+// LeavesRunning reports whether record leaves meta's goblin meant to run, so
+// a goblin whose terminal is gone, as a restart leaves every one, comes back:
+// a running goblin, and one whose resume was cut short, before or after it
+// published its new generation, with no controller left to finish it. A
+// goblin paused or stopped, whose pause or stop was cut short, whose failed
+// pause took hold, or whose resume failed and waits for a Resume, stays as it
+// was left. A record of another generation says nothing of this goblin,
+// unless it is the resume that published that generation.
+func (record Lifecycle) LeavesRunning(directory string, meta TaskMeta) bool {
+	if record.Generation != meta.SpawnGen && !record.IsInterruptedResume(meta) {
+		return true
+	}
+	return record.Phase == "running" || record.Phase == "resuming" && !record.SuppressesMonitoring(directory)
+}
+
 // LifecyclePath is where task id's lifecycle record is.
 func LifecyclePath(directory, id string) string {
 	return filepath.Join(directory, "lifecycle", id+".json")
