@@ -945,6 +945,7 @@ cfo runtime [--json]
 cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
 cfo defender [--since <time|day|length>] [--json]
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
+cfo issue file --project <name|path> --title <title> [--body-file <file>] [--evidence <text>]... [--root <key>]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent-file <file>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
@@ -995,6 +996,14 @@ Pausing or stopping a goblin pauses or stops its helper with it, and a helper pa
 <p align="center">
   <img src="docs/images/family-tree.webp" alt="The family tree on the Orchestration view: under the goblin streaming the billing export, its sub-agents, its helper goblin, a dev server, a test run and a silent background shell as baby goblins with their state, age and memory, and beside it the goblin's panel listing the same under What's working" width="900" />
 </p>
+
+### Root issues
+
+A cause the fleet meets while it works, outside the task at hand, becomes a GitHub issue on the repository it belongs to instead of a note someone has to carry.
+`cfo issue file --project <name|path> --title <title> --body-file <file>` files it with the `ops-root` label, and the CFO and every goblin name the address it prints in their report.
+When an open `ops-root` issue already has the same root, matched by `--root <key>` such as a test's package and name, or else by its title, the command adds a dated comment with the new `--evidence` instead of a second issue.
+Every brief `cfo brief` writes says so in its Constraints.
+On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
 
 ### Working beside teammates
 

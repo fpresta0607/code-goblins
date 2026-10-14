@@ -286,6 +286,9 @@ func (k *ticketKeeper) readPeople(ctx context.Context, tasks []Task, now time.Ti
 		case known.err != nil:
 		case known.IsCollaborative && len(known.People) > 0:
 			k.people[task.Project] = ProjectPeople{Name: task.Project, Repository: known.Repository, Contributors: known.People}
+			if err := tickets.RememberTeammates(k.home.State, known.People); err != nil {
+				k.note("teammates", "remember the teammates of "+known.Repository+": "+err.Error())
+			}
 		default:
 			delete(k.people, task.Project)
 		}
