@@ -503,4 +503,7 @@ func TestBriefScaffoldSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	if at := strings.Index(brief, fleet.BriefProcesses()); at < constraints || at > verification {
 		t.Errorf("the scaffold's Constraints do not say %q:\n%s", fleet.BriefProcesses(), brief)
 	}
+	if at := strings.Index(brief, fleet.BriefRootIssues()); at < constraints || at > verification {
+		t.Errorf("the scaffold's Constraints do not say %q:\n%s", fleet.BriefRootIssues(), brief)
+	}
 }

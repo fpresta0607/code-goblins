@@ -110,9 +110,9 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 		// Bound to the registered CFO by its process, or to the caller the
 		// supervisor proves, and only the CFO's own session registers.
 		{"question", "answer", "run-request", "afk"},
-		// A goblin's for its own task, and the credential commands the
-		// board's own terminals run.
-		{"notify", "helper", "pipeline", "gate", "worktree", "services", "present", "review", "deliver", "auth"},
+		// A goblin's for its own task, the credential commands the board's
+		// own terminals run, and filing a root issue, which goblins do too.
+		{"notify", "helper", "pipeline", "gate", "worktree", "services", "present", "review", "deliver", "auth", "issue"},
 	}
 	sometimes := []string{"drain", "reap", "allowance-floor"}
 	source, err := os.ReadFile("main.go")
