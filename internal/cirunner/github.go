@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ var Labels = []string{"self-hosted", "linux", "x64", "cg-desktop"}
 // ever asked for.
 var allowedCalls = []string{
 	"POST /app/installations/{installation}/access_tokens",
+	"GET /repos/{owner}/{repo}",
 	"GET /repos/{owner}/{repo}/actions/runs",
 	"GET /repos/{owner}/{repo}/actions/runs/{id}/jobs",
 	"POST /repos/{owner}/{repo}/actions/runners/generate-jitconfig",
@@ -125,12 +127,28 @@ func (g *GitHub) QueuedJob(ctx context.Context) (Pending, error) {
 					continue
 				}
 				if !oldest.IsWaiting || job.Created.Before(oldest.Queued) {
-					oldest = Pending{IsWaiting: true, RunID: run.ID, Job: job.Name, Queued: job.Created}
+					oldest = Pending{IsWaiting: true, RunID: run.ID, Job: printable(job.Name), Queued: job.Created}
 				}
 			}
 		}
 	}
 	return oldest, nil
+}
+
+// maxJobName is the most of a job's name the service passes on.
+const maxJobName = 100
+
+// printable is a job's name as the service passes it on: its printable
+// ASCII alone, cut at maxJobName. A workflow names its jobs, and the fleet
+// puts the name in the line it shows and in its command line.
+func printable(name string) string {
+	kept := make([]byte, 0, min(len(name), maxJobName))
+	for i := 0; i < len(name) && len(kept) < maxJobName; i++ {
+		if name[i] >= ' ' && name[i] <= '~' {
+			kept = append(kept, name[i])
+		}
+	}
+	return string(kept)
 }
 
 // isDesktopJob says whether a job asking for labels is the service's: it asks
@@ -167,6 +185,22 @@ func (g *GitHub) RegisterRunner(ctx context.Context, name string) (Runner, error
 	return Runner{ID: answer.Runner.ID, Name: answer.Runner.Name, Config: answer.Config}, nil
 }
 
+// IsPrivate says whether the service's repository is private. A
+// self-hosted runner must never serve a public repository, whose pull
+// requests anyone may open.
+func (g *GitHub) IsPrivate(ctx context.Context) (bool, error) {
+	var answer struct {
+		Private *bool `json:"private"`
+	}
+	if err := g.do(ctx, http.MethodGet, g.repoPath(""), nil, nil, &answer); err != nil {
+		return false, err
+	}
+	if answer.Private == nil {
+		return false, errors.New("cirunner: GitHub did not say whether the repository is private")
+	}
+	return *answer.Private, nil
+}
+
 // RunnerState says whether the runner id is running a job and whether it is
 // online.
 func (g *GitHub) RunnerState(ctx context.Context, id int64) (isBusy, isOnline bool, err error) {
@@ -189,23 +223,36 @@ func (g *GitHub) DeleteRunner(ctx context.Context, id int64) error {
 	return err
 }
 
+// maxRunnerPages bounds the pages of the repository's runners, a hundred
+// each, the service reads to find its own.
+const maxRunnerPages = 50
+
 // DeleteOwnRunners deletes every runner the service registered, as named with
-// RunnerPrefix, and no other.
+// RunnerPrefix, and no other, on every page of the repository's runners.
 func (g *GitHub) DeleteOwnRunners(ctx context.Context) error {
-	var answer struct {
-		Runners []struct {
-			ID   int64  `json:"id"`
-			Name string `json:"name"`
-		} `json:"runners"`
-	}
-	if err := g.do(ctx, http.MethodGet, g.repoPath("/actions/runners"), url.Values{"per_page": {"100"}}, nil, &answer); err != nil {
-		return err
+	var own []int64
+	for page := 1; page <= maxRunnerPages; page++ {
+		var answer struct {
+			Runners []struct {
+				ID   int64  `json:"id"`
+				Name string `json:"name"`
+			} `json:"runners"`
+		}
+		if err := g.do(ctx, http.MethodGet, g.repoPath("/actions/runners"), url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}, nil, &answer); err != nil {
+			return err
+		}
+		for _, runner := range answer.Runners {
+			if strings.HasPrefix(runner.Name, RunnerPrefix) {
+				own = append(own, runner.ID)
+			}
+		}
+		if len(answer.Runners) < 100 {
+			break
+		}
 	}
 	var failures error
-	for _, runner := range answer.Runners {
-		if strings.HasPrefix(runner.Name, RunnerPrefix) {
-			failures = errors.Join(failures, g.DeleteRunner(ctx, runner.ID))
-		}
+	for _, id := range own {
+		failures = errors.Join(failures, g.DeleteRunner(ctx, id))
 	}
 	return failures
 }

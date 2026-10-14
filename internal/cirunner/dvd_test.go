@@ -103,11 +103,12 @@ func TestBuildDVDHoldsTheConfigurationAsItsOneFile(t *testing.T) {
 	}
 }
 
-// A DVD built where one was before replaces it whole.
-func TestBuildDVDReplacesTheLastJobsDVD(t *testing.T) {
+// A DVD is never built into a file that is already there, which another
+// process could have made, and the file there is left as it was.
+func TestBuildDVDRefusesAPathThatHoldsAFile(t *testing.T) {
 	// Arrange
 	path := filepath.Join(t.TempDir(), "job.iso")
-	if err := BuildDVD(path, strings.Repeat("a", 5000)); err != nil {
+	if err := os.WriteFile(path, []byte("made by another"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -115,11 +116,7 @@ func TestBuildDVDReplacesTheLastJobsDVD(t *testing.T) {
 	err := BuildDVD(path, "the next job")
 
 	// Assert
-	image, readErr := os.ReadFile(path)
-	if err != nil || readErr != nil {
-		t.Fatal(err, readErr)
-	}
-	if _, files, err := readDVD(image); err != nil || string(files[DVDFile]) != "the next job" {
-		t.Errorf("read %q, %v; want the next job's configuration alone", files[DVDFile], err)
+	if image, readErr := os.ReadFile(path); err == nil || readErr != nil || string(image) != "made by another" {
+		t.Errorf("BuildDVD = %v, and the file holds %q (%v); want it refused and the file untouched", err, image, readErr)
 	}
 }

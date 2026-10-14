@@ -23,32 +23,48 @@ const (
 	maxRequest   = 4 << 10
 	// pendingLimit bounds the GitHub calls that find a waiting job.
 	pendingLimit = 30 * time.Second
+	// fleetAccess is what the fleet's user may do with the pipe: read and
+	// write it, FILE_GENERIC_READ and FILE_GENERIC_WRITE, less
+	// FILE_CREATE_PIPE_INSTANCE, which on a pipe is FILE_APPEND_DATA's bit,
+	// so the fleet can make no instance of its own to answer in the
+	// service's place.
+	fleetAccess = "0x12019b"
 )
 
 // ErrNotServing is a pipe no service answers on.
 var ErrNotServing = errors.New("cirunner: the CI runner service is not running")
 
-// Serve answers the fleet on the pipe name until ctx ends, then waits for the
-// job a client asked for, if one runs, to end and be cleaned up. Only
-// SYSTEM, Administrators, the service itself and allowed, a SID, may open
-// the pipe. Each client is answered on its own, so a client that asks what
-// runs is answered while a job runs, and Service refuses a second run.
-func Serve(ctx context.Context, s *Service, name, allowed string) error {
-	pipes, err := listen(name, allowed)
+// Begin takes the pipe name, then puts back what a stop mid-job left
+// (Service.Start), so the name is the service's from its first moment, and
+// no process can make the pipe while the service starts and answer the
+// fleet in its place.
+func Begin(ctx context.Context, s *Service, name, allowed string) (*Pipe, error) {
+	pipe, err := Listen(name, allowed)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	stop := context.AfterFunc(ctx, func() { wake(name) })
+	if err := s.Start(ctx); err != nil {
+		return nil, errors.Join(err, pipe.close())
+	}
+	return pipe, nil
+}
+
+// Serve answers the fleet on the pipe until ctx ends, then waits for the
+// job a client asked for, if one runs, to end and be cleaned up. Each client
+// is answered on its own, so a client that asks what runs is answered while
+// a job runs, and Service refuses a second run.
+func (p *Pipe) Serve(ctx context.Context, s *Service) error {
+	stop := context.AfterFunc(ctx, func() { wake(p.text) })
 	defer stop()
 	var clients sync.WaitGroup
 	defer clients.Wait()
 	for {
-		connection, err := pipes.accept()
+		connection, err := p.accept()
 		if ctx.Err() != nil {
 			if connection != nil {
 				connection.Close()
 			}
-			return pipes.close()
+			return p.close()
 		}
 		if err != nil {
 			// A client that left before it connected costs a pause, never
@@ -78,7 +94,7 @@ func (s *Service) answer(ctx context.Context, connection *os.File) {
 	_ = connection.SetReadDeadline(time.Time{})
 	var request Request
 	if err := json.Unmarshal(line, &request); err != nil {
-		s.Log("refused a request that is not JSON")
+		s.refuse("a request that is not JSON")
 		_ = reply.Encode(Reply{Kind: ReplyError, Error: "the request is not JSON"})
 		return
 	}
@@ -118,9 +134,8 @@ func (s *Service) answer(ctx context.Context, connection *os.File) {
 		}
 		_ = reply.Encode(done)
 	default:
-		refusal := fmt.Sprintf("the service answers pending, run and status, not %q", request.Kind)
-		s.Log("refused: " + refusal)
-		_ = reply.Encode(Reply{Kind: ReplyError, Error: refusal})
+		s.refuse("a request of a kind it does not answer")
+		_ = reply.Encode(Reply{Kind: ReplyError, Error: fmt.Sprintf("the service answers pending, run and status, not %q", request.Kind)})
 	}
 }
 
@@ -208,38 +223,45 @@ func wake(name string) {
 
 // pipeSecurity lets SYSTEM, Administrators and this process's own user,
 // which makes each next instance, open the pipe, and allowed read and write
-// it. allowed is parsed as a SID, so no text of its own reaches the
-// descriptor. The medium integrity label lets the fleet, at medium
-// integrity, open a pipe the service made at a higher one.
+// it (fleetAccess). allowed is parsed as a SID, so no text of its own
+// reaches the descriptor, and must name one user's account, never a group,
+// which would let in every member. The medium integrity label lets the
+// fleet, at medium integrity, open a pipe the service made at a higher one.
 func pipeSecurity(allowed string) (*windows.SecurityAttributes, error) {
 	client, err := windows.StringToSid(allowed)
 	if err != nil {
 		return nil, fmt.Errorf("cirunner: the allowed user %q is not a SID: %w", allowed, err)
 	}
+	if _, _, use, err := client.LookupAccount(""); err != nil || use != windows.SidTypeUser {
+		return nil, fmt.Errorf("cirunner: the allowed SID %s names no one user's account (%v)", client, err)
+	}
 	self, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return nil, fmt.Errorf("cirunner: read the service's identity: %w", err)
 	}
-	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + self.User.Sid.String() + ")(A;;GRGW;;;" + client.String() + ")S:(ML;;NW;;;ME)")
+	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + self.User.Sid.String() + ")(A;;" + fleetAccess + ";;;" + client.String() + ")S:(ML;;NW;;;ME)")
 	if err != nil {
 		return nil, fmt.Errorf("cirunner: build the pipe's security descriptor: %w", err)
 	}
 	return &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: descriptor}, nil
 }
 
-// listener serves one pipe name, as the terminal host's does. Every instance
-// is overlapped, so a connected client's file reads and writes through the
+// Pipe serves one pipe name, as the terminal host's does. Every instance is
+// overlapped, so a connected client's file reads and writes through the
 // runtime's poller, with deadlines.
-type listener struct {
+type Pipe struct {
+	text     string
 	name     *uint16
 	security *windows.SecurityAttributes
 	waiting  windows.Handle
 }
 
-// listen makes the pipe's first instance. FILE_FLAG_FIRST_PIPE_INSTANCE
-// fails if another process already made a pipe of this name, so nothing can
-// stand in for a running service.
-func listen(name, allowed string) (*listener, error) {
+// Listen makes the pipe's first instance, which only SYSTEM,
+// Administrators, the service itself and allowed, one user's SID, may open.
+// FILE_FLAG_FIRST_PIPE_INSTANCE fails if another process already made a pipe
+// of this name, and the fleet's user may make no instance (fleetAccess), so
+// nothing can stand in for the service.
+func Listen(name, allowed string) (*Pipe, error) {
 	path, err := windows.UTF16PtrFromString(name)
 	if err != nil {
 		return nil, err
@@ -248,43 +270,43 @@ func listen(name, allowed string) (*listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &listener{name: path, security: security}
-	if l.waiting, err = l.instance(true); err != nil {
+	p := &Pipe{text: name, name: path, security: security}
+	if p.waiting, err = p.instance(true); err != nil {
 		return nil, fmt.Errorf("cirunner: create pipe %s: %w", name, err)
 	}
-	return l, nil
+	return p, nil
 }
 
-func (l *listener) instance(isFirst bool) (windows.Handle, error) {
+func (p *Pipe) instance(isFirst bool) (windows.Handle, error) {
 	flags := uint32(windows.PIPE_ACCESS_DUPLEX | windows.FILE_FLAG_OVERLAPPED)
 	if isFirst {
 		flags |= windows.FILE_FLAG_FIRST_PIPE_INSTANCE
 	}
 	mode := uint32(windows.PIPE_TYPE_BYTE | windows.PIPE_READMODE_BYTE | windows.PIPE_WAIT | windows.PIPE_REJECT_REMOTE_CLIENTS)
-	return windows.CreateNamedPipe(l.name, flags, mode, windows.PIPE_UNLIMITED_INSTANCES, 64<<10, 64<<10, 0, l.security)
+	return windows.CreateNamedPipe(p.name, flags, mode, windows.PIPE_UNLIMITED_INSTANCES, 64<<10, 64<<10, 0, p.security)
 }
 
 // accept waits for the next client and returns its connection, then makes a
 // fresh instance for the one after it. On any failure the waiting instance is
 // disconnected and kept to wait on again, so it never names a closed handle.
-func (l *listener) accept() (*os.File, error) {
-	connected := l.waiting
+func (p *Pipe) accept() (*os.File, error) {
+	connected := p.waiting
 	if err := waitForClient(connected); err != nil {
 		windows.DisconnectNamedPipe(connected)
 		return nil, err
 	}
-	next, err := l.instance(false)
+	next, err := p.instance(false)
 	if err != nil {
 		windows.DisconnectNamedPipe(connected)
 		return nil, fmt.Errorf("cirunner: make the next pipe instance: %w", err)
 	}
-	l.waiting = next
+	p.waiting = next
 	return os.NewFile(uintptr(connected), "ci runner pipe"), nil
 }
 
 // close closes the instance that waits for the next client.
-func (l *listener) close() error {
-	return windows.CloseHandle(l.waiting)
+func (p *Pipe) close() error {
+	return windows.CloseHandle(p.waiting)
 }
 
 // waitForClient blocks until a client connects to pipe.

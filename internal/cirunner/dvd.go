@@ -2,7 +2,9 @@ package cirunner
 
 import (
 	"encoding/binary"
-	"os"
+	"errors"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // The job's DVD is the smallest ISO 9660 volume that holds one file: sixteen
@@ -26,9 +28,17 @@ const (
 )
 
 // BuildDVD writes, at path, the DVD the job's VM reads its runner's
-// configuration from, with config as its one file.
-func BuildDVD(path, config string) error {
-	return os.WriteFile(path, dvdImage([]byte(config)), 0o600)
+// configuration from, with config as its one file. It refuses a path that
+// already holds a file, so the configuration never goes into a file another
+// process made.
+func BuildDVD(path, config string) (failure error) {
+	file, err := fsx.CreateNew(path, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { failure = errors.Join(failure, file.Close()) }()
+	_, err = file.Write(dvdImage([]byte(config)))
+	return err
 }
 
 func dvdImage(content []byte) []byte {

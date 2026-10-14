@@ -52,6 +52,15 @@ func (s *served) lines() []string {
 	return slices.Clone(s.logged)
 }
 
+// listenAndServe makes the pipe name and serves s on it until ctx ends.
+func listenAndServe(ctx context.Context, s *Service, name, allowed string) error {
+	pipe, err := Listen(name, allowed)
+	if err != nil {
+		return err
+	}
+	return pipe.Serve(ctx, s)
+}
+
 // serve answers on a fresh pipe with a Service on f until the test ends, and
 // fails the test if Serve does not return once its context ends.
 func serve(t *testing.T, f *fakeJob, allowed string) *served {
@@ -65,7 +74,7 @@ func serve(t *testing.T, f *fakeJob, allowed string) *served {
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	ended := make(chan error, 1)
-	go func() { ended <- Serve(ctx, s.service, s.name, allowed) }()
+	go func() { ended <- listenAndServe(ctx, s.service, s.name, allowed) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -286,7 +295,7 @@ func TestServeRefusesAnAllowedUserThatIsNoSID(t *testing.T) {
 	defer cancel()
 
 	// Act
-	err := Serve(ctx, s, name, thisUser(t)+")(A;;GA;;;WD")
+	err := listenAndServe(ctx, s, name, thisUser(t)+")(A;;GA;;;WD")
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "is not a SID") {
@@ -298,36 +307,11 @@ func TestServeRefusesAnAllowedUserThatIsNoSID(t *testing.T) {
 }
 
 // The pipe lets SYSTEM, Administrators and the service's own user open it,
-// and the allowed user read and write it, and no one else.
+// and the fleet's user read and write it, and no one else. The fleet's user
+// is admitted by its SID, whatever name Windows gives it in SDDL: here this
+// machine's own Administrator, as a CI runner's account is, which reads
+// back as LA.
 func TestPipeAdmitsOnlyItsUsers(t *testing.T) {
-	// Arrange
-	s := serve(t, &fakeJob{}, "S-1-5-32-547")
-	connection, err := dial(context.Background(), s.name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close()
-
-	// Act
-	descriptor, err := windows.GetSecurityInfo(windows.Handle(connection.Fd()), windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.LABEL_SECURITY_INFORMATION)
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, label, _ := strings.Cut(descriptor.String(), "S:")
-	if !strings.HasSuffix(label, "(ML;;NW;;;ME)") || strings.Count(label, "(") != 1 {
-		t.Errorf("the pipe's label is %q; want medium integrity alone, so the fleet opens it", label)
-	}
-	if got, want := pipeEntries(t, descriptor), []string{"S-1-5-18=0x1f01ff", "S-1-5-32-544=0x1f01ff", thisUser(t) + "=0x1f01ff", "S-1-5-32-547=0x12019f"}; !slices.Equal(got, sorted(want)) {
-		t.Errorf("the pipe's DACL gives %q in %s; want %q alone", got, descriptor, sorted(want))
-	}
-}
-
-// The pipe admits the fleet's user by its SID, whatever name Windows gives
-// it in SDDL: the machine's own Administrator, as a CI runner's account is,
-// reads back as LA.
-func TestPipeAdmitsTheFleetsUserByItsSID(t *testing.T) {
 	// Arrange
 	administrator, err := windows.StringToSid("LA")
 	if err != nil {
@@ -341,17 +325,144 @@ func TestPipeAdmitsTheFleetsUserByItsSID(t *testing.T) {
 	defer connection.Close()
 
 	// Act
-	descriptor, err := windows.GetSecurityInfo(windows.Handle(connection.Fd()), windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	descriptor, err := windows.GetSecurityInfo(windows.Handle(connection.Fd()), windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.LABEL_SECURITY_INFORMATION)
 
 	// Assert
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(descriptor.String(), ";;;LA)") {
-		t.Fatalf("the pipe's DACL is %s; want the machine's Administrator named LA, as this test's premise", descriptor)
+	dacl, label, _ := strings.Cut(descriptor.String(), "S:")
+	if !strings.HasSuffix(label, "(ML;;NW;;;ME)") || strings.Count(label, "(") != 1 {
+		t.Errorf("the pipe's label is %q; want medium integrity alone, so the fleet opens it", label)
 	}
-	if got, want := pipeEntries(t, descriptor), []string{"S-1-5-18=0x1f01ff", "S-1-5-32-544=0x1f01ff", thisUser(t) + "=0x1f01ff", administrator.String() + "=0x12019f"}; !slices.Equal(got, sorted(want)) {
+	if !strings.Contains(dacl, ";;;LA)") {
+		t.Fatalf("the pipe's DACL is %s; want the machine's Administrator named LA, as this test's premise", dacl)
+	}
+	if got, want := pipeEntries(t, descriptor), []string{"S-1-5-18=0x1f01ff", "S-1-5-32-544=0x1f01ff", thisUser(t) + "=0x1f01ff", administrator.String() + "=" + fleetAccess}; !slices.Equal(got, sorted(want)) {
 		t.Errorf("the pipe's DACL gives %q in %s; want %q alone", got, descriptor, sorted(want))
+	}
+}
+
+// What the fleet's user may do opens the pipe and makes no instance of it,
+// so the fleet can ask the service and never answer in its place.
+func TestTheFleetsAccessOpensThePipeAndMakesNoInstance(t *testing.T) {
+	// Arrange
+	name := testPipe(t)
+	path, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;" + fleetAccess + ";;;" + thisUser(t) + ")")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe := &Pipe{text: name, name: path, security: &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: descriptor}}
+	if pipe.waiting, err = pipe.instance(true); err != nil {
+		t.Fatal(err)
+	}
+	defer pipe.close()
+
+	// Act
+	connection, dialErr := dial(context.Background(), name)
+	another, instanceErr := pipe.instance(false)
+
+	// Assert
+	if dialErr != nil {
+		t.Errorf("dial = %v; want the fleet's access to open the pipe", dialErr)
+	} else {
+		connection.Close()
+	}
+	if instanceErr == nil {
+		windows.CloseHandle(another)
+		t.Error("the fleet's access made another instance of the pipe; want it refused")
+	} else if !errors.Is(instanceErr, windows.ERROR_ACCESS_DENIED) {
+		t.Errorf("another instance = %v; want access denied", instanceErr)
+	}
+}
+
+// Begin takes the pipe before the service puts back the VM, so while the
+// service starts, which may take minutes, no other process can make the
+// pipe and answer for it.
+func TestBeginHoldsThePipeWhileTheServiceStarts(t *testing.T) {
+	// Arrange
+	f := &fakeJob{offHeld: make(chan struct{})}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits, Log: func(string) {}}
+	name := testPipe(t)
+	begun := make(chan error, 1)
+	go func() {
+		pipe, err := Begin(context.Background(), s, name, thisUser(t))
+		if err == nil {
+			err = pipe.close()
+		}
+		begun <- err
+	}()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := dial(context.Background(), name); !errors.Is(err, ErrNotServing) || time.Now().After(deadline) {
+			break
+		}
+	}
+
+	// Act
+	squatter, err := Listen(name, thisUser(t))
+	close(f.offHeld)
+
+	// Assert
+	if err == nil {
+		squatter.close()
+		t.Error("another process made the pipe while the service started; want it refused")
+	}
+	if err := <-begun; err != nil {
+		t.Errorf("Begin = %v; want the service started on its pipe", err)
+	}
+	if calls := f.callsMade(); !slices.Equal(calls, []string{"off", "restore", "delete own"}) {
+		t.Errorf("the service's start made %q; want the VM put back and its runners deleted", calls)
+	}
+}
+
+// The fleet's user must be one user's account. A group or a well-known SID
+// would let every member open the pipe.
+func TestListenRefusesAGroupAsTheFleetsUser(t *testing.T) {
+	for _, sid := range []string{"S-1-1-0", "S-1-5-11", "S-1-5-32-545", "S-1-5-32-547"} {
+		t.Run(sid, func(t *testing.T) {
+			// Arrange
+			name := testPipe(t)
+
+			// Act
+			pipe, err := Listen(name, sid)
+
+			// Assert
+			if err == nil {
+				pipe.close()
+				t.Fatalf("Listen for %s made the pipe; want it refused", sid)
+			}
+			if !strings.Contains(err.Error(), "names no one user's account") {
+				t.Errorf("Listen = %v; want the SID refused as no user's account", err)
+			}
+		})
+	}
+}
+
+// A refused request is logged in the service's own words, never the
+// request's, and at most once a minute, so a client sending what the
+// service refuses without end cannot push a job's lines out of the log.
+func TestRefusalsAreLoggedInTheServicesWordsAtMostOnceAMinute(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, thisUser(t))
+	junk := strings.Repeat("x", 3000)
+
+	// Act
+	for range 20 {
+		if err := Ask(context.Background(), s.name, Request{Kind: junk}, func(Reply) {}); err == nil {
+			t.Fatal("a request of no kind the service answers was answered")
+		}
+	}
+
+	// Assert
+	lines := s.lines()
+	refusals := slices.DeleteFunc(slices.Clone(lines), func(line string) bool { return !strings.Contains(line, "refused") })
+	if len(refusals) != 1 || strings.Contains(strings.Join(lines, "\n"), junk[:20]) {
+		t.Errorf("the log holds %q; want one refusal line in the service's own words", lines)
 	}
 }
 
@@ -406,7 +517,7 @@ func TestServeRefusesAPipeAnotherAlreadyServes(t *testing.T) {
 	ended := make(chan error, 1)
 
 	// Act
-	go func() { ended <- Serve(ctx, second, first.name, thisUser(t)) }()
+	go func() { ended <- listenAndServe(ctx, second, first.name, thisUser(t)) }()
 
 	// Assert
 	select {
@@ -437,7 +548,7 @@ func TestServeEndsARunningJobBeforeItReturns(t *testing.T) {
 	}
 	ctx, stop := context.WithCancel(context.Background())
 	ended := make(chan error, 1)
-	go func() { ended <- Serve(ctx, s, name, thisUser(t)) }()
+	go func() { ended <- listenAndServe(ctx, s, name, thisUser(t)) }()
 	running := make(chan struct{})
 	go func() {
 		var once sync.Once

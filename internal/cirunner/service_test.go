@@ -3,10 +3,12 @@ package cirunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -95,7 +97,9 @@ func TestServiceStatusSaysWhatRuns(t *testing.T) {
 	before := s.Status()
 	s.started = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	during := s.Status()
-	s.started = time.Time{}
+	s.isWatching = true
+	watching := s.Status()
+	s.started, s.isWatching = time.Time{}, false
 
 	// Act
 	_, _ = s.Run(context.Background(), func(string) {})
@@ -105,6 +109,7 @@ func TestServiceStatusSaysWhatRuns(t *testing.T) {
 	for _, row := range []struct{ got, want string }{
 		{before, "no job has run since the service started"},
 		{during, "a job runs, started at 2026-10-14T12:00:00Z"},
+		{watching, "no job runs, and the service is looking at the VM for one's leftovers"},
 		{after, "no job runs, and the last job, started at 2026-10-14T12:00:00Z, failed, and start failed"},
 	} {
 		if row.got != row.want {
@@ -121,6 +126,7 @@ func TestServiceStatusSaysWhatRuns(t *testing.T) {
 func TestNewServiceRunsFromItsFolder(t *testing.T) {
 	// Arrange
 	dir, key := serviceFolder(t, goodSettings, "pkcs1")
+	protectFolder(t, dir)
 
 	// Act
 	s, config, err := NewService(dir, func(string) {})
@@ -137,8 +143,152 @@ func TestNewServiceRunsFromItsFolder(t *testing.T) {
 		t.Errorf("VM %T, limits %+v, allowed %q; want Hyper-V, the default limits and the settings' user", s.Deps.VM, s.Limits, config.Allowed)
 	}
 	iso, err := s.Deps.DVD("abc")
-	if image, readErr := os.ReadFile(iso); err != nil || readErr != nil || iso != filepath.Join(dir, "work", "job.iso") || len(image) == 0 {
+	next, nextErr := s.Deps.DVD("def")
+	if image, readErr := os.ReadFile(iso); err != nil || readErr != nil || filepath.Dir(iso) != filepath.Join(dir, "work") || !strings.HasPrefix(filepath.Base(iso), "job-") || len(image) == 0 {
 		t.Errorf("DVD = %q, %v, %v; want it written to the work folder", iso, err, readErr)
+	}
+	if nextErr != nil || next == iso {
+		t.Errorf("the next DVD = %q, %v; want a file of its own beside %q", next, nextErr, iso)
+	}
+}
+
+// A run asked for when no job of the runner's waits, or when GitHub cannot
+// say, starts nothing: no VM, and no runner registered. Only a waiting job
+// starts the VM, whoever asks.
+func TestRunStartsNothingWhenNoJobWaits(t *testing.T) {
+	for name, row := range map[string]struct {
+		queued    *Pending
+		queuedErr error
+		want      Outcome
+		wantErr   string
+	}{
+		"no job waits":          {queued: &Pending{}, want: NoJob},
+		"GitHub cannot be read": {queuedErr: errors.New("GitHub answered 502"), want: Failed, wantErr: "find a waiting job: GitHub answered 502"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{queued: row.queued, queuedErr: row.queuedErr}
+			var config string
+			s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+
+			// Act
+			outcome, err := s.Run(context.Background(), func(string) {})
+
+			// Assert
+			if outcome != row.want || row.wantErr == "" && err != nil || row.wantErr != "" && (err == nil || !strings.Contains(err.Error(), row.wantErr)) {
+				t.Errorf("Run = %q, %v; want %q with error %q", outcome, err, row.want, row.wantErr)
+			}
+			if calls := f.callsMade(); len(calls) != 0 || f.asks != 1 {
+				t.Errorf("the run made %q after %d ask(s); want one ask of GitHub and nothing else", calls, f.asks)
+			}
+		})
+	}
+}
+
+// A public repository is refused at the service's start and before each
+// run, since a self-hosted runner must never serve one, and the refusal
+// starts nothing: no VM, and no runner registered.
+func TestServiceRefusesAPublicRepository(t *testing.T) {
+	for name, act := range map[string]func(s *Service) error{
+		"starting": func(s *Service) error { return s.Start(context.Background()) },
+		"running": func(s *Service) error {
+			outcome, err := s.Run(context.Background(), func(string) {})
+			if outcome != Failed {
+				return fmt.Errorf("the run ended %q", outcome)
+			}
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{isPublic: true}
+			var config string
+			s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+
+			// Act
+			err := act(s)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "the repository is public") {
+				t.Errorf("%s = %v; want the public repository refused", name, err)
+			}
+			if calls := f.callsMade(); len(calls) != 0 || f.asks != 0 {
+				t.Errorf("%s made %q and %d ask(s) for a job; want nothing", name, calls, f.asks)
+			}
+		})
+	}
+}
+
+// Many asks at once for the waiting job make one ask of GitHub, and an
+// answer is given again until it is pendingFresh old, so a client asking
+// without end cannot spend the App's rate limit.
+func TestPendingAsksGitHubOnceForManyAsks(t *testing.T) {
+	// Arrange
+	f := &fakeJob{}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+	var asked sync.WaitGroup
+
+	// Act
+	for range 50 {
+		asked.Add(1)
+		go func() {
+			defer asked.Done()
+			if pending, err := s.Pending(context.Background()); err != nil || !pending.IsWaiting {
+				t.Errorf("Pending = %+v, %v; want the waiting job", pending, err)
+			}
+		}()
+	}
+	asked.Wait()
+	once := f.asks
+	s.Deps.Sleep(context.Background(), pendingFresh)
+	_, _ = s.Pending(context.Background())
+
+	// Assert
+	if once != 1 || f.asks != 2 {
+		t.Errorf("GitHub was asked %d time(s) for 50 asks, and %d in all once the answer was %v old; want 1 and 2", once, f.asks, pendingFresh)
+	}
+}
+
+// The watch puts back a VM it finds running with no job, as a cleanup that
+// failed every try leaves it, and leaves alone the VM of a job that runs.
+func TestWatchPutsBackAVMRunningWithNoJob(t *testing.T) {
+	for name, row := range map[string]struct {
+		isJobRunning bool
+		want         []string
+	}{
+		"no job runs": {want: []string{"off", "restore"}},
+		"a job runs":  {isJobRunning: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{isRunning: true}
+			var config string
+			s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits, Log: func(string) {}}
+			if row.isJobRunning {
+				s.started = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			sleeps := 0
+			sleep := s.Deps.Sleep
+			s.Deps.Sleep = func(ctx context.Context, step time.Duration) {
+				if sleeps++; sleeps > 1 {
+					cancel()
+				}
+				sleep(ctx, step)
+			}
+
+			// Act
+			s.Watch(ctx, WatchEvery)
+
+			// Assert
+			if calls := f.callsMade(); !slices.Equal(calls, row.want) {
+				t.Errorf("the watch made %q; want %q", calls, row.want)
+			}
+			if s.isWatching || row.isJobRunning == s.started.IsZero() {
+				t.Errorf("after the watch, watching = %v and started = %v; want the service as it was", s.isWatching, s.started)
+			}
+		})
 	}
 }
 

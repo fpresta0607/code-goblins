@@ -36,10 +36,14 @@ type machine struct {
 }
 
 // thisMachine is the machine this program runs on.
-func thisMachine() machine {
+func thisMachine() (machine, error) {
+	dir, err := serviceFolder()
+	if err != nil {
+		return machine{}, err
+	}
 	program, _ := os.Executable()
 	return machine{
-		dir:        serviceFolder(),
+		dir:        dir,
 		program:    program,
 		isElevated: func() bool { return windows.GetCurrentProcessToken().IsElevated() },
 		commands:   execx.OSRunner{},
@@ -49,7 +53,7 @@ func thisMachine() machine {
 		download: func(ctx context.Context, url, path string) error {
 			return cirunner.DownloadFile(ctx, &http.Client{Timeout: 30 * time.Minute}, url, path)
 		},
-	}
+	}, nil
 }
 
 // run runs the command args name, and returns its exit code: 2 for usage.

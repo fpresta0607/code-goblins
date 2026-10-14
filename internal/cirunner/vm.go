@@ -2,7 +2,6 @@ package cirunner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,24 +83,20 @@ func (h HyperV) run(ctx context.Context, doing, script string, extra ...string) 
 
 // powerShell runs script in Windows PowerShell with commands, stopping at its
 // first error, with extra added to the environment, and returns what it
-// wrote, trimmed. Windows PowerShell is named by its full path, and gets its
-// own module path, as the one-line install gives it, since one inherited from
-// PowerShell 7 lists modules it cannot load. A script that runs past limit is
-// ended with all it started.
+// wrote, trimmed. Windows PowerShell is named by its full path in Windows'
+// own folder, as Windows gives it, and runs with powerShellEnvironment
+// alone. A script that runs past limit is ended with all it started.
 func powerShell(ctx context.Context, commands execx.Runner, limit time.Duration, doing, script string, extra ...string) (string, error) {
-	systemRoot := os.Getenv("SystemRoot")
-	if systemRoot == "" {
-		return "", errors.New("cirunner: SystemRoot is not set, so Windows PowerShell cannot be found")
+	windowsFolder, err := systemFolder()
+	if err != nil {
+		return "", err
 	}
-	environment := slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(strings.ToUpper(entry), "PSMODULEPATH=")
-	})
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	result, err := commands.Run(ctx, execx.Request{
-		Name:     filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+		Name:     filepath.Join(windowsFolder, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
 		Args:     []string{"-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; " + script},
-		Env:      append(environment, extra...),
+		Env:      append(powerShellEnvironment(windowsFolder), extra...),
 		KillTree: true,
 	})
 	if err != nil {
@@ -111,4 +106,34 @@ func powerShell(ctx context.Context, commands execx.Runner, limit time.Duration,
 		return "", fmt.Errorf("cirunner: %s: exit %d: %s", doing, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
+}
+
+// keptVariables are the variables of this process's environment Windows
+// PowerShell is given: what it runs with, naming no folder it loads code
+// from.
+var keptVariables = []string{"TEMP", "TMP", "SystemDrive", "COMPUTERNAME", "USERNAME", "USERDOMAIN", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS", "OS"}
+
+// powerShellEnvironment is Windows PowerShell's whole environment: Windows'
+// own folder, search path and module path, all from windowsFolder as Windows
+// gives it, and keptVariables. A user can set any variable for their own
+// session, and an elevated command runs in it, so nothing a user set may
+// choose what runs: the module path above all, since one left unset puts
+// the user's own modules folder first.
+func powerShellEnvironment(windowsFolder string) []string {
+	system := filepath.Join(windowsFolder, "System32")
+	environment := []string{
+		"SystemRoot=" + windowsFolder,
+		"windir=" + windowsFolder,
+		"ComSpec=" + filepath.Join(system, "cmd.exe"),
+		"Path=" + strings.Join([]string{system, windowsFolder, filepath.Join(system, "Wbem"), filepath.Join(system, "WindowsPowerShell", "v1.0")}, ";"),
+		"PATHEXT=.COM;.EXE",
+		"PSModulePath=" + filepath.Join(system, "WindowsPowerShell", "v1.0", "Modules"),
+	}
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if slices.ContainsFunc(keptVariables, func(kept string) bool { return strings.EqualFold(kept, name) }) {
+			environment = append(environment, entry)
+		}
+	}
+	return environment
 }
