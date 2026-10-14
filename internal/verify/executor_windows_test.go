@@ -747,3 +747,75 @@ func TestExecutorRetryCompletesARunWhoseEndSparedAService(t *testing.T) {
 		})
 	}
 }
+
+// The executor reads the source its command runs on once the turn is taken
+// and before the command starts, and again once it has ended, and keeps both
+// reads in the record, a moved or unreadable source as much as a steady one.
+// The command's own result is its own whatever the reads found.
+func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
+	first := Source{Commit: "c1", Tree: "t1", IsComplete: true}
+	moved := Source{Commit: "c1", Tree: "t2", IsComplete: true}
+	for name, row := range map[string]struct {
+		startFailure error
+		end          Source
+		failure      error
+		isTested     bool
+	}{
+		"a steady source":                     {end: first, isTested: true},
+		"a source that moved":                 {end: moved},
+		"a source not readable once it ended": {end: first, failure: errors.New("git failed")},
+		"a source not readable as it started": {end: first, startFailure: errors.New("git failed")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store := t.TempDir()
+			t.Setenv("CFO_VERIFY_DIR", store)
+			root := t.TempDir()
+			standin.RemoveAtCleanup(t, root)
+			program := filepath.Join(root, "workload.exe")
+			standin.Put(t, program)
+			ran := filepath.Join(t.TempDir(), "ran.txt")
+			var hadRun []bool
+			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Headroom: func() (Headroom, error) {
+				return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
+			}}}
+			executor.Source = func(ctx context.Context, dir string) (Source, error) {
+				_, err := os.Stat(ran)
+				hadRun = append(hadRun, err == nil)
+				if dir != root {
+					t.Errorf("the source was read in %s; want the command's folder %s", dir, root)
+				}
+				if len(hadRun) == 1 {
+					return first, row.startFailure
+				}
+				return row.end, row.failure
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			// Act
+			result, path, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env(ran, standin.Rule{Any: true, Exit: 3})...)}, 0)
+
+			// Assert
+			if err != nil || result.ExitCode != 3 {
+				t.Fatalf("result = %+v, %v; want the command's own exit 3", result, err)
+			}
+			if len(hadRun) != 2 || hadRun[0] || !hadRun[1] {
+				t.Fatalf("the command had run at each read: %v; want a read before it started and one after it ended", hadRun)
+			}
+			record, err := LoadExecution(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (record.Source.Start == nil || *record.Source.Start != first) != (row.startFailure != nil) {
+				t.Errorf("the start read = %+v; want %+v unless it failed", record.Source.Start, first)
+			}
+			if _, err := record.Source.Tested(); (err == nil) != row.isTested {
+				t.Errorf("record reads = %+v, Tested: %v; want tested = %v", record.Source, err, row.isTested)
+			}
+			if failure := errors.Join(row.startFailure, row.failure); failure != nil && record.Source.Failure != failure.Error() {
+				t.Errorf("the record's read failure = %q; want %q", record.Source.Failure, failure)
+			}
+		})
+	}
+}

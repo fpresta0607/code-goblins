@@ -74,7 +74,8 @@ export function whereItGoes(request: CredentialRequest, name: string): string {
 
 // How a stored row's value was stored, for the tip on its check.
 export function storedTip(request: CredentialRequest, name: string): string {
-  return (request.replaced.includes(name) ? "Replaced" : "Stored") + " in the " + request.project + " vault, " + (request.typed.includes(name) ? "typed in the terminal" : "pasted on the card") +
+  const how = request.fetched.includes(name) ? "fetched from the page" : request.typed.includes(name) ? "typed in the terminal" : "pasted on the card";
+  return (request.replaced.includes(name) ? "Replaced" : "Stored") + " in the " + request.project + " vault, " + how +
     (request.written.includes(name) ? ", and set in " + request.env_file : "");
 }
 

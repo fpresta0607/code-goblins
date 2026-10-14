@@ -78,10 +78,18 @@ func fromBoard(address string) bool {
 // there.
 const shownMessage = "shown"
 
-// shownScript asks the window's page to say it is there. The window takes
-// the word of a board's page alone, so WebView2's error page, which has no
-// way to answer, counts as no board.
-const shownScript = `window.chrome?.webview?.postMessage("` + shownMessage + `");`
+// shownScript asks the window's page to say it is there and drawing. The
+// window takes the word of a board's page alone, so WebView2's error page,
+// which has no way to answer, counts as no board. A board's page answers once
+// its root holds what it drew and, while it is in sight, once it has drawn a
+// frame: a page whose script never ran or whose app came down holds nothing,
+// and one whose WebView2 cannot draw, such as while its GPU process is held at
+// its start, draws no frame though it stays loaded and in sight.
+const shownScript = `(() => {
+  if (!document.getElementById("root")?.firstElementChild) return;
+  const answer = () => window.chrome?.webview?.postMessage("` + shownMessage + `");
+  if (document.visibilityState === "hidden") answer(); else requestAnimationFrame(answer);
+})();`
 
 // PageStep is what the window does with its page after a look at the board.
 type PageStep int
@@ -89,21 +97,40 @@ type PageStep int
 const (
 	// Leave the page as it is.
 	Leave PageStep = iota
-	// Ask the page whether it is a board's, with shownScript.
+	// Ask the page whether it is a board's and drawing, with shownScript.
 	Ask
 	// Load the board.
 	Load
+	// Repaint: end the WebView2 GPU process, which WebView2 starts again.
+	Repaint
 )
+
+// silentLooks is how many looks in a row a shown window's page may leave
+// unanswered, about ten seconds, before the window mends it: long enough for
+// a page busy drawing, short of leaving him a black window.
+const silentLooks = 3
+
+// retryLooks is how many looks a page that a load and a new GPU process did
+// not mend stays silent before the window tries both again.
+const retryLooks = 20
+
+// mending is what the window does, in turn, for a page that stays silent
+// while the window is shown: load the board, which mends a page whose script
+// or app is gone, then end the GPU process, which mends one whose WebView2
+// GPU process hangs.
+var mending = []PageStep{Load, Repaint}
 
 // Page decides when the window loads its board again. A window that looked
 // for its board while the supervisor was down sits on WebView2's error page,
 // whose own retries grow to half an hour apart, and nothing tells the window
 // that a load failed. So when the board answers again after not answering,
 // the window asks its page whether it is a board's, and loads the board when
-// no board's page has said so by the next look. A board's page that is shown
-// answers at once and is left as it is: it reconnects by itself, and a load
-// would take an answer from under the Overlord's hands. A page that never
-// answers is loaded once each time the board comes back, never in a loop.
+// no board's page has said so by the next look. A board's page that answers
+// is left as it is: it reconnects by itself, and a load would take an answer
+// from under the Overlord's hands. A page that never answers is loaded once
+// each time the board comes back, never in a loop. While the window is shown
+// it asks at every look, since a page can stop drawing with nothing else
+// changing, and mends a page that stays silent, saying so in the window.
 type Page struct {
 	mu sync.Mutex
 	// down: the board did not answer at a look.
@@ -112,28 +139,70 @@ type Page struct {
 	asked bool
 	// shown: a board's page answered since it was asked.
 	shown bool
+	// silent: looks in a row at which the shown window's page had not
+	// answered.
+	silent int
+	// tries: the mending steps taken since the page last answered.
+	tries int
+	// stalled: the window is mending a page that draws nothing.
+	stalled bool
 }
 
-// Look takes whether the board answers now and returns what the window does
-// with its page.
-func (p *Page) Look(answers bool) PageStep {
+// Look takes whether the board answers now and whether the window is shown,
+// and returns what the window does with its page.
+func (p *Page) Look(answers, seen bool) PageStep {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	unanswered := p.asked && !p.shown
+	if p.asked && p.shown {
+		p.down, p.silent, p.tries, p.stalled = false, 0, 0, false
+	}
+	p.asked = false
+	if !seen {
+		p.stalled = false
+	}
 	switch {
 	case !answers:
-		p.down, p.asked = true, false
+		p.down = true
 		return Leave
-	case !p.down:
-		return Leave
-	case !p.asked:
+	case unanswered && p.down:
+		p.down = false
+		return Load
+	case unanswered && seen:
+		p.silent++
+	}
+	if step, ok := p.mend(); ok {
+		return step
+	}
+	if p.down || seen {
 		p.asked, p.shown = true, false
 		return Ask
 	}
-	p.down, p.asked = false, false
-	if p.shown {
-		return Leave
+	return Leave
+}
+
+// mend returns the next mending step once the page has been silent long
+// enough for it.
+func (p *Page) mend() (PageStep, bool) {
+	switch {
+	case p.silent >= silentLooks && p.tries < len(mending):
+	case p.silent >= retryLooks:
+		p.tries = 0
+	default:
+		return Leave, false
 	}
-	return Load
+	step := mending[p.tries]
+	p.tries++
+	p.silent, p.stalled = 0, true
+	return step, true
+}
+
+// Stalled reports whether the window is mending a page that draws nothing,
+// which it says in place of the page.
+func (p *Page) Stalled() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stalled
 }
 
 // Shown notes that a board's page said it is there.
@@ -155,27 +224,24 @@ type Item struct {
 
 // waiting lists what a board snapshot holds that asks the Overlord
 // something, which is what the board's page alerts, each in the asker's
-// words as the page says it: a pending question that was not asked from an
-// open review page, whose item it is; an open review item; a command ready or
-// running that no credential card opened, since that terminal shows on its
-// card; and an open request for credentials, by its project alone, so the
-// credential names stay out of a Windows notification. Beside them it returns
-// the keys of what is open on the board without being alerted on its own: a
-// pending question asked from an open review page, which that page's card
-// shows. A question that names a task is a goblin's, which the CFO answers:
-// it is neither listed nor returned as a key. Nothing else on the board, such
+// words as the page says it: a pending question; an open review item; a
+// command ready or running that no credential card opened, since that
+// terminal shows on its card; and an open request for credentials, by its
+// project alone, so the credential names stay out of a Windows notification.
+// A question that names a task is a goblin's, which the CFO answers: it is
+// not listed. Nothing else on the board, such
 // as a goblin blocked, failed or done, is an item. It names the supervisor's
 // instance too, which every request to the board that changes something
 // carries.
-func waiting(snapshot []byte) (string, []Item, []string, error) {
+func waiting(snapshot []byte) (string, []Item, error) {
 	var view struct {
 		Instance string `json:"instance"`
 		Tasks    []struct {
 			ID, Title string
 		} `json:"tasks"`
 		Questions []struct {
-			ID, Text, Status, Page, Task string
-			CreatedAt                    string `json:"created_at"`
+			ID, Text, Status, Task string
+			CreatedAt              string `json:"created_at"`
 		} `json:"questions"`
 		Reviews []struct {
 			ID, Title, State, Task, Lavish string
@@ -195,7 +261,7 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(snapshot, &view); err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	// A goblin speaks by its title, as its card names it, and the CFO for
 	// what names no goblin.
@@ -222,13 +288,8 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 		return Item{ID: key + "@" + createdAt, Asker: speaker(task), Text: shortened(text, textLimit)}
 	}
 	var items []Item
-	var folded []string
 	for _, q := range view.Questions {
 		if q.Status != "pending" || q.Task != "" {
-			continue
-		}
-		if q.Page != "" {
-			folded = append(folded, "question:"+q.ID+"@"+q.CreatedAt)
 			continue
 		}
 		items = append(items, item("question:"+q.ID, q.CreatedAt, "", asker("")+" asks: "+lead(q.Text)))
@@ -269,13 +330,11 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" asks for credentials for "+c.Project))
 		}
 	}
-	return view.Instance, items, folded, nil
+	return view.Instance, items, nil
 }
 
 // Watcher tells which items waiting on the Overlord are new since its last
 // look. Its first look only learns what already waits, which the board shows.
-// It remembers a question open inside its page's card as well, so that
-// question is not new when its page closes and it becomes a card of its own.
 type Watcher struct {
 	Client *http.Client
 	// Instance is the supervisor's instance, as the last snapshot read named
@@ -304,16 +363,13 @@ func (w *Watcher) New(board string) ([]Item, bool) {
 	if err != nil {
 		return nil, false
 	}
-	instance, items, folded, err := waiting(data)
+	instance, items, err := waiting(data)
 	if err != nil {
 		return nil, false
 	}
 	w.Instance = instance
 	first := w.seen == nil
 	current := map[string]bool{}
-	for _, key := range folded {
-		current[key] = true
-	}
 	var fresh []Item
 	for _, item := range items {
 		current[item.ID] = true

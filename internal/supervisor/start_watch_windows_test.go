@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -143,6 +145,59 @@ func TestALoopOfAGoblinsCommandWakesTheCFOOnce(t *testing.T) {
 	}
 	if wakes[0].Key != "cg-a" || !strings.Contains(wakes[0].Detail, "cg-a started node.exe 10 times") || !strings.Contains(wakes[0].Detail, "node server.js --port 3000") {
 		t.Errorf("wake = %+v, want cg-a's server and its command line", wakes[0])
+	}
+}
+
+// A Claude Code goblin's own hooks start cfo.exe around every shell call and
+// after every other tool call, far more than ten times a minute when it is
+// busy. Claude Code starts a hook given as a program and its args itself,
+// with no shell, so each is its harness's own child, which is no loop.
+// The same command started by the goblin's shell, as a command it runs, is
+// one, which shows the readings see each start.
+func TestAGoblinsOwnHooksAtEveryToolCallAreNoLoop(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		parent int
+		loops  int
+	}{
+		{"started by its harness, as Claude Code runs a hook", 100, 0},
+		{"started by its shell, as a command it runs", 102, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			fleet := newStartWatchFleet(t)
+			now := time.Now().UTC()
+			var commands []string
+			for _, hook := range install.GoblinHooks(fleet.home.Root) {
+				command := []string{syscall.EscapeArg(hook.Command)}
+				for _, arg := range hook.Args {
+					command = append(command, syscall.EscapeArg(arg))
+				}
+				commands = append(commands, strings.Join(command, " "))
+			}
+
+			// Act: a reading every 5 seconds for two minutes, each finding
+			// both hooks started anew 5 times, as 60 tool calls a minute
+			// would.
+			pid := 1000
+			for reading := 0; reading < 24; reading++ {
+				at := now.Add(time.Duration(reading) * 5 * time.Second)
+				fleet.processes = fleet.processes[:4]
+				for range 5 {
+					for _, command := range commands {
+						pid++
+						fleet.processes = append(fleet.processes, fleettree.Process{PID: pid, ParentPID: test.parent, Exe: "cfo.exe", Created: int64(pid), Started: at})
+						fleet.commands[pid] = command
+					}
+				}
+				fleet.read(t, at)
+			}
+
+			// Assert
+			if wakes := fleet.wakes(t, "start_loop:"); len(wakes) != test.loops {
+				t.Fatalf("loop wakes = %+v, want %d", wakes, test.loops)
+			}
+		})
 	}
 }
 

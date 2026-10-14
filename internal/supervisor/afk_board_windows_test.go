@@ -191,8 +191,8 @@ func TestWindowsNamesTheProcessAtTheOtherEndOfAConnectionToTheBoard(t *testing.T
 	board := netip.MustParseAddrPort(server.LocalAddr().String())
 
 	// Act
-	pid, err := tcpPeerProcess(peer, board)
-	_, unlisted := tcpPeerProcess(netip.AddrPortFrom(peer.Addr(), 1), board)
+	pid, err := proc.TCPPeerProcess(peer, board)
+	_, unlisted := proc.TCPPeerProcess(netip.AddrPortFrom(peer.Addr(), 1), board)
 
 	// Assert
 	if err != nil || pid != standIn.Process.Pid {

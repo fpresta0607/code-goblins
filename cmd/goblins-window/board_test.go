@@ -89,7 +89,7 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 
 			var got []PageStep
 			for at, answers := range test.looks {
-				got = append(got, page.Look(answers))
+				got = append(got, page.Look(answers, false))
 				if slices.Contains(test.shown, at) {
 					page.Shown()
 				}
@@ -107,23 +107,19 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 // unless it was asked from an open review page, an open review item, a
 // command ready or running unless a credential card opened it, and an open
 // request for credentials by its project, never by the credential names. A
-// question asked from an open review page is returned as a key beside them,
-// open without an alert of its own. A goblin's question, which names its
-// task, is the CFO's to answer: it is neither listed nor returned as a key,
-// beside its open page or not, and a goblin blocked, failed or done is no
-// item at all. The snapshot names the supervisor's instance too.
+// goblin's question, which names its task, is the CFO's to answer: it is not
+// listed, and a goblin blocked, failed or done is no item at all. The snapshot names the supervisor's instance too.
 func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code","phase":"failed","reason":"Waiting on the CFO: Requested by the operator; worktree C:\\work"},{"id":"blog","title":"Blog","phase":"done","pr":"https://github.com/o/r/pull/7"}],
 		"questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending","created_at":"2026-10-01T12:00:00Z"},{"id":"q2","text":"old","status":"answered","created_at":"2026-10-01T12:00:00Z"},
-			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1","created_at":"2026-10-01T12:03:00Z"},
 			{"id":"notify-shop-4","text":"Which port?","status":"pending","task":"shop","created_at":"2026-10-01T12:04:00Z"},
-			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","page":"r1","created_at":"2026-10-01T12:05:00Z"}],
+			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","created_at":"2026-10-01T12:05:00Z"}],
 		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","task":"shop","created_at":"2026-10-01T12:01:00Z"},{"id":"r2","title":"done","state":"answered","created_at":"2026-10-01T12:00:00Z"}],
 		"runs":[{"id":"u1","title":"Install the tool","state":"ready","created_at":"2026-10-01T12:02:00Z"},{"id":"u2","title":"ran","state":"finished","created_at":"2026-10-01T12:00:00Z"},
 			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1","created_at":"2026-10-01T12:00:00Z"}],
 		"credentials":[{"id":"c1","project":"shop","state":"open","task":"shop","names":["API_KEY"],"created_at":"2026-10-01T12:06:00Z"},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"],"created_at":"2026-10-01T12:00:00Z"}]}`
 
-	instance, items, folded, err := waiting([]byte(snapshot))
+	instance, items, err := waiting([]byte(snapshot))
 
 	if err != nil {
 		t.Fatal(err)
@@ -136,9 +132,6 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)
-	}
-	if !slices.Equal(folded, []string{"question:q3@2026-10-01T12:03:00Z"}) {
-		t.Errorf("folded = %v, want question:q3 alone", folded)
 	}
 }
 
@@ -176,42 +169,12 @@ func TestEachItemIsNotifiedInItsAskersWordsOnOnePlainLine(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code"},{"id":"long","title":"` + longTitle + `"}],` + test.item + `}`
 
-			_, items, _, err := waiting([]byte(snapshot))
+			_, items, err := waiting([]byte(snapshot))
 
 			if err != nil || !slices.Equal(items, []Item{test.want}) {
 				t.Errorf("waiting = %+v, %v; want %+v", items, err, test.want)
 			}
 		})
-	}
-}
-
-// A question that was pending inside its page's card is not new when that
-// page closes and the question becomes a card of its own; a question that was
-// never there before still is.
-func TestTheWatcherDoesNotTellAQuestionItsPageCarried(t *testing.T) {
-	var mu sync.Mutex
-	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","page":"r1","created_at":"T1"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","created_at":"T0"}]}`
-	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		_, _ = w.Write([]byte(snapshot))
-	}))
-	defer board.Close()
-	watcher := &Watcher{}
-
-	first, _ := watcher.New(board.URL)
-	mu.Lock()
-	snapshot = `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","created_at":"T1"},{"id":"q2","text":"Never there before?","status":"pending","created_at":"T2"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"withdrawn","created_at":"T0"}]}`
-	mu.Unlock()
-	second, _ := watcher.New(board.URL)
-
-	if len(first) != 0 {
-		t.Errorf("first look = %+v, want nothing: it only learns what waits", first)
-	}
-	if !slices.Equal(second, []Item{{"question:q2@T2", "CFO", "The CFO asks: Never there before?"}}) {
-		t.Errorf("second look = %+v, want the question that was never there alone", second)
 	}
 }
 
@@ -436,5 +399,79 @@ func TestStartAtLoginAddsAndRemovesItsEntry(t *testing.T) {
 	defer key.Close()
 	if _, _, err := key.GetStringValue(runValue); err == nil {
 		t.Error("the entry is still there after removing it")
+	}
+}
+
+// A shown window whose board answers but whose page draws no frame, as when
+// WebView2's GPU process is lost and its relaunch is held, loads its board
+// again once the page has stayed silent for three looks, and says so until
+// the page answers. A page that draws is only ever asked.
+func TestAShownPageThatDrawsNothingIsLoadedAgain(t *testing.T) {
+	for name, test := range map[string]struct {
+		answering bool
+		want      []PageStep
+		stalled   bool
+	}{
+		"a page that draws nothing": {false, []PageStep{Ask, Ask, Ask, Load, Ask}, true},
+		"a page that draws":         {true, []PageStep{Ask, Ask, Ask, Ask, Ask}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			page := &Page{}
+
+			var got []PageStep
+			for range 5 {
+				got = append(got, page.Look(true, true))
+				if test.answering {
+					page.Shown()
+				}
+			}
+
+			if !slices.Equal(got, test.want) {
+				t.Errorf("steps = %v, want %v (0 leave, 1 ask, 2 load, 3 repaint)", got, test.want)
+			}
+			if page.Stalled() != test.stalled {
+				t.Errorf("stalled = %t, want %t", page.Stalled(), test.stalled)
+			}
+		})
+	}
+}
+
+// A page still silent after its load is not a page the load can mend, such
+// as one whose WebView2 GPU process hangs: the window then ends that GPU
+// process, which WebView2 starts again, and, if that does not mend it either,
+// tries again a minute later rather than in a loop. The page answering ends
+// the recovery and its notice, and a later silence starts it afresh.
+func TestTheWindowRecoversItsSilentPageByItself(t *testing.T) {
+	page := &Page{}
+	look := func(count int, answering bool) []PageStep {
+		var steps []PageStep
+		for range count {
+			steps = append(steps, page.Look(true, true))
+			if answering {
+				page.Shown()
+			}
+		}
+		return steps
+	}
+
+	silent := look(4+4+retryLooks+1, false)
+	stalledSilent := page.Stalled()
+	answered := look(2, true)
+	stalledAnswered := page.Stalled()
+	again := look(4, false)
+
+	wantSilent := []PageStep{Ask, Ask, Ask, Load, Ask, Ask, Ask, Repaint}
+	for range retryLooks {
+		wantSilent = append(wantSilent, Ask)
+	}
+	wantSilent = append(wantSilent, Load)
+	if !slices.Equal(silent, wantSilent) || !stalledSilent {
+		t.Errorf("silent steps = %v, stalled = %t, want %v (0 leave, 1 ask, 2 load, 3 repaint) and the notice", silent, stalledSilent, wantSilent)
+	}
+	if !slices.Equal(answered, []PageStep{Ask, Ask}) || stalledAnswered {
+		t.Errorf("after an answer: steps = %v, stalled = %t, want asks and no notice", answered, stalledAnswered)
+	}
+	if !slices.Equal(again, []PageStep{Ask, Ask, Ask, Load}) || !page.Stalled() {
+		t.Errorf("a later silence: steps = %v, stalled = %t, want a load and the notice", again, page.Stalled())
 	}
 }

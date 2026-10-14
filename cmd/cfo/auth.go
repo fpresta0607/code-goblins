@@ -35,6 +35,8 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth revoke <task-id> <service> [<service>...]   take services out of a task's record, so no later terminal of it carries them
        cfo auth revoke <task-id> --mcp <server> [<server>...]   take MCP servers out of a task's record, so no later terminal of it is given them
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 for the services it carries
+       cfo auth browser <provider> --task <id> [--release | --sign-in]   drive your project's provider browser, give it back, or ask for a sign-in on the board
+       cfo auth fetch <request> --task <id>   have the supervisor read a request's keys from its reviewed key page into the vault
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
 lists the shared scope, which is where every credential stored before
@@ -80,6 +82,10 @@ func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return runAuthRevoke(args[1:], stdout, stderr, runtime)
 	case "refresh":
 		return runAuthRefresh(args[1:], stdout, stderr, runtime)
+	case "browser":
+		return runAuthBrowser(args[1:], stdout, stderr, runtime)
+	case "fetch":
+		return runAuthFetch(args[1:], stdout, stderr, runtime)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, authUsage)
 		return 0

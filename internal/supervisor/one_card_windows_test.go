@@ -10,47 +10,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// One card, one state: what the Overlord does to a card closes everything the
-// card stood for, so nothing he acted on shows a second time.
+// One card, one state: what the Overlord does to a card closes what that card
+// is, and nothing else, so nothing he never saw closes with it.
 
-// A page's card shows the question its goblin asked beside the page. Clearing
-// the card dismisses that question with it, and the CFO, which holds the
-// goblin's notify, is told; the question never comes back as a card of its own.
-func TestClearingAPagesCardDismissesTheQuestionItCarries(t *testing.T) {
-	// Arrange
-	store, _ := testStore(t)
-	_, _, cfo, connection := primaryFixture(t, store)
-	servePipe(t, store, connection)
-	askOnAPage(t, store)
-	page := store.Snapshot().Reviews[0]
-	s := &Service{Store: store, Options: Options{CFO: connection}}
-
-	// Act
-	_, queued := store.Queue(Action{ID: "clear-1", Kind: "review_clear", ReviewID: page.ID, Generation: page.Identity})
-	if queued == nil {
-		queued = store.ProcessOne(context.Background(), s.execute)
-	}
-	after := store.Snapshot()
-
-	// Assert
-	if queued != nil {
-		t.Fatalf("clear = %v, want it taken", queued)
-	}
-	if got := after.Reviews[0]; got.State != "cleared" {
-		t.Errorf("the page's item = %s, want it cleared", got.State)
-	}
-	if got := after.Questions[0]; got.Status != "cleared" || got.Message != "You cleared its page's card." {
-		t.Errorf("the question its card carried = %s %q, want it dismissed with the card", got.Status, got.Message)
-	}
-	if typed := cfo.waitForLines(t, 1); len(typed) != 1 || !strings.Contains(typed[0], "task-1's question") || !strings.Contains(typed[0], "dismissed") {
-		t.Errorf("the CFO got %q, want one message naming task-1's question as dismissed", typed)
-	}
-}
-
-// The card and the question it carries close the moment the board takes the
-// clear, so neither waits on screen for the clear's action to run; the CFO
-// hears of the dismissed question once, when that action runs.
-func TestClearingAPagesCardClosesItsQuestionBeforeItsActionRuns(t *testing.T) {
+// Clearing a page's card clears only the page: a question its goblin asked
+// meanwhile stays pending for the CFO to answer, and the CFO is told of no
+// dismissed question, at once or when the clear's action runs.
+func TestClearingAPagesCardLeavesTheGoblinsQuestion(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	_, _, cfo, connection := primaryFixture(t, store)
@@ -62,28 +28,33 @@ func TestClearingAPagesCardClosesItsQuestionBeforeItsActionRuns(t *testing.T) {
 	// Act
 	_, queued := store.Queue(Action{ID: "clear-1", Kind: "review_clear", ReviewID: page.ID, Generation: page.Identity})
 	taken := store.Snapshot()
-	toldBefore := len(cfo.lines(t))
 	ran := store.ProcessOne(context.Background(), s.execute)
+	after := store.Snapshot()
 
 	// Assert
 	if queued != nil || ran != nil {
 		t.Fatalf("clear = %v, its action = %v, want both taken", queued, ran)
 	}
 	if got := taken.Reviews[0]; got.State != "cleared" {
-		t.Errorf("the page's item = %s before its action ran, want it cleared", got.State)
+		t.Errorf("the page's item = %s, want it cleared", got.State)
 	}
-	if got := taken.Questions[0]; got.Status != "cleared" || got.Message != "You cleared its page's card." {
-		t.Errorf("the question its card carried = %s %q before its action ran, want it dismissed with the card", got.Status, got.Message)
+	for when, snapshot := range map[string]Database{"when the board took the clear": taken, "after its action ran": after} {
+		if got := snapshot.Questions[0]; got.Status != "pending" {
+			t.Errorf("the goblin's question %s = %s %q, want it still pending", when, got.Status, got.Message)
+		}
 	}
-	if typed := cfo.waitForLines(t, 1); toldBefore != 0 || len(typed) != 1 || !strings.Contains(typed[0], "task-1's question") {
-		t.Errorf("the CFO was told %d times before the action ran and got %q after it, want nothing before and one message naming task-1's question", toldBefore, typed)
+	for _, line := range cfo.lines(t) {
+		if strings.Contains(line, "question") && strings.Contains(line, "dismissed") {
+			t.Errorf("the CFO got %q, want no question named dismissed", line)
+		}
 	}
 }
 
-// The Overlord's answer to a goblin's question on the board gives the goblin
-// what it waited for, so its waits on him up to that question close with it,
-// as they do when the CFO answers; a wait the goblin files later is its own.
-func TestABoardAnswerClosesTheGoblinsWaitsUpToItsQuestion(t *testing.T) {
+// The Overlord's answer to a goblin's question on the board closes only that
+// question: the goblin's waits on him stay open, filed before the question or
+// after it, since a wait only he can clear, such as a sign-in, is never
+// settled by an answer to a different question.
+func TestABoardAnswerLeavesTheGoblinsWaitsOpen(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		deliver Evaluation
@@ -109,20 +80,15 @@ func TestABoardAnswerClosesTheGoblinsWaitsUpToItsQuestion(t *testing.T) {
 
 			// Act
 			err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) { return c.deliver, nil })
-			reviews := map[string]Review{}
-			for _, r := range store.Snapshot().Reviews {
-				reviews[r.ID] = r
-			}
 
 			// Assert
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := reviews[earlier.ID]; got.State != "answered" || got.AnsweredBy != "overlord" || got.AnsweredIn != "question" {
-				t.Errorf("the wait up to the question = %s by %q in %q, want it answered by the Overlord through its question", got.State, got.AnsweredBy, got.AnsweredIn)
-			}
-			if got := reviews[later.ID]; got.State != "open" {
-				t.Errorf("the wait filed after the question = %s, want it still open", got.State)
+			for _, r := range store.Snapshot().Reviews {
+				if r.State != "open" {
+					t.Errorf("wait %s = %s by %q in %q, want it still open", r.ID, r.State, r.AnsweredBy, r.AnsweredIn)
+				}
 			}
 		})
 	}
@@ -141,7 +107,7 @@ func TestAGoblinsNewerQuestionReplacesItsOlderOne(t *testing.T) {
 	}
 
 	// Act
-	if err := SurfaceNotify(h.State, meta.ID, again, again.Detail, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, again, again.Detail, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

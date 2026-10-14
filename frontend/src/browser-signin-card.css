@@ -1,0 +1,9 @@
+.signin-facts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.signin-facts .chip { color: #dff7ee; white-space: normal; overflow-wrap: anywhere; }
+.signin-open { display: inline-flex; align-items: center; gap: 10px; justify-self: start; min-height: 48px; padding: 10px 24px; font-size: 1.0625rem; }
+.signin-open .icon { width: 20px; height: 20px; }
+.signin-waiting { display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--blue) 45%, var(--glass-border)); border-radius: var(--radius); background: var(--field-bg); color: #dfe9ef; line-height: 1.45; }
+.signin-waiting .credential-ring { margin: 0; }
+.signin-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: var(--amber); font-size: .9375rem; line-height: 1.45; overflow-wrap: anywhere; }
+.signin-note .icon { width: 18px; height: 18px; margin-top: 2px; flex: none; }
+.signin-closed > .icon { width: 72px; height: 72px; color: var(--muted); }
