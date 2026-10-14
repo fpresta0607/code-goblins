@@ -323,7 +323,8 @@ type Service struct {
 	// be read.
 	weeklyFloors map[string]float64
 	// browsers lends each browser login's Chrome to one goblin at a time.
-	browsers *browserBroker
+	browsers       *browserBroker
+	browserSignins sync.Mutex
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -1259,7 +1260,8 @@ type Snapshot struct {
 	Reviews    []Review        `json:"reviews"`
 	Runs       []Run           `json:"runs"`
 	// Credentials are the credential requests: names, never a value.
-	Credentials []CredentialRequest `json:"credentials"`
+	Credentials    []CredentialRequest `json:"credentials"`
+	BrowserSignIns []BrowserSignIn     `json:"browser_signins"`
 
 	// Attention is the Overlord's order of the live goblins, top first; a
 	// goblin it does not name has not been placed.
@@ -1344,6 +1346,7 @@ type Snapshot struct {
 
 // setItems makes items the snapshot's Command Center items.
 func (snapshot *Snapshot) setItems(items Items) {
+	snapshot.BrowserSignIns = items.BrowserSignIns
 	snapshot.Questions, snapshot.Reviews, snapshot.Runs, snapshot.Credentials, snapshot.Actions = items.Questions, items.Reviews, items.Runs, items.Credentials, items.Actions
 }
 

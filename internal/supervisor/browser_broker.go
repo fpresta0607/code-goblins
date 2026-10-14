@@ -39,6 +39,7 @@ type BrowserLease struct {
 	Provider string `json:"provider"`
 	Account  string `json:"account"`
 	URL      string `json:"url"`
+	SignIn   string `json:"sign_in,omitempty"`
 }
 
 // browserBroker lends each login's Chrome to one task at a time. It is the
@@ -68,6 +69,8 @@ type browserBroker struct {
 	// the logins whose Chrome is closing now, which work waits for.
 	processes map[string]browserlogin.Process
 	closing   map[string]bool
+	signing   map[string]string
+	signedIn  func(context.Context, string, keypages.Provider) (bool, error)
 	work      sync.WaitGroup
 	// closed says the supervisor is stopping: its browsers are closed and
 	// no other starts.
@@ -96,6 +99,8 @@ func newBrowserBroker(stateDir, dataDir string, options Options, report func(err
 		report:     report,
 		processes:  map[string]browserlogin.Process{},
 		closing:    map[string]bool{},
+		signing:    map[string]string{},
+		signedIn:   browserlogin.SignedIn,
 	}
 }
 
@@ -111,6 +116,9 @@ func RequestBrowser(h home.Home, request BrowserRequest) (BrowserLease, error) {
 	}
 	if request.Action == "attach" && reply.Browser == nil {
 		return BrowserLease{}, errors.New("the supervisor lent the browser but did not say where it is")
+	}
+	if request.Action == "sign-in" && (reply.Browser == nil || reply.Browser.SignIn == "") {
+		return BrowserLease{}, errors.New("the supervisor did not return a sign-in card")
 	}
 	if reply.Browser == nil {
 		return BrowserLease{}, nil
@@ -175,6 +183,9 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 		index = len(logins) - 1
 	}
 	login := &logins[index]
+	if b.signing[login.ID] != "" {
+		return BrowserLease{}, errors.New("this login is waiting for its sign-in window to close")
+	}
 	// A Chrome that exited on its own is closed as the sweep would, which
 	// ends what is left of it before the profile is opened again.
 	if process, ok := b.processes[login.ID]; ok && !b.alive(process) {
@@ -395,6 +406,8 @@ func (s *Service) keepBrowsers(ctx context.Context) {
 	}
 	ticker := time.NewTicker(browserCheck)
 	defer ticker.Stop()
+	signinTicker := time.NewTicker(time.Second)
+	defer signinTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -405,6 +418,10 @@ func (s *Service) keepBrowsers(ctx context.Context) {
 		case <-ticker.C:
 			if err := s.browsers.sweep(); err != nil {
 				s.publish(fmt.Errorf("browser logins: %w", err))
+			}
+		case <-signinTicker.C:
+			if err := s.processBrowserSignIns(ctx); err != nil {
+				s.publish(fmt.Errorf("browser sign-in: %w", err))
 			}
 		}
 	}
