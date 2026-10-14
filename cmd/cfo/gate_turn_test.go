@@ -1344,3 +1344,42 @@ func TestGateTurnDetachThatCannotStartTakesNoTurn(t *testing.T) {
 		t.Errorf("the line's folder %v, the command started %v; want neither", err, left(dir, "command", "started"))
 	}
 }
+
+// A run with no console at all, as a careless start's is once it has left
+// the console Windows made for it (leaveOwnConsole), with its standard
+// output and error on the null device, still takes its turn and runs its
+// command to its end. Nothing here can show a window: a process with no
+// console gives its children consoles with none.
+func TestGateTurnWithNoConsoleRunsItsCommand(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	run := exec.Command(os.Args[0], append([]string{gateTurnTestWrapper}, turnCommand(dir, "command", 4, false)...)...)
+	run.Stdin, run.Stdout, run.Stderr = null, null, null
+	run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+
+	// Act
+	if err := run.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- run.Wait() }()
+	var exit int
+	select {
+	case <-exited:
+		exit = run.ProcessState.ExitCode()
+	case <-time.After(time.Minute):
+		_ = run.Process.Kill()
+		t.Fatal("the run with no console had not ended after a minute")
+	}
+
+	// Assert
+	if exit != 4 || !left(dir, "command", "ended") {
+		t.Fatalf("exit = %d and the command ended = %v; want the command's own 4", exit, left(dir, "command", "ended"))
+	}
+}

@@ -72,6 +72,7 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $any = -1
     $command = -1
     $told = $false
+    $runs = @{}
     while (((Get-Date) - $started).TotalSeconds -lt $watchFor) {
         $at = [int]((Get-Date) - $started).TotalMilliseconds
         foreach ($entry in ([Desktop]::Shown()).GetEnumerator()) {
@@ -81,6 +82,14 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
             if (-not $entry.Value) { $front = $at }
         }
         if (Get-Process -Name PING -ErrorAction SilentlyContinue | Where-Object { -not $existing[$_.Id] }) { $command = $at }
+        # Each cfo the start ran, held by its handle so its exit code can be
+        # read once it has ended.
+        foreach ($process in Get-Process -Name cfo -ErrorAction SilentlyContinue) {
+            if (-not $existing[$process.Id] -and -not $runs.ContainsKey($process.Id)) {
+                $null = $process.Handle
+                $runs[$process.Id] = $process
+            }
+        }
         # Three seconds in, what the run's line and its cfo say, for a run
         # whose command did not start.
         if ($at -ge 3000 -and -not $told) {
@@ -90,6 +99,10 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
             & $Cfo gate turns 2>&1 | ForEach-Object { "  $_" } | Out-Host
         }
         Start-Sleep -Milliseconds 100
+    }
+    foreach ($run in $runs.Values) {
+        $ended = if ($run.HasExited) { "ended with exit $($run.ExitCode)" } else { 'runs' }
+        "[$Terminal / $Build / $Name] cfo pid $($run.Id) $ended" | Out-Host
     }
     foreach ($process in Get-Process) {
         if (-not $existing[$process.Id] -and $process.ProcessName -in 'cfo', 'PING', 'cmd', 'bash', 'conhost', 'OpenConsole') {
