@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# The tag's name reaches every script through the environment alone, never
+# in a script's text, where a name such as v1;<command> would run, and the
+# build checks its shape before anything else.
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
 jobs:
   # Project code and packages run here, with no way to sign or publish.
   build:
@@ -15,11 +21,21 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # The whole history and its tags, so the guard below can see main
+          # hold the tag's commit, and find the last release.
+          fetch-depth: 0
+      # Pushing a tag needs only write access, and the release signs what it
+      # builds, so only a tag of version shape on a commit main holds, newer
+      # than the last release's, is built.
+      - name: Release only a version from main
+        shell: pwsh
+        run: ./tools/release-on-main.ps1 -Tag $env:RELEASE_TAG -Commit $env:GITHUB_SHA -Main origin/main
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: stable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24.13.0'
           cache: npm
@@ -53,17 +69,17 @@ jobs:
         shell: pwsh
         run: |
           Push-Location cmd/cfo
-          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
-          go build -trimpath -ldflags "-X main.version=${{ github.ref_name }}" -o cfo.exe ./cmd/cfo
+          go build -trimpath -ldflags "-X main.version=$env:RELEASE_TAG" -o cfo.exe ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $info = (Get-Item cfo.exe).VersionInfo
-          if ($info.ProductName -ne 'Code Goblins' -or $info.ProductVersion -ne '${{ github.ref_name }}') {
-            throw "cfo.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '${{ github.ref_name }}'"
+          if ($info.ProductName -ne 'Code Goblins' -or $info.ProductVersion -ne $env:RELEASE_TAG) {
+            throw "cfo.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '$env:RELEASE_TAG'"
           }
           Push-Location cmd/goblins-window
-          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
           # production: the released window has no developer tools and no
@@ -71,13 +87,13 @@ jobs:
           go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Push-Location cmd/goblins-setup
-          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
           # See docs/install.md for setup compatibility and download behavior.
-          go build -trimpath -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }} -X main.tag=${{ github.ref_name }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
+          go build -trimpath -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }} -X main.tag=$env:RELEASE_TAG" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unsigned-build
           path: |
@@ -101,7 +117,7 @@ jobs:
       # Azure sign-in through GitHub's OpenID Connect: no password is stored.
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -110,7 +126,7 @@ jobs:
             LICENSE
             THIRD_PARTY_NOTICES
           sparse-checkout-cone-mode: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: unsigned-build
       # A release is signed where the release environment holds the signing
@@ -146,7 +162,7 @@ jobs:
           else {
             throw "Release signing is only partly set up in the release environment (missing: $($missing -join ', ')), so nothing is published."
           }
-      - uses: azure/login@v3
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         if: steps.signing.outputs.signed == 'true'
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -154,7 +170,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Sign
         if: steps.signing.outputs.signed == 'true'
-        uses: azure/artifact-signing-action@v2
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
@@ -277,7 +293,7 @@ jobs:
       # comment lines at its end and changes nothing it does.
       - name: Sign the installer
         if: steps.signing.outputs.signed == 'true'
-        uses: azure/artifact-signing-action@v2
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
@@ -341,7 +357,7 @@ jobs:
           $notes += '```'
           [IO.File]::WriteAllText("$PWD/release-notes.md", ($notes -join "`n") + "`n")
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
           body_path: release-notes.md
