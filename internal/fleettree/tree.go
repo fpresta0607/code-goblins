@@ -123,7 +123,8 @@ type Node struct {
 	gate GateStep
 	// lines are the child's own output when the read itself holds it: what
 	// a job's processes run, or a gate run's steps.
-	lines []string
+	lines  []string
+	output string
 	// isUnread says the command line of a job's first process could not be
 	// read, so whose job it is cannot be told.
 	isUnread bool

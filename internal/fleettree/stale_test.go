@@ -3,10 +3,8 @@ package fleettree
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 )
@@ -301,11 +299,11 @@ func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
 		node string
 		want []string
 	}{
-		{"shell:b1", []string{"> go test ./internal/monitor/", "ok  internal/monitor 41.2s"}},
-		{"shell:b2", []string{"> npm run build", "building the board", "dist/board ready"}},
-		{"shell:b3", []string{"> go vet ./..."}},
+		{"shell:b1", []string{"> go test ./internal/monitor/", "\x1b[32mok\x1b[0m  internal/monitor 41.2s", ""}},
+		{"shell:b2", []string{"> npm run build", "building the board\r", "dist/board ready", ""}},
+		{"shell:b3", []string{"> go vet ./...", "Waiting for the child's output file"}},
 		{"monitor:m1", []string{"> gh pr checks 398 --watch", "test: pending", "lint: pass"}},
-		{"process:600:60", []string{"> npm run dev", "cmd.exe (pid 600), 3 MB: npm run dev", "node.exe (pid 601), 150 MB: node node_modules/vite/bin/vite.js --port 5173"}},
+		{"process:600:60", []string{"> npm run dev", "This process has no readable output capture. Open the goblin's terminal to follow it."}},
 	} {
 		t.Run(tc.node, func(t *testing.T) {
 			// Act
@@ -328,7 +326,7 @@ func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
 
 // A child's terminal holds its newest lines, however many processes a job
 // runs.
-func TestChildLinesKeepsTheNewestLines(t *testing.T) {
+func TestChildWithoutCaptureExplainsWhyOutputIsUnavailable(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	start := at.Add(-20 * time.Minute)
@@ -353,8 +351,8 @@ func TestChildLinesKeepsTheNewestLines(t *testing.T) {
 	lines, err := reader.ChildLines("tree", "process:600:60")
 
 	// Assert
-	if err != nil || len(lines) != ChildLinesKept || !strings.HasPrefix(lines[len(lines)-1], fmt.Sprintf("chrome.exe (pid %d)", 1000+ChildLinesKept+49)) {
-		t.Errorf("ChildLines kept %d lines ending %q, %v; want the newest %d", len(lines), lines[len(lines)-1:], err, ChildLinesKept)
+	if err != nil || !slices.Equal(lines, []string{"> chrome --headless=new", "This process has no readable output capture. Open the goblin's terminal to follow it."}) {
+		t.Errorf("ChildLines = %q, %v, want an unavailable notice without a process listing", lines, err)
 	}
 }
 

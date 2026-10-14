@@ -68,16 +68,23 @@ test("a goblin's children at a glance: counts by state, and how many of each kin
     child({ id: "e", kind: "shell", state: "silent", last_activity: ago(14) }), child({ id: "f", kind: "subagent", state: "failed", finished: ago(2) }),
   ];
   const summary = summarize(tree(children));
-  assert.deepEqual({ ...summary, kinds: summary.kinds }, { working: 1, silent: 2, idle: 1, kinds: [["subagent", 1], ["shell", 2], ["server", 1]] });
-  assert.deepEqual(running(tree(children)).map((node) => node.id), ["a", "c", "d", "e"]);
+  assert.deepEqual({ ...summary, kinds: summary.kinds }, { working: 1, silent: 2, idle: 1, kinds: [["subagent", 1]] });
+  assert.deepEqual(running(tree(children)).map((node) => node.id), ["a"]);
   assert.deepEqual(finished(tree(children)).map((node) => node.id), ["f", "b"], "newest first");
 });
 
-test("a goblin has children to draw on the canvas only while one still runs or idles", () => {
+test("a goblin has children to draw only while one works", () => {
   for (const [states, isDrawn] of [
-    [[], false], [["done"], false], [["done", "failed"], false], [["working", "done"], true], [["waiting"], true], [["silent"], true],
+    [[], false], [["done"], false], [["done", "failed"], false], [["working", "done"], true], [["waiting"], false], [["silent"], false],
   ] as [string[], boolean][]) assert.equal(hasRunningChildren(tree(states.map((state, i) => child({ id: "c" + i, state })))), isDrawn, states.join(", "));
 });
+
+test("a silent child returns when it works and a gate awaiting a decision stays", () => {
+  const silent = child({ id: "shell", kind: "shell", state: "silent" })
+  const gate = child({ id: "gate", kind: "gate", state: "waiting" })
+  assert.deepEqual(running(tree([silent, gate])).map((node) => node.id), ["gate"])
+  assert.deepEqual(running(tree([{ ...silent, state: "working" }, gate])).map((node) => node.id), ["shell", "gate"])
+})
 
 test("rows under a goblin whose children show move down to make room, and keep their rows", () => {
   const positions = { cfo: { x: 400, y: 72 }, one: { x: 40, y: 72 + ROW }, two: { x: 376, y: 72 + ROW }, low: { x: 208, y: 72 + 2 * ROW } };
