@@ -18,17 +18,21 @@ import (
 )
 
 // stalledBoard answers as the recorded supervisor but never sends the
-// fleet's snapshot, as a board whose snapshot is still being built.
-func stalledBoard(t *testing.T) string {
+// fleet's snapshot, as a board whose snapshot is still being built. Each
+// snapshot request its client gives up sends how long the board held it.
+func stalledBoard(t *testing.T) (string, <-chan time.Duration) {
 	t.Helper()
 	release := make(chan struct{})
+	abandoned := make(chan time.Duration, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/alive" {
 			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
 			return
 		}
+		arrived := time.Now()
 		select {
 		case <-r.Context().Done():
+			abandoned <- time.Since(arrived)
 		case <-release:
 		}
 	}))
@@ -36,7 +40,7 @@ func stalledBoard(t *testing.T) string {
 		close(release)
 		server.Close()
 	})
-	return server.URL
+	return server.URL, abandoned
 }
 
 // holdFile holds path open without sharing it, as the cmd that started the
@@ -85,9 +89,9 @@ func TestGoblinsGoesOnPromptlyWhenTheSnapshotNeverAnswers(t *testing.T) {
 		t.Fatal("goblins started a second supervisor over a live one")
 		return nil, nil
 	})
-	f.record(stalledBoard(t))
+	board, abandoned := stalledBoard(t)
+	f.record(board)
 	holdFile(t, serveLogPath(f.home.State))
-	began := time.Now()
 
 	exit, stdout, stderr := f.launch()
 
@@ -97,8 +101,16 @@ func TestGoblinsGoesOnPromptlyWhenTheSnapshotNeverAnswers(t *testing.T) {
 	if !strings.Contains(stdout, "the fleet's status is still loading") {
 		t.Errorf("stdout = %q, want the banner to say the status is still loading", stdout)
 	}
-	if took := time.Since(began); took > snapshotTimeout+2*time.Second {
-		t.Errorf("goblins took %s, want no longer than the snapshot's own bound", took)
+	// Only goblins giving the request up ends it, since the board never
+	// answers. The board times the wait itself, so the rest of the launch,
+	// which a busy machine slows, does not count against the snapshot's bound.
+	select {
+	case held := <-abandoned:
+		if held > snapshotTimeout+2*time.Second {
+			t.Errorf("goblins waited %s on the snapshot, want no longer than its own bound of %s", held, snapshotTimeout)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("goblins went on without giving up its request for the snapshot")
 	}
 }
 
@@ -189,7 +201,8 @@ func TestGoblinsStopKeepsTheRecordOfASupervisorWhoseSnapshotNeverAnswers(t *test
 	stopTimeout = time.Second
 	t.Cleanup(func() { stopTimeout = previous })
 	f, killed := newCommandFixture(t)
-	f.record(stalledBoard(t))
+	board, _ := stalledBoard(t)
+	f.record(board)
 
 	_, stdout, stderr := f.command("stop")
 
