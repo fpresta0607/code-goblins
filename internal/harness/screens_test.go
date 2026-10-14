@@ -280,10 +280,40 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 		"pi editor scrolled":       {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
 		"pi rule missing":          {Pi, []string{"Done.", footer}, false},
 		"claude is never typed in": {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
+		"unknown composer":         {Kind("unknown"), []string{"❯ "}, false},
 	} {
 		screens, _ := NativeScreens(test.kind)
 		if got := screens.ComposerEmpty(test.screen); got != test.empty {
 			t.Errorf("%s: ComposerEmpty = %v, want %v", name, got, test.empty)
 		}
+	}
+}
+
+// Claude Code 2.1.288, captured in an isolated native terminal on 2026-10-03:
+// the last two rules enclose the current composer, including collapsed paste.
+func TestClaudesCapturedComposerReadsEmptyWithoutMistakingADraft(t *testing.T) {
+	rule := strings.Repeat("─", 140)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	screens, _ := NativeScreens(Claude)
+	for name, test := range map[string]struct {
+		screen []string
+		empty  bool
+	}{
+		"empty":            {[]string{rule, "❯", rule, footer}, true},
+		"cleared":          {[]string{rule, "❯\u00a0", rule, footer}, true},
+		"ascii prompt":     {[]string{rule, ">\u00a0", rule, footer}, true},
+		"draft":            {[]string{rule, "❯\u00a0scratch draft for composer proof", rule, footer}, false},
+		"collapsed paste":  {[]string{rule, "❯\u00a0[Pasted text #1]", rule, footer}, false},
+		"wrapped draft":    {[]string{rule, "❯", "  continued draft", rule, footer}, false},
+		"old empty prompt": {[]string{rule, "❯", rule, "old reply", rule, "❯ draft", rule, footer}, false},
+		"missing rule":     {[]string{"❯", rule, footer}, false},
+		"unknown hint":     {[]string{rule, "❯ Try fix typecheck errors", rule, footer}, false},
+		"no screen":        {nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := screens.ComposerEmpty(test.screen); got != test.empty {
+				t.Fatalf("ComposerEmpty = %v, want %v", got, test.empty)
+			}
+		})
 	}
 }

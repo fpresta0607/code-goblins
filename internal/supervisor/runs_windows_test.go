@@ -157,6 +157,34 @@ func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 	}
 }
 
+func TestRunRequestExecutesACommandFileWithOrWithoutAUtf8BOM(t *testing.T) {
+	for _, prefix := range []string{"", "\xef\xbb\xbf"} {
+		t.Run(fmt.Sprintf("prefix_%x", prefix), func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			_, _, _, connection := primaryFixture(t, store)
+			runPipe(t, &Service{Store: store, Options: Options{CFO: connection}})
+			file := commandFile(t, prefix+"Write-Output 'scratch-run-result-7421'\r\n")
+
+			// Act
+			if err := PublishRun(h, RunRequest{ID: "utf8-command-proof", Title: "Check the command file", Shell: "powershell", CommandFile: file}); err != nil {
+				t.Fatal(err)
+			}
+			run := store.Snapshot().Runs[0]
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			program := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(runDir(h.State, run), "command.ps1"))
+			program.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+			output, err := program.CombinedOutput()
+
+			// Assert
+			if err != nil || strings.TrimSpace(string(output)) != "scratch-run-result-7421" {
+				t.Fatalf("published command execution = %q, %v; want the whole command to run", output, err)
+			}
+		})
+	}
+}
+
 // Run goes only through the board's action checks: without the per-session
 // token, or from another origin, nothing is queued and nothing runs.
 func TestRunActionIsRefusedWithoutTheTokenOrFromAnotherOrigin(t *testing.T) {

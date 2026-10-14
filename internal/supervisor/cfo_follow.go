@@ -1,6 +1,9 @@
 package supervisor
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // The CFO's work on the board is addressed to the home's primary CFO, not to
 // one CFO process: closing the CFO and opening it again is a non-event. Every
@@ -122,7 +125,7 @@ func (s *Store) waitsForCFO(a Action) bool {
 // With no CFO running, deliveries to the CFO wait. The caller holds s.mu.
 func (s *Store) nextQueued(cfoLive bool) int {
 	return slices.IndexFunc(s.db.Actions, func(a Action) bool {
-		return a.Status == "queued" && (cfoLive || !s.waitsForCFO(a))
+		return a.Status == "queued" && !s.deferredUntil[a.ID].After(time.Now()) && (cfoLive || !s.waitsForCFO(a))
 	})
 }
 
