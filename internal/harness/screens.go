@@ -275,17 +275,27 @@ func (d Dialog) Focused(screen []string) (string, bool) {
 // row, pi's rule, Claude Code's spinner and the "Running…" under a tool in
 // progress, the count of background shells in Claude Code's footer, and its
 // spinner row while a turn waits on background agents or tasks it started.
-// The line that ends a Claude Code turn says "1 shell still running" and stays
-// on screen after the shell ends, so only the footer's count is read.
+// The footer counts background shells and monitors, alone or together, as
+// "4 shells, 1 monitor". The line that ends a Claude Code turn says "1 shell
+// still running" and stays on screen after the shell ends, so only the
+// footer's count is read, and never on that line wrapped before "still".
 var runningWork = []*regexp.Regexp{
 	regexp.MustCompile(`esc to interrupt`),
 	regexp.MustCompile(`^[•◦]\s+Working \(`),
 	regexp.MustCompile(`Running…`),
 	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
 	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
-	regexp.MustCompile(`(^|·)\s*\d+ shells?\s*(·|$)`),
+	backgroundCount,
 	regexp.MustCompile(`^[·✢✳*✶✻✽] Waiting for \d+ background `),
 }
+
+// backgroundCount is Claude Code's footer count of the background shells and
+// monitors a turn left running, and turnEnded the line that ends a turn,
+// which counts them too.
+var (
+	backgroundCount = regexp.MustCompile(`(^|·)\s*\d+ (shells?|monitors?)(,\s*\d+ (shells?|monitors?))*\s*(·|$)`)
+	turnEnded       = regexp.MustCompile(`· done \d{1,2}:\d{2}`)
+)
 
 // RunningWork returns the first row of screen that shows a tool, a turn or a
 // background job running, and whether there is one.
@@ -293,6 +303,9 @@ func RunningWork(screen []string) (string, bool) {
 	for _, row := range screen {
 		row = strings.TrimSpace(row)
 		for _, pattern := range runningWork {
+			if pattern == backgroundCount && turnEnded.MatchString(row) {
+				continue
+			}
 			if pattern.MatchString(row) {
 				return row, true
 			}

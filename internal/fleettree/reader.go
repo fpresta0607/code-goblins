@@ -469,7 +469,7 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if reading.isWorking {
 			state = Working
 		}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts)}
 		// A machine service a goblin started works for every goblin, as the
 		// no-mistakes daemon runs every gate's agents: it is shown at work,
 		// and its processor use is no goblin's work.
@@ -715,6 +715,7 @@ func mergeShells(children []Node) []Node {
 			if child.process == "" {
 				child.process = job.process
 			}
+			child.heavyRun = child.heavyRun || job.heavyRun
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}
