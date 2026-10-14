@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // cacheTool is one cache in the home's caches folder, the variable that points
@@ -38,11 +39,18 @@ const cacheTimeout = 10 * time.Minute
 
 // trimCaches brings the home's caches folder back under its cap: over it, each
 // tool prunes its own cache, the one used longest ago first, until the folder
-// is under the cap again or every tool has pruned.
+// is under the cap again or every tool has pruned. A prune can delete a
+// whole cache, as go clean -cache does, so each starts only once the machine's
+// heavy line is free, and runs in a turn of that line (HeavyLine.Wrap), which
+// no run that waits its turn builds beside. The trim stops at a line that is
+// not free and leaves the rest to the next sweep.
 func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 	root := cfg.Home.Caches()
 	limit := int64(fleetconfig.Bytes(cfg.Settings.CachesCapGB))
-	total := Size(root)
+	total, isWhole := sizeOf(root)
+	if !isWhole {
+		record.Notes = append(record.Notes, fmt.Sprintf("the caches could not all be read, so the %.1f GB they hold against their %.0f GB cap is only what could be counted", disk.GB(uint64(total)), cfg.Settings.CachesCapGB))
+	}
 	if total <= limit {
 		return
 	}
@@ -61,16 +69,25 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 		if total <= limit {
 			break
 		}
+		if err := cfg.lineFree(); err != nil {
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as the machine's heavy line is not free: %v", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, err))
+			return
+		}
 		dir := filepath.Join(root, entry.tool.dir)
 		before := Size(dir)
+		command := cfg.Line.Wrap("the janitor, pruning the "+entry.tool.dir+" cache", entry.tool.prune)
 		bounded, cancel := context.WithTimeout(ctx, cacheTimeout)
 		result, err := cfg.Commands.Run(bounded, execx.Request{
-			Name:     entry.tool.prune[0],
-			Args:     entry.tool.prune[1:],
-			Env:      append(os.Environ(), entry.tool.variable+"="+dir),
+			Name:     command[0],
+			Args:     command[1:],
+			Env:      append(outsideATurn(os.Environ()), entry.tool.variable+"="+dir),
 			KillTree: true,
 		})
 		cancel()
+		if err == nil && result.ExitCode == noTurnExit {
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as a run took the machine's heavy line before the %s cache's prune took its turn", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, entry.tool.dir))
+			return
+		}
 		if err != nil || result.ExitCode != 0 {
 			record.Notes = append(record.Notes, fmt.Sprintf("%s could not prune %s: %v %s", strings.Join(entry.tool.prune, " "), dir, err, strings.TrimSpace(string(result.Stderr))))
 			continue
@@ -100,4 +117,17 @@ func lastUse(dir string) (time.Time, bool) {
 		}
 	}
 	return last, true
+}
+
+// outsideATurn is environment without the variable that names a turn of the
+// machine's heavy line to a command run in it, so a prune's own turn is taken
+// whatever the sweep's process was started inside.
+func outsideATurn(environment []string) []string {
+	var kept []string
+	for _, entry := range environment {
+		if name, _, _ := strings.Cut(entry, "="); !strings.EqualFold(name, verify.TurnVariable) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }

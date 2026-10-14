@@ -362,6 +362,43 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandDidNotStart(t *testing.T) 
 	}
 }
 
+// A run whose wait ran out tells its goblin so: the wait ends only the wait,
+// never the telling, which an interrupt alone cuts short.
+func TestGateTurnTellsItsIdleCodexGoblinThatItsWaitRanOut(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	h, worktree, proof := goblinTerminal(t, "codex")
+	t.Setenv(host.IDVariable, runEndGoblin)
+	t.Setenv(host.ProofVariable, proof)
+	t.Chdir(worktree)
+	dir := commandFolder(t)
+	holder, err := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "a suite that holds the line", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	sent := &sentTexts{}
+	runtime := turnRuntime()
+	runtime.resolveHome = func() (home.Home, error) { return h, nil }
+	runtime.screen = showing(codexIdle)
+	runtime.sendText = func(ctx context.Context, h home.Home, target, text string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return sent.send(ctx, h, target, text)
+	}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, append([]string{"--as", "suite", "--wait", "1s"}, turnCommand(dir, "command", 4, false)...)...)
+
+	// Assert
+	got := sent.all()
+	if exit != exitNoTurn || len(got) != 1 || !strings.HasPrefix(got[0], fmt.Sprintf("%s: Your run suite ended with exit %d after ", runEndGoblin, exitNoTurn)) || left(dir, "command", "started") {
+		t.Errorf("exit = %d, typed %q, started = %v; want exit %d, nothing started and one line naming the run; stderr=%q", exit, got, left(dir, "command", "started"), exitNoTurn, stderr.String())
+	}
+}
+
 // A refused wait on a gate tells its goblin so, as a run that did not start
 // does: the goblin that left it in the background waits on it all the same.
 func TestGateTurnTellsItsIdleCodexGoblinThatItsGateWaitWasRefused(t *testing.T) {

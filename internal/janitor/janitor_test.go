@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +87,38 @@ func (f *sweepFixture) worktree(t *testing.T, name string) reap.WorktreeDir {
 }
 
 func (f *sweepFixture) config(inv reap.Inventory) Config {
-	return Config{Home: f.home, Commands: execx.OSRunner{}, Settings: fleetconfig.Defaults(), Inventory: inv, Now: f.now, SelfPID: os.Getpid()}
+	return Config{Home: f.home, Commands: execx.OSRunner{}, Settings: fleetconfig.Defaults(), Inventory: inv, Now: f.now, SelfPID: os.Getpid(), Line: freeLine{}}
+}
+
+// freeLine stands in for a heavy line that is free, which runs a command as
+// it is.
+type freeLine struct{}
+
+func (freeLine) Free() error                              { return nil }
+func (freeLine) Wrap(_ string, command []string) []string { return command }
+
+// busyLine stands in for a heavy line a run holds.
+type busyLine struct{}
+
+func (busyLine) Free() error {
+	return errors.New("cfo gate test at 0123abcd (pid 4242) holds the machine's heavy line")
+}
+func (busyLine) Wrap(_ string, command []string) []string { return command }
+
+// countedLine stands in for a heavy line free for its first free reads and
+// held after, which wraps a command in cfo gate turn as the watcher's does.
+type countedLine struct{ free int }
+
+func (line *countedLine) Free() error {
+	if line.free == 0 {
+		return errors.New("cfo verify fast of task t1 (pid 7) holds the machine's heavy line")
+	}
+	line.free--
+	return nil
+}
+
+func (line *countedLine) Wrap(who string, command []string) []string {
+	return append([]string{"cfo", "gate", "turn", "--as", who, "--wait", "30s", "--"}, command...)
 }
 
 func has(items []Item, path string) (Item, bool) {
@@ -165,9 +198,11 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 	for name, test := range map[string]struct {
 		started time.Duration
 		retired bool
+		isBusy  bool
 	}{
-		"a terminal started before the move still runs": {-2 * time.Hour, false},
-		"every terminal started after the move":         {time.Minute, true},
+		"a terminal started before the move still runs": {started: -2 * time.Hour},
+		"every terminal started after the move":         {started: time.Minute, retired: true},
+		"a busy heavy line":                             {started: time.Minute, isBusy: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -188,6 +223,9 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 				Processes: []reap.Process{selfProcess(t), terminal},
 			})
 			cfg.TempDir = t.TempDir()
+			if test.isBusy {
+				cfg.Line = busyLine{}
+			}
 
 			// Act
 			record := Sweep(context.Background(), cfg)
@@ -200,6 +238,12 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 			}
 			if _, err := os.Stat(voice); err != nil {
 				t.Errorf("the voice model was removed: %v", err)
+			}
+			if test.isBusy {
+				if item, kept := has(record.Kept, filepath.Join(old, "go-build")); !kept || !strings.Contains(item.Detail, "the machine's heavy line is not free") {
+					t.Errorf("kept %+v; want go-build kept while the heavy line is not free", record.Kept)
+				}
+				return
 			}
 			if _, kept := has(record.Kept, old); kept == test.retired {
 				t.Errorf("kept %+v; want the old caches kept only while goblin's terminal runs", record.Kept)
@@ -464,10 +508,18 @@ func TestSweepReportsWhatAppearsInTheProjectsRoot(t *testing.T) {
 type pruneRunner struct {
 	caches string
 	ran    []string
+	envs   [][]string
+	// isNoTurn has every prune take no turn and run nothing, as cfo gate
+	// turn's does when a run takes the line within its wait.
+	isNoTurn bool
 }
 
 func (r *pruneRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	r.ran = append(r.ran, request.Name+" "+strings.Join(request.Args, " "))
+	r.envs = append(r.envs, request.Env)
+	if r.isNoTurn {
+		return execx.Result{ExitCode: 125, Stderr: []byte("cfo gate turn: this run takes no turn: it took no turn within its wait of 30s\n")}, nil
+	}
 	if len(request.Env) == 0 {
 		return execx.Result{}, nil
 	}
@@ -516,6 +568,92 @@ func TestSweepTrimsTheCachesWithTheLeastRecentlyUsedToolFirst(t *testing.T) {
 	}
 	if item, ok := has(record.Removed, filepath.Join(f.home.Caches(), "uv")); !ok || item.Bytes != 1<<20 {
 		t.Errorf("removed = %+v, want uv's megabyte", record.Removed)
+	}
+}
+
+// A cache tool's prune can delete a whole cache, as go clean -cache does, so
+// each prune starts only on a free heavy line and runs in a turn of it, taken
+// by cfo gate turn with no turn of the sweep's own to ride. A sweep stops at
+// a line that is not free, or that it was not given, and says why.
+func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
+	for name, row := range map[string]struct {
+		line     HeavyLine
+		caches   []string
+		isNoTurn bool
+		wantRan  []string
+		wantNote string
+	}{
+		"a free line": {
+			line:    &countedLine{free: 9},
+			caches:  []string{"uv"},
+			wantRan: []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+		},
+		"a busy line": {
+			line:     busyLine{},
+			caches:   []string{"uv"},
+			wantNote: "are not trimmed further, as the machine's heavy line is not free: cfo gate test at 0123abcd (pid 4242) holds the machine's heavy line",
+		},
+		"no line given": {
+			caches:   []string{"uv"},
+			wantNote: "the sweep was given no heavy line to read",
+		},
+		"a line taken after the first prune": {
+			line:     &countedLine{free: 1},
+			caches:   []string{"uv", "go-build"},
+			wantRan:  []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+			wantNote: "not trimmed further, as the machine's heavy line is not free: cfo verify fast of task t1 (pid 7) holds",
+		},
+		"a prune that took no turn within its wait": {
+			line:     &countedLine{free: 9},
+			caches:   []string{"uv", "go-build"},
+			isNoTurn: true,
+			wantRan:  []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+			wantNote: "are not trimmed further, as a run took the machine's heavy line before the uv cache's prune took its turn",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: the caches are over their cap, uv used longest ago.
+			f := newSweepFixture(t)
+			for _, cache := range row.caches {
+				dir := filepath.Join(f.home.Caches(), cache)
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "blob"), make([]byte, 1<<20), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			makeOld(t, filepath.Join(f.home.Caches(), "uv"))
+			t.Setenv("CFO_VERIFY_TURN", "slot-1:4242:1")
+			runner := &pruneRunner{caches: f.home.Caches(), isNoTurn: row.isNoTurn}
+			cfg := f.config(reap.Inventory{})
+			cfg.Commands = runner
+			cfg.Settings.CachesCapGB = 0.5 / 1024
+			cfg.Line = row.line
+
+			// Act
+			record := Sweep(context.Background(), cfg)
+
+			// Assert
+			if !slices.Equal(runner.ran, row.wantRan) {
+				t.Fatalf("ran = %q, want %q", runner.ran, row.wantRan)
+			}
+			for _, env := range runner.envs {
+				if slices.ContainsFunc(env, func(entry string) bool { return strings.HasPrefix(entry, "CFO_VERIFY_TURN=") }) {
+					t.Errorf("a prune was handed the sweep's turn: %v", env)
+				}
+			}
+			if row.wantNote == "" {
+				return
+			}
+			isSaid := false
+			for _, note := range record.Notes {
+				isSaid = isSaid || strings.Contains(note, row.wantNote)
+			}
+			if !isSaid {
+				t.Errorf("notes = %q; want one that says %q", record.Notes, row.wantNote)
+			}
+		})
 	}
 }
 

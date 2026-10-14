@@ -949,7 +949,7 @@ cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
 cfo gate prepush [--plan] [--limit <duration>]
-cfo gate turn [--as <name>] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]
 cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
