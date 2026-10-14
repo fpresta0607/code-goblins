@@ -1,5 +1,7 @@
 package fleettree
 
+import "slices"
+
 // Placed is one process an owner started, as one reading of the machine
 // places it: in a job the owner's harness started after launching, or in a
 // detached tree that is the owner's.
@@ -18,8 +20,9 @@ type Placed struct {
 	// ByHarness says the harness started it itself: a tool call's shell, or
 	// a hook.
 	ByHarness bool
-	// InRun says its job is a test run or a build, which starts the same
-	// tools again and again by design, within its own time limit.
+	// InRun says its job is a test run or a build, or a process of its job
+	// runs inside a turn of the machine's heavy line, any of which starts the
+	// same tools again and again by design, within its own time limit.
 	InRun bool
 }
 
@@ -63,7 +66,7 @@ func (r *Reader) Placed(owners []Goblin) ([]Placed, error) {
 				isService := job.isService(facts)
 				// What it listens on says nothing of a test run or a build.
 				group, _, _ := classify(job, facts)
-				isRun := group == GroupTest || group == GroupBuild
+				isRun := group == GroupTest || group == GroupBuild || slices.ContainsFunc(job.members, r.inTurn)
 				for _, member := range job.members {
 					placed = append(placed, Placed{Process: member, Owner: owner.Meta.ID, Command: facts.commands[member.PID], Detached: detached, Service: isService, ByHarness: !detached && member.ParentPID == harness.harness.PID, InRun: isRun})
 				}
@@ -72,4 +75,22 @@ func (r *Reader) Placed(owners []Goblin) ([]Placed, error) {
 	}
 	r.forgetEnded(processes)
 	return placed, nil
+}
+
+// inTurn says process runs inside a turn of the heavy line (Reader.InTurn),
+// asked once in its life.
+func (r *Reader) inTurn(process Process) bool {
+	if r.InTurn == nil {
+		return false
+	}
+	if r.turns == nil {
+		r.turns = map[processKey]bool{}
+	}
+	key := processKey{process.PID, process.Created}
+	isInTurn, isAsked := r.turns[key]
+	if !isAsked {
+		isInTurn = r.InTurn(process.PID)
+		r.turns[key] = isInTurn
+	}
+	return isInTurn
 }
