@@ -46,17 +46,14 @@ $turn = 'gate turn -- ping -n 30 127.0.0.1'
 
 # Start-Exactly starts program with exactly the command line arguments,
 # which Windows PowerShell would otherwise rewrite: it drops a bare -- it
-# passes to a native program. It shows what the program printed, which is
-# where a start that started nothing says why.
+# passes to a native program. Its output is this script's, which cmd's start
+# hands on to what it starts, so it is never read through a pipe, which
+# would wait for the whole run.
 function Start-Exactly([string]$Program, [string]$Arguments) {
     $info = New-Object Diagnostics.ProcessStartInfo $Program, $Arguments
     $info.UseShellExecute = $false
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
     $process = [Diagnostics.Process]::Start($info)
-    $printed = $process.StandardOutput.ReadToEnd() + $process.StandardError.ReadToEnd()
     $process.WaitForExit()
-    if ($printed.Trim()) { "  $Program printed: $($printed.Trim())" | Out-Host }
 }
 
 # Watch-Start runs a start and watches the desktop for $watchFor seconds: the
@@ -74,6 +71,7 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $front = -1
     $any = -1
     $command = -1
+    $told = $false
     while (((Get-Date) - $started).TotalSeconds -lt $watchFor) {
         $at = [int]((Get-Date) - $started).TotalMilliseconds
         foreach ($entry in ([Desktop]::Shown()).GetEnumerator()) {
@@ -83,6 +81,14 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
             if (-not $entry.Value) { $front = $at }
         }
         if (Get-Process -Name PING -ErrorAction SilentlyContinue | Where-Object { -not $existing[$_.Id] }) { $command = $at }
+        # Three seconds in, what the run's line and its cfo say, for a run
+        # whose command did not start.
+        if ($at -ge 3000 -and -not $told) {
+            $told = $true
+            $alive = (Get-Process -Name cfo -ErrorAction SilentlyContinue | Where-Object { -not $existing[$_.Id] } | ForEach-Object { $_.Id }) -join ', '
+            "[$Terminal / $Build / $Name] cfo running: $alive" | Out-Host
+            & $Cfo gate turns 2>&1 | ForEach-Object { "  $_" } | Out-Host
+        }
         Start-Sleep -Milliseconds 100
     }
     foreach ($process in Get-Process) {
