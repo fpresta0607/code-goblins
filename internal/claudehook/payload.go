@@ -19,6 +19,11 @@ type Payload struct {
 	ToolName       string
 	Command        string
 	StopHookActive bool
+	// ToolUseID names the tool call a PostToolUse hook runs after, and
+	// ToolResponse is the JSON text of what that call gave back, as Claude
+	// Code wrote it.
+	ToolUseID    string
+	ToolResponse string
 }
 
 // rawPayload mirrors Claude's hook JSON field names before the stop-hook
@@ -29,6 +34,8 @@ type rawPayload struct {
 	Source              string          `json:"source"`
 	ToolName            string          `json:"tool_name"`
 	ToolInput           json.RawMessage `json:"tool_input"`
+	ToolUseID           string          `json:"tool_use_id"`
+	ToolResponse        json.RawMessage `json:"tool_response"`
 	StopHookActive      *bool           `json:"stopHookActive"`
 	StopHookActiveSnake *bool           `json:"stop_hook_active"`
 }
@@ -69,9 +76,11 @@ func ReadPayload(r io.Reader) (Payload, bool) {
 	}
 
 	p := Payload{
-		SessionID: raw.SessionID,
-		Source:    raw.Source,
-		ToolName:  raw.ToolName,
+		SessionID:    raw.SessionID,
+		Source:       raw.Source,
+		ToolName:     raw.ToolName,
+		ToolUseID:    raw.ToolUseID,
+		ToolResponse: string(raw.ToolResponse),
 	}
 
 	if len(raw.ToolInput) > 0 {

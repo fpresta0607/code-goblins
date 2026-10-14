@@ -128,6 +128,15 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 	}
 }
 
+// requestTimeout bounds the work of req: a key fetch loads its pages in a
+// Chrome it starts, and every other request takes runRequestTimeout.
+func requestTimeout(req runPipeRequest) time.Duration {
+	if req.Kind == "browser" && req.Browser != nil && req.Browser.Action == "fetch" {
+		return browserFetchTimeout
+	}
+	return runRequestTimeout
+}
+
 // handleRunClient answers one run request with the reason it was refused, or
 // nothing when the item is on the board. A client that has not sent its
 // request within runReadTimeout is disconnected unanswered.
@@ -156,11 +165,33 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	case json.Unmarshal(line, &req) != nil:
 		reply.Error = "the run request is not valid JSON"
 	default:
-		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
-		if req.Kind == "reported" {
+		ctx, cancel := context.WithTimeout(ctx, requestTimeout(req))
+		switch req.Kind {
+		case "reported":
 			// A look takes no item, so it waits behind nobody's request.
 			err = s.lookNow(ctx)
-		} else {
+		case "browser":
+			// The broker takes its own requests one at a time, and a
+			// browser's start waits behind nobody's item.
+			var lease BrowserLease
+			if req.Browser == nil {
+				err = errors.New("a browser request names no browser")
+			} else if err = goblinPipeCaller(s.Store.Home.State, req.Browser.Task, int(pid), connected); err != nil {
+				err = fmt.Errorf("browser caller: %w", err)
+			} else {
+				switch req.Browser.Action {
+				case "sign-in":
+					lease, err = s.requestBrowserSignIn(*req.Browser)
+				case "fetch":
+					lease, err = s.fetchCredential(ctx, *req.Browser)
+				default:
+					lease, err = s.browsers.take(ctx, *req.Browser)
+				}
+				if err == nil && lease.Login != "" {
+					reply.Browser = &lease
+				}
+			}
+		default:
 			s.runRequests.Lock()
 			switch req.Kind {
 			case "":
@@ -171,6 +202,8 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 				var started HelperStart
 				if req.Helper == nil {
 					err = errors.New("a helper request names no helper")
+				} else if err = goblinPipeCaller(s.Store.Home.State, req.Helper.Parent, int(pid), connected); err != nil {
+					err = fmt.Errorf("helper caller: %w", err)
 				} else if started, err = s.acceptHelper(*req.Helper); err == nil {
 					reply.Helper = &started
 				}
@@ -183,7 +216,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		switch {
 		case err != nil:
 			reply.Error = err.Error()
-		case req.Kind != "reported":
+		case req.Kind != "reported" && req.Kind != "browser":
 			s.publish(nil)
 		}
 	}
@@ -274,7 +307,10 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	if !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
 		return pipeReply{}, fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
 	}
-	if err := pipe.SetDeadline(time.Now().Add(runReplyTimeout)); err != nil {
+	// The answer may take as long as the request's work, and the margin
+	// runReplyTimeout leaves past runRequestTimeout.
+	answerWait := requestTimeout(req) + runReplyTimeout - runRequestTimeout
+	if err := pipe.SetDeadline(time.Now().Add(answerWait)); err != nil {
 		return pipeReply{}, err
 	}
 	data, err := json.Marshal(req)
@@ -287,7 +323,7 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	line, err := bufio.NewReader(io.LimitReader(pipe, 64<<10)).ReadBytes('\n')
 	var reply pipeReply
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return pipeReply{}, fmt.Errorf("the supervisor did not answer the run request within %s", runReplyTimeout)
+		return pipeReply{}, fmt.Errorf("the supervisor did not answer the run request within %s", answerWait)
 	}
 	if err != nil || json.Unmarshal(line, &reply) != nil {
 		return pipeReply{}, errors.New("the supervisor gave no answer to the run request")

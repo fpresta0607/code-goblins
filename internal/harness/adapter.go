@@ -52,6 +52,10 @@ type LaunchSpec struct {
 	// Only the claude adapter reads it, through --mcp-config; codex ignores
 	// it and uses the operator's own codex configuration.
 	MCPConfig string
+	// Settings is the path of the Claude Code settings file a goblin starts
+	// with, which holds the goblin hooks (install.GoblinSettings), and empty
+	// for a launch that runs none. Only the claude adapter reads it.
+	Settings string
 	// CodexMCPServers names the MCP servers the operator's own Codex
 	// configuration defines, which the codex adapter turns off: a goblin
 	// starts none of them, as claude's --strict-mcp-config starts none of the

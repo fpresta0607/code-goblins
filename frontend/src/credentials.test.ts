@@ -9,7 +9,7 @@ import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
   project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], why: "Charge test cards", link: "", steps: [],
-  env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], written: [], reason: "",
+  env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",
   created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", ...changes,
 });
 
@@ -81,6 +81,7 @@ test("a row's tips say where its value goes and how it was stored, naming the va
   assert.equal(whereItGoes(request({ env_file: ".env.docker.local" }), "DATABASE_URL"), "Goes to the precisiondocs vault for its goblins, and into .env.docker.local");
   assert.equal(storedTip(request({ saved: ["DATABASE_URL"] }), "DATABASE_URL"), "Stored in the precisiondocs vault, pasted on the card");
   assert.equal(storedTip(request({ saved: ["DATABASE_URL"], replaced: ["DATABASE_URL"], typed: ["DATABASE_URL"], written: ["DATABASE_URL"], env_file: ".env" }), "DATABASE_URL"), "Replaced in the precisiondocs vault, typed in the terminal, and set in .env");
+  assert.equal(storedTip(request({ saved: ["STRIPE_TEST_SECRET_KEY"], fetched: ["STRIPE_TEST_SECRET_KEY"] }), "STRIPE_TEST_SECRET_KEY"), "Stored in the precisiondocs vault, fetched from the page");
   assert.equal(heldTip(request()), "Already in the precisiondocs vault");
 });
 

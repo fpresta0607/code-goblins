@@ -383,6 +383,7 @@ export interface Snapshot {
   reviews?: Review[];
   runs?: Run[];
   credentials?: CredentialRequest[];
+  browser_signins?: BrowserSignIn[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
   ci_durations: CIDuration[];
@@ -428,10 +429,9 @@ export interface Question {
   answered_option: string; answered_by: string; answered_at: string;
   // task names the goblin that asked; it is empty for the CFO's own question.
   task: string;
-  // page is the open review item whose page carries this question, which
-  // shows it; answered_in says where an answer given outside its card came
-  // from, such as "page".
-  page: string; answered_in: string;
+  // answered_in says where an answer given outside its card came from, such
+  // as "chat".
+  answered_in: string;
   // image_count is how many review images the goblin attached, one for each choice in order.
   image_count: number;
   // generation is the asking goblin's session; empty for the CFO's question.
@@ -454,9 +454,8 @@ export interface Review {
   // answered_by and answered_in say who answered the item outside the
   // Command Center and where, such as "overlord" on its "page".
   answered_by: string; answered_in: string;
-  // question is the goblin's pending question this item's page carries, and
-  // window_closed_at when the page's review window last closed, if it has.
-  question: string; window_closed_at: string;
+  // window_closed_at is when the page's review window last closed, if it has.
+  window_closed_at: string;
   // revising_since is when he sent a revision from the page without ending
   // its review: the item waits on its goblin's next version, not on him.
   revising_since: string;
@@ -502,6 +501,11 @@ export interface ReleaseOffer {
 // or any release where the board was built from a clone, which updates from
 // the clone instead.
 export interface ReleaseView { installed: string; tag: string; page: string; published: string; source: boolean }
+export interface BrowserSignIn {
+  id: string; generation: string; login: string; provider: string; account: string; project: string; task: string;
+  state: "ready" | "opening" | "open" | "signed_in" | "expired";
+  reason: string; created_at: string; expires_at: string; closed_at: string;
+}
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
 // never carries a value.
@@ -521,8 +525,8 @@ export interface CredentialRequest {
   hints: CredentialHint[];
   // services are the auth.json services that read each name.
   services: Record<string, string[]>;
-  // state is open, saved or expired; typed are the saved names typed in its terminal.
-  state: string; saved: string[]; replaced: string[]; typed: string[]; written: string[]; reason: string;
+  // state is open, saved or expired; typed are the saved names typed in its terminal, and fetched those a fetch read from its key page.
+  state: string; saved: string[]; replaced: string[]; typed: string[]; fetched: string[]; written: string[]; reason: string;
   created_at: string; expires_at: string; closed_at: string;
 }
 // A name's format hint from its project's auth.json: how its value should
@@ -674,7 +678,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
       const h = object(hint);
       return { name: string(h.name), prefixes: strings(h.prefixes), warn: array(h.warn).map((warning) => { const w = object(warning); return { prefix: string(w.prefix), say: string(w.say) }; }) };
     }),
-    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), written: strings(c.written), reason: string(c.reason),
+    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), fetched: strings(c.fetched), written: strings(c.written), reason: string(c.reason),
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
   };
 }
@@ -692,12 +696,12 @@ function parseAfk(value: unknown): Afk {
 // The Command Center's items as the supervisor's stream sends them between
 // snapshots: its questions, review items, runs, credential requests and
 // actions, with the supervisor they are from and its revision.
-export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; actions: Action[] }
+export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; browser_signins: BrowserSignIn[]; actions: Action[] }
 function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in),
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), answered_in: string(q.answered_in),
         answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
     }),
     reviews: array(v.reviews).map((value) => {
@@ -705,7 +709,7 @@ function itemLists(v: Record<string, unknown>) {
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, download }) => ({ name: string(name), size: number(size), kind: string(kind), download: download === true }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {
@@ -720,6 +724,13 @@ function itemLists(v: Record<string, unknown>) {
           notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
+    browser_signins: array(v.browser_signins).map((value): BrowserSignIn => {
+      const signin = object(value);
+      const state = string(signin.state);
+      if (state !== "ready" && state !== "opening" && state !== "open" && state !== "signed_in" && state !== "expired") throw new Error("Invalid browser sign-in state");
+      return { id: string(signin.id), generation: string(signin.generation), login: string(signin.login), provider: string(signin.provider), account: string(signin.account),
+        project: string(signin.project), task: string(signin.task), state, reason: string(signin.reason), created_at: string(signin.created_at), expires_at: string(signin.expires_at), closed_at: string(signin.closed_at) };
+    }),
     actions: array(v.actions).map(parseAction),
   };
 }

@@ -135,7 +135,8 @@ type Database struct {
 	// answer on its way. Only the pipe adds to them, so each is proven.
 	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
 	// Credentials are requests for credential values, by name only.
-	Credentials []CredentialRequest `json:"credentials,omitempty"`
+	Credentials    []CredentialRequest `json:"credentials,omitempty"`
+	BrowserSignIns []BrowserSignIn     `json:"browser_signins,omitempty"`
 	// Announced is every Command Center key the board has announced, so no
 	// item is announced twice.
 	Announced []Announcement `json:"announced,omitempty"`
@@ -198,6 +199,12 @@ func Open(h home.Home) (*Store, error) {
 			}
 		}
 		s.updateQuestionOutcomes()
+		for i := range s.db.BrowserSignIns {
+			card := &s.db.BrowserSignIns[i]
+			if card.VerifiedAt == nil && (card.State == "opening" || card.State == "open") {
+				card.State, card.Reason = "ready", "The board restarted. Open the sign-in window again."
+			}
+		}
 		if err := s.save(); err != nil {
 			return nil, err
 		}
@@ -271,6 +278,17 @@ func cloneDatabase(d Database) Database {
 	d.Runs = slices.Clone(d.Runs)
 	d.CFOAnswers = slices.Clone(d.CFOAnswers)
 	d.Credentials = slices.Clone(d.Credentials)
+	d.BrowserSignIns = slices.Clone(d.BrowserSignIns)
+	for i := range d.BrowserSignIns {
+		if d.BrowserSignIns[i].ClosedAt != nil {
+			closed := *d.BrowserSignIns[i].ClosedAt
+			d.BrowserSignIns[i].ClosedAt = &closed
+		}
+		if d.BrowserSignIns[i].VerifiedAt != nil {
+			verified := *d.BrowserSignIns[i].VerifiedAt
+			d.BrowserSignIns[i].VerifiedAt = &verified
+		}
+	}
 	for i := range d.Credentials {
 		d.Credentials[i] = d.Credentials[i].clone()
 	}
@@ -746,7 +764,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 	case question >= 0:
 		a.Dismissed = s.clearQuestion(question)
 	case a.Kind == "review_clear":
-		a.Dismissed = s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
+		s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
 	}
 	s.db.Actions = append(s.db.Actions, a)
 	if answer {
@@ -859,15 +877,6 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				result.At = time.Now().UTC()
 				result.Generation = a.Generation
 				s.db.Tasks[a.TaskID] = result
-			}
-		}
-		// An answer closes the pages that carry its question, and its goblin's
-		// waits on the Overlord up to it, once, when it is sent or taken: a
-		// delivery that settles later was sent first.
-		if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
-			if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
-				s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
-				s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
 			}
 		}
 	}

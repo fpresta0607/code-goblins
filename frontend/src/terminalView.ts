@@ -18,6 +18,8 @@ const PADDING = 10;
 const RESIZE_SETTLE_MS = 120;
 // A view whose repaint never arrives is shown after this long all the same.
 const READY_FALLBACK_MS = 600;
+// Keys that only change the next key send nothing of their own.
+const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
 
 export interface ViewEvents {
   // The screen is whole: the history replayed and the repaint after it drawn.
@@ -36,6 +38,10 @@ export interface ViewEvents {
   // Key presses have sat unread in the terminal's input, as a busy program
   // leaves them, or its program has read them.
   unread: (isUnread: boolean) => void;
+  // A key was typed while the view had no open connection, so it was not
+  // sent: a key sent once the view is back could act on a screen he no
+  // longer sees.
+  unsent: () => void;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -165,7 +171,7 @@ export class TerminalView {
   // paste types text into the terminal the way a paste does, so a program
   // that asked for bracketed paste receives it as one.
   paste(text: string): void {
-    this.term.paste(stripPasteEscapes(text));
+    if (this.isSendable()) this.term.paste(stripPasteEscapes(text));
   }
 
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
@@ -345,7 +351,7 @@ export class TerminalView {
       const newline = harness === "claude" ? "\n" : harness === "codex" ? "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_" : null;
       if (newline !== null) {
         event.preventDefault();
-        if (down) this.term.input(newline, true);
+        if (down && this.isSendable()) this.term.input(newline, true);
         return false;
       }
     }
@@ -355,7 +361,16 @@ export class TerminalView {
       if (down) { this.setFont(size); this.events.font(size); }
       return false;
     }
+    if (down && !MODIFIER_KEYS.has(event.key)) this.isSendable();
     return true;
+  }
+
+  // isSendable says whether typed input can reach the terminal now, and tells
+  // of a key or paste that cannot.
+  private isSendable(): boolean {
+    if (this.socket.readyState === WebSocket.OPEN) return true;
+    this.events.unsent();
+    return false;
   }
 
   private readonly copy = (): void => {
@@ -368,7 +383,7 @@ export class TerminalView {
     event.stopImmediatePropagation();
     const input = clipboardInput(event, this.events.harness());
     if (input && "text" in input) this.paste(input.text);
-    else if (input) this.term.input(input.key, true);
+    else if (input && this.isSendable()) this.term.input(input.key, true);
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.
