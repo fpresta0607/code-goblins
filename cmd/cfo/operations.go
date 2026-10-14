@@ -151,13 +151,14 @@ func taskManifest(runtime commandRuntime, id string) (state.TaskMeta, projectcfg
 }
 
 func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo verify <task-id> [--tier fast|full|deep]")
 		return 2
 	}
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	tier := fs.String("tier", "fast", "fast, full, or deep")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	meta, m, e := taskManifest(runtime, args[0])
@@ -385,13 +386,14 @@ func processNames(processes []verifyrun.Leftover) string {
 }
 
 func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo security <task-id> [--deep]")
 		return 2
 	}
 	fs := flag.NewFlagSet("security", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	deep := fs.Bool("deep", false, "run deep security commands")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	meta, m, e := taskManifest(runtime, args[0])
@@ -443,13 +445,14 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 }
 
 func runDeploy(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo deploy <task-id> [--target <name>]")
 		return 2
 	}
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	target := fs.String("target", "", "target name")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	meta, m, e := taskManifest(runtime, args[0])
@@ -469,7 +472,8 @@ func runDeploy(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 }
 
 func runEvidence(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) != 1 {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo evidence <task-id>")
 		return 2
 	}
 	h, e := runtime.resolveHome()
@@ -493,13 +497,14 @@ func runEvidence(args []string, stdout, stderr io.Writer, runtime commandRuntime
 }
 
 func runSupersede(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo supersede <task-id> --reason <text>")
 		return 2
 	}
 	fs := flag.NewFlagSet("supersede", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	reason := fs.String("reason", "", "reason")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	h, e := runtime.resolveHome()
@@ -532,7 +537,8 @@ func runSupersede(args []string, stdout, stderr io.Writer, runtime commandRuntim
 }
 
 func runHygiene(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo hygiene <task-id>")
 		return 2
 	}
 	meta, _, e := taskManifest(runtime, args[0])

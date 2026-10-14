@@ -18,7 +18,7 @@ import (
 func runRegister(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("register", flag.ContinueOnError)
 	f.SetOutput(stderr)
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin {

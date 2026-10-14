@@ -29,7 +29,7 @@ func runAuthFetch(args []string, stdout, stderr io.Writer, runtime commandRuntim
 	flags := flag.NewFlagSet("auth fetch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	task := flags.String("task", "", "your task's ID")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
 	if state.ValidTaskID(*task) != nil {
