@@ -300,6 +300,8 @@ func (s stubProcesses) List(context.Context) ([]Process, error) {
 	return slices.Clone([]Process(s)), nil
 }
 
+func (stubProcesses) SelfAncestry() []int { return nil }
+
 func lines(findings []Finding) []string {
 	out := make([]string, 0, len(findings))
 	for _, finding := range findings {
