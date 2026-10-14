@@ -54,7 +54,69 @@ func PruneExecutions(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return pruneExecutions(filepath.Join(store, "executions"), filepath.Join(admission, "custody"), executionBudget, now)
+	passes, err := passesDir()
+	if err != nil {
+		return err
+	}
+	return pruneExecutions(filepath.Join(store, "executions"), filepath.Join(admission, "custody"), passes, executionBudget, now)
+}
+
+// passPins are the run IDs of the records a pass in passesDir rests on while
+// it may still be taken again: one kept within keptPassAge of now names each
+// of its commands' records, which FindPass reads. The newest passes pin
+// first, and only while the bytes of what they pin, read from sizes, stay
+// within share, so passes never crowd out the evidence of failures. A pass
+// past that pins nothing, and is taken again only while its records outlive
+// the budget. A pass that cannot be parsed is never taken, so it pins
+// nothing, but one that cannot be read may name any record, so it is an
+// error. A passes folder that is not there pins nothing.
+func passPins(passesDir string, now time.Time, sizes map[string]int64, share int64) (map[string]bool, error) {
+	pins := map[string]bool{}
+	entries, err := os.ReadDir(passesDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return pins, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var passes []Pass
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(passesDir, entry.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("verify: the pass %s could not be read, so no record it may rest on is removed: %w", entry.Name(), err)
+		}
+		var pass Pass
+		if json.Unmarshal(data, &pass) != nil || now.Sub(pass.Kept) > keptPassAge {
+			continue
+		}
+		passes = append(passes, pass)
+	}
+	slices.SortFunc(passes, func(a, b Pass) int { return b.Kept.Compare(a.Kept) })
+	var pinned int64
+	for _, pass := range passes {
+		var ids []string
+		var bytes int64
+		for _, result := range pass.Results {
+			if id, isRecord := strings.CutSuffix(filepath.Base(result.Execution), ".json"); isRecord && !pins[id] {
+				ids = append(ids, id)
+				bytes += sizes[id]
+			}
+		}
+		if pinned+bytes > share {
+			break
+		}
+		for _, id := range ids {
+			pins[id] = true
+		}
+		pinned += bytes
+	}
+	return pins, nil
 }
 
 // stored is an execution the store counts: its run ID, when it was created
@@ -71,10 +133,12 @@ type stored struct {
 // counts fits budget, within the floor the constants above give. A record
 // custody still pins, in custodyDir, a pending one or one it cannot read
 // younger than abandonedExecutionAge, and a file the store did not name are
-// never removed and never counted. A log whose record is gone is removed
-// once it is older than abandonedExecutionAge. A folder that is not there is
-// no error, and one that is not a plain folder is refused.
-func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error {
+// never removed and never counted. A record a pass in passesDir rests on,
+// within half the budget (passPins), is counted and never removed, and a
+// pass that cannot be read removes nothing. A log whose record is gone is removed once it is older
+// than abandonedExecutionAge. A folder that is not there is no error, and
+// one that is not a plain folder is refused.
+func pruneExecutions(dir, custodyDir, passesDir string, budget int64, now time.Time) error {
 	folder, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -111,9 +175,20 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 			records[id] = info
 		}
 	}
+	// Passes pin within half the budget, so the other half is always the
+	// failures', refusals' and other passes'.
+	pins, err := passPins(passesDir, now, sizes, budget/2)
+	if err != nil {
+		return err
+	}
 	var passes, failures, refusals, unlogged []stored
+	var pinned int64
 	for id, info := range records {
 		if _, err := os.Lstat(filepath.Join(custodyDir, id+".json")); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if pins[id] {
+			pinned += sizes[id]
 			continue
 		}
 		isYoung := now.Sub(info.ModTime()) < abandonedExecutionAge
@@ -160,7 +235,7 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 		return list[:min(len(list), count)]
 	}
 	passes, failures, refusals, unlogged = keep(passes, keptPasses), keep(failures, keptFailures), keep(refusals, keptRefusals), keep(unlogged, keptUnlogged)
-	var total int64
+	total := pinned
 	for _, list := range [][]stored{passes, failures, refusals, unlogged} {
 		for _, kept := range list {
 			total += kept.size
