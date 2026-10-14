@@ -127,6 +127,39 @@ func TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked(t *testing.T) {
 	}
 }
 
+// A Chrome on a loaded machine can take over half a minute to answer its
+// DevTools: one did on a CI runner on 2026-10-14. It still starts.
+func TestAChromeSlowToAnswerItsDevToolsStillStarts(t *testing.T) {
+	// Arrange
+	executable, err := Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	slowAnswer := func(ctx context.Context, pipe *devToolsPipe) error {
+		if err := sleep(ctx, 35*time.Second); err != nil {
+			return err
+		}
+		return pipe.call(ctx, "Browser.getVersion", nil, nil)
+	}
+
+	// Act
+	process, err := start(ctx, Launch{Executable: executable, Profile: t.TempDir(), Headless: true}, slowAnswer, Process.close)
+
+	// Assert
+	if process.PID != 0 {
+		t.Cleanup(func() {
+			if err := End(context.Background(), process); err != nil {
+				t.Errorf("end chrome %d: %v", process.PID, err)
+			}
+		})
+	}
+	if err != nil {
+		t.Fatalf("a Chrome that answered after 35 s did not start: %v", err)
+	}
+}
+
 func TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent(t *testing.T) {
 	process, profile := startChrome(t, []string{"localhost"})
 	if _, err := os.Stat(filepath.Join(profile, activePortFile)); !os.IsNotExist(err) {
