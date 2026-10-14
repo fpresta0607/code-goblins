@@ -56,6 +56,7 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $opened = @{}
     $front = -1
     $any = -1
+    $ran = $null
     while (((Get-Date) - $started).TotalSeconds -lt $watchFor) {
         $at = [int]((Get-Date) - $started).TotalMilliseconds
         foreach ($entry in ([Desktop]::Shown()).GetEnumerator()) {
@@ -64,8 +65,14 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
             $any = $at
             if (-not $entry.Value) { $front = $at }
         }
+        # What the start left running two seconds in, which says whether it
+        # started cfo at all.
+        if ($null -eq $ran -and $at -ge 2000) {
+            $ran = (Get-CimInstance Win32_Process | Where-Object { -not $existing[[int]$_.ProcessId] } | ForEach-Object { "$($_.Name) [$($_.CommandLine)]" }) -join '; '
+        }
         Start-Sleep -Milliseconds 100
     }
+    "[$Terminal / $Build / $Name] ran: $ran" | Out-Host
     foreach ($process in Get-Process) {
         if (-not $existing[$process.Id] -and $process.ProcessName -in 'cfo', 'PING', 'cmd', 'bash', 'conhost', 'OpenConsole') {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
