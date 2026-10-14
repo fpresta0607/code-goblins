@@ -14,7 +14,7 @@ import (
 // sound has speech elsewhere, as the model writes words of its own into room
 // noise. A part is loud when it holds speech: at LOUD_RMS, or, for a quiet
 // microphone or a soft word, OVER_QUIET_DB over the sound's own quiet, its
-// QUIET_PERCENTILE frame, and above QUIET_FLOOR_RMS.
+// quietest QUIET_SPAN_FRAMES, and above QUIET_FLOOR_RMS.
 const (
 	// FRAMES_A_SECOND is how finely a sound's loudness is read: 10 ms frames.
 	FRAMES_A_SECOND = 100
@@ -31,12 +31,9 @@ const (
 	// LOUD_RMS is the loudness of a frame that holds speech whatever the
 	// room, -40 dB of full scale: above a room's hum, below a voice.
 	LOUD_RMS = 0.01
-	// QUIET_PERCENTILE is the frame a sound's quiet is read at: the 1st
-	// percentile of its frames, which the room in the pause that ends each
-	// of the page's pieces reaches.
-	QUIET_PERCENTILE = 1
 	// OVER_QUIET_DB is how far over the sound's quiet a frame of speech
-	// rises, 12 dB: steady room noise stays within a few dB of itself.
+	// rises, 12 dB: a frame of room noise stays within a few dB of the
+	// room's quietest 200 ms.
 	OVER_QUIET_DB = 12
 	// QUIET_FLOOR_RMS is the loudness under which nothing is speech, -70 dB
 	// of full scale.
@@ -81,11 +78,21 @@ func pieces(samples []float32, rate int) [][]float32 {
 
 // loudPower is the power, the mean square of a frame, at which a frame of a
 // sound of frames of power holds speech: LOUD_RMS at most, lower when the
-// sound's quiet is low enough that speech under it stands OVER_QUIET_DB
-// over that quiet, and never under QUIET_FLOOR_RMS.
+// sound's quiet, the mean of its quietest QUIET_SPAN_FRAMES, is low enough
+// that speech under LOUD_RMS stands OVER_QUIET_DB over it, and never under
+// QUIET_FLOOR_RMS.
 func loudPower(power []float64) float64 {
-	sorted := slices.Sorted(slices.Values(power))
-	quiet := sorted[len(sorted)*QUIET_PERCENTILE/100]
+	span := min(QUIET_SPAN_FRAMES, len(power))
+	sum := 0.0
+	for _, value := range power[:span] {
+		sum += value
+	}
+	quiet := sum
+	for index := span; index < len(power); index++ {
+		sum += power[index] - power[index-span]
+		quiet = min(quiet, sum)
+	}
+	quiet /= float64(span)
 	return min(LOUD_RMS*LOUD_RMS, max(QUIET_FLOOR_RMS*QUIET_FLOOR_RMS, quiet*math.Pow(10, OVER_QUIET_DB/10.0)))
 }
 

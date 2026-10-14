@@ -63,10 +63,9 @@ export function downsample(sound: Sound, rate: number): Sound {
 // A part of a sound is loud, holding speech, when its 10 ms reach this RMS,
 // -40 dB of full scale: above a room's hum, below a voice. For a quiet
 // microphone or a soft word it is enough to stand OVER_QUIET_DB over the
-// sound's own quiet, its QUIET_PERCENTILE 10 ms, and above QUIET_FLOOR. The
-// engine reads it alike.
+// sound's own quiet, its quietest QUIET_SPAN_SECONDS, and above QUIET_FLOOR.
+// The engine reads it alike.
 const LOUD = 0.01;
-const QUIET_PERCENTILE = 1;
 const OVER_QUIET_DB = 12;
 const QUIET_FLOOR = 0.0003;
 // A piece is handed on once this much quiet follows speech in it,
@@ -81,11 +80,18 @@ const QUIET_SPAN_SECONDS = 0.2;
 
 // loudPower is the power, the mean square of 10 ms, at which a part of a
 // sound of frames of power holds speech: LOUD at most, lower when the
-// sound's quiet is low enough, and never under QUIET_FLOOR.
+// sound's quiet, the mean of its quietest QUIET_SPAN_SECONDS, is low enough,
+// and never under QUIET_FLOOR.
 function loudPower(frames: number[]): number {
-  const sorted = [...frames].sort((a, b) => a - b);
-  const quiet = sorted[Math.floor(sorted.length * QUIET_PERCENTILE / 100)] ?? 0;
-  return Math.min(LOUD * LOUD, Math.max(QUIET_FLOOR * QUIET_FLOOR, quiet * 10 ** (OVER_QUIET_DB / 10)));
+  const span = Math.min(Math.round(QUIET_SPAN_SECONDS * 100), frames.length);
+  let sum = 0;
+  for (let index = 0; index < span; index++) sum += frames[index];
+  let quiet = sum;
+  for (let index = span; index < frames.length; index++) {
+    sum += frames[index] - frames[index - span];
+    quiet = Math.min(quiet, sum);
+  }
+  return Math.min(LOUD * LOUD, Math.max(QUIET_FLOOR * QUIET_FLOOR, (span ? quiet / span : 0) * 10 ** (OVER_QUIET_DB / 10)));
 }
 
 // power is the mean square of each whole 10 ms of samples at rate.
