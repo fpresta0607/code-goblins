@@ -320,15 +320,18 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		screen  []string
 		running string
 	}{
-		"claude tool running":       {[]string{"  Bash(npm test)", "  ⎿  Running… (22s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⎿  Running… (22s · timeout 10m)"},
-		"claude spinner":            {[]string{"✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)"},
-		"claude interrupt hint":     {[]string{"❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"},
-		"claude background shell":   {[]string{"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"},
-		"claude two shells at end":  {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 shells"}, "⏵⏵ bypass permissions on · 2 shells"},
-		"codex status row":          {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
-		"codex status row, wrapped": {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
-		"pi rule":                   {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
-		"claude waits on an agent":  {[]string{"✻ Waiting for 1 background agent to finish", ">", "⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents · ↓ to manage"}, "✻ Waiting for 1 background agent to finish"},
+		"claude tool running":        {[]string{"  Bash(npm test)", "  ⎿  Running… (22s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⎿  Running… (22s · timeout 10m)"},
+		"claude spinner":             {[]string{"✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)"},
+		"claude interrupt hint":      {[]string{"❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"},
+		"claude background shell":    {[]string{"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"},
+		"claude two shells at end":   {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 shells"}, "⏵⏵ bypass permissions on · 2 shells"},
+		"claude monitor":             {[]string{"✻ Worked for 5m 15s · done 9:08 AM · 1 monitor still running", ">", "⏵⏵ bypass permissions on · PR #149 · 1 monitor · ← 2 agents · ↓ to manage"}, "⏵⏵ bypass permissions on · PR #149 · 1 monitor · ← 2 agents · ↓ to manage"},
+		"claude shells and monitor":  {[]string{"✻ Cooked for 45s · done 10:04 AM · 4 shells, 1 monitor", "still running", ">", "⏵⏵ bypass permissions on · 4 shells, 1 monitor · …"}, "⏵⏵ bypass permissions on · 4 shells, 1 monitor · …"},
+		"claude two monitors at end": {[]string{">", "⏵⏵ bypass permissions on · 2 monitors"}, "⏵⏵ bypass permissions on · 2 monitors"},
+		"codex status row":           {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
+		"codex status row, wrapped":  {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
+		"pi rule":                    {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
+		"claude waits on an agent":   {[]string{"✻ Waiting for 1 background agent to finish", ">", "⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents · ↓ to manage"}, "✻ Waiting for 1 background agent to finish"},
 	} {
 		running, ok := RunningWork(test.screen)
 		if !ok || running != test.running {
@@ -336,13 +339,14 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		}
 	}
 	for name, screen := range map[string][]string{
-		"claude idle, shell gone": {"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
-		"claude idle":             {"● Done. The branch is pushed.", "❯ Try \"fix typecheck errors\"", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
-		"codex idle":              {"• Working tree is clean and all tests pass.", "› Ask Codex to do anything", "  100% context left"},
-		"pi idle":                 {"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"},
-		"a reply naming a shell":  {"● Run it in 1 shell and report back.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
-		"claude idle, no monitor": {"✻ Brewed for 2s · done 12:56 AM · 1 monitor still running", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
-		"a reply about waiting":   {"● Waiting for 1 background agent is the plan.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle, shell gone":  {"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle":              {"● Done. The branch is pushed.", "❯ Try \"fix typecheck errors\"", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"codex idle":               {"• Working tree is clean and all tests pass.", "› Ask Codex to do anything", "  100% context left"},
+		"pi idle":                  {"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"},
+		"a reply naming a shell":   {"● Run it in 1 shell and report back.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle, no monitor":  {"✻ Brewed for 2s · done 12:56 AM · 1 monitor still running", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle, end wrapped": {"✻ Cooked for 45s · done 10:04 AM · 4 shells, 1 monitor", "still running", ">", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"a reply about waiting":    {"● Waiting for 1 background agent is the plan.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
 	} {
 		if running, ok := RunningWork(screen); ok {
 			t.Errorf("%s: RunningWork = %q, want nothing running", name, running)

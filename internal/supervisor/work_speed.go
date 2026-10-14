@@ -106,6 +106,7 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	// minutes. It is an error once it failed failingPasses passes in a row.
 	failed := map[string]bool{}
 	gateSteps := map[string]fleettree.GateStep{}
+	waits := map[string][]string{}
 	measured := map[string]bool{}
 	awaitedHelper := map[string]string{}
 	helpers := map[string]state.TaskMeta{}
@@ -148,7 +149,7 @@ measuring:
 		}
 		reportedAt, report := ownReport(lines, spawnTime(meta.SpawnGen))
 		tree, isTreeRead := trees[meta.ID]
-		screen, records, busy, gateStep, missing := s.workEvidence(meta, tree, isTreeRead, now)
+		screen, records, busy, gateStep, waiting, missing := s.workEvidence(meta, tree, isTreeRead, now)
 		source := ""
 		if !isNew && head != prior.Head {
 			source = "commit"
@@ -186,6 +187,7 @@ measuring:
 		}
 		unread[meta.ID] = missing
 		gateSteps[meta.ID] = gateStep
+		waits[meta.ID] = waiting
 		watched.Progress[meta.ID] = prior
 		measured[meta.ID] = true
 		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
@@ -212,9 +214,19 @@ measuring:
 		isReportedElsewhere := kind == "done" || kind == "blocked" || kind == "failed" || slices.ContainsFunc([]string{"ci", "deploy", "overlord", "memory"}, func(on string) bool { return strings.HasPrefix(prior.Report, "waiting on "+on+": ") })
 		// Evidence a memory low left unread says nothing of the goblin.
 		isStarved := watched.MemoryLow && len(unread[id]) > 0
-		if now.Sub(prior.At) >= PROGRESS_THRESHOLD && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere && !isStarved {
+		// A goblin waiting by design, on what resumes it when it ends, is
+		// stalled only once that wait has shown nothing new for the busy
+		// budget the monitor gives the same wait.
+		threshold := PROGRESS_THRESHOLD
+		if len(waits[id]) > 0 {
+			threshold = monitor.DefaultBusyTurnMax
+		}
+		if now.Sub(prior.At) >= threshold && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere && !isStarved {
 			missing := bounded(strings.Join(unread[id], ", "), 400)
 			detail := fmt.Sprintf("progress_stalled: %s has shown no new commit, push, gate step, status report, screen output, transcript write or processor use by its own processes for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", id, prior.Seconds/60, prior.Source)
+			if len(waits[id]) > 0 {
+				detail += "; it waits on " + bounded(strings.Join(waits[id], ", "), 400) + ", which has shown nothing new either"
+			}
 			if missing != "" {
 				detail += "; not read: " + missing
 			}
@@ -246,11 +258,12 @@ measuring:
 // its screen from the monitor's last look at it, and from the board's last
 // reading of its family tree the latest write its own records show (its
 // conversation, or a sub-agent, shell, monitor or gate step under it) and the
-// latest moment a job of its own processes started or used the processor, and
-// its gate run at a step it runs or is parked at. A helper hanging under it
-// is a goblin of its own, whose progress its parent takes only while it waits
-// on it. Evidence that could not be read is left empty and named in missing.
-func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeRead bool, now time.Time) (screen string, records, busy time.Time, gate fleettree.GateStep, missing []string) {
+// latest moment a job of its own processes started or used the processor, its
+// gate run at a step it runs or is parked at, and what it waits on by design
+// (fleettree.Tree.Waits). A helper hanging under it is a goblin of its own,
+// whose progress its parent takes only while it waits on it. Evidence that
+// could not be read is left empty and named in missing.
+func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeRead bool, now time.Time) (screen string, records, busy time.Time, gate fleettree.GateStep, waits, missing []string) {
 	observation, err := monitor.ReadObservation(s.Store.Home.State, meta.ID)
 	if err != nil || observation.EndpointVerdict != monitor.ProbePresent || observation.ScreenUnreadSince != nil ||
 		observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() ||
@@ -260,12 +273,12 @@ func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeR
 		screen = observation.OutputDigest
 	}
 	if !isTreeRead || tree.Generation != meta.SpawnGen || now.Sub(tree.FetchedAt) > evidenceFresh {
-		return screen, records, busy, gate, append(missing, "its transcript and processes, which the board has not read in the last two minutes")
+		return screen, records, busy, gate, waits, append(missing, "its transcript and processes, which the board has not read in the last two minutes")
 	}
 	missing = append(missing, tree.Unread...)
 	tree.Children = slices.DeleteFunc(slices.Clone(tree.Children), func(child fleettree.Node) bool { return child.Kind == fleettree.KindHelper })
 	gate, _ = tree.Gate()
-	return screen, tree.ActivityAt(), tree.Busy(), gate, missing
+	return screen, tree.ActivityAt(), tree.Busy(), gate, tree.Waits(), missing
 }
 
 // ownReport is the goblin's latest report in lines, from the generation
