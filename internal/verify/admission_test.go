@@ -1077,6 +1077,50 @@ func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 	}
 }
 
+// A run whose admission has a limit gives up a lock that stays busy past it,
+// with why, as it joins the line and as it protects the turn it took, rather
+// than trying again for good.
+func TestARunGivesUpALockBusyPastItsLimitAtEachChange(t *testing.T) {
+	for name, change := range map[string]func(t *testing.T, a Admission) error{
+		"joining the line": func(t *testing.T, a Admission) error {
+			holdLineLock(t, a.Dir, "in this process")
+			turn, err := a.Wait(context.Background())
+			if err == nil {
+				_ = turn.Release()
+			}
+			return err
+		},
+		"protecting its turn": func(t *testing.T, a Admission) error {
+			turn := within(t, take(t, a), "the run")
+			t.Cleanup(func() { _ = turn.Release() })
+			holdLineLock(t, a.Dir, "in this process")
+			_, err := turn.ProtectContext(context.Background(), "protected-run", "")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			shortCustodyBudget(t)
+			a := admission(t)
+			a.Limit = 300 * time.Millisecond
+			ended := make(chan error, 1)
+
+			// Act
+			go func() { ended <- change(t, a) }()
+
+			// Assert
+			select {
+			case err := <-ended:
+				if !errors.Is(err, errCustodyBusy) {
+					t.Errorf("the change ended with %v; want it to give up the busy lock", err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("the change still tries the busy lock well past its limit")
+			}
+		})
+	}
+}
+
 // A run's limit on a busy lock counts from when the lock turned busy, not from
 // when the run reached the head of the line: a run that waited there for a
 // slot longer than its limit still waits out a brief busy moment of the lock.
