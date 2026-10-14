@@ -1840,6 +1840,8 @@ It is absent unless free disk was read at both ends on one drive, since the mete
 The board's filtering and presentation are documented in [the README](../README.md#afk-mode).
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
+A merge train's landing is logged by the supervisor, on a request any process of the home may make (`afk-train-landed`, naming the train and the pull request) and only while AFK mode is on: the line is the train's own record of the landing, with the run that proved it, once GitHub says the pull request merged, and it is never twice in a stretch.
+The caller's own words are never logged, so a train that does not run under the registered CFO, such as one started detached, has its landings recorded too.
 A decision names its kind (`left`, `his`, `merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on, and one without evidence is refused.
 A `left` line is a decision the CFO would have asked him, answered itself with its recommendation: one without its `answer`, its diagnosis, what was tried or two or more options is refused, since under AFK mode nothing is left for him as a question.
 A `his` line is a step only he can take, which the CFO gave a backlog row and worked around, with why the CFO cannot take it as its evidence.

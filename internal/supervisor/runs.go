@@ -249,6 +249,8 @@ type runPipeRequest struct {
 	Asked   string          `json:"asked,omitempty"`
 	Helper  *HelperRequest  `json:"helper,omitempty"`
 	Browser *BrowserRequest `json:"browser,omitempty"`
+	// Train is a landing a merge train asks to be logged as merged.
+	Train *trainLanding `json:"train,omitempty"`
 }
 
 // pipeReply is the supervisor's answer to one request over its pipe: why it

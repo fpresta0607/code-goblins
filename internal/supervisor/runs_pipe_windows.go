@@ -198,6 +198,14 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 				err = s.acceptRunRequest(int(pid), connected, req)
 			case "afk-on", "afk-off":
 				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
+			case "afk-train-landed":
+				// Any process of this home may ask: the supervisor logs
+				// only what the train's record and GitHub say.
+				if req.Train == nil {
+					err = errors.New("a train landing names no train")
+				} else {
+					err = s.logTrainLanding(ctx, *req.Train)
+				}
 			case "helper":
 				var started HelperStart
 				if req.Helper == nil {
