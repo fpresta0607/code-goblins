@@ -17,8 +17,6 @@ import (
 )
 
 const (
-	serviceName = "cg-ci-runner"
-	usage       = "usage: cg-ci-runner service | status"
 	// logLimit is where the service's log is moved aside.
 	logLimit = 10 << 20
 	// stopLimit is how long the service may take to stop: a job's cleanup,
@@ -30,28 +28,7 @@ const (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
-	}
-	switch os.Args[1] {
-	case "service":
-		if err := svc.Run(serviceName, handler{dir: serviceFolder()}); err != nil {
-			fmt.Fprintf(os.Stderr, "cg-ci-runner: run as a service: %v\n", err)
-			os.Exit(1)
-		}
-	case "status":
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		err := cirunner.Ask(ctx, cirunner.PipeName, cirunner.Request{Kind: cirunner.AskStatus}, func(reply cirunner.Reply) { fmt.Println(reply.Line) })
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cg-ci-runner: %v\n", err)
-			os.Exit(1)
-		}
-	default:
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
-	}
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, thisMachine()))
 }
 
 // serviceFolder holds the service's settings, the App's key, its log and

@@ -142,7 +142,7 @@ func TestNewServiceRunsFromItsFolder(t *testing.T) {
 	}
 }
 
-// The service's sleep ends with its context.
+// Sleep ends with its context.
 func TestSleepEndsWithItsContext(t *testing.T) {
 	// Arrange
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,10 +150,10 @@ func TestSleepEndsWithItsContext(t *testing.T) {
 	started := time.Now()
 
 	// Act
-	sleep(ctx, time.Hour)
+	Sleep(ctx, time.Hour)
 
 	// Assert
 	if waited := time.Since(started); waited > time.Second {
-		t.Errorf("sleep waited %v on an ended context; want it to end at once", waited)
+		t.Errorf("Sleep waited %v on an ended context; want it to end at once", waited)
 	}
 }

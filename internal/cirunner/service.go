@@ -2,6 +2,7 @@ package cirunner
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"net/http"
@@ -41,7 +42,22 @@ func NewService(dir string, log func(string)) (*Service, Config, error) {
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		return nil, Config{}, err
 	}
-	github := &GitHub{
+	deps := Deps{
+		GitHub: NewGitHub(config, key),
+		VM:     HyperV{Commands: execx.OSRunner{}},
+		DVD: func(runnerConfig string) (string, error) {
+			iso := filepath.Join(work, "job.iso")
+			return iso, BuildDVD(iso, runnerConfig)
+		},
+		Now:   time.Now,
+		Sleep: Sleep,
+	}
+	return &Service{Deps: deps, Limits: DefaultLimits, Log: log}, config, nil
+}
+
+// NewGitHub is the App config names, with key, at GitHub's API.
+func NewGitHub(config Config, key *rsa.PrivateKey) *GitHub {
+	return &GitHub{
 		Client:         &http.Client{Timeout: 30 * time.Second},
 		Base:           "https://api.github.com",
 		AppID:          config.AppID,
@@ -51,21 +67,10 @@ func NewService(dir string, log func(string)) (*Service, Config, error) {
 		Repo:           config.Repo,
 		Now:            time.Now,
 	}
-	deps := Deps{
-		GitHub: github,
-		VM:     HyperV{Commands: execx.OSRunner{}},
-		DVD: func(runnerConfig string) (string, error) {
-			iso := filepath.Join(work, "job.iso")
-			return iso, BuildDVD(iso, runnerConfig)
-		},
-		Now:   time.Now,
-		Sleep: sleep,
-	}
-	return &Service{Deps: deps, Limits: DefaultLimits, Log: log}, config, nil
 }
 
-// sleep waits for d, or until ctx ends.
-func sleep(ctx context.Context, d time.Duration) {
+// Sleep waits for d, or until ctx ends.
+func Sleep(ctx context.Context, d time.Duration) {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
