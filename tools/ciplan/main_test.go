@@ -23,10 +23,10 @@ func TestThePlanWritesTheOutputsTheWorkflowReads(t *testing.T) {
 		jobs gatetest.Jobs
 		want string
 	}{
-		"every job":                  {gatetest.Jobs{Everything: true, Why: "a workflow changed", Frontend: true, Browser: true, Go: jobTable.Go}, `go=[{"shard":"conpty","packages":"./internal/conpty"},{"shard":"rest","except":"./internal/conpty"}]` + "\nfrontend=true\nbrowser=true\n"},
-		"the board alone":            {gatetest.Jobs{Why: "the change reaches 0 of the module's packages", Frontend: true, Browser: true}, "go=[]\nfrontend=true\nbrowser=true\n"},
-		"one go job":                 {gatetest.Jobs{Why: "the change reaches 1 of the module's packages", Go: jobTable.Go[1:]}, `go=[{"shard":"rest","except":"./internal/conpty"}]` + "\nfrontend=false\nbrowser=false\n"},
-		"nothing, as for a document": {gatetest.Jobs{Why: "the change reaches 0 of the module's packages"}, "go=[]\nfrontend=false\nbrowser=false\n"},
+		"every job":                  {gatetest.Jobs{Everything: true, Why: "a workflow changed", Frontend: true, Browser: true, Go: jobTable.Go}, `go=[{"shard":"conpty","packages":"./internal/conpty"},{"shard":"rest","except":"./internal/conpty"}]` + "\nfrontend=true\nbrowser=true\neverything=true\n"},
+		"the board alone":            {gatetest.Jobs{Why: "the change reaches 0 of the module's packages", Frontend: true, Browser: true}, "go=[]\nfrontend=true\nbrowser=true\neverything=false\n"},
+		"one go job":                 {gatetest.Jobs{Why: "the change reaches 1 of the module's packages", Go: jobTable.Go[1:]}, `go=[{"shard":"rest","except":"./internal/conpty"}]` + "\nfrontend=false\nbrowser=false\neverything=false\n"},
+		"nothing, as for a document": {gatetest.Jobs{Why: "the change reaches 0 of the module's packages"}, "go=[]\nfrontend=false\nbrowser=false\neverything=false\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

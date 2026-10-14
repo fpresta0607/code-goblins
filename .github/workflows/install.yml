@@ -83,11 +83,40 @@ permissions:
   contents: read
 
 jobs:
+  # A push to main runs neither install when a pull request run of this
+  # workflow passed on the push's exact tree and first parent, as a merge
+  # train's run does for the tree the train lands unchanged
+  # (tools/pushreuse). Any other push, and one whose records cannot be read,
+  # runs both. A release builds and installs in its own workflow.
+  reuse:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - uses: actions/checkout@v6
+        continue-on-error: true
+      - uses: actions/setup-go@v5
+        continue-on-error: true
+        with:
+          go-version: stable
+          cache: false
+      - name: Find a pull request run that passed this tree on this main
+        id: find
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: go run ./tools/pushreuse find install.yml >> "$GITHUB_OUTPUT"
+
   one-line:
     # The setup program runs the install script in Windows PowerShell, out of
     # sight, as CodeGoblinsSetup.exe does once Install is pressed.
     name: ${{ matrix.via }} (${{ matrix.shell }})
-    if: ${{ !github.event.pull_request.draft }}
+    needs: reuse
+    if: ${{ !cancelled() && !github.event.pull_request.draft && needs.reuse.outputs.run == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -352,7 +381,8 @@ jobs:
           retention-days: 14
 
   dev:
-    if: ${{ !github.event.pull_request.draft }}
+    needs: reuse
+    if: ${{ !cancelled() && !github.event.pull_request.draft && needs.reuse.outputs.run == '' }}
     runs-on: windows-latest
     # -Dev runs the same third-party installers as the one-line install.
     timeout-minutes: 30
@@ -482,3 +512,39 @@ jobs:
           path: ~/AppData/Local/Temp/CodeGoblinsInstall.log
           if-no-files-found: ignore
           retention-days: 14
+
+  # A pull request run whose installs both passed leaves a record named for
+  # the tree and first parent it tested, which a push to main with the same
+  # pair reads instead of installing again (tools/pushreuse). A record that
+  # fails only leaves that push to install again, so it never fails a run.
+  # Its installs wait on reuse, which a pull request skips, and a skipped job
+  # skips every job after it unless the condition says otherwise, so this
+  # one reads the installs' own results.
+  passed:
+    needs: [one-line, dev]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.one-line.result == 'success' && needs.dev.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        continue-on-error: true
+      - uses: actions/setup-go@v5
+        continue-on-error: true
+        with:
+          go-version: stable
+          cache: false
+      - name: Name the record of the tree this run passed
+        id: record
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="$(go run ./tools/pushreuse name install.yml)"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$RUNNER_TEMP/passed.txt"
+      - uses: actions/upload-artifact@v4
+        if: steps.record.outputs.name != ''
+        continue-on-error: true
+        with:
+          name: ${{ steps.record.outputs.name }}
+          path: ${{ runner.temp }}/passed.txt
+          retention-days: 7

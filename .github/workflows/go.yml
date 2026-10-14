@@ -89,10 +89,16 @@ jobs:
   plan:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-latest
+    # A push reads the records pull request runs left (tools/pushreuse).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       go: ${{ steps.plan.outputs.go }}
       frontend: ${{ steps.plan.outputs.frontend }}
       browser: ${{ steps.plan.outputs.browser }}
+      everything: ${{ steps.plan.outputs.everything }}
+      reused: ${{ steps.plan.outputs.run }}
     env:
       # A pull request's own run, which may leave a job out. A merge train
       # tests its pull requests together from a branch named cfo/train-, on
@@ -107,27 +113,48 @@ jobs:
       # its first parent is the base and the difference between the two is
       # what merging would change.
       - uses: actions/checkout@v6
-        if: env.OWN_RUN == 'true'
+        if: env.OWN_RUN == 'true' || github.event_name == 'push'
         with:
           fetch-depth: 2
       - uses: actions/setup-go@v5
-        if: env.OWN_RUN == 'true'
+        if: env.OWN_RUN == 'true' || github.event_name == 'push'
         with:
           go-version: stable
           cache: false
+      # A push to main starts no job when a pull request run of this
+      # workflow that started every job passed on the push's exact tree and
+      # first parent: a merge train's run, which the train landed unchanged.
+      # 482 of 623 pushes to main from 2026-09-14 to 2026-10-14 ran such a
+      # tree again. Any other push, and one whose records cannot be read,
+      # starts every job as before. A tag push never runs this workflow, and
+      # a release builds and tests in its own.
       - name: Choose the jobs this run starts
         id: plan
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ($env:OWN_RUN -eq 'true') {
             go run ./tools/ciplan -base 'HEAD^1' >> $env:GITHUB_OUTPUT
             exit $LASTEXITCODE
+          }
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $reused = @(go run ./tools/pushreuse find go.yml)
+            if ($LASTEXITCODE -eq 0 -and $reused.Count -eq 1 -and $reused[0] -match '^run=\d+$') {
+              $reused[0] >> $env:GITHUB_OUTPUT
+              'go=[]' >> $env:GITHUB_OUTPUT
+              'frontend=false' >> $env:GITHUB_OUTPUT
+              'browser=false' >> $env:GITHUB_OUTPUT
+              'everything=false' >> $env:GITHUB_OUTPUT
+              exit 0
+            }
           }
           'Every job runs: this is not a pull request''s own run.'
           $jobs = $env:JOBS | ConvertFrom-Json
           "go=$(ConvertTo-Json -InputObject @($jobs.go) -Compress)" >> $env:GITHUB_OUTPUT
           'frontend=true' >> $env:GITHUB_OUTPUT
           'browser=true' >> $env:GITHUB_OUTPUT
+          'everything=true' >> $env:GITHUB_OUTPUT
 
   frontend:
     needs: plan
@@ -379,17 +406,22 @@ jobs:
   # job that failed or was cancelled is not a pass, and neither is one that
   # was skipped unless the plan left it out. Only a pull request's own run
   # may leave a job out: in a merge train's run and every other, a job that
-  # did not succeed fails the check whatever the plan said.
+  # did not succeed fails the check whatever the plan said, but for a push
+  # whose plan found a pull request run that passed its exact tree on the
+  # same main, which leaves every job out.
   test:
     if: ${{ always() && !github.event.pull_request.draft }}
     needs: [plan, frontend, browser, go]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Require every job to have passed
         shell: pwsh
         env:
           RESULTS: ${{ toJSON(needs) }}
           OWN_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'cfo/train-') }}
+          EVENT: ${{ github.event_name }}
         run: |
           $needs = $env:RESULTS | ConvertFrom-Json
           $jobs = @($needs.PSObject.Properties)
@@ -398,6 +430,10 @@ jobs:
           # What the plan left out, which only a plan that succeeded and said
           # true or false for each job can say.
           $leftOut = @()
+          if ($env:EVENT -eq 'push' -and $plan.result -eq 'success' -and "$($plan.outputs.reused)" -match '^\d+$') {
+            $leftOut = @('frontend', 'browser', 'go')
+            "every job was left out: pull request run $($plan.outputs.reused) passed this tree on this main"
+          }
           if ($env:OWN_RUN -eq 'true' -and $plan.result -eq 'success') {
             $said = $plan.outputs
             if ($said.frontend -notin 'true', 'false' -or $said.browser -notin 'true', 'false' -or "$($said.go)" -notmatch '^\[.*\]$') {
@@ -412,6 +448,40 @@ jobs:
           if ($jobs.Count -eq 0 -or $notPassed.Count -gt 0) {
             throw "Not every job passed: $($notPassed.Name -join ', ')"
           }
+      # A pull request run that started every job and passed leaves a record
+      # named for the tree and first parent it tested, which a push to main
+      # with the same pair reads instead of running every job again
+      # (tools/pushreuse). It keeps a week, longer than a train takes to land.
+      # A record that fails only leaves that push to run every job, so it
+      # never fails this check.
+      - uses: actions/checkout@v6
+        if: github.event_name == 'pull_request' && needs.plan.outputs.everything == 'true'
+        continue-on-error: true
+      - uses: actions/setup-go@v5
+        if: github.event_name == 'pull_request' && needs.plan.outputs.everything == 'true'
+        continue-on-error: true
+        with:
+          go-version: stable
+          cache: false
+      - name: Name the record of the tree this run passed
+        id: record
+        if: github.event_name == 'pull_request' && needs.plan.outputs.everything == 'true'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $name = go run ./tools/pushreuse name go.yml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Set-Content -LiteralPath "$env:RUNNER_TEMP/passed.txt"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request' && needs.plan.outputs.everything == 'true' && steps.record.outputs.name != ''
+        continue-on-error: true
+        with:
+          name: ${{ steps.record.outputs.name }}
+          path: ${{ runner.temp }}/passed.txt
+          retention-days: 7
       # A test that failed and passed on its second try left its job green.
       # Each is named here, on the check a pull request requires, as a
       # warning titled Failed once that says job: suite test, so a failure by
