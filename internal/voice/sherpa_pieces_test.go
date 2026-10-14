@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// The pinned model, Moonshine tiny, answers nothing at all for a sound of
-// 9.3 seconds or more (its decoder takes at most 384 of its encoder's
+// Moonshine tiny, the pinned model until 14 October 2026, answers nothing at
+// all for a sound of 9.3 seconds or more (its decoder takes at most 384 of its encoder's
 // frames), which was every long dictation the Overlord made: "Nothing was
 // heard." It also writes words of its own into a stretch of room noise with
 // no speech in it. These tests hold the recognizer to handing the model only

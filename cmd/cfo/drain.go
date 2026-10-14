@@ -23,7 +23,7 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 	ackThrough := fs.Int("ack-through", 0, "acknowledge wake records through this sequence")
 	recoveryGen := fs.Int("recovery-generation", 0, "acknowledge the recovery episode at this generation")
 	ackBlocking := fs.Bool("ack-blocking", false, "also retire EVERY blocked/failed notify at or below --ack-through, which it refuses on its own")
-	if err := fs.Parse(args); err != nil {
+	if !parseFlags(fs, args) {
 		return 2
 	}
 

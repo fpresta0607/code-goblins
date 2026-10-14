@@ -300,6 +300,9 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	observe := monitor.Observe
 	monitor.Observe = func(measurement Measurement) error {
 		if measurement.State == Running {
+			// A run that would take the other slot weighs what this one may
+			// still use by what its job commits now.
+			turn.Measure(measurement.Usage.CommitBytes)
 			if isLogged {
 				written, err := writtenTo(stdout, stderr)
 				if err != nil {

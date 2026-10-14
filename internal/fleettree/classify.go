@@ -74,6 +74,19 @@ func classify(j job, facts jobFacts) (Group, string, string) {
 	return GroupOther, label, detail
 }
 
+// heavyLineRun is a run in the machine's heavy line, which waits there for
+// its turn, holds it while its command runs, and tells its goblin how it
+// ended.
+var heavyLineRun = regexp.MustCompile(`(?i)\b(cfo|goblins)(\.exe)?"?\s+gate\s+turn\b`)
+
+// isHeavyRun says a job is or runs a run in the machine's heavy line, by its
+// processes' command lines.
+func (j job) isHeavyRun(facts jobFacts) bool {
+	return slices.ContainsFunc(j.members, func(member Process) bool {
+		return heavyLineRun.MatchString(facts.commands[member.PID])
+	})
+}
+
 // isService says a job is or runs a machine service (proc.ServiceOf), by
 // its programs and their command lines.
 func (j job) isService(facts jobFacts) bool {

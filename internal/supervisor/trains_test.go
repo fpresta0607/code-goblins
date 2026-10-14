@@ -342,7 +342,69 @@ func TestTheSupervisorStartsATrainForGoblinsThatWentOnWorkingAfterTheirDoneRepor
 	}
 }
 
-func TestTheSupervisorLeavesALoneFinishedPullRequestToTheCFO(t *testing.T) {
+// On 2026-10-14 pull requests reported done while a train ran waited after
+// it landed with no new train: the poll that landed it had read them open
+// before it landed, beside the riders it merged, and started nothing (#852).
+// The poll a train ends on reads the open pull requests again and starts the
+// next train for those that wait.
+func TestTheNextTrainStartsOnThePollItsTrainLands(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(11), project.pull(12)
+	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second}); err != nil {
+		t.Fatal(err)
+	}
+	third, fourth := project.pull(13), project.pull(14)
+	reportDone(t, h, "g13", project.checkout, "done: PR "+third.URL)
+	reportDone(t, h, "g14", project.checkout, "done: PR "+fourth.URL)
+
+	// Act: the poll read all four open before the first train landed.
+	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second, third, fourth})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	trains, err := train.List(h.State)
+	if err != nil || len(trains) != 2 {
+		t.Fatalf("trains = %+v, %v, want the first landed and the next started", trains, err)
+	}
+	next, landed := trains[0], trains[1]
+	if landed.State != train.StateLanded || next.State != train.StateTesting || len(next.Cars) != 2 || next.Cars[0].Number != 13 || next.Cars[1].Number != 14 {
+		t.Fatalf("trains = %+v, want #11 and #12 landed and #13 and #14 testing", trains)
+	}
+}
+
+// A pull request done and green with no other to ride beside it waited for
+// a second one with no limit, so on 2026-10-14 #842 waited 22 minutes after
+// the train before it landed (#852). Once its goblin reported it done
+// loneRiderWait ago, it rides alone.
+func TestALoneFinishedPullRequestRidesOnceItWaitedPastTheBound(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	lone := project.pull(21)
+	reportDone(t, h, "g21", project.checkout)
+	writeFile(t, state.StatusPath(h.State, "g21"), time.Now().Add(-loneRiderWait-time.Minute).UTC().Format(time.RFC3339)+" done: PR "+lone.URL+"\n")
+
+	// Act
+	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{lone})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	trains, err := train.List(h.State)
+	if err != nil || len(trains) != 1 || len(trains[0].Cars) != 1 || trains[0].Cars[0].Number != 21 || trains[0].State != train.StateTesting {
+		t.Fatalf("trains = %+v, %v, want #21 testing alone", trains, err)
+	}
+}
+
+// One reported done a moment ago waits for a second one to ride beside it.
+func TestTheSupervisorHoldsALoneFinishedPullRequestForASecondOneAWhile(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
 	project := newTrainProject(t)

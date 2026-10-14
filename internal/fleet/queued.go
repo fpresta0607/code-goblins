@@ -105,6 +105,39 @@ func QueuedBriefText(queued QueuedTask) string {
 	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), kind, mode, row.Harness, row.Model, row.Effort)
 }
 
+// AppendQueuedTask adds row, the backlog row of task id, at the bottom of the
+// Queued section under the backlog's lock, starting backlog.md with that
+// section when there is none, and adds nothing when the backlog already lists
+// id in any section.
+func AppendQueuedTask(h home.Home, id, row string) (err error) {
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, ".backlog.lock")) }()
+	backlog, err := ReadBacklog(h)
+	if err != nil || backlog.Lists(id) {
+		return err
+	}
+	path := filepath.Join(h.Data, "backlog.md")
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		data, err = []byte("## Queued\n"), nil
+	}
+	if err != nil {
+		return err
+	}
+	blocks, _ := queuedBlocks(strings.Split(string(data), "\n"), nil)
+	order := make([]string, 0, len(blocks)+1)
+	for _, block := range blocks {
+		order = append(order, block.id)
+	}
+	next, err := reorderedBacklog(string(data), append(order, id), map[string]string{id: row}, nil)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, []byte(next))
+}
+
 func RemoveQueuedTask(h home.Home, id, revision string) error {
 	return changeQueuedTask(h, id, revision, "", "", true)
 }

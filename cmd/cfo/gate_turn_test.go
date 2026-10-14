@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,6 +59,9 @@ const (
 	// commit-short, of physical memory under the desktop reserve when it is
 	// named reserve-short, and of physical memory under the floor otherwise.
 	gateTurnTestMemoryVariable = "CFO_GATE_TURN_TEST_MEMORY"
+	// gateTurnTestCommitVariable is a number of MiB the command commits
+	// before it says it started, and keeps until it ends.
+	gateTurnTestCommitVariable = "CFO_GATE_TURN_TEST_COMMIT_MIB"
 )
 
 // runGateTurnTestProgram runs this binary as one of those programs, or says
@@ -166,6 +171,14 @@ func runGateTurnTestCommand(args []string) int {
 	if err := os.WriteFile(filepath.Join(dir, name+".window"), []byte(strconv.FormatUint(uint64(window), 10)), 0o644); err != nil {
 		return 99
 	}
+	var committed []byte
+	if mebibytes, err := strconv.Atoi(os.Getenv(gateTurnTestCommitVariable)); err == nil {
+		committed = make([]byte, mebibytes<<20)
+		for at := 0; at < len(committed); at += 4096 {
+			committed[at] = 1
+		}
+	}
+	defer runtime.KeepAlive(committed)
 	started := filepath.Join(dir, name+".started")
 	if err := os.WriteFile(started, []byte(os.Getenv(verify.TurnVariable)), 0o644); err != nil {
 		return 99
@@ -1126,24 +1139,32 @@ func TestGateTestNamesTheGoblinWhoseRunItIs(t *testing.T) {
 // nothing: it exits 125 and says how it is called.
 func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 	for name, args := range map[string][]string{
-		"no arguments":                  nil,
-		"nothing after --":              {"--"},
-		"a name and nothing after":      {"--as", "a named run", "--"},
-		"a command with no --":          {os.Args[0], gateTurnTestArguments},
-		"a name with no --":             {"--as", "a named run", os.Args[0], gateTurnTestArguments},
-		"a name that is missing":        {"--as"},
-		"an argument of no kind":        {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
-		"an empty program":              {"--", ""},
-		"a wait that is missing":        {"--wait"},
-		"a wait with nothing before --": {"--wait", "--", os.Args[0], gateTurnTestArguments},
-		"a wait that is no duration":    {"--wait", "soon", "--", os.Args[0], gateTurnTestArguments},
-		"a wait of nothing":             {"--wait", "0s", "--", os.Args[0], gateTurnTestArguments},
-		"a wait under nothing":          {"--wait=-1s", "--", os.Args[0], gateTurnTestArguments},
-		"a wait given a name's flag":    {"--wait", "--as", "a named run", "--", os.Args[0], gateTurnTestArguments},
-		"a name given a wait's flag":    {"--as", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
-		"a detach with no log":          {"--detach", "--", os.Args[0], gateTurnTestArguments},
-		"a detach with no command":      {"--detach", "run.log", "--"},
-		"a log given a wait's flag":     {"--detach", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
+		"no arguments":                    nil,
+		"nothing after --":                {"--"},
+		"a name and nothing after":        {"--as", "a named run", "--"},
+		"a command with no --":            {os.Args[0], gateTurnTestArguments},
+		"a name with no --":               {"--as", "a named run", os.Args[0], gateTurnTestArguments},
+		"a name that is missing":          {"--as"},
+		"an argument of no kind":          {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
+		"an empty program":                {"--", ""},
+		"a wait that is missing":          {"--wait"},
+		"a wait with nothing before --":   {"--wait", "--", os.Args[0], gateTurnTestArguments},
+		"a wait that is no duration":      {"--wait", "soon", "--", os.Args[0], gateTurnTestArguments},
+		"a wait of nothing":               {"--wait", "0s", "--", os.Args[0], gateTurnTestArguments},
+		"a wait under nothing":            {"--wait=-1s", "--", os.Args[0], gateTurnTestArguments},
+		"a wait given a name's flag":      {"--wait", "--as", "a named run", "--", os.Args[0], gateTurnTestArguments},
+		"a name given a wait's flag":      {"--as", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
+		"a detach with no log":            {"--detach", "--", os.Args[0], gateTurnTestArguments},
+		"a detach with no command":        {"--detach", "run.log", "--"},
+		"a log given a wait's flag":       {"--detach", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
+		"a memory that is missing":        {"--memory"},
+		"a memory with nothing before --": {"--memory", "--", os.Args[0], gateTurnTestArguments},
+		"a memory with no unit":           {"--memory", "7", "--", os.Args[0], gateTurnTestArguments},
+		"a memory in gigabytes":           {"--memory", "7GB", "--", os.Args[0], gateTurnTestArguments},
+		"a memory of nothing":             {"--memory=0GiB", "--", os.Args[0], gateTurnTestArguments},
+		"a memory under nothing":          {"--memory=-1GiB", "--", os.Args[0], gateTurnTestArguments},
+		"a memory that is no number":      {"--memory=NaNGiB", "--", os.Args[0], gateTurnTestArguments},
+		"a memory past any machine's":     {"--memory=InfMiB", "--", os.Args[0], gateTurnTestArguments},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -1158,7 +1179,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
 			}
 			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
-			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
+			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
 				t.Errorf("stderr = %q; want the usage, then a last line that starts cfo gate turn: this run takes no turn: ", stderr.String())
 			}
 			if _, err := os.Stat(slots); !os.IsNotExist(err) {
@@ -1513,11 +1534,7 @@ func TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the pid file holds %q: %v", data, err)
 	}
-	t.Cleanup(func() {
-		if process, err := os.FindProcess(pid); err == nil {
-			_ = process.Kill()
-		}
-	})
+	endAtCleanup(t, pid)
 	if want := fmt.Sprintf("cfo gate turn: started the run hidden and detached as pid %d: its output goes to %s, its pid is in %s, and its last line there says how it ended\n", pid, log, log+".pid"); stdout.String() != want {
 		t.Errorf("stdout = %q; want %q", stdout.String(), want)
 	}
@@ -1533,6 +1550,22 @@ func TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog(t *testing.T) {
 	if data, _ := os.ReadFile(log); !strings.HasPrefix(string(data), commandOutput("command")+commandErrors("command")) {
 		t.Errorf("log = %q; want the command's output, then the run's last line", data)
 	}
+}
+
+// endAtCleanup ends the detached run pid when the test ends, and waits until
+// it has: Kill only asks Windows to end it, and the run's log stays open, so
+// its folder cannot be removed, until it has ended. The process is opened
+// now, while the run lives, so a pid reused once it ends is never ended.
+func endAtCleanup(t *testing.T, pid int) {
+	t.Helper()
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	t.Cleanup(func() {
+		_ = process.Kill()
+		_, _ = process.Wait()
+	})
 }
 
 // A detached run keeps its wait: one that takes no turn within it starts
@@ -1560,11 +1593,7 @@ func TestGateTurnDetachKeepsItsWait(t *testing.T) {
 	}
 	if data, err := os.ReadFile(log + ".pid"); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-			t.Cleanup(func() {
-				if process, err := os.FindProcess(pid); err == nil {
-					_ = process.Kill()
-				}
-			})
+			endAtCleanup(t, pid)
 		}
 	}
 	eventually(t, "the detached run says how it ended", func() bool {
@@ -1637,5 +1666,60 @@ func TestGateTurnWithNoConsoleRunsItsCommand(t *testing.T) {
 	// Assert
 	if exit != 4 || !left(dir, "command", "ended") {
 		t.Fatalf("exit = %d and the command ended = %v; want the command's own 4", exit, left(dir, "command", "ended"))
+	}
+}
+
+// A size of memory is read in GiB or MiB, and a run started detached carries
+// it, as given, with its name and its wait.
+func TestGateTurnMemoryIsReadAndCarriedDetached(t *testing.T) {
+	for _, row := range []struct {
+		given string
+		want  uint64
+	}{
+		{"7GiB", 7 << 30},
+		{"2.5GiB", 5 << 29},
+		{"512MiB", 512 << 20},
+	} {
+		t.Run(row.given, func(t *testing.T) {
+			// Act
+			request, err := parseGateTurn([]string{"--as", "desktop CI", "--wait", "30s", "--memory", row.given, "--", "cfo", "ci-runner", "job"})
+
+			// Assert
+			if err != nil || request.memory != row.want {
+				t.Fatalf("parseGateTurn = %+v, %v; want %d bytes", request, err, row.want)
+			}
+			want := []string{"--detached", "--as=desktop CI", "--wait=30s", "--memory=" + row.given, "--", "cfo", "ci-runner", "job"}
+			if got := detachedArguments(request); !slices.Equal(got, want) {
+				t.Errorf("detachedArguments = %q; want %q", got, want)
+			}
+		})
+	}
+}
+
+// A run says on its card in the line the memory --memory gave it and what
+// its command commits as it runs, which a line of two slots weighs before it
+// starts a run beside it.
+func TestGateTurnPutsItsMemoryAndWhatItCommitsOnItsCard(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+
+	// Act
+	run := startGateTurn(t, dir, []string{gateTurnTestCommitVariable + "=256"}, append([]string{"--memory", "7GiB"}, turnCommand(dir, "command", 0, true)...)...)
+	eventually(t, "the command starts", func() bool { return left(dir, "command", "started") })
+
+	// Assert
+	var holding []verify.Standing
+	eventually(t, "the run's card says what its command commits", func() bool {
+		var err error
+		holding, _, err = verify.Line(slots)
+		return err == nil && len(holding) == 1 && holding[0].Used >= 256<<20
+	})
+	if holding[0].Estimate != 7<<30 {
+		t.Errorf("the run's card says it is expected to use %d bytes; want the 7 GiB --memory gave it", holding[0].Estimate)
+	}
+	letGo(t, dir, "command")
+	if exit := run.exit(t, "the run"); exit != 0 {
+		t.Errorf("exit = %d; want the command's own 0; stderr=%q", exit, run.stderr.String())
 	}
 }

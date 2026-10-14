@@ -16,12 +16,18 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) == 0 {
-		fmt.Fprintln(stderr, "task ID is required")
+// runLifecycle runs cfo pause, resume or kill, named by command: kill's
+// lifecycle action is stop.
+func runLifecycle(command string, args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	action := command
+	if command == "kill" {
+		action = "stop"
+	}
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintf(stderr, "cfo %s: the task ID comes first: cfo %s <task-id> [flags]\n", command, command)
 		return 2
 	}
-	flags := flag.NewFlagSet(action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	generation := flags.String("generation", "", "expected task generation")
 	operation := flags.String("operation", "", "idempotent operation identity")
@@ -30,7 +36,7 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	untilTask := flags.String("until-task", "", "pause until this task delivers")
 	untilPR := flags.String("until-pr", "", "pause until this GitHub pull request merges")
 	revision := flags.String("revision", "", "expected queued task revision")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
 	if err := state.ValidTaskID(args[0]); err != nil {

@@ -25,8 +25,10 @@ func admissionWithCapacity(t *testing.T, capacity int) Admission {
 	return a
 }
 
+// One slot's floor is 4 GiB. Two slots' is weighed, and on an empty line is
+// a run's default estimate and the desktop reserve, 4.5 GiB.
 func TestAdmissionSharedCapacityDeterminesTheMinimumFloor(t *testing.T) {
-	for _, capacity := range []int{1, 2} {
+	for capacity, floor := range map[int]uint64{1: 4 * gigabyte, 2: defaultEstimate + 2*gigabyte} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
 			for _, sample := range []struct {
 				name          string
@@ -34,9 +36,9 @@ func TestAdmissionSharedCapacityDeterminesTheMinimumFloor(t *testing.T) {
 				available     uint64
 				shouldAcquire bool
 			}{
-				{"exact", 0, uint64(capacity) * 4 * gigabyte, true},
-				{"one_byte_short", 0, uint64(capacity)*4*gigabyte - 1, false},
-				{"lower_requested_floor", gigabyte, uint64(capacity)*4*gigabyte - 1, false},
+				{"exact", 0, floor, true},
+				{"one_byte_short", 0, floor - 1, false},
+				{"lower_requested_floor", gigabyte, floor - 1, false},
 				{"stricter_floor_short", 10 * gigabyte, 10*gigabyte - 1, false},
 				{"stricter_floor_exact", 10 * gigabyte, 10 * gigabyte, true},
 				{"zero_reading", 0, 0, false},

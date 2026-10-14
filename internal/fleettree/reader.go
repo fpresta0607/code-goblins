@@ -48,6 +48,11 @@ type Reader struct {
 	// job is shown. It is asked once for each process that reaches no
 	// harness, since a mark never changes.
 	Owner func(pid int) string
+	// InTurn says a process runs inside a turn of the machine's heavy line,
+	// which its environment names to everything the run starts, a process
+	// left without its parent too. Nil reads none. It is asked once for each
+	// process Placed places, since its environment's turn never changes.
+	InTurn func(pid int) bool
 	// Console reads the process id of the host of the console a process is
 	// attached to; nil reads it through Windows.
 	Console func(pid int) (int, error)
@@ -56,6 +61,7 @@ type Reader struct {
 
 	mu           sync.Mutex
 	owners       map[processKey]string
+	turns        map[processKey]bool
 	logs         map[string]*claudeLog
 	records      map[string]childRecords
 	rolloutMetas map[string]rolloutMeta
@@ -469,7 +475,7 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if reading.isWorking {
 			state = Working
 		}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts)}
 		// A machine service a goblin started works for every goblin, as the
 		// no-mistakes daemon runs every gate's agents: it is shown at work,
 		// and its processor use is no goblin's work.
@@ -607,6 +613,11 @@ func (r *Reader) forgetEnded(processes []Process) {
 			delete(r.owners, key)
 		}
 	}
+	for key := range r.turns {
+		if !running[key] {
+			delete(r.turns, key)
+		}
+	}
 	for key := range r.commands {
 		if !running[key] {
 			delete(r.commands, key)
@@ -715,6 +726,7 @@ func mergeShells(children []Node) []Node {
 			if child.process == "" {
 				child.process = job.process
 			}
+			child.heavyRun = child.heavyRun || job.heavyRun
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}
