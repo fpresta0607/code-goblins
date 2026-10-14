@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -33,7 +36,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -75,8 +78,12 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] --
 // A command that waits on a gate (gateWait) takes no turn: the gate's test
 // command takes its own, and a turn held through the gate's agents' work
 // would only keep every other run waiting.
+//
+// With --detach the run is started again as a process of its own, hidden and
+// detached (detachGateTurn), and this one returns at once. The detached run
+// says on its last line how it ended.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	as, wait, command, err := parseGateTurn(args)
+	request, err := parseGateTurn(args)
 	if err != nil {
 		fmt.Fprintln(stderr, gateTurnUsage)
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
@@ -87,8 +94,21 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
 		return exitNoTurn
 	}
-
+	if request.detachLog != "" {
+		return detachGateTurn(request, dir, stdout, stderr, runtime)
+	}
 	started := time.Now()
+	exit := runGateTurnCommand(request, dir, started, stdout, stderr, runtime)
+	if request.isDetached {
+		fmt.Fprintf(stderr, "cfo gate turn: the detached run ended with exit %d after %s\n", exit, time.Since(started).Round(time.Second))
+	}
+	return exit
+}
+
+// runGateTurnCommand waits for the turn and runs the request's command in
+// dir, as runGateTurn says, and returns the run's exit code.
+func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, stdout, stderr io.Writer, runtime commandRuntime) int {
+	as, wait, command := request.as, request.wait, request.command
 	signals, stop := runtime.interrupts()
 	defer stop()
 	ctx, leave := context.WithCancel(context.Background())
@@ -119,7 +139,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		if as != "" {
 			what = as
 		}
-		tellGoblinRunEnded(ctx, runtime, os.Getenv, "cfo gate turn", dir, what, exit, time.Since(started), stderr)
+		tellGoblinRunEnded(ctx, runtime, os.Getenv, "cfo gate turn", dir, what, request.isDetached, exit, time.Since(started), stderr)
 	}
 	if waits := gateWait(command); waits != "" {
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s waits on a gate, whose test command takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work\n", waits)
@@ -240,10 +260,26 @@ func oneLine(err error) string {
 	return strings.ReplaceAll(err.Error(), "\n", ", ")
 }
 
+// gateTurnRequest is what cfo gate turn's arguments ask for.
+type gateTurnRequest struct {
+	// as is the name the run goes by in the line, empty for its command's.
+	as string
+	// wait, when set, bounds the wait for the turn.
+	wait time.Duration
+	// detachLog, when set, asks for the run to be started detached and
+	// hidden, its output appended to this file.
+	detachLog string
+	// isDetached says this process is a run --detach started.
+	isDetached bool
+	command    []string
+}
+
 // parseGateTurn reads cfo gate turn's arguments: its own before --, the
 // command's after it. Only -- says where the command starts, so nothing of
-// the command's is ever read as the wrapper's.
-func parseGateTurn(args []string) (as string, wait time.Duration, command []string, err error) {
+// the command's is ever read as the wrapper's. --detached is not for people:
+// it is how detachGateTurn starts the run it detaches.
+func parseGateTurn(args []string) (gateTurnRequest, error) {
+	var request gateTurnRequest
 	for at := 0; at < len(args); at++ {
 		name, isNamed := strings.CutPrefix(args[at], "--as=")
 		waitText, isWaitGiven := strings.CutPrefix(args[at], "--wait=")
@@ -254,33 +290,93 @@ func parseGateTurn(args []string) (as string, wait time.Duration, command []stri
 		// A duration just taken is read as one first, however it is spelled.
 		switch {
 		case isWaitGiven:
-			if wait, err = time.ParseDuration(waitText); err != nil || wait <= 0 {
-				return "", 0, nil, fmt.Errorf("--wait takes a duration over nothing, as 30s, not %q", waitText)
+			wait, err := time.ParseDuration(waitText)
+			if err != nil || wait <= 0 {
+				return gateTurnRequest{}, fmt.Errorf("--wait takes a duration over nothing, as 30s, not %q", waitText)
 			}
+			request.wait = wait
 		case args[at] == "--":
 			if at+1 == len(args) {
-				return "", 0, nil, errors.New("no command follows --")
+				return gateTurnRequest{}, errors.New("no command follows --")
 			}
 			if args[at+1] == "" {
-				return "", 0, nil, errors.New("the command after -- names no program")
+				return gateTurnRequest{}, errors.New("the command after -- names no program")
 			}
-			return as, wait, args[at+1:], nil
+			request.command = args[at+1:]
+			return request, nil
 		case isNamed:
-			as = name
-		// A flag after --as is never its name, so a bound such as
-		// --wait=30s is never lost as one.
+			request.as = name
+		// A flag after --as or --detach is never its value, so a bound such
+		// as --wait=30s is never lost as a name or a log file.
 		case args[at] == "--as" && at+1 < len(args) && !strings.HasPrefix(args[at+1], "-"):
 			at++
-			as = args[at]
+			request.as = args[at]
 		case args[at] == "--as":
-			return "", 0, nil, errors.New("--as is given no name")
+			return gateTurnRequest{}, errors.New("--as is given no name")
 		case args[at] == "--wait":
-			return "", 0, nil, errors.New("--wait is given no duration")
+			return gateTurnRequest{}, errors.New("--wait is given no duration")
+		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
+			at++
+			request.detachLog = args[at]
+		case args[at] == "--detach":
+			return gateTurnRequest{}, errors.New("--detach is given no log file")
+		case args[at] == "--detached":
+			request.isDetached = true
 		default:
-			return "", 0, nil, fmt.Errorf("%q is no argument of cfo gate turn, and its command goes after --", args[at])
+			return gateTurnRequest{}, fmt.Errorf("%q is no argument of cfo gate turn, and its command goes after --", args[at])
 		}
 	}
-	return "", 0, nil, errors.New("no -- comes before a command")
+	return gateTurnRequest{}, errors.New("no -- comes before a command")
+}
+
+// detachGateTurn starts the run request asks for as a process of its own in
+// dir, the way the supervisor is started (startDetached): with a console of
+// its own that has no window, which its command shares, so nothing of the
+// run ever shows on the desktop, in a process group of its own and out of
+// its caller's job where the job allows it, so it outlives its caller as a
+// background run must. Its output and its errors are appended to the log,
+// and its pid is written to the log's name with .pid added, for its goblin
+// to end it by. It returns once the run has started, saying on standard
+// output where to find it, and 125 when it could not start it.
+func detachGateTurn(request gateTurnRequest, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	self := runtime.gateTurnSelf
+	if self == nil {
+		executable, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: it could not be started detached: %v\n", err)
+			return exitNoTurn
+		}
+		self = []string{executable, "gate", "turn"}
+	}
+	log, err := filepath.Abs(request.detachLog)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: it could not be started detached: %v\n", err)
+		return exitNoTurn
+	}
+	args := append(append([]string(nil), self[1:]...), "--detached")
+	// Each value goes in one argument, so one that starts with a dash is
+	// never read as a flag.
+	if request.as != "" {
+		args = append(args, "--as="+request.as)
+	}
+	if request.wait > 0 {
+		args = append(args, "--wait="+request.wait.String())
+	}
+	args = append(append(args, "--"), request.command...)
+	command, err := startDetached(self[0], dir, log, args...)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: it could not be started detached: %v\n", err)
+		return exitNoTurn
+	}
+	pid := command.Process.Pid
+	_ = command.Process.Release()
+	pidFile := log + ".pid"
+	if err := fsx.AtomicWriteFile(pidFile, []byte(strconv.Itoa(pid)+"\n")); err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: started the run hidden and detached as pid %d, its output going to %s, but its pid could not be written to %s: %v\n", pid, log, pidFile, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "cfo gate turn: started the run hidden and detached as pid %d: its output goes to %s, its pid is in %s, and its last line there says how it ended\n", pid, log, pidFile)
+	return 0
 }
 
 // gateWaits are the commands that wait for a no-mistakes gate's next

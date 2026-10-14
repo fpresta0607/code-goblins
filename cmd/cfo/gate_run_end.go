@@ -37,8 +37,10 @@ const runEndWhatReach = 200
 // the goblin's own only when its terminal's proof is in this process's
 // environment and dir is in one of its worktrees: a gate the goblin started
 // inherits that environment, and its steps run in the gate's own worktree.
+// A detached run (cfo gate turn --detach) is no background run of its
+// harness's, so a goblin of any harness is told of its end.
 // What cannot be told is said on stderr and changes no exit code.
-func tellGoblinRunEnded(ctx context.Context, runtime commandRuntime, getenv func(string) string, name, dir, what string, exit int, took time.Duration, stderr io.Writer) {
+func tellGoblinRunEnded(ctx context.Context, runtime commandRuntime, getenv func(string) string, name, dir, what string, isDetached bool, exit int, took time.Duration, stderr io.Writer) {
 	id, proof := getenv(host.IDVariable), getenv(host.ProofVariable)
 	if id == "" || proof == "" || state.ValidTaskID(id) != nil || runtime.resolveHome == nil || runtime.sendText == nil || runtime.screen == nil {
 		return
@@ -53,7 +55,7 @@ func tellGoblinRunEnded(ctx context.Context, runtime commandRuntime, getenv func
 	}
 	meta, err := state.ReadTaskMeta(h.State, id)
 	kind := harness.Kind(meta.Harness)
-	if err != nil || kind.StartsTurnWhenBackgroundEnds() || !inWorktree(dir, append([]string{meta.Worktree}, meta.Extras...)) {
+	if err != nil || kind.StartsTurnWhenBackgroundEnds() && !isDetached || !inWorktree(dir, append([]string{meta.Worktree}, meta.Extras...)) {
 		return
 	}
 	screens, isReadable := harness.NativeScreens(kind)

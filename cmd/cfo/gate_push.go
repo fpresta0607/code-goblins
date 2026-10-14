@@ -48,7 +48,7 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 	// given back.
 	if !*planOnly {
 		defer func() {
-			tellGoblinRunEnded(context.Background(), runtime, os.Getenv, "cfo gate prepush", dir, "cfo gate prepush", exit, time.Since(started), stderr)
+			tellGoblinRunEnded(context.Background(), runtime, os.Getenv, "cfo gate prepush", dir, "cfo gate prepush", false, exit, time.Since(started), stderr)
 		}()
 	}
 	project := ""

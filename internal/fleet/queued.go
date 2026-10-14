@@ -57,9 +57,10 @@ func BriefVerification(id string) string {
 // BriefProcesses is what the Constraints section of every brief says of the
 // processes its goblin starts, as the Overlord asked on 2026-10-11: that what
 // goblins open to run or check tests finishes and is cleaned up, and that
-// nothing is forgotten or runs in loops.
+// nothing is forgotten or runs in loops, and that no terminal a goblin starts
+// shows on his desktop, as he asked on 2026-10-14.
 func BriefProcesses() string {
-	return "Browsers run headless and terminals hidden in tests, unless a picture needs a window. Every process the task starts is tracked by its pid and ended by that pid, never by its name. No retry or polling loop runs without a cap."
+	return "Browsers run headless and terminals hidden in tests, unless a picture needs a window. A heavy run starts in the background as cfo gate turn --detach <log-file> -- <command>, which starts it hidden with its pid file and log, never with a process start of the goblin's own, which opens a window on the Overlord's desktop. Every process the task starts is tracked by its pid and ended by that pid, never by its name. No retry or polling loop runs without a cap."
 }
 
 // WriteQueuedBrief writes data/<id>/brief.md from a queued row and every
