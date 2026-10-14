@@ -1,0 +1,55 @@
+name: windows
+
+on:
+  push:
+    branches: [fix/no-visible-windows]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  experiment:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Build cfo
+        shell: pwsh
+        run: |
+          go build -o "$env:RUNNER_TEMP\bin\cfo.exe" ./cmd/cfo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Console host
+        shell: powershell
+        run: .\tests\acceptance\window_experiment.ps1 -Cfo "$env:RUNNER_TEMP\bin\cfo.exe" -Work "$env:RUNNER_TEMP\conhost" -Phase conhost
+      - name: Install Windows Terminal as the default terminal
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = gh release list --repo microsoft/terminal --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName'
+          "release $tag"
+          gh release download $tag --repo microsoft/terminal --pattern '*PreinstallKit.zip' --dir "$env:RUNNER_TEMP\wt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $kit = Get-ChildItem "$env:RUNNER_TEMP\wt\*.zip" | Select-Object -First 1
+          Expand-Archive $kit.FullName "$env:RUNNER_TEMP\wt\kit"
+          Get-ChildItem -Recurse "$env:RUNNER_TEMP\wt\kit" | Select-Object -ExpandProperty FullName
+          $bundle = Get-ChildItem "$env:RUNNER_TEMP\wt\kit\*.msixbundle" | Select-Object -First 1
+          $license = Get-ChildItem "$env:RUNNER_TEMP\wt\kit\*License*.xml" | Select-Object -First 1
+          $dependencies = Get-ChildItem "$env:RUNNER_TEMP\wt\kit\*x64*.appx" | Select-Object -ExpandProperty FullName
+          Add-AppxProvisionedPackage -Online -PackagePath $bundle.FullName -DependencyPackagePath $dependencies -LicensePath $license.FullName | Out-String
+          Add-AppxPackage -Path $bundle.FullName -DependencyPath $dependencies
+          Get-AppxPackage Microsoft.WindowsTerminal | Select-Object Name, Version | Out-String
+          New-Item -Force 'HKCU:\Console\%%Startup' | Out-Null
+          Set-ItemProperty 'HKCU:\Console\%%Startup' DelegationConsole '{2EACA947-7F5F-4CFA-BA87-8F7FBEEFBE69}'
+          Set-ItemProperty 'HKCU:\Console\%%Startup' DelegationTerminal '{E12CFF52-A866-4C77-9A90-F570A7AA2C6B}'
+      - name: Windows Terminal
+        shell: powershell
+        run: .\tests\acceptance\window_experiment.ps1 -Cfo "$env:RUNNER_TEMP\bin\cfo.exe" -Work "$env:RUNNER_TEMP\wt-run" -Phase terminal
