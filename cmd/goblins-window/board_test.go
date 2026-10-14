@@ -455,7 +455,9 @@ func TestTheWindowRecoversItsSilentPageByItself(t *testing.T) {
 	}
 
 	silent := look(4+4+retryLooks+1, false)
+	stalledSilent := page.Stalled()
 	answered := look(2, true)
+	stalledAnswered := page.Stalled()
 	again := look(4, false)
 
 	wantSilent := []PageStep{Ask, Ask, Ask, Load, Ask, Ask, Ask, Repaint}
@@ -463,11 +465,11 @@ func TestTheWindowRecoversItsSilentPageByItself(t *testing.T) {
 		wantSilent = append(wantSilent, Ask)
 	}
 	wantSilent = append(wantSilent, Load)
-	if !slices.Equal(silent, wantSilent) {
-		t.Errorf("silent steps = %v, want %v (0 leave, 1 ask, 2 load, 3 repaint)", silent, wantSilent)
+	if !slices.Equal(silent, wantSilent) || !stalledSilent {
+		t.Errorf("silent steps = %v, stalled = %t, want %v (0 leave, 1 ask, 2 load, 3 repaint) and the notice", silent, stalledSilent, wantSilent)
 	}
-	if !slices.Equal(answered, []PageStep{Ask, Ask}) || page.Stalled() {
-		t.Errorf("after an answer: steps = %v, stalled = %t, want asks and no notice", answered, page.Stalled())
+	if !slices.Equal(answered, []PageStep{Ask, Ask}) || stalledAnswered {
+		t.Errorf("after an answer: steps = %v, stalled = %t, want asks and no notice", answered, stalledAnswered)
 	}
 	if !slices.Equal(again, []PageStep{Ask, Ask, Ask, Load}) || !page.Stalled() {
 		t.Errorf("a later silence: steps = %v, stalled = %t, want a load and the notice", again, page.Stalled())

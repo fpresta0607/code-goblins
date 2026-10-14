@@ -1149,6 +1149,9 @@ The one-line install puts it in the home from a release whose `SHA256SUMS` lists
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
 It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
+While it is shown, it asks its page at every look whether it is the board's and has drawn a frame, since a page can stop drawing with nothing else changing: on 2026-10-14 WebView2's GPU process was slow to start, and the window showed only its dark ground while its page stayed loaded.
+A page silent for three looks in a row is loaded again, then, still silent, the window ends its own WebView2 GPU process, which WebView2 starts again, and it tries both again a minute later, never in a loop.
+Meanwhile Windows itself draws "The board stopped drawing. Loading it again." in place of the page, and `window.log` records each step.
 It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's Open Command Center is the signal, and nothing is claimed.
 Its notifications are the board's: only a new Command Center item that asks the Overlord something, never a goblin blocked, failed or done.
 Its own look at the board, every 3 seconds, finds those items in `/api/snapshot`, so a notification does not wait on the hidden page, which Windows runs at its lowest priority.
