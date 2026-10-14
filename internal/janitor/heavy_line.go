@@ -2,6 +2,10 @@ package janitor
 
 import "errors"
 
+// noTurnExit is the exit of a command Wrap wrapped that took no turn and ran
+// nothing, as cfo gate turn's 125 when a run takes the line within its wait.
+const noTurnExit = 125
+
 // HeavyLine is the machine's one line for heavy runs, as the sweep sees it
 // before it deletes from the package caches that builds read.
 type HeavyLine interface {

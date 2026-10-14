@@ -509,11 +509,17 @@ type pruneRunner struct {
 	caches string
 	ran    []string
 	envs   [][]string
+	// isNoTurn has every prune take no turn and run nothing, as cfo gate
+	// turn's does when a run takes the line within its wait.
+	isNoTurn bool
 }
 
 func (r *pruneRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	r.ran = append(r.ran, request.Name+" "+strings.Join(request.Args, " "))
 	r.envs = append(r.envs, request.Env)
+	if r.isNoTurn {
+		return execx.Result{ExitCode: 125, Stderr: []byte("cfo gate turn: this run takes no turn: it took no turn within its wait of 30s\n")}, nil
+	}
 	if len(request.Env) == 0 {
 		return execx.Result{}, nil
 	}
@@ -573,6 +579,7 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 	for name, row := range map[string]struct {
 		line     HeavyLine
 		caches   []string
+		isNoTurn bool
 		wantRan  []string
 		wantNote string
 	}{
@@ -596,6 +603,13 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 			wantRan:  []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
 			wantNote: "not trimmed further, as the machine's heavy line is not free: cfo verify fast of task t1 (pid 7) holds",
 		},
+		"a prune that took no turn within its wait": {
+			line:     &countedLine{free: 9},
+			caches:   []string{"uv", "go-build"},
+			isNoTurn: true,
+			wantRan:  []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
+			wantNote: "are not trimmed further, as a run took the machine's heavy line before the uv cache's prune took its turn",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: the caches are over their cap, uv used longest ago.
@@ -611,7 +625,7 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 			}
 			makeOld(t, filepath.Join(f.home.Caches(), "uv"))
 			t.Setenv("CFO_VERIFY_TURN", "slot-1:4242:1")
-			runner := &pruneRunner{caches: f.home.Caches()}
+			runner := &pruneRunner{caches: f.home.Caches(), isNoTurn: row.isNoTurn}
 			cfg := f.config(reap.Inventory{})
 			cfg.Commands = runner
 			cfg.Settings.CachesCapGB = 0.5 / 1024

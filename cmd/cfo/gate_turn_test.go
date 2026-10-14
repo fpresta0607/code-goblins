@@ -560,6 +560,11 @@ func TestGateTurnRunsItsCommandPastItsWaitOnceItHasItsTurn(t *testing.T) {
 	if exit != 7 || !left(dir, "command", "ended") {
 		t.Errorf("exit = %d, ended = %v; want the command's own 7; stderr=%q", exit, left(dir, "command", "ended"), run.stderr.String())
 	}
+	// A wait that still counted once the turn was taken would leave the
+	// execution's record failed as interrupted, which the run would say.
+	if strings.Contains(run.stderr.String(), "cfo gate turn:") {
+		t.Errorf("stderr = %q; want no line of cfo gate turn's own from a run whose turn came at once", run.stderr.String())
+	}
 }
 
 // A run ended with everything it started, as the janitor ends a prune at its
@@ -1130,6 +1135,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 		"a wait of nothing":             {"--wait", "0s", "--", os.Args[0], gateTurnTestArguments},
 		"a wait under nothing":          {"--wait=-1s", "--", os.Args[0], gateTurnTestArguments},
 		"a wait given a name's flag":    {"--wait", "--as", "a named run", "--", os.Args[0], gateTurnTestArguments},
+		"a name given a wait's flag":    {"--as", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

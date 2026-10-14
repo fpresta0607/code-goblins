@@ -146,20 +146,35 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	executor.Stdin, executor.Stdout, executor.Stderr = os.Stdin, commandOutput, commandErrors
 	executor.IsConsoleShared = true
-	// A run given a wait takes its turn within it or runs nothing. Its turn
-	// taken, the wait no longer counts, and the command runs until it ends.
-	// The wait ends only the wait, so the goblin is still told how it ended.
+	// A run given a wait takes its turn within it or runs nothing. Whichever
+	// comes first, the wait running out or the turn, decides once: a turn
+	// taken first is never cut by the wait, so the command runs until it
+	// ends, and a wait run out first starts no command though the turn came a
+	// moment later. The wait ends only the wait, so the goblin is still told
+	// how the run ended.
 	waiting, stopWaiting := context.WithCancel(ctx)
 	defer stopWaiting()
-	var isWaitOver atomic.Bool
+	const (
+		waitUndecided int32 = iota
+		waitTurnTaken
+		waitOver
+	)
+	var decided atomic.Int32
 	if wait > 0 {
 		timer := time.AfterFunc(wait, func() {
-			isWaitOver.Store(true)
-			stopWaiting()
+			if decided.CompareAndSwap(waitUndecided, waitOver) {
+				stopWaiting()
+			}
 		})
+		defer timer.Stop()
 		took := executor.Took
 		executor.Took = func(waited time.Duration) {
-			timer.Stop()
+			if !decided.CompareAndSwap(waitUndecided, waitTurnTaken) {
+				// The timer may not have cancelled the wait yet, and the
+				// command must see it cancelled before it starts.
+				stopWaiting()
+				return
+			}
 			if took != nil {
 				took(waited)
 			}
@@ -190,7 +205,7 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	case errors.Is(runError, verify.ErrNoTurn):
 		why := oneLine(runError)
 		switch {
-		case errors.Is(runError, context.Canceled) && isWaitOver.Load() && !isInterrupted.Load():
+		case errors.Is(runError, context.Canceled) && decided.Load() == waitOver && !isInterrupted.Load():
 			why = fmt.Sprintf("it took no turn within its wait of %s", wait)
 		case errors.Is(runError, context.Canceled):
 			why = "it was interrupted before its command started"
@@ -252,7 +267,9 @@ func parseGateTurn(args []string) (as string, wait time.Duration, command []stri
 			return as, wait, args[at+1:], nil
 		case isNamed:
 			as = name
-		case args[at] == "--as" && at+1 < len(args) && args[at+1] != "--":
+		// A flag after --as is never its name, so a bound such as
+		// --wait=30s is never lost as one.
+		case args[at] == "--as" && at+1 < len(args) && !strings.HasPrefix(args[at+1], "-"):
 			at++
 			as = args[at]
 		case args[at] == "--as":

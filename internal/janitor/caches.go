@@ -84,6 +84,10 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 			KillTree: true,
 		})
 		cancel()
+		if err == nil && result.ExitCode == noTurnExit {
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as a run took the machine's heavy line before the %s cache's prune took its turn", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, entry.tool.dir))
+			return
+		}
 		if err != nil || result.ExitCode != 0 {
 			record.Notes = append(record.Notes, fmt.Sprintf("%s could not prune %s: %v %s", strings.Join(entry.tool.prune, " "), dir, err, strings.TrimSpace(string(result.Stderr))))
 			continue
