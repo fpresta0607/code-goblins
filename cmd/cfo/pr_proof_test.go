@@ -148,6 +148,27 @@ func TestVerifyPRReadyRefusesDraftConflictAndRequestedChanges(t *testing.T) {
 	}
 }
 
+// A draft's run skips its jobs, and GitHub counts a skipped check as
+// passing, so a pull request marked ready reads green on its draft run's
+// checks until its ready run registers. A rollup in which no check ran tested
+// nothing, and nothing merges on it.
+func TestVerifyPRReadyRefusesARollupInWhichNoCheckRan(t *testing.T) {
+	for name, checks := range map[string]string{
+		"every check skipped":        `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"},{"__typename":"CheckRun","name":"plan","status":"COMPLETED","conclusion":"SKIPPED"}`,
+		"skipped and neutral checks": `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"},{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			_, err := verifyPRReady(context.Background(), "https://github.com/o/r/pull/1", proofRunner{stdout: readyPRView(checks)})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "no check ran") {
+				t.Fatalf("err=%v, want a refusal saying no check ran", err)
+			}
+		})
+	}
+}
+
 func readyPRView(checks string) string {
 	return `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"abc123","statusCheckRollup":[` + checks + `]}`
 }
