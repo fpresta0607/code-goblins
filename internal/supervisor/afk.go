@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
@@ -668,6 +669,11 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 		report.Notes = append(report.Notes, fmt.Sprintf("%d line(s) of the log could not be read, in this stretch or another", unreadable))
 	}
 	report.Decisions, report.Paused = afk.Decisions(entries), afk.Pauses(entries)
+	var unread []string
+	report.Decisions, unread = s.confirmMerges(report.Decisions)
+	if len(unread) > 0 {
+		report.Notes = append(report.Notes, "GitHub did not say whether these pull requests merged, so they read as not merged: "+strings.Join(unread, ", "))
+	}
 	finished, err := doneBetween(stateDir, ended.Since, ended.Ended)
 	if err != nil {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
@@ -675,6 +681,50 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	report.Finished = finished
 	report.Held = s.heldOf(s.Store.Snapshot(), entries, report.Decisions)
 	return report
+}
+
+// afkMergeReads is how many pull requests the report asks GitHub about at
+// once, and afkMergeBudget how long it waits for all of them, so a slow GitHub
+// never holds the Overlord's switch for long.
+const (
+	afkMergeReads  = 6
+	afkMergeBudget = 10 * time.Second
+)
+
+// confirmMerges is decisions with the outcome merged on each merge line that
+// records none and names a pull request GitHub says merged: a merge the CFO
+// logged by hand writes no outcome, so the report asks the forge, once for
+// each pull request. It also returns the pull requests GitHub did not answer
+// for, whose lines stay as they were. A line that already says how it ended is
+// never asked about, so a stretch whose merges were all logged with their
+// outcome asks nothing.
+func (s *Service) confirmMerges(decisions []afk.Entry) ([]afk.Entry, []string) {
+	urls := afk.UnprovenMerges(decisions)
+	if len(urls) == 0 || s.Options.PullRequestState == nil {
+		return decisions, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), afkMergeBudget)
+	defer cancel()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	merged, answered := map[string]bool{}, map[string]bool{}
+	reading := make(chan struct{}, afkMergeReads)
+	for _, url := range urls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			reading <- struct{}{}
+			defer func() { <-reading }()
+			info, err := s.Options.PullRequestState(ctx, url)
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				answered[url], merged[url] = true, info.State == "MERGED"
+			}
+		}()
+	}
+	wg.Wait()
+	return afk.ConfirmMerges(decisions, merged), slices.DeleteFunc(slices.Clone(urls), func(url string) bool { return answered[url] })
 }
 
 // heldOf is each item a stretch's log holds for the Overlord, with what became

@@ -938,6 +938,7 @@ While it is on you decide these yourself, without waiting, and each is logged wi
   It logs the merge word with what it read before anything merges, merges nothing when the log does not take it, and logs how the merge went.
   A merge that does not land is yours to see to: log what you did about it with `cfo afk log --kind merge --what "<what you did>" --evidence "<what you read>" --link <its pull request>`, or, when the step it needs is one only he can take, a `--kind his` line that links it, and his recap says so on its row.
   A line you write for a landing that links its pull request, or its train's, rides on that merge.
+  `cfo afk log --kind merge` for a pull request reads whether GitHub says it merged and records the outcome, so a landing you log by hand reads as merged, not as a merge that did not land, and the report asks again for any such line that has no outcome when AFK mode turns off.
 - Each deploy, named and verified read-only: `cfo afk log --kind deploy --what "<the deploy>" --evidence "<what you read>" [--link <url>]`.
 - A merged migration that adds or changes, applied to production and dev and read back from the applied list: `--kind migration`.
 - Installing a merged build through `<candidate> update` once the merge queue settles: `--kind install`.

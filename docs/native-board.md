@@ -1841,6 +1841,11 @@ A `his` line is a step only he can take, which the CFO gave a backlog row and wo
 A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
 A merge line the CFO writes with `cfo afk log --kind merge` folds into the merge it names: the pull request it links or is, or the merge train's own pull request whose train landed it, which that train's line names as `train.Evidence` writes it.
 Its words ride on that merge as `noted`, in the report data and the CFO's text, and go to the landing just before the line when one train pull request landed twice; a merge word that failed before another landed its pull request folds the same way.
+A merge line the CFO writes by hand records no outcome of its own, so the outcome comes from GitHub: `cfo afk log --kind merge` reads the state of the pull request it links or is, once, and records the outcome `merged` on the line when GitHub says it merged.
+A pull request that is open, closed unmerged or unread leaves the line without an outcome, so it still reads as not merged.
+When AFK mode turns off the report asks GitHub, once for each pull request, about every merge line that has no outcome and names a pull request, within ten seconds and at most six at a time, and a pull request GitHub did not answer for is named in the report's Not read notes.
+A stretch whose merge lines all carry their outcome asks GitHub nothing.
+A hand line for a pull request that merged is that pull request under Merged with the CFO's words as `noted`, and a second line for the same pull request, or the train's own line for it, carries its words instead of making a second merge.
 What did not land is under Not merged: a line the CFO wrote linking its pull request rides on it as what the CFO did about it, a decision it answered in his place that links it rides on it with its answer, and a `his` line that links it rides on it as `It needs you: <the step>`.
 The bar's `decided` and `cfo afk status` count a folded line with the merge it names, not as a decision of its own.
 Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh pr merge --match-head-commit` holds only the head, so a commit that lands on the base between that reading and the merge is not seen.
