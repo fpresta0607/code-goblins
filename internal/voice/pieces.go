@@ -1,6 +1,9 @@
 package voice
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // A dictation is handed to the model in pieces it hears well. Moonshine tiny,
 // the model dictation pins, answers nothing at all for a sound of 9.3 seconds
@@ -9,7 +12,9 @@ import "math"
 // Each piece ends half a second after its last loud part, as the model needs
 // to hear its end, and a piece with nothing loud in it is left out when the
 // sound has speech elsewhere, as the model writes words of its own into room
-// noise.
+// noise. A part is loud when it holds speech: at LOUD_RMS, or, for a quiet
+// microphone or a soft word, OVER_QUIET_DB over the sound's own quiet, its
+// quietest QUIET_SPAN_FRAMES, and above QUIET_FLOOR_RMS.
 const (
 	// FRAMES_A_SECOND is how finely a sound's loudness is read: 10 ms frames.
 	FRAMES_A_SECOND = 100
@@ -23,9 +28,16 @@ const (
 	// judged over, 200 ms: a pause between words or phrases, not a dip
 	// inside a word.
 	QUIET_SPAN_FRAMES = 20
-	// LOUD_RMS is the loudness of a frame that holds speech, -40 dB of full
-	// scale: above a room's hum, below a voice.
+	// LOUD_RMS is the loudness of a frame that holds speech whatever the
+	// room, -40 dB of full scale: above a room's hum, below a voice.
 	LOUD_RMS = 0.01
+	// OVER_QUIET_DB is how far over the sound's quiet a frame of speech
+	// rises, 12 dB: a frame of room noise stays within a few dB of the
+	// room's quietest 200 ms.
+	OVER_QUIET_DB = 12
+	// QUIET_FLOOR_RMS is the loudness under which nothing is speech, -70 dB
+	// of full scale.
+	QUIET_FLOOR_RMS = 0.0003
 	// EDGE_FRAMES is the quiet kept before a piece's first loud part and
 	// after its last, half a second.
 	EDGE_FRAMES = FRAMES_A_SECOND / 2
@@ -39,15 +51,15 @@ func pieces(samples []float32, rate int) [][]float32 {
 	}
 	frame := max(1, rate/FRAMES_A_SECOND)
 	power := make([]float64, (len(samples)+frame-1)/frame)
-	isAnyLoud := false
 	for index := range power {
 		part := samples[index*frame : min((index+1)*frame, len(samples))]
 		for _, sample := range part {
 			power[index] += float64(sample) * float64(sample)
 		}
 		power[index] /= float64(len(part))
-		isAnyLoud = isAnyLoud || isLoud(power[index])
 	}
+	loud := loudPower(power)
+	isAnyLoud := slices.ContainsFunc(power, func(value float64) bool { return value >= loud })
 	cuts := cutPoints(power)
 	var cut [][]float32
 	for index := range len(cuts) - 1 {
@@ -57,15 +69,31 @@ func pieces(samples []float32, rate int) [][]float32 {
 			cut = append(cut, piece)
 			continue
 		}
-		if shaped := shape(piece, power[from:to], frame); shaped != nil {
+		if shaped := shape(piece, power[from:to], frame, loud); shaped != nil {
 			cut = append(cut, shaped)
 		}
 	}
 	return cut
 }
 
-func isLoud(power float64) bool {
-	return math.Sqrt(power) >= LOUD_RMS
+// loudPower is the power, the mean square of a frame, at which a frame of a
+// sound of frames of power holds speech: LOUD_RMS at most, lower when the
+// sound's quiet, the mean of its quietest QUIET_SPAN_FRAMES, is low enough
+// that speech under LOUD_RMS stands OVER_QUIET_DB over it, and never under
+// QUIET_FLOOR_RMS.
+func loudPower(power []float64) float64 {
+	span := min(QUIET_SPAN_FRAMES, len(power))
+	sum := 0.0
+	for _, value := range power[:span] {
+		sum += value
+	}
+	quiet := sum
+	for index := span; index < len(power); index++ {
+		sum += power[index] - power[index-span]
+		quiet = min(quiet, sum)
+	}
+	quiet /= float64(span)
+	return min(LOUD_RMS*LOUD_RMS, max(QUIET_FLOOR_RMS*QUIET_FLOOR_RMS, quiet*math.Pow(10, OVER_QUIET_DB/10.0)))
 }
 
 // cutPoints returns where a sound of frames of power is cut, as frame
@@ -99,13 +127,13 @@ func cutPoints(power []float64) []int {
 	return append(cuts, len(power))
 }
 
-// shape gives a piece EDGE_FRAMES of quiet before its first loud frame and
-// after its last, cutting a longer quiet edge and making up a shorter end
-// with silence, or nil when nothing in it is loud.
-func shape(piece []float32, power []float64, frame int) []float32 {
+// shape gives a piece EDGE_FRAMES of quiet before its first frame at loud
+// power and after its last, cutting a longer quiet edge and making up a
+// shorter end with silence, or nil when nothing in it is loud.
+func shape(piece []float32, power []float64, frame int, loud float64) []float32 {
 	first, last := -1, -1
 	for index, value := range power {
-		if isLoud(value) {
+		if value >= loud {
 			if first < 0 {
 				first = index
 			}

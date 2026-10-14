@@ -124,19 +124,21 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 // One that is no live goblin's is a teammate's when another account than the
 // one the fleet works as opened it, and the fleet's own when that account
 // did, as the Overlord's own and a finished task's are; it is neither while
-// that account cannot be read.
+// that account cannot be read. A goblin's pull request is behind only when
+// it is next to land, isNextToLand.
 type prHealthChange struct {
 	pr                    ghPullRequest
 	goblin                string
 	isTeammates, isFleets bool
 	behind                int
 	isConflicting         bool
+	isNextToLand          bool
 }
 
 // checksPassed says every check of a pull request has concluded and passed,
-// and that it has one.
+// and that one of them ran rather than being skipped.
 func checksPassed(checks []ghCheck) bool {
-	return len(checks) > 0 && !slices.ContainsFunc(checks, func(check ghCheck) bool { return !check.concluded() || !check.passed() })
+	return slices.ContainsFunc(checks, ghCheck.hasRun) && !slices.ContainsFunc(checks, func(check ghCheck) bool { return !check.concluded() || !check.passed() })
 }
 
 // healthChange says whether pr's head, as record last saw it, has fallen into
@@ -144,29 +146,34 @@ func checksPassed(checks []ghCheck) bool {
 // conflicts only once it is asked, and lists it UNKNOWN until then, so a
 // behind head waits up to mergeabilityGrace for that answer: reporting it
 // behind and then conflicting woke twice for one head that never changed.
-// A behind head whose checks are still running waits for them too: no merge
-// train has passed it over yet, and on 2026-10-10 one woke the CFO minutes
-// after its push. It waits as long as a train waits for its own run,
-// train.RunDeadline, so checks that never conclude do not hide it for ever.
+// A behind head whose checks are still running waits for them too, as long
+// as a train waits for its own run, train.RunDeadline, so checks that never
+// conclude do not hide it for ever. A draft that is only behind is told of
+// nobody: it is not yet the head its author means to merge.
 //
-// This is the one rule for a head behind its base. A merge train tests main
-// and its riders together, so a head that is only behind, with its checks
-// passed, is nothing to tell of a pull request isRider says a train takes
-// once it is finished: a live goblin's own, which the account the fleet
-// works as opened in this repository. That holds whether the goblin reported
-// it done yet, whichever of its branches it is on, and whether it is held:
-// on 2026-10-10 seven wakes said a goblin's green pull request was behind
-// main, each before its goblin had reported it done. A head whose checks
-// failed or that has none is told, and so is one no train takes, a
-// teammate's and one no live goblin holds.
-func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time, isRider func() bool) (prHealthChange, bool) {
+// This is the one rule for a head behind its base. Bringing main into a pull
+// request replaces its head, and the run on the head it replaced paid for
+// nothing: in PrecisionDocs about $27 a month at 3.3 runs per merge. A merge
+// train tests its riders on the main they land on, so a goblin's pull
+// request that is only behind is nothing to tell until it is next to land
+// with no train to test it, which isNextToLand says, and its checks passed:
+// then it needs a test on current main. Its failed checks are ci_finished's
+// to tell, and no reason to bring main in. A conflict is told at once, since
+// no train takes it. A pull request no live goblin holds, a teammate's and
+// the fleet's own from a branch no goblin holds, is told whenever it falls
+// behind, for the fleet only reports it.
+func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time, isGoblins bool, isNextToLand func() bool) (prHealthChange, bool) {
 	isAwaitingGitHub := !record.UnknownSince.IsZero() && now.Sub(record.UnknownSince) < mergeabilityGrace
 	isAwaitingChecks := !record.RunningSince.IsZero() && now.Sub(record.RunningSince) < train.RunDeadline
-	isConflicting := pr.Mergeable == "CONFLICTING"
-	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks || checksPassed(pr.Checks) && isRider()) {
+	switch {
+	case pr.Mergeable == "CONFLICTING":
+		return prHealthChange{pr: pr, behind: behind, isConflicting: true}, !record.HasConflictWake
+	case behind == 0 || pr.IsDraft || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks:
+		return prHealthChange{}, false
+	case isGoblins && (!checksPassed(pr.Checks) || !isNextToLand()):
 		return prHealthChange{}, false
 	}
-	return prHealthChange{pr: pr, behind: behind, isConflicting: isConflicting}, true
+	return prHealthChange{pr: pr, behind: behind, isNextToLand: isGoblins}, true
 }
 
 // reportPRHealth raises one pr_health wake for a poll's pull requests whose
@@ -174,7 +181,7 @@ func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now tim
 // repository, so a poll that finds dozens raises one wake, never one each.
 // A pull request whose head and condition stay as they were is not named
 // again. The wake waits out ciWakeGap after the repository's last one.
-func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, branch string, now time.Time) error {
+func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, project, branch string, now time.Time) error {
 	if len(changes) == 0 {
 		return nil
 	}
@@ -184,13 +191,16 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, br
 	if !w.due(key, ciWakeGap, now) {
 		return nil
 	}
-	var entries, goblins []string
+	var entries, conflicting, landing []string
 	var hasTeammates, hasFleets, hasUnknown bool
 	for _, change := range changes {
 		pr := change.pr
 		condition := fmt.Sprintf("is %d commits behind %s", change.behind, branch)
-		if change.isConflicting {
+		switch {
+		case change.isConflicting:
 			condition = "conflicts with its base " + cmp.Or(pr.BaseRefName, branch) + ", so its workflows cannot run"
+		case change.isNextToLand:
+			condition += " and is next to land with no merge train to test it on current " + branch
 		}
 		whose := change.goblin
 		switch {
@@ -199,14 +209,20 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, br
 			hasTeammates = hasTeammates || change.isTeammates
 			hasFleets = hasFleets || change.isFleets
 			hasUnknown = hasUnknown || !change.isTeammates && !change.isFleets
-		case !slices.Contains(goblins, whose):
-			goblins = append(goblins, whose)
+		case change.isConflicting && !slices.Contains(conflicting, whose):
+			conflicting = append(conflicting, whose)
+		case change.isNextToLand && !slices.Contains(landing, whose):
+			landing = append(landing, whose)
 		}
 		entries = append(entries, fmt.Sprintf("%s's PR #%d (%s) at %s %s (%s)", whose, pr.Number, pr.HeadRefName, pr.HeadRefOid, condition, pr.URL))
 	}
+	const mergeMain = " to merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, run one CI run, and never force-push"
 	detail := fmt.Sprintf("pr_health: %s: %s", repository, strings.Join(entries, "; "))
-	if len(goblins) > 0 {
-		detail += fmt.Sprintf("; next: tell %s to merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, run one CI run, and never force-push", strings.Join(goblins, " and "))
+	if len(conflicting) > 0 {
+		detail += "; next: tell " + strings.Join(conflicting, " and ") + mergeMain
+	}
+	if len(landing) > 0 {
+		detail += fmt.Sprintf("; next for a pull request next to land: land it alone with cfo pr train %s, which tests it on current %s with no new head, or tell %s%s", project, branch, strings.Join(landing, " and "), mergeMain)
 	}
 	if hasTeammates {
 		detail += "; the fleet reports a teammate's pull request and never pushes to it"

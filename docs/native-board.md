@@ -407,7 +407,7 @@ The offer after he was away says who turned it on, with his words when the CFO d
 Either one takes the focus itself, so keys he was typing press neither button, and Escape stays.
 A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
 When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`.
-See [AFK mode in the README](../README.md#afk-mode) for its recap: its headline, Done, Decided for you and Needs you, each line's Evidence, Spent display and Go through them.
+See [AFK mode in the README](../README.md#afk-mode) for its recap: its headline, Done, Decided for you and Needs you, each line's Evidence, Spent display and Open Command Center.
 Each decision row links to what it names only when that is an https link and folds its evidence to two lines with Show more.
 His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
 An answer is named by its goblin, since the log keeps a question's id.
@@ -847,7 +847,8 @@ A dictation of any length goes in pieces while the keys are held: a piece of fou
 Each piece goes as soon as it ends, in one channel at 16 kHz, as a WAV to `POST /api/dictation` on the board's own address, one at a time and in order, so its words are recognised while the Overlord is still speaking.
 Releasing any of the three keys sends what followed the last piece, and the words of every piece are typed together, in order, as one line through the terminal's paste, so nothing is sent until Enter, and the page asks nothing else of anyone while it dictates.
 Once anything loud was said, room noise after the last piece and a piece with nothing loud in it are not sent, because the model writes words of its own into a room's hiss, such as "It is a good idea."
-A dictation with nothing loud in it at all, as from a quiet microphone, is sent whole, as it is.
+A part is loud when its 10 ms reach -40 dB of full scale, or stand 12 dB over the sound's own quiet, the mean of its quietest 200 ms, and above -70 dB, so a microphone set low or a softly spoken word is speech too: with only the -40 dB rule, real recordings turned down by 25 dB lost 691 of their 2252 words on the board, words the model heard in the same sound handed to it whole.
+A dictation with nothing loud in it at all is sent whole, as it is.
 A dictation typed right after another, with no key pressed in the terminal between them, starts with a space, so the two do not run together; the recent dictations keep the words alone.
 The bubble goes idle at the release, without waiting for the words, and the next dictation can start while the words of the last are still on their way; the words of each are typed when recognition finishes.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
@@ -887,7 +888,7 @@ Loading starts as the keys are pressed, so it is done before they are let go, an
 The worker asks Windows for the scheduling `cfo serve` asks for: a board started at login runs hidden, and Windows otherwise throttles the hidden worker, which then took 4 to 5 s to answer.
 The engine hears a sound in pieces of at most eight seconds, because Moonshine tiny answers no words at all for a sound of 9.3 s or more, which made every long dictation "Nothing was heard." until 8 October 2026.
 A longer sound is cut at its quietest places, a piece with nothing loud in it is left out when the sound has speech elsewhere, and the words of the pieces are joined in order.
-Each piece ends half a second after its last loud part, cutting a longer quiet end and making up a shorter one with silence: Moonshine writes until it hears the end of the line, so a sound cut mid-word ran on, repeating itself, and a long quiet end could make it answer nothing.
+Each piece ends half a second after its last loud part, loud as the page reads it, cutting a longer quiet end and making up a shorter one with silence: Moonshine writes until it hears the end of the line, so a sound cut mid-word ran on, repeating itself, and a long quiet end could make it answer nothing.
 The page records at the microphone's own rate, usually 48 kHz, and averages each piece down to the model's 16 kHz.
 On this PC, with the fleet busy, the words of a dictation of any length, from a five-second line to three minutes, are in the terminal 0.1 to 1.5 s after the keys are let go, since only what followed the last piece is still to be heard, and the engine holds about 155 MB at every length.
 It is ended after 30 minutes without a dictation, when it breaks or a dictation is abandoned, when there is no room for it, and when the supervisor stops, and the next dictation loads it again; a fault in the engine ends that process, never the board.
@@ -1044,7 +1045,7 @@ Every relaunch plans the task's MCP configuration again from the project's `.mcp
 `cfo switch` changes a goblin's harness, model or effort in place: the harness exits on its own command, its terminal is closed if it will not, which ends it and everything it started, and the new harness starts in a new terminal under the same id with the task's credentials in its environment.
 A reboot or sign-out ends every native terminal; the monitor's wake for a native task whose terminal has ended says so, and `goblins resume` brings every such task back, as `cfo switch <id>` to what it already ran (`--harness` naming its own harness) does for one, starting it again under the same id on the task's own recorded conversation (`claude --resume <session>` or `codex resume <session>`, never another task's latest) and tells it to continue where it left off.
 A resumed conversation that comes back in a turn, its status row showing it working, has started: nothing is typed into that turn.
-`goblins resume` reads every task record: it leaves a task whose lifecycle record of its generation says paused or stopped, or whose operation still holds its lock, and a task whose terminal still runs; it reports a task that ran in Herdr, one whose pause, resume or stop was cut short, and one whose operation failed, for a hand; and it admits each launch as a spawn does (`supervisor.CheckLaunch` on the memory left after the launch before), so a goblin there is no room for waits with the reason and none after it starts either.
+`goblins resume` reads every task record: it leaves a task whose lifecycle record of its generation says paused or stopped, whose failed pause took hold, or whose operation still holds its lock, and a task whose terminal still runs; it finishes a resume that was cut short; it reports a task that ran in Herdr, one whose pause or stop was cut short, and one whose resume or stop failed, for a hand; and it admits each launch as a spawn does (`supervisor.CheckLaunch` on the memory left after the launch before), so a goblin there is no room for waits with the reason and none after it starts either.
 Every restarted goblin, resumed or handed off, is also told that a question it asked the CFO before the restart was cancelled with it, and to ask it again with `cfo notify --blocked` if it was waiting on an answer.
 That resume in place skips the dirty-worktree refusal, since uncommitted edits are the goblin's own work in progress and nothing is stopped or handed off; a switch that changes the harness, model or effort is still refused on a dirty worktree unless `--force-dirty`.
 A task an older build recorded in Herdr is refused by `cfo switch` by name, before anything is stopped or written.
@@ -1185,8 +1186,12 @@ The board's dictation works in it as in a browser tab, because the page records 
 A restart or a sign-out ends the supervisor and every `cfo host`; [Start at login](#the-desktop-window) brings back the board with its supervisor detached from any terminal.
 The supervisor then brings back what the sign-in before this one left running, the comeback, recorded in `state\comeback.json`.
 It reads when this sign-in began from Windows (`LsaGetLogonSessionData` for the process's logon session), since a restart and a sign-out both end every process of the sign-in before.
-The first supervisor of a sign-in plans the comeback once, at its first memory check and before memory is read, so a sign-in whose memory never reaches the floor still records itself: the registered CFO's terminal, and each live native goblin's terminal, that started in the sign-in before (at or after the last comeback's sign-in and before this one) and no longer answers, plus whatever an earlier comeback had not reached.
-A goblin whose task the board shows done or merged for its session, whose lifecycle record for its session is anything but running (paused, stopped, or an operation the restart cut short), or that is retired, is not planned.
+The first supervisor of a sign-in plans the comeback once, at its first memory check and before memory is read, so a sign-in whose memory never reaches the floor still records itself.
+It plans the registered CFO when it no longer runs and ran in the sign-in before (at or after the last comeback's sign-in and before this one), by its terminal's host record or by its registration, or when an earlier comeback had not reached it.
+It plans every live native goblin left meant to run whose terminal no longer answers, whatever its host record says, except one whose record names a terminal started in this sign-in, which the restart did not end.
+A host removes its record when its terminal's program ends before it does, and a restart ends both in no fixed order: on 2026-10-14 Ursula's host removed hers, and a comeback that planned only goblins with a record in the sign-in before left her behind while Wally and Ned came back.
+A goblin is left meant to run when its lifecycle record for its session says running, or says a resume was cut short with no controller left to finish it, before or after it published its new session.
+A goblin whose task the board shows done or merged for its session, that was paused or stopped, whose pause or stop was cut short, whose failed pause took hold once its terminal ended, whose resume failed and waits for a Resume, or that is retired, is not planned.
 A home with no comeback record has no sign-in before to compare with, so its first supervisor plans nothing and only records this sign-in; a supervisor that starts again in the same sign-in, as an update restarts it, carries on with what still waits.
 Each memory reading, once a minute, takes the comeback's next step: the CFO at the first reading at or above the 4 GB floor, then the next goblin once memory and commit both read at the 5 GB start mark twice in a row and a launch has room as a spawn's does (`CheckLaunch`: memory and disk; no count of goblins), one at a time.
 While anything waits to come back nothing else starts by itself: the scheduler's queued starts, paused goblins' automatic resumes and `memory_ready` wait.
@@ -1194,7 +1199,8 @@ A Start or Resume the Overlord presses on the board, or a `cfo spawn` the CFO ch
 The CFO comes back as `goblins` brings back a closed one, under `.cfo-launch.lock`, but only on its registered conversation, with its startup dialogs answered; one with no conversation to resume, or past 20 MB, or whose resumed terminal does not hold, is left closed with the reason, which the board's line names.
 Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed.
 The CFO that comes back holds the home whichever session starts first after the restart: another Claude Code session, such as one the desktop app reopens, takes no lock and gets no wake, and one that holds the lock from an older build loses it to the CFO at the CFO's next hook ([The CFO's own session](../AGENTS.md#the-cfos-own-session)).
-Each goblin comes back as `goblins resume` brings one back, through the in-place switch on its own conversation where the board's record proves it its own and from a handoff where it does not, with one more line in its instruction: that the machine restarted, which ended its terminal, and to continue where it left off.
+Each goblin comes back as `goblins resume` brings one back, through the in-place switch on its own conversation where the board's record or the conversation its running harness proved (kept in `state\conversations\<id>.json` for its generation) proves it its own and from a handoff where neither does, with one more line in its instruction: that the machine restarted, which ended its terminal, and to continue where it left off.
+One whose resume the restart cut short comes back through that resume, finished as its card's Resume would, so its record reads running again, with the same line.
 One that cannot come back is recorded stopped with the reason on its card, as its action error, and raises a `check` wake keyed by its id that names `cfo switch <id> --harness <its harness>`; the next goblin's turn comes at the next reading either way.
 The snapshot's `comeback` carries the record for the board's line, and each waiting or stopped goblin's card carries its own entry; the monitor's wake for a terminal with no host says the supervisor brings it back rather than naming `goblins resume`.
 An example board brings nothing back.
@@ -1743,6 +1749,123 @@ So the proof starts the browser with sync and automatic sign-in switched off on 
 It also fills a plain sign-in form with values it makes up, which a browser does keep and does offer to save, so a clean result cannot come from a search or a probe that sees nothing.
 `-Visible` runs it in a window, where a browser shows its offer to save a password, and checks that none follows the card's save; `-Browser` names another browser, such as Chrome.
 
+## Browser key fetching
+
+A key a reviewed key page shows can be fetched by the fleet instead of pasted: Go code in the supervisor reads it from the page and stores it straight into the project's vault, and no agent ever sees it.
+When the page asks for a sign-in, the Overlord signs in himself, in a window of its own that opens only on his click.
+
+### Logins
+
+A login is one provider account's kept browser session: its own Chrome profile under `state\browser-logins\<id>`, readable by his Windows user alone and never copied into a worktree.
+What is kept is the session, never a password, a code or a magic link.
+Chrome itself encrypts the profile's cookies with a key Windows keeps for his user.
+The registry, `state\browser-logins.json`, records each login's provider, the account's name, the account ID his last sign-in showed, the projects that use it, when he last signed in, when a browser the broker lent or a fetch started on it last closed, and the Chrome the broker runs on it now.
+
+A project names the logins its goblins use in its `auth.json`, at most one for each provider:
+
+```json
+"logins": [
+  {"provider": "stripe", "account": "PrecisionDocs", "account_id": "acct_1ABC", "signs_out_after_fetch": false}
+]
+```
+
+`provider` is the ID of the recipe the login fetches with, `account` is the name he reads (ASCII letters, digits, spaces, dots, dashes and underscores, starting with a letter or digit, at most 64), and `account_id`, when set, is the account a fetch reads keys on, whatever account his sign-in landed on.
+Projects that name the same provider and account share one login, so he signs in once for them all.
+A project that names no login for a provider gets one of its own, named for the project, which no other project reaches: a borrow, a fetch or a sign-in card for a project that names its account is refused until the project that owns it names it too.
+`signs_out_after_fetch` deletes the login's profile and records it signed out once the browser each fetch read in has closed, a goblin's lent browser included, so the next fetch brings his sign-in card.
+
+### Recipes
+
+A recipe in `config/key-pages.json` says, for one provider, the hosts a browser on its login may reach, the key page, the address pattern that means signed in, the address pattern whose one group is the account ID, and each key it reads by the accessible names a person sees.
+Stripe's is the first:
+
+```json
+{"id": "stripe", "name": "Stripe", "key_page": "https://dashboard.stripe.com/test/apikeys",
+ "signed_in_path": "^/(acct_[a-zA-Z0-9]+/)?test/apikeys/?$", "account_path": "^/(acct_[a-zA-Z0-9]+)/test/apikeys/?$",
+ "hosts": ["stripe.com", "*.stripe.com", "stripe.network", "*.stripe.network", "stripecdn.com", "*.stripecdn.com"],
+ "keys": [{"name": "STRIPE_TEST_PUBLISHABLE_KEY", "row": "Publishable key", "prefix": "pk_test_"},
+          {"name": "STRIPE_TEST_SECRET_KEY", "row": "Secret key", "reveal": "Reveal test key", "prefix": "sk_test_"}]}
+```
+
+Recipes live in the repository, so each one is reviewed before it runs, and a fetch runs only from a recipe the binary carries.
+A recipe is refused when its key page is not plain https on one of its hosts, when a pattern is not anchored, when a control is named Roll, Delete, Revoke or Create, when a key is live (a LIVE name or a live prefix), or when its keys have no account path.
+A browser is lent and a sign-in card filed only for a provider a recipe names, so a new provider's recipe starts with its hosts, key page and signed-in pattern, by pull request.
+With that merged, a Claude Code goblin can borrow the signed-in browser to explore the key page while the keys are masked, and add the keys it reads by another pull request.
+
+### The broker
+
+The supervisor's browser broker starts each login's Chrome, one at a time per login, since Chrome opens a profile once, and only when free memory is above the fleet's floor.
+A goblin's Chrome is headless and reaches only its recipe's hosts: every other name resolves to nothing.
+Chrome is never given a debugging port: it inherits two private pipes, and the broker serves DevTools on loopback only to a connection it proves comes from the same Windows user, with Host and Origin checked.
+A task borrows a login's browser with `cfo auth browser <provider> --task <id>` from its own terminal, which points the task's chrome-devtools-axi session at it, and gives it back with `--release`.
+The broker closes it 30 minutes after it was last lent, since asking again renews it, and once the task ends or loses the provider's service.
+Only a Claude Code task borrows one, since only its hook can seal browser reads, and the task must carry the provider's declared service.
+The handoff refuses unless `chrome-devtools-axi security --json` reports the `windows-user-v1` bridge transport, so no login's browser reaches a bridge another Windows user could drive.
+
+### The sign-in card
+
+A sign-in card asks him to sign in to one login.
+A goblin files one with `cfo auth browser <provider> --task <id> --sign-in`, and a fetch files one when the page asks for a sign-in.
+The card names who needs it, the provider and the account, and numbered steps, and has one button, **Open the sign-in window**.
+Only his click on the board on this PC opens anything: a normal Chrome window on the login's profile, at the provider's key page, with no host rules, so he signs in as he would anywhere, with a password, a passkey or a code from his phone.
+Nobody else types anything in it, and the fleet never sees what he does.
+The broker reads only whether the page's address has reached the recipe's signed-in pattern, and which account it names, never the page.
+Once it has, the window closes, the login records the account and the time, and the card says **Signed in** and moves on like every other command.
+If he closes the window first, the card keeps its button.
+A card nobody has clicked expires after a day, and his first click shortens that to 30 minutes from that click.
+A card that expires, or whose task left, was replaced or lost its grant, closes its window.
+
+### Fetching
+
+`cfo auth fetch <request> --task <id>` has the supervisor fetch the keys an open credential request still needs from the request's link, when a recipe reads that page.
+The request must be the task's own, or of no task in the task's project, and the task must carry the provider's declared service.
+A Codex or pi goblin can fetch too, since the read happens inside the supervisor.
+The fetch reads on the account the project names, or else on the one his last sign-in showed, and refuses when there is neither.
+It uses the browser the task holds, sealing it first, or starts a headless Chrome of its own and closes it after.
+A browser another task holds is refused.
+In a tab of its own it loads the account's key page and waits for the signed-in address on that account: a page that settles elsewhere asks for a sign-in, and one on another account is refused before anything is read.
+For each key it waits for the key's row, clicks the recipe's Reveal control with a real mouse click, and reads the key from beside the row's name.
+A key that stays masked, two different keys beside one row, two Reveal controls or a missing row stop the fetch, and so does a value that fails the key's shape check, holding dots, an ellipsis, bullets or whitespace.
+It then loads a blank page and closes its tab, so no key is left on screen.
+The keys are stored through the request card's own save, which refreshes the project's goblins and wakes the CFO with the names, and each stored row's tip says **fetched from the page**.
+The command, and so the goblin, prints the names stored and nothing of the page.
+When the fetch stops short, the command prints why.
+When the page asks for a sign-in, the fetch files his sign-in card and the login reads signed out, and once he has signed in the fetch carries on by itself.
+A fetch that carries on and stops wakes the CFO with why.
+
+### Fetch it for me
+
+A request of a goblin whose link a recipe reads offers **Fetch it for me** above its paste fields, saying what it reads, from which page, with which login.
+His click on the board on this PC starts the same fetch for the request's goblin and shows it running.
+Keys stored close the card as a save does, and a sign-in needed brings his sign-in card, after which the card shows the fetch carrying on.
+A fetch that stopped, from his click or after his sign-in, wakes the CFO with why and shows **Fetch stopped** with the reason in its tip.
+The paste fields and the terminal stay.
+
+### The seal and the key alarm
+
+Every Claude Code goblin starts with two hooks of its own, handed to it with `--settings`, beside the CFO's: `state\goblin-claude-settings.json`, written anew at each spawn and switch.
+`cfo hook goblin-seal` runs before each Bash or PowerShell call and refuses a chrome-devtools-axi command while a fetch reads in the browser the goblin's task holds.
+The seal is a file under `state\browser-seals`, written before the key page loads and removed once the keys are hidden.
+A seal left behind lifts by itself three minutes after it was written, a minute past a fetch's own bound, a starting supervisor clears any left, and one that cannot be read refuses.
+`cfo hook goblin-key-alarm` runs after every tool call and wakes the CFO once per call whose output holds a secret key, naming the goblin, the tool and the kind of key, never the key, so the key can be rolled.
+It matches each kind of secret key by its prefix and its length, and most kinds by their mix of letters and digits too, so a commit hash, a UUID, a publishable key or a masked key never wakes it, though a long name that starts like a key can.
+A Bash or PowerShell call starts cfo.exe twice, once for each hook, any other call once, and an ordinary call reads no file.
+
+### Logins in a goblin's Connections
+
+A goblin's **Connections** lists **Browser logins** as cards like its connectors': each login its project uses, signed in or out, the projects it serves, when he signed in and when it was last used.
+Its **Sign out** button deletes the login's profile and keeps the login, so the next fetch brings his sign-in card.
+**Forget** asks first, then deletes the profile and the login.
+His account and its keys at the provider are not touched.
+Both act only from the board on this PC, only on a login of that goblin's project, and refuse while a browser of the login runs, closes or signs in, saying to try again once it closes.
+
+### Proofs
+
+The proofs run against stand-in sign-in and key pages on this machine, never a real account.
+`TestBrowserSignInWindowOnAHiddenDesktop` and `TestAKeyFetchAfterHisSignInReachesOnlyTheVault` run on a desktop of their own that no one sees: his click opens the window there, a stand-in sign-in completes the card, and the fetch carries on headless, reveals the secret key with a real click and stores both keys.
+Each key is then in the vault and in no file of the home, the login's Chrome profile included, no answer to the goblin and no notice to the CFO.
+`TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses` and `TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem` run the reader against a headless Chrome, the second for every page it must refuse.
+
 ## AFK mode
 
 AFK mode is the Overlord's switch for running the fleet while he is away: the CFO decides everything his authority covers and logs each decision, nothing is asked of him or held for him, what only he can do gets a backlog row and is listed in his report, and nothing on the board prompts him.
@@ -1826,7 +1949,8 @@ While it is off it carries `report`, the last stretch that ended, whose report i
 The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
 `GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its lines under the headings `cfo afk report` prints, each heading's `group` the part of the recap it is in (`done`, `decided` or `needs`, in that order), what each goblin finished, what waited on him in the Command Center with what became of each item as it stands now, open ones first and each in the order it came to him, how long it lasted and what was spent, with every list present.
 A decision under `decided` carries `item`, the question in his History where he changes its answer: `question:afk-left-<when it was logged>` for one the CFO answered in his place, and `question:<its ID>` for a goblin's question.
-A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`, and one still open under Needs you, in `needs`.
+A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`.
+A `his` line still open when AFK mode turns off becomes one card in the Command Center, and the report holds that card among its held items: a line with a card is told by the card and is in no section, so Needs you lists only a step whose card could not be made, as a report kept before cards were made lists them all.
 A report kept before nothing was left for him can hold a line the CFO left him unanswered: when it has a held question, it appears only through that question's current state, under Needs you while waiting or Done once handled.
 `spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
 A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
@@ -1835,12 +1959,19 @@ It is absent unless free disk was read at both ends on one drive, since the mete
 The board's filtering and presentation are documented in [the README](../README.md#afk-mode).
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
+A merge train's landing is logged by the supervisor, on a request any process of the home may make (`afk-train-landed`, naming the train and the pull request) and only while AFK mode is on: the line is the train's own record of the landing, with the run that proved it, once GitHub says the pull request merged, and it is never twice in a stretch.
+The caller's own words are never logged, so a train that does not run under the registered CFO, such as one started detached, has its landings recorded too.
 A decision names its kind (`left`, `his`, `merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on, and one without evidence is refused.
 A `left` line is a decision the CFO would have asked him, answered itself with its recommendation: one without its `answer`, its diagnosis, what was tried or two or more options is refused, since under AFK mode nothing is left for him as a question.
 A `his` line is a step only he can take, which the CFO gave a backlog row and worked around, with why the CFO cannot take it as its evidence.
 A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
 A merge line the CFO writes with `cfo afk log --kind merge` folds into the merge it names: the pull request it links or is, or the merge train's own pull request whose train landed it, which that train's line names as `train.Evidence` writes it.
 Its words ride on that merge as `noted`, in the report data and the CFO's text, and go to the landing just before the line when one train pull request landed twice; a merge word that failed before another landed its pull request folds the same way.
+A merge line the CFO writes by hand records no outcome of its own, so the outcome comes from GitHub: `cfo afk log --kind merge` reads the state of the pull request it links or is, once, and records the outcome `merged` on the line when GitHub says it merged.
+A pull request that is open, closed unmerged or unread leaves the line without an outcome, so it still reads as not merged.
+When AFK mode turns off the report asks GitHub, once for each pull request, about every merge line that has no outcome and names a pull request, within ten seconds and at most six at a time, and a pull request GitHub did not answer for is named in the report's Not read notes.
+A stretch whose merge lines all carry their outcome asks GitHub nothing.
+A hand line for a pull request that merged is that pull request under Merged with the CFO's words as `noted`, and a second line for the same pull request, or the train's own line for it, carries its words instead of making a second merge.
 What did not land is under Not merged: a line the CFO wrote linking its pull request rides on it as what the CFO did about it, a decision it answered in his place that links it rides on it with its answer, and a `his` line that links it rides on it as `It needs you: <the step>`.
 The bar's `decided` and `cfo afk status` count a folded line with the merge it names, not as a decision of its own.
 Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh pr merge --match-head-commit` holds only the head, so a commit that lands on the base between that reading and the merge is not seen.
@@ -1862,7 +1993,10 @@ A question that ends with its page, `(page <link>)`, offers no choices, so a tit
 Its `answer` line in `afk.audit` carries the page as `link`, with the goblin's question and the CFO's answer as its evidence.
 A page item a goblin filed before it turned on stays his and is held, and closes with the CFO's answer only to the question AFK mode makes of that same page, never with an answer to any other question of the goblin's.
 Nothing is asked of him, while he is away or when he is back, as the Overlord ruled on 2026-10-12: `cfo question` refuses while AFK mode is on, and nothing the CFO logs becomes a Command Center question.
-A step only he can take is a `his` line, one plain line under Needs you in his recap.
+A step only he can take is a `his` line.
+When AFK mode turns off each open one becomes a card, made by the supervisor under the registered CFO's identity: a run item when the line carries a `command` and its `shell`, from `cfo afk log --kind his --run <file>`, and otherwise a question titled with the step and its link in backticks, whose choices are Done and Later.
+The card's id is `afk-his-` and the line's `at`, so a line is one card however often it is made, and a card that cannot be made leaves its line under Needs you.
+When he closes the card, in whichever way, the supervisor appends a settle line to the log for it, once, with how the card ended, and the recap folds the step under Settled.
 When the stretch ends, each decision the CFO answered in his place is settled: its question goes straight to History as the CFO's own, `afk-left-<when it was logged>`, closed as `succeeded` with the CFO's answer as `answered_option`, `answered_by: cfo`, `answered_away` and `answered_at` when the line was logged, so it never waits on him, his recap lists it under Decided for you, For you, and the CFO is told which it settled and which it could not.
 An answer to a goblin's page needs nothing more: the goblin's question is in History already, closed as the CFO's answer while he was away, and the recap lists it under Decided for you, For the goblins.
 His change to either from History is an `answer_change` like any other: it reaches the CFO once for the CFO's own question, and the goblin, or the CFO when that goblin has ended, for a goblin's.

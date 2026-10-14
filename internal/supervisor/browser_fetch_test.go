@@ -343,6 +343,78 @@ func TestAFetchCarriesOnByItselfOnceHeSignsIn(t *testing.T) {
 	}
 }
 
+func TestAFetchCarriesOnOnceASignInWindowAsSlowToGoAsOnThisMachineIsGone(t *testing.T) {
+	// Arrange
+	b := newFetchBoard(t)
+	lease, err := b.fetch()
+	if err != nil || lease.SignIn == "" {
+		t.Fatalf("lease = %+v, %v, want his sign-in card", lease, err)
+	}
+	card := b.service.Store.Snapshot().BrowserSignIns[0]
+	if err := b.service.openBrowserSignIn(card.ID, card.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The window's Chrome takes as long to go as the slowest measured here:
+	// the 20 s it has to close when asked, then 3m12s from its job's end
+	// until its last process had exited.
+	slowClose := 20*time.Second + 3*time.Minute + 12*time.Second
+	released := make(chan struct{})
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(released) }) })
+	b.chrome.closing = released
+	var clock sync.Mutex
+	now, looked := *b.now, make(chan struct{}, 1)
+	b.broker.now = func() time.Time {
+		clock.Lock()
+		defer clock.Unlock()
+		select {
+		case looked <- struct{}{}:
+		default:
+		}
+		return now
+	}
+
+	// Act
+	if err := b.service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for shown := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if fetch := b.stored().Fetch; fetch != nil && fetch.State == "fetching" {
+			break
+		}
+		if time.Now().After(shown) {
+			t.Fatal("the key card never showed the fetch carrying on")
+		}
+	}
+	clock.Lock()
+	now = now.Add(slowClose)
+	select {
+	case <-looked:
+	default:
+	}
+	clock.Unlock()
+	select {
+	case <-looked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the carried fetch never looked at the broker's clock while the window's Chrome closed")
+	}
+	release.Do(func() { close(released) })
+	b.service.credentialWork.Wait()
+
+	// Assert
+	for name, value := range b.page {
+		if got, found := b.vaultValue(name); !found || got != value {
+			t.Fatalf("%s did not reach the vault once the window's Chrome was gone", name)
+		}
+	}
+	if request := b.stored(); request.State != "saved" {
+		t.Fatalf("request = %+v, want it saved by the carried fetch", request)
+	}
+}
+
 func TestAFetchRefusesWhatItMustNotReadAndStoresNothing(t *testing.T) {
 	for _, test := range []struct {
 		name       string

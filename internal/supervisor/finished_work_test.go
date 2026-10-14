@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -70,10 +71,22 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 		{
 			name: "it was stopped before it delivered",
 			arrange: func(t *testing.T, service *Service, h home.Home) {
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:00:00Z done: PR "+pullRequest+"\n2026-10-06T11:30:00Z working: more to do\n2026-10-06T11:59:00Z stopped: returned worktree C:\\w via cfo cleanup\n")
+				// Archived within the history window, so the history reads it
+				// whatever today's date is.
+				archived := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+				stamp := func(before time.Duration) string { return archived.Add(-before).Format(time.RFC3339) }
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status."+archived.Format("20060102T150405Z")), stamp(time.Hour)+" done: PR "+pullRequest+"\n"+stamp(30*time.Minute)+" working: more to do\n"+stamp(time.Minute)+" stopped: returned worktree C:\\w via cfo cleanup\n")
 				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: "s1", Title: "Ship it", Project: h.Root, Branch: "feat/ship-it", Phase: "stopped", Reason: "Worktree returned by cleanup", At: time.Now().UTC().Add(-time.Hour)})
 				if err := service.refreshHistory(t.Context(), time.Now().UTC()); err != nil {
 					t.Fatal(err)
+				}
+				service.mu.Lock()
+				isRead := slices.ContainsFunc(service.history, func(task Task) bool {
+					return task.ID == "finished:next-task" && strings.Contains(task.LastReport, "more to do")
+				})
+				service.mu.Unlock()
+				if !isRead {
+					t.Fatal("the fleet history left out the archive this case names, so the case would pass whatever the archive says")
 				}
 			},
 			wantStart: true,

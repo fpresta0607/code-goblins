@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -12,9 +13,11 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -119,6 +122,81 @@ func TestTheComebackBringsEachGoblinBackToldTheMachineRestarted(t *testing.T) {
 	owned := slices.IndexFunc(requests, func(request spawn.SwitchRequest) bool { return request.ID == "claude-owned" })
 	if owned < 0 || requests[owned].ResumeSession != "owned-conversation" || requests[owned].ResumeNote != restartNote || strings.Count(restartNote, "\n") != 0 {
 		t.Errorf("claude-owned came back with %+v, want its own conversation and the one restart line", requests)
+	}
+}
+
+// A goblin whose resume the restart cut short comes back through a resume,
+// which finishes what its record left, told the machine restarted, and never
+// through a bare switch that would leave its record reading resuming. A
+// failed pause took hold once the terminal ended, so that goblin stays
+// paused, and a failed resume or stop is left as it was and named.
+func TestTheComebackFinishesTheResumeTheRestartCutShort(t *testing.T) {
+	// Arrange
+	h := comebackHome(t, map[string][2]string{
+		"resume-cut-short": {"claude", "native"},
+		"resume-failed":    {"claude", "native"},
+		"pause-failed":     {"codex", "native"},
+		"stop-failed":      {"codex", "native"},
+		"no-room":          {"codex", "native"},
+	}, nil)
+	for _, left := range [][3]string{{"resume-cut-short", "resume", "resuming"}, {"resume-failed", "resume", "failed"}, {"pause-failed", "pause", "failed"}, {"stop-failed", "stop", "failed"}, {"no-room", "resume", "resuming"}} {
+		meta, err := state.ReadTaskMeta(h.State, left[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		operation := "operation-" + left[0]
+		if left[1] == "resume" {
+			meta.ResumeOperation = operation
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: operation, Action: left[1], Phase: left[2], Started: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var switches []spawn.SwitchRequest
+	runtime := comebackRuntime(nil, nil, func(spawn.SwitchRequest) (spawn.SwitchResult, error) { return spawn.SwitchResult{}, nil }, &switches)
+	var resumes []lifecycle.Request
+	runtime.taskLifecycle = func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+		resumes = append(resumes, request)
+		if request.ID == "no-room" {
+			return state.Lifecycle{}, fmt.Errorf("%w: only 4.6 GB of memory is free", state.ErrNoRoom)
+		}
+		return state.Lifecycle{ID: request.ID, Phase: "running"}, nil
+	}
+	outcomes := map[string]supervisor.GoblinComeback{}
+
+	// Act
+	for _, id := range []string{"resume-cut-short", "resume-failed", "pause-failed", "stop-failed", "no-room"} {
+		outcomes[id] = comebackGoblin(t.Context(), h, runtime, id)
+	}
+
+	// Assert
+	if outcomes["resume-cut-short"].Outcome != supervisor.CameBack {
+		t.Errorf("resume-cut-short came back %+v, want back", outcomes["resume-cut-short"])
+	}
+	if outcomes["pause-failed"].Outcome != supervisor.LeftAsItWas {
+		t.Errorf("pause-failed came back %+v, want it left paused", outcomes["pause-failed"])
+	}
+	for _, failed := range [][2]string{{"resume-failed", "its resume failed"}, {"stop-failed", "its stop failed"}} {
+		if outcomes[failed[0]].Outcome != supervisor.DidNotComeBack || !strings.Contains(outcomes[failed[0]].Said, failed[1]) {
+			t.Errorf("%s came back %+v, want it left as it was with %q named", failed[0], outcomes[failed[0]], failed[1])
+		}
+	}
+	if outcomes["no-room"].Outcome != supervisor.WaitsForRoom || !strings.Contains(outcomes["no-room"].Said, "only 4.6 GB of memory is free") {
+		t.Errorf("no-room came back %+v, want it waiting for room", outcomes["no-room"])
+	}
+	if len(switches) != 0 {
+		t.Errorf("switches %+v, want none: a resume finishes what the record left", switches)
+	}
+	if len(resumes) != 2 {
+		t.Fatalf("resumes %+v, want one for each resume the restart cut short", resumes)
+	}
+	for _, request := range resumes {
+		if request.Action != "resume" || request.Generation != "s1" || request.Operation == "" || !request.IsWatched || request.ResumeNote != restartNote {
+			t.Errorf("resume %+v, want one of the task's generation, read by the comeback, told the machine restarted", request)
+		}
 	}
 }
 

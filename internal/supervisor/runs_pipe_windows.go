@@ -129,9 +129,11 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 }
 
 // requestTimeout bounds the work of req: a key fetch loads its pages in a
-// Chrome it starts, and every other request takes runRequestTimeout.
+// Chrome it starts, and lending a login's browser starts one too, which a
+// loaded machine took over half a minute to do. Every other request takes
+// runRequestTimeout.
 func requestTimeout(req runPipeRequest) time.Duration {
-	if req.Kind == "browser" && req.Browser != nil && req.Browser.Action == "fetch" {
+	if req.Kind == "browser" && req.Browser != nil && (req.Browser.Action == "fetch" || req.Browser.Action == "attach") {
 		return browserFetchTimeout
 	}
 	return runRequestTimeout
@@ -198,6 +200,14 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 				err = s.acceptRunRequest(int(pid), connected, req)
 			case "afk-on", "afk-off":
 				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
+			case "afk-train-landed":
+				// Any process of this home may ask: the supervisor logs
+				// only what the train's record and GitHub say.
+				if req.Train == nil {
+					err = errors.New("a train landing names no train")
+				} else {
+					err = s.logTrainLanding(ctx, *req.Train)
+				}
 			case "helper":
 				var started HelperStart
 				if req.Helper == nil {

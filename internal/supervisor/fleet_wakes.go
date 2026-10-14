@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/disk"
@@ -828,6 +829,7 @@ type ghPullRequest struct {
 	HeadRefOid        string    `json:"headRefOid"`
 	Checks            []ghCheck `json:"statusCheckRollup"`
 	Mergeable         string    `json:"mergeable"`
+	IsDraft           bool      `json:"isDraft"`
 	ReviewDecision    string    `json:"reviewDecision"`
 	BaseRefName       string    `json:"baseRefName"`
 	IsCrossRepository bool      `json:"isCrossRepository"`
@@ -884,6 +886,12 @@ func (c ghCheck) passed() bool {
 
 // link is the check's own page: a check run's details, or the target a
 // commit status names.
+// hasRun says whether a concluded check ran: one that was skipped or
+// neutral tested nothing, though GitHub's merge box counts it as passing.
+func (c ghCheck) hasRun() bool {
+	return c.Kind == "StatusContext" || c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+}
+
 func (c ghCheck) link() string {
 	if c.Kind == "StatusContext" {
 		return c.TargetURL
@@ -985,6 +993,8 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	}
 	var unreadHeads []ghPullRequest
 	var changes []prHealthChange
+	trainGoblins := sync.OnceValue(func() []train.Goblin { return TrainGoblins(stateDir, repo) })
+	alone := sync.OnceValue(func() string { return loneRider(ctx, runner, stateDir, repo, listed, branch, owners, trainGoblins()) })
 	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
@@ -1014,8 +1024,16 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			behind = *comparison.BehindBy
 		}
 		goblin := goblinOf[pr.URL]
-		isRider := func() bool { return goblin != "" && !pr.IsCrossRepository && isFleets(pr) }
-		if change, isNew := healthChange(record, pr, behind, now, isRider); isNew {
+		// A pull request a train takes is next to land when it would ride
+		// alone, so no train starts to test it, and one no train takes is
+		// next once its goblin reported it done.
+		isNextToLand := func() bool {
+			if !pr.IsCrossRepository && isFleets(pr) {
+				return alone() == pr.URL
+			}
+			return slices.ContainsFunc(trainGoblins(), func(goblin train.Goblin) bool { _, isDone := goblin.Done[pr.URL]; return isDone })
+		}
+		if change, isNew := healthChange(record, pr, behind, now, goblin != "", isNextToLand); isNew {
 			change.goblin = goblin
 			if goblin == "" {
 				viewer, err := owners.account(ctx, runner, repo)
@@ -1025,8 +1043,36 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			changes = append(changes, change)
 		}
 	}
-	errs = errors.Join(errs, reportPRHealth(stateDir, w, changes, branch, now))
+	errs = errors.Join(errs, reportPRHealth(stateDir, w, changes, filepath.Base(repo), branch, now))
 	return listed, nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
+}
+
+// loneRider is the URL of the one goblin pull request a merge train would
+// take onto branch now, when it is the only one and no train runs in the
+// repository: the supervisor starts a train for two or more, and one alone
+// waits to be landed by hand. It is empty when none or several would ride,
+// and when the trains or the account gh works as cannot be read, which
+// leaves nothing to ask of a goblin.
+func loneRider(ctx context.Context, runner execx.Runner, stateDir, repo string, listed []train.PullRequest, branch string, owners *fleetOwners, goblins []train.Goblin) string {
+	if len(listed) == 0 {
+		return ""
+	}
+	trains, err := train.List(stateDir)
+	if err != nil {
+		return ""
+	}
+	owner, name := pullRequestRepository(listed[0].URL)
+	if _, isRunning := train.Running(trains, owner+"/"+name); isRunning {
+		return ""
+	}
+	viewer, err := owners.account(ctx, runner, repo)
+	if err != nil {
+		return ""
+	}
+	if riders, _ := train.Riders(listed, branch, viewer, goblins, trains); len(riders) == 1 {
+		return riders[0].URL
+	}
+	return ""
 }
 
 // runsPullRequestWorkflows reports whether repo's checkout has a GitHub
@@ -1046,13 +1092,16 @@ func runsPullRequestWorkflows(repo string) bool {
 // repository whose pull requests run workflows, the checks other apps report
 // are not the whole result: on 2026-10-07 a wake said "all 1 passed" with
 // only GitGuardian's in. So pr finishes once a workflow has reported too, or
-// says no workflow ran once workflowStartGrace has passed without one. A pull
-// request that conflicts with its base runs no workflows at all, and its
+// says no workflow ran once workflowStartGrace has passed without one. A
+// workflow check that was skipped ran nothing: a draft's run skips its jobs,
+// so a pull request marked ready shows them until its ready run registers. A
+// draft is not yet the head its goblin means to merge and finishes nothing. A
+// pull request that conflicts with its base runs no workflows at all, and its
 // pr_health wake says so instead. readOnce reads the tests that failed once
 // and passed on their second try in the head's workflow runs, which the wake
 // names: it is asked only when a wake is raised, and nil reads none.
 func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullRequest, isRunningWorkflows bool, now time.Time, readOnce func() ([]string, error)) error {
-	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" {
+	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" || pr.IsDraft {
 		return nil
 	}
 	var parts, failed, reported []string
@@ -1063,7 +1112,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		}
 		parts = append(parts, check.name()+"="+check.outcome()+"@"+check.CompletedAt)
 		reported = append(reported, check.name())
-		hasWorkflow = hasWorkflow || check.WorkflowName != ""
+		hasWorkflow = hasWorkflow || check.WorkflowName != "" && check.hasRun()
 		if !check.passed() {
 			failed = append(failed, check.name())
 		}
@@ -1107,7 +1156,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	switch {
 	case isUnstarted:
 		sort.Strings(reported)
-		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported (%d of %d failed); next: check why its workflows did not start, such as a path filter or a skipped trigger, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
+		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported, and a workflow's skipped check ran nothing (%d of %d failed); next: check why its workflows did not start, such as a path filter, a skipped trigger or a workflow that does not run on ready_for_review, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
 	case len(failed) == 0:
 		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), once, pr.URL)
 	default:

@@ -214,6 +214,27 @@ func (t Train) Evidence() string {
 	return fmt.Sprintf("merge train %s: CI passed on %s at %s, built on %s at %s", t.ID, t.PR, short(t.Head), t.Base, short(t.BaseSHA))
 }
 
+// foundOnBase is how a car's note begins when the train found its pull request
+// already on the base, merged before this run was built.
+const foundOnBase = "already on "
+
+// LandingEvidence is what the landing of car stands on: the run CI tested
+// that landed it, as the train's record keeps it, or, for a pull request the
+// train found already on its base, that it did, since no run of this train
+// tested it. A record with no run that landed the car stands on the train's
+// last run.
+func (t Train) LandingEvidence(car Car) string {
+	if strings.HasPrefix(car.Note, foundOnBase) {
+		return fmt.Sprintf("merge train %s found %s already on %s, landed by an earlier run of the train or an earlier train", t.ID, car.URL, t.Base)
+	}
+	for _, run := range t.History {
+		if run.Result == RunLanded && run.PR != "" && slices.Contains(run.Riders, car.Number) {
+			return fmt.Sprintf("merge train %s: CI passed on %s at %s, built on %s at %s", t.ID, run.PR, short(run.Head), t.Base, short(run.Base))
+		}
+	}
+	return t.Evidence()
+}
+
 // hasMerged says whether the train's pull request merged: a run tested on
 // it landed.
 func (t Train) hasMerged() bool {

@@ -136,6 +136,9 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	}
 
 	path, metas := r.conversation(ctx, goblin, harness.harness, isRunning)
+	if isRunning {
+		tree.Session = r.provedSession(ctx, goblin, harness.harness, metas)
+	}
 	var commands map[string]string
 	records := childRecords{harness: strings.ToLower(meta.Harness), children: map[string]childRecord{}}
 	switch strings.ToLower(meta.Harness) {
@@ -341,11 +344,20 @@ func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
 	if !isRunning {
 		return ""
 	}
+	var metas map[string]rolloutMeta
+	if strings.EqualFold(goblin.Meta.Harness, "codex") {
+		metas = r.rollouts(ctx)
+	}
+	return r.provedSession(ctx, goblin, harness.harness, metas)
+}
+
+// provedSession is RunningSession for a harness that runs, with the Codex
+// rollouts already read.
+func (r *Reader) provedSession(ctx context.Context, goblin Goblin, harness Process, metas map[string]rolloutMeta) string {
 	switch strings.ToLower(goblin.Meta.Harness) {
 	case "claude":
-		return claudeProcessSession(r.Home, harness.harness)
+		return claudeProcessSession(r.Home, harness)
 	case "codex":
-		metas := r.rollouts(ctx)
 		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
 	}
 	return ""
@@ -800,25 +812,40 @@ func Owned(meta state.TaskMeta, session RecordedSession) string {
 	return session.NativeID
 }
 
-// OwnedSession is Owned read from the board's record in stateDir. A record
-// that cannot be read is an error, never taken as none.
+// OwnedSession is Owned read from the board's record in stateDir or, where
+// that names none, as where the native session hooks are not installed, the
+// conversation the board kept as the one the goblin's own running harness
+// proved, for the same generation and harness. A record that cannot be read
+// is an error, never taken as none.
 func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
 	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
 		return "", nil
 	}
 	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read session ownership: %w", err)
+	}
+	if err == nil {
+		var database struct {
+			Sessions     map[string]RecordedSession `json:"sessions"`
+			TaskSessions map[string]string          `json:"task_sessions"`
+		}
+		if err := json.Unmarshal(data, &database); err != nil {
+			return "", fmt.Errorf("read session ownership: %w", err)
+		}
+		if session := Owned(meta, database.Sessions[database.TaskSessions[meta.ID]]); session != "" {
+			return session, nil
+		}
+	}
+	kept, err := state.ReadConversation(stateDir, meta.ID)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read session ownership: %w", err)
 	}
-	var database struct {
-		Sessions     map[string]RecordedSession `json:"sessions"`
-		TaskSessions map[string]string          `json:"task_sessions"`
+	if kept.Generation != meta.SpawnGen || kept.Harness != meta.Harness {
+		return "", nil
 	}
-	if err := json.Unmarshal(data, &database); err != nil {
-		return "", fmt.Errorf("read session ownership: %w", err)
-	}
-	return Owned(meta, database.Sessions[database.TaskSessions[meta.ID]]), nil
+	return kept.Session, nil
 }

@@ -106,6 +106,9 @@ See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
 
+A goblin that opens its own pull request opens it as a draft and marks it ready once, on the head it means to merge, so the fix rounds before that start no hosted CI.
+A check that was skipped, as a draft's run skips its jobs, tested nothing: a merge train and `cfo pr merge` take a pull request only once a check on its head ran.
+
 ### Merge trains
 
 Landing green pull requests one at a time costs one CI run each, in a row, because every merge makes the others' runs stale.
@@ -613,6 +616,8 @@ A connector that is failing keeps one faint mark with its reason in the tip, and
 Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
 Repairs trigger a fresh check. A token stored after a native goblin started still needs to reach that goblin before its credential card changes.
 No secret values appear on the board.
+Connections also lists **Browser logins**, the kept browser sessions the goblin's project fetches keys with, each a card that says whether you are signed in, the projects it serves, when you signed in and when it was last used.
+**Sign out** ends a login's session and keeps the login, and **Forget** asks first, then removes the login and its session, without touching your account or its keys at the provider.
 
 <img src="docs/images/board-connections.webp" alt="Workspace, Harness and Connections in a goblin's panel: connector cards for context7, sentry, github, vercel and openrouter, each with its logo, name, one line on what it does and a + or a check, vercel with a faint warning mark and its sign-in, and a GITHUB_TOKEN credential" width="720" />
 
@@ -776,6 +781,12 @@ Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run o
 Values are typed only on the board on this PC: a board opened through Tailscale or from another machine shows the card read-only, with the commands to copy.
 Each name takes one save, and a request nobody finishes expires after 24 hours.
 
+When a reviewed key page in `config/key-pages.json` shows the keys a goblin's request needs, such as Stripe's test key page, the card offers **Fetch it for me** above the table, saying what it reads, from which page and with which login.
+Your click starts the fetch on the board on this PC: the supervisor reads the keys from the page in its own code and stores them as the card does, so no agent ever sees them, and each stored row's tip says it was fetched from the page.
+When the page asks for a sign-in, a sign-in card comes next with one button, **Open the sign-in window**, which opens a Chrome window of the login's own on your click alone.
+You sign in there yourself, with a password, a passkey or a code from your phone, the window closes once the page shows you signed in, and the fetch carries on by itself.
+A fetch that stops wakes the CFO with why, and the card shows **Fetch stopped** with the reason in its tip, while the table and its terminal stay for a paste.
+
 <p align="center">
   <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Stream the billing CSV export asks for two credentials for acme-api. Its header says what they are for and gives three numbered steps, the first opening dashboard.stripe.com/test/apikeys. A table with a Name and a Value column has a row per name, each a hidden field to paste into with an empty ring at its end, the stored one with a dashed check and a field to paste a replacement. Below, the cfo auth store command with Copy and Run" width="640" />
 </p>
@@ -806,7 +817,7 @@ While it is on:
 - Out of AFK mode these stay yours: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   While you are away only what a tool refuses or needs your own sign-in stays yours, as you chose on 12 October: a teammate's pull request, an update of Code Goblins, spend your account refuses, and your sign-ins and identity checks.
   The CFO decides the rest, and deletes data only after a backup it can restore.
-  It asks you nothing: each step only you can take gets a backlog row and one plain line at the end of your recap, never a question, and the work goes around it.
+  It asks you nothing: each step only you can take gets a backlog row and, once you are back, one card in your Command Center, and the work goes around it.
 - Every decision you would have been asked, the CFO answers itself with its recommendation and acts on.
   When you turn AFK mode off, each is settled: it is in the Command Center's **History** with the CFO's answer, marked as given while you were away, never in your queue.
   **Change** on the recap, or **Change answer** in History, sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
@@ -827,9 +838,13 @@ It leads with a merge that did not land, the recap's one warning, which says in 
 Then come what went live, migrations applied and builds installed, in the CFO's own words with their run or pull request, then what merged, one line to a repository with each pull request a link, anything else the CFO did, the goblins paused at a floor, what goblins finished that did not merge, and **Spent**.
 What waited on you in the Command Center and no longer does folds under **Settled**, and a line the CFO logged by mistake folds under **Struck by the CFO** with its reason.
 **Decided for you** follows: each question the CFO answered with its recommendation, yours under **For you** and the goblins' under **For the goblins**, each with its answer and **Change**, which opens it in History.
-**Needs you** comes last, and only when something does, in the lantern box of what waits on you: each step only you can take, such as your own sign-in or a step a tool refused, as one plain line, then each item that still waits on you in the Command Center, with **Answer**.
+**Needs you** comes last, and only when something does: it says how many things wait for you in the Command Center, one card each, with **Open Command Center**.
+Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
+A step whose card could not be made stays a plain line.
+**Done** and **Decided for you** open and close behind the board's one thin caret, the same one History and the task panel use, and start open.
+Every heading inside them, **Deployed**, **Merged**, **Spent**, **For the goblins** and the rest, does the same and starts closed, showing only its name and its count, so the whole recap reads in one screen and you open only what you want to read.
 What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
-**Go through them** at the top opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
+**Open Command Center** at the top of Needs you opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
 **Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
 The Command Center's list offers **Go through them** too whenever two or more things wait on you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
@@ -873,13 +888,11 @@ For you (1)
 
 NEEDS YOU
 
-Needs you (1)
-- Sign in to Vercel for pd-auth
-  Evidence: Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in
-
-Waiting on you in the Command Center (1), each as it stands now
+Waiting on you in the Command Center (2), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   The CFO recommends: Keep it held.
+  Now: still waiting on you.
+- question:afk-his-20261002T031200.000000000Z, the CFO's: Sign in to Vercel for pd-auth
   Now: still waiting on you.
 ```
 
@@ -1047,8 +1060,9 @@ A repository is the fleet's when its GitHub owner, read from the pull request's 
 Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even when its checks failed or it has none.
 A behind head whose checks are still running waits until they conclude, for three hours at most, and is judged then.
-A goblin's own pull request that is only behind, with its checks passed, raises none, since a merge train tests the default branch and its riders together.
-That is one rule for every pull request a live goblin holds that your account opened in the repository, whether the goblin reported it done yet and whether it is held.
+A goblin's own pull request that is only behind raises none until it is next to land with no merge train to test it on current main, since bringing main in replaces its head and the run on the old head paid for nothing.
+A pull request your account opened is next to land when it is the one green pull request a train would take and no train runs there, and the wake then names `cfo pr train <project>` first, which lands it alone after one run on current main.
+Failed or missing checks never ask for main, and a draft that is only behind raises nothing.
 A pull request is a live goblin's when the goblin recorded or reported it, when its branch is the one the goblin's worktree has checked out, or when your account opened it from a branch that worktree had checked out before, which git keeps in the worktree's reflog, so a goblin on its second branch still owns its first pull request across a restart.
 A teammate's pull request is one another account opened, and one your account opened from a branch no live goblin holds is called neither: both are reported with author and link, and the fleet pushes to neither.
 One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.

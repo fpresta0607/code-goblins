@@ -33,6 +33,27 @@ type jobMemoryUsage struct {
 	Commit, PeakCommit uint64
 }
 
+// jobMemoryLimit bounds how long a job's memory is read again while each read
+// cannot be so, as proc.JobProcessIDs bounds its reads of the job's members.
+const jobMemoryLimit = 250 * time.Millisecond
+
+// queryJobMemory reads the job's commitment now and its peak, and
+// queryJobPeak the peak the job's limits keep, which Windows documents. A
+// test replaces them to return what a query was seen to return.
+var (
+	queryJobMemory = func(job windows.Handle) (jobMemoryUsage, error) {
+		var memory jobMemoryUsage
+		const jobObjectMemoryUsageInformation = 28
+		err := windows.QueryInformationJobObject(job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&memory)), uint32(unsafe.Sizeof(memory)), nil)
+		return memory, err
+	}
+	queryJobPeak = func(job windows.Handle) (uint64, error) {
+		var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+		err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil)
+		return uint64(limits.PeakJobMemoryUsed), err
+	}
+)
+
 // PROCESS_MEMORY_COUNTERS_EX2, available on the supported Windows 11 desktop.
 type processMemoryUsage struct {
 	Size, PageFaults                                                      uint32
@@ -57,24 +78,61 @@ func (t *Tree) Usage() (TreeUsage, error) {
 	return usage, nil
 }
 
+// jobUsage reads the job's accounting and memory until the read can be so,
+// for at most jobMemoryLimit, past which the job is unreadable. A read cannot
+// be so with no commitment while a member runs, with no peak once a process
+// ran, or with a peak under one read before, since a peak never falls:
+// Windows was seen to return nothing for both with a member running.
 func (t *Tree) jobUsage() (TreeUsage, error) {
 	if t.isDone {
 		return TreeUsage{}, errors.New("execx: job accounting is closed")
 	}
+	deadline := time.Now().Add(jobMemoryLimit)
+	for {
+		usage, why, err := t.readJob()
+		if err != nil {
+			return TreeUsage{}, err
+		}
+		if why == "" {
+			t.peak = usage.PeakCommitBytes
+			return usage, nil
+		}
+		if time.Now().After(deadline) {
+			return TreeUsage{}, fmt.Errorf("execx: read job commitment: %s, through every read for %s", why, jobMemoryLimit)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// readJob reads the job's accounting and memory once, and says why the read
+// cannot be so, or nothing. The peak is the higher of the two Windows keeps.
+func (t *Tree) readJob() (TreeUsage, string, error) {
 	var accounting jobAccounting
 	if err := windows.QueryInformationJobObject(t.job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
-		return TreeUsage{}, fmt.Errorf("execx: read job accounting: %w", err)
+		return TreeUsage{}, "", fmt.Errorf("execx: read job accounting: %w", err)
 	}
-	var memory jobMemoryUsage
-	const jobObjectMemoryUsageInformation = 28
-	if err := windows.QueryInformationJobObject(t.job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&memory)), uint32(unsafe.Sizeof(memory)), nil); err != nil {
-		return TreeUsage{}, fmt.Errorf("execx: read job commitment: %w", err)
+	memory, err := queryJobMemory(t.job)
+	if err != nil {
+		return TreeUsage{}, "", fmt.Errorf("execx: read job commitment: %w", err)
 	}
-	return TreeUsage{
+	peak, err := queryJobPeak(t.job)
+	if err != nil {
+		return TreeUsage{}, "", fmt.Errorf("execx: read job peak: %w", err)
+	}
+	usage := TreeUsage{
 		CPU:         time.Duration(accounting.UserTime+accounting.KernelTime) * 100,
-		CommitBytes: memory.Commit, PeakCommitBytes: memory.PeakCommit,
+		CommitBytes: memory.Commit, PeakCommitBytes: max(memory.PeakCommit, peak),
 		ActiveProcesses: accounting.ActiveProcesses, TotalProcesses: accounting.TotalProcesses,
-	}, nil
+	}
+	switch {
+	case usage.ActiveProcesses > 0 && usage.CommitBytes == 0:
+		return usage, fmt.Sprintf("it read no commitment while %d processes run", usage.ActiveProcesses), nil
+	case usage.TotalProcesses > 0 && usage.PeakCommitBytes == 0:
+		return usage, fmt.Sprintf("it read no peak after %d processes ran", usage.TotalProcesses), nil
+	case usage.PeakCommitBytes < t.peak:
+		return usage, fmt.Sprintf("its peak read %d bytes, under the %d read before", usage.PeakCommitBytes, t.peak), nil
+	}
+	return usage, "", nil
 }
 
 // privateWorkingSet sums the private working set of the job's members, and

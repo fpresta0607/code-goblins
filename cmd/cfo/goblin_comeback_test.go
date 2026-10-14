@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -79,9 +80,9 @@ func comebackRuntime(running []string, refused error, switched func(spawn.Switch
 // After a reboot goblins resume brings back, in place, every goblin whose
 // terminal ended: on its own conversation where the board's record proves it
 // is the task's, and from a handoff where it does not. It leaves a goblin
-// that still runs, or was paused or stopped on purpose, as it is, and says
-// what needs a hand: a goblin that ran in Herdr, an operation the reboot cut
-// short, and a switch that failed.
+// that still runs, or was paused or stopped on purpose, as it is, finishes a
+// resume the reboot cut short, and says what needs a hand: a goblin that ran
+// in Herdr and a switch that failed.
 func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 	// Arrange
 	h := comebackHome(t, map[string][2]string{
@@ -102,6 +103,11 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 		}
 		return spawn.SwitchResult{Resumed: request.ResumeSession != ""}, nil
 	}, &requests)
+	var resumes []lifecycle.Request
+	runtime.taskLifecycle = func(_ context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+		resumes = append(resumes, request)
+		return state.Lifecycle{ID: request.ID, Phase: "running"}, nil
+	}
 
 	// Act
 	comebacks, err := bringGoblinsBack(t.Context(), h, runtime)
@@ -118,7 +124,7 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 		"claude-owned": "back on its conversation",
 		"pi-handoff":   "back from a handoff",
 		"old-pause":    "back from a handoff",
-		"cut-short":    "its resume was cut short",
+		"cut-short":    "the resume the restart cut short finished",
 		"in-herdr":     "ran in Herdr",
 		"fails":        "codex is not on PATH",
 	}
@@ -143,9 +149,66 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 	if len(switched) != 4 || switched["claude-owned"].ResumeSession != "owned-conversation" || switched["pi-handoff"].ResumeSession != "" {
 		t.Errorf("switches %+v; want claude-owned on its own conversation, and pi-handoff, old-pause and fails without one", requests)
 	}
+	if len(resumes) != 1 || resumes[0].ID != "cut-short" || resumes[0].Action != "resume" || resumes[0].Generation != "s1" {
+		t.Errorf("resumes %+v; want the resume cut-short's record left unfinished", resumes)
+	}
 	for _, request := range requests {
 		if request.Generation != "s1" || !request.ForceDirty || request.Harness != "" || request.Model != "" || request.Effort != "" || request.IsResume {
 			t.Errorf("switch %+v; want one in place, of the task's own generation, keeping its uncommitted work", request)
+		}
+	}
+}
+
+// Where the board's record holds no session, as where the native session
+// hooks are not installed, a goblin a reboot ended comes back on the
+// conversation its own harness proved while it ran, kept for its
+// generation, and never from a handoff while that conversation exists. On
+// 2026-10-14 Wally and Ned came back from handoffs for want of it.
+func TestGoblinsResumeResumesTheConversationItsHarnessProvedWithoutHooks(t *testing.T) {
+	// Arrange
+	h := comebackHome(t, map[string][2]string{
+		"claude-kept":  {"claude", "native"},
+		"codex-kept":   {"codex", "native"},
+		"kept-earlier": {"claude", "native"},
+	}, nil)
+	if err := os.Remove(filepath.Join(h.State, ".supervisor.json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []state.Conversation{
+		{ID: "claude-kept", Generation: "s1", Harness: "claude", Session: "claude-proved"},
+		{ID: "codex-kept", Generation: "s1", Harness: "codex", Session: "codex-proved"},
+		{ID: "kept-earlier", Generation: "s0", Harness: "claude", Session: "earlier-generation"},
+	} {
+		kept.ProvedAt = time.Now().UTC()
+		if err := state.WriteConversation(h.State, kept); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var requests []spawn.SwitchRequest
+	runtime := comebackRuntime(nil, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		return spawn.SwitchResult{Resumed: request.ResumeSession != ""}, nil
+	}, &requests)
+
+	// Act
+	comebacks, err := bringGoblinsBack(t.Context(), h, runtime)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := map[string]string{}
+	for _, request := range requests {
+		resumed[request.ID] = request.ResumeSession
+	}
+	want := map[string]string{"claude-kept": "claude-proved", "codex-kept": "codex-proved", "kept-earlier": ""}
+	for id, session := range want {
+		if got, ok := resumed[id]; !ok || got != session {
+			t.Errorf("%s came back on conversation %q (switched %v), want %q", id, got, ok, session)
+		}
+	}
+	for _, comeback := range comebacks {
+		if comeback.id != "kept-earlier" && comeback.said != "back on its conversation" {
+			t.Errorf("of %s goblins resume said %q, want it back on its conversation", comeback.id, comeback.said)
 		}
 	}
 }

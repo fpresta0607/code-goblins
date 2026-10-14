@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
@@ -423,13 +424,14 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		// What the board's view kept of the stretch before goes with its
 		// report.
 		s.reads.forget(afkLogKind+current.Session, filepath.Join(stateDir, "afk.audit"))
-		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Answer every decision yourself with your recommendation, act on it and log it. Ask him nothing and hold nothing for him: a step only he can take gets a backlog row and a cfo afk log --kind his line, one plain line in his recap, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer. Its terms stand above this queue."); err != nil {
+		if err := s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Answer every decision yourself with your recommendation, act on it and log it. Ask him nothing and hold nothing for him: a step only he can take gets a backlog row and a cfo afk log --kind his line, which becomes one card in his Command Center when he is back, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer. Its terms stand above this queue."); err != nil {
 			return err
 		}
 		return kept
 	}
 	current.Ended, current.EndedFrom, current.EndedAsked = now, from, asked
-	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance)); err != nil {
+	report := s.afkReport(current, allowance)
+	if err := afk.SaveReport(stateDir, report); err != nil {
 		return fmt.Errorf("AFK mode stays on: the report of its stretch could not be kept: %w", err)
 	}
 	if asked == "" {
@@ -440,7 +442,119 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	if err != nil {
 		return err
 	}
-	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.settleInHistory(current.Session) + "Write the report of the stretch into your terminal: cfo afk report")
+	// Each step still open for him becomes a card, and the report then tells
+	// it by that card. A step whose card could not be made stays a line of
+	// the report as it was kept.
+	carded, failed := s.cardHisSteps(current.Session, now)
+	says := ""
+	if len(carded) > 0 {
+		report.Held = append(report.Held, carded...)
+		if err := afk.SaveReport(stateDir, report); err != nil {
+			failed = append(failed, "the report could not name the cards ("+err.Error()+")")
+		}
+		says = strconv.Itoa(len(carded)) + " step(s) only he can take are cards in his Command Center, and his recap points to them. "
+	}
+	if len(failed) > 0 {
+		says += "These could not become cards and stay as lines of his recap: " + strings.Join(failed, ", ") + ". "
+	}
+	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.settleInHistory(current.Session) + says + "Write the report of the stretch into your terminal: cfo afk report")
+}
+
+// hisCardChoices are the choices of the card a step only he can take is when
+// it is no command: he did it, or it waits for later. Either closes the card
+// and settles the step.
+var hisCardChoices = []string{"Done", "Later"}
+
+// cardHisSteps makes each step only the Overlord can take that the stretch left
+// open, one the CFO logged as his and neither struck nor settled, a card in his
+// Command Center: a run item when the step is a command he runs, otherwise a
+// question with the step in plain words, its link and the choices Done and
+// Later. A step is the same card however often this runs, so it returns each
+// card the board holds for the stretch's open steps, and those that could not
+// be made.
+func (s *Service) cardHisSteps(session string, now time.Time) (carded []afk.Held, failed []string) {
+	stateDir := s.Store.Home.State
+	entries, _, err := afk.Entries(stateDir, session)
+	if err != nil {
+		return nil, []string{"the log could not be read (" + err.Error() + ")"}
+	}
+	_, identity, err := readPrimary(stateDir)
+	if err != nil {
+		return nil, []string{"the CFO is not registered (" + err.Error() + ")"}
+	}
+	for _, step := range afk.Decisions(entries) {
+		if step.Kind != afk.KindHis || !afk.NeedsHim(step) {
+			continue
+		}
+		if err := s.admitHisCard(step, identity, now); err != nil {
+			failed = append(failed, strconv.Quote(step.What)+" ("+err.Error()+")")
+			continue
+		}
+		carded = append(carded, afk.Held{Item: afk.HisCardItem(step), What: step.What, At: step.At, Waiting: true, Now: "still waiting on you"})
+	}
+	return carded, failed
+}
+
+// admitHisCard puts the card of one step on the board, unless it holds it.
+func (s *Service) admitHisCard(step afk.Entry, identity string, now time.Time) error {
+	id := afk.HisCardID(step)
+	if step.Command != "" {
+		if slices.ContainsFunc(s.Store.Snapshot().Runs, func(r Run) bool { return r.ID == id }) {
+			return nil
+		}
+		return s.Store.admitRun(Run{ID: id, Identity: identity, By: "cfo", Title: bounded(step.What, 2000), Shell: step.Shell, Command: step.Command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)})
+	}
+	if slices.ContainsFunc(s.Store.Snapshot().Questions, func(q Question) bool { return q.ID == id }) {
+		return nil
+	}
+	text := step.What
+	if step.Link != "" {
+		text += "\n- Link: `" + step.Link + "`"
+	}
+	return s.Store.acceptQuestion(Question{ID: id, Identity: identity, Text: bounded(text, 4000), Options: slices.Clone(hisCardChoices), CreatedAt: now})
+}
+
+// settleHisCards settles in the log each step only he can take whose card he
+// has closed, with what became of the card, once: the log is the record of
+// what was left for him, and a step he saw to is not one that still needs him.
+func (s *Service) settleHisCards(now time.Time) error {
+	s.afkChange.Lock()
+	defer s.afkChange.Unlock()
+	d := s.Store.Snapshot()
+	var ids []string
+	for _, q := range d.Questions {
+		ids = append(ids, "question:"+q.ID)
+	}
+	for _, r := range d.Runs {
+		if r.State != "running" {
+			ids = append(ids, "run:"+r.ID)
+		}
+	}
+	var errs error
+	for _, item := range ids {
+		_, id, _ := strings.Cut(item, ":")
+		stamp, isCard := strings.CutPrefix(id, "afk-his-")
+		if !isCard || s.hisSettled[id] {
+			continue
+		}
+		if waiting, _ := heldNow(d, item, time.Time{}); waiting {
+			continue
+		}
+		at, err := time.Parse("20060102T150405.000000000Z", stamp)
+		if err != nil {
+			continue
+		}
+		_, how := heldNow(d, item, time.Time{})
+		if err := afk.SettleAfter(s.Store.Home.State, at, strings.ToUpper(how[:1])+how[1:], now); err != nil {
+			errs = errors.Join(errs, err)
+			continue
+		}
+		if s.hisSettled == nil {
+			s.hisSettled = map[string]bool{}
+		}
+		s.hisSettled[id] = true
+	}
+	return errs
 }
 
 // afkDisk is free disk as the board's disk meter reads it now, which AFK mode
@@ -531,6 +645,23 @@ func (s *Service) afkNotice(detail string) error {
 func (s *Service) logAFKDecision(entry afk.Entry) error {
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
+	if entry.Kind == afk.KindMerge && entry.Outcome == afk.OutcomeMerged {
+		// A pull request is merged once in a stretch, however many runs and
+		// trains hear of its landing.
+		switched, err := afk.Read(s.Store.Home.State)
+		if err != nil {
+			return err
+		}
+		entries, _, err := afk.Entries(s.Store.Home.State, switched.Session)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(entries, func(logged afk.Entry) bool {
+			return logged.Kind == afk.KindMerge && logged.Outcome == afk.OutcomeMerged && logged.What == entry.What
+		}) {
+			return nil
+		}
+	}
 	_, err := afk.Log(s.Store.Home.State, entry, time.Now())
 	return err
 }
@@ -668,6 +799,11 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 		report.Notes = append(report.Notes, fmt.Sprintf("%d line(s) of the log could not be read, in this stretch or another", unreadable))
 	}
 	report.Decisions, report.Paused = afk.Decisions(entries), afk.Pauses(entries)
+	var unread []string
+	report.Decisions, unread = s.confirmMerges(report.Decisions)
+	if len(unread) > 0 {
+		report.Notes = append(report.Notes, "GitHub did not say whether these pull requests merged, so they read as not merged: "+strings.Join(unread, ", "))
+	}
 	finished, err := doneBetween(stateDir, ended.Since, ended.Ended)
 	if err != nil {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
@@ -675,6 +811,50 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	report.Finished = finished
 	report.Held = s.heldOf(s.Store.Snapshot(), entries, report.Decisions)
 	return report
+}
+
+// afkMergeReads is how many pull requests the report asks GitHub about at
+// once, and afkMergeBudget how long it waits for all of them, so a slow GitHub
+// never holds the Overlord's switch for long.
+const (
+	afkMergeReads  = 6
+	afkMergeBudget = 10 * time.Second
+)
+
+// confirmMerges is decisions with the outcome merged on each merge line that
+// records none and names a pull request GitHub says merged: a merge the CFO
+// logged by hand writes no outcome, so the report asks the forge, once for
+// each pull request. It also returns the pull requests GitHub did not answer
+// for, whose lines stay as they were. A line that already says how it ended is
+// never asked about, so a stretch whose merges were all logged with their
+// outcome asks nothing.
+func (s *Service) confirmMerges(decisions []afk.Entry) ([]afk.Entry, []string) {
+	urls := afk.UnprovenMerges(decisions)
+	if len(urls) == 0 || s.Options.PullRequestState == nil {
+		return decisions, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), afkMergeBudget)
+	defer cancel()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	merged, answered := map[string]bool{}, map[string]bool{}
+	reading := make(chan struct{}, afkMergeReads)
+	for _, url := range urls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			reading <- struct{}{}
+			defer func() { <-reading }()
+			info, err := s.Options.PullRequestState(ctx, url)
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				answered[url], merged[url] = true, info.State == "MERGED"
+			}
+		}()
+	}
+	wg.Wait()
+	return afk.ConfirmMerges(decisions, merged), slices.DeleteFunc(slices.Clone(urls), func(url string) bool { return answered[url] })
 }
 
 // heldOf is each item a stretch's log holds for the Overlord, with what became

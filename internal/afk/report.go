@@ -230,6 +230,9 @@ func Noted(decisions []Entry) []Entry {
 	open := func(merge Entry) bool {
 		return merge.Kind == KindMerge && merge.Outcome != OutcomeMerged && merge.Struck == ""
 	}
+	// A line the CFO wrote of a landing, which GitHub says merged, is no
+	// merge of its own where the log holds the merge it names.
+	handLanded := func(line Entry) bool { return landed(line) && isHandWritten(line) }
 	noted := slices.Clone(decisions)
 	folded := make([]bool, len(decisions))
 	fold := func(i int, into func(Entry) bool) {
@@ -253,7 +256,7 @@ func Noted(decisions []Entry) []Entry {
 		folded[i] = len(named) > 0
 	}
 	for i, line := range decisions {
-		if open(line) {
+		if open(line) || handLanded(line) {
 			fold(i, func(merge Entry) bool { return landed(merge) && names(line, merge) })
 		}
 	}
@@ -282,6 +285,83 @@ func Noted(decisions []Entry) []Entry {
 	return kept
 }
 
+// pullRequestURL is the URL of a pull request on GitHub, and nothing more: a
+// link to its files or a comment is no pull request.
+var pullRequestURL = regexp.MustCompile(`^https://github\.com/[^/\s]+/[^/\s]+/pull/\d+$`)
+
+// PullRequestURL is the pull request a merge line names: its link when that is
+// one, else its words when they are, else empty.
+func PullRequestURL(link, what string) string {
+	for _, subject := range []string{link, what} {
+		if pullRequestURL.MatchString(subject) {
+			return subject
+		}
+	}
+	return ""
+}
+
+// isHandWritten reports whether a merge line is one the CFO wrote of a
+// pull request in its own words, rather than the merge's own record, which is
+// the pull request and links it.
+func isHandWritten(line Entry) bool {
+	return line.Kind == KindMerge && line.Struck == "" && line.Link != "" && line.Link != line.What
+}
+
+// UnprovenMerges are the pull requests the merge lines of decisions name and
+// say nothing of how they ended, each once, for GitHub to be asked whether it
+// merged. A line that records an outcome, a struck line and one that names no
+// pull request is not asked about.
+func UnprovenMerges(decisions []Entry) []string {
+	var urls []string
+	for _, decision := range decisions {
+		if decision.Kind != KindMerge || decision.Outcome != "" || decision.Struck != "" {
+			continue
+		}
+		if url := PullRequestURL(decision.Link, decision.What); url != "" && !slices.Contains(urls, url) {
+			urls = append(urls, url)
+		}
+	}
+	return urls
+}
+
+// ConfirmMerges is decisions with the outcome merged on each merge line that
+// records none and names a pull request merged says GitHub merged, so a merge
+// the CFO logged by hand reads as the merge it is. A pull request merged does
+// not answer for, or answers false for, leaves its lines as they were.
+func ConfirmMerges(decisions []Entry, merged map[string]bool) []Entry {
+	confirmed := slices.Clone(decisions)
+	for i, decision := range confirmed {
+		if decision.Kind == KindMerge && decision.Outcome == "" && decision.Struck == "" && merged[PullRequestURL(decision.Link, decision.What)] {
+			confirmed[i].Outcome = OutcomeMerged
+		}
+	}
+	return confirmed
+}
+
+// asPullRequests is decisions with each merge the CFO logged by hand, which
+// GitHub says merged and the log holds no merge line of its own for, as the
+// pull request it merged: the CFO's words ride on it as a train's line for it
+// would carry them, and a second line for the same pull request rides on the
+// first.
+func asPullRequests(decisions []Entry) []Entry {
+	kept := []Entry{}
+	first := map[string]int{}
+	for _, entry := range decisions {
+		if entry.Outcome != OutcomeMerged || !isHandWritten(entry) || PullRequestURL(entry.Link, "") == "" {
+			kept = append(kept, entry)
+			continue
+		}
+		if i, ok := first[entry.Link]; ok {
+			kept[i].Noted = strings.TrimSpace(kept[i].Noted + " " + said(entry, kept[i]) + " " + entry.Noted)
+			continue
+		}
+		entry.Noted, entry.What = strings.TrimSpace(sentence(entry.What)+" "+entry.Noted), entry.Link
+		first[entry.Link] = len(kept)
+		kept = append(kept, entry)
+	}
+	return kept
+}
+
 // said is a line of the CFO's as it rides on the merge it names: its words,
 // without the pull request the merge names already, and how it ended when it
 // was a merge word that did not land.
@@ -292,7 +372,7 @@ func said(line, merge Entry) string {
 			parts = append(parts, sentence(part))
 		}
 	}
-	if line.Outcome != "" {
+	if line.Outcome != "" && line.Outcome != OutcomeMerged {
 		parts = append(parts, NotLanded(line.Outcome))
 	}
 	return strings.Join(parts, " ")
@@ -369,7 +449,7 @@ func (r Report) Sections() []Section {
 			return held.Item == "question:"+LeftQuestionID(entry)
 		})
 	})
-	decisions = Noted(decisions)
+	decisions = asPullRequests(Noted(decisions))
 	for i, entry := range decisions {
 		switch {
 		case AnsweredForHim(entry):
@@ -400,11 +480,16 @@ func (r Report) Sections() []Section {
 	lines(GroupDone, "Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
 	lines(GroupDone, "Other", kind(KindOther))
 	add(GroupDone, "Paused at a floor", r.Paused)
-	lines(GroupDone, "Settled by the CFO", func(entry Entry) bool { return entry.Settled != "" })
+	// A step only he can take that became a card in his Command Center is told
+	// by that card, held for him, and by no line of its own.
+	carded := func(entry Entry) bool {
+		return entry.Kind == KindHis && slices.ContainsFunc(r.Held, func(held Held) bool { return held.Item == HisCardItem(entry) })
+	}
+	lines(GroupDone, "Settled by the CFO", func(entry Entry) bool { return entry.Settled != "" && !carded(entry) })
 	add(GroupDone, "Struck by the CFO", slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck))
 	lines(GroupDecided, "For you", AnsweredForHim)
 	lines(GroupDecided, "For the goblins", kind(KindAnswer))
-	lines(GroupNeeds, "Needs you", NeedsHim)
+	lines(GroupNeeds, "Needs you", func(entry Entry) bool { return NeedsHim(entry) && !carded(entry) })
 	return sections
 }
 
