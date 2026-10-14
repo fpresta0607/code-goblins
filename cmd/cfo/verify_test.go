@@ -614,14 +614,24 @@ func storeFiles(t *testing.T, folder string) []string {
 // same key takes that pass at its turn instead of running, and its command's
 // record says it never started and why. A tier whose worktree changed while
 // it waited runs on what it holds at its turn and keeps its own pass for
-// that.
+// that, and one whose key cannot be read at its turn runs, takes nothing and
+// keeps nothing, and says so once.
 func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 	for name, row := range map[string]struct {
-		isChanged bool
-		wantRuns  int
+		change     func(t *testing.T, worktree string)
+		isTaken    bool
+		wantPasses int
+		wantSaid   string
 	}{
-		"the same source":                  {wantRuns: 1},
-		"a source changed while it waited": {isChanged: true, wantRuns: 2},
+		"the same source": {isTaken: true, wantPasses: 1},
+		"a source changed while it waited": {wantPasses: 2, change: func(t *testing.T, worktree string) {
+			if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"a key unreadable at its turn": {wantPasses: 1, wantSaid: "cfo verify: the fast tier's pass is not kept to be taken again, as its key could not be read at its turn: ", change: func(t *testing.T, worktree string) {
+			gitIn(t, worktree, "update-ref", "-d", "refs/remotes/origin/main")
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -657,7 +667,7 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 			go func() { exited <- runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime) }()
 			for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "waiting for its turn") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			}
-			if row.isChanged {
+			if row.change != nil {
 				h, err := runtime.resolveHome()
 				if err != nil {
 					t.Fatal(err)
@@ -666,9 +676,7 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(meta.Worktree, "a.txt"), []byte("changed\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				row.change(t, meta.Worktree)
 			}
 			if err := os.Rename(aside, kept[0]); err != nil {
 				t.Fatal(err)
@@ -684,18 +692,29 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 			}
 
 			// Assert
-			if exit != 0 || runs(t, counter) != row.wantRuns {
-				t.Fatalf("exit = %d, the command ran %d time(s); want 0 and %d; stderr=%q", exit, runs(t, counter), row.wantRuns, stderr.String())
+			wantRuns := 2
+			if row.isTaken {
+				wantRuns = 1
 			}
-			isTaken := strings.Contains(stderr.String(), "kept by a run ahead of this one while it waited, so it takes that pass instead of running")
+			if exit != 0 || runs(t, counter) != wantRuns {
+				t.Fatalf("exit = %d, the command ran %d time(s); want 0 and %d; stderr=%q", exit, runs(t, counter), wantRuns, stderr.String())
+			}
+			said := stderr.String()
+			isTaken := strings.Contains(said, "kept by a run ahead of this one while it waited, so it takes that pass instead of running")
+			if passes := storeFiles(t, "passes"); isTaken != row.isTaken || len(passes) != row.wantPasses {
+				t.Fatalf("took the pass = %v, passes %v; want %v and %d pass(es); stderr=%q", isTaken, passes, row.isTaken, row.wantPasses, said)
+			}
+			if row.wantSaid != "" && (!strings.Contains(said, row.wantSaid) || strings.Count(said, "is not kept") != 1) {
+				t.Fatalf("stderr = %q; want one line that says the pass is not kept, starting %q", said, row.wantSaid)
+			}
 			results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
-			if row.isChanged {
-				if isTaken || len(storeFiles(t, "passes")) != 2 || len(results) != 1 || results[0].Reused != "" {
-					t.Fatalf("stderr = %q, passes %v, results %+v; want a run of its own whose pass is kept beside the old one", stderr.String(), storeFiles(t, "passes"), results)
+			if !row.isTaken {
+				if len(results) != 1 || results[0].Status != "passed" || results[0].Reused != "" {
+					t.Fatalf("results = %+v; want a run of its own", results)
 				}
 				return
 			}
-			if !isTaken || len(results) != 1 || results[0].Status != "passed" || results[0].Reused != kept[0] {
+			if len(results) != 1 || results[0].Status != "passed" || results[0].Reused != kept[0] {
 				t.Fatalf("stderr = %q, results %+v; want the kept pass taken and said", stderr.String(), results)
 			}
 			notStarted := 0
