@@ -161,7 +161,7 @@ Each also merges a few permission rules into your Claude Code settings, `~/.clau
 The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](AGENTS.md#the-cfos-own-session)).
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
-Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 51 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
+Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 483 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
 If that download fails, the install still ends well and says that dictation finishes setting itself up the first time you dictate.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
@@ -369,8 +369,8 @@ It opens at your first press and stays open while the window has the focus, so f
 At the first press after the window takes the focus it may still be opening, for up to about half a second, so start a beat after the bars appear.
 A note says **Nothing was heard** only of a hold it recorded with no words in it.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
-The install sets the model up, Moonshine tiny, so the first dictation works at once.
-If the install could not, as offline, the first dictation downloads it, 28 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
+The install sets the model up, Parakeet TDT 0.6B, so the first dictation works at once.
+If the install could not, as offline, the first dictation downloads it, 460 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
 Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
 If Windows blocks the microphone, the note says so and where to turn it back on: Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone on.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a moment; then it gives its memory back.
@@ -654,7 +654,7 @@ A long message is heard in pieces while you speak, so it comes back as fast as a
 The bubble shows its waveform the moment the keys go down.
 The microphone opens at the first press and stays open while the board has the focus, closing when it loses the focus, when the page is hidden or after 30 minutes without dictating, so every later press keeps every word from the press, and only the first press after the board takes the focus loses what is said while the microphone opens.
 **Nothing was heard** is said only of a hold it recorded with no words in it.
-What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 28 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
+What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 460 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.

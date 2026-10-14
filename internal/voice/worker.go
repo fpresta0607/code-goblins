@@ -32,7 +32,7 @@ const (
 )
 
 // workerIdle is how long a loaded engine waits for the next dictation before
-// it is ended. It stays loaded between dictations, holding about 140 MB, and
+// it is ended. It stays loaded between dictations, holding about 850 MB, and
 // a dictation after a longer pause loads it again as the keys are pressed.
 var workerIdle = 30 * time.Minute
 
