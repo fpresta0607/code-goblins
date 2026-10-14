@@ -650,9 +650,10 @@ func endUnseen(child *Node, commands map[string]string, runs map[string]bool, la
 	finish(child, Done, quiet)
 }
 
-// mergeShells folds each job a background shell runs into that shell: the
-// shell carries the job's memory, what it is doing and its processor use,
-// and the job is not listed again.
+// mergeShells folds each job a background shell or monitor runs into that
+// child: the child carries the job's memory, what it is doing and its
+// processor use, is named by its first job, its own shell, and the job is
+// not listed again.
 func mergeShells(children []Node) []Node {
 	jobs := map[string][]Node{}
 	for _, child := range children {
@@ -668,7 +669,9 @@ func mergeShells(children []Node) []Node {
 		for _, job := range jobs[child.ID] {
 			child.Memory += job.Memory
 			child.cpu += job.cpu
-			child.process = job.process
+			if child.process == "" {
+				child.process = job.process
+			}
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}
