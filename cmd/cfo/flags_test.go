@@ -36,6 +36,12 @@ func TestACommandRefusesAnArgumentItDoesNotTakeSayingWhich(t *testing.T) {
 		{"pause", func(stdout, stderr io.Writer, runtime commandRuntime) int {
 			return runLifecycle("pause", []string{"cg-task", "stray"}, stdout, stderr, runtime)
 		}},
+		{"resume", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runLifecycle("resume", []string{"cg-task", "stray"}, stdout, stderr, runtime)
+		}},
+		{"kill", func(stdout, stderr io.Writer, runtime commandRuntime) int {
+			return runLifecycle("kill", []string{"cg-task", "stray"}, stdout, stderr, runtime)
+		}},
 		{"native-hook", func(stdout, stderr io.Writer, runtime commandRuntime) int {
 			return runNativeHook([]string{"claude", "stray"}, strings.NewReader(""), stdout, stderr, runtime)
 		}},

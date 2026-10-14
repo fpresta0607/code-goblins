@@ -640,10 +640,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runBacklog(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
-	case "pause", "resume":
+	case "pause", "resume", "kill":
 		return runLifecycle(args[0], args[1:], stdout, stderr, runtime)
-	case "kill":
-		return runLifecycle("stop", args[1:], stdout, stderr, runtime)
 	case "send":
 		return runSend(args[1:], stdout, stderr, runtime)
 	case "peek":
