@@ -517,6 +517,8 @@ A monitor is done once Claude Code says it ran out its time, which it records on
 A background shell or monitor whose processes have all ended is done once it has been quiet for those ten minutes, since Claude Code records no end of one stopped from its own screen or ended with the conversation it ran in, and the ten minutes leave time for the record of one that did end.
 Until 2026-10-13 such children stayed silent for as long as their goblin ran, ten of them under one goblin for up to nine hours.
 A child whose process still runs stays however quiet, such as a shell waiting in the gate line.
+While the command line of one of the harness's processes cannot be read, no child is ended by its processes, since that process may be any child's.
+Once the goblin's harness has ended, every child its record left open ended with it.
 Each also carries when its source last changed and when it was read.
 Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser).
 Its tip is its task: a sub-agent's prompt, a background shell's or monitor's command, what a job runs without its shell or its program's folder, a helper's task, or else what it does.
