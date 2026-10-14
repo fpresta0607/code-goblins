@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -41,9 +43,18 @@ func testMachine(t *testing.T, isElevated bool) (machine, *ranNothing, *[]string
 	}, commands, &asked
 }
 
+// testUser is the SID of the user the test runs as, one user's account.
+var testUser = func() string {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		panic(err)
+	}
+	return user.User.Sid.String()
+}()
+
 // installArgs are an install's flags for the user that runs the test, by SID.
 func installArgs(extra ...string) []string {
-	return append([]string{"install", "--app-id", "1", "--installation-id", "2", "--repo", "fpresta0607/PrecisionDocs-AI", "--key", `C:\keys\app.pem`, "--user", "S-1-5-21-1-2-3-1001"}, extra...)
+	return append([]string{"install", "--app-id", "1", "--installation-id", "2", "--repo", "fpresta0607/PrecisionDocs-AI", "--key", `C:\keys\app.pem`, "--user", testUser}, extra...)
 }
 
 // A dry run needs no elevation, says every step, and runs, fetches and asks
@@ -61,7 +72,7 @@ func TestInstallDryRunShowsEveryStepUnelevated(t *testing.T) {
 	if exit != 0 || !strings.Contains(said, "step 1 of 11: check this machine\n") || !strings.Contains(said, "step 11 of 11: readiness check\n") || !strings.HasSuffix(said, "cg-ci-runner: a dry run, so nothing was done\n") {
 		t.Errorf("exit %d, stdout %q, stderr %q; want every step said and nothing done", exit, said, stderr.String())
 	}
-	if !strings.Contains(said, "CG_CI_PROGRAM="+m.program) || !strings.Contains(said, "whose pipe S-1-5-21-1-2-3-1001 may open") {
+	if !strings.Contains(said, "CG_CI_PROGRAM="+m.program) || !strings.Contains(said, "whose pipe "+testUser+" may open") {
 		t.Errorf("stdout %q; want the program and the user named", said)
 	}
 	if commands.ran != 0 || len(*asked) != 0 {
@@ -80,6 +91,8 @@ func TestInstallRefusesWhatItCannotUse(t *testing.T) {
 		"no key":            {args: []string{"install", "--dry-run", "--app-id", "1", "--installation-id", "2", "--repo", "o/r", "--user", "S-1-5-21-1"}, want: "--key names the App's private key file"},
 		"no user":           {args: []string{"install", "--dry-run", "--app-id", "1", "--installation-id", "2", "--repo", "o/r", "--key", "k"}, want: "--user names the fleet's Windows account"},
 		"an unknown user":   {args: installArgs("--dry-run", "--user", "no-such-account-cg-ci-runner"), want: `the account "no-such-account-cg-ci-runner" is not one this machine knows`},
+		"a group":           {args: installArgs("--dry-run", "--user", "S-1-5-32-545"), want: `the account "S-1-5-32-545" is no one user's account`},
+		"everyone":          {args: installArgs("--dry-run", "--user", "Everyone"), want: `the account "Everyone" is no one user's account`},
 		"a word past flags": {args: installArgs("now"), want: "usage: cg-ci-runner service"},
 	} {
 		t.Run(name, func(t *testing.T) {

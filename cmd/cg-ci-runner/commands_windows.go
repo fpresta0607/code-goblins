@@ -21,7 +21,7 @@ import (
 const usage = `usage: cg-ci-runner service
        cg-ci-runner status
        cg-ci-runner check
-       cg-ci-runner install [--dry-run] --app-id <id> --installation-id <id> --repo <owner/name> --key <file> --user <account>
+       cg-ci-runner install [--dry-run] --app-id <id> --installation-id <id> --repo <owner/name> --key <file> --user <account> [--remove-key]
        cg-ci-runner uninstall [--dry-run]`
 
 // machine is what the commands act on: the service's folder, this program,
@@ -100,6 +100,7 @@ func (m machine) install(args []string, stdout, stderr io.Writer) int {
 	repo := flags.String("repo", "", "the one repository, as owner/name")
 	keyFile := flags.String("key", "", "the App's private key file")
 	user := flags.String("user", "", "the fleet's Windows account, which may open the service's pipe")
+	isKeyRemoved := flags.Bool("remove-key", false, "delete the App's key file once the service holds its own copy")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -133,6 +134,7 @@ func (m machine) install(args []string, stdout, stderr io.Writer) int {
 		Owner:          owner,
 		Repo:           name,
 		KeyFile:        *keyFile,
+		RemoveKey:      *isKeyRemoved,
 		User:           sid,
 		Dir:            m.dir,
 		Program:        m.program,
@@ -142,7 +144,11 @@ func (m machine) install(args []string, stdout, stderr io.Writer) int {
 		Sleep:          cirunner.Sleep,
 		Now:            time.Now,
 	})
-	return finish(cirunner.RunSteps(context.Background(), steps, *isDryRun, stdout), "installed", *isDryRun, stdout, stderr)
+	err := cirunner.RunSteps(context.Background(), steps, *isDryRun, stdout)
+	if err == nil && !*isDryRun && !*isKeyRemoved {
+		fmt.Fprintf(stdout, "cg-ci-runner: the service holds its own copy of the App's key now. Delete %s, which any program of yours can read, or run the install with --remove-key, which does.\n", *keyFile)
+	}
+	return finish(err, "installed", *isDryRun, stdout, stderr)
 }
 
 // uninstall removes the runner, or with --dry-run says each step.
@@ -200,12 +206,16 @@ func accountSID(account string) (string, error) {
 	if account == "" {
 		return "", errors.New("--user names the fleet's Windows account")
 	}
-	if sid, err := windows.StringToSid(account); err == nil {
-		return sid.String(), nil
-	}
-	sid, _, _, err := windows.LookupSID("", account)
+	sid, err := windows.StringToSid(account)
 	if err != nil {
-		return "", fmt.Errorf("the account %q is not one this machine knows: %v", account, err)
+		if sid, _, _, err = windows.LookupSID("", account); err != nil {
+			return "", fmt.Errorf("the account %q is not one this machine knows: %v", account, err)
+		}
+	}
+	// A group, or a well-known SID such as Everyone's, would let every
+	// member open the service's pipe.
+	if _, _, use, err := sid.LookupAccount(""); err != nil || use != windows.SidTypeUser {
+		return "", fmt.Errorf("the account %q is no one user's account, so it may not open the service's pipe", account)
 	}
 	return sid.String(), nil
 }

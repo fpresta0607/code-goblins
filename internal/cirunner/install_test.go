@@ -76,6 +76,39 @@ func TestInstallStepsInTheirOrder(t *testing.T) {
 	}
 }
 
+// Told to, the install ends by deleting the key file it was given, which any
+// program of the user's can read once the service holds its own copy, and
+// otherwise leaves that file alone.
+func TestTheInstallRemovesTheGivenKeyOnlyWhenTold(t *testing.T) {
+	for name, isRemoved := range map[string]bool{"told to": true, "not told": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			options, _ := installOptions(t, t.TempDir(), &recorder{})
+			options.RemoveKey = isRemoved
+			if err := os.WriteFile(options.KeyFile, []byte("the App's key"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			steps := InstallSteps(options)
+			last := steps[len(steps)-1]
+			var err error
+			if isRemoved {
+				err = last.Run(context.Background())
+			}
+
+			// Assert
+			_, statErr := os.Stat(options.KeyFile)
+			if isRemoved && (last.Title != "remove the App's key file it was given" || err != nil || !os.IsNotExist(statErr)) {
+				t.Errorf("the last step %q = %v, the key %v; want the key file removed", last.Title, err, statErr)
+			}
+			if !isRemoved && (last.Title != "readiness check" || statErr != nil) {
+				t.Errorf("the last step is %q, the key %v; want the readiness check and the key kept", last.Title, statErr)
+			}
+		})
+	}
+}
+
 // A dry run says every step and every line it would run, and runs, writes
 // and asks nothing.
 func TestDryRunNamesEveryStepAndChangesNothing(t *testing.T) {
@@ -235,8 +268,6 @@ func TestADownloadIsKeptOnlyWithItsPinnedSHA256(t *testing.T) {
 	}
 }
 
-// The App's settings and key are kept where the service reads them, and a
-// key that is not an RSA key is refused before anything is written.
 // The App's settings and key go into files the install makes, never into
 // one that is there already, which another user could own and so read.
 func TestKeepAppRefusesAFileThereAlready(t *testing.T) {
@@ -266,6 +297,8 @@ func TestKeepAppRefusesAFileThereAlready(t *testing.T) {
 	}
 }
 
+// The App's settings and key are kept where the service reads them, and a
+// key that is not an RSA key is refused before anything is written.
 func TestKeepAppWritesWhatTheServiceReads(t *testing.T) {
 	for name, keyType := range map[string]string{"an RSA key": "pkcs1", "another key": "ecdsa"} {
 		t.Run(name, func(t *testing.T) {

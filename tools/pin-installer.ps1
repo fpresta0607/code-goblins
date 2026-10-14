@@ -5,7 +5,7 @@
 # published:
 #
 #   ./tools/pin-installer.ps1 -Repository owner/name -Tag v1.2.3 -Publisher "Name" -Destination release/install.ps1
-#   ./tools/pin-installer.ps1 -Source ci-runner-install.ps1 -Repository owner/name -Tag v1.2.3 -Publisher "Name" -Destination release/ci-runner-install.ps1
+#   ./tools/pin-installer.ps1 -Source ci-runner-install.ps1 -Repository owner/name -Tag v1.2.3 -Publisher "Name" -ProgramHash <sha256> -Destination release/ci-runner-install.ps1
 #
 # The copy it writes downloads from that repository's release of that tag,
 # never the latest release or another repository's, and installs only
@@ -14,6 +14,10 @@
 # SHA256SUMS alone and says so. It writes nothing when a value cannot be
 # written into the script as it is, or when the script does not name each
 # of them exactly once.
+#
+# ci-runner-install.ps1 also takes -ProgramHash, the SHA-256 of the
+# release's cg-ci-runner.exe, which it installs alone, and -ReleaseBase, for
+# a test, a server of the release's files in place of the release's own.
 #
 # Without -Destination it writes the pinned script to its output and no
 # file, for a test, which runs it as the one-line install does, as text. A
@@ -24,7 +28,9 @@ param(
     [Parameter(Mandatory)][string]$Tag,
     [string]$Publisher,
     [string]$Destination,
-    [ValidateSet("install.ps1", "ci-runner-install.ps1")][string]$Source = "install.ps1"
+    [ValidateSet("install.ps1", "ci-runner-install.ps1")][string]$Source = "install.ps1",
+    [string]$ProgramHash,
+    [string]$ReleaseBase
 )
 $ErrorActionPreference = "Stop"
 
@@ -41,15 +47,37 @@ if ($PSBoundParameters.ContainsKey('Publisher') -and ($Publisher -notmatch '^[\x
     throw "The publisher name '$Publisher' cannot be written into $Source as it is"
 }
 
+if ($ProgramHash -and $ProgramHash -notmatch '^[0-9A-Fa-f]{64}$') {
+    throw "'$ProgramHash' is not a SHA-256"
+}
+if ($ReleaseBase -and $ReleaseBase -notmatch '^https?://[A-Za-z0-9._:/-]+$') {
+    throw "'$ReleaseBase' is not a URL that can be written into $Source as it is"
+}
+if (($ProgramHash -or $ReleaseBase) -and $Source -ne "ci-runner-install.ps1") {
+    throw "-ProgramHash and -ReleaseBase pin ci-runner-install.ps1 alone"
+}
+
 $script = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) $Source))
 if ($script -match '[^\x00-\x7F]') {
     throw "$Source has a character outside ASCII"
 }
-$pins = @(
-    @{ Pattern = '\$repo = "[^"\r\n]*"'; Value = "`$repo = `"$Repository`"" },
-    @{ Pattern = [regex]::Escape('releases/latest/download"'); Value = "releases/download/$Tag`"" },
-    @{ Pattern = [regex]::Escape('$releasePublisher = ""'); Value = "`$releasePublisher = `"$Publisher`"" }
-)
+if ($Source -eq "ci-runner-install.ps1") {
+    $base = "https://github.com/$Repository/releases/download/$Tag"
+    if ($ReleaseBase) { $base = $ReleaseBase.TrimEnd("/") }
+    $pins = @(
+        @{ Pattern = '\$releaseRepository = "[^"\r\n]*"'; Value = "`$releaseRepository = `"$Repository`"" },
+        @{ Pattern = '\$releaseBase = "[^"\r\n]*"'; Value = "`$releaseBase = `"$base`"" },
+        @{ Pattern = [regex]::Escape('$releasePublisher = ""'); Value = "`$releasePublisher = `"$Publisher`"" },
+        @{ Pattern = [regex]::Escape('$releaseProgramHash = ""'); Value = "`$releaseProgramHash = `"$ProgramHash`"" }
+    )
+}
+else {
+    $pins = @(
+        @{ Pattern = '\$repo = "[^"\r\n]*"'; Value = "`$repo = `"$Repository`"" },
+        @{ Pattern = [regex]::Escape('releases/latest/download"'); Value = "releases/download/$Tag`"" },
+        @{ Pattern = [regex]::Escape('$releasePublisher = ""'); Value = "`$releasePublisher = `"$Publisher`"" }
+    )
+}
 foreach ($pin in $pins) {
     $found = @([regex]::Matches($script, $pin.Pattern))
     if ($found.Count -ne 1) {

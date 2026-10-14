@@ -57,6 +57,8 @@ type InstallOptions struct {
 	Repo           string
 	KeyFile        string
 	User           string
+	// RemoveKey deletes KeyFile once the service holds its own copy.
+	RemoveKey bool
 	// Dir is the service's folder, Program the installed cg-ci-runner.exe.
 	Dir     string
 	Program string
@@ -165,7 +167,7 @@ func InstallSteps(o InstallOptions) []Step {
 	checkpointEnv := []string{"CG_CI_SETTINGS=" + settings}
 	serviceEnv := []string{"CG_CI_PROGRAM=" + o.Program}
 	vm := HyperV{Commands: o.Commands}
-	return []Step{
+	steps := []Step{
 		{
 			Title: "check this machine",
 			Says:  append([]string{"refuse the program unless it is in Program Files: " + o.Program}, scriptSays(checkScript, checkEnv...)...),
@@ -253,6 +255,14 @@ func InstallSteps(o InstallOptions) []Step {
 			Run:   func(ctx context.Context) error { return ready(ctx, o.Ask, o.Sleep, readyLimit) },
 		},
 	}
+	if o.RemoveKey {
+		steps = append(steps, Step{
+			Title: "remove the App's key file it was given",
+			Says:  []string{"delete " + o.KeyFile + ": the service holds its own copy, and any program of the user's can read this one"},
+			Run:   func(context.Context) error { return os.Remove(o.KeyFile) },
+		})
+	}
+	return steps
 }
 
 // checkProgram refuses a program outside Program Files, which only

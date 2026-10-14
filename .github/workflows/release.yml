@@ -285,6 +285,9 @@ jobs:
           foreach ($source in 'install.ps1', 'ci-runner-install.ps1') {
             $pin = @{ Source = $source; Repository = $env:GITHUB_REPOSITORY; Tag = $env:GITHUB_REF_NAME; Destination = "release/$source" }
             if ($env:SIGNED -eq 'true') { $pin.Publisher = $env:SIGNING_PUBLISHER }
+            # The runner's install takes the signed program's own SHA-256 as
+            # its anchor, in the script the release signs next.
+            if ($source -eq 'ci-runner-install.ps1') { $pin.ProgramHash = (Get-FileHash cg-ci-runner.exe -Algorithm SHA256).Hash }
             ./tools/pin-installer.ps1 @pin
           }
       # The install script is signed as the programs are, with the release's
