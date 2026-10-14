@@ -526,7 +526,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await expect(title.locator("h2")).toHaveText("AFK recap");
     await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 2 things need you\. The CFO merged 1 pull request, made 1 deploy and answered 2 questions\.$/);
     await expect(title).toContainText("Turned on from your board, off from your terminal.");
-    await expect(report(page).locator(".afk-part > h3")).toHaveText(["Needs you", "Done", "Decided for you"]);
+    await expect(report(page).locator(".afk-part > h3, .afk-part > details > summary")).toHaveText(["Needs you", "Done", "Decided for you"]);
     const groups = (part: string) => report(page).getByRole("region", { name: part, exact: true }).locator(".afk-group").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
     expect(await groups("Done")).toEqual(["Not merged", "Deployed", "Merged", "Other", "Paused at a floor", "Also finished", "Spent", "Settled"]);
     expect(await groups("Decided for you")).toEqual(["For you", "For the goblins"]);
