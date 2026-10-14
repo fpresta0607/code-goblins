@@ -203,7 +203,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err := execution.Admit(turn.Waited); err != nil {
 		return refuseStart(err)
 	}
-	guard, err := turn.Protect(execution.ID(), execution.Path())
+	guard, err := turn.ProtectContext(ctx, execution.ID(), execution.Path())
 	if guard.RunID != "" {
 		pending.guard = guard
 		pending.isGuardComplete = false

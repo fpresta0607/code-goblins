@@ -957,31 +957,49 @@ func TestAdmissionSaysTheTighterShortOfMemoryAndCommit(t *testing.T) {
 	}
 }
 
-// A run at the head of the line whose take of the turn finds the line's
-// custody busy past the few seconds a custody change is given, as a loaded
-// machine can keep it, keeps its place and takes the turn once the custody
-// is free, rather than ending its wait with no turn after all it waited.
-// The custody is busy in this process, or by its lock as another process
-// holds it.
-func TestAWaitingRunKeepsItsPlaceWhileTheLinesCustodyIsBusy(t *testing.T) {
-	for name, hold := range map[string]func(t *testing.T, dir string) (release func()){
-		"in this process": func(t *testing.T, dir string) func() {
-			custodyMutations.Lock()
-			return custodyMutations.Unlock
-		},
-		"by its lock": func(t *testing.T, dir string) func() {
-			if _, err := lock.AcquireExclusiveNamedStrict(dir, "custody-mutation"); err != nil {
-				t.Fatal(err)
-			}
-			return func() {
+// shortCustodyBudget gives each custody change a tenth of a second, so a test
+// holds the line's lock busy past it in a moment.
+func shortCustodyBudget(t *testing.T) {
+	t.Helper()
+	previous := custodyMutationBudget
+	custodyMutationBudget = 100 * time.Millisecond
+	t.Cleanup(func() { custodyMutationBudget = previous })
+}
+
+// holdLineLock holds the line's lock in dir as hold says, and returns what
+// lets it go, which the test's end also does.
+func holdLineLock(t *testing.T, dir string, hold string) (release func()) {
+	t.Helper()
+	var once sync.Once
+	switch hold {
+	case "in this process":
+		custodyMutations.Lock()
+		release = func() { once.Do(custodyMutations.Unlock) }
+	case "by its lock file":
+		if _, err := lock.AcquireExclusiveNamedStrict(dir, "custody-mutation"); err != nil {
+			t.Fatal(err)
+		}
+		release = func() {
+			once.Do(func() {
 				if err := lock.ReleaseExclusiveNamed(dir, "custody-mutation"); err != nil {
 					t.Error(err)
 				}
-			}
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
+			})
+		}
+	}
+	t.Cleanup(release)
+	return release
+}
+
+// A run at the head of the line whose take of the turn finds the line's lock
+// busy past a custody change's budget, as a loaded machine can keep it, keeps
+// its place, says that the lock is busy, and takes the turn once it is free,
+// rather than ending its wait with no turn after all it waited.
+func TestAWaitingRunKeepsItsPlaceWhileTheLinesLockIsBusy(t *testing.T) {
+	for _, hold := range []string{"in this process", "by its lock file"} {
+		t.Run(hold, func(t *testing.T) {
 			// Arrange
+			shortCustodyBudget(t)
 			a := admission(t)
 			var isShort atomic.Bool
 			isShort.Store(true)
@@ -994,46 +1012,180 @@ func TestAWaitingRunKeepsItsPlaceWhileTheLinesCustodyIsBusy(t *testing.T) {
 			var says said
 			a.Waiting = says.waiting
 			taken := take(t, a)
-			says.atLeast(t, 1)
-			release := hold(t, a.Dir)
+			if lines := says.atLeast(t, 1); len(lines) == 0 {
+				t.Fatal("the run never said it waited")
+			}
+			release := holdLineLock(t, a.Dir, hold)
 			isShort.Store(false)
-			time.Sleep(6 * time.Second)
+			time.Sleep(600 * time.Millisecond)
 			release()
 
 			// Act
-			turn := within(t, taken, "the run that found the custody busy")
+			turn := within(t, taken, "the run that found the lock busy")
 
 			// Assert
 			if err := turn.Release(); err != nil {
 				t.Errorf("Release: %v", err)
 			}
+			if lines := strings.Join(says.atLeast(t, 2), "\n"); !strings.Contains(lines, "the line's lock is busy") {
+				t.Errorf("the run said %q; want it to say the line's lock is busy", lines)
+			}
 		})
 	}
 }
 
-// Only a custody change's own seconds running out while its caller still
-// waits is the custody being busy: the caller's own deadline, or another
+// A run whose admission has a limit, as cfo gate test's hour, gives up a lock
+// busy past that limit with why, rather than waiting on it for good.
+func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
+	// Arrange
+	shortCustodyBudget(t)
+	a := admission(t)
+	a.Limit = 300 * time.Millisecond
+	var isShort atomic.Bool
+	isShort.Store(true)
+	a.Available = func() (uint64, error) {
+		if isShort.Load() {
+			return gigabyte, nil
+		}
+		return 16 * gigabyte, nil
+	}
+	var says said
+	a.Waiting = says.waiting
+	ended := make(chan error, 1)
+	go func() {
+		turn, err := a.Wait(context.Background())
+		if err == nil {
+			_ = turn.Release()
+		}
+		ended <- err
+	}()
+	says.atLeast(t, 1)
+	holdLineLock(t, a.Dir, "in this process")
+	isShort.Store(false)
+
+	// Act
+	var err error
+	select {
+	case err = <-ended:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run still waits on the busy lock past its limit")
+	}
+
+	// Assert
+	if !errors.Is(err, errCustodyBusy) {
+		t.Errorf("Wait: %v; want it to give up the busy lock", err)
+	}
+}
+
+// A run that finds the line's lock busy as it first checks the line waits the
+// lock out, rather than taking no turn before it even joins the line.
+func TestARunWaitsOutABusyLockBeforeItJoinsTheLine(t *testing.T) {
+	// Arrange
+	shortCustodyBudget(t)
+	a := admission(t)
+	release := holdLineLock(t, a.Dir, "in this process")
+	taken := take(t, a)
+	time.Sleep(600 * time.Millisecond)
+
+	// Act
+	release()
+
+	// Assert
+	turn := within(t, taken, "the run that found the lock busy before it joined")
+	if err := turn.Release(); err != nil {
+		t.Errorf("Release: %v", err)
+	}
+}
+
+// Protecting a turn waits a busy lock out within the turn's limit, so a run
+// that took its turn keeps it, and stops at once when its context ends.
+func TestProtectWaitsOutABusyLock(t *testing.T) {
+	for name, row := range map[string]struct {
+		isInterrupted bool
+	}{
+		"a lock let go":          {},
+		"an interrupt meanwhile": {isInterrupted: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			shortCustodyBudget(t)
+			a := admission(t)
+			turn := within(t, take(t, a), "the run")
+			t.Cleanup(func() { _ = turn.Release() })
+			release := holdLineLock(t, a.Dir, "in this process")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			time.AfterFunc(600*time.Millisecond, func() {
+				if row.isInterrupted {
+					cancel()
+					return
+				}
+				release()
+			})
+
+			// Act
+			guard, err := turn.ProtectContext(ctx, "protected-run", "")
+
+			// Assert
+			if row.isInterrupted {
+				if err == nil || errors.Is(err, errCustodyBusy) && ctx.Err() == nil {
+					t.Errorf("ProtectContext: %v; want it ended by the interrupt", err)
+				}
+				return
+			}
+			release()
+			if err != nil {
+				t.Fatalf("ProtectContext: %v; want the turn protected once the lock was free", err)
+			}
+			if err := guard.Complete(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+// Only a custody change's own budget running out while its caller still
+// waits is the line's lock being busy: the caller's own deadline, or another
 // failure, is not.
-func TestBusyIsOnlyACustodyChangesOwnSecondsRunningOut(t *testing.T) {
-	ended, end := context.WithCancel(context.Background())
-	end()
+func TestMarkCustodyBusyMarksOnlyAChangesOwnBudget(t *testing.T) {
+	ended, end := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer end()
 	for name, row := range map[string]struct {
 		caller context.Context
 		err    error
 		isBusy bool
 	}{
-		"its own seconds":  {caller: context.Background(), err: context.DeadlineExceeded, isBusy: true},
+		"its own budget":   {caller: context.Background(), err: context.DeadlineExceeded, isBusy: true},
 		"the caller's end": {caller: ended, err: context.DeadlineExceeded},
 		"another failure":  {caller: context.Background(), err: errors.New("access is denied")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			err := busy(row.caller, row.err)
+			err := markCustodyBusy(row.caller, row.err)
 
 			// Assert
 			if errors.Is(err, errCustodyBusy) != row.isBusy || !errors.Is(err, row.err) {
-				t.Errorf("busy = %v; want busy %v, keeping %v", err, row.isBusy, row.err)
+				t.Errorf("markCustodyBusy = %v; want busy %v, keeping %v", err, row.isBusy, row.err)
 			}
 		})
+	}
+}
+
+// A custody change whose caller's own deadline ends first, as a release's
+// bounded retry, is not called busy, so no release is mistaken for one to
+// try again.
+func TestACustodyChangeEndedByItsCallerIsNotBusy(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	holdLineLock(t, dir, "in this process")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	// Act
+	_, err := custodyMutationContext(ctx, dir)
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errCustodyBusy) {
+		t.Errorf("custodyMutationContext: %v; want the caller's deadline, not a busy lock", err)
 	}
 }

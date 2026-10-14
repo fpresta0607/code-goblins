@@ -363,14 +363,18 @@ Only test binaries can use explicitly isolated admission stores.
 
 A command also waits while either physical or commit availability is under the shared floor: 4 GiB at capacity one or 8 GiB at capacity two.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
-A run at the head of the line that finds the line's custody busy for all the five seconds a custody change is given, as a loaded machine can keep it, keeps its place, says `the line's custody is busy`, and tries again at its next look.
-On 2026-10-14 such a run, after an hour and fourteen minutes in line, ended with no turn on one busy custody change.
 
 While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
 
 ```text
 cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget; 1 run is ahead of this one in line
 ```
+
+Every take, protection and release of a turn goes through the line's lock, which another run's change holds for milliseconds, and each change waits five seconds for it.
+A run that finds the lock busy for all five seconds, as a loaded machine can keep it, as it first checks the line, takes its turn at the head of the line, or protects the turn it took, keeps its place and tries again.
+At the head of the line it says `the line's lock is busy` as the lock turns busy.
+It tries again within its admission's limit, an hour for `cfo gate test` and `cfo gate prepush`, past which it gives up with why, and for as long as it waits for `cfo gate turn` and `cfo verify`, which set none.
+On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
