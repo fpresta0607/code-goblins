@@ -202,6 +202,27 @@ func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
 	}
 }
 
+// A bucket the janitor could not read whole is named under the table, so its
+// size reads as at least what is shown, and a home read whole says nothing.
+func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {
+	// Arrange
+	partial := Build(`C:\dev\code-goblins`, reportFixture())
+	partial.Storage.Incomplete = []string{"state", "cache go-build"}
+	whole := Build(`C:\dev\code-goblins`, reportFixture())
+
+	// Act
+	out, wholeOut := render(t, partial), render(t, whole)
+
+	// Assert
+	want := "Some entries could not be read, so these buckets hold at least the size shown: state, cache go-build."
+	if !strings.Contains(out, want) {
+		t.Errorf("output is missing %q\n%s", want, out)
+	}
+	if strings.Contains(wholeOut, "could not be read, so these buckets") {
+		t.Errorf("a home read whole names buckets read in part\n%s", wholeOut)
+	}
+}
+
 // The janitor's sweep of processes is read here: what it ended as a
 // terminal's own, and each process it left for the CFO with its pid, when it
 // started, the memory of its tree and its command.

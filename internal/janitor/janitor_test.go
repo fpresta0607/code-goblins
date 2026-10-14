@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -516,6 +517,65 @@ func TestSweepTrimsTheCachesWithTheLeastRecentlyUsedToolFirst(t *testing.T) {
 	}
 	if item, ok := has(record.Removed, filepath.Join(f.home.Caches(), "uv")); !ok || item.Bytes != 1<<20 {
 		t.Errorf("removed = %+v, want uv's megabyte", record.Removed)
+	}
+}
+
+// A cache tool's prune can delete a whole cache, as go clean -cache does, so
+// the sweep trims nothing while a run holds the machine's heavy line, whose
+// build reads those caches, or while it cannot read the line, and says why.
+func TestSweepTrimsNoCacheWhileARunHoldsTheHeavyLine(t *testing.T) {
+	for name, row := range map[string]struct {
+		heavyRun  func() (string, error)
+		wantPrune bool
+		wantNote  string
+	}{
+		"a run holds the line": {
+			heavyRun: func() (string, error) { return "cfo gate test at 0123abcd (pid 4242)", nil },
+			wantNote: "while cfo gate test at 0123abcd (pid 4242) holds the machine's heavy line",
+		},
+		"a line that cannot be read": {
+			heavyRun: func() (string, error) { return "", errors.New("the line is unreadable") },
+			wantNote: "the machine's heavy line could not be read: the line is unreadable",
+		},
+		"a free line": {
+			heavyRun:  func() (string, error) { return "", nil },
+			wantPrune: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: the caches are over their cap.
+			f := newSweepFixture(t)
+			dir := filepath.Join(f.home.Caches(), "uv")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "blob"), make([]byte, 1<<20), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runner := &pruneRunner{caches: f.home.Caches()}
+			cfg := f.config(reap.Inventory{})
+			cfg.Commands = runner
+			cfg.Settings.CachesCapGB = 0.5 / 1024
+			cfg.HeavyRun = row.heavyRun
+
+			// Act
+			record := Sweep(context.Background(), cfg)
+
+			// Assert
+			if isPruned := len(runner.ran) > 0; isPruned != row.wantPrune {
+				t.Fatalf("prunes run = %v, want a prune %v", runner.ran, row.wantPrune)
+			}
+			if row.wantNote == "" {
+				return
+			}
+			isSaid := false
+			for _, note := range record.Notes {
+				isSaid = isSaid || strings.Contains(note, row.wantNote)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "blob")); err != nil || !isSaid {
+				t.Errorf("the cache is kept: %v, notes = %q; want it kept and a note that says %q", err, record.Notes, row.wantNote)
+			}
+		})
 	}
 }
 

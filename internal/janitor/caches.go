@@ -38,13 +38,27 @@ const cacheTimeout = 10 * time.Minute
 
 // trimCaches brings the home's caches folder back under its cap: over it, each
 // tool prunes its own cache, the one used longest ago first, until the folder
-// is under the cap again or every tool has pruned.
+// is under the cap again or every tool has pruned. A prune can delete a
+// whole cache, as go clean -cache does, so none runs while a run holds the
+// machine's heavy line, whose build reads the caches, or while the line
+// cannot be read, and the next sweep tries again.
 func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 	root := cfg.Home.Caches()
 	limit := int64(fleetconfig.Bytes(cfg.Settings.CachesCapGB))
 	total := Size(root)
 	if total <= limit {
 		return
+	}
+	if cfg.HeavyRun != nil {
+		holder, err := cfg.HeavyRun()
+		if err != nil {
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed, as the machine's heavy line could not be read: %v", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, err))
+			return
+		}
+		if holder != "" {
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed while %s holds the machine's heavy line", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, holder))
+			return
+		}
 	}
 	type used struct {
 		tool cacheTool

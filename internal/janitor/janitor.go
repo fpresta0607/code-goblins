@@ -76,6 +76,9 @@ type Config struct {
 	// BrowserSessions is the folder chrome-devtools-axi keeps a folder for
 	// each named session in. Empty removes none.
 	BrowserSessions string
+	// HeavyRun names the run that holds the machine's heavy line, or nothing
+	// while none does. Nil reads no line.
+	HeavyRun func() (string, error)
 }
 
 // Item is one thing a sweep removed, kept or reports.

@@ -15,7 +15,37 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/services"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
+
+// The sweep's reading of the machine's heavy line names the run that holds a
+// turn, as the sweep says it while it trims no cache, and nothing while no
+// run does.
+func TestHeavyRunNamesTheRunThatHoldsTheLine(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	free, freeErr := heavyRun()
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := verify.Admission{Dir: store, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "cfo gate test at 0123abcd", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = turn.Release() })
+
+	// Act
+	held, heldErr := heavyRun()
+
+	// Assert
+	if free != "" || freeErr != nil {
+		t.Errorf("with no turn held, heavyRun = %q, %v; want nothing", free, freeErr)
+	}
+	if want := fmt.Sprintf("cfo gate test at 0123abcd (pid %d)", os.Getpid()); held != want || heldErr != nil {
+		t.Errorf("with a turn held, heavyRun = %q, %v; want %q", held, heldErr, want)
+	}
+}
 
 // TestStrayWakeFiresOnlyForAStrayNotReportedBefore: the janitor reports the
 // same strays on every pass, and one going away is nothing the CFO must act

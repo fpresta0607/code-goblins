@@ -15,12 +15,27 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // janitorBudget bounds one janitor pass: a tool's cache prune can take
 // minutes, a worktree's removal seconds each.
 const janitorBudget = 30 * time.Minute
+
+// heavyRun names the run that holds a turn in the machine's heavy line, as
+// cfo gate turns prints it, or nothing while none does.
+func heavyRun() (string, error) {
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		return "", err
+	}
+	holding, _, err := verify.Line(store)
+	if err != nil || len(holding) == 0 {
+		return "", err
+	}
+	return fmt.Sprintf("%s (pid %d)", holding[0].Who, holding[0].PID), nil
+}
 
 // janitorRunning keeps this process to one janitor pass at a time.
 var janitorRunning sync.Mutex
@@ -91,6 +106,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		Watched:    previous.Processes.Watched,
 
 		BrowserSessions: browserSessions,
+		HeavyRun:        heavyRun,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return

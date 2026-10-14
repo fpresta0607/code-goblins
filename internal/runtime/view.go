@@ -414,6 +414,10 @@ func renderStorage(out *writer, report Report) {
 	out.row("the home in all", Bytes(storage.Total()))
 	out.row("Docker's share", Bytes(report.Headroom.DockerTotal()))
 	out.line("")
+	if len(storage.Incomplete) > 0 {
+		out.line("Some entries could not be read, so these buckets hold at least the size shown: " + text(strings.Join(storage.Incomplete, ", ")) + ".")
+		out.line("")
+	}
 	if report.Janitor == nil {
 		out.line("The janitor has not swept this home yet; the watcher's sweep runs it every hour.")
 		return
