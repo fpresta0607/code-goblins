@@ -220,6 +220,9 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 		failure := fmt.Errorf("%s: this run takes no turn: %w", name, err)
 		return nil, errors.Join(failure, verifyrun.Save(path, notRun(failure)))
 	}
+	executor.Source = func(ctx context.Context, dir string) (verifyrun.Source, error) {
+		return verifyrun.ReadSource(ctx, execx.OSRunner{}, dir)
+	}
 	res, runError := verifyrun.Runner{Commands: executor}.Run(context.Background(), cmds, scope, meta.ID, "", meta.Worktree, limit)
 	if len(res) == 0 && runError != nil {
 		res = notRun(runError)
@@ -238,7 +241,10 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 		if err != nil {
 			continue
 		}
-		res[index].Leftovers, res[index].Spared = record.Measurement.Leftovers, record.Measurement.Spared
+		res[index].Leftovers, res[index].Spared, res[index].Source = record.Measurement.Leftovers, record.Measurement.Spared, record.Source
+		if _, err := record.Source.Tested(); err != nil && record.Status != "not_started" {
+			fmt.Fprintf(stderr, "%s: %s tested no one source: %v\n", name, strings.Join(result.Command, " "), err)
+		}
 		if len(record.Measurement.Leftovers) > 0 {
 			fmt.Fprintf(stderr, "%s: %s left %s running after it exited, which the run ended\n", name, strings.Join(result.Command, " "), processNames(record.Measurement.Leftovers))
 		}
