@@ -10,7 +10,10 @@ name: windows
 # installed. The tests that show a window run only here, where
 # CFO_WINDOW_PROOF names the default terminal.
 on:
+  # A draft runs nothing, and marking it ready runs the proof on its head, as
+  # the go workflow does.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - cmd/cfo/main.go
       - cmd/cfo/own_console*.go
@@ -31,6 +34,7 @@ concurrency:
 
 jobs:
   windows:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-2025
     timeout-minutes: 30
     strategy:

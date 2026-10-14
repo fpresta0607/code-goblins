@@ -360,13 +360,22 @@ const draftCondition = "!github.event.pull_request.draft"
 // nothing runs. Marking it ready is a pull_request event of its own, which
 // runs every job on that head.
 func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
-	for _, name := range []string{"go.yml", "install.yml"} {
+	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, file := range files {
+		name := filepath.Base(file)
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(source), "pull_request:") {
+			continue
+		}
+		checked++
 		t.Run(name, func(t *testing.T) {
-			// Arrange
-			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
-			if err != nil {
-				t.Fatal(err)
-			}
 
 			// Act
 			var workflow struct {
@@ -394,6 +403,9 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 				}
 			}
 		})
+	}
+	if checked < 3 {
+		t.Errorf("%d workflows run on pull requests, want go, install and windows at least: the glob or the trigger's spelling changed", checked)
 	}
 }
 
