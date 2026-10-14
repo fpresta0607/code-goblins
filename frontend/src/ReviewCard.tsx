@@ -3,6 +3,7 @@ import type { Review, Snapshot } from "./types";
 import { deliveryMark } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { PagePreview } from "./page-preview";
 import { age } from "./presentation";
 import { reviewLine, settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
@@ -50,11 +51,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
     {lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
-    {/* The page itself, live and scaled down, from its own file: a preview
-        to look at, never a review window of its own. */}
-    {review.lavish && review.watched && <div className="page-preview" aria-hidden="true">
-      <iframe src={"/api/reviews/" + encodeURIComponent(review.id) + "/preview"} title="" tabIndex={-1} sandbox="allow-scripts" scrolling="no" loading="lazy" />
-    </div>}
+    {review.lavish && review.watched && <PagePreview src={"/api/reviews/" + encodeURIComponent(review.id) + "/preview"} />}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
