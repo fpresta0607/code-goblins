@@ -196,7 +196,7 @@ func KeepPass(key ReuseKey, results []Result, now time.Time) (string, error) {
 		switch {
 		case !slices.Equal(result.Command, key.Commands[index]):
 			return "", fmt.Errorf("verify: %s is not the tier's command %s", strings.Join(result.Command, " "), strings.Join(key.Commands[index], " "))
-		case result.Status != "passed" || result.ExitCode != 0:
+		case result.Status != "passed":
 			return "", fmt.Errorf("verify: %s did not pass", strings.Join(result.Command, " "))
 		case result.Execution == "":
 			return "", fmt.Errorf("verify: %s kept no record of its execution", strings.Join(result.Command, " "))

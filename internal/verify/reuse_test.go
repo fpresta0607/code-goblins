@@ -307,3 +307,112 @@ func TestKeepPassKeepsOnlyAWholePassOnItsSource(t *testing.T) {
 		})
 	}
 }
+
+// The base is read in the worktree a key is read for, whatever repository
+// the git variables it inherits name.
+func TestReadReuseKeyReadsTheBaseOfTheWorktreeItIsGiven(t *testing.T) {
+	// Arrange
+	dir := reuseWorktree(t)
+	other := reuseWorktree(t)
+	gitIn(t, other, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "elsewhere")
+	gitIn(t, other, "update-ref", "refs/remotes/origin/main", "HEAD")
+	want := gitIn(t, dir, "rev-parse", "HEAD")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_WORK_TREE", other)
+
+	// Act
+	key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
+
+	// Assert
+	if err != nil || key.Base != want {
+		t.Errorf("key base = %q (%v); want the worktree's own %q", key.Base, err, want)
+	}
+}
+
+// A declared input that is missing is told from one that is an empty folder.
+func TestInputsDigestTellsAMissingInputFromAnEmptyOne(t *testing.T) {
+	// Arrange
+	missing, empty := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(empty, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	ofMissing, missingError := inputsDigest(missing, []string{"build"})
+	ofEmpty, emptyError := inputsDigest(empty, []string{"build"})
+
+	// Assert
+	if missingError != nil || emptyError != nil || ofMissing == ofEmpty {
+		t.Errorf("digests %q (%v) and %q (%v); want two different digests", ofMissing, missingError, ofEmpty, emptyError)
+	}
+}
+
+// A pass file under a key's name that holds another key's pass is no pass of
+// that key.
+func TestFindPassFindsNothingInAPassOfAnotherKey(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	key, other := sealedKey(), sealedKey()
+	other.Source.Tree = "t2"
+	other.Source.CommitTree = "t2"
+	now := time.Now()
+	kept, err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(kept, filepath.Join(filepath.Dir(kept), key.ID()+".json")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	pass, err := FindPass(key, now, 24*time.Hour)
+
+	// Assert
+	if !errors.Is(err, ErrNoPass) {
+		t.Errorf("FindPass = %+v, %v; want ErrNoPass", pass, err)
+	}
+}
+
+// A tier with a command that left no result is no whole pass.
+func TestKeepPassKeepsNoPassMissingACommand(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	key := sealedKey()
+	key.Commands = append(key.Commands, []string{"demo", "second"})
+
+	// Act
+	kept, err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, time.Now())
+
+	// Assert
+	if err == nil {
+		t.Errorf("KeepPass kept %s; want it refused", kept)
+	}
+}
+
+// Keeping a pass removes the passes kept more than a week before.
+func TestKeepPassRemovesPassesOlderThanAWeek(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	old := sealedKey()
+	old.Scope = "full"
+	now := time.Now()
+	stale, err := KeepPass(old, []Result{passedRun(t, old, old.Commands[0])}, now.Add(-8*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(stale, now.Add(-8*24*time.Hour), now.Add(-8*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	key := sealedKey()
+
+	// Act
+	kept, err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now)
+
+	// Assert
+	if _, statError := os.Stat(stale); err != nil || !errors.Is(statError, os.ErrNotExist) {
+		t.Errorf("KeepPass kept %s (%v) and the week-old pass %s is there (%v); want it removed", kept, err, stale, statError)
+	}
+	if _, statError := os.Stat(kept); statError != nil {
+		t.Errorf("the pass just kept: %v", statError)
+	}
+}

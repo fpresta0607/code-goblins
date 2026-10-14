@@ -690,3 +690,45 @@ func TestVerifySaysWhyItsPassCannotBeKeyed(t *testing.T) {
 		t.Errorf("exit = %d, %d run(s), stderr = %q; want 0, one run, and a line that starts %q", exit, runs(t, counter), stderr.String(), want)
 	}
 }
+
+// A pass is not kept when a declared input changed while the tier ran,
+// though the tier passed, so the next run runs again.
+func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
+	// Arrange
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo %RANDOM%> built.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"inputs": ["built.txt"]}}`)
+	h, err := runtime.resolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta.Worktree, ".gitignore"), []byte("built.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, meta.Worktree, "add", ".gitignore")
+	gitIn(t, meta.Worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "ignore the build")
+	gitIn(t, meta.Worktree, "update-ref", "refs/remotes/origin/main", "HEAD")
+	var first bytes.Buffer
+	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 || !strings.Contains(first.String(), "is not kept to be taken again") {
+		t.Fatalf("the first run exited %d and said %q; want a pass not kept", exit, first.String())
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || runs(t, counter) != 2 {
+		t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs", exit, runs(t, counter))
+	}
+}
