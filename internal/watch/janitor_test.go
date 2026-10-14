@@ -90,7 +90,8 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 }
 
 // A prune runs in a turn this build's cfo gate turn takes for it, named for
-// whoever reads the line.
+// whoever reads the line, and runs nothing if a run takes the line first and
+// keeps it past the prune's short wait.
 func TestHeavyLineWrapsAPruneInThisBuildsGateTurn(t *testing.T) {
 	// Arrange
 	line := heavyLine{executable: `C:\cg\cfo.exe`}
@@ -99,7 +100,7 @@ func TestHeavyLineWrapsAPruneInThisBuildsGateTurn(t *testing.T) {
 	command := line.Wrap("the janitor, pruning the uv cache", []string{"uv", "cache", "prune"})
 
 	// Assert
-	if want := []string{`C:\cg\cfo.exe`, "gate", "turn", "--as", "the janitor, pruning the uv cache", "--", "uv", "cache", "prune"}; !slices.Equal(command, want) {
+	if want := []string{`C:\cg\cfo.exe`, "gate", "turn", "--as", "the janitor, pruning the uv cache", "--wait", "30s", "--", "uv", "cache", "prune"}; !slices.Equal(command, want) {
 		t.Errorf("Wrap = %q, want %q", command, want)
 	}
 }

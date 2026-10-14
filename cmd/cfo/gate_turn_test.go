@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -513,6 +514,101 @@ func TestAGateTurnWhoseHolderWasEndedMidRunTakesTheTurn(t *testing.T) {
 	}
 	if holding, waiting, err := verify.Line(slots); err != nil || len(holding) != 0 || len(waiting) != 0 {
 		t.Errorf("after the second run the line holds %+v and %+v (%v); want it empty", holding, waiting, err)
+	}
+}
+
+// A run given a wait that takes no turn within it runs nothing, exits 125 and
+// says why, and leaves the line to the run that holds it.
+func TestGateTurnRunsNothingWhenNoTurnComesWithinItsWait(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	first := startGateTurn(t, dir, nil, turnCommand(dir, "first", 0, true)...)
+	eventually(t, "the first run's command starts", func() bool { return left(dir, "first", "started") })
+
+	// Act
+	second := startGateTurn(t, dir, nil, append([]string{"--wait", "1s"}, turnCommand(dir, "second", 7, false)...)...)
+	exit := second.exit(t, "the run whose wait ran out")
+
+	// Assert
+	if want := "cfo gate turn: this run takes no turn: it took no turn within its wait of 1s"; exit != exitNoTurn || !strings.Contains(second.stderr.String(), want) || left(dir, "second", "started") {
+		t.Errorf("exit = %d, started = %v, stderr = %q; want 125, nothing started, and %q", exit, left(dir, "second", "started"), second.stderr.String(), want)
+	}
+	if holding, waiting, err := verify.Line(slots); err != nil || len(holding) != 1 || len(waiting) != 0 {
+		t.Errorf("the line holds %+v and %+v (%v); want the first run alone", holding, waiting, err)
+	}
+	letGo(t, dir, "first")
+	first.exit(t, "the first run")
+}
+
+// A run whose turn comes within its wait runs its command until it ends,
+// however long that outlasts the wait.
+func TestGateTurnRunsItsCommandPastItsWaitOnceItHasItsTurn(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	run := startGateTurn(t, dir, nil, append([]string{"--wait", "1s"}, turnCommand(dir, "command", 7, true)...)...)
+	eventually(t, "the command starts", func() bool { return left(dir, "command", "started") })
+
+	// Act
+	time.Sleep(2 * time.Second)
+	run.running(t, "the run, past its wait with its turn taken,")
+	letGo(t, dir, "command")
+	exit := run.exit(t, "the run")
+
+	// Assert
+	if exit != 7 || !left(dir, "command", "ended") {
+		t.Errorf("exit = %d, ended = %v; want the command's own 7; stderr=%q", exit, left(dir, "command", "ended"), run.stderr.String())
+	}
+}
+
+// A run ended with everything it started, as the janitor ends a prune at its
+// time limit, leaves its command ended and its turn to the next run, so a
+// prune that runs long never keeps the line.
+func TestAGateTurnEndedWithItsTreeLeavesItsCommandEndedAndTheLineFree(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ended := make(chan error, 1)
+	go func() {
+		_, err := execx.OSRunner{}.Run(ctx, execx.Request{Name: os.Args[0], Args: append([]string{gateTurnTestWrapper, "--as", "the janitor, pruning the uv cache", "--wait", "30s"}, turnCommand(dir, "prune", 0, true)...), Dir: dir, KillTree: true})
+		ended <- err
+	}()
+	eventually(t, "the prune starts in its turn", func() bool { return left(dir, "prune", "started") })
+	data, err := os.ReadFile(filepath.Join(dir, "prune.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	cancel()
+	select {
+	case <-ended:
+	case <-time.After(time.Minute):
+		t.Fatal("the run was not ended within a minute")
+	}
+
+	// Assert
+	eventually(t, "the prune ends with its run", func() bool { _, isRunning := proc.StartTime(pid); return !isRunning })
+	if left(dir, "prune", "ended") {
+		t.Error("the prune ran to its end, though its run was ended first")
+	}
+	eventually(t, "the line holds nothing", func() bool {
+		holding, _, err := verify.Line(slots)
+		return err == nil && len(holding) == 0
+	})
+	next, err := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "the next run", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatalf("the next run took no turn: %v", err)
+	}
+	if err := next.Release(); err != nil {
+		t.Error(err)
 	}
 }
 
@@ -1020,14 +1116,20 @@ func TestGateTestNamesTheGoblinWhoseRunItIs(t *testing.T) {
 // nothing: it exits 125 and says how it is called.
 func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 	for name, args := range map[string][]string{
-		"no arguments":             nil,
-		"nothing after --":         {"--"},
-		"a name and nothing after": {"--as", "a named run", "--"},
-		"a command with no --":     {os.Args[0], gateTurnTestArguments},
-		"a name with no --":        {"--as", "a named run", os.Args[0], gateTurnTestArguments},
-		"a name that is missing":   {"--as"},
-		"an argument of no kind":   {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
-		"an empty program":         {"--", ""},
+		"no arguments":                  nil,
+		"nothing after --":              {"--"},
+		"a name and nothing after":      {"--as", "a named run", "--"},
+		"a command with no --":          {os.Args[0], gateTurnTestArguments},
+		"a name with no --":             {"--as", "a named run", os.Args[0], gateTurnTestArguments},
+		"a name that is missing":        {"--as"},
+		"an argument of no kind":        {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
+		"an empty program":              {"--", ""},
+		"a wait that is missing":        {"--wait"},
+		"a wait with nothing before --": {"--wait", "--", os.Args[0], gateTurnTestArguments},
+		"a wait that is no duration":    {"--wait", "soon", "--", os.Args[0], gateTurnTestArguments},
+		"a wait of nothing":             {"--wait", "0s", "--", os.Args[0], gateTurnTestArguments},
+		"a wait under nothing":          {"--wait=-1s", "--", os.Args[0], gateTurnTestArguments},
+		"a wait given a name's flag":    {"--wait", "--as", "a named run", "--", os.Args[0], gateTurnTestArguments},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -1042,7 +1144,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
 			}
 			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
-			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
+			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
 				t.Errorf("stderr = %q; want the usage, then a last line that starts cfo gate turn: this run takes no turn: ", stderr.String())
 			}
 			if _, err := os.Stat(slots); !os.IsNotExist(err) {

@@ -118,7 +118,7 @@ func (line *countedLine) Free() error {
 }
 
 func (line *countedLine) Wrap(who string, command []string) []string {
-	return append([]string{"cfo", "gate", "turn", "--as", who, "--"}, command...)
+	return append([]string{"cfo", "gate", "turn", "--as", who, "--wait", "30s", "--"}, command...)
 }
 
 func has(items []Item, path string) (Item, bool) {
@@ -579,7 +579,7 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 		"a free line": {
 			line:    &countedLine{free: 9},
 			caches:  []string{"uv"},
-			wantRan: []string{"cfo gate turn --as the janitor, pruning the uv cache -- uv cache prune"},
+			wantRan: []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
 		},
 		"a busy line": {
 			line:     busyLine{},
@@ -593,7 +593,7 @@ func TestSweepPrunesEachCacheInATurnOfAFreeHeavyLine(t *testing.T) {
 		"a line taken after the first prune": {
 			line:     &countedLine{free: 1},
 			caches:   []string{"uv", "go-build"},
-			wantRan:  []string{"cfo gate turn --as the janitor, pruning the uv cache -- uv cache prune"},
+			wantRan:  []string{"cfo gate turn --as the janitor, pruning the uv cache --wait 30s -- uv cache prune"},
 			wantNote: "not trimmed further, as the machine's heavy line is not free: cfo verify fast of task t1 (pid 7) holds",
 		},
 	} {

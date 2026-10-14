@@ -31,15 +31,16 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
 // whoever started it: another repository's test command under its gate, a
 // goblin's own suite, a run one of the Overlord's sessions starts. It waits
 // while another run holds the turn and while free physical memory or free
-// commit is under the floor, for as long as that lasts: it sets no limit of
-// its own, and the limits that end a run are its command's and its caller's.
+// commit is under the floor, for as long as that lasts unless --wait bounds
+// that wait: it sets no other limit of its own, and the limits that end a run
+// are its command's and its caller's.
 // While it waits it says on standard error, as it starts to, whenever its
 // place in line changes and once a minute, which run holds the turn and
 // since when, and where this run stands.
@@ -69,7 +70,7 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // The execution's record is kept with the report store's others, and holds
 // no output, which is this run's caller's.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	as, command, err := parseGateTurn(args)
+	as, wait, command, err := parseGateTurn(args)
 	if err != nil {
 		fmt.Fprintln(stderr, gateTurnUsage)
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
@@ -132,7 +133,26 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	executor.Stdin, executor.Stdout, executor.Stderr = os.Stdin, commandOutput, commandErrors
 	executor.IsConsoleShared = true
-	result, record, runError := executor.RunWithin(ctx, execx.Request{Dir: dir, Name: command[0], Args: command[1:]}, 0)
+	// A run given a wait takes its turn within it or runs nothing. Its turn
+	// taken, the wait no longer counts, and the command runs until it ends.
+	// The wait ends only the wait, so the goblin is still told how it ended.
+	waiting, stopWaiting := context.WithCancel(ctx)
+	defer stopWaiting()
+	var isWaitOver atomic.Bool
+	if wait > 0 {
+		timer := time.AfterFunc(wait, func() {
+			isWaitOver.Store(true)
+			stopWaiting()
+		})
+		took := executor.Took
+		executor.Took = func(waited time.Duration) {
+			timer.Stop()
+			if took != nil {
+				took(waited)
+			}
+		}
+	}
+	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: command[0], Args: command[1:]}, 0)
 	// A command whose cleanup was not confirmed keeps the machine's line
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -156,7 +176,10 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	switch {
 	case errors.Is(runError, verify.ErrNoTurn):
 		why := oneLine(runError)
-		if errors.Is(runError, context.Canceled) {
+		switch {
+		case errors.Is(runError, context.Canceled) && isWaitOver.Load() && !isInterrupted.Load():
+			why = fmt.Sprintf("it took no turn within its wait of %s", wait)
+		case errors.Is(runError, context.Canceled):
 			why = "it was interrupted before its command started"
 		}
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s\n", why)
@@ -192,30 +215,42 @@ func oneLine(err error) string {
 // parseGateTurn reads cfo gate turn's arguments: its own before --, the
 // command's after it. Only -- says where the command starts, so nothing of
 // the command's is ever read as the wrapper's.
-func parseGateTurn(args []string) (as string, command []string, err error) {
+func parseGateTurn(args []string) (as string, wait time.Duration, command []string, err error) {
 	for at := 0; at < len(args); at++ {
 		name, isNamed := strings.CutPrefix(args[at], "--as=")
+		waitText, isWaitGiven := strings.CutPrefix(args[at], "--wait=")
+		if args[at] == "--wait" && at+1 < len(args) && args[at+1] != "--" {
+			at++
+			waitText, isWaitGiven = args[at], true
+		}
+		// A duration just taken is read as one first, however it is spelled.
 		switch {
+		case isWaitGiven:
+			if wait, err = time.ParseDuration(waitText); err != nil || wait <= 0 {
+				return "", 0, nil, fmt.Errorf("--wait takes a duration over nothing, as 30s, not %q", waitText)
+			}
 		case args[at] == "--":
 			if at+1 == len(args) {
-				return "", nil, errors.New("no command follows --")
+				return "", 0, nil, errors.New("no command follows --")
 			}
 			if args[at+1] == "" {
-				return "", nil, errors.New("the command after -- names no program")
+				return "", 0, nil, errors.New("the command after -- names no program")
 			}
-			return as, args[at+1:], nil
+			return as, wait, args[at+1:], nil
 		case isNamed:
 			as = name
 		case args[at] == "--as" && at+1 < len(args) && args[at+1] != "--":
 			at++
 			as = args[at]
 		case args[at] == "--as":
-			return "", nil, errors.New("--as is given no name")
+			return "", 0, nil, errors.New("--as is given no name")
+		case args[at] == "--wait":
+			return "", 0, nil, errors.New("--wait is given no duration")
 		default:
-			return "", nil, fmt.Errorf("%q is no argument of cfo gate turn, and its command goes after --", args[at])
+			return "", 0, nil, fmt.Errorf("%q is no argument of cfo gate turn, and its command goes after --", args[at])
 		}
 	}
-	return "", nil, errors.New("no -- comes before a command")
+	return "", 0, nil, errors.New("no -- comes before a command")
 }
 
 // gateTurnWho names a run to the runs that wait behind it and to cfo gate

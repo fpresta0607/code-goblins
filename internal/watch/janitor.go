@@ -23,6 +23,11 @@ import (
 // minutes, a worktree's removal seconds each.
 const janitorBudget = 30 * time.Minute
 
+// pruneTurnWait bounds a prune's wait for its turn in the heavy line, which
+// it finds free just before, so a run that takes the line first defers the
+// prune to the next sweep rather than queue it behind a build.
+const pruneTurnWait = 30 * time.Second
+
 // heavyLine is the machine's heavy line as the janitor sees it: the
 // admission store this build's runs take their turns in, and this build's
 // cfo gate turn, which takes one for a prune.
@@ -61,9 +66,11 @@ func (line heavyLine) Free() error {
 // Wrap is command run by this build's cfo gate turn, which waits for its turn,
 // runs the command as a measured execution, and gives the turn back as it
 // ends. A gate turn that dies leaves its turn to the line's recovery of a
-// dead holder, so the long-lived watcher never holds one itself.
+// dead holder, so the long-lived watcher never holds one itself. A run that
+// took the turn after Free waits pruneTurnWait at most, and the prune then
+// runs nothing.
 func (line heavyLine) Wrap(who string, command []string) []string {
-	return append([]string{line.executable, "gate", "turn", "--as", who, "--"}, command...)
+	return append([]string{line.executable, "gate", "turn", "--as", who, "--wait", pruneTurnWait.String(), "--"}, command...)
 }
 
 // janitorRunning keeps this process to one janitor pass at a time.
