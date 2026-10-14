@@ -52,7 +52,7 @@ func runHelperStart(args []string, stdout, stderr io.Writer, runtime commandRunt
 	flags.SetOutput(stderr)
 	brief := flags.String("brief", "", "the file holding the helper's brief: what it does, and how it knows it is done")
 	givenTitle := flags.String("title", "", "the helper's short title for the board")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
 	if *brief == "" {

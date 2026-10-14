@@ -21,11 +21,13 @@ type Cache struct {
 	cancel         context.CancelFunc
 	slots          chan struct{}
 	work           sync.WaitGroup
+	// now is the clock results are dated and judged stale by.
+	now func() time.Time
 }
 
 func NewCache(ttl, timeout time.Duration, check func(context.Context, string) Snapshot) *Cache {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Cache{entries: map[string]*cached{}, ttl: ttl, timeLimit: timeout, check: check, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 2)}
+	return &Cache{entries: map[string]*cached{}, ttl: ttl, timeLimit: timeout, check: check, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 2), now: time.Now}
 }
 func (c *Cache) Get(key string, refresh bool) Snapshot {
 	c.mu.Lock()
@@ -49,7 +51,7 @@ func (c *Cache) Get(key string, refresh bool) Snapshot {
 	if item.checking && refresh {
 		item.pending = true
 	}
-	if !item.checking && c.ctx.Err() == nil && (refresh || item.at.IsZero() || time.Since(item.at) >= c.ttl) {
+	if !item.checking && c.ctx.Err() == nil && (refresh || item.at.IsZero() || c.now().Sub(item.at) >= c.ttl) {
 		item.checking = true
 		c.work.Add(1)
 		go c.run(key, item)
@@ -96,7 +98,7 @@ func (c *Cache) run(key string, item *cached) {
 			result.Entries[i].Detail = "Latest check timed out."
 		}
 	}
-	result.CheckedAt = time.Now().UTC()
+	result.CheckedAt = c.now().UTC()
 	item.result, item.at, item.checking = result, result.CheckedAt, false
 	if item.pending && c.ctx.Err() == nil {
 		item.pending, item.checking = false, true

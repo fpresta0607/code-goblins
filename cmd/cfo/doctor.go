@@ -37,7 +37,7 @@ func runDoctor(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	fix := flags.Bool("fix", false, "install each harness's newest version once it proves it starts, while nothing runs from its install")
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+	if !parseFlags(flags, args) {
 		return 2
 	}
 	// Installing a harness changes it for the whole machine, which is the

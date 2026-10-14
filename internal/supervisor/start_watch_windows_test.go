@@ -231,6 +231,47 @@ func TestAGoblinRestingWithAProcessLeftRunningWakesTheCFOOnce(t *testing.T) {
 	}
 }
 
+// A goblin that reports one pull request done and goes on with its task
+// waits on its own watchers and runs: on 2026-10-14 left_running woke the
+// CFO for goblins whose watchers on their next pull request's CI were all
+// they had left running. One whose harness records such a wait, still
+// showing something new within the busy budget, is not at rest, and one
+// whose wait has shown nothing for the budget rests with it left running.
+func TestAGoblinThatGoesOnPastOneDonePullRequestDrawsNoLeftRunning(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		quiet time.Duration
+		wakes int
+	}{
+		{"its watcher at work", time.Minute, 0},
+		{"its watcher quiet for the busy budget", monitor.DefaultBusyTurnMax, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			fleet := newStartWatchFleet(t)
+			now := time.Now().UTC()
+			fleet.start(103, "gh.exe", "gh pr checks 10 --watch", now.Add(-10*time.Minute))
+			writeFile(t, filepath.Join(fleet.home.State, "cg-a.status"), now.Add(-2*time.Minute).Format(time.RFC3339)+" done: PR https://github.com/o/r/pull/9\n")
+			if err := monitor.WriteObservation(fleet.home.State, monitor.Observation{TaskID: "cg-a", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: "at its prompt", LastObserved: now, LastSeen: now, LastProgress: now.Add(-2 * time.Minute), Health: monitor.HealthIdle, Reason: monitor.None}); err != nil {
+				t.Fatal(err)
+			}
+			fleet.service.trees = map[string]fleettree.Tree{"cg-a": {Generation: "s1", FetchedAt: now, ConversationAt: now.Add(-test.quiet), Children: []fleettree.Node{
+				{ID: "monitor:b1", Kind: fleettree.KindMonitor, Label: "CI checks for PR 10", State: fleettree.Silent, Started: now.Add(-10 * time.Minute), LastActivity: now.Add(-test.quiet)},
+			}}}
+
+			// Act: readings over two minutes of its rest.
+			for offset := time.Duration(0); offset <= 2*time.Minute; offset += 30 * time.Second {
+				fleet.read(t, now.Add(offset))
+			}
+
+			// Assert
+			if wakes := fleet.wakes(t, "left_running:"); len(wakes) != test.wakes {
+				t.Fatalf("leftover wakes = %+v, want %d", wakes, test.wakes)
+			}
+		})
+	}
+}
+
 // A console window a goblin's careless start opened is hidden at the
 // reading that sees it, once, and the CFO is woken once naming the task and
 // the command line. A console shared by a program and what it runs is

@@ -5,10 +5,11 @@ import (
 	"slices"
 )
 
-// A dictation is handed to the model in pieces it hears well. Moonshine tiny,
-// the model dictation pins, answers nothing at all for a sound of 9.3 seconds
-// or more, so a longer one is cut where it is quietest into pieces of at most
-// PIECE_MOST_FRAMES, each recognised alone and their words joined in order.
+// A dictation is handed to the model in pieces it hears well. A longer one is
+// cut where it is quietest into pieces of at most PIECE_MOST_FRAMES, each
+// recognised alone and their words joined in order, so the engine holds the
+// same memory at any length and a Moonshine model, which answers nothing at
+// all for a sound of 9.3 seconds or more, hears it too.
 // Each piece ends half a second after its last loud part, as the model needs
 // to hear its end, and a piece with nothing loud in it is left out when the
 // sound has speech elsewhere, as the model writes words of its own into room

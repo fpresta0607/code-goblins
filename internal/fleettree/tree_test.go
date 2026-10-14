@@ -294,3 +294,32 @@ func TestReadServesNoChildrenAsAnEmptyList(t *testing.T) {
 		t.Errorf("tree = %s, %v; want an empty list of children", data, err)
 	}
 }
+
+// Waits names what the goblin waits on by design, which resumes it when it
+// ends: each agent, shell or monitor its harness records still open, whether
+// or not it runs processes of its own, and a run it put in the machine's
+// heavy line, which tells it how it ended. On 2026-10-14 about twenty
+// goblin_idle and progress_stalled wakes came for goblins whose screens
+// said "1 monitor still running": every monitor runs a process, and a
+// monitor that runs one was left out. A job that is no such wait, such as
+// a dev server, is not one.
+func TestTreeWaitsNamesWhatResumesTheGoblin(t *testing.T) {
+	// Arrange
+	tree := Tree{Children: []Node{
+		{Kind: KindMonitor, Label: "CI checks", State: Silent, process: "bash.exe (pid 4)"},
+		{Kind: KindShell, Label: "bench", State: Working, process: "bash.exe (pid 5)"},
+		{Kind: KindSubagent, Label: "Map plumbing", State: Working},
+		{Kind: KindSubagent, Label: "Research", State: Done},
+		{Kind: KindProcess, Label: "goblins gate turn", State: Waiting, process: "goblins.exe (pid 6)", heavyRun: true},
+		{Kind: KindProcess, Label: "Dev server :5173", State: Waiting, process: "node.exe (pid 9)"},
+		{Kind: KindGate, Label: "Gate: test", State: Working},
+	}}
+
+	// Act
+	waits := tree.Waits()
+
+	// Assert
+	if want := []string{`monitor "CI checks"`, `shell "bench"`, `subagent "Map plumbing"`, `heavy run "goblins gate turn"`}; !slices.Equal(waits, want) {
+		t.Errorf("Waits() = %v, want %v", waits, want)
+	}
+}

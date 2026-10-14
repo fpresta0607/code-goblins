@@ -427,11 +427,13 @@ func TestRecognizeRefusesBeforeStartingTheEngineWhenTheMachineHasNoRoom(t *testi
 	for name, free := range map[string][2]uint64{
 		"memory under the mark": {Room - 1, 8 << 30},
 		"commit under the mark": {8 << 30, Room - 1},
+		// The pinned model holds about 800 MB once loaded.
+		"1.5 GB of memory free": {1536 << 20, 8 << 30},
 	} {
 		voice, record := engine(t, "hears", 8<<30)
 		voice.Memory = func() (uint64, uint64, error) { return free[0], free[1], nil }
 		_, err := voice.Recognize(context.Background(), []byte("RIFF-sound"))
-		if err == nil || !strings.Contains(err.Error(), "1 GB") {
+		if err == nil || !strings.Contains(err.Error(), "2 GB") {
 			t.Fatalf("%s: answered %v", name, err)
 		}
 		if _, statErr := os.Stat(record); !os.IsNotExist(statErr) {
@@ -458,7 +460,7 @@ func TestTheShippedSettingsPinBothDownloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Model.Name != "moonshine-tiny-en" || settings.Engine.Name != "sherpa-onnx" {
+	if settings.Model.Name != "parakeet-tdt-0.6b-v2" || settings.Engine.Name != "sherpa-onnx" {
 		t.Fatalf("the shipped settings name %s on %s", settings.Model.Name, settings.Engine.Name)
 	}
 	if !slices.ContainsFunc(settings.Engine.Files, func(file string) bool { return path.Base(file) == settings.Program }) {

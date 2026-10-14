@@ -277,6 +277,12 @@ func TestUnreadInputChild(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// The waker writes its wake behind the key while the key sits unread,
+	// which a busy machine delays, so the input is looked at without reading
+	// it until the wake is there. A wake that never comes leaves the reads
+	// below to show it missing.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline) && !hasWakeBehindKey(input); time.Sleep(10 * time.Millisecond) {
+	}
 	progress, err := os.Create(arguments[1])
 	if err != nil {
 		t.Fatal(err)
@@ -302,6 +308,24 @@ func TestUnreadInputChild(t *testing.T) {
 	}
 }
 
+// hasWakeBehindKey reports whether the console's input, left unread, holds a
+// key press and then a menu event.
+func hasWakeBehindKey(input windows.Handle) bool {
+	var records [64]inputRecord
+	var count uint32
+	if ok, _, _ := peekConsoleInput.Call(uintptr(input), uintptr(unsafe.Pointer(&records[0])), uintptr(len(records)), uintptr(unsafe.Pointer(&count))); ok == 0 {
+		return false
+	}
+	isKey := false
+	for _, record := range records[:count] {
+		isKey = isKey || record.Kind == keyEvent
+		if isKey && record.Kind == menuEvent {
+			return true
+		}
+	}
+	return false
+}
+
 // Input a program leaves unread is followed, within moments, by a wake that
 // every reader skips, a menu event: a program left waiting by conhost reads
 // its key then. The console's input waker outlives the Ctrl-C and Ctrl-Break
@@ -321,7 +345,6 @@ func TestInputLeftUnreadIsFollowedByAWakeEveryReaderSkips(t *testing.T) {
 	if _, err := console.Write([]byte("a")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
