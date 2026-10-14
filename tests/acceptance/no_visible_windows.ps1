@@ -137,6 +137,10 @@ $results += Watch-Start 'cfo gate turn --detach' 'this branch' {
 $detachedEnd = (Get-Content $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
 
 $results | Format-Table -AutoSize | Out-String -Width 200
+# Why a run's command did not start, as its execution record says.
+foreach ($store in @($env:CFO_VERIFY_DIR, (Join-Path $env:LOCALAPPDATA 'cfoerify')) | Where-Object { $_ -and (Test-Path $_) }) {
+    Get-ChildItem -Recurse -File -Path $store | Select-String -Pattern '"failure"' | ForEach-Object { "record $($_.Path): $($_.Line.Trim())" }
+}
 "detached run's last line: $detachedEnd"
 
 if ($env:GITHUB_STEP_SUMMARY) {

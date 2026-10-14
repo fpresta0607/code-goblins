@@ -194,7 +194,9 @@ func startsFailing() (int, error) {
 	failed := 0
 	var first error
 	for range 20 {
+		// Finalizers run on a goroutine of their own after a collection.
 		runtime.GC()
+		time.Sleep(20 * time.Millisecond)
 		command := execx.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/c", "exit", "0")
 		command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 		if err := command.Run(); err != nil {
