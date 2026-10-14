@@ -29,6 +29,9 @@ type qcow2Builder struct {
 	disk        []byte
 	kinds       []string
 	header      []byte
+	// size, when set, is the disk's size in the header, short of its last
+	// cluster's end.
+	size int
 }
 
 // build returns the image's bytes. The header takes cluster 0, the L1
@@ -47,7 +50,11 @@ func (b qcow2Builder) build(t *testing.T) []byte {
 	be := binary.BigEndian
 	be.PutUint32(header[4:8], 3)
 	be.PutUint32(header[20:24], b.clusterBits)
-	be.PutUint64(header[24:32], uint64(len(b.disk)))
+	size := len(b.disk)
+	if b.size != 0 {
+		size = b.size
+	}
+	be.PutUint64(header[24:32], uint64(size))
 	be.PutUint32(header[36:40], uint32(l1Size))
 	be.PutUint64(header[40:48], uint64(clusterSize))
 	be.PutUint32(header[96:100], 4)
@@ -98,21 +105,19 @@ func (b qcow2Builder) build(t *testing.T) []byte {
 	return image
 }
 
-// testDisk is clusters of 2^clusterBits bytes, kept as kinds says: data
-// clusters random, compressed ones a pattern, the rest zeros.
+// testDisk is clusters of 2^clusterBits bytes, kept as kinds says: data and
+// compressed clusters random, so a compressed one takes more sectors than
+// its first, and the rest zeros.
 func testDisk(clusterBits uint32, kinds []string) qcow2Builder {
 	clusterSize := 1 << clusterBits
 	random := rand.New(rand.NewPCG(1, 2))
 	disk := make([]byte, len(kinds)*clusterSize)
 	for cluster, kind := range kinds {
 		data := disk[cluster*clusterSize : (cluster+1)*clusterSize]
-		switch kind {
-		case keptAsData:
+		if kind == keptAsData || kind == keptCompressed {
 			for i := range data {
 				data[i] = byte(random.Uint32())
 			}
-		case keptCompressed:
-			copy(data, strings.Repeat(fmt.Sprintf("cluster %d of the disk, compressed. ", cluster), clusterSize))
 		}
 	}
 	return qcow2Builder{clusterBits: clusterBits, disk: disk, kinds: kinds}
@@ -286,5 +291,52 @@ func TestVHDFooterDescribesAFixedDisk(t *testing.T) {
 				t.Error("the footer's unique id is all zeros")
 			}
 		})
+	}
+}
+
+// A disk whose size ends part way into its last cluster ends there, and its
+// footer follows.
+func TestConvertQCOW2EndsTheDiskAtItsSize(t *testing.T) {
+	// Arrange
+	disk := testDisk(12, []string{keptAsData, keptCompressed, keptAsData})
+	disk.size = len(disk.disk) - 1024
+
+	// Act
+	vhd, err := convert(t, disk.build(t))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vhd) != disk.size+512 || !bytes.Equal(vhd[:disk.size], disk.disk[:disk.size]) || string(vhd[disk.size:disk.size+8]) != "conectix" {
+		t.Errorf("the VHD is %d bytes; want the %d-byte disk, then its footer", len(vhd), disk.size)
+	}
+}
+
+// A compressed cluster whose data inflates to less than a cluster is an
+// error, never a cluster ending in zeros.
+func TestConvertQCOW2RefusesACompressedClusterThatIsShort(t *testing.T) {
+	// Arrange
+	disk := testDisk(9, []string{keptAsData, keptAsData})
+	image := disk.build(t)
+	l2At := binary.BigEndian.Uint64(image[512:]) & qcow2OffsetMask
+	at := binary.BigEndian.Uint64(image[l2At+8:]) & qcow2OffsetMask
+	var short bytes.Buffer
+	writer, err := flate.NewWriter(&short, flate.BestCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer.Write(bytes.Repeat([]byte("short"), 20))
+	writer.Close()
+	copy(image[at:at+512], make([]byte, 512))
+	copy(image[at:], short.Bytes())
+	binary.BigEndian.PutUint64(image[l2At+8:], qcow2Compressed|at)
+
+	// Act
+	_, err = convert(t, image)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "the image's cluster 1: compressed data") || !strings.Contains(err.Error(), "does not inflate to a cluster") {
+		t.Errorf("ConvertQCOW2 = %v; want cluster 1 refused as short", err)
 	}
 }

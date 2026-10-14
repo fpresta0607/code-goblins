@@ -86,9 +86,8 @@ func ConvertQCOW2(source, target string, now time.Time) (failure error) {
 			return err
 		}
 	}
-	if err := disk.Truncate(int64(image.size)); err != nil {
-		return err
-	}
+	// The footer goes at the disk's end, which also sets the file's length
+	// past clusters never written.
 	footer, err := vhdFooter(image.size, now)
 	if err != nil {
 		return err
@@ -205,10 +204,9 @@ func (image *qcow2Image) cluster(entry, clusterSize uint64) ([]byte, error) {
 	if entry&qcow2ReadsAsZero != 0 || offset == 0 {
 		return nil, nil
 	}
-	if offset+clusterSize > uint64(image.fileSize) {
-		return nil, fmt.Errorf("data at %d runs past the image's end", offset)
-	}
 	data := make([]byte, clusterSize)
-	_, err := image.file.ReadAt(data, int64(offset))
-	return data, err
+	if _, err := image.file.ReadAt(data, int64(offset)); err != nil {
+		return nil, fmt.Errorf("data at %d: %w", offset, err)
+	}
+	return data, nil
 }
