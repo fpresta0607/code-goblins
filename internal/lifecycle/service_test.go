@@ -740,6 +740,35 @@ func TestResumeRecoversAnInterruptedController(t *testing.T) {
 	}
 }
 
+// A resume's note is told after what the paused record kept for the goblin,
+// as the comeback after a restart tells it the machine restarted, and the
+// record keeps only what it kept.
+func TestAResumeNoteIsToldAfterTheRecordsOwn(t *testing.T) {
+	for _, kept := range []string{"", "Answered while paused: ship it."} {
+		t.Run(fmt.Sprintf("kept %q", kept), func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming", ResumeNote: kept}); err != nil {
+				t.Fatal(err)
+			}
+			var told string
+			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+				told = prior.ResumeNote
+				return nil
+			}
+
+			// Act
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume", ResumeNote: "The machine restarted."})
+
+			// Assert
+			want := strings.TrimPrefix(kept+"\nThe machine restarted.", "\n")
+			if err != nil || record.Phase != "running" || told != want || record.ResumeNote != kept {
+				t.Fatalf("resume %+v, %v, told %q; want %q told and %q kept", record, err, told, want, kept)
+			}
+		})
+	}
+}
+
 func TestResumeRetryRecognizesItsPublishedReplacementGeneration(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"}
