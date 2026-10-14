@@ -30,10 +30,12 @@ type fakeJob struct {
 	// deleting is how long deleting a runner takes.
 	deleting time.Duration
 	// queued, when set, is the job GitHub says waits, and queuedErr what
-	// asking for it fails with. asks counts the asks.
+	// asking for it fails with. asks counts the asks, and asking is how long
+	// GitHub takes to answer one.
 	queued    *Pending
 	queuedErr error
 	asks      int
+	asking    time.Duration
 	// failFirst is how many of each call's first tries fail.
 	failFirst map[string]int
 	// offHeld, when set, holds each turn of the VM off until it is closed.
@@ -109,8 +111,11 @@ func (f *fakeJob) IsRunning(ctx context.Context) (bool, error) {
 
 func (f *fakeJob) QueuedJob(context.Context) (Pending, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.asks++
+	f.mu.Unlock()
+	time.Sleep(f.asking)
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.queuedErr != nil {
 		return Pending{}, f.queuedErr
 	}
