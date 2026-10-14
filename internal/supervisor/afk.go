@@ -532,6 +532,23 @@ func (s *Service) afkNotice(detail string) error {
 func (s *Service) logAFKDecision(entry afk.Entry) error {
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
+	if entry.Kind == afk.KindMerge && entry.Outcome == afk.OutcomeMerged {
+		// A pull request is merged once in a stretch, however many runs and
+		// trains hear of its landing.
+		switched, err := afk.Read(s.Store.Home.State)
+		if err != nil {
+			return err
+		}
+		entries, _, err := afk.Entries(s.Store.Home.State, switched.Session)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(entries, func(logged afk.Entry) bool {
+			return logged.Kind == afk.KindMerge && logged.Outcome == afk.OutcomeMerged && logged.What == entry.What
+		}) {
+			return nil
+		}
+	}
 	_, err := afk.Log(s.Store.Home.State, entry, time.Now())
 	return err
 }

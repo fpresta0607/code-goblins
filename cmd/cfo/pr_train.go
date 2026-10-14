@@ -89,7 +89,7 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			if away == nil {
 				return
 			}
-			if err := away.log(afk.Entry{Kind: afk.KindMerge, What: car.URL, Link: car.URL, Evidence: t.Evidence(), Outcome: afk.OutcomeMerged}); err != nil {
+			if err := away.log(afk.Entry{Kind: afk.KindMerge, What: car.URL, Link: car.URL, Evidence: t.LandingEvidence(car), Outcome: afk.OutcomeMerged}); err != nil {
 				fmt.Fprintf(stderr, "cfo pr train: AFK mode's log did not take the merge of %s (%v): log it with cfo afk log --kind merge\n", car.URL, err)
 			}
 		},
