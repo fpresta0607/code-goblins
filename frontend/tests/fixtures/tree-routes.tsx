@@ -25,7 +25,7 @@ const snapshot = parseSnapshot({
     task("fleet", "Build the fleet tree", { goblin_name: "Grub", goblin_title: "Tree Surgeon", tree: tree("fleet", [
       child("subagent:a", "Map harness plumbing", 50), child("subagent:b", "Research MCP OAuth", 45),
       child("shell:c", "Run the affected Go tests", 40, { kind: "shell", group: "test" }),
-      child("process:d", "Dev server :5173", 38, { kind: "process", group: "dev-server", state: "waiting", memory: 412 * 2 ** 20 }),
+      child("process:d", "Dev server :5173", 38, { kind: "process", group: "dev-server", memory: 412 * 2 ** 20 }),
       child("subagent:e", "Trace the export", 36), child("subagent:f", "Check the phone list", 30), child("subagent:g", "Measure the branches", 20),
     ]) }),
     task("billing", "Stream the billing CSV export", { goblin_name: "Kip", goblin_title: "Echo Chaser", tree: tree("billing", [

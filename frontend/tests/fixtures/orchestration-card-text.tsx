@@ -13,7 +13,7 @@ import "../../src/styles.css";
 // his browser active beside a status of two lines, and Bartholomew has a
 // project name no line can break, with baby goblins whose names and states
 // run long. Jules's baby goblin is the Overlord's second screenshot, "Jules IX
-// - Process Wrangler", idle 5m with 4 MB, Mabel's four are his third, which
+// - Process Wrangler", now working with 4 MB, Mabel's four are his third, which
 // he asked about since their cards named no program, and Olive is the board
 // card he showed beside them. ?view picks what shows: the canvas (the default), the
 // lineage list the canvas becomes at phone width, or the board's cards.
@@ -43,7 +43,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_run
         child({ id: "helper:cg-archive-h1", kind: "helper", label: "Reconcile the nightly infrastructure exports with the observability ledger", task: "Reconcile the exports", state: "working", started: ago(20), last_activity: ago(2), memory: 512 * 2 ** 20 }),
       ]) }),
     goblin({ id: "cg-processes", title: "Keep the fleet's processes in order", goblin_name: "Jules", goblin_title: "Process Keeper", generation: "g-processes", phase: "working", since: ago(48),
-      tree: tree("cg-processes", [...finishedBefore, child({ id: "process:4242:9", kind: "process", group: "other", label: "node scripts/watch-queue.mjs", task: "node scripts/watch-queue.mjs", state: "waiting", started: ago(30), last_activity: ago(5), memory: 4 * 2 ** 20 })]) }),
+      tree: tree("cg-processes", [...finishedBefore, child({ id: "process:4242:9", kind: "process", group: "other", label: "node scripts/watch-queue.mjs", task: "node scripts/watch-queue.mjs", state: "working", started: ago(30), last_activity: ago(0), memory: 4 * 2 ** 20 })]) }),
     goblin({ id: "pd-email", title: "Send the tenant emails", goblin_name: "Mabel", goblin_title: "Email Elf", project: "PrecisionDocs-AI", generation: "g-email", phase: "working", since: ago(35),
       tree: tree("pd-email", [
         ...finishedBefore.slice(0, 4),

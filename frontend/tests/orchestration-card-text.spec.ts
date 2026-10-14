@@ -140,7 +140,7 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
   const seen = await baby(page, "Jules IX").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Jules IX - Process Wrangler", "runs: Node running watch-queue.mjs", "state: Idle 5m", "memory: 4 MB"]);
+  expect(describe(seen)).toEqual(["title: Jules IX - Process Wrangler", "runs: Node running watch-queue.mjs", "state: Working 30m", "memory: 4 MB"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);

@@ -17,17 +17,14 @@ test("each goblin's running children hang on branches under its card as baby gob
   await page.goto("/tests/fixtures/fleet-tree.html");
   const branches = page.getByRole("list", { name: "What runs under Build the fleet tree" });
   const children = branches.locator(".tree-child");
-  await expect(children).toHaveCount(2);
+  await expect(children).toHaveCount(1);
   await expect(children.nth(0)).toContainText("Plumbing Mapper");
   await expect(children.nth(0)).toContainText("Working 4m");
   await expect(children.nth(0)).not.toHaveClass(/dim/);
-  await expect(children.nth(1)).toContainText("Server Keeper");
-  await expect(children.nth(1)).toContainText("Idle 38m");
-  await expect(children.nth(1)).toContainText("412 MB");
-  await expect(children.nth(1), "an idle one can be opened, so it is not greyed").not.toHaveClass(/dim/);
+  await expect(children.filter({ hasText: "Server Keeper" })).toHaveCount(0);
   await expect(children.filter({ hasText: "OAuth Researcher" })).toHaveCount(0);
-  expect(await children.getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent", "Dev server"]);
-  await expect(branches.locator(".branch-lines path"), "a branch to each child").toHaveCount(2);
+  expect(await children.getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent"]);
+  await expect(branches.locator(".branch-lines path"), "a branch to each child").toHaveCount(1);
   await expect(page.getByRole("list", { name: "What runs under Stream the billing CSV export" }).locator(".tree-child")).toHaveCount(1);
   await expect(page.getByRole("list", { name: "What runs under Fix the flaky checkout test" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /descendants of Fix the flaky checkout test/ })).toHaveCount(0);
@@ -42,26 +39,25 @@ test("the chevron folds a goblin's branches to their count, the same rounded rec
   await page.getByRole("button", { name: "Collapse descendants of Build the fleet tree" }).click();
   await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" })).toHaveCount(0);
   const count = page.getByRole("button", { name: /under Build the fleet tree/ });
-  await expect(count).toHaveAttribute("aria-label", "Show what runs under Build the fleet tree: 1 working, 412 MB");
+  await expect(count).toHaveAttribute("aria-label", "Show what runs under Build the fleet tree: 1 working");
   await expect(count.getByRole("img", { name: "Sub-agent" })).toHaveCount(1);
-  await expect(count.getByRole("img", { name: "Dev server" })).toHaveCount(1);
+  await expect(count.getByRole("img", { name: "Dev server" })).toHaveCount(0);
   const corner = (selector: string) => page.locator(selector).first().evaluate((node) => getComputedStyle(node).borderTopLeftRadius);
   expect(await corner(".tree-count"), "the count is the same rounded rectangle as the baby goblins").toBe(await corner(".tree-child"));
   await expect.poll(() => covered(page)).toEqual([]);
   await count.click();
-  await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child")).toHaveCount(2);
+  await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child")).toHaveCount(1);
   await expect(page.locator(".tree-count")).toHaveCount(0);
 });
 
-test("the goblin panel lists what is working with state, time and memory, a silent child's last line, and the finished folded away", async ({ page }) => {
+test("the goblin panel lists working children and folds finished children away", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html?view=panel");
   await expect(page.locator(".working-summary")).toHaveText(/2 working.*1 silent.*1 idle.*2\.6 GB in all/);
   const rows = page.getByRole("list", { name: "Running" }).locator(".working-row");
-  await expect(rows).toHaveCount(4);
+  await expect(rows).toHaveCount(2);
   const silent = rows.filter({ hasText: "Run the affected Go tests" });
-  await expect(silent.locator(".working-last-line")).toHaveText("ok   internal/monitor 41.2s");
-  await expect(silent.locator(".plain-status")).toHaveText("Silent");
-  await expect(silent.locator(".working-for")).toHaveText("14m");
+  await expect(silent).toHaveCount(0);
+  await expect(rows.filter({ hasText: "Dev server" })).toHaveCount(0);
   await expect(rows.filter({ hasText: "Test run" }).locator(".working-memory")).toHaveText("1.2 GB");
   await expect(page.getByRole("list", { name: "Finished" })).toBeHidden();
   await page.getByText("2 finished").click();
@@ -80,7 +76,7 @@ test("the goblin panel lists what is working with state, time and memory, a sile
 test("a goblin's card counts what runs under it and names no child gone silent", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html?view=cards");
   const card = page.locator(".task-card-shell").filter({ hasText: "Build the fleet tree" });
-  expect(await card.locator(".card-tree").getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent", "Background shell", "Dev server", "Test run"]);
+  expect(await card.locator(".card-tree").getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent", "Test run"]);
   await expect(card).not.toContainText("Silent");
   await expect(card).not.toContainText("Run the affected Go tests");
   await expect(page.locator(".task-card-shell").filter({ hasText: "Fix the flaky checkout test" }).locator(".card-tree")).toHaveCount(0);
@@ -92,7 +88,7 @@ test("at phone width the lineage list opens a goblin's running children on a rai
   await expect(page.getByRole("button", { name: /under Fix the flaky checkout test/ })).toHaveCount(0);
   await page.getByRole("button", { name: /under Build the fleet tree/ }).click();
   const children = page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child");
-  await expect(children).toHaveCount(2);
+  await expect(children).toHaveCount(1);
   await expect(children.filter({ hasText: "OAuth Researcher" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
