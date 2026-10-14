@@ -82,6 +82,25 @@ func TestAuthBrowserReleaseLetsGoOfTheBrowserBeforeItCloses(t *testing.T) {
 	}
 }
 
+func TestAuthBrowserSignInFilesACardWithoutLendingTheWindow(t *testing.T) {
+	t.Setenv(spawn.BrowserSessionVariable, "")
+	var stdout, stderr bytes.Buffer
+	runtime := testCommandRuntime(t)
+	runtime.requestBrowser = func(_ home.Home, request supervisor.BrowserRequest) (supervisor.BrowserLease, error) {
+		if request.Action != "sign-in" || request.Task != "pd-keys" || request.Provider != "stripe" {
+			t.Fatalf("request = %+v", request)
+		}
+		return supervisor.BrowserLease{Login: "stripe-precisiondocs-ai", Provider: "Stripe", Account: "PrecisionDocs-AI", SignIn: "signin-1234"}, nil
+	}
+	runtime.handBrowser = func(context.Context, string) error { t.Fatal("the sign-in window was lent to a task"); return nil }
+
+	exit := runWithRuntime([]string{"auth", "browser", "stripe", "--task", "pd-keys", "--sign-in"}, &stdout, &stderr, runtime)
+
+	if exit != 0 || !strings.Contains(stdout.String(), "sign-in card") {
+		t.Fatalf("exit = %d, output = %s %s", exit, stdout.String(), stderr.String())
+	}
+}
+
 func TestAuthBrowserIsRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

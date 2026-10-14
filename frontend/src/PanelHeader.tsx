@@ -8,6 +8,7 @@ import { ownsTaskSession, sessionTitle } from "./lineageTree";
 import { ALREADY_FINISHED, harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
+import { signInHeading } from "./browser-signins";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
@@ -67,7 +68,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   // What this goblin waits on the Overlord for: a question, a review item or
   // a credential request.
   // Runs are the CFO's own and never wait on a goblin's panel.
-  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.kind === "credential" ? item.request.task : item.review.task) === task.id) : undefined;
+  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.kind === "credential" ? item.request.task : item.kind === "browser-signin" ? item.signin.task : item.review.task) === task.id) : undefined;
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
     setOpening(true);
@@ -96,7 +97,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       {owner && !!task.generation && <div className="panel-actions">
         <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
         <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-        {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+        {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.kind === "browser-signin" ? signInHeading(waiting.signin) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
         {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
         {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
         {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}

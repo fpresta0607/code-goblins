@@ -15,7 +15,7 @@ import (
 )
 
 func TestBrowserPipeRefusesAnotherTasksCallerBeforeLendingOrReleasing(t *testing.T) {
-	for _, action := range []string{"attach", "release"} {
+	for _, action := range []string{"attach", "release", "sign-in"} {
 		t.Run(action, func(t *testing.T) {
 			store, h := testStore(t)
 			broker, chrome, _, _ := testBroker(t)
@@ -34,8 +34,11 @@ func TestBrowserPipeRefusesAnotherTasksCallerBeforeLendingOrReleasing(t *testing
 			if err == nil || !strings.Contains(err.Error(), "browser caller") {
 				t.Fatalf("unproven caller's %s = %v, want refusal before the broker acts", action, err)
 			}
-			if action == "attach" && len(chrome.launches) != 0 {
+			if action != "release" && len(chrome.launches) != 0 {
 				t.Fatal("a refused caller started a browser")
+			}
+			if len(store.Snapshot().BrowserSignIns) != 0 {
+				t.Fatal("a refused caller filed a sign-in card")
 			}
 			if action == "release" && len(chrome.endedPIDs(broker)) != 0 {
 				t.Fatal("a refused caller ended another task's browser")

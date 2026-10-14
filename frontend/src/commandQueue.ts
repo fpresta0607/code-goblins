@@ -1,7 +1,8 @@
 import type { IconName } from "./Icon.tsx";
-import { object, string, type Action, type BoardActivity, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types.ts";
+import { object, string, type Action, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
+import { signInOutcome } from "./browser-signins.ts";
 import { plainMessage } from "./messageText.ts";
 import { updateOutcome } from "./update-progress.ts";
 
@@ -9,7 +10,8 @@ import { updateOutcome } from "./update-progress.ts";
 // CFO's question, a review item (images, a Lavish page, or a wait on him), a
 // command the CFO needs him to run, or a request for credential values.
 export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run }
-  | { kind: "credential"; key: string; request: CredentialRequest };
+  | { kind: "credential"; key: string; request: CredentialRequest }
+  | { kind: "browser-signin"; key: string; signin: BrowserSignIn };
 
 // CFO_QUIET_AFTER_MS is how long the CFO has a goblin's question to itself:
 // past it the CFO's bar says the question waits, and it is his too.
@@ -35,15 +37,16 @@ export const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
   ...(snapshot.runs || []).filter((run) => !run.credential_request).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
   ...(snapshot.credentials || []).map((request): Item => ({ kind: "credential", key: "credential:" + request.id, request })),
+  ...(snapshot.browser_signins || []).map((signin): Item => ({ kind: "browser-signin", key: "browser-signin:" + signin.id, signin })),
 ];
-const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : item.run.task;
-const created = (item: Item) => Date.parse(item.kind === "credential" ? item.request.created_at : item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
+const task = (item: Item) => item.kind === "browser-signin" ? item.signin.task : item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : item.run.task;
+const created = (item: Item) => Date.parse(item.kind === "browser-signin" ? item.signin.created_at : item.kind === "credential" ? item.request.created_at : item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
 // When an item closed, as its History row says.
-export const closedAt = (item: Item) => item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
+export const closedAt = (item: Item) => item.kind === "browser-signin" ? item.signin.closed_at || item.signin.created_at : item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
   : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at;
 const closed = (item: Item) => Date.parse(closedAt(item)) || 0;
 // A run stays in the stack while it runs, so its card shows the result.
-export const isOpen = (item: Item) => item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
+export const isOpen = (item: Item) => item.kind === "browser-signin" ? ["ready", "opening", "open"].includes(item.signin.state) : item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
 // An open item waits on him, except a page he sent a revision on: that waits
@@ -63,7 +66,7 @@ export const answeredElsewhere = (item: Item) => item.kind === "review" ? item.r
 // do. A run's card shows its result and a credential request's card what it
 // saved, so neither finishes this way.
 export function closedElsewhere(item: Item, actions: Action[]): "" | "Answered" | "Closed" {
-  if (item.kind === "run" || item.kind === "credential" || isOpen(item) || settledIcon(item, actions).icon === "warning") return "";
+  if (item.kind === "run" || item.kind === "credential" || item.kind === "browser-signin" || isOpen(item) || settledIcon(item, actions).icon === "warning") return "";
   return (item.kind === "question" ? questionOutcome(item.question) === "answered" : item.review.state === "answered") ? "Answered" : "Closed";
 }
 
@@ -335,6 +338,7 @@ function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed
 // A delivery that never arrived reads as what to do about it, in the
 // supervisor's words, while its action is still recorded.
 export function settledLabel(item: Item, actions: Action[]): string {
+  if (item.kind === "browser-signin") return signInOutcome(item.signin);
   if (item.kind === "credential") return credentialSettled(item.request);
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
@@ -361,6 +365,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
 }
 
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
+  if (item.kind === "browser-signin") return item.signin.state === "signed_in" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.signin.state };
   if (item.kind === "credential") return item.request.state === "saved" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.request.state };
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
