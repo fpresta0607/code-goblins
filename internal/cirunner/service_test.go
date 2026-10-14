@@ -110,7 +110,7 @@ func TestServiceStatusSaysWhatRuns(t *testing.T) {
 		if row.got != row.want {
 			t.Errorf("Status = %q; want %q", row.got, row.want)
 		}
-		if strings.ContainsAny(row.got, ";—") {
+		if strings.ContainsAny(row.got, ";\u2014") {
 			t.Errorf("Status = %q; want no semicolon or em dash", row.got)
 		}
 	}
