@@ -55,6 +55,10 @@ type windowMove struct {
 type windowSystem struct {
 	identify func(pid int, start time.Time) (proc.Identity, error)
 	owner    func(pid int, start time.Time) (proc.Owner, error)
+	// ownOwner is the supervisor's own user and session on the same machine
+	// owner reads, so a program is never judged against an owner read from
+	// another: a stand-in's pid can be the real process's own.
+	ownOwner func() (proc.Owner, error)
 	end      func(pid int, start time.Time, image string) error
 	open     func(program string) error
 }
@@ -65,6 +69,15 @@ func (w windowSystem) orWindows() windowSystem {
 	}
 	if w.owner == nil {
 		w.owner = proc.OwnerOf
+	}
+	if w.ownOwner == nil {
+		w.ownOwner = func() (proc.Owner, error) {
+			own, ok := proc.StartTime(os.Getpid())
+			if !ok {
+				return proc.Owner{}, errors.New("the supervisor could not read its own start time")
+			}
+			return proc.OwnerOf(os.Getpid(), own)
+		}
 	}
 	if w.end == nil {
 		w.end = func(pid int, start time.Time, image string) error {
