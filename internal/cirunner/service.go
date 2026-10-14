@@ -32,16 +32,25 @@ type Service struct {
 	// holds the VM as a job does.
 	isWatching bool
 	last       string
-	// refusals counts the requests refused since refusedAt, the last time a
-	// refusal was logged.
-	refusals  int
-	refusedAt time.Time
+	// refused tallies the requests refused, and idle the runs asked for that
+	// started nothing, each logged at most once a minute.
+	refused tally
+	idle    tally
 
 	// asking is held while GitHub is asked for a waiting job, so many asks at
-	// once make one, and pending is its answer as of pendingAt.
-	asking    sync.Mutex
-	pending   Pending
-	pendingAt time.Time
+	// once make one, and pending and pendingErr are its answer as of
+	// pendingAt.
+	asking     sync.Mutex
+	pending    Pending
+	pendingErr error
+	pendingAt  time.Time
+}
+
+// tally counts what the log was not told of since at, when it last was, so
+// no client's requests, however many, can push a job's lines out of it.
+type tally struct {
+	count int
+	at    time.Time
 }
 
 const (
@@ -121,29 +130,36 @@ func (s *Service) Start(ctx context.Context) error {
 	return s.Deps.GitHub.DeleteOwnRunners(ctx)
 }
 
-// Pending is the desktop job that has waited longest, when one waits. An
-// answer is given again for pendingFresh, and asks made while GitHub is
-// being asked wait for that answer, so asks however many and fast make one
-// set of GitHub calls at a time.
+// Pending is the desktop job that has waited longest, when one waits and
+// the repository is still private. An answer, or GitHub's failure to give
+// one, is given again for pendingFresh, and asks made while GitHub is being
+// asked wait for that answer, so asks and runs however many and fast make
+// one set of GitHub calls at a time. An ask whose client gave up is no
+// answer, and is not given again.
 func (s *Service) Pending(ctx context.Context) (Pending, error) {
 	if err := lockBefore(ctx, &s.asking); err != nil {
 		return Pending{}, err
 	}
 	defer s.asking.Unlock()
 	if !s.pendingAt.IsZero() && s.Deps.Now().Sub(s.pendingAt) < pendingFresh {
-		return s.pending, nil
+		return s.pending, s.pendingErr
 	}
-	pending, err := s.Deps.GitHub.QueuedJob(ctx)
-	if err != nil {
-		return Pending{}, err
+	pending, err := Pending{}, s.refusePublic(ctx)
+	if err == nil {
+		if pending, err = s.Deps.GitHub.QueuedJob(ctx); err != nil {
+			err = fmt.Errorf("cirunner: find a waiting job: %w", err)
+		}
 	}
-	s.pending, s.pendingAt = pending, s.Deps.Now()
-	return pending, nil
+	if ctx.Err() != nil {
+		return Pending{}, ctx.Err()
+	}
+	s.pending, s.pendingErr, s.pendingAt = pending, err, s.Deps.Now()
+	return pending, err
 }
 
 // refusePublic refuses a repository that is not private, at the service's
-// start and before each run, since a repository can be made public at any
-// time and a self-hosted runner must never serve one.
+// start and, through Pending, before each run, since a repository can be
+// made public at any time and a self-hosted runner must never serve one.
 func (s *Service) refusePublic(ctx context.Context) error {
 	isPrivate, err := s.Deps.GitHub.IsPrivate(ctx)
 	if err != nil {
@@ -167,11 +183,12 @@ func lockBefore(ctx context.Context, mu *sync.Mutex) error {
 	return nil
 }
 
-// Run runs one job, or refuses with ErrBusy while one runs. It first asks
-// GitHub whether the repository is still private and whether a job of the
-// runner's waits, and starts nothing, neither the VM nor a runner, unless
-// both are so: a client of the pipe can ask for a run whenever it likes, but
-// only a waiting job of a private repository starts the VM.
+// Run runs one job, or refuses with ErrBusy while one runs. It first asks,
+// as Pending does, whether the repository is still private and whether a
+// job of the runner's waits, and starts nothing, neither the VM nor a
+// runner, unless both are so: a client of the pipe can ask for a run
+// whenever it likes, but only a waiting job of a private repository starts
+// the VM.
 func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, error) {
 	s.mu.Lock()
 	if !s.started.IsZero() {
@@ -182,13 +199,7 @@ func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, erro
 	s.started = started
 	s.mu.Unlock()
 	var outcome Outcome
-	var pending Pending
-	err := s.refusePublic(ctx)
-	if err == nil {
-		if pending, err = s.Deps.GitHub.QueuedJob(ctx); err != nil {
-			err = fmt.Errorf("cirunner: find a waiting job: %w", err)
-		}
-	}
+	pending, err := s.Pending(ctx)
 	switch {
 	case err != nil:
 		outcome, err = ended(ctx, err)
@@ -241,17 +252,23 @@ func (s *Service) Watch(ctx context.Context, every time.Duration) {
 // since, so a client refused without end cannot push a job's lines out of
 // the log.
 func (s *Service) refuse(why string) {
+	s.note(&s.refused, func(count int) string { return fmt.Sprintf("refused %d request(s), the last for %s", count, why) })
+}
+
+// note counts one more on t, and logs line of the count unless the last
+// line of t was logged under a minute ago.
+func (s *Service) note(t *tally, line func(count int) string) {
 	s.mu.Lock()
-	s.refusals++
+	t.count++
 	now := s.Deps.Now()
-	if !s.refusedAt.IsZero() && now.Sub(s.refusedAt) < time.Minute {
+	if !t.at.IsZero() && now.Sub(t.at) < time.Minute {
 		s.mu.Unlock()
 		return
 	}
-	count := s.refusals
-	s.refusals, s.refusedAt = 0, now
+	count := t.count
+	t.count, t.at = 0, now
 	s.mu.Unlock()
-	s.Log(fmt.Sprintf("refused %d request(s), the last for %s", count, why))
+	s.Log(line(count))
 }
 
 // Status says whether a job runs, and how the last one ended.

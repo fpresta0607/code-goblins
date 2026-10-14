@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -463,6 +464,65 @@ func TestRefusalsAreLoggedInTheServicesWordsAtMostOnceAMinute(t *testing.T) {
 	refusals := slices.DeleteFunc(slices.Clone(lines), func(line string) bool { return !strings.Contains(line, "refused") })
 	if len(refusals) != 1 || strings.Contains(strings.Join(lines, "\n"), junk[:20]) {
 		t.Errorf("the log holds %q; want one refusal line in the service's own words", lines)
+	}
+}
+
+// Runs that find no job are logged at most once a minute, with their count,
+// so a client asking for runs without end cannot push the lines of the
+// jobs that ran out of the log.
+func TestRunsWithNoJobAreLoggedAtMostOnceAMinute(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{queued: &Pending{}}, thisUser(t))
+
+	// Act
+	for range 20 {
+		if err := Ask(context.Background(), s.name, Request{Kind: AskRun}, func(Reply) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if lines := s.lines(); len(lines) != 1 || !strings.Contains(lines[0], "no job") {
+		t.Errorf("the log holds %q; want one line for the runs that found no job", lines)
+	}
+}
+
+// The service answers so many clients at once and no more: one past them
+// is dropped as it connects, so clients that hold the pipe open cannot pile
+// up the service's work, and once they go, the next is answered.
+func TestPipeAnswersAtMostItsClientsAtOnce(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, thisUser(t))
+	var silent []*os.File
+	for range maxClients {
+		connection, err := dial(context.Background(), s.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		silent = append(silent, connection)
+	}
+
+	// Act
+	isDropped := false
+	for deadline := time.Now().Add(2 * time.Second); !isDropped && time.Now().Before(deadline); {
+		_, err := s.ask(context.Background(), AskStatus)
+		isDropped = err != nil
+	}
+	for _, connection := range silent {
+		connection.Close()
+	}
+
+	// Assert
+	if !isDropped {
+		t.Errorf("a client past %d at once was answered; want it dropped", maxClients)
+	}
+	isAnswered := false
+	for deadline := time.Now().Add(2 * time.Second); !isAnswered && time.Now().Before(deadline); {
+		status, err := s.ask(context.Background(), AskStatus)
+		isAnswered = err == nil && len(status) == 1
+	}
+	if !isAnswered {
+		t.Error("no client was answered once the others went; want the next answered")
 	}
 }
 
