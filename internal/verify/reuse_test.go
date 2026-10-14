@@ -102,37 +102,51 @@ func TestReadReuseKeyChangesWithEachInput(t *testing.T) {
 // all be read: an unstamped build, an incomplete source, no default branch
 // to measure the branch against, or a tool that fails.
 func TestReadReuseKeyRefusesWhatItCannotRead(t *testing.T) {
-	for name, arrange := range map[string]func(t *testing.T, dir string) (ReuseKey, project.Reuse){
-		"an unstamped build": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+	for name, row := range map[string]struct {
+		arrange   func(t *testing.T, dir string) (ReuseKey, project.Reuse)
+		wantError string
+	}{
+		"an unstamped build": {wantError: "an unstamped cfo build", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			key := namedKey()
 			key.Executor = "dev"
 			return key, reuseDeclared()
-		},
-		"an incomplete source": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		}},
+		// A sparse checkout leaves a.txt's neighbours off the disk, which the
+		// tree then holds as its commit has them.
+		"an incomplete source": {wantError: "the tree does not hold all of what is on disk", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+			if err := os.RemoveAll(filepath.Join(dir, "build")); err != nil {
+				t.Fatal(err)
+			}
 			gitIn(t, dir, "sparse-checkout", "set", "--no-cone", "/a.txt")
 			return namedKey(), reuseDeclared()
-		},
-		"no default branch": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		}},
+		// With .gitignore off the disk, the build is a file outside the
+		// sparse checkout, which git will not stage.
+		"a source that cannot be read": {wantError: "read the source", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+			gitIn(t, dir, "sparse-checkout", "set", "--no-cone", "/a.txt")
+			return namedKey(), reuseDeclared()
+		}},
+		"no default branch": {wantError: "no default branch", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			gitIn(t, dir, "update-ref", "-d", "refs/remotes/origin/main")
 			return namedKey(), reuseDeclared()
-		},
-		"a tool that fails": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		}},
+		"a tool that fails": {wantError: "read the tool git no-such-command", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			declared := reuseDeclared()
 			declared.Tools = []project.Command{{"git", "no-such-command"}}
 			return namedKey(), declared
-		},
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dir := reuseWorktree(t)
-			key, declared := arrange(t, dir)
+			key, declared := row.arrange(t, dir)
 
 			// Act
 			read, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, key, declared)
 
 			// Assert
-			if err == nil {
-				t.Errorf("ReadReuseKey = %+v; want an error", read)
+			if err == nil || !strings.Contains(err.Error(), row.wantError) {
+				t.Errorf("ReadReuseKey = %+v, %v; want an error that says %q", read, err, row.wantError)
 			}
 		})
 	}
