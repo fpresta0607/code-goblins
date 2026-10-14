@@ -16,6 +16,15 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The whole history, so the guard below can see main hold the tag's
+          # commit.
+          fetch-depth: 0
+      # A tag can name a commit no review passed, and the release signs what
+      # it builds, so only a commit main holds is built.
+      - name: Release only from main
+        shell: pwsh
+        run: ./tools/release-on-main.ps1 -Commit $env:GITHUB_SHA -Main origin/main
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -77,6 +86,10 @@ jobs:
           # See docs/install.md for setup compatibility and download behavior.
           go build -trimpath -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }} -X main.tag=${{ github.ref_name }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The desktop CI runner's service, which ci-runner-install.ps1
+          # installs on a machine whose Overlord asks for it.
+          go build -trimpath -o cg-ci-runner.exe ./cmd/cg-ci-runner
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: unsigned-build
@@ -84,6 +97,7 @@ jobs:
             cfo.exe
             goblins-window.exe
             CodeGoblinsSetup.exe
+            cg-ci-runner.exe
           if-no-files-found: error
           retention-days: 1
 
@@ -106,6 +120,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             install.ps1
+            ci-runner-install.ps1
             tools/pin-installer.ps1
             LICENSE
             THIRD_PARTY_NOTICES
@@ -163,6 +178,7 @@ jobs:
             ${{ github.workspace }}\CodeGoblinsSetup.exe
             ${{ github.workspace }}\cfo.exe
             ${{ github.workspace }}\goblins-window.exe
+            ${{ github.workspace }}\cg-ci-runner.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -178,7 +194,7 @@ jobs:
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw "signtool.exe is not on this runner, so the signatures cannot be verified and nothing is published." }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe', 'cg-ci-runner.exe') {
             $signature = Get-AuthenticodeSignature -FilePath $file
             if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
             if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$file is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
@@ -236,7 +252,7 @@ jobs:
           if ($status.AMRunningMode -ne 'Normal' -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $preference.ExclusionPath -or $preference.ExclusionExtension) {
             throw "Microsoft Defender is not actively protecting this runner with nothing excluded, so its scan would prove nothing and nothing is published."
           }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe', 'cg-ci-runner.exe') {
             $scan = & $scanner -Scan -ScanType 3 -File (Resolve-Path $file).Path -DisableRemediation
             $scan | Write-Host
             if ($LASTEXITCODE -ne 0) { throw "Defender's scan of $file exited with code $LASTEXITCODE (2 is a detection), so nothing is published." }
@@ -249,7 +265,7 @@ jobs:
       - name: Checksum
         shell: pwsh
         run: |
-          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe') {
+          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe', 'cg-ci-runner.exe') {
             "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
           }
           [IO.File]::WriteAllText("SHA256SUMS", ($lines -join "`n") + "`n")
@@ -266,9 +282,11 @@ jobs:
           SIGNED: ${{ steps.signing.outputs.signed }}
           SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
         run: |
-          $pin = @{ Repository = $env:GITHUB_REPOSITORY; Tag = $env:GITHUB_REF_NAME; Destination = 'release/install.ps1' }
-          if ($env:SIGNED -eq 'true') { $pin.Publisher = $env:SIGNING_PUBLISHER }
-          ./tools/pin-installer.ps1 @pin
+          foreach ($source in 'install.ps1', 'ci-runner-install.ps1') {
+            $pin = @{ Source = $source; Repository = $env:GITHUB_REPOSITORY; Tag = $env:GITHUB_REF_NAME; Destination = "release/$source" }
+            if ($env:SIGNED -eq 'true') { $pin.Publisher = $env:SIGNING_PUBLISHER }
+            ./tools/pin-installer.ps1 @pin
+          }
       # The install script is signed as the programs are, with the release's
       # own certificate, once it is pinned, since pinning rewrites it. An
       # unsigned script that downloads and runs programs is one Microsoft
@@ -284,6 +302,7 @@ jobs:
           certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
           files: |
             ${{ github.workspace }}\release\install.ps1
+            ${{ github.workspace }}\release\ci-runner-install.ps1
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -299,16 +318,17 @@ jobs:
         env:
           SIGNING_PUBLISHER: ${{ vars.SIGNING_PUBLISHER }}
         run: |
-          $script = 'release/install.ps1'
-          $signature = Get-AuthenticodeSignature -FilePath $script
-          if ($signature.Status -ne 'Valid') { throw "$script is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
-          if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$script is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
-          if (-not $signature.TimeStamperCertificate) { throw "$script carries no timestamp, so its signature would lapse with the certificate" }
-          $text = [IO.File]::ReadAllText((Resolve-Path $script).Path)
-          if ($text -match '[^\x00-\x7F]') { throw "$script has a character outside ASCII once it is signed" }
-          $problems = $null
-          [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$problems)
-          if ($problems) { throw "$script no longer parses once it is signed: $($problems[0].Message)" }
+          foreach ($script in 'release/install.ps1', 'release/ci-runner-install.ps1') {
+            $signature = Get-AuthenticodeSignature -FilePath $script
+            if ($signature.Status -ne 'Valid') { throw "$script is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
+            if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$script is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
+            if (-not $signature.TimeStamperCertificate) { throw "$script carries no timestamp, so its signature would lapse with the certificate" }
+            $text = [IO.File]::ReadAllText((Resolve-Path $script).Path)
+            if ($text -match '[^\x00-\x7F]') { throw "$script has a character outside ASCII once it is signed" }
+            $problems = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$problems)
+            if ($problems) { throw "$script no longer parses once it is signed: $($problems[0].Message)" }
+          }
       # The notes open with what a person must know before trusting the
       # files: whether they are signed and by whom, and their sums.
       - name: Write the release notes
@@ -352,8 +372,10 @@ jobs:
             CodeGoblinsSetup.exe
             cfo.exe
             goblins-window.exe
+            cg-ci-runner.exe
             SHA256SUMS
             defender-scan.txt
             LICENSE
             THIRD_PARTY_NOTICES
             release/install.ps1
+            release/ci-runner-install.ps1
