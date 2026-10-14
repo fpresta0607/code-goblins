@@ -150,6 +150,60 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 	}
 }
 
+// Where the board's record holds no session, as where the native session
+// hooks are not installed, a goblin a reboot ended comes back on the
+// conversation its own harness proved while it ran, kept for its
+// generation, and never from a handoff while that conversation exists. On
+// 2026-10-14 Wally and Ned came back from handoffs for want of it.
+func TestGoblinsResumeResumesTheConversationItsHarnessProvedWithoutHooks(t *testing.T) {
+	// Arrange
+	h := comebackHome(t, map[string][2]string{
+		"claude-kept":  {"claude", "native"},
+		"codex-kept":   {"codex", "native"},
+		"kept-earlier": {"claude", "native"},
+	}, nil)
+	if err := os.Remove(filepath.Join(h.State, ".supervisor.json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []state.Conversation{
+		{ID: "claude-kept", Generation: "s1", Harness: "claude", Session: "claude-proved"},
+		{ID: "codex-kept", Generation: "s1", Harness: "codex", Session: "codex-proved"},
+		{ID: "kept-earlier", Generation: "s0", Harness: "claude", Session: "earlier-generation"},
+	} {
+		kept.ProvedAt = time.Now().UTC()
+		if err := state.WriteConversation(h.State, kept); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var requests []spawn.SwitchRequest
+	runtime := comebackRuntime(nil, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		return spawn.SwitchResult{Resumed: request.ResumeSession != ""}, nil
+	}, &requests)
+
+	// Act
+	comebacks, err := bringGoblinsBack(t.Context(), h, runtime)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := map[string]string{}
+	for _, request := range requests {
+		resumed[request.ID] = request.ResumeSession
+	}
+	want := map[string]string{"claude-kept": "claude-proved", "codex-kept": "codex-proved", "kept-earlier": ""}
+	for id, session := range want {
+		if got, ok := resumed[id]; !ok || got != session {
+			t.Errorf("%s came back on conversation %q (switched %v), want %q", id, got, ok, session)
+		}
+	}
+	for _, comeback := range comebacks {
+		if comeback.id != "kept-earlier" && comeback.said != "back on its conversation" {
+			t.Errorf("of %s goblins resume said %q, want it back on its conversation", comeback.id, comeback.said)
+		}
+	}
+}
+
 // After a reboot, goblins resume brings the CFO back and then the goblins,
 // and says what came back; plain goblins brings back only the CFO.
 func TestGoblinsResumeSaysWhichGoblinsCameBackAndGoblinsBringsNone(t *testing.T) {
