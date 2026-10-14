@@ -121,7 +121,7 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "cfo route: %v\n", e)
 		return 1
 	}
-	choice, e := routing.Choose(a, inputs.Table, usableLane(report, skipped, settings))
+	choice, e := routing.Choose(a, inputs.Table, usableLane(report, skipped, settings, quotaClock(runtime)))
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
