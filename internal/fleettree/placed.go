@@ -58,7 +58,7 @@ func (r *Reader) Placed(owners []Goblin) ([]Placed, error) {
 			for _, job := range jobs {
 				facts := jobFacts{commands: map[int]string{}}
 				for _, member := range job.members {
-					facts.commands[member.PID] = r.command(member)
+					facts.commands[member.PID], _ = r.command(member)
 				}
 				isService := job.isService(facts)
 				// What it listens on says nothing of a test run or a build.

@@ -4,19 +4,20 @@ import { object, strings, type Task, type TreeNode } from "./types";
 import { babyName } from "./fleet-tree";
 import "./agent-terminal.css";
 
-// How often a sub-agent's terminal reads its record again while it shows.
+// How often a baby goblin's terminal reads its output again while it shows.
 const READ_EVERY_MS = 2000;
 
 // A line that says what came back to the sub-agent, which is drawn quieter
 // than what it was asked, said and did.
 const isResult = (line: string) => /^\s+[⎿…]/.test(line);
 
-// A sub-agent's terminal: the newest lines of its own record, the transcript
-// its goblin's harness keeps of it, read again every two seconds while it
-// shows and following its end unless the Overlord scrolls back. A sub-agent
-// works inside its goblin's harness with no terminal of its own to type
-// into, so this one only reads. A read that fails goes to the CFO, and the
-// terminal keeps what it last showed.
+// A baby goblin's terminal: the newest lines of its own output, read again
+// every two seconds while it shows and following its end unless the
+// Overlord scrolls back. A sub-agent's is the transcript its goblin's
+// harness keeps of it, a background shell's what it wrote, a monitor's its
+// events, a job's what its programs run and a gate run's its steps. None
+// has a terminal of its own to type into, so this one only reads. A read
+// that fails goes to the CFO, and the terminal keeps what it last showed.
 export function AgentTerminal({ task, child, visible }: { task: Task; child: TreeNode; visible: boolean }) {
   const [lines, setLines] = useState<string[] | null>(null);
   const screen = useRef<HTMLElement>(null);
