@@ -34,6 +34,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -119,6 +120,9 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "voice-worker" {
+		return runVoiceWorker(args[1:], os.Stdin, stdout, stderr, voice.OpenWorker)
+	}
 	return runWithRuntime(args, stdout, stderr, defaultCommandRuntime())
 }
 
@@ -206,6 +210,8 @@ type commandRuntime struct {
 	gateWaitLimit   time.Duration
 	gateBudget      func(gatetest.Level) time.Duration
 	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+
+	openVoiceWorker func(voice.WorkerOptions) (voice.WorkerRecognizer, error)
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -216,6 +222,8 @@ func (r commandRuntime) resolveProject(arg string) (string, error) {
 
 func defaultCommandRuntime() commandRuntime {
 	return commandRuntime{
+		openVoiceWorker: voice.OpenWorker,
+
 		resolveHome: home.Resolve,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
@@ -342,6 +350,9 @@ func invokedAsGoblins() bool {
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) > 0 && args[0] == "voice-worker" {
+		return runVoiceWorker(args[1:], os.Stdin, stdout, stderr, runtime.openVoiceWorker)
+	}
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
 	}

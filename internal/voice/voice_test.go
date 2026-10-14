@@ -22,49 +22,12 @@ const fixtureSHA256 = "261765dae87693ca85c35908f16e592be0df4fda0001fbd1dedcede88
 // programSHA256 is the SHA-256 of testdata/program.tar.bz2.
 const programSHA256 = "c6b75f138a27c197666042c48bc996a94ed72c11870014b33bb19b36a9e5120b"
 
-// TestMain lets the test binary stand in for the engine program: started
-// with VOICE_TEST_ENGINE set it answers as the engine would and exits.
+// TestMain runs the same-build pipe command with an owned fixture recognizer.
 func TestMain(m *testing.M) {
-	if role := os.Getenv("VOICE_TEST_ENGINE"); role != "" {
-		os.Exit(standInEngine(role, os.Args[1:]))
+	if len(os.Args) > 2 && os.Args[1] == "voice-worker" {
+		os.Exit(standInPipeWorker(os.Args[1:]))
 	}
 	os.Exit(m.Run())
-}
-
-// standInEngine records the arguments it was started with beside the sound
-// file it was handed, then answers by role.
-func standInEngine(role string, args []string) int {
-	sound := args[len(args)-1]
-	data, err := os.ReadFile(sound)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 3
-	}
-	record, _ := json.Marshal(struct {
-		Args  []string `json:"args"`
-		Sound string   `json:"sound"`
-		Bytes int      `json:"bytes"`
-	}{args, sound, len(data)})
-	if err := os.WriteFile(os.Getenv("VOICE_TEST_RECORD"), record, 0o600); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 3
-	}
-	if role == "fails" {
-		fmt.Fprintln(os.Stderr, "Failed to read '"+sound+"'")
-		return 255
-	}
-	// As the engine does: what it says about the run on its standard error,
-	// here with a line no word may be read from, and the words on its
-	// standard output.
-	fmt.Fprintln(os.Stderr, `OfflineRecognizerConfig(model_config=OfflineModelConfig(tokens="tokens.txt"), "text": "from the log")`)
-	fmt.Fprintln(os.Stderr, "recognizer created in 0.882 s")
-	fmt.Fprintln(os.Stderr, "Started")
-	fmt.Fprintln(os.Stderr, "Done!")
-	fmt.Fprintln(os.Stderr, sound)
-	fmt.Fprintln(os.Stdout, `{"lang": "", "emotion": "", "event": "", "text": " Check the \"Vercel\" deployment.", "timestamps": [0.00, 0.32], "tokens":[" Check", " the"], "words": []}`)
-	fmt.Fprintln(os.Stderr, "----")
-	fmt.Fprintln(os.Stderr, "num threads: 2")
-	return 0
 }
 
 // quiet is a progress nobody listens to.
@@ -328,42 +291,39 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	}
 }
 
-// engine is a Voice whose engine and model are fetched from the fixture and
-// whose program is this test binary standing in for the engine.
+// engine uses fixture downloads and this test binary's pipe command.
 func engine(t *testing.T, role string, free uint64) (*Voice, string) {
 	t.Helper()
 	server, _ := served(t)
 	dir := t.TempDir()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings := Settings{Engine: part("engine", server.URL+"/engine.tar.bz2"), Model: part("model", server.URL+"/model.tar.bz2"), Program: filepath.Base(self), Args: []string{"--num-threads=2", "--tokens={model}/tokens.txt", "--model-type=test"}}
+	settings := Settings{Engine: part("engine", server.URL+"/engine.tar.bz2"), Model: part("model", server.URL+"/model.tar.bz2"), Program: WORKER_LIBRARY, Args: []string{"--num-threads=2", "--encoder={model}/program.txt", "--decoder={model}/library.txt", "--joiner={model}/program.txt", "--tokens={model}/tokens.txt", "--model-type=nemo_transducer"}}
 	voice := &Voice{Settings: settings, Dir: dir, Client: server.Client(), Memory: func() (uint64, uint64, error) { return free, free, nil }}
 	if err := voice.Fetch(context.Background(), quiet); err != nil {
 		t.Fatal(err)
 	}
 	// From here on the network answers nothing: recognising must not ask it.
 	voice.Client = &http.Client{Transport: refusesEverything{t}}
-	// The stand-in engine is this test binary, placed where the engine's
-	// program is looked for.
-	program, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "engine-1.0", filepath.Base(self)), program, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	temporary := t.TempDir()
+	t.Setenv("TMP", temporary)
+	t.Setenv("TEMP", temporary)
 	record := filepath.Join(t.TempDir(), "engine-run.json")
-	t.Setenv("VOICE_TEST_ENGINE", role)
-	t.Setenv("VOICE_TEST_RECORD", record)
+	writeWorkerFixture(t, voice, role, record)
+	t.Cleanup(func() {
+		if err := voice.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return voice, record
 }
 
 type engineRun struct {
-	Args  []string `json:"args"`
-	Sound string   `json:"sound"`
-	Bytes int      `json:"bytes"`
+	Args        []string `json:"args"`
+	Sound       string   `json:"sound"`
+	Bytes       int      `json:"bytes"`
+	Payload     string   `json:"payload"`
+	Transport   string   `json:"transport"`
+	PID         int      `json:"pid"`
+	Environment []string `json:"environment"`
 }
 
 func ran(t *testing.T, record string) engineRun {
@@ -390,16 +350,15 @@ func TestRecognizeHandsTheSoundToTheEngineAndReturnsItsWords(t *testing.T) {
 	}
 	run := ran(t, record)
 	model := filepath.Join(voice.Dir, "model-1.0")
-	want := []string{"--num-threads=2", "--tokens=" + model + "/tokens.txt", "--model-type=test", run.Sound}
+	want := []string{"voice-worker", filepath.Join(voice.folder(voice.Settings.Engine), WORKER_LIBRARY), "--num-threads=2", "--encoder=" + model + "/program.txt", "--decoder=" + model + "/library.txt", "--joiner=" + model + "/program.txt", "--tokens=" + model + "/tokens.txt", "--model-type=nemo_transducer"}
 	if strings.Join(run.Args, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("the engine was started with %q, want %q", run.Args, want)
 	}
 	if run.Bytes != len("RIFF-sound") {
 		t.Fatalf("the engine read %d bytes of sound", run.Bytes)
 	}
-	if _, err := os.Stat(run.Sound); !os.IsNotExist(err) {
-		t.Fatalf("the sound file %s was left behind: %v", run.Sound, err)
-	}
+
+	assertPipeSound(t, voice, run)
 }
 
 func TestAnEngineThatFailsIsReportedAndItsSoundFileIsStillRemoved(t *testing.T) {
@@ -409,8 +368,61 @@ func TestAnEngineThatFailsIsReportedAndItsSoundFileIsStillRemoved(t *testing.T) 
 		t.Fatalf("a failed engine answered %v", err)
 	}
 	run := ran(t, record)
-	if _, err := os.Stat(run.Sound); !os.IsNotExist(err) {
-		t.Fatalf("the sound file %s was left behind: %v", run.Sound, err)
+
+	assertPipeSound(t, voice, run)
+}
+
+func TestSuccessiveDictationsReuseOneEngineLoad(t *testing.T) {
+	voice, record := engine(t, "hears", 8<<30)
+	loads := filepath.Join(voice.folder(voice.Settings.Engine), "engine-loads.txt")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := voice.Recognize(ctx, []byte("RIFF-canceled")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a canceled dictation answered %v", err)
+	}
+	if _, err := os.Stat(loads); !os.IsNotExist(err) {
+		t.Fatalf("a canceled dictation started the engine: %v", err)
+	}
+	for _, sound := range []string{"RIFF-first", "RIFF-second"} {
+		text, err := voice.Recognize(context.Background(), []byte(sound))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text != `Check the "Vercel" deployment.` {
+			t.Fatalf("heard %q", text)
+		}
+		run := ran(t, record)
+		if run.Bytes != len(sound) || run.Payload != sound {
+			t.Fatalf("the engine read %d bytes, want %d", run.Bytes, len(sound))
+		}
+		assertPipeSound(t, voice, run)
+	}
+	data, err := os.ReadFile(loads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := len(strings.Fields(string(data))); count != 1 {
+		t.Fatalf("successive dictations loaded the engine %d times, want one load", count)
+	}
+}
+
+func TestDictationSendsSoundThroughAnOwnedPipe(t *testing.T) {
+	voice, record := engine(t, "hears", 8<<30)
+	text, err := voice.Recognize(context.Background(), []byte("RIFF-pipe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != `Check the "Vercel" deployment.` {
+		t.Fatalf("heard %q", text)
+	}
+	run := ran(t, record)
+	if run.Bytes != len("RIFF-pipe") || run.Payload != "RIFF-pipe" {
+		t.Fatalf("the engine read %d bytes of sound", run.Bytes)
+	}
+
+	assertPipeSound(t, voice, run)
+	if run.Sound != "" {
+		t.Fatal("dictation sent sound through a file instead of an owned pipe")
 	}
 }
 

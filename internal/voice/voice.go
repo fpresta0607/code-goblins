@@ -1,6 +1,6 @@
 // Package voice is the board's dictation engine on this machine: a pinned
 // speech model and the program that runs it, fetched once and checked against
-// their checksums, then run on a sound file with no network.
+// their checksums, then run on sound received through an owned pipe.
 package voice
 
 import (
@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -53,6 +53,13 @@ type Voice struct {
 	Dir      string
 	Client   *http.Client
 	Memory   func() (available, commit uint64, err error)
+
+	once     sync.Once
+	turn     chan struct{}
+	closed   chan struct{}
+	mutex    sync.Mutex
+	worker   *worker
+	isClosed bool
 }
 
 // NoRoom refuses a dictation the machine has no memory for.
@@ -186,45 +193,23 @@ func (v *Voice) Fetch(ctx context.Context, progress func(part string, done, tota
 	return nil
 }
 
-// Recognize returns the words in sound, a WAV file's bytes. The sound is
-// written where only this user can read it, for as long as the engine runs.
+// Recognize returns the words in sound, a WAV file's bytes.
 func (v *Voice) Recognize(ctx context.Context, sound []byte) (string, error) {
-	if err := v.Ready(); err != nil {
+	if err := v.acquire(ctx); err != nil {
 		return "", err
+	}
+	defer func() { v.turn <- struct{}{} }()
+	if err := v.Ready(); err != nil {
+		return "", errors.Join(err, v.retire(nil))
 	}
 	available, commit, err := v.Memory()
 	if err != nil {
-		return "", fmt.Errorf("read the machine's memory: %w", err)
+		return "", errors.Join(fmt.Errorf("read the machine's memory: %w", err), v.retire(nil))
 	}
 	if available < Room || commit < Room {
-		return "", NoRoom{Available: available, Commit: commit}
+		return "", errors.Join(NoRoom{Available: available, Commit: commit}, v.retire(nil))
 	}
-	file, err := os.CreateTemp("", "cfo-dictation-*.wav")
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = fsx.Remove(file.Name()) }()
-	_, err = file.Write(sound)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return "", err
-	}
-	engine := v.folder(v.Settings.Engine)
-	args := make([]string, 0, len(v.Settings.Args)+1)
-	for _, arg := range v.Settings.Args {
-		args = append(args, strings.ReplaceAll(arg, "{model}", v.folder(v.Settings.Model)))
-	}
-	command := execx.CommandContext(ctx, filepath.Join(engine, v.Settings.Program), append(args, file.Name())...)
-	command.Dir = engine
-	var log bytes.Buffer
-	command.Stderr = &log
-	output, err := command.Output()
-	if err != nil {
-		return "", fmt.Errorf("the dictation engine failed: %w: %s", err, lastLines(log.Bytes(), 3))
-	}
-	return heard(output)
+	return v.exchange(ctx, sound)
 }
 
 // heard reads the words from what the engine printed on its standard output:

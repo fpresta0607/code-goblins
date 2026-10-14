@@ -57,7 +57,7 @@ func loopbackAddress(address string) bool {
 	return err == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
 }
 
-func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) (exit int) {
 	if err := serveScheduling(); err != nil {
 		fmt.Fprintf(stderr, "cfo serve: %v\n", err)
 		return 1
@@ -155,8 +155,19 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
+	speech := dictationEngine(h, stderr)
+	var dictation supervisor.Dictation
+	if speech != nil {
+		dictation = speech
+		defer func() {
+			if err := speech.Close(); err != nil {
+				fmt.Fprintf(stderr, "dictation: %v\n", err)
+				exit = 1
+			}
+		}()
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
-		Dictation:        dictationEngine(h, stderr),
+		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
@@ -277,7 +288,7 @@ func spawnFromBoard(ctx context.Context, args []string) (string, error) {
 // this build pins, or the one the home's own config/voice.json names, kept
 // under the home's caches. Settings that cannot be read leave the board
 // without dictation, and cfo doctor says why.
-func dictationEngine(h home.Home, stderr io.Writer) supervisor.Dictation {
+func dictationEngine(h home.Home, stderr io.Writer) *voice.Voice {
 	speech, err := voice.For(h.Root, codegoblins.Voice)
 	if err != nil {
 		fmt.Fprintln(stderr, "dictation: "+err.Error())
