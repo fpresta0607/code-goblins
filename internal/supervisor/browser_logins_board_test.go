@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -225,6 +226,57 @@ func TestALoginThatSignsOutAfterEachFetchEndsTheSessionWhenTheLentBrowserItReadI
 	}
 	if logins := registered(t, b.broker); logins[0].SignedInAt != nil {
 		t.Fatalf("registry = %+v, want the login recorded signed out", logins)
+	}
+}
+
+func TestALoginThatSignsOutAfterEachFetchEndsTheSessionOnceAnUnconfirmedCloseIsGone(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		isGone        bool
+		isProfileKept bool
+	}{
+		{"its chrome still there", false, true},
+		{"its chrome gone since", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			b := newFetchBoard(t)
+			declareLogin(t, b.broker, "PrecisionDocs-AI", auth.BrowserLogin{Provider: "stripe", Account: "PrecisionDocs-AI", AccountID: "acct_fixture", SignsOutAfterFetch: true})
+			lendToTheGoblin(t, b)
+			if lease, err := b.fetch(); err != nil || len(lease.Fetched) != 2 {
+				t.Fatalf("fetch = %+v, %v, want both keys stored", lease, err)
+			}
+			b.service.credentialWork.Wait()
+			b.broker.end = func(context.Context, browserlogin.Process) error {
+				return errors.New("chrome 1's processes were not gone 1m0s after its job ended")
+			}
+			b.broker.report = func(error) {}
+			isGone := test.isGone
+			b.broker.gone = func(browserlogin.Process) bool { return isGone }
+			// The Chrome goes in the end, since the board's own cleanup wants
+			// every browser it lent closed.
+			t.Cleanup(func() {
+				isGone = true
+				if err := b.broker.sweep(); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := b.broker.release("pd-keys", "stripe"); err != nil {
+				t.Fatal(err)
+			}
+			b.broker.work.Wait()
+
+			// Act
+			err := b.broker.sweep()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(browserlogin.ProfileDir(b.broker.state, fetchLogin)); (err == nil) != test.isProfileKept {
+				t.Fatalf("the profile = %v, want kept %t", err, test.isProfileKept)
+			}
+		})
 	}
 }
 

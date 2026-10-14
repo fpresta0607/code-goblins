@@ -129,9 +129,11 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 }
 
 // requestTimeout bounds the work of req: a key fetch loads its pages in a
-// Chrome it starts, and every other request takes runRequestTimeout.
+// Chrome it starts, and lending a login's browser starts one too, which a
+// loaded machine took over half a minute to do. Every other request takes
+// runRequestTimeout.
 func requestTimeout(req runPipeRequest) time.Duration {
-	if req.Kind == "browser" && req.Browser != nil && req.Browser.Action == "fetch" {
+	if req.Kind == "browser" && req.Browser != nil && (req.Browser.Action == "fetch" || req.Browser.Action == "attach") {
 		return browserFetchTimeout
 	}
 	return runRequestTimeout
