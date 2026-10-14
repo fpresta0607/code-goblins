@@ -285,6 +285,8 @@ func (f fixtureProcesses) List(ctx context.Context) ([]reap.Process, error) {
 	return kept, nil
 }
 
+func (f fixtureProcesses) SelfAncestry() []int { return f.inner.SelfAncestry() }
+
 // sweepOf is the watcher's own sweep of home h as ConfigFromEnv builds it for
 // production, reading only the processes keep names. It returns the config
 // and the processes its last sweep read.

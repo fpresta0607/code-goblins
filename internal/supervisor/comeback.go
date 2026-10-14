@@ -16,9 +16,10 @@ import (
 // supervisor brings the fleet back by itself: first the CFO, in its terminal
 // on its own conversation, then each goblin that was working, in its own
 // session, one at a time as memory allows. What it brings back is what the
-// sign-in before this one left: each terminal started in that sign-in that no
-// longer runs, except a goblin that finished, was paused or stopped, or is
-// retired, and whatever an earlier comeback had not reached yet.
+// sign-in before this one left: the CFO, when it ran in that sign-in or an
+// earlier comeback had not reached it, and every goblin left meant to run
+// whose terminal no longer runs, whatever its host's record says, except a
+// goblin that finished, was paused or stopped, or is retired.
 
 // Comeback is how the supervisor brings the fleet back after a restart or
 // sign-out; without it nothing comes back by itself.
@@ -163,18 +164,23 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 		return state.Comeback{}, false, fmt.Errorf("nothing comes back after a restart: %w", err)
 	}
 	record := state.Comeback{SignedIn: s.signedIn, Planned: now}
-	// A terminal started in the sign-in before this one, or one an earlier
-	// comeback had not reached, that no longer runs.
-	ended := func(id string, entry *state.ComebackEntry) bool {
-		if entry != nil && entry.State == state.ComebackWaiting {
-			return !NativeTerminalRuns(directory, id)
+	// What ran in the sign-in before this one says so in two places that do
+	// not outlast each other: its host's record, which the host removes when
+	// its terminal's program ends first, as a restart can end it, and the
+	// registration of the CFO's program, which stays.
+	isSignInBefore := func(at time.Time) bool { return !at.Before(prior.SignedIn) && at.Before(s.signedIn) }
+	if primary, _, err := readPrimary(directory); err == nil && !CFORuns(directory) {
+		terminal, recordErr := host.ReadRecord(directory, NativeCFOTerminal)
+		isEnded := prior.CFO != nil && prior.CFO.State == state.ComebackWaiting || recordErr == nil && isSignInBefore(terminal.Started) || primary.Host != "" && isSignInBefore(primary.Process.Start)
+		if isEnded {
+			record.CFO = &state.ComebackEntry{ID: NativeCFOTerminal, State: state.ComebackWaiting}
 		}
-		terminal, err := host.ReadRecord(directory, id)
-		return err == nil && !terminal.Started.Before(prior.SignedIn) && terminal.Started.Before(s.signedIn) && !NativeTerminalRuns(directory, id)
 	}
-	if _, _, err := readPrimary(directory); err == nil && ended(NativeCFOTerminal, prior.CFO) && !CFORuns(directory) {
-		record.CFO = &state.ComebackEntry{ID: NativeCFOTerminal, State: state.ComebackWaiting}
-	}
+	// Every goblin left meant to run whose terminal is gone comes back,
+	// whatever its host's record says, except one whose record names a
+	// terminal of this sign-in, which the restart did not end. On 2026-10-14
+	// Ursula's host had removed its record at the restart, and a comeback
+	// that planned only goblins with a record left her behind.
 	evaluations := s.Store.Snapshot().Tasks
 	for _, meta := range liveTasks(directory) {
 		if meta.Backend != "native" || meta.SpawnGen == "" {
@@ -183,19 +189,13 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 		if evaluation := evaluations[meta.ID]; evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged") {
 			continue
 		}
-		lifecycle, err := state.ReadLifecycle(directory, meta.ID)
-		if err == nil && lifecycle.Generation == meta.SpawnGen && lifecycle.Phase != "running" {
+		if lifecycle, err := state.ReadLifecycle(directory, meta.ID); err == nil && !lifecycle.LeavesRunning(directory, meta) {
 			continue
 		}
-		var earlier *state.ComebackEntry
-		if index := slices.IndexFunc(prior.Goblins, func(entry state.ComebackEntry) bool {
-			return entry.ID == meta.ID
-		}); index >= 0 {
-			earlier = &prior.Goblins[index]
+		if terminal, err := host.ReadRecord(directory, meta.ID); err == nil && !terminal.Started.Before(s.signedIn) || NativeTerminalRuns(directory, meta.ID) {
+			continue
 		}
-		if ended(meta.ID, earlier) {
-			record.Goblins = append(record.Goblins, state.ComebackEntry{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting})
-		}
+		record.Goblins = append(record.Goblins, state.ComebackEntry{ID: meta.ID, Generation: meta.SpawnGen, State: state.ComebackWaiting})
 	}
 	return record, true, state.WriteComeback(directory, record)
 }
@@ -234,7 +234,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 		result = GoblinComeback{Outcome: DidNotComeBack, Said: "its task record cannot be read: " + metaErr.Error()}
 	case metaErr != nil || meta.Backend != "native" || meta.SpawnGen == "":
 	case evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged"):
-	case lifecycleErr == nil && lifecycle.Generation == meta.SpawnGen && lifecycle.Phase != "running":
+	case lifecycleErr == nil && !lifecycle.LeavesRunning(directory, meta):
 	case NativeTerminalRuns(directory, id):
 		result.Outcome = AlreadyRuns
 	default:
