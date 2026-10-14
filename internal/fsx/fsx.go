@@ -91,14 +91,19 @@ func retryTransientContext(ctx context.Context, op func() error) error {
 	ctx, cancel := context.WithTimeout(ctx, transientBudget)
 	defer cancel()
 	wait := 10 * time.Millisecond
+	// last is the error the try before met. The bound can end while the
+	// wait's timer fires, so the next look finds it ended: that end says why
+	// the tries failed too, as an end during the wait does.
+	var last error
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return errors.Join(err, last)
 		}
 		err := op()
 		if err == nil || !heldByAnother(err) {
 			return err
 		}
+		last = err
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
