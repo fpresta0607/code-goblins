@@ -95,6 +95,11 @@ func (k *standInKeyPage) provider() keypages.Provider {
 // machine makes it do now and then.
 const busyPage = `<script>setInterval(() => { const end = Date.now() + 1500; while (Date.now() < end) {} }, 0);</script>`
 
+// stuckPage keeps a page's main thread busy while it loads for longer than
+// a wait's whole bound, so the signed-in wait's bound runs out inside a
+// read of it.
+var stuckPage = fmt.Sprintf(`<script>{ const end = Date.now() + %d; while (Date.now() < end) {} }</script>`, (keyWait + 5*time.Second).Milliseconds())
+
 var standInRecipeKeys = []keypages.Key{
 	{Name: "STRIPE_TEST_PUBLISHABLE_KEY", Row: "Publishable key", Prefix: "pk_test_"},
 	{Name: "STRIPE_TEST_SECRET_KEY", Row: "Secret key", Reveal: "Reveal test key", Prefix: "sk_test_"},
@@ -183,6 +188,9 @@ func TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem(t *testing.T) {
 		isRevealed bool
 	}{
 		{"signed out", func(k *standInKeyPage) { k.isSignedIn = false }, ErrSignedOut, false},
+		{"a key page too busy to settle in time", func(k *standInKeyPage) {
+			k.page = strings.Replace(k.page, `</title>`, `</title>`+stuckPage, 1)
+		}, errKeyPageSlow, false},
 		{"another account", func(k *standInKeyPage) { k.account = "acct_other" }, nil, false},
 		{"two reveal controls", func(k *standInKeyPage) {
 			k.page = strings.Replace(k.page, `<button>Roll key</button>`, `<button>Reveal test key</button>`, 1)

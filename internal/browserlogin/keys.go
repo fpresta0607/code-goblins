@@ -36,6 +36,8 @@ var (
 	ErrPageChanged = errors.New("the page changed")
 	// errKeyMasked is a key row whose key never showed whole.
 	errKeyMasked = errors.New("the key stayed hidden or masked on the page, so nothing was read")
+	// errKeyPageSlow is a key page that never settled on an address in time.
+	errKeyPageSlow = errors.New("the key page did not load in time")
 )
 
 // tokensNearLabel climbs from the node a row's accessible name belongs to,
@@ -160,7 +162,7 @@ func openKeyPage(caller context.Context, connection *cdp.Conn, provider keypages
 		case errors.Is(err, errPageChanging):
 			signedOutSince = time.Time{}
 		case err != nil && isWaitOver(ctx, caller):
-			return errors.New("the key page did not load in time")
+			return errKeyPageSlow
 		case err != nil:
 			return err
 		case isSignedIn && shown == account:
@@ -173,7 +175,7 @@ func openKeyPage(caller context.Context, connection *cdp.Conn, provider keypages
 			return ErrSignedOut
 		}
 		if err := sleep(ctx, keyPoll); err != nil {
-			return errors.New("the key page did not load in time")
+			return errKeyPageSlow
 		}
 	}
 }
