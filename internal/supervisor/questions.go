@@ -404,7 +404,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", false, err
 	}
 	defer release()
-	seq, err := questionSeq(ref)
+	seq, err := QuestionSeq(ref)
 	if err != nil {
 		return "", false, err
 	}
@@ -527,7 +527,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 		return "", fmt.Errorf("--record-only takes the question's ID, such as notify-<task>-<sequence>, not the wake sequence %s", id)
 	}
 	if strings.HasPrefix(id, "notify-") {
-		seq, err := questionSeq(id)
+		seq, err := QuestionSeq(id)
 		if err != nil {
 			return "", err
 		}
@@ -628,9 +628,9 @@ func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) 
 	return nil
 }
 
-// questionSeq reads the wake sequence a goblin question reference names: the
+// QuestionSeq reads the wake sequence a goblin question reference names: the
 // sequence itself, or the question's ID, notify-<task>-<sequence>.
-func questionSeq(ref string) (int, error) {
+func QuestionSeq(ref string) (int, error) {
 	seq, err := strconv.Atoi(ref)
 	if i := strings.LastIndexByte(ref, '-'); err != nil && strings.HasPrefix(ref, "notify-") && i > 0 {
 		seq, err = strconv.Atoi(ref[i+1:])

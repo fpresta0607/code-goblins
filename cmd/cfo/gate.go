@@ -452,12 +452,24 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	_, floor, err := verify.AdmissionLimits(store)
+	capacity, _, err := verify.AdmissionLimits(store)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	holding, waiting, err := verify.Line(store)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	// A line of two slots weighs each run's memory, so it shows what each
+	// is expected to use, and what each holder uses now.
+	isWeighed := capacity == 2
+	var headEstimate uint64
+	if len(waiting) > 0 {
+		headEstimate = waiting[0].Estimate
+	}
+	floor, err := verify.HeadFloor(store, headEstimate, 0)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -474,6 +486,9 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		if run.Budget > 0 {
 			line += fmt.Sprintf(" of its %s budget", run.Budget)
 		}
+		if isWeighed && run.Estimate > 0 {
+			line += fmt.Sprintf(", using %.1f GB of the %.1f GB it is expected to use", verify.Gigabytes(run.Used), verify.Gigabytes(run.Estimate))
+		}
 		fmt.Fprintln(stdout, line)
 		if run.Now != "" {
 			fmt.Fprintln(stdout, "  now: "+run.Now)
@@ -483,11 +498,14 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintln(stdout, "waiting:")
 	}
 	for place, run := range waiting {
-		lowest := ""
-		if run.IsLowPriority {
-			lowest = ", at the lowest priority"
+		line := fmt.Sprintf("%d. %s (pid %d), for %s", place+1, run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
+		if isWeighed && run.Estimate > 0 {
+			line += fmt.Sprintf(", expected to use %.1f GB", verify.Gigabytes(run.Estimate))
 		}
-		fmt.Fprintf(stdout, "%d. %s (pid %d), for %s%s\n", place+1, run.Who, run.PID, now.Sub(run.Since).Round(time.Second), lowest)
+		if run.IsLowPriority {
+			line += ", at the lowest priority"
+		}
+		fmt.Fprintln(stdout, line)
 	}
 	if available == nil {
 		fmt.Fprintln(stderr, "available memory cannot be read")

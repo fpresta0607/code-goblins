@@ -51,7 +51,9 @@ func TestFakeDockerProgram(t *testing.T) {
 			os.Exit(9)
 		}
 		pids := fmt.Sprintf("%d %d", os.Getpid(), child.Process.Pid)
-		if err := os.WriteFile(filepath.Join(folder, "build"), []byte(pids), 0o600); err != nil {
+		// Written whole, so the test never reads a file created but not yet
+		// written and takes it for a build that started nothing.
+		if err := fsx.AtomicWriteFile(filepath.Join(folder, "build"), []byte(pids)); err != nil {
 			os.Exit(9)
 		}
 		time.Sleep(20 * time.Second)

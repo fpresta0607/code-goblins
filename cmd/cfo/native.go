@@ -30,7 +30,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	f.SetOutput(stderr)
 	root := f.String("home", "", "fleet home")
 	dir := f.String("state", "", "fleet state")
-	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args[1:]) {
 		return 2
 	}
 	if *root == "" || *dir == "" {
@@ -169,7 +169,7 @@ func runNativeSetup(args []string, stdout, stderr io.Writer, runtime commandRunt
 	f := flag.NewFlagSet("hooks", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	dir := f.String("config-dir", "", "harness user configuration directory")
-	if err := f.Parse(args[2:]); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args[2:]) {
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

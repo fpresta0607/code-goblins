@@ -141,6 +141,29 @@ func TestTheSupervisorLogsALandingOfATrainItDidNotStartOnceFromItsRecord(t *test
 	}
 }
 
+// A cfo pr train started detached runs outside the registered CFO, and the
+// supervisor still logs what it landed as merged (#848): a build before #833
+// took the landing as a decision of the CFO's and refused it, "this process
+// does not run under the registered CFO".
+func TestTheSupervisorLogsALandingAskedByAProcessOutsideTheRegisteredCFO(t *testing.T) {
+	// Arrange
+	s, h, _ := asTheCFO(t)
+	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
+		t.Fatal(err)
+	}
+	writeTrain(t, h.State, landedTrain())
+	s.Options.PullRequestState = (&gitHubSays{state: map[string]string{landedPull: "MERGED"}}).read
+	registerElsewhere(t, h.State)
+
+	// Act
+	err := LogTrainLanding(h, "r-142332", landedPull)
+
+	// Assert
+	if merges := mergeLines(t, h.State); err != nil || len(merges) != 1 || merges[0].What != landedPull || merges[0].Outcome != afk.OutcomeMerged {
+		t.Fatalf("asked from outside the CFO = %v, merge lines = %+v, want the landing logged as merged", err, merges)
+	}
+}
+
 func TestTheSupervisorLogsNoLandingThatIsNotOnTheTrainsRecordOrNotMergedOnGitHub(t *testing.T) {
 	for name, tc := range map[string]struct {
 		train, url, state string

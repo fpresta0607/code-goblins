@@ -23,10 +23,10 @@ import (
 )
 
 // Room is the free memory and the free commit a dictation needs. The loaded
-// engine takes about a quarter of it until it has been idle a while, so
+// engine takes nearly half of it until it has been idle a while, so
 // dictation refuses only when the machine has no room at all, never because
 // the fleet is busy.
-const Room = 1 << 30
+const Room = 2 << 30
 
 // Part is one pinned download, the engine or the model: an archive, its
 // SHA-256 and size in bytes, and the files of it that are kept.
@@ -72,7 +72,7 @@ type NoRoom struct{ Available, Commit uint64 }
 
 func (e NoRoom) Error() string {
 	gigabytes := func(bytes uint64) float64 { return float64(bytes) / (1 << 30) }
-	return fmt.Sprintf("dictation needs 1 GB of free memory and 1 GB of free commit, and this PC has %.1f GB and %.1f GB", gigabytes(e.Available), gigabytes(e.Commit))
+	return fmt.Sprintf("dictation needs 2 GB of free memory and 2 GB of free commit, and this PC has %.1f GB and %.1f GB", gigabytes(e.Available), gigabytes(e.Commit))
 }
 
 var (

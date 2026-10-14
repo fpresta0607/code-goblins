@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/startwatch"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -86,7 +87,7 @@ func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 		watching.owners, watching.generations = startWatchOwners(stateDir)
 		watching.resting = map[string]startwatch.Rest{}
 		for _, owner := range watching.owners {
-			if rest, isResting := s.resting(owner.Meta); isResting {
+			if rest, isResting := s.resting(owner.Meta, now); isResting {
 				watching.resting[owner.Meta.ID] = rest
 			}
 		}
@@ -219,10 +220,26 @@ func startWatchOwners(stateDir string) ([]fleettree.Goblin, map[string]string) {
 }
 
 // resting is the goblin's report, when it reported done or failed and rests
-// since, by the rule the janitor's sweep reads a goblin at rest by.
-func (s *Service) resting(meta state.TaskMeta) (startwatch.Rest, bool) {
+// since, by the rule the janitor's sweep reads a goblin at rest by. A done
+// report is one pull request's, and a goblin that goes on with its task
+// waits on its own watchers and runs (fleettree.Tree.Waits): it rests only
+// once its board tree shows such a wait has shown nothing new for the busy
+// budget the monitor gives the same wait.
+func (s *Service) resting(meta state.TaskMeta, now time.Time) (startwatch.Rest, bool) {
 	if meta.ID == NativeCFOTerminal || janitor.AtRestSince(s.Store.Home.State, meta.ID).IsZero() {
 		return startwatch.Rest{}, false
+	}
+	s.mu.Lock()
+	tree, isRead := s.trees[meta.ID]
+	s.mu.Unlock()
+	if isRead && tree.Generation == meta.SpawnGen && now.Sub(tree.FetchedAt) <= evidenceFresh && len(tree.Waits()) > 0 {
+		latest := tree.ActivityAt()
+		if busy := tree.Busy(); busy.After(latest) {
+			latest = busy
+		}
+		if now.Sub(latest) < monitor.DefaultBusyTurnMax {
+			return startwatch.Rest{}, false
+		}
 	}
 	lines, err := s.statusTail(meta.ID)
 	if err != nil {

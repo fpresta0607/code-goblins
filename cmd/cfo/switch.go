@@ -30,7 +30,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	generation := flags.String("generation", "", "switch only the selected task session")
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
 	restart := flags.Bool("restart", false, "start the goblin's own harness, model and effort again on its conversation, onto any update of its harness")
-	if err := flags.Parse(args[1:]); err != nil {
+	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
 	if *restart && (*harnessName != "" || *model != "" || *effort != "") {

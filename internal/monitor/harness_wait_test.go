@@ -34,6 +34,8 @@ func TestAGoblinWaitingOnWorkItsHarnessReportsIsNotStale(t *testing.T) {
 		waits []string
 	}{
 		{"its screen waits on a background agent", waitingOnAgentPane, nil},
+		{"its screen counts a monitor", "● CI on dfe788b29 is underway; the merge waits for Run Tests and Build to finish.\n\n✻ Worked for 5m 15s · done 9:08 AM · 1 monitor still running\n\n> \n⏵⏵ bypass permissions on · PR #149 · 1 monitor · ← 2 agents · ↓ to manage", nil},
+		{"its screen counts shells and a monitor", "● The class batch is also queued, two places ahead of it in the line.\n\n✻ Baked for 28s · done 12:04 PM · 2 shells, 1 monitor\nstill running\n\n> \n⏵⏵ bypass permissions on · 2 shells, 1 monitor · …", nil},
 		{"its transcript has a monitor open", "● Watching CI with a monitor; I will pick it up when it reports.\n\n❯ ", []string{`monitor "CI checks for PR 421"`}},
 		{"its transcript has a background shell open", "● The suite runs in the background.\n\n❯ ", []string{`shell "go test ./..."`}},
 	} {

@@ -208,3 +208,32 @@ func TestNamedNamesEachTreeOnce(t *testing.T) {
 		t.Errorf("Named = %q, want five trees and how many more", got)
 	}
 }
+
+// A filter in a pipeline only passes on what the program before it writes,
+// so the loop is that program: on 2026-10-14 a goblin decoding each private
+// repository's workflow file with gh api ... | base64 -d woke the CFO as a
+// base64 loop, ten times in under two minutes, though each gh api named
+// another repository. A poll that runs the same program each time is still
+// a loop, told by that program.
+func TestAFilterInAPerRepositoryLoopIsNoLoopAndAPollStillIs(t *testing.T) {
+	// Arrange
+	var watch Watch
+	var findings []Finding
+
+	// Act: a reading every 10 seconds for two minutes, each seeing one
+	// iteration of each loop.
+	for reading := 0; reading < 12; reading++ {
+		pid := 3000 + 10*reading
+		fetch := started("cg-a", pid, "gh.exe", fmt.Sprintf("gh api repos/o/repo-%d/contents/.github/workflows/go.yml --jq .content", reading))
+		decode := started("cg-a", pid+1, "base64.exe", "base64 -d")
+		count := started("cg-a", pid+2, "grep.exe", "grep -c draft")
+		poll := started("cg-b", pid+3, "gh.exe", "gh pr checks 9")
+		match := started("cg-b", pid+4, "grep.exe", "grep -c pass")
+		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 10 * time.Second), CFO: "cfo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: []Process{fetch, decode, count, poll, match}})...)
+	}
+
+	// Assert
+	if len(findings) != 1 || findings[0].Owner != "cg-b" || !strings.Contains(findings[0].Detail, "start_loop: cg-b started gh.exe 10 times") {
+		t.Fatalf("findings = %q, want cg-b's poll once, by gh", details(findings))
+	}
+}

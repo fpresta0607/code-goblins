@@ -2,6 +2,7 @@ package fleettree
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -309,5 +310,47 @@ func TestReadAsksNothingOfATreeOlderThanTheGoblinsHarness(t *testing.T) {
 	}
 	if asked[700] != 0 || asked[701] != 0 {
 		t.Errorf("asked whose the older tree's processes are %v, want never", asked)
+	}
+}
+
+// A run a goblin started in the machine's heavy line with cfo gate turn
+// --detach waits there, hidden and detached, and tells the goblin how it
+// ended, so the goblin waits on it by design while it waits in line or holds
+// the turn: on 2026-10-14 a goblin's run waited 50 minutes behind another.
+// It is a wait whatever its processor use, and a server left detached is
+// none.
+func TestReadNamesADetachedHeavyLineRunAsAWait(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	later := func(minutes int) time.Time { return launched.Add(time.Duration(minutes) * time.Minute) }
+	processes := append(goblinProcesses(launched, 0),
+		Process{PID: 300, ParentPID: 904, Exe: "goblins.exe", Created: 30, Started: later(50), Memory: 20 * megabyte},
+		Process{PID: 310, ParentPID: 905, Exe: "bash.exe", Created: 31, Started: later(51), Memory: megabyte},
+		Process{PID: 311, ParentPID: 310, Exe: "node.exe", Created: 32, Started: later(51), Memory: 99 * megabyte},
+	)
+	commands := maps.Clone(goblinCommands)
+	commands[300] = `C:\dev\code-goblins\bin\goblins.exe gate turn --detached -- go test ./internal/...`
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes, nil },
+		Listeners:   func() (map[int][]int, error) { return map[int][]int{311: {47391}}, nil },
+		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+		Owner:       func(pid int) string { return map[int]string{300: "tree", 311: "tree"}[pid] },
+		Now:         func() time.Time { return at },
+	}
+
+	// Act
+	tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	waits := tree.Waits()
+	if !slices.ContainsFunc(waits, func(wait string) bool { return strings.HasPrefix(wait, "heavy run ") }) {
+		t.Errorf("Waits() = %v, want the run waiting in the heavy line", waits)
+	}
+	if slices.ContainsFunc(waits, func(wait string) bool { return strings.Contains(wait, "47391") || strings.Contains(wait, "node") }) {
+		t.Errorf("Waits() = %v, want no detached server", waits)
 	}
 }

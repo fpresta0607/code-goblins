@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -1597,6 +1598,63 @@ func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	waiter := fmt.Sprintf("1. a run that waits (pid %d), for ", os.Getpid())
 	if len(lines) != 4 || lines[0] != "turn: free" || lines[1] != "waiting:" || !strings.HasPrefix(lines[2], waiter) || lines[3] != "memory: 1.0 GB physical and 16.0 GB commit are available; both require the 4.0 GB floor" {
 		t.Errorf("cfo gate turns printed %q; want the turn free, the one waiting run, then the memory the machine is short of", lines)
+	}
+}
+
+// At two slots each run's memory is weighed, so cfo gate turns shows what a
+// holder uses of what it is expected to use, what a waiting run is expected
+// to use, and the weighed floor the head waits for: here the holder's
+// remaining 2 GiB, the head's 6 GiB and the 2 GiB desktop reserve. One
+// slot's flat floor weighs nothing, so its line shows none of it.
+func TestGateTurnsShowsEachRunsMemoryWhereItIsWeighed(t *testing.T) {
+	for capacity, want := range map[int][]string{
+		1: {
+			`^turn: a holder \(pid \d+\), for \d+s$`,
+			`^waiting:$`,
+			`^1\. a run that waits \(pid \d+\), for \d+s$`,
+		},
+		2: {
+			`^turn: a holder \(pid \d+\), for \d+s, using 1\.0 GB of the 3\.0 GB it is expected to use$`,
+			`^waiting:$`,
+			`^1\. a run that waits \(pid \d+\), for \d+s, expected to use 6\.0 GB$`,
+			`^memory: 8\.0 GB physical and 8\.0 GB commit are available; both require the 10\.0 GB floor$`,
+		},
+	} {
+		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
+			// Arrange
+			store := t.TempDir()
+			t.Setenv("CFO_VERIFY_DIR", store)
+			slots := filepath.Join(store, "slots")
+			if err := os.MkdirAll(slots, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(slots, "capacity.json"), []byte(fmt.Sprintf(`{"capacity":%d}`, capacity)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			holder, err := verify.Admission{Dir: slots, Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Who: "a holder", Estimate: 3 << 30, Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = holder.Release() })
+			holder.Measure(1 << 30)
+			waitInLine(t, verify.Admission{Dir: slots, Floor: 4 << 30, Available: func() (uint64, error) { return 8 << 30, nil }, Who: "a run that waits", Estimate: 6 << 30, Limit: time.Minute, Poll: 10 * time.Millisecond})
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := gateTurns(func() (supervisor.Memory, error) {
+				return supervisor.Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil
+			}, &stdout, &stderr)
+
+			// Assert
+			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+			isShown := exit == 0 && len(lines) == len(want)
+			for i := 0; isShown && i < len(want); i++ {
+				isShown = regexp.MustCompile(want[i]).MatchString(lines[i])
+			}
+			if !isShown {
+				t.Errorf("exit=%d, cfo gate turns printed %q, stderr %q; want lines matching %q", exit, lines, stderr.String(), want)
+			}
+		})
 	}
 }
 

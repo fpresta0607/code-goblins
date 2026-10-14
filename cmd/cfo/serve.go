@@ -89,7 +89,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	f.SetOutput(stderr)
 	address := f.String("listen", boardAddress(), "loopback address for the native board")
 	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	if !loopbackAddress(*address) {

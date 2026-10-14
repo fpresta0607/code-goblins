@@ -147,9 +147,17 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 				t.Fatal("fixture did not start")
 			}
 			exitFailures := make(chan error, 1)
-			_, err := terminate(t.Context(), Identity{PID: child.Process.Pid, Started: started}, func(windows.Handle, uint32) error {
+			_, err := terminate(t.Context(), Identity{PID: child.Process.Pid, Started: started}, func(handle windows.Handle, _ uint32) error {
 				if testCase.isExiting && testCase.exitDelay == 0 {
-					exitFailures <- child.Process.Kill()
+					// Kill only starts the exit, so the process has exited
+					// during the call only once its handle is signaled.
+					err := child.Process.Kill()
+					if err == nil {
+						if event, waitErr := windows.WaitForSingleObject(handle, uint32((10 * time.Second).Milliseconds())); waitErr != nil || event != windows.WAIT_OBJECT_0 {
+							err = fmt.Errorf("the killed fixture did not exit: %d, %v", event, waitErr)
+						}
+					}
+					exitFailures <- err
 				} else if testCase.isExiting {
 					go func() {
 						time.Sleep(testCase.exitDelay)

@@ -36,7 +36,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -155,6 +155,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		return exitNoTurn
 	}
 	executor.Admission.IsLowPriority = request.isLowPriority
+	executor.Admission.Estimate = request.memory
 	// The command writes to this run's own output, which a process's always
 	// is a file of, so it sees what this run's caller gives it, console or
 	// pipe, and the caller keeps what it writes.
@@ -270,6 +271,11 @@ type gateTurnRequest struct {
 	// isLowPriority has the run wait at the lowest priority, behind every
 	// other run that waits, whenever that one joined.
 	isLowPriority bool
+	// memory, when set, is the most memory, in bytes, the run is expected
+	// to use, which the line weighs when it has two slots, and memoryText
+	// how it was given.
+	memory     uint64
+	memoryText string
 	// detachLog, when set, asks for the run to be started detached and
 	// hidden, its output appended to this file.
 	detachLog string
@@ -291,7 +297,13 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			at++
 			waitText, isWaitGiven = args[at], true
 		}
-		// A duration just taken is read as one first, however it is spelled.
+		memoryText, isMemoryGiven := strings.CutPrefix(args[at], "--memory=")
+		if args[at] == "--memory" && at+1 < len(args) && args[at+1] != "--" {
+			at++
+			memoryText, isMemoryGiven = args[at], true
+		}
+		// A duration or a size just taken is read as one first, however it
+		// is spelled.
 		switch {
 		case isWaitGiven:
 			wait, err := time.ParseDuration(waitText)
@@ -299,6 +311,12 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 				return gateTurnRequest{}, fmt.Errorf("--wait takes a duration over nothing, as 30s, not %q", waitText)
 			}
 			request.wait = wait
+		case isMemoryGiven:
+			memory, err := parseMemory(memoryText)
+			if err != nil {
+				return gateTurnRequest{}, err
+			}
+			request.memory, request.memoryText = memory, memoryText
 		case args[at] == "--":
 			if at+1 == len(args) {
 				return gateTurnRequest{}, errors.New("no command follows --")
@@ -321,6 +339,8 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			return gateTurnRequest{}, errors.New("--wait is given no duration")
 		case args[at] == "--low-priority":
 			request.isLowPriority = true
+		case args[at] == "--memory":
+			return gateTurnRequest{}, errors.New("--memory is given no size")
 		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
 			at++
 			request.detachLog = args[at]
@@ -333,6 +353,47 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 		}
 	}
 	return gateTurnRequest{}, errors.New("no -- comes before a command")
+}
+
+// parseMemory reads a size of memory over nothing in GiB or MiB, as 7GiB or
+// 512MiB.
+func parseMemory(text string) (uint64, error) {
+	for _, unit := range []struct {
+		suffix string
+		bytes  float64
+	}{{"GiB", 1 << 30}, {"MiB", 1 << 20}} {
+		number, isUnit := strings.CutSuffix(text, unit.suffix)
+		if !isUnit {
+			continue
+		}
+		value, err := strconv.ParseFloat(number, 64)
+		if err != nil || !(value > 0 && value*unit.bytes < 1<<50) {
+			break
+		}
+		return uint64(value * unit.bytes), nil
+	}
+	return 0, fmt.Errorf("--memory takes a size over nothing in GiB or MiB, as 7GiB, not %q", text)
+}
+
+// detachedArguments are the arguments, after the program and its leading
+// ones, that start the run request asks for as the detached run. Each value
+// goes in one argument, so one that starts with a dash is never read as a
+// flag.
+func detachedArguments(request gateTurnRequest) []string {
+	args := []string{"--detached"}
+	if request.as != "" {
+		args = append(args, "--as="+request.as)
+	}
+	if request.wait > 0 {
+		args = append(args, "--wait="+request.wait.String())
+	}
+	if request.memoryText != "" {
+		args = append(args, "--memory="+request.memoryText)
+	}
+	if request.isLowPriority {
+		args = append(args, "--low-priority")
+	}
+	return append(append(args, "--"), request.command...)
 }
 
 // detachGateTurn starts the run request asks for as a process of its own in
@@ -359,19 +420,7 @@ func detachGateTurn(request gateTurnRequest, dir string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: it could not be started detached: %v\n", err)
 		return exitNoTurn
 	}
-	args := append(append([]string(nil), self[1:]...), "--detached")
-	// Each value goes in one argument, so one that starts with a dash is
-	// never read as a flag.
-	if request.as != "" {
-		args = append(args, "--as="+request.as)
-	}
-	if request.wait > 0 {
-		args = append(args, "--wait="+request.wait.String())
-	}
-	if request.isLowPriority {
-		args = append(args, "--low-priority")
-	}
-	args = append(append(args, "--"), request.command...)
+	args := append(append([]string(nil), self[1:]...), detachedArguments(request)...)
 	command, err := startDetached(self[0], dir, log, args...)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: it could not be started detached: %v\n", err)

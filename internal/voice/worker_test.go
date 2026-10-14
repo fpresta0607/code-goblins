@@ -323,7 +323,7 @@ func TestTheEngineIsEndedWhenThereIsNoRoomOrNothingToRun(t *testing.T) {
 			t.Fatal(err)
 		}
 		loaded := current(t, voice)
-		want := "1 GB"
+		want := "2 GB"
 		switch failure {
 		case "memory under the mark":
 			voice.Memory = func() (uint64, uint64, error) { return Room - 1, 8 << 30, nil }

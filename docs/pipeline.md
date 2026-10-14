@@ -362,7 +362,11 @@ Activating capacity two requires a separately reviewed quiet window with no lega
 An unreadable or invalid setting, or any nonempty `CFO_VERIFY_SLOTS` process setting, refuses admission.
 Only test binaries can use explicitly isolated admission stores.
 
-A command also waits while either physical or commit availability is under the shared floor: 4 GiB at capacity one or 8 GiB at capacity two.
+A command also waits while either physical or commit availability is under the shared floor.
+At capacity one the floor is 4 GiB.
+At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
+A run's expected memory is what `cfo gate turn --memory` declares, or 2.5 GiB without it, and a run's card in the line carries it with what the run commits, measured as it runs.
+A run behind the head never passes it, however well a smaller run would fit.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
 
 While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
@@ -378,6 +382,7 @@ It tries again within its admission's limit, an hour for `cfo gate test` and `cf
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked and behind every other, and the memory when the machine is short of it.
+At capacity two it also shows what each run is expected to use and what each holder uses now.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
@@ -408,7 +413,7 @@ A store failure prevents commands from starting.
 `cfo gate test`, `cfo gate prepush` and `cfo gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-cfo gate turn [--as <name>] [--wait <duration>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `cfo`'s, and everything after it is the command's, its own flags and a `--` of its own included.
@@ -416,6 +421,8 @@ Everything before `--` is `cfo`'s, and everything after it is the command's, its
 `--as <name>` names the run to whoever reads the line.
 `--wait <duration>` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125 with a last line that says so, and once it has its turn the wait no longer counts, so its command runs until it ends.
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn, as the desktop's CI jobs wait, and `cfo gate turns` marks it.
+`--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
+Without it a run is expected to use 2.5 GiB.
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
 `cfo` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `cfo gate test`.

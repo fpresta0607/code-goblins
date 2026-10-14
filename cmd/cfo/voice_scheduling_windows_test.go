@@ -56,3 +56,26 @@ func TestTheVoiceWorkerAsksNotToBeThrottled(t *testing.T) {
 		t.Fatalf("the voice worker's power policy is %+v, want execution speed controlled and not throttled", policy)
 	}
 }
+
+// The install runs `cfo dictation setup` as a child with no window of its
+// own, which Windows throttles the same way: unpacking the pinned model's
+// 482 MB archive took 480 s throttled and 57 s not. So the setup asks for the
+// scheduling cfo serve asks for, before anything else.
+func TestDictationSetupAsksNotToBeThrottled(t *testing.T) {
+	// Arrange
+	left := powerPolicy{Version: 1}
+	if result, _, err := setProcessInformation.Call(uintptr(windows.CurrentProcess()), processPowerThrottling, uintptr(unsafe.Pointer(&left)), unsafe.Sizeof(left)); result == 0 {
+		t.Fatalf("leave this process's power policy to Windows: %v", err)
+	}
+	if policy := currentPowerPolicy(t); policy.ControlMask&executionSpeed != 0 {
+		t.Fatalf("the policy was not left to Windows: %+v", policy)
+	}
+
+	// Act
+	run([]string{"dictation"}, &bytes.Buffer{}, &bytes.Buffer{})
+
+	// Assert
+	if policy := currentPowerPolicy(t); policy.ControlMask&executionSpeed == 0 || policy.StateMask&executionSpeed != 0 {
+		t.Fatalf("dictation setup's power policy is %+v, want execution speed controlled and not throttled", policy)
+	}
+}
