@@ -10,7 +10,7 @@ import (
 var userData string
 
 // UserData is the VM's first boot settings, as cloud-init reads them from the
-// settings disk, with the runner pinned in pins.go.
+// seed DVD, with the runner pinned in pins.go.
 func UserData() (string, error) {
 	page, err := template.New("user-data").Option("missingkey=error").Parse(userData)
 	if err != nil {

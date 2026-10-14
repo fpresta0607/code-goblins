@@ -203,6 +203,10 @@ func TestConvertQCOW2RefusesWhatItCannotReadWhole(t *testing.T) {
 		}, want: "compression type 1"},
 		"an L1 table past the end": {header: func(h []byte) { binary.BigEndian.PutUint64(h[40:48], 1<<40) }, want: "runs past the image's end"},
 		"an L1 table too short":    {header: func(h []byte) { binary.BigEndian.PutUint32(h[36:40], 0) }, want: "L1 table ends before cluster"},
+		// A disk past the VM's own is refused before a byte is written, and
+		// one of the VM's size is read on, to its next check.
+		"a disk larger than the VM's": {header: func(h []byte) { binary.BigEndian.PutUint64(h[24:32], vmDiskSize+512) }, want: "larger than the VM's 64 GiB disk"},
+		"a disk the VM's size":        {header: func(h []byte) { binary.BigEndian.PutUint64(h[24:32], vmDiskSize) }, want: "L1 table ends before cluster"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

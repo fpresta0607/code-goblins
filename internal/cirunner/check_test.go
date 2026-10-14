@@ -67,7 +67,23 @@ func rightMachine() machine {
 			"the VM's folder":             "S-1-5-32-544",
 			"the program's folder":        "S-1-5-32-544",
 		},
+		VMGuards:   []string{"On On"},
+		VMRules:    rightRules(),
+		VMExchange: []string{"False"},
 	}
+}
+
+// rightRules are the VM's network rules as networkScript leaves them, as
+// Hyper-V lists them.
+func rightRules() []vmRule {
+	var rules []vmRule
+	for _, closed := range strings.Split(closedRanges, ",") {
+		rules = append(rules, vmRule{Action: "Deny", Direction: "Outbound", Remote: closed})
+	}
+	for _, port := range []string{"53", "53", "67"} {
+		rules = append(rules, vmRule{Action: "Allow", Direction: "Outbound", Port: port})
+	}
+	return rules
 }
 
 // What of the service, its account, its folder or its VM is not as the
@@ -92,6 +108,12 @@ func TestCheckMachineSaysWhatIsNotAsTheInstallLeftIt(t *testing.T) {
 		"an owner unread":                {change: func(m *machine) { delete(m.Owners, "the VM's folder") }, want: "5 of its 6 owners were read"},
 		"a program in Downloads":         {change: func(m *machine) { m.ServiceProgram = `C:\Users\u\Downloads\cg-ci-runner.exe` }, want: `it runs C:\Users\u\Downloads\cg-ci-runner.exe`},
 		"a program beside Program Files": {change: func(m *machine) { m.ServiceProgram = `C:\Program Files Evil\cg-ci-runner.exe` }, want: "Program Files Evil"},
+		"a VM open to the LAN":           {change: func(m *machine) { m.VMRules = m.VMRules[1:] }, want: "it closes 172.16.0.0/12"},
+		"a VM open to the host's files":  {change: func(m *machine) { m.VMRules = append(m.VMRules, vmRule{"Allow", "Outbound", "", "445"}) }, want: "opens 53, 53, 67, 445"},
+		"a VM that may answer as router": {change: func(m *machine) { m.VMGuards = []string{"On Off"} }, want: "its guards are On Off"},
+		"a VM with no network to read":   {change: func(m *machine) { m.VMGuards, m.VMRules = nil, nil }, want: "its guards are nothing, it closes nothing, and opens nothing"},
+		"a VM telling the host's name":   {change: func(m *machine) { m.VMExchange = []string{"True"} }, want: "its Enabled reads True"},
+		"an exchange unread":             {change: func(m *machine) { m.VMExchange = nil }, want: "its Enabled reads nothing"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

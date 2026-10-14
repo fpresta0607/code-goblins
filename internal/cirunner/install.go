@@ -38,7 +38,20 @@ const (
 	// folder is: the image, its conversion, and room for the VM's disk to
 	// grow.
 	minimumFree = 40 << 30
+	// vmDiskSize is the VM's disk, as diskScript sizes it, and the largest
+	// disk an image may hold.
+	vmDiskSize = 64 << 30
 )
+
+// closedRanges are the addresses a job may reach by DNS and DHCP alone: the
+// host and its LAN, the fleet's tailnet, and the link-local addresses the
+// host's own services answer on.
+const closedRanges = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16,fc00::/7,fe80::/10"
+
+// exchangeID ends the Id of the VM's Key-Value Pair Exchange, the integration
+// service that tells the guest the host's name and build, whatever Windows'
+// language names it.
+const exchangeID = `\2A34B1C2-FD73-4043-8A5B-DD2159BC743F`
 
 // Step is one step of the install or the uninstall: what it does, what it
 // runs, exactly, for a dry run to show, and the run itself.
@@ -126,24 +139,39 @@ New-HeldFolder $env:CG_CI_DIR ('O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI
 	diskScript = `Convert-VHD -Path $env:CG_CI_VHD -DestinationPath $env:CG_CI_DISK -VHDType Dynamic
 Resize-VHD -Path $env:CG_CI_DISK -SizeBytes 64GB
 Remove-Item -LiteralPath $env:CG_CI_VHD, $env:CG_CI_IMAGE`
-	settingsScript = `$null = New-VHD -Path $env:CG_CI_SETTINGS -SizeBytes 64MB -Dynamic
-$volume = Mount-VHD -Path $env:CG_CI_SETTINGS -Passthru | Get-Disk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem FAT32 -NewFileSystemLabel 'cidata' -Confirm:$false
-Copy-Item -Path (Join-Path $env:CG_CI_SETTINGS_FILES '*') -Destination ($volume.DriveLetter + ':\')
-Dismount-VHD -Path $env:CG_CI_SETTINGS`
 	vmScript = `$vm = New-VM -Name '` + VMName + `' -Generation 2 -MemoryStartupBytes 2GB -VHDPath $env:CG_CI_DISK -Path $env:CG_CI_VM -SwitchName 'Default Switch'
 Set-VMMemory -VM $vm -DynamicMemoryEnabled $true -MinimumBytes 2GB -StartupBytes 2GB -MaximumBytes 6GB
 Set-VMProcessor -VM $vm -Count 4
 Set-VMFirmware -VM $vm -EnableSecureBoot On -SecureBootTemplate 'MicrosoftUEFICertificateAuthority' -FirstBootDevice (Get-VMHardDiskDrive -VM $vm -ControllerNumber 0 -ControllerLocation 0)
-Add-VMDvdDrive -VM $vm
-Add-VMHardDiskDrive -VM $vm -Path $env:CG_CI_SETTINGS
+Add-VMDvdDrive -VM $vm -Path $env:CG_CI_SEED
+$exchange = @(Get-VMIntegrationService -VM $vm | Where-Object { $_.Id -like '*` + exchangeID + `' })
+if ($exchange.Count -ne 1) { throw ('the VM has ' + $exchange.Count + ' Key-Value Pair Exchange services, not 1, so the install cannot turn it off') }
+$exchange | Disable-VMIntegrationService
 Set-VM -VM $vm -CheckpointType Standard -AutomaticCheckpointsEnabled $false -AutomaticStartAction Nothing -AutomaticStopAction TurnOff`
-	checkpointScript = `Get-VMHardDiskDrive -VMName '` + VMName + `' | Where-Object { $_.Path -eq $env:CG_CI_SETTINGS } | Remove-VMHardDiskDrive
-Remove-Item -LiteralPath $env:CG_CI_SETTINGS
+	// networkScript lets the VM's jobs reach the internet, and DNS and DHCP
+	// anywhere, and nothing else in closedRanges, and keeps the VM from
+	// answering as a DHCP server or a router. The rules are the VM's own,
+	// kept with its checkpoint.
+	networkScript = `Set-VMNetworkAdapter -VMName '` + VMName + `' -DhcpGuard On -RouterGuard On
+$weight = 1
+foreach ($range in '` + closedRanges + `'.Split(',')) {
+    Add-VMNetworkAdapterExtendedAcl -VMName '` + VMName + `' -Action Deny -Direction Outbound -RemoteIPAddress $range -Weight $weight
+    $weight++
+}
+$weight = 100
+foreach ($open in 'UDP 53', 'TCP 53', 'UDP 67') {
+    $protocol, $port = $open.Split(' ')
+    Add-VMNetworkAdapterExtendedAcl -VMName '` + VMName + `' -Action Allow -Direction Outbound -Protocol $protocol -RemotePort $port -Weight $weight
+    $weight++
+}`
+	checkpointScript = `Set-VMDvdDrive -VMName '` + VMName + `' -Path $null
+Remove-Item -LiteralPath $env:CG_CI_SEED
 Checkpoint-VM -Name '` + VMName + `' -SnapshotName '` + CleanCheckpoint + `'`
 	serviceScript = `$null = New-Service -Name '` + ServiceName + `' -BinaryPathName ('"' + $env:CG_CI_PROGRAM + '" service') -DisplayName 'Code Goblins desktop CI runner' -StartupType Automatic
-& sc.exe sidtype ` + ServiceName + ` unrestricted
+$sc = Join-Path $env:SystemRoot 'System32\sc.exe'
+& $sc sidtype ` + ServiceName + ` unrestricted
 if ($LASTEXITCODE -ne 0) { throw ('sc.exe sidtype failed with exit ' + $LASTEXITCODE) }
-& sc.exe config ` + ServiceName + ` obj= 'NT SERVICE\` + ServiceName + `'
+& $sc config ` + ServiceName + ` obj= 'NT SERVICE\` + ServiceName + `'
 if ($LASTEXITCODE -ne 0) { throw ('sc.exe config failed with exit ' + $LASTEXITCODE) }
 Add-LocalGroupMember -SID 'S-1-5-32-578' -Member ('NT SERVICE\` + ServiceName + `')`
 	startScript = `Start-Service -Name '` + ServiceName + `'`
@@ -157,14 +185,12 @@ func InstallSteps(o InstallOptions) []Step {
 	image := filepath.Join(downloads, "disk.img")
 	vhd := filepath.Join(downloads, "disk.vhd")
 	disk := filepath.Join(vmDir, "disk.vhdx")
-	settings := filepath.Join(vmDir, "settings.vhdx")
-	settingsFiles := filepath.Join(vmDir, "settings")
+	seed := filepath.Join(vmDir, "seed.iso")
 	checkEnv := []string{"CG_CI_DIR=" + o.Dir, "CG_CI_ROOT=" + filepath.VolumeName(o.Dir) + `\`, "CG_CI_FREE=" + strconv.Itoa(minimumFree)}
 	folderEnv := []string{"CG_CI_DIR=" + o.Dir, "CG_CI_SERVICE_SID=" + ServiceSID(ServiceName)}
 	diskEnv := []string{"CG_CI_VHD=" + vhd, "CG_CI_DISK=" + disk, "CG_CI_IMAGE=" + image}
-	settingsEnv := []string{"CG_CI_SETTINGS=" + settings, "CG_CI_SETTINGS_FILES=" + settingsFiles}
-	vmEnv := []string{"CG_CI_DISK=" + disk, "CG_CI_VM=" + vmDir, "CG_CI_SETTINGS=" + settings}
-	checkpointEnv := []string{"CG_CI_SETTINGS=" + settings}
+	vmEnv := []string{"CG_CI_DISK=" + disk, "CG_CI_VM=" + vmDir, "CG_CI_SEED=" + seed}
+	checkpointEnv := []string{"CG_CI_SEED=" + seed}
 	serviceEnv := []string{"CG_CI_PROGRAM=" + o.Program}
 	vm := HyperV{Commands: o.Commands}
 	steps := []Step{
@@ -210,19 +236,19 @@ func InstallSteps(o InstallOptions) []Step {
 			},
 		},
 		{
-			Title: "write the first boot's settings",
-			Says:  append([]string{"write user-data and meta-data to " + settingsFiles}, scriptSays(settingsScript, settingsEnv...)...),
-			Run: func(ctx context.Context) error {
-				if err := writeFirstBoot(settingsFiles); err != nil {
-					return err
-				}
-				return runScript(o.Commands, "write the first boot's settings", settingsScript, settingsEnv...)(ctx)
-			},
+			Title: "write the first boot's settings to its DVD",
+			Says:  []string{"write user-data and meta-data to " + seed + ", an ISO 9660 image labelled CIDATA, which only the VM mounts"},
+			Run:   func(context.Context) error { return BuildSeed(seed) },
 		},
 		{
 			Title: "create the VM",
 			Says:  scriptSays(vmScript, vmEnv...),
 			Run:   runScript(o.Commands, "create the VM", vmScript, vmEnv...),
+		},
+		{
+			Title: "close the VM's network to the host and the LAN, but for DNS and DHCP",
+			Says:  scriptSays(networkScript),
+			Run:   runScript(o.Commands, "close the VM's network", networkScript),
 		},
 		{
 			Title: "first boot and its checkpoint",
@@ -330,22 +356,6 @@ func checkSHA256(path, want string) error {
 	return nil
 }
 
-// writeFirstBoot writes the VM's first boot settings, user-data and
-// meta-data, to dir.
-func writeFirstBoot(dir string) error {
-	data, err := UserData()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, "user-data"), []byte(data), 0o600); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "meta-data"), []byte(MetaData), 0o600)
-}
-
 // waitForFirstBoot starts the VM and waits, within limit, for its first boot to
 // power it off, which only a setup run to its end does.
 func waitForFirstBoot(ctx context.Context, vm Hypervisor, sleep func(context.Context, time.Duration), limit time.Duration) error {
@@ -423,8 +433,9 @@ func ready(ctx context.Context, ask func(context.Context, Request, func(Reply)) 
 	}
 }
 
-// DownloadFile fetches url to path with client, refusing any answer but 200.
-func DownloadFile(ctx context.Context, client *http.Client, url, path string) (failure error) {
+// DownloadFile fetches url to path with client, refusing any answer but 200,
+// and any of more than limit bytes, of which it keeps nothing.
+func DownloadFile(ctx context.Context, client *http.Client, url, path string, limit int64) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -434,14 +445,23 @@ func DownloadFile(ctx context.Context, client *http.Client, url, path string) (f
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
+	tooLarge := fmt.Errorf("cirunner: %s sent more than its %d bytes", url, limit)
+	switch {
+	case response.StatusCode != http.StatusOK:
 		return fmt.Errorf("%s answered HTTP %d", url, response.StatusCode)
+	case response.ContentLength > limit:
+		return tooLarge
 	}
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer func() { failure = errors.Join(failure, file.Close()) }()
-	_, err = io.Copy(file, response.Body)
-	return err
+	written, err := io.Copy(file, io.LimitReader(response.Body, limit+1))
+	if err == nil && written > limit {
+		err = tooLarge
+	}
+	if err = errors.Join(err, file.Close()); err != nil {
+		return errors.Join(err, os.Remove(path))
+	}
+	return nil
 }

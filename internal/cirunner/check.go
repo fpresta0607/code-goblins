@@ -43,6 +43,9 @@ $acl = Get-Acl -LiteralPath $env:CG_CI_DIR
   vm_processors = [int]$vm.ProcessorCount
   vm_memory_maximum = [int64]$vm.MemoryMaximum
   is_checkpoint = [bool](Get-VMSnapshot -VMName '` + VMName + `' -Name '` + CleanCheckpoint + `' -ErrorAction SilentlyContinue)
+  vm_guards = @(if ($vm) { Get-VMNetworkAdapter -VM $vm | ForEach-Object { [string]$_.DhcpGuard + ' ' + [string]$_.RouterGuard } })
+  vm_rules = @(if ($vm) { Get-VMNetworkAdapterExtendedAcl -VM $vm | ForEach-Object { [pscustomobject]@{ action = [string]$_.Action; direction = [string]$_.Direction; remote = [string]$_.RemoteIPAddress; port = [string]$_.RemotePort } } })
+  vm_exchange = @(if ($vm) { Get-VMIntegrationService -VM $vm | Where-Object { $_.Id -like '*` + exchangeID + `' } | ForEach-Object { [string]$_.Enabled } })
   is_folder_inheriting = -not $acl.AreAccessRulesProtected
   folder_access = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value })
   service_program = $program
@@ -72,6 +75,20 @@ type machine struct {
 	// each of the folders and files the service trusts, by what it is.
 	ServiceProgram string            `json:"service_program"`
 	Owners         map[string]string `json:"owners"`
+	// VMGuards are each of the VM's adapters' DHCP and router guards, VMRules
+	// its network rules, and VMExchange whether its Key-Value Pair Exchange
+	// is on, each as Hyper-V lists them.
+	VMGuards   []string `json:"vm_guards"`
+	VMRules    []vmRule `json:"vm_rules"`
+	VMExchange []string `json:"vm_exchange"`
+}
+
+// vmRule is one of the VM's network rules.
+type vmRule struct {
+	Action    string `json:"action"`
+	Direction string `json:"direction"`
+	Remote    string `json:"remote"`
+	Port      string `json:"port"`
 }
 
 // CheckOptions are what the check reads: the service's folder and its one
@@ -144,6 +161,17 @@ func checkMachine(found machine, programFiles string) []Finding {
 		owned = append(owned, fmt.Sprintf("%d of its 6 owners were read", len(found.Owners)))
 	}
 	relative, relErr := filepath.Rel(programFiles, found.ServiceProgram)
+	var closed, opened []string
+	for _, rule := range found.VMRules {
+		switch {
+		case rule.Direction != "Outbound":
+		case rule.Action == "Deny":
+			closed = append(closed, rule.Remote)
+		case rule.Action == "Allow":
+			opened = append(opened, rule.Port)
+		}
+	}
+	isNetworkClosed := slices.Equal(found.VMGuards, []string{"On On"}) && slices.Equal(slices.Sorted(slices.Values(closed)), slices.Sorted(strings.SplitSeq(closedRanges, ","))) && slices.Equal(slices.Sorted(slices.Values(opened)), []string{"53", "53", "67"})
 	return []Finding{
 		finding("the service runs", found.ServiceState == "Running", "it is "+orNothing(found.ServiceState)),
 		finding("the service runs as NT SERVICE\\"+ServiceName, strings.EqualFold(found.ServiceAccount, "NT SERVICE\\"+ServiceName), "it runs as "+orNothing(found.ServiceAccount)),
@@ -153,6 +181,8 @@ func checkMachine(found machine, programFiles string) []Finding {
 		finding("the service runs its program from "+programFiles, found.ServiceProgram != "" && relErr == nil && filepath.IsLocal(relative), "it runs "+orNothing(found.ServiceProgram)),
 		finding("the VM "+VMName+" is here, generation 2, with 4 processors and 6 GB at most", found.IsVM && found.VMGeneration == 2 && found.VMProcessors == 4 && found.VMMemoryMaximum == 6<<30, fmt.Sprintf("is here %v, generation %d, %d processors, %d bytes at most", found.IsVM, found.VMGeneration, found.VMProcessors, found.VMMemoryMaximum)),
 		finding("the VM's "+CleanCheckpoint+" checkpoint is here", found.IsCheckpoint, "it is not"),
+		finding("the VM's jobs reach the host and the LAN by DNS and DHCP alone, and the VM may not answer as a DHCP server or a router", isNetworkClosed, fmt.Sprintf("its guards are %s, it closes %s, and opens %s", orNothing(strings.Join(found.VMGuards, ", ")), orNothing(strings.Join(closed, ", ")), orNothing(strings.Join(opened, ", ")))),
+		finding("the VM's Key-Value Pair Exchange, which tells the VM the host's name, is off", slices.Equal(found.VMExchange, []string{"False"}), "its Enabled reads "+orNothing(strings.Join(found.VMExchange, ", "))),
 	}
 }
 

@@ -140,6 +140,8 @@ func openQCOW2(path string) (_ *qcow2Image, failure error) {
 		return nil, fmt.Errorf("cirunner: the image's clusters are 2^%d bytes, outside qcow2's 2^9 to 2^21", image.clusterBits)
 	case image.size == 0 || image.size%512 != 0:
 		return nil, fmt.Errorf("cirunner: the image's disk is %d bytes, not a whole number of sectors", image.size)
+	case image.size > vmDiskSize:
+		return nil, fmt.Errorf("cirunner: the image's disk is %d bytes, larger than the VM's 64 GiB disk", image.size)
 	case incompatible&^qcow2KnownIncompatible != 0:
 		return nil, fmt.Errorf("cirunner: the image needs features %#x this converter does not know", incompatible&^qcow2KnownIncompatible)
 	case incompatible&(qcow2Dirty|qcow2Corrupt) != 0:

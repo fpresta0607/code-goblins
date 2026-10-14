@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -63,8 +64,9 @@ func TestInstallStepsInTheirOrder(t *testing.T) {
 		"make the service's folder, owned by Administrators, which only SYSTEM, Administrators and the service may open",
 		"download and check the image",
 		"make the disk",
-		"write the first boot's settings",
+		"write the first boot's settings to its DVD",
 		"create the VM",
+		"close the VM's network to the host and the LAN, but for DNS and DHCP",
 		"first boot and its checkpoint",
 		"create the service and its account",
 		"keep the App's settings and key",
@@ -137,7 +139,7 @@ func TestDryRunNamesEveryStepAndChangesNothing(t *testing.T) {
 			}
 		}
 	}
-	for _, script := range []string{checkScript, folderScript, diskScript, settingsScript, vmScript, checkpointScript, serviceScript, startScript} {
+	for _, script := range []string{checkScript, folderScript, diskScript, vmScript, networkScript, checkpointScript, serviceScript, startScript} {
 		for _, line := range strings.Split(script, "\n") {
 			if !strings.Contains(said, "    "+line+"\n") {
 				t.Errorf("the dry run did not say the script line %q", line)
@@ -169,13 +171,13 @@ func TestInstallScriptsTakeTheirPathsFromTheEnvironment(t *testing.T) {
 	steps := InstallSteps(options)
 
 	// Act
-	for _, index := range []int{0, 1, 5, 7, 9} {
+	for _, index := range []int{0, 1, 5, 6, 8, 10} {
 		_ = steps[index].Run(context.Background())
 	}
 
 	// Assert
-	if len(commands.ran) != 5 {
-		t.Fatalf("ran %d scripts; want the 5 steps' scripts", len(commands.ran))
+	if len(commands.ran) != 6 {
+		t.Fatalf("ran %d scripts; want the 6 steps' scripts", len(commands.ran))
 	}
 	for _, request := range commands.ran {
 		if strings.Contains(script(request), options.Dir) || strings.Contains(script(request), options.Program) {
@@ -184,8 +186,8 @@ func TestInstallScriptsTakeTheirPathsFromTheEnvironment(t *testing.T) {
 	}
 	for index, want := range map[int]string{
 		1: "CG_CI_DIR=" + options.Dir,
-		2: "CG_CI_VM=" + filepath.Join(options.Dir, "vm"),
-		3: "CG_CI_PROGRAM=" + options.Program,
+		2: "CG_CI_SEED=" + filepath.Join(options.Dir, "vm", "seed.iso"),
+		4: "CG_CI_PROGRAM=" + options.Program,
 	} {
 		if !slices.Contains(commands.ran[index].Env, want) {
 			t.Errorf("script %d's environment lacks %q", index, want)
@@ -193,6 +195,34 @@ func TestInstallScriptsTakeTheirPathsFromTheEnvironment(t *testing.T) {
 	}
 	if !slices.Contains(commands.ran[1].Env, "CG_CI_SERVICE_SID="+ServiceSID(ServiceName)) {
 		t.Errorf("the folder's script does not name the service's SID")
+	}
+}
+
+// installAndUninstallScripts are every script the install and the uninstall
+// run, by what each does.
+var installAndUninstallScripts = map[string]string{"check": checkScript, "folder": folderScript, "disk": diskScript, "vm": vmScript, "network": networkScript, "checkpoint": checkpointScript, "service": serviceScript, "start": startScript, "remove the service": removeServiceScript, "remove the VM": removeVMScript, "remove the folder": removeFolderScript}
+
+// No script mounts a volume on the host: a mounted volume is open to every
+// program on it, which could change the VM's first boot settings before the
+// VM read them.
+func TestNoScriptMountsAVolumeOnTheHost(t *testing.T) {
+	for name, text := range installAndUninstallScripts {
+		for _, mounting := range []string{"Mount-VHD", "Mount-DiskImage", "AssignDriveLetter", "Add-PartitionAccessPath"} {
+			if strings.Contains(text, mounting) {
+				t.Errorf("the %s script runs %s", name, mounting)
+			}
+		}
+	}
+}
+
+// Every Windows tool a script runs is named by its path in Windows' own
+// folder, never by a name a search path finds.
+func TestScriptsRunWindowsToolsByTheirFullPath(t *testing.T) {
+	bare := regexp.MustCompile(`(?i)(^|[\s&;({])(sc|icacls)(\.exe)?\s`)
+	for name, text := range installAndUninstallScripts {
+		if found := bare.FindString(text); found != "" {
+			t.Errorf("the %s script runs %q by its name alone", name, strings.TrimSpace(found))
+		}
 	}
 }
 
@@ -378,7 +408,7 @@ func TestDownloadFileKeepsOnlyAnAnswerOf200(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "disk.img")
 
 			// Act
-			err := DownloadFile(context.Background(), server.Client(), server.URL, path)
+			err := DownloadFile(context.Background(), server.Client(), server.URL, path, 100)
 
 			// Assert
 			data, readErr := os.ReadFile(path)
@@ -387,6 +417,40 @@ func TestDownloadFileKeepsOnlyAnAnswerOf200(t *testing.T) {
 			}
 			if status != http.StatusOK && (err == nil || !strings.Contains(err.Error(), "HTTP 404") || readErr == nil) {
 				t.Errorf("DownloadFile = %v, kept %v; want HTTP 404 refused and nothing kept", err, readErr)
+			}
+		})
+	}
+}
+
+// A download past its limit is refused, and nothing of it is kept: one that
+// says its length first is refused before a byte of it is read, and one that
+// does not, once it has sent a byte past the limit.
+func TestDownloadFileRefusesMoreThanItsLimit(t *testing.T) {
+	for name, isLengthSaid := range map[string]bool{"a length said": true, "a length unsaid": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if !isLengthSaid {
+					w.(http.Flusher).Flush()
+					w.Write([]byte("the image!!"))
+					return
+				}
+				// A gibibyte said, and none sent until the download gives up.
+				w.Header().Set("Content-Length", "1073741824")
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			client := server.Client()
+			client.Timeout = 5 * time.Second
+			path := filepath.Join(t.TempDir(), "disk.img")
+
+			// Act
+			err := DownloadFile(context.Background(), client, server.URL, path, 10)
+
+			// Assert
+			if _, statErr := os.Stat(path); err == nil || !strings.Contains(err.Error(), "more than its 10 bytes") || !os.IsNotExist(statErr) {
+				t.Errorf("DownloadFile = %v, the file %v; want it refused and nothing kept", err, statErr)
 			}
 		})
 	}

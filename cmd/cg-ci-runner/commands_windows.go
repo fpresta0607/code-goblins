@@ -51,7 +51,7 @@ func thisMachine() (machine, error) {
 			return cirunner.Ask(ctx, cirunner.PipeName, request, reply)
 		},
 		download: func(ctx context.Context, url, path string) error {
-			return cirunner.DownloadFile(ctx, &http.Client{Timeout: 30 * time.Minute}, url, path)
+			return cirunner.DownloadFile(ctx, &http.Client{Timeout: 30 * time.Minute}, url, path, cirunner.ImageLimit)
 		},
 	}, nil
 }
@@ -164,7 +164,7 @@ func (m machine) uninstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cg-ci-runner: the uninstall removes a VM and a service, so it runs only from an elevated PowerShell, and --dry-run shows it without")
 		return 1
 	}
-	steps := cirunner.UninstallSteps(cirunner.UninstallOptions{Dir: m.dir, Commands: m.commands, DeleteOwnRunners: cirunner.DeleteOwnRunnersIn})
+	steps := cirunner.UninstallSteps(cirunner.UninstallOptions{Dir: m.dir, Commands: m.commands, DeleteOwnRunners: cirunner.DeleteOwnRunnersIn, Out: stdout})
 	return finish(cirunner.RunSteps(context.Background(), steps, *isDryRun, stdout), "uninstalled", *isDryRun, stdout, stderr)
 }
 

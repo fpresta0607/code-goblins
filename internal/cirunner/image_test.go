@@ -106,6 +106,19 @@ func TestUserDataPowersOffOnlyAMadeVM(t *testing.T) {
 	}
 }
 
+// The VM's SSH server never runs, by its socket or its service, since no one
+// signs in to the VM.
+func TestUserDataKeepsSSHOff(t *testing.T) {
+	// Act
+	_, boot := readFirstBoot(t)
+
+	// Assert
+	setup := boot.file(t, "/usr/local/sbin/cg-ci-setup.sh")
+	if !strings.Contains(setup, "\nsystemctl mask --now ssh.socket ssh.service\n") {
+		t.Errorf("setup:\n%s\nwant ssh.socket and ssh.service masked and stopped", setup)
+	}
+}
+
 // A job runs only at a boot with its DVD, and the VM powers off once the job
 // ends, however it ends.
 func TestUserDataRunsAJobOnlyWithItsDVD(t *testing.T) {

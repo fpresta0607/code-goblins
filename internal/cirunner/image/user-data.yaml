@@ -77,7 +77,10 @@ write_files:
       chown -R runner:runner /opt/actions-runner
       rm -f /etc/netplan/50-cloud-init.yaml
       systemctl enable cg-ci-job.service
-      # Every job boots from this disk with no settings disk, so cloud-init,
+      # No one signs in to the VM, so its SSH server never runs, whether
+      # the image starts it by its socket or its service.
+      systemctl mask --now ssh.socket ssh.service
+      # Every job boots from this disk with no seed DVD, so cloud-init,
       # finding none, must not take that for a new machine and run again.
       touch /etc/cloud/cloud-init.disabled
       touch /var/lib/cg-ci-made

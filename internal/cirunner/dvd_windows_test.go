@@ -34,3 +34,27 @@ func TestBuildDVDIsReadByWindowsTar(t *testing.T) {
 		t.Errorf("tar read %d bytes, %v; want the %d-byte configuration", len(content), readErr, len(config))
 	}
 }
+
+// Windows' own tar reads the first boot's seed too, and finds both of its
+// files in it.
+func TestBuildSeedIsReadByWindowsTar(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "seed.iso")
+	if err := BuildSeed(path); err != nil {
+		t.Fatal(err)
+	}
+	userData, err := UserData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tar := filepath.Join(os.Getenv("SystemRoot"), "System32", "tar.exe")
+
+	// Act
+	readUserData, userErr := execx.CommandContext(context.Background(), tar, "-xOf", path, "USER-DATA").Output()
+	readMetaData, metaErr := execx.CommandContext(context.Background(), tar, "-xOf", path, "META-DATA").Output()
+
+	// Assert
+	if userErr != nil || string(readUserData) != userData || metaErr != nil || string(readMetaData) != MetaData {
+		t.Errorf("tar read user-data of %d bytes (%v) and meta-data %q (%v); want the VM's own", len(readUserData), userErr, readMetaData, metaErr)
+	}
+}

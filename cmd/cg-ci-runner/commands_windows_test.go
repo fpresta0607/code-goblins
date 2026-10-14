@@ -69,7 +69,7 @@ func TestInstallDryRunShowsEveryStepUnelevated(t *testing.T) {
 
 	// Assert
 	said := stdout.String()
-	if exit != 0 || !strings.Contains(said, "step 1 of 11: check this machine\n") || !strings.Contains(said, "step 11 of 11: readiness check\n") || !strings.HasSuffix(said, "cg-ci-runner: a dry run, so nothing was done\n") {
+	if exit != 0 || !strings.Contains(said, "step 1 of 12: check this machine\n") || !strings.Contains(said, "step 12 of 12: readiness check\n") || !strings.HasSuffix(said, "cg-ci-runner: a dry run, so nothing was done\n") {
 		t.Errorf("exit %d, stdout %q, stderr %q; want every step said and nothing done", exit, said, stderr.String())
 	}
 	if !strings.Contains(said, "CG_CI_PROGRAM="+m.program) || !strings.Contains(said, "whose pipe "+testUser+" may open") {

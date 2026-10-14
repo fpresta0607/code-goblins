@@ -8,6 +8,8 @@ const (
 	// moves.
 	ImageURL    = "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-amd64.img"
 	ImageSHA256 = "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2"
+	// ImageLimit is the most the image's download may be, past its 600 MB.
+	ImageLimit = 2 << 30
 	// RunnerVersion is GitHub's Actions runner the VM runs each job with.
 	// GitHub stops giving jobs to a runner some weeks after a newer release,
 	// so this pin is renewed with each release, and the VM's image with it.
