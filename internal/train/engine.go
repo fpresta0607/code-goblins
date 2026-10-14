@@ -71,6 +71,10 @@ type Engine struct {
 	// Landed, when set, hears of each pull request the train merged, once it
 	// is recorded: AFK mode's log keeps what merged while he is away.
 	Landed func(ctx context.Context, t Train, car Car)
+	// FailedOnce, when set, hears of the tests a run of the train that
+	// passed saw fail once and pass on their second try, once a run: each
+	// is a root issue to file.
+	FailedOnce func(ctx context.Context, t Train, tests []string)
 }
 
 // Start records a train of riders, which Riders put in queue order, builds

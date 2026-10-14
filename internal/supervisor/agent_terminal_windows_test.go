@@ -1,13 +1,16 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,10 +46,12 @@ func TestAgentTerminalServesEachChildsOwnOutput(t *testing.T) {
 	}
 	service := &Service{Store: store, Instance: "tree", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
 	service.readTrees(context.Background())
-	handler := NewHTTP(service, "board.local", nil)
+	handler := NewHTTP(service, "127.0.0.1:50000", nil)
 	get := func(path string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
+		request := httptest.NewRequest("GET", "http://127.0.0.1:50000"+path, nil)
+		request.RemoteAddr = "127.0.0.1:50001"
+		handler.ServeHTTP(response, request)
 		return response
 	}
 
@@ -55,7 +60,7 @@ func TestAgentTerminalServesEachChildsOwnOutput(t *testing.T) {
 		want []string
 	}{
 		{"subagent:toolu_A", []string{"● Reading the monitor"}},
-		{"shell:b1", []string{"> go test ./internal/monitor/", "ok  internal/monitor 41.2s"}},
+		{"shell:b1", []string{"> go test ./internal/monitor/", "ok  internal/monitor 41.2s", ""}},
 	} {
 		t.Run(tc.node, func(t *testing.T) {
 			// Act
@@ -85,4 +90,56 @@ func TestAgentTerminalServesEachChildsOwnOutput(t *testing.T) {
 			}
 		})
 	}
+	t.Run("refuses remote and proxied output reads", func(t *testing.T) {
+		for _, proxied := range []bool{false, true} {
+			request := httptest.NewRequest("GET", "http://127.0.0.1:50000/api/tasks/"+meta.ID+"/agent?node=shell:b1&stream=1", nil)
+			request.RemoteAddr = "192.0.2.2:50001"
+			if proxied {
+				request.RemoteAddr = "127.0.0.1:50001"
+				request.Header.Set("X-Forwarded-For", "192.0.2.2")
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusForbidden || strings.Contains(response.Body.String(), "41.2s") {
+				t.Fatalf("exposed output: %d %s", response.Code, response.Body)
+			}
+		}
+	})
+	t.Run("streams new output without another tree read", func(t *testing.T) {
+		server := httptest.NewUnstartedServer(handler)
+		handler.Host = server.Listener.Addr().String()
+		server.Start()
+		defer server.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/tasks/"+meta.ID+"/agent?node=shell:b1&stream=1", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.Header.Get("Content-Type") != "text/event-stream" {
+			t.Fatalf("not streaming: %s", response.Header.Get("Content-Type"))
+		}
+		scanner := bufio.NewScanner(response.Body)
+		read := func(want string) {
+			t.Helper()
+			for scanner.Scan() {
+				if strings.HasPrefix(scanner.Text(), "data: ") && strings.Contains(scanner.Text(), want) {
+					return
+				}
+			}
+			t.Fatalf("stream did not send %q: %v", want, scanner.Err())
+		}
+		read("41.2s")
+		writeFile(t, output, "ok  internal/monitor 41.2s\nnext result\n")
+		read("next result")
+		service.mu.Lock()
+		delete(service.trees, meta.ID)
+		service.mu.Unlock()
+		read("no longer available")
+	})
 }

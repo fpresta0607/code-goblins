@@ -54,13 +54,14 @@ func (r *Reader) ChildLines(task, node string) ([]string, error) {
 	}
 	lines := slices.Clone(record.lines)
 	if record.output != "" {
-		// A shell that wrote nothing yet, or whose output was cleaned up,
-		// has only its command to show.
 		output, err := outputFileLines(record.output)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
 		lines = append(lines, output...)
+		if errors.Is(err, fs.ErrNotExist) {
+			lines = append(lines, "Waiting for the child's output file")
+		}
 	}
 	return lines[max(0, len(lines)-ChildLinesKept):], nil
 }
@@ -77,12 +78,22 @@ func outputFileLines(path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the shell's output cannot be read: %w", err)
 	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("the shell's output is not a regular file")
+	}
 	start := max(0, info.Size()-outputFileReach)
 	data := make([]byte, info.Size()-start)
-	if _, err := file.ReadAt(data, start); err != nil && !errors.Is(err, io.EOF) {
+	count, err := file.ReadAt(data, start)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("the shell's output cannot be read: %w", err)
 	}
-	lines := outputLines(string(data))
+	data = data[:count]
+	if start > 0 {
+		if end := strings.IndexByte(string(data), '\n'); end >= 0 {
+			data = data[end+1:]
+		}
+	}
+	lines := strings.Split(string(data), "\n")
 	return lines[max(0, len(lines)-ChildLinesKept):], nil
 }
 

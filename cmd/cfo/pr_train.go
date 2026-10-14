@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
@@ -93,6 +94,15 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			}
 			if err := runtime.trainLandingLogger()(h, t.ID, car.URL); err != nil {
 				fmt.Fprintf(stderr, "cfo pr train: AFK mode's log did not take the merge of %s (%v): log it with cfo afk log --kind merge\n", car.URL, err)
+			}
+		},
+		// Each test a passing run saw fail once is a root issue of the
+		// train's repository, filed as cfo issue file files one.
+		FailedOnce: func(ctx context.Context, t train.Train, tests []string) {
+			for _, test := range tests {
+				if _, err := fileRoot(ctx, runtime, t.Checkout, tickets.FailedOnceRoot(test, "Seen by merge train "+t.ID+" on "+t.PR+"."), time.Now()); err != nil {
+					fmt.Fprintf(stderr, "cfo pr train: the root issue of %s was not filed (%v): file it with cfo issue file\n", test, err)
+				}
 			}
 		},
 	}
