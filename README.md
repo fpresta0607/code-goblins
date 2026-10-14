@@ -1058,8 +1058,9 @@ A repository is the fleet's when its GitHub owner, read from the pull request's 
 Another owner's pull requests, such as the upstream's in a checkout of your fork whose `origin` is the upstream, raise nothing.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even when its checks failed or it has none.
 A behind head whose checks are still running waits until they conclude, for three hours at most, and is judged then.
-A goblin's own pull request that is only behind, with its checks passed, raises none, since a merge train tests the default branch and its riders together.
-That is one rule for every pull request a live goblin holds that your account opened in the repository, whether the goblin reported it done yet and whether it is held.
+A goblin's own pull request that is only behind raises none until it is next to land with no merge train to test it on current main, since bringing main in replaces its head and the run on the old head paid for nothing.
+A pull request your account opened is next to land when it is the one green pull request a train would take and no train runs there, and the wake then names `cfo pr train <project>` first, which lands it alone after one run on current main.
+Failed or missing checks never ask for main, and a draft that is only behind raises nothing.
 A pull request is a live goblin's when the goblin recorded or reported it, when its branch is the one the goblin's worktree has checked out, or when your account opened it from a branch that worktree had checked out before, which git keeps in the worktree's reflog, so a goblin on its second branch still owns its first pull request across a restart.
 A teammate's pull request is one another account opened, and one your account opened from a branch no live goblin holds is called neither: both are reported with author and link, and the fleet pushes to neither.
 One poll raises at most one such wake per repository, naming every pull request whose head fell into a condition the CFO was not woken for, so dozens never arrive as dozens of wakes.
