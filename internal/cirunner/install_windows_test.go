@@ -16,7 +16,7 @@ import (
 func TestInstallScriptsParse(t *testing.T) {
 	shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	const parse = "$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:CG_CI_SCRIPT, [ref]$null, [ref]$errors); $errors | ForEach-Object { $_.Message }; exit $errors.Count"
-	for name, text := range map[string]string{"check": checkScript, "folder": folderScript, "disk": diskScript, "settings": settingsScript, "vm": vmScript, "checkpoint": checkpointScript, "service": serviceScript, "start": startScript} {
+	for name, text := range map[string]string{"check": checkScript, "folder": folderScript, "disk": diskScript, "settings": settingsScript, "vm": vmScript, "checkpoint": checkpointScript, "service": serviceScript, "start": startScript, "machine": machineScript} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			command := execx.CommandContext(context.Background(), shell, "-NoProfile", "-NonInteractive", "-Command", parse)

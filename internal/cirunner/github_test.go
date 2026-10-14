@@ -68,6 +68,10 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"runner": map[string]any{"id": 41, "name": "cg-desktop-1"}, "encoded_jit_config": "abc"})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/actions/runners"):
 		json.NewEncoder(w).Encode(map[string]any{"runners": f.runners})
+	case r.Method == "GET" && r.URL.Path == "/app/installations/2":
+		json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]string{"administration": "write", "actions": "read", "metadata": "read"}, "repository_selection": "selected"})
+	case r.Method == "GET" && r.URL.Path == "/installation/repositories":
+		json.NewEncoder(w).Encode(map[string]any{"repositories": []map[string]any{{"name": "PrecisionDocs-AI"}}})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/actions/runners/41"):
 		json.NewEncoder(w).Encode(map[string]any{"id": 41, "status": "online", "busy": true})
 	case r.Method == "DELETE" && f.deleteStatus != 0:
@@ -123,9 +127,10 @@ func TestGitHubCallsOnlyItsPinnedPaths(t *testing.T) {
 	_, _, stateErr := g.RunnerState(ctx, runner.ID)
 	deleteErr := g.DeleteRunner(ctx, runner.ID)
 	ownErr := g.DeleteOwnRunners(ctx)
+	_, installationErr := g.Installation(ctx)
 
 	// Assert
-	if err := errors.Join(queuedErr, registerErr, stateErr, deleteErr, ownErr); err != nil {
+	if err := errors.Join(queuedErr, registerErr, stateErr, deleteErr, ownErr, installationErr); err != nil {
 		t.Fatalf("the calls failed: %v", err)
 	}
 	made := map[string]bool{}
@@ -477,4 +482,28 @@ func verifyAppToken(token string, key *rsa.PublicKey, appID int64, now time.Time
 		return fmt.Errorf("not valid at %d: issued %d, expires %d", now.Unix(), claims.Issued, claims.Expires)
 	}
 	return nil
+}
+
+// The installation is read with the App's own token, and the repositories
+// its tokens reach with the installation's.
+func TestInstallationReadsWhatTheAppMayDo(t *testing.T) {
+	// Arrange
+	fake := &fakeGitHub{}
+	g := testGitHub(t, fake)
+
+	// Act
+	installation, err := g.Installation(context.Background())
+
+	// Assert
+	want := Installation{Permissions: map[string]string{"administration": "write", "actions": "read", "metadata": "read"}, Selection: "selected", Repositories: []string{"PrecisionDocs-AI"}}
+	if err != nil || installation.Selection != want.Selection || !slices.Equal(installation.Repositories, want.Repositories) || len(installation.Permissions) != 3 || installation.Permissions["administration"] != "write" {
+		t.Errorf("Installation = %+v, %v; want %+v", installation, err, want)
+	}
+	for _, request := range fake.asked {
+		if request.call == "GET /app/installations/2" {
+			if err := verifyAppToken(strings.TrimPrefix(request.authorization, "Bearer "), &g.Key.PublicKey, g.AppID, g.Now()); err != nil {
+				t.Errorf("the installation was read without the App's token: %v", err)
+			}
+		}
+	}
 }

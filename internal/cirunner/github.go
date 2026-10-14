@@ -43,6 +43,8 @@ var allowedCalls = []string{
 	"GET /repos/{owner}/{repo}/actions/runners",
 	"GET /repos/{owner}/{repo}/actions/runners/{id}",
 	"DELETE /repos/{owner}/{repo}/actions/runners/{id}",
+	"GET /app/installations/{installation}",
+	"GET /installation/repositories",
 }
 
 // maxAnswer is the most of any one answer from GitHub the service reads.
@@ -223,6 +225,52 @@ func (g *GitHub) do(ctx context.Context, method, path string, query url.Values, 
 		return err
 	}
 	return g.send(ctx, token, method, path, query, body, into)
+}
+
+// doAsApp makes a pinned call with the App's own token, as reading its
+// installation takes, and refuses any other before anything is sent.
+func (g *GitHub) doAsApp(ctx context.Context, method, path string, into any) error {
+	if _, isPinned := g.pinned(method + " " + path); !isPinned {
+		return fmt.Errorf("cirunner: %s %s is not among the service's pinned GitHub calls", method, path)
+	}
+	token, err := g.appToken()
+	if err != nil {
+		return err
+	}
+	return g.send(ctx, token, method, path, nil, nil, into)
+}
+
+// Installation is what the App may do where it is installed: its
+// permissions, whether it reaches all of the owner's repositories or those
+// selected, and the repositories its tokens reach.
+type Installation struct {
+	Permissions  map[string]string
+	Selection    string
+	Repositories []string
+}
+
+// Installation reads the App's installation as GitHub keeps it.
+func (g *GitHub) Installation(ctx context.Context) (Installation, error) {
+	var installation struct {
+		Permissions map[string]string `json:"permissions"`
+		Selection   string            `json:"repository_selection"`
+	}
+	if err := g.doAsApp(ctx, http.MethodGet, fmt.Sprintf("/app/installations/%d", g.InstallationID), &installation); err != nil {
+		return Installation{}, err
+	}
+	var reached struct {
+		Repositories []struct {
+			Name string `json:"name"`
+		} `json:"repositories"`
+	}
+	if err := g.do(ctx, http.MethodGet, "/installation/repositories", url.Values{"per_page": {"100"}}, nil, &reached); err != nil {
+		return Installation{}, err
+	}
+	found := Installation{Permissions: installation.Permissions, Selection: installation.Selection}
+	for _, repository := range reached.Repositories {
+		found.Repositories = append(found.Repositories, repository.Name)
+	}
+	return found, nil
 }
 
 // installationToken is the installation's token for the repository alone,
