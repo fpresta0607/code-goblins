@@ -140,8 +140,11 @@ func TestPipeRunStreamsProgressAndEndsWithItsOutcome(t *testing.T) {
 	for _, reply := range replies {
 		kinds = append(kinds, reply.Kind)
 	}
-	if err != nil || !slices.Equal(kinds, []string{ReplyProgress, ReplyProgress, ReplyProgress, ReplyDone}) || replies[len(replies)-1].Outcome != Ran {
-		t.Errorf("run = %+v, %v; want three progress lines, then done with ran", replies, err)
+	if err != nil || !slices.Equal(kinds, []string{ReplyProgress, ReplyProgress, ReplyProgress, ReplyProgress, ReplyDone}) || replies[len(replies)-1].Outcome != Ran {
+		t.Errorf("run = %+v, %v; want four progress lines, the job that waits first, then done with ran", replies, err)
+	}
+	if want := "a job waits, desktop-backend-shard (1) of run 7, so the VM starts"; err == nil && replies[0].Line != want {
+		t.Errorf("the run's first line is %q; want %q", replies[0].Line, want)
 	}
 	if lines := s.lines(); !slices.Contains(lines, "the run ended: ran") {
 		t.Errorf("the service logged %q; want the run's outcome", lines)
@@ -484,6 +487,23 @@ func TestRunsWithNoJobAreLoggedAtMostOnceAMinute(t *testing.T) {
 	// Assert
 	if lines := s.lines(); len(lines) != 1 || !strings.Contains(lines[0], "no job") {
 		t.Errorf("the log holds %q; want one line for the runs that found no job", lines)
+	}
+}
+
+// A run that found a job waiting is logged whole, its error with it, even
+// when it fails before the VM starts, as when the VM cannot be put back:
+// only a run that found no job is tallied with the idle ones.
+func TestARunThatFoundAJobIsLoggedWholeHoweverItFails(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{failing: "restore"}, thisUser(t))
+
+	// Act
+	_, err := s.ask(context.Background(), AskRun)
+
+	// Assert
+	lines := s.lines()
+	if err != nil || !slices.Contains(lines, "the run ended: failed") || !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, "the run's error: ") }) {
+		t.Errorf("run = %v, and the log holds %q; want the failed run and its error logged", err, lines)
 	}
 }
 
