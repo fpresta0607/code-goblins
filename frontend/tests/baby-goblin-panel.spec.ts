@@ -31,7 +31,8 @@ async function open(page: Page, width = 1600) {
     const url = new URL(route.request().url());
     const node = url.searchParams.get("node") || "";
     if (url.pathname === "/api/tasks/fleet/agent" && node === AGENT) await route.fulfill({ json: { lines: TRANSCRIPT } });
-    else if (url.pathname === "/api/tasks/fleet/agent" && OUTPUTS[node]) await route.fulfill({ json: { lines: OUTPUTS[node] } });
+    // The dev server's output comes slowly, so its terminal shows before it does.
+    else if (url.pathname === "/api/tasks/fleet/agent" && OUTPUTS[node]) await new Promise((done) => setTimeout(done, node === "process:5120:1" ? 1500 : 0)).then(() => route.fulfill({ json: { lines: OUTPUTS[node] } }));
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -70,9 +71,10 @@ test("clicking two other baby goblins shows each one's own output under its name
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   for (const [name, task, node, other] of [["Grub III - Test Runner", /go test \.\/internal\/monitor/, "shell:b1", "process:5120:1"], ["Grub IV - Server Keeper", /npm run dev/, "process:5120:1", "shell:b1"]] as const) {
     await baby(page, name).click();
+    const terminal = page.getByRole("log", { name: "Terminal of " + name });
+    await expect(terminal, "never the last child's output while its own is on its way").not.toContainText(OUTPUTS[other].at(-1)!, { timeout: 500 });
     await expect(title(page)).toHaveText(new RegExp("^" + name + ".*" + task.source));
     expect(await isOneLine(page)).toBe(true);
-    const terminal = page.getByRole("log", { name: "Terminal of " + name });
     for (const line of OUTPUTS[node]) await expect(terminal).toContainText(line);
     await expect(terminal, "only its own output").not.toContainText(OUTPUTS[other].at(-1)!);
     await expect(page.locator(".deck-slot:not([hidden])").getByRole("region", { name: "Goblin terminal" })).toHaveCount(0);

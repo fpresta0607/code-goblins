@@ -66,7 +66,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
           ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
           : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} harness={each.harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
       })}
-      {shown && child && task && <div className="deck-slot"><AgentTerminal task={task} child={child} visible={connected} /></div>}
+      {shown && child && task && <div className="deck-slot"><AgentTerminal key={task.id + " " + child.id} task={task} child={child} visible={connected} /></div>}
       {/* A queued task or a child session has no terminal of its own to keep. */}
       {shown && !key && !child && (task && takesMessages(task) ? messaging("idle", true, <TerminalEmpty text={idle.text} />, task)
         : slot("idle", true, <TerminalEmpty text={idle.text} onOwner={node ? onOwner : undefined} />))}
