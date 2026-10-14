@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Source is the source a run tested, read from its worktree: every file git
@@ -25,14 +26,15 @@ type Source struct {
 	// disk, whatever the worktree's own index held: a changed, deleted or new
 	// file each gives another tree, and a worktree that matches its commit
 	// has CommitTree. Its content is git's, after line-ending conversion and
-	// clean filters, and with this machine's core.filemode=false a file's
-	// mode is its commit's.
+	// clean filters, with this machine's core.filemode=false a file's mode is
+	// its commit's, and on this case-insensitive disk a rename that changes
+	// only a name's case keeps the commit's spelling.
 	Tree string `json:"tree"`
-	// IsExact is false when Tree does not hold all of those files as they
+	// IsComplete is false when Tree does not hold all of those files as they
 	// were: a submodule had changes of its own or was not checked out, git
 	// left a file unstaged, as a sparse checkout leaves the files it keeps
 	// off the disk, or a file changed while the tree was read.
-	IsExact bool `json:"exact"`
+	IsComplete bool `json:"complete"`
 }
 
 // sourceReadLimit bounds a read, which holds the machine's turn.
@@ -52,15 +54,19 @@ var repositoryVariables = []string{
 // ReadSource reads the source of the worktree dir. It stages what is on disk
 // into an index and an object store of its own, which it removes after, so
 // it leaves the worktree's index as it was and writes nothing into the
-// repository.
-func ReadSource(ctx context.Context, commands execx.Runner, dir string) (Source, error) {
+// repository. A store it cannot remove fails the read, which says where.
+func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source Source, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceReadLimit)
 	defer cancel()
 	folder, err := os.MkdirTemp("", "cfo-source-")
 	if err != nil {
 		return Source{}, fmt.Errorf("verify: read the source: %w", err)
 	}
-	defer os.RemoveAll(folder)
+	defer func() {
+		if removeError := fsx.RemoveAll(folder); removeError != nil {
+			source, err = Source{}, errors.Join(err, fmt.Errorf("verify: read the source: its store %s was not removed: %w", folder, removeError))
+		}
+	}()
 	var environment []string
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(strings.ToUpper(entry), "=")
@@ -72,7 +78,9 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (Source,
 		// A file system monitor would answer status for the read, and with
 		// core.ignoreStat a change after the add would go unseen.
 		args = append([]string{"-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false"}, args...)
-		result, err := commands.Run(ctx, execx.Request{Dir: dir, Env: environment, Name: "git", Args: args})
+		// A git cut off at the limit ends with what it started, as a
+		// clean filter.
+		result, err := commands.Run(ctx, execx.Request{Dir: dir, Env: environment, Name: "git", Args: args, KillTree: true})
 		if err == nil && result.ExitCode != 0 {
 			err = fmt.Errorf("exited %d: %s", result.ExitCode, bytes.TrimSpace(result.Stderr))
 		}
@@ -111,14 +119,14 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (Source,
 	if err != nil {
 		return Source{}, err
 	}
-	isExact := true
+	isComplete := true
 	for _, entry := range strings.Split(status, "\x00") {
 		switch {
 		case entry == "":
 		case strings.HasPrefix(entry, "1 ") && len(entry) > 3:
-			isExact = isExact && entry[3] == '.'
+			isComplete = isComplete && entry[3] == '.'
 		default:
-			isExact = false
+			isComplete = false
 		}
 	}
 	// A submodule that is not checked out matches its commit for status,
@@ -130,10 +138,10 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (Source,
 			return Source{}, err
 		}
 		for _, line := range strings.Split(strings.TrimRight(submodules, "\n"), "\n") {
-			isExact = isExact && (line == "" || line[0] == ' ')
+			isComplete = isComplete && (line == "" || line[0] == ' ')
 		}
 	}
-	return Source{Commit: commit, CommitTree: commitTree, Tree: strings.TrimSpace(tree), IsExact: isExact}, nil
+	return Source{Commit: commit, CommitTree: commitTree, Tree: strings.TrimSpace(tree), IsComplete: isComplete}, nil
 }
 
 // SourceReads are the two reads of a run's source (ReadSource): once its turn
@@ -163,7 +171,7 @@ func (reads *SourceReads) ReadEnd(source Source, failure error) {
 	reads.End = &source
 }
 
-// Tested is the source a run tested: the same exact source at both reads.
+// Tested is the source a run tested: the same complete source at both reads.
 // Otherwise there is none, and the error says why. Two reads cannot see a
 // file changed and changed back between them, nor an ignored input, so this
 // is what the run's reads show, not proof that nothing else changed.
@@ -175,7 +183,7 @@ func (reads SourceReads) Tested() (Source, error) {
 		return Source{}, errors.New("verify: the source was not read both as the run started and once it ended")
 	case *reads.Start != *reads.End:
 		return Source{}, fmt.Errorf("verify: the source differed between the reads as the run started and once it ended, from tree %s to tree %s", reads.Start.Tree, reads.End.Tree)
-	case !reads.Start.IsExact:
+	case !reads.Start.IsComplete:
 		return Source{}, errors.New("verify: the tree does not hold all of what was on disk, as with a submodule's own changes, one not checked out, a sparse checkout or a file changed while it was read")
 	}
 	return *reads.Start, nil

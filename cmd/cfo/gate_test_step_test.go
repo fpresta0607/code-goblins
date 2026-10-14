@@ -283,7 +283,7 @@ func TestGateTestRecordsTheSourceEachCheckRanOn(t *testing.T) {
 	if exit != 0 || len(report.Checks) != 2 || strings.Contains(stderr.String(), "source") {
 		t.Fatalf("exit = %d, %d check(s), stderr = %q; want two checks that pass and nothing said of their source", exit, len(report.Checks), stderr.String())
 	}
-	want := verify.Source{Commit: revision(t, dir, "HEAD"), CommitTree: revision(t, dir, "HEAD^{tree}"), Tree: revision(t, dir, "HEAD^{tree}"), IsExact: true}
+	want := verify.Source{Commit: revision(t, dir, "HEAD"), CommitTree: revision(t, dir, "HEAD^{tree}"), Tree: revision(t, dir, "HEAD^{tree}"), IsComplete: true}
 	for index, check := range report.Checks {
 		if tested, err := check.Source.Tested(); err != nil || tested != want {
 			t.Errorf("check %d tested %+v (%v); want %+v", index, tested, err, want)

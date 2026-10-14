@@ -753,8 +753,8 @@ func TestExecutorRetryCompletesARunWhoseEndSparedAService(t *testing.T) {
 // reads in the record, a moved or unreadable source as much as a steady one.
 // The command's own result is its own whatever the reads found.
 func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
-	first := Source{Commit: "c1", Tree: "t1", IsExact: true}
-	moved := Source{Commit: "c1", Tree: "t2", IsExact: true}
+	first := Source{Commit: "c1", Tree: "t1", IsComplete: true}
+	moved := Source{Commit: "c1", Tree: "t2", IsComplete: true}
 	for name, row := range map[string]struct {
 		startFailure error
 		end          Source

@@ -678,6 +678,41 @@ func TestExecutorEndsASharedRunInterruptedBeforeItsCommandStarted(t *testing.T) 
 	}
 }
 
+// An interrupt that comes while the source is read, before the command
+// starts, ends a shared run as one before the read does: the read comes
+// before the check for an interrupt, so the command never starts.
+func TestExecutorEndsASharedRunInterruptedWhileItsSourceIsRead(t *testing.T) {
+	if os.Getenv(limitsRole) == "must-not-start" {
+		_ = os.WriteFile("started", []byte("started"), 0o600)
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: true}
+	executor.Source = func(context.Context, string) (Source, error) {
+		cancel()
+		return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
+	}
+
+	// Act
+	result, _, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsASharedRunInterruptedWhileItsSourceIsRead$"}, Env: append(os.Environ(), limitsRole+"=must-not-start")}, 0)
+
+	// Assert
+	if !errors.Is(err, ErrNoTurn) || !errors.Is(err, context.Canceled) || result.ExitCode != -1 {
+		t.Fatalf("run = %+v, %v; want no turn's result for an interrupt", result, err)
+	}
+	if _, statError := os.Stat(filepath.Join(root, "started")); statError == nil {
+		t.Fatal("the command started after its run was interrupted")
+	}
+	holders, waiters, lineError := Line(executor.Admission.Dir)
+	if lineError != nil || len(holders)+len(waiters) != 0 {
+		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, lineError)
+	}
+}
+
 // A running sample is progress, not the run's evidence, so one that cannot
 // be written ends no command: the command runs to its own end, and the run
 // keeps its exit code.

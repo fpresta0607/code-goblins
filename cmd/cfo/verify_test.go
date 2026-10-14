@@ -168,7 +168,7 @@ func TestVerifyRecordsTheSourceEachCommandRanOn(t *testing.T) {
 	// Assert
 	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
 	tree := gitIn(t, meta.Worktree, "rev-parse", "HEAD^{tree}")
-	want := verify.Source{Commit: gitIn(t, meta.Worktree, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsExact: true}
+	want := verify.Source{Commit: gitIn(t, meta.Worktree, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsComplete: true}
 	if exit != 0 || stderr.Len() != 0 || len(results) != 1 {
 		t.Fatalf("exit = %d, stderr = %q, results = %+v; want one quiet pass", exit, stderr.String(), results)
 	}
