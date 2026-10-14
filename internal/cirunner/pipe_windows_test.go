@@ -7,12 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"regexp"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -314,24 +315,83 @@ func TestPipeAdmitsOnlyItsUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dacl, label, _ := strings.Cut(descriptor.String(), "S:")
+	_, label, _ := strings.Cut(descriptor.String(), "S:")
 	if !strings.HasSuffix(label, "(ML;;NW;;;ME)") || strings.Count(label, "(") != 1 {
 		t.Errorf("the pipe's label is %q; want medium integrity alone, so the fleet opens it", label)
 	}
-	entries := regexp.MustCompile(`\(A;;([^;]*);;;([^)]*)\)`).FindAllStringSubmatch(dacl, -1)
-	got := map[string]string{}
-	for _, entry := range entries {
-		got[entry[2]] = entry[1]
+	if got, want := pipeEntries(t, descriptor), []string{"S-1-5-18=0x1f01ff", "S-1-5-32-544=0x1f01ff", thisUser(t) + "=0x1f01ff", "S-1-5-32-547=0x12019f"}; !slices.Equal(got, sorted(want)) {
+		t.Errorf("the pipe's DACL gives %q in %s; want %q alone", got, descriptor, sorted(want))
 	}
-	want := map[string]string{"SY": "FA", "BA": "FA", thisUser(t): "FA", "PU": "0x12019f"}
-	if len(entries) != len(want) || !strings.HasPrefix(dacl, "D:P") {
-		t.Fatalf("the pipe's DACL is %s; want a protected DACL with entries for %v alone", dacl, want)
+}
+
+// The pipe admits the fleet's user by its SID, whatever name Windows gives
+// it in SDDL: the machine's own Administrator, as a CI runner's account is,
+// reads back as LA.
+func TestPipeAdmitsTheFleetsUserByItsSID(t *testing.T) {
+	// Arrange
+	administrator, err := windows.StringToSid("LA")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for sid, access := range want {
-		if got[sid] != access {
-			t.Errorf("the pipe gives %s %q in %s; want %q", sid, got[sid], dacl, access)
+	s := serve(t, &fakeJob{}, administrator.String())
+	connection, err := dial(context.Background(), s.name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	// Act
+	descriptor, err := windows.GetSecurityInfo(windows.Handle(connection.Fd()), windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(descriptor.String(), ";;;LA)") {
+		t.Fatalf("the pipe's DACL is %s; want the machine's Administrator named LA, as this test's premise", descriptor)
+	}
+	if got, want := pipeEntries(t, descriptor), []string{"S-1-5-18=0x1f01ff", "S-1-5-32-544=0x1f01ff", thisUser(t) + "=0x1f01ff", administrator.String() + "=0x12019f"}; !slices.Equal(got, sorted(want)) {
+		t.Errorf("the pipe's DACL gives %q in %s; want %q alone", got, descriptor, sorted(want))
+	}
+}
+
+// pipeEntries reads every entry of a protected DACL as its SID and access
+// mask, sorted, and fails the test on a DACL that is not protected or an
+// entry that is not a plain allowing one, which an entry by entry reading
+// would otherwise pass over.
+func pipeEntries(t *testing.T, descriptor *windows.SECURITY_DESCRIPTOR) []string {
+	t.Helper()
+	control, _, err := descriptor.Control()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 {
+		t.Errorf("the pipe's DACL in %s is not protected, so it may inherit entries", descriptor)
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil || dacl == nil {
+		t.Fatalf("the pipe has no DACL to read: %v", err)
+	}
+	var entries []string
+	for index := range uint32(dacl.AceCount) {
+		var entry *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, index, &entry); err != nil {
+			t.Fatal(err)
 		}
+		if entry.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || entry.Header.AceFlags != 0 {
+			t.Errorf("the pipe's DACL in %s holds an entry of type %d with flags %#x; want plain allowing entries alone", descriptor, entry.Header.AceType, entry.Header.AceFlags)
+			continue
+		}
+		sid := (*windows.SID)(unsafe.Pointer(&entry.SidStart))
+		entries = append(entries, fmt.Sprintf("%s=%#x", sid.String(), uint32(entry.Mask)))
 	}
+	return sorted(entries)
+}
+
+func sorted(values []string) []string {
+	values = slices.Clone(values)
+	slices.Sort(values)
+	return values
 }
 
 // A pipe another process already serves is refused, so nothing stands in for
