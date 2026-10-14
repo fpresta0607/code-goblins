@@ -1,0 +1,115 @@
+package cirunner
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
+
+// A second run while one runs is refused at once, never queued, so the heavy
+// line stays the only queue, and the run after the first ends is taken.
+func TestServiceRefusesASecondRunWhileOneRuns(t *testing.T) {
+	// Arrange
+	f := &fakeJob{busyAt: 2, offAt: 5}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+	sleep := s.Deps.Sleep
+	isSleeping, release := make(chan struct{}), make(chan struct{})
+	s.Deps.Sleep = func(ctx context.Context, step time.Duration) {
+		select {
+		case isSleeping <- struct{}{}:
+			<-release
+		default:
+		}
+		sleep(ctx, step)
+	}
+	first := make(chan error, 1)
+	go func() { _, err := s.Run(context.Background(), func(string) {}); first <- err }()
+	<-isSleeping
+
+	// Act
+	outcome, err := s.Run(context.Background(), func(string) {})
+	close(release)
+	firstErr := <-first
+	f.offAt = 0
+	f.polls, f.busyAt = 0, 0
+	nextOutcome, nextErr := s.Run(context.Background(), func(string) {})
+
+	// Assert
+	if !errors.Is(err, ErrBusy) || outcome != Failed {
+		t.Errorf("a second Run = %q, %v; want it refused with ErrBusy", outcome, err)
+	}
+	if firstErr != nil || nextErr != nil || nextOutcome != NoJob {
+		t.Errorf("the first run ended with %v, and the next = %q, %v; want the next run taken once the first ended", firstErr, nextOutcome, nextErr)
+	}
+}
+
+// A service that starts with its VM running, as after a crash, turns it off,
+// puts it back to clean and deletes every runner it registered, before
+// anything else.
+func TestServiceStartPutsTheVMBackFirst(t *testing.T) {
+	// Arrange
+	f := &fakeJob{isRunning: true}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+
+	// Act
+	err := s.Start(context.Background())
+
+	// Assert
+	if calls := f.callsMade(); err != nil || !slices.Equal(calls, []string{"off", "restore", "delete own"}) {
+		t.Errorf("Start = %v with calls %q; want off, restore, then the service's runners deleted", err, calls)
+	}
+	if f.isRunning {
+		t.Error("the VM still runs after the service started")
+	}
+}
+
+// A service whose VM cannot be put back takes no run: it does not start.
+func TestServiceStartFailsOnAVMNotPutBack(t *testing.T) {
+	// Arrange
+	f := &fakeJob{isRunning: true, failing: "restore"}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+
+	// Act
+	err := s.Start(context.Background())
+
+	// Assert
+	if err == nil || slices.Contains(f.callsMade(), "delete own") {
+		t.Errorf("Start = %v with calls %q; want it failed before anything more", err, f.callsMade())
+	}
+}
+
+// The service's status says whether a job runs, and how the last one ended.
+func TestServiceStatusSaysWhatRuns(t *testing.T) {
+	// Arrange
+	f := &fakeJob{failing: "start"}
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+	before := s.Status()
+	s.started = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	during := s.Status()
+	s.started = time.Time{}
+
+	// Act
+	_, _ = s.Run(context.Background(), func(string) {})
+	after := s.Status()
+
+	// Assert
+	for _, row := range []struct{ got, want string }{
+		{before, "no job has run since the service started"},
+		{during, "a job runs, started at 2026-10-14T12:00:00Z"},
+		{after, "no job runs, and the last job, started at 2026-10-14T12:00:00Z, failed, and start failed"},
+	} {
+		if row.got != row.want {
+			t.Errorf("Status = %q; want %q", row.got, row.want)
+		}
+		if strings.ContainsAny(row.got, ";—") {
+			t.Errorf("Status = %q; want no semicolon or em dash", row.got)
+		}
+	}
+}
