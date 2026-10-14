@@ -124,7 +124,7 @@ type Options struct {
 	Windows      func() (map[int]bool, error)
 	ConsoleShown func(pid int, windowOwners map[int]bool) (bool, error)
 	// HideConsole hides the console window a goblin's process shows and says
-	// whether it hid one; nil hides it on the desktop (proc.HideConsole).
+	// whether it hid one; nil hides it on the desktop (hideConsoleOnDesktop).
 	HideConsole func(pid int) (bool, error)
 	// Releases is where the board looks for a newer release of Code
 	// Goblins; without it the board never looks and makes no Update item.

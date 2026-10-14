@@ -105,7 +105,7 @@ func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 		consoleShown = proc.ConsoleShown
 	}
 	if hideConsole == nil {
-		hideConsole = proc.HideConsole
+		hideConsole = hideConsoleOnDesktop
 	}
 	windows, err := listWindows()
 	if err != nil {

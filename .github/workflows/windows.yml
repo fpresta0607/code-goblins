@@ -18,6 +18,7 @@ on:
       - cmd/cfo/launcher.go
       - internal/execx/**
       - internal/proc/**
+      - internal/supervisor/console_window*.go
       - tests/acceptance/no_visible_windows.ps1
       - .github/workflows/windows.yml
 
@@ -75,7 +76,7 @@ jobs:
         run: |
           go test ./cmd/cfo -run '^(TestACommandStartedAloneInANewConsoleClosesItsWindow|TestIsShownOnPurposeKeepsOnlyWhatTheOverlordStartsToLookAt|TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog)$' -count=1 -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test ./internal/proc -run '^(TestHideConsoleTakesACarelessConsoleOffTheDesktop|TestHideConsoleHidesNothingOfAConsoleWithNoWindow)$' -count=5 -v
+          go test ./internal/supervisor -run '^(TestHideConsoleOnDesktopTakesACarelessConsoleOffTheDesktop|TestHideConsoleOnDesktopHidesNothingOfAConsoleWithNoWindow)$' -count=5 -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Measure each careless start and a detached run
         shell: powershell
