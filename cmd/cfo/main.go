@@ -257,6 +257,12 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
 	logAFK    func(h home.Home, entry afk.Entry) error
+	// logTrainLanding asks the supervisor to log a pull request a merge
+	// train landed while AFK mode is on; nil is the supervisor's pipe.
+	logTrainLanding func(h home.Home, trainID, url string) error
+	// pullRequestState asks GitHub whether a pull request is open, closed or
+	// merged, for cfo afk log --kind merge; nil asks through gh.
+	pullRequestState func(ctx context.Context, url string) (supervisor.PullRequestInfo, error)
 	// strikeAFK asks the supervisor to strike through a line the CFO logged
 	// by mistake.
 	strikeAFK func(h home.Home, at time.Time, reason string) error

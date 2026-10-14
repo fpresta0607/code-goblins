@@ -141,3 +141,12 @@ func ghText(ctx context.Context, commands execx.Runner, args ...string) (string,
 	}
 	return strings.TrimSpace(string(res.Stdout)), nil
 }
+
+// trainLandingLogger is how a train's landing is logged: over the
+// supervisor's pipe, unless the runtime names another way.
+func (r commandRuntime) trainLandingLogger() func(home.Home, string, string) error {
+	if r.logTrainLanding != nil {
+		return r.logTrainLanding
+	}
+	return supervisor.LogTrainLanding
+}

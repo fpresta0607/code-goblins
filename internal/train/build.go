@@ -17,6 +17,16 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 	if why != "" {
 		t.Note = why
 	}
+	// A rider found already on the base is landed too, and heard of once the
+	// rebuild is recorded, whichever way it ends.
+	riding := t.carsIn(CarRiding)
+	defer func() {
+		for _, i := range riding {
+			if t.Cars[i].State == CarLanded && e.Landed != nil {
+				e.Landed(ctx, *t, t.Cars[i])
+			}
+		}
+	}()
 	t.Head, t.Landing = "", false
 	if err := e.save(t); err != nil {
 		return err
@@ -60,7 +70,7 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 			continue
 		}
 		if isLanded {
-			car.State, car.Note = CarLanded, "already on "+t.Base
+			car.State, car.Note = CarLanded, foundOnBase+t.Base
 			continue
 		}
 		merged, conflicts, err := e.mergeTree(ctx, t.Checkout, head, car.Head)

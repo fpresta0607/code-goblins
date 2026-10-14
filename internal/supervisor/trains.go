@@ -211,7 +211,7 @@ func (s *Service) trainEngine(runner execx.Runner, repository string) train.Engi
 			if !s.afkOn() {
 				return
 			}
-			entry := afk.Entry{Kind: afk.KindMerge, What: car.URL, Link: car.URL, Evidence: t.Evidence(), Outcome: afk.OutcomeMerged}
+			entry := afk.Entry{Kind: afk.KindMerge, What: car.URL, Link: car.URL, Evidence: t.LandingEvidence(car), Outcome: afk.OutcomeMerged}
 			if err := s.logAFKDecision(entry); err != nil {
 				_ = raiseFleetWake(stateDir, "pr", "train:"+repository, fmt.Sprintf("merge_train: AFK mode's log did not take the merge of %s by train %s (%v); log it with cfo afk log --kind merge", car.URL, t.ID, err))
 			}

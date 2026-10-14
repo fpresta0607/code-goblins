@@ -740,7 +740,8 @@ A run whose base moved before it landed is built again on the new tip and tested
 Every step is recorded before it acts, so a restart or a network failure in the middle of one, even halfway through landing, is taken on by the next step, and a merge that went through although its answer was lost is found on the branch.
 A step that fails counts against the train, which takes it again on the next poll, tells you of it once it failed on three polls in a row and stops after five; a run whose checks never appear stops after 20 minutes and one whose checks never finish after three hours.
 A start that is cut short, as by one read that ran out of time, is kept and counts as the train's first failed step, so the next poll builds the train and nobody is woken for it.
-Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it.
+Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it, and one the train finds already on its base, landed by an earlier run or train, is logged as merged saying so, once in the stretch.
+The supervisor writes each of those lines, from the train's own record and the state GitHub gives the pull request, whoever started the train: a `cfo pr train` started detached does not run under the registered CFO, which the log of a decision needs, so it asks the supervisor to log the landing instead of writing it.
 
 On GitHub a train that landed leaves nothing closed without merging, which GitHub draws in red: its pull request reads merged, and so does every pull request it landed.
 A train that did not land its last run closes that run's pull request with how it ended, the failed checks and what landed before it: the one place on GitHub a train that went red says so.
@@ -962,6 +963,7 @@ While it is on you decide these yourself, without waiting, and each is logged wi
   It logs the merge word with what it read before anything merges, merges nothing when the log does not take it, and logs how the merge went.
   A merge that does not land is yours to see to: log what you did about it with `cfo afk log --kind merge --what "<what you did>" --evidence "<what you read>" --link <its pull request>`, or, when the step it needs is one only he can take, a `--kind his` line that links it, and his recap says so on its row.
   A line you write for a landing that links its pull request, or its train's, rides on that merge.
+  `cfo afk log --kind merge` for a pull request reads whether GitHub says it merged and records the outcome, so a landing you log by hand reads as merged, not as a merge that did not land, and the report asks again for any such line that has no outcome when AFK mode turns off.
 - Each deploy, named and verified read-only: `cfo afk log --kind deploy --what "<the deploy>" --evidence "<what you read>" [--link <url>]`.
 - A merged migration that adds or changes, applied to production and dev and read back from the applied list: `--kind migration`.
 - Installing a merged build through `<candidate> update` once the merge queue settles: `--kind install`.
