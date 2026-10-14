@@ -33,9 +33,10 @@ type WaitingWork struct {
 
 // schedule takes one free slot, in the fleet's order: a reported production
 // defect, then the oldest paused goblin whose pause cleared, then the top of
-// the queue, a picked-up root issue after every other queued task, unless a goblin paused for memory comes back first. It says what
-// it did, and what could run and did not, with why; a board that cannot start
-// goblins schedules nothing and says nothing.
+// the queue, with a picked-up root issue after every other queued task,
+// unless a goblin paused for memory comes back first. It says what it did,
+// and what could run and did not, with why; a board that cannot start goblins
+// schedules nothing and says nothing.
 func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
