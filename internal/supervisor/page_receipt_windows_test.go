@@ -39,8 +39,8 @@ func TestPageReceiptIsDurableAndAcknowledgedBeforeSettling(t *testing.T) {
 	select {
 	case reply := <-second:
 		// Assert
-		if reply != "Received." {
-			t.Errorf("settling poll reply = %q, want receipt without claiming delivery", reply)
+		if reply != "" {
+			t.Errorf("settling poll reply = %q, want none while his answer could go on: its one receipt comes once it settles", reply)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the settling poll never started")
@@ -1041,8 +1041,8 @@ func TestPageReceiptIsIndependentOfSupervisorCapacity(t *testing.T) {
 	// Assert
 	select {
 	case reply := <-settling:
-		if reply != "Received." {
-			t.Fatalf("receipt reply = %q", reply)
+		if reply != "" {
+			t.Fatalf("settling poll reply = %q, want none while his answer could go on", reply)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("journal capacity prevented acknowledgment and continued grouping")

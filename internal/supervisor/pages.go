@@ -194,7 +194,8 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 			if answer.IsAnswer {
 				s.answeredOnPage(*answer)
 			}
-			reply = "Received."
+			// No receipt yet: passOnAnswer gives the one receipt once the answer
+			// settles, saying whether it was a revision.
 			if !answer.Poll.Ended && ctx.Err() == nil {
 				continue
 			}
