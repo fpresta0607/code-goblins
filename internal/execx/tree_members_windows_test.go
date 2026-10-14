@@ -3,89 +3,27 @@ package execx
 import (
 	"os"
 	"os/exec"
-	"slices"
 	"testing"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// Windows counts a job's members and lists them in one call, and a member
-// that starts or exits during it leaves the count one past the list, which
-// a job whose members churn showed in about one read of 25,000 for up to half
-// a millisecond. That is a race, not an unreadable job, so the list is read
-// again until the two agree, and a job that never settles in the bound is
-// unreadable.
-func TestTreeReadsItsMembersAgainWhileTheyChange(t *testing.T) {
-	for name, row := range map[string]struct {
-		// counts is what the read numbered read counts and lists, with room
-		// for that many ids.
-		counts    func(read int, room uint32) (assigned, listed uint32)
-		wantReads int
-		wantIDs   int
-	}{
-		"members that changed during one read": {wantReads: 2, wantIDs: 2, counts: func(read int, room uint32) (uint32, uint32) {
-			if read == 1 {
-				return 3, 2
-			}
-			return 2, 2
-		}},
-		"more members than the list had room for": {wantReads: 2, wantIDs: 100, counts: func(read int, room uint32) (uint32, uint32) {
-			return 100, min(100, room)
-		}},
-		"members that changed through every read": {wantReads: memberReadAttempts, counts: func(read int, room uint32) (uint32, uint32) {
-			return 3, 2
-		}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			reads := 0
-			original := readJobMembers
-			t.Cleanup(func() { readJobMembers = original })
-			readJobMembers = func(_ windows.Handle, buffer []uintptr) error {
-				reads++
-				assigned, listed := row.counts(reads, uint32(len(buffer)-1))
-				counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
-				counts[0], counts[1] = assigned, listed
-				for index := range listed {
-					buffer[1+index] = uintptr(1000 + index)
-				}
-				return nil
-			}
-			tree := &Tree{}
-
-			// Act
-			ids, err := tree.memberIDs()
-
-			// Assert
-			if reads != row.wantReads {
-				t.Fatalf("the list was read %d time(s), want %d", reads, row.wantReads)
-			}
-			if row.wantIDs == 0 {
-				if err == nil {
-					t.Fatalf("members = %v, want an error for a list that never settled", ids)
-				}
-				return
-			}
-			if err != nil || len(ids) != row.wantIDs || !slices.Contains(ids, 1000) {
-				t.Fatalf("members = %v, %v; want the %d members of the read that agreed", ids, err, row.wantIDs)
-			}
-		})
-	}
-}
-
 // A job whose members start and exit all the time is measured on every
-// sample, as a run's monitor samples go build's.
+// sample, as a run's monitor samples go build's: on 2026-10-14 a run was cut
+// with "incomplete job member sample" while its list of members changed as it
+// was read. proc.JobProcessIDs proves each rule of that read with a stand-in;
+// this samples a real job, which the old read failed within a second.
 func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
 	if os.Getenv("EXECX_TEST_CHURN") != "" {
 		for deadline := time.Now().Add(4 * time.Second); time.Now().Before(deadline); {
 			var children []*exec.Cmd
 			for range 4 {
 				child := exec.Command("cmd", "/d", "/c", "exit 0")
-				if err := child.Start(); err == nil {
-					children = append(children, child)
+				if err := child.Start(); err != nil {
+					os.Exit(7)
 				}
+				children = append(children, child)
 			}
 			for _, child := range children {
 				_ = child.Wait()
@@ -104,14 +42,23 @@ func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
 
 	// Act
 	samples := 0
+	var usage TreeUsage
 	var failure error
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline) && failure == nil; samples++ {
-		_, failure = tree.Usage()
+		var sampled TreeUsage
+		if sampled, failure = tree.Usage(); failure == nil {
+			usage = sampled
+		}
 	}
 
 	// Assert
 	if failure != nil {
 		t.Fatalf("sample %d of a churning job = %v, want every sample read", samples, failure)
+	}
+	// The job's lifetime count shows its members did churn while it was
+	// sampled, so the samples above read a changing list.
+	if usage.TotalProcesses < 20 {
+		t.Fatalf("the job held %d processes in all, want at least 20 started and exited while it was sampled", usage.TotalProcesses)
 	}
 }
 
