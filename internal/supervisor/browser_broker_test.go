@@ -92,6 +92,7 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 		closing:   map[string]bool{},
 		signing:   map[string]string{},
 		fetching:  map[string]string{},
+		signOuts:  map[string]bool{},
 	}
 	return broker, chrome, gone, &now
 }

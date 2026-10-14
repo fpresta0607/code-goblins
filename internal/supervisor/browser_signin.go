@@ -53,7 +53,7 @@ func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, er
 	if provider.KeyPage == "" {
 		return BrowserLease{}, errors.New("this provider has no reviewed sign-in page")
 	}
-	meta, err := s.browsers.grantedTask(request.Task, provider.ID)
+	meta, manifest, err := s.browsers.grantedTask(request.Task, provider.ID)
 	if err != nil {
 		return BrowserLease{}, err
 	}
@@ -61,7 +61,7 @@ func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, er
 		return BrowserLease{}, err
 	}
 	project := auth.ProjectName(meta.Project)
-	login, err := s.browsers.prepareSignIn(request.Task, project, provider)
+	login, err := s.browsers.prepareSignIn(request.Task, project, provider, manifest)
 	if err != nil {
 		return BrowserLease{}, err
 	}
@@ -110,7 +110,7 @@ func (s *Service) requestBrowserSignIn(request BrowserRequest) (BrowserLease, er
 	return BrowserLease{Login: card.Login, Provider: card.Provider, Account: card.Account, SignIn: card.ID}, nil
 }
 
-func (b *browserBroker) prepareSignIn(task, project string, provider keypages.Provider) (browserlogin.Login, error) {
+func (b *browserBroker) prepareSignIn(task, project string, provider keypages.Provider, manifest auth.Manifest) (browserlogin.Login, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -120,13 +120,9 @@ func (b *browserBroker) prepareSignIn(task, project string, provider keypages.Pr
 	if err != nil {
 		return browserlogin.Login{}, err
 	}
-	index, err := projectLogin(logins, provider, project)
+	logins, index, err := projectLogin(logins, provider, project, manifest)
 	if err != nil {
 		return browserlogin.Login{}, err
-	}
-	if index < 0 {
-		logins = append(logins, browserlogin.Login{ID: browserlogin.DefaultID(provider.ID, project), Provider: provider.ID, Account: project, Projects: []string{project}})
-		index = len(logins) - 1
 	}
 	login := logins[index]
 	if b.fetching[login.ID] != "" {
@@ -334,7 +330,7 @@ func (b *browserBroker) signInGrant(card BrowserSignIn) (keypages.Provider, erro
 	if err != nil {
 		return keypages.Provider{}, err
 	}
-	meta, err := b.grantedTask(card.Task, provider.ID)
+	meta, _, err := b.grantedTask(card.Task, provider.ID)
 	if err != nil {
 		return provider, err
 	}
