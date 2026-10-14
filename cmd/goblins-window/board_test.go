@@ -107,23 +107,19 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 // unless it was asked from an open review page, an open review item, a
 // command ready or running unless a credential card opened it, and an open
 // request for credentials by its project, never by the credential names. A
-// question asked from an open review page is returned as a key beside them,
-// open without an alert of its own. A goblin's question, which names its
-// task, is the CFO's to answer: it is neither listed nor returned as a key,
-// beside its open page or not, and a goblin blocked, failed or done is no
-// item at all. The snapshot names the supervisor's instance too.
+// goblin's question, which names its task, is the CFO's to answer: it is not
+// listed, and a goblin blocked, failed or done is no item at all. The snapshot names the supervisor's instance too.
 func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code","phase":"failed","reason":"Waiting on the CFO: Requested by the operator; worktree C:\\work"},{"id":"blog","title":"Blog","phase":"done","pr":"https://github.com/o/r/pull/7"}],
 		"questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending","created_at":"2026-10-01T12:00:00Z"},{"id":"q2","text":"old","status":"answered","created_at":"2026-10-01T12:00:00Z"},
-			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1","created_at":"2026-10-01T12:03:00Z"},
 			{"id":"notify-shop-4","text":"Which port?","status":"pending","task":"shop","created_at":"2026-10-01T12:04:00Z"},
-			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","page":"r1","created_at":"2026-10-01T12:05:00Z"}],
+			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","created_at":"2026-10-01T12:05:00Z"}],
 		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","task":"shop","created_at":"2026-10-01T12:01:00Z"},{"id":"r2","title":"done","state":"answered","created_at":"2026-10-01T12:00:00Z"}],
 		"runs":[{"id":"u1","title":"Install the tool","state":"ready","created_at":"2026-10-01T12:02:00Z"},{"id":"u2","title":"ran","state":"finished","created_at":"2026-10-01T12:00:00Z"},
 			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1","created_at":"2026-10-01T12:00:00Z"}],
 		"credentials":[{"id":"c1","project":"shop","state":"open","task":"shop","names":["API_KEY"],"created_at":"2026-10-01T12:06:00Z"},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"],"created_at":"2026-10-01T12:00:00Z"}]}`
 
-	instance, items, folded, err := waiting([]byte(snapshot))
+	instance, items, err := waiting([]byte(snapshot))
 
 	if err != nil {
 		t.Fatal(err)
@@ -136,9 +132,6 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)
-	}
-	if !slices.Equal(folded, []string{"question:q3@2026-10-01T12:03:00Z"}) {
-		t.Errorf("folded = %v, want question:q3 alone", folded)
 	}
 }
 
@@ -176,42 +169,12 @@ func TestEachItemIsNotifiedInItsAskersWordsOnOnePlainLine(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code"},{"id":"long","title":"` + longTitle + `"}],` + test.item + `}`
 
-			_, items, _, err := waiting([]byte(snapshot))
+			_, items, err := waiting([]byte(snapshot))
 
 			if err != nil || !slices.Equal(items, []Item{test.want}) {
 				t.Errorf("waiting = %+v, %v; want %+v", items, err, test.want)
 			}
 		})
-	}
-}
-
-// A question that was pending inside its page's card is not new when that
-// page closes and the question becomes a card of its own; a question that was
-// never there before still is.
-func TestTheWatcherDoesNotTellAQuestionItsPageCarried(t *testing.T) {
-	var mu sync.Mutex
-	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","page":"r1","created_at":"T1"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","created_at":"T0"}]}`
-	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		_, _ = w.Write([]byte(snapshot))
-	}))
-	defer board.Close()
-	watcher := &Watcher{}
-
-	first, _ := watcher.New(board.URL)
-	mu.Lock()
-	snapshot = `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","created_at":"T1"},{"id":"q2","text":"Never there before?","status":"pending","created_at":"T2"}],
-		"reviews":[{"id":"r1","title":"Pick a layout","state":"withdrawn","created_at":"T0"}]}`
-	mu.Unlock()
-	second, _ := watcher.New(board.URL)
-
-	if len(first) != 0 {
-		t.Errorf("first look = %+v, want nothing: it only learns what waits", first)
-	}
-	if !slices.Equal(second, []Item{{"question:q2@T2", "CFO", "The CFO asks: Never there before?"}}) {
-		t.Errorf("second look = %+v, want the question that was never there alone", second)
 	}
 }
 
