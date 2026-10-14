@@ -65,7 +65,7 @@ func questionAbout(t *testing.T, s *Service, what string) Question {
 	return s.Store.Snapshot().Questions[i]
 }
 
-func TestADecisionTheCFOAnsweredIsSettledInHistoryAndHisStepIsALineOfTheRecap(t *testing.T) {
+func TestADecisionTheCFOAnsweredIsSettledInHistoryAndHisStepIsACardInTheCommandCenter(t *testing.T) {
 	// Arrange
 	s, h, _ := asTheCFO(t)
 	_, identity, err := readPrimary(h.State)
@@ -89,15 +89,15 @@ func TestADecisionTheCFOAnsweredIsSettledInHistoryAndHisStepIsALineOfTheRecap(t 
 	if !strings.Contains(settled.Text, "\n- Evidence: ") {
 		t.Errorf("the decision reads %q, want what the CFO's answer stood on", settled.Text)
 	}
-	if questions := s.Store.Snapshot().Questions; len(questions) != 1 {
-		t.Errorf("the board holds %+v, want only the settled decision: his sign-in is never asked", questions)
+	if questions, _ := cardsOf(s); len(questions) != 1 || questions[0].ID != afk.HisCardID(logged[1]) || len(s.Store.Snapshot().Questions) != 2 {
+		t.Errorf("the board holds %+v, want the settled decision and his one step as a card", s.Store.Snapshot().Questions)
 	}
 	report, found, err := ReadAFKReport(h)
 	if err != nil || !found {
 		t.Fatalf("ReadAFKReport = %v, %v, want the report", found, err)
 	}
-	if len(report.Held) != 0 {
-		t.Errorf("held for him = %+v, want nothing", report.Held)
+	if len(report.Held) != 1 || report.Held[0].Item != afk.HisCardItem(logged[1]) || !report.Held[0].Waiting {
+		t.Errorf("held for him = %+v, want his step's card, waiting", report.Held)
 	}
 	sections := report.Sections()
 	i := slices.IndexFunc(sections, func(section afk.Section) bool { return section.Title == "For you" })
@@ -108,7 +108,7 @@ func TestADecisionTheCFOAnsweredIsSettledInHistoryAndHisStepIsALineOfTheRecap(t 
 	if err := afk.Render(&text, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"\nFor you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it from the machine config. You can change it in History.\n", "\nNeeds you (1)\n- Sign in to Fly again\n"} {
+	for _, want := range []string{"\nFor you (1)\n- Which fallback does the gate policy take?\n  The CFO answered: Drop it from the machine config. You can change it in History.\n", "\nWaiting on you in the Command Center (1), each as it stands now\n- question:"+afk.HisCardID(logged[1])+", the CFO's: Sign in to Fly again\n"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("the CFO's text of the report lacks %q:\n%s", want, text.String())
 		}
