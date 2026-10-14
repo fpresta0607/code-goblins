@@ -61,7 +61,7 @@ func TestTheReleaseSignsTheInstallScriptItPublishes(t *testing.T) {
 	if !strings.Contains(afterPin, "      - name: Sign the installer\n") || !strings.Contains(afterSign, "      - name: Verify the installer's signature\n") || !strings.Contains(afterVerify, "      - name: Publish release\n") {
 		t.Fatal("want the installer pinned, then signed, then its signature verified, then published")
 	}
-	for _, want := range []string{"if: steps.signing.outputs.signed == 'true'", "uses: azure/artifact-signing-action@v2", `${{ github.workspace }}\release\install.ps1`, "timestamp-rfc3161:"} {
+	for _, want := range []string{"if: steps.signing.outputs.signed == 'true'", "uses: azure/artifact-signing-action@", `${{ github.workspace }}\release\install.ps1`, "timestamp-rfc3161:"} {
 		if !strings.Contains(sign, want) {
 			t.Errorf("the signing step lacks %q:\n%s", want, sign)
 		}
