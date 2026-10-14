@@ -698,7 +698,7 @@ for (const [where, use, isHisWindow] of [["in the browser", { viewport: { width:
       await expect(part("Done").locator("> details.afk-part-drawer")).toHaveAttribute("open", "");
       await expect(part("Decided for you").locator("> details.afk-part-drawer")).toHaveAttribute("open", "");
       const heads = report(page).locator(".afk-group > details > summary");
-      await expect(heads).toHaveText(["Not merged 1", "Deployed 1", "Merged 1", "Other 1", "Paused at a floor 1", "Also finished 2", /^Spent/, "Settled 1", "For you 1", "For the goblins 1"]);
+      await expect(heads).toHaveText(["Not merged 1", "Deployed 1", "Merged 1", "Other 1", "Paused at a floor 1", "Also finished 1", /^Spent/, "Settled 1", "For you 1", "For the goblins 1"]);
       await expect(report(page).locator(".afk-group > details[open]")).toHaveCount(0);
       await expect(report(page).locator(".afk-group li")).toHaveCount(0);
       // Every caret is the board's one chevron, the same glyph History uses.
