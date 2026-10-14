@@ -59,6 +59,8 @@ const (
 	// rather than asked for: the fleet looks every 30 seconds, and a client
 	// asking without end must not spend the App's GitHub rate limit.
 	pendingFresh = 15 * time.Second
+	// pendingLimit bounds the GitHub calls that find a waiting job.
+	pendingLimit = 30 * time.Second
 	// WatchEvery is how often the service looks for a VM left running with
 	// no job (Service.Watch).
 	WatchEvery = 5 * time.Minute
@@ -139,8 +141,9 @@ func (s *Service) Start(ctx context.Context) error {
 // the repository is still private. An answer, or GitHub's failure to give
 // one, is given again for pendingFresh, and asks made while GitHub is being
 // asked wait for that answer, so asks and runs however many and fast make
-// one set of GitHub calls at a time. An ask whose client gave up is no
-// answer, and is not given again.
+// one set of GitHub calls at a time. The ask is the service's, within
+// pendingLimit, never its client's, so a client that leaves mid-ask still
+// has the answer kept, and leaving cannot make the next ask go to GitHub.
 func (s *Service) Pending(ctx context.Context) (Pending, error) {
 	if err := lockBefore(ctx, &s.asking); err != nil {
 		return Pending{}, err
@@ -149,14 +152,13 @@ func (s *Service) Pending(ctx context.Context) (Pending, error) {
 	if !s.pendingAt.IsZero() && s.Deps.Now().Sub(s.pendingAt) < pendingFresh {
 		return s.pending, s.pendingErr
 	}
-	pending, err := Pending{}, s.refusePublic(ctx)
+	asking, cancel := context.WithTimeout(context.WithoutCancel(ctx), pendingLimit)
+	defer cancel()
+	pending, err := Pending{}, s.refusePublic(asking)
 	if err == nil {
-		if pending, err = s.Deps.GitHub.QueuedJob(ctx); err != nil {
+		if pending, err = s.Deps.GitHub.QueuedJob(asking); err != nil {
 			err = fmt.Errorf("cirunner: find a waiting job: %w", err)
 		}
-	}
-	if ctx.Err() != nil {
-		return Pending{}, ctx.Err()
 	}
 	s.pending, s.pendingErr, s.pendingAt = pending, err, s.Deps.Now()
 	return pending, err
@@ -211,6 +213,7 @@ func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, erro
 	case !pending.IsWaiting:
 		outcome = NoJob
 	default:
+		progress(fmt.Sprintf("a job waits, %s of run %d, so the VM starts", pending.Job, pending.RunID))
 		outcome, err = RunOneJob(ctx, s.Deps, s.Limits, progress)
 	}
 	s.mu.Lock()

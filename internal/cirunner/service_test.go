@@ -255,23 +255,29 @@ func TestRunsAskGitHubOnceWhileItsAnswerIsFresh(t *testing.T) {
 	}
 }
 
-// An ask its client gave up on is no answer, so the next ask asks GitHub
-// again rather than being given the client's own end.
-func TestPendingKeepsNoAnswerItsClientGaveUpOn(t *testing.T) {
-	// Arrange
-	f := &fakeJob{}
+// The ask for the waiting job is the service's, not its client's: runs whose
+// clients leave while GitHub is being asked still have its answer kept, so
+// leaving mid-ask, again and again, cannot make each run ask GitHub anew.
+func TestRunsWhoseClientsLeaveMidAskAskGitHubOnce(t *testing.T) {
+	// Arrange: GitHub answers in 50 ms, and each client leaves after 10.
+	f := &fakeJob{queued: &Pending{}, asking: 50 * time.Millisecond}
 	var config string
 	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
-	gone, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, _ = s.Pending(gone)
 
 	// Act
-	pending, err := s.Pending(context.Background())
+	for range 20 {
+		leaving, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		_, _ = s.Run(leaving, func(string) {})
+		cancel()
+	}
+	outcome, err := s.Run(context.Background(), func(string) {})
 
 	// Assert
-	if err != nil || !pending.IsWaiting {
-		t.Errorf("Pending = %+v, %v after a client gave up; want GitHub asked again and the waiting job", pending, err)
+	if f.asks != 1 || f.privacyAsks != 1 {
+		t.Errorf("GitHub was asked %d time(s) for a job and %d whether the repository is private for 20 runs whose clients left mid-ask; want 1 and 1", f.asks, f.privacyAsks)
+	}
+	if outcome != NoJob || err != nil {
+		t.Errorf("a run after them = %q, %v; want GitHub's answer, no job, never a client's leaving kept as the answer", outcome, err)
 	}
 }
 

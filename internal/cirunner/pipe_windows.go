@@ -22,8 +22,6 @@ const (
 	// service by sending nothing, or by sending without end.
 	requestLimit = 5 * time.Second
 	maxRequest   = 4 << 10
-	// pendingLimit bounds the GitHub calls that find a waiting job.
-	pendingLimit = 30 * time.Second
 	// maxClients bounds the clients answered at once. One past them is
 	// dropped as it connects.
 	maxClients = 16
