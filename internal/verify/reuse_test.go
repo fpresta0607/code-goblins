@@ -2,13 +2,18 @@ package verify
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
@@ -25,14 +30,14 @@ func reuseWorktree(t *testing.T) string {
 }
 
 // reuseDeclared reads what reuse declares in a project's record: the ignored
-// build, git's version and one variable.
+// build, git's version and one variable, for the fast tier.
 func reuseDeclared() project.Reuse {
-	return project.Reuse{Inputs: []string{"build"}, Tools: []project.Command{{"git", "version"}}, Environment: []string{"CFO_REUSE_TEST_SETTING"}}
+	return project.Reuse{Tiers: []string{"fast"}, Inputs: []string{"build"}, Tools: []project.Command{{"git", "version"}}, Environment: []string{"CFO_REUSE_TEST_SETTING"}}
 }
 
 // namedKey is the part of a key its caller names.
 func namedKey() ReuseKey {
-	return ReuseKey{Project: "demo", Scope: "fast", Commands: [][]string{{"demo", "check"}}, Executor: "main-0123abcd"}
+	return ReuseKey{Project: "demo", Scope: "fast", Commands: [][]string{{"demo", "check"}}, LimitSeconds: 900, Executor: "main-0123abcd"}
 }
 
 // A key holds the source, where the branch left the default branch, the
@@ -51,14 +56,15 @@ func TestReadReuseKeyReadsEverythingAPassDependsOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	head, tree := gitIn(t, dir, "rev-parse", "HEAD"), gitIn(t, dir, "rev-parse", "HEAD^{tree}")
-	if key.Project != "demo" || key.Scope != "fast" || key.Executor != "main-0123abcd" || len(key.Commands) != 1 {
+	if key.Project != "demo" || key.Scope != "fast" || key.Executor != "main-0123abcd" || key.LimitSeconds != 900 || len(key.Commands) != 1 {
 		t.Errorf("key = %+v; want what its caller named kept", key)
 	}
 	if key.Source != (Source{Commit: head, CommitTree: tree, Tree: tree, IsComplete: true}) || key.Base != head {
 		t.Errorf("key source %+v and base %q; want the clean head and the base origin/main names", key.Source, key.Base)
 	}
-	if key.Inputs == "" || len(key.Tools) != 1 || key.Tools[0] == "" || len(key.Environment) != 1 || key.Environment[0] != "CFO_REUSE_TEST_SETTING=one" || key.Platform == "" {
-		t.Errorf("key = %+v; want the inputs' digest, git's version, the variable and the platform", key)
+	sum := sha256.Sum256([]byte("one"))
+	if key.Inputs == "" || len(key.Tools) != 1 || key.Tools[0] == "" || len(key.Environment) != 1 || key.Environment[0] != "CFO_REUSE_TEST_SETTING=sha256:"+hex.EncodeToString(sum[:]) || key.Platform == "" {
+		t.Errorf("key = %+v; want the inputs' digest, git's version, the variable's digest and the platform", key)
 	}
 }
 
@@ -133,6 +139,110 @@ func TestReadReuseKeyRefusesWhatItCannotRead(t *testing.T) {
 	}
 }
 
+// junction makes link a junction to target, as this workstation can, though
+// it cannot make symbolic links.
+func junction(t *testing.T, link, target string) {
+	t.Helper()
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		t.Fatalf("mklink /J %s %s: %v: %s", link, target, err, output)
+	}
+	t.Cleanup(func() { _ = fsx.Remove(link) })
+}
+
+// An input that is a junction, or holds one, could change through what it
+// points at with no change of its own, so no key is read.
+func TestReadReuseKeyRefusesAnInputThatIsALink(t *testing.T) {
+	for name, arrange := range map[string]func(t *testing.T, dir string){
+		"an input that is a junction": func(t *testing.T, dir string) {
+			if err := fsx.RemoveAll(filepath.Join(dir, "build")); err != nil {
+				t.Fatal(err)
+			}
+			junction(t, filepath.Join(dir, "build"), filepath.Join(t.TempDir(), "elsewhere"))
+		},
+		"a junction inside an input": func(t *testing.T, dir string) {
+			junction(t, filepath.Join(dir, "build", "linked"), filepath.Join(t.TempDir(), "elsewhere"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := reuseWorktree(t)
+			arrange(t, dir)
+
+			// Act
+			key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
+
+			// Assert
+			if err == nil {
+				t.Errorf("ReadReuseKey = %+v; want an error", key)
+			}
+		})
+	}
+}
+
+// The base is read in the worktree a key is read for, whatever repository
+// the git variables it inherits name.
+func TestReadReuseKeyReadsTheBaseOfTheWorktreeItIsGiven(t *testing.T) {
+	// Arrange
+	dir := reuseWorktree(t)
+	other := reuseWorktree(t)
+	gitIn(t, other, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "elsewhere")
+	gitIn(t, other, "update-ref", "refs/remotes/origin/main", "HEAD")
+	want := gitIn(t, dir, "rev-parse", "HEAD")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_WORK_TREE", other)
+
+	// Act
+	key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
+
+	// Assert
+	if err != nil || key.Base != want {
+		t.Errorf("key base = %q (%v); want the worktree's own %q", key.Base, err, want)
+	}
+}
+
+// A declared variable's value is kept only as a digest, so a secret named to
+// key passes is never written down.
+func TestReadReuseKeyKeepsNoVariableValue(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	dir := reuseWorktree(t)
+	t.Setenv("CFO_REUSE_TEST_SETTING", "s3cret-value")
+	key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, time.Now())
+
+	// Assert
+	kept, readError := os.ReadFile(keptAt(key))
+	if err != nil || readError != nil || strings.Contains(string(kept), "s3cret-value") {
+		t.Errorf("KeepPass: %v; the pass (%v) holds the value = %v; want a pass without it", err, readError, strings.Contains(string(kept), "s3cret-value"))
+	}
+}
+
+// A declared input that is missing is told from one that is an empty folder.
+func TestInputsDigestTellsAMissingInputFromAnEmptyOne(t *testing.T) {
+	// Arrange
+	missing, empty := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(empty, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	ofMissing, missingError := inputsDigest(context.Background(), missing, []string{"build"})
+	ofEmpty, emptyError := inputsDigest(context.Background(), empty, []string{"build"})
+
+	// Assert
+	if missingError != nil || emptyError != nil || ofMissing == ofEmpty {
+		t.Errorf("digests %q (%v) and %q (%v); want two different digests", ofMissing, missingError, ofEmpty, emptyError)
+	}
+}
+
 // passedRun is the result of one command that passed on key's source, with
 // its execution record in the store.
 func passedRun(t *testing.T, key ReuseKey, command []string) Result {
@@ -143,7 +253,7 @@ func passedRun(t *testing.T, key ReuseKey, command []string) Result {
 	if err := Save(path, record); err != nil {
 		t.Fatal(err)
 	}
-	return Result{Command: command, Status: "passed", Scope: key.Scope, Execution: path, Source: record.Source}
+	return Result{Command: command, Status: "passed", Scope: key.Scope, Task: "t1", Execution: path, Source: record.Source}
 }
 
 // sealedKey is a key as ReadReuseKey would read it.
@@ -151,59 +261,70 @@ func sealedKey() ReuseKey {
 	key := namedKey()
 	key.Source = Source{Commit: "c1", CommitTree: "t1", Tree: "t1", IsComplete: true}
 	key.Base, key.Inputs, key.Platform = "b1", "i1", "windows/amd64"
-	key.Tools, key.Environment = []string{"git version 2"}, []string{"CFO_REUSE_TEST_SETTING=one"}
+	key.Tools, key.Environment = []string{"git version 2"}, []string{"CFO_REUSE_TEST_SETTING=sha256:1"}
 	return key
 }
 
+// keptAt is where the pass of key is kept.
+func keptAt(key ReuseKey) string {
+	return filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "passes", key.ID()+".json")
+}
+
 // A pass kept for a key is found for that key, with each of its results
-// naming the pass it was reused from.
+// naming the pass, when and for which task it was taken again, and keeping
+// the original run's own fields.
 func TestFindPassReusesThePassKeptForItsKey(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	key := sealedKey()
 	now := time.Now()
-	kept, err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now)
-	if err != nil {
+	if err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now); err != nil {
 		t.Fatal(err)
 	}
+	taken := now.Add(time.Hour)
 
 	// Act
-	pass, err := FindPass(key, now.Add(time.Hour), 24*time.Hour)
+	pass, err := FindPass(key, taken, 24*time.Hour, "t2")
 
 	// Assert
-	if err != nil || len(pass.Results) != 1 || pass.Results[0].Reused != kept || pass.Results[0].Status != "passed" {
-		t.Errorf("FindPass = %+v, %v; want the kept pass, its result reused from %s", pass, err, kept)
+	if err != nil || len(pass.Results) != 1 {
+		t.Fatalf("FindPass = %+v, %v; want the kept pass", pass, err)
+	}
+	result := pass.Results[0]
+	if !fsx.SamePath(result.Reused, keptAt(key)) || !result.ReusedAt.Equal(taken.UTC()) || result.ReusedFor != "t2" || result.Task != "t1" || result.Status != "passed" {
+		t.Errorf("result = %+v; want it taken from %s at %s for t2, its own task t1", result, keptAt(key), taken.UTC())
 	}
 }
 
 // Only the exact key finds a pass: one with any part changed finds none.
 func TestFindPassFindsNothingForAnotherKey(t *testing.T) {
 	for name, change := range map[string]func(key *ReuseKey){
-		"another tree":     func(key *ReuseKey) { key.Source.Tree = "t2" },
-		"another commit":   func(key *ReuseKey) { key.Source.Commit = "c2" },
-		"another base":     func(key *ReuseKey) { key.Base = "b2" },
-		"other inputs":     func(key *ReuseKey) { key.Inputs = "i2" },
-		"another tool":     func(key *ReuseKey) { key.Tools = []string{"git version 3"} },
-		"another variable": func(key *ReuseKey) { key.Environment = []string{"CFO_REUSE_TEST_SETTING=two"} },
-		"another platform": func(key *ReuseKey) { key.Platform = "linux/amd64" },
-		"another build":    func(key *ReuseKey) { key.Executor = "main-4567cdef" },
-		"another command":  func(key *ReuseKey) { key.Commands = [][]string{{"demo", "check", "--all"}} },
-		"another tier":     func(key *ReuseKey) { key.Scope = "full" },
-		"another project":  func(key *ReuseKey) { key.Project = "other" },
+		"another tree":       func(key *ReuseKey) { key.Source.Tree = "t2" },
+		"another commit":     func(key *ReuseKey) { key.Source.Commit = "c2" },
+		"another base":       func(key *ReuseKey) { key.Base = "b2" },
+		"other inputs":       func(key *ReuseKey) { key.Inputs = "i2" },
+		"another tool":       func(key *ReuseKey) { key.Tools = []string{"git version 3"} },
+		"another variable":   func(key *ReuseKey) { key.Environment = []string{"CFO_REUSE_TEST_SETTING=sha256:2"} },
+		"another platform":   func(key *ReuseKey) { key.Platform = "linux/amd64" },
+		"another build":      func(key *ReuseKey) { key.Executor = "main-4567cdef" },
+		"another command":    func(key *ReuseKey) { key.Commands = [][]string{{"demo", "check", "--all"}} },
+		"another tier":       func(key *ReuseKey) { key.Scope = "full" },
+		"another project":    func(key *ReuseKey) { key.Project = "other" },
+		"another time limit": func(key *ReuseKey) { key.LimitSeconds = 90 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
 			now := time.Now()
-			if _, err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now); err != nil {
+			if err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now); err != nil {
 				t.Fatal(err)
 			}
 			other := sealedKey()
 			change(&other)
 
 			// Act
-			pass, err := FindPass(other, now, 24*time.Hour)
+			pass, err := FindPass(other, now, 24*time.Hour, "t1")
 
 			// Assert
 			if !errors.Is(err, ErrNoPass) {
@@ -217,9 +338,8 @@ func TestFindPassFindsNothingForAnotherKey(t *testing.T) {
 // pass, or one whose execution record is gone or no longer a pass, is none.
 func TestFindPassFindsNothingWithoutFreshEvidence(t *testing.T) {
 	for name, row := range map[string]struct {
-		age    time.Duration
-		spoil  func(t *testing.T, record string)
-		isKept bool
+		age   time.Duration
+		spoil func(t *testing.T, record string)
 	}{
 		"a pass older than its limit": {age: 25 * time.Hour},
 		"a pass from the future":      {age: -time.Hour},
@@ -256,7 +376,7 @@ func TestFindPassFindsNothingWithoutFreshEvidence(t *testing.T) {
 			key := sealedKey()
 			now := time.Now()
 			result := passedRun(t, key, key.Commands[0])
-			if _, err := KeepPass(key, []Result{result}, now.Add(-row.age)); err != nil {
+			if err := KeepPass(key, []Result{result}, now.Add(-row.age)); err != nil {
 				t.Fatal(err)
 			}
 			if row.spoil != nil {
@@ -264,7 +384,7 @@ func TestFindPassFindsNothingWithoutFreshEvidence(t *testing.T) {
 			}
 
 			// Act
-			pass, err := FindPass(key, now, 24*time.Hour)
+			pass, err := FindPass(key, now, 24*time.Hour, "t1")
 
 			// Assert
 			if !errors.Is(err, ErrNoPass) {
@@ -274,76 +394,32 @@ func TestFindPassFindsNothingWithoutFreshEvidence(t *testing.T) {
 	}
 }
 
-// Only a whole pass on the key's own source is kept: a tier with a command
-// that failed, did not run, ran on another source, or kept no record is not.
-func TestKeepPassKeepsOnlyAWholePassOnItsSource(t *testing.T) {
-	for name, spoil := range map[string]func(result *Result){
-		"a failed command":         func(result *Result) { result.Status = "failed" },
-		"a command not run":        func(result *Result) { result.Status = "not_run" },
-		"a command with no record": func(result *Result) { result.Execution = "" },
-		"a command of another source": func(result *Result) {
-			other := Source{Commit: "c1", CommitTree: "t1", Tree: "t9", IsComplete: true}
-			result.Source = SourceReads{Start: &other, End: &other}
-		},
-		"another command": func(result *Result) { result.Command = []string{"demo", "other"} },
+// A kept pass file that is not a whole pass of its key, as one edited by
+// hand, is no pass: one that holds no result, or a result that failed.
+func TestFindPassFindsNothingInAPassThatIsNotWhole(t *testing.T) {
+	for name, spoil := range map[string]func(pass *Pass){
+		"no result":            func(pass *Pass) { pass.Results = nil },
+		"a result that failed": func(pass *Pass) { pass.Results[0].Status = "failed" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 			key := sealedKey()
-			result := passedRun(t, key, key.Commands[0])
-			spoil(&result)
+			now := time.Now()
+			pass := Pass{Key: key, Results: []Result{passedRun(t, key, key.Commands[0])}, Kept: now.UTC()}
+			spoil(&pass)
+			if err := Save(keptAt(key), pass); err != nil {
+				t.Fatal(err)
+			}
 
 			// Act
-			kept, err := KeepPass(key, []Result{result}, time.Now())
+			found, err := FindPass(key, now, 24*time.Hour, "t1")
 
 			// Assert
-			if err == nil {
-				t.Errorf("KeepPass kept %s; want it refused", kept)
-			}
-			if _, err := FindPass(key, time.Now(), 24*time.Hour); !errors.Is(err, ErrNoPass) {
-				t.Errorf("FindPass: %v; want ErrNoPass", err)
+			if !errors.Is(err, ErrNoPass) {
+				t.Errorf("FindPass = %+v, %v; want ErrNoPass", found, err)
 			}
 		})
-	}
-}
-
-// The base is read in the worktree a key is read for, whatever repository
-// the git variables it inherits name.
-func TestReadReuseKeyReadsTheBaseOfTheWorktreeItIsGiven(t *testing.T) {
-	// Arrange
-	dir := reuseWorktree(t)
-	other := reuseWorktree(t)
-	gitIn(t, other, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "elsewhere")
-	gitIn(t, other, "update-ref", "refs/remotes/origin/main", "HEAD")
-	want := gitIn(t, dir, "rev-parse", "HEAD")
-	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
-	t.Setenv("GIT_WORK_TREE", other)
-
-	// Act
-	key, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, namedKey(), reuseDeclared())
-
-	// Assert
-	if err != nil || key.Base != want {
-		t.Errorf("key base = %q (%v); want the worktree's own %q", key.Base, err, want)
-	}
-}
-
-// A declared input that is missing is told from one that is an empty folder.
-func TestInputsDigestTellsAMissingInputFromAnEmptyOne(t *testing.T) {
-	// Arrange
-	missing, empty := t.TempDir(), t.TempDir()
-	if err := os.Mkdir(filepath.Join(empty, "build"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	ofMissing, missingError := inputsDigest(missing, []string{"build"})
-	ofEmpty, emptyError := inputsDigest(empty, []string{"build"})
-
-	// Assert
-	if missingError != nil || emptyError != nil || ofMissing == ofEmpty {
-		t.Errorf("digests %q (%v) and %q (%v); want two different digests", ofMissing, missingError, ofEmpty, emptyError)
 	}
 }
 
@@ -356,20 +432,63 @@ func TestFindPassFindsNothingInAPassOfAnotherKey(t *testing.T) {
 	other.Source.Tree = "t2"
 	other.Source.CommitTree = "t2"
 	now := time.Now()
-	kept, err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now)
-	if err != nil {
+	if err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(kept, filepath.Join(filepath.Dir(kept), key.ID()+".json")); err != nil {
+	if err := os.Rename(keptAt(other), keptAt(key)); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	pass, err := FindPass(key, now, 24*time.Hour)
+	pass, err := FindPass(key, now, 24*time.Hour, "t1")
 
 	// Assert
 	if !errors.Is(err, ErrNoPass) {
 		t.Errorf("FindPass = %+v, %v; want ErrNoPass", pass, err)
+	}
+}
+
+// Only a whole pass on the key's own source is kept: a tier with a command
+// that failed, did not run, ran on another or no one source, or kept no
+// record in the store is not.
+func TestKeepPassKeepsOnlyAWholePassOnItsSource(t *testing.T) {
+	other := Source{Commit: "c1", CommitTree: "t1", Tree: "t9", IsComplete: true}
+	incomplete := Source{Commit: "c1", CommitTree: "t1", Tree: "t1"}
+	for name, spoil := range map[string]func(result *Result){
+		"a failed command":           func(result *Result) { result.Status = "failed" },
+		"a command not run":          func(result *Result) { result.Status = "not_run" },
+		"a command with no record":   func(result *Result) { result.Execution = "" },
+		"a record outside the store": func(result *Result) { result.Execution = filepath.Join(os.TempDir(), "elsewhere.json") },
+		"another command":            func(result *Result) { result.Command = []string{"demo", "other"} },
+		"a command of another source": func(result *Result) {
+			result.Source = SourceReads{Start: &other, End: &other}
+		},
+		"reads that differed": func(result *Result) {
+			result.Source = SourceReads{Start: result.Source.Start, End: &other}
+		},
+		"a read that failed": func(result *Result) { result.Source.Failure = "git failed" },
+		"an incomplete source": func(result *Result) {
+			result.Source = SourceReads{Start: &incomplete, End: &incomplete}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			key := sealedKey()
+			result := passedRun(t, key, key.Commands[0])
+			spoil(&result)
+
+			// Act
+			err := KeepPass(key, []Result{result}, time.Now())
+
+			// Assert
+			if err == nil {
+				t.Error("KeepPass kept the pass; want it refused")
+			}
+			if _, err := FindPass(key, time.Now(), 24*time.Hour, "t1"); !errors.Is(err, ErrNoPass) {
+				t.Errorf("FindPass: %v; want ErrNoPass", err)
+			}
+		})
 	}
 }
 
@@ -381,38 +500,38 @@ func TestKeepPassKeepsNoPassMissingACommand(t *testing.T) {
 	key.Commands = append(key.Commands, []string{"demo", "second"})
 
 	// Act
-	kept, err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, time.Now())
+	err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, time.Now())
 
 	// Assert
 	if err == nil {
-		t.Errorf("KeepPass kept %s; want it refused", kept)
+		t.Error("KeepPass kept the pass; want it refused")
 	}
 }
 
-// Keeping a pass removes the passes kept more than a week before.
-func TestKeepPassRemovesPassesOlderThanAWeek(t *testing.T) {
+// Pruning removes the passes kept more than a week before, and no other.
+func TestPrunePassesRemovesPassesOlderThanAWeek(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
-	old := sealedKey()
+	old, young := sealedKey(), sealedKey()
 	old.Scope = "full"
 	now := time.Now()
-	stale, err := KeepPass(old, []Result{passedRun(t, old, old.Commands[0])}, now.Add(-8*24*time.Hour))
-	if err != nil {
+	for _, key := range []ReuseKey{old, young} {
+		if err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(keptAt(old), now.Add(-8*24*time.Hour), now.Add(-8*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(stale, now.Add(-8*24*time.Hour), now.Add(-8*24*time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	key := sealedKey()
 
 	// Act
-	kept, err := KeepPass(key, []Result{passedRun(t, key, key.Commands[0])}, now)
+	err := PrunePasses(now)
 
 	// Assert
-	if _, statError := os.Stat(stale); err != nil || !errors.Is(statError, os.ErrNotExist) {
-		t.Errorf("KeepPass kept %s (%v) and the week-old pass %s is there (%v); want it removed", kept, err, stale, statError)
+	if _, statError := os.Stat(keptAt(old)); err != nil || !errors.Is(statError, os.ErrNotExist) {
+		t.Errorf("PrunePasses: %v, and the week-old pass is there (%v); want it removed", err, statError)
 	}
-	if _, statError := os.Stat(kept); statError != nil {
-		t.Errorf("the pass just kept: %v", statError)
+	if _, statError := os.Stat(keptAt(young)); statError != nil {
+		t.Errorf("the young pass: %v; want it kept", statError)
 	}
 }

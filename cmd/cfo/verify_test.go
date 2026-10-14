@@ -572,7 +572,7 @@ func runs(t *testing.T, counter string) int {
 func TestVerifyTakesAPassAgainOnTheSameSource(t *testing.T) {
 	// Arrange
 	counter := filepath.Join(t.TempDir(), "count.txt")
-	runtime, taskTmp := measuredTask(t, countedTier(t, counter, `{"tools": [["git", "version"]]}`))
+	runtime, taskTmp := measuredTask(t, countedTier(t, counter, `{"tiers": ["fast"], "tools": [["git", "version"]]}`))
 	var first bytes.Buffer
 	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 {
 		t.Fatalf("the first run exited %d: %s", exit, first.String())
@@ -595,20 +595,44 @@ func TestVerifyTakesAPassAgainOnTheSameSource(t *testing.T) {
 	}
 }
 
-// A tier runs again when anything its pass depends on changed, or when its
-// record declares nothing a pass depends on besides git's files.
+// ignoreBuild commits a .gitignore to the task's worktree that ignores
+// build/ and built.txt, and moves the default branch to it, and returns the
+// worktree.
+func ignoreBuild(t *testing.T, runtime commandRuntime) string {
+	t.Helper()
+	h, err := runtime.resolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta.Worktree, ".gitignore"), []byte("build/\nbuilt.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, meta.Worktree, "add", ".gitignore")
+	gitIn(t, meta.Worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "ignore the build")
+	gitIn(t, meta.Worktree, "update-ref", "refs/remotes/origin/main", "HEAD")
+	return meta.Worktree
+}
+
+// A tier runs again when anything its pass depends on changed, when its
+// record declares nothing a pass depends on besides git's files, or when it
+// is not among the tiers the declaration names.
 func TestVerifyRunsAgainWhenItsPassCannotBeTaken(t *testing.T) {
 	for name, row := range map[string]struct {
 		declared string
 		change   func(t *testing.T, worktree string)
 	}{
-		"no reuse declared": {},
-		"a file git sees": {declared: `{"inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
+		"no reuse declared":  {},
+		"another tier named": {declared: `{"tiers": ["full"]}`},
+		"a file git sees": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
 			if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("changed\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}},
-		"a declared input": {declared: `{"inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
+		"a declared input": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
 			if err := os.MkdirAll(filepath.Join(worktree, "build"), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -621,20 +645,13 @@ func TestVerifyRunsAgainWhenItsPassCannotBeTaken(t *testing.T) {
 			// Arrange
 			counter := filepath.Join(t.TempDir(), "count.txt")
 			runtime, _ := measuredTask(t, countedTier(t, counter, row.declared))
-			h, err := runtime.resolveHome()
-			if err != nil {
-				t.Fatal(err)
-			}
-			meta, err := state.ReadTaskMeta(h.State, "t1")
-			if err != nil {
-				t.Fatal(err)
-			}
+			worktree := ignoreBuild(t, runtime)
 			var first bytes.Buffer
-			if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 {
-				t.Fatalf("the first run exited %d: %s", exit, first.String())
+			if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 || strings.Contains(first.String(), "can be taken again") || strings.Contains(first.String(), "is not kept") {
+				t.Fatalf("the first run exited %d and said %q; want a quiet pass", exit, first.String())
 			}
 			if row.change != nil {
-				row.change(t, meta.Worktree)
+				row.change(t, worktree)
 			}
 
 			// Act
@@ -660,7 +677,7 @@ func TestVerifyKeepsNoPassOfAFailedTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {}}`)
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"tiers": ["fast"]}}`)
 	var first bytes.Buffer
 	runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime)
 
@@ -678,7 +695,7 @@ func TestVerifyKeepsNoPassOfAFailedTier(t *testing.T) {
 func TestVerifySaysWhyItsPassCannotBeKeyed(t *testing.T) {
 	// Arrange
 	counter := filepath.Join(t.TempDir(), "count.txt")
-	runtime, _ := measuredTask(t, countedTier(t, counter, `{}`))
+	runtime, _ := measuredTask(t, countedTier(t, counter, `{"tiers": ["fast"]}`))
 	version = "dev"
 
 	// Act
@@ -691,36 +708,27 @@ func TestVerifySaysWhyItsPassCannotBeKeyed(t *testing.T) {
 	}
 }
 
-// A pass is not kept when a declared input changed while the tier ran,
-// though the tier passed, so the next run runs again.
+// A pass is not kept when a declared input read otherwise once the tier had
+// run, though the tier passed: with the input as it was before, the next run
+// finds no pass and runs again.
 func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
 	// Arrange
 	previous := version
 	version = "main-0123abcd"
 	t.Cleanup(func() { version = previous })
 	counter := filepath.Join(t.TempDir(), "count.txt")
-	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo %RANDOM%> built.txt"})
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo built> built.txt"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"inputs": ["built.txt"]}}`)
-	h, err := runtime.resolveHome()
-	if err != nil {
-		t.Fatal(err)
-	}
-	meta, err := state.ReadTaskMeta(h.State, "t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(meta.Worktree, ".gitignore"), []byte("built.txt\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, meta.Worktree, "add", ".gitignore")
-	gitIn(t, meta.Worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "ignore the build")
-	gitIn(t, meta.Worktree, "update-ref", "refs/remotes/origin/main", "HEAD")
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"tiers": ["fast"], "inputs": ["built.txt"]}}`)
+	worktree := ignoreBuild(t, runtime)
 	var first bytes.Buffer
 	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 || !strings.Contains(first.String(), "is not kept to be taken again") {
 		t.Fatalf("the first run exited %d and said %q; want a pass not kept", exit, first.String())
+	}
+	if err := os.Remove(filepath.Join(worktree, "built.txt")); err != nil {
+		t.Fatal(err)
 	}
 
 	// Act
@@ -729,6 +737,6 @@ func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
 
 	// Assert
 	if exit != 0 || runs(t, counter) != 2 {
-		t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs", exit, runs(t, counter))
+		t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs; stderr=%q", exit, runs(t, counter), stderr.String())
 	}
 }

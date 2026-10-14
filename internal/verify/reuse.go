@@ -29,14 +29,17 @@ var ErrNoPass = errors.New("verify: no pass to reuse")
 const keptPassAge = 7 * 24 * time.Hour
 
 // ReuseKey is what a tier's pass depends on, as far as this machine can read
-// it. Its caller names the project, the tier, its commands and the cfo build
-// that runs them, and ReadReuseKey reads the rest. A pass is taken again only
-// for the very same key.
+// it. Its caller names the project, the tier, its commands, its time limit
+// and the cfo build that verifies, and ReadReuseKey reads the rest. A pass is
+// taken again only for the very same key.
 type ReuseKey struct {
-	Project  string     `json:"project"`
-	Scope    string     `json:"scope"`
-	Commands [][]string `json:"commands"`
-	Executor string     `json:"executor"`
+	Project      string     `json:"project"`
+	Scope        string     `json:"scope"`
+	Commands     [][]string `json:"commands"`
+	LimitSeconds int        `json:"limit_seconds"`
+	// Executor is the cfo build that verifies, not a cfo a tier's command
+	// starts from its PATH, which a record names among its tools.
+	Executor string `json:"executor"`
 	// Source is the complete source of the worktree, and Base where its
 	// branch left the default branch, since a check can choose what to run
 	// by what the branch changed.
@@ -44,7 +47,8 @@ type ReuseKey struct {
 	Base   string `json:"base"`
 	// Inputs is a digest of the ignored files the project declares its
 	// checks read, Tools the output of each tool command it declares, and
-	// Environment each variable it declares with its value.
+	// Environment each variable it declares with a digest of its value, so
+	// that no secret is kept.
 	Inputs      string   `json:"inputs"`
 	Tools       []string `json:"tools"`
 	Environment []string `json:"environment"`
@@ -54,20 +58,23 @@ type ReuseKey struct {
 
 // ID names the key in the store.
 func (key ReuseKey) ID() string {
-	// A key holds only strings, which always marshal.
+	// A key holds only strings and numbers, which always marshal.
 	data, _ := json.Marshal(key)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
 // ReadReuseKey completes key with what the worktree dir holds now, as reuse
-// declares it. A key that cannot all be read is no key: an unstamped cfo
-// build, an incomplete source, no default branch to measure the branch
-// against, or a tool command that fails.
+// declares it, within sourceReadLimit. A key that cannot all be read is no
+// key: an unstamped cfo build, an incomplete source, no default branch to
+// measure the branch against, an input that is a link, or a tool command
+// that fails.
 func ReadReuseKey(ctx context.Context, commands execx.Runner, dir string, key ReuseKey, reuse project.Reuse) (ReuseKey, error) {
 	if key.Executor == "" || key.Executor == "dev" {
 		return ReuseKey{}, errors.New("verify: an unstamped cfo build cannot say what ran a pass")
 	}
+	ctx, cancel := context.WithTimeout(ctx, sourceReadLimit)
+	defer cancel()
 	source, err := ReadSource(ctx, commands, dir)
 	if err != nil {
 		return ReuseKey{}, err
@@ -79,12 +86,12 @@ func ReadReuseKey(ctx context.Context, commands execx.Runner, dir string, key Re
 	if key.Base, err = defaultBranchBase(ctx, commands, dir); err != nil {
 		return ReuseKey{}, err
 	}
-	if key.Inputs, err = inputsDigest(dir, reuse.Inputs); err != nil {
+	if key.Inputs, err = inputsDigest(ctx, dir, reuse.Inputs); err != nil {
 		return ReuseKey{}, err
 	}
 	key.Tools = nil
 	for _, tool := range reuse.Tools {
-		result, err := commands.Run(ctx, execx.Request{Dir: dir, Name: tool[0], Args: tool[1:]})
+		result, err := commands.Run(ctx, execx.Request{Dir: dir, Name: tool[0], Args: tool[1:], KillTree: true})
 		if err == nil && result.ExitCode != 0 {
 			err = fmt.Errorf("exited %d", result.ExitCode)
 		}
@@ -95,7 +102,8 @@ func ReadReuseKey(ctx context.Context, commands execx.Runner, dir string, key Re
 	}
 	key.Environment = nil
 	for _, name := range reuse.Environment {
-		key.Environment = append(key.Environment, name+"="+os.Getenv(name))
+		sum := sha256.Sum256([]byte(os.Getenv(name)))
+		key.Environment = append(key.Environment, name+"=sha256:"+hex.EncodeToString(sum[:]))
 	}
 	key.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	return key, nil
@@ -115,7 +123,9 @@ func defaultBranchBase(ctx context.Context, commands execx.Runner, dir string) (
 
 // inputsDigest is a digest of each of inputs, paths under dir: a file's
 // content, a folder's files with their paths, and a missing one as missing.
-func inputsDigest(dir string, inputs []string) (string, error) {
+// A link, a junction or any other entry that is neither a file nor a folder
+// is refused, since what it points at could change with no change here.
+func inputsDigest(ctx context.Context, dir string, inputs []string) (string, error) {
 	digest := sha256.New()
 	for _, input := range inputs {
 		root := filepath.Join(dir, filepath.FromSlash(input))
@@ -127,13 +137,16 @@ func inputsDigest(dir string, inputs []string) (string, error) {
 			if err != nil {
 				return err
 			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			name, err := filepath.Rel(dir, path)
 			if err != nil {
 				return err
 			}
 			switch {
 			case entry.IsDir():
-				return nil
+				fmt.Fprintf(digest, "%s\x00folder\n", filepath.ToSlash(name))
 			case entry.Type().IsRegular():
 				sum, err := fileDigest(path)
 				if err != nil {
@@ -141,7 +154,7 @@ func inputsDigest(dir string, inputs []string) (string, error) {
 				}
 				fmt.Fprintf(digest, "%s\x00file\x00%s\n", filepath.ToSlash(name), sum)
 			default:
-				fmt.Fprintf(digest, "%s\x00other\x00%s\n", filepath.ToSlash(name), entry.Type())
+				return fmt.Errorf("%s is a link or another kind of entry, whose target could change unseen", filepath.ToSlash(name))
 			}
 			return nil
 		})
@@ -153,7 +166,7 @@ func inputsDigest(dir string, inputs []string) (string, error) {
 }
 
 func fileDigest(path string) (string, error) {
-	file, err := os.Open(path)
+	file, err := fsx.Open(path)
 	if err != nil {
 		return "", err
 	}
@@ -173,55 +186,69 @@ type Pass struct {
 	Kept    time.Time `json:"kept"`
 }
 
-// passPath is where the pass of a key is kept.
-func passPath(key ReuseKey) (string, error) {
+// passesDir is the folder passes are kept in.
+func passesDir() (string, error) {
 	store, err := StoreDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(store, "passes", key.ID()+".json"), nil
+	return filepath.Join(store, "passes"), nil
 }
 
-// KeepPass keeps a tier's results as the pass of key, and returns where. It
-// keeps only a whole pass on the key's own source: each of the key's
-// commands passed in its turn, with a record of its execution, and tested
-// that source. It removes the passes older than a week.
-func KeepPass(key ReuseKey, results []Result, now time.Time) (string, error) {
+// wholePass says why results are not a whole pass of key, or nothing: each
+// of the key's commands passed, in order, with a record of its execution in
+// the executions store, and tested the key's source.
+func wholePass(key ReuseKey, results []Result) error {
 	if len(results) != len(key.Commands) {
-		return "", fmt.Errorf("verify: %d result(s) of %d command(s) is no whole pass", len(results), len(key.Commands))
+		return fmt.Errorf("verify: %d result(s) of %d command(s) is no whole pass", len(results), len(key.Commands))
 	}
-	kept := make([]Result, 0, len(results))
+	store, err := StoreDir()
+	if err != nil {
+		return err
+	}
+	executions := filepath.Join(store, "executions")
 	for index, result := range results {
+		command := strings.Join(result.Command, " ")
 		tested, err := result.Source.Tested()
 		switch {
 		case !slices.Equal(result.Command, key.Commands[index]):
-			return "", fmt.Errorf("verify: %s is not the tier's command %s", strings.Join(result.Command, " "), strings.Join(key.Commands[index], " "))
+			return fmt.Errorf("verify: %s is not the tier's command %s", command, strings.Join(key.Commands[index], " "))
 		case result.Status != "passed":
-			return "", fmt.Errorf("verify: %s did not pass", strings.Join(result.Command, " "))
-		case result.Execution == "":
-			return "", fmt.Errorf("verify: %s kept no record of its execution", strings.Join(result.Command, " "))
+			return fmt.Errorf("verify: %s did not pass", command)
+		case result.Execution == "" || !fsx.SamePath(filepath.Dir(result.Execution), executions):
+			return fmt.Errorf("verify: %s kept no record of its execution in the store", command)
 		case err != nil:
-			return "", err
+			return err
 		case tested != key.Source:
-			return "", fmt.Errorf("verify: %s tested tree %s, not the key's %s", strings.Join(result.Command, " "), tested.Tree, key.Source.Tree)
+			return fmt.Errorf("verify: %s tested tree %s, not the key's %s", command, tested.Tree, key.Source.Tree)
 		}
-		result.Reused = ""
-		kept = append(kept, result)
 	}
-	path, err := passPath(key)
-	if err != nil {
-		return "", err
-	}
-	if err := Save(path, Pass{Key: key, Results: kept, Kept: now.UTC()}); err != nil {
-		return "", err
-	}
-	return path, prunePasses(filepath.Dir(path), now)
+	return nil
 }
 
-// prunePasses removes the passes in folder written more than a week before
-// now.
-func prunePasses(folder string, now time.Time) error {
+// KeepPass keeps a tier's results as the pass of key, if they are a whole
+// pass on the key's own source (wholePass).
+func KeepPass(key ReuseKey, results []Result, now time.Time) error {
+	if err := wholePass(key, results); err != nil {
+		return err
+	}
+	folder, err := passesDir()
+	if err != nil {
+		return err
+	}
+	return Save(filepath.Join(folder, key.ID()+".json"), Pass{Key: key, Results: results, Kept: now.UTC()})
+}
+
+// PrunePasses removes the passes written more than a week before now.
+func PrunePasses(now time.Time) error {
+	folder, err := passesDir()
+	if err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(folder)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -236,15 +263,17 @@ func prunePasses(folder string, now time.Time) error {
 	return errors.Join(failures...)
 }
 
-// FindPass is the pass kept for key, no older than maxAge, whose evidence
-// stands: each of its commands' execution records is there, passed, and
-// tested the key's source. Each result names the pass it is taken from.
-// Otherwise the error is ErrNoPass, with why.
-func FindPass(key ReuseKey, now time.Time, maxAge time.Duration) (Pass, error) {
-	path, err := passPath(key)
+// FindPass is the pass kept for key, no older than maxAge, that is a whole
+// pass of it (wholePass) whose evidence stands: each command's execution
+// record is there, passed, and tested the key's source. Each result is
+// marked as taken again at now for the task reusing it, and keeps the
+// original run's own fields. Otherwise the error is ErrNoPass, with why.
+func FindPass(key ReuseKey, now time.Time, maxAge time.Duration, task string) (Pass, error) {
+	folder, err := passesDir()
 	if err != nil {
 		return Pass{}, err
 	}
+	path := filepath.Join(folder, key.ID()+".json")
 	var pass Pass
 	data, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -259,6 +288,9 @@ func FindPass(key ReuseKey, now time.Time, maxAge time.Duration) (Pass, error) {
 	if age := now.Sub(pass.Kept); age < -time.Minute || age > maxAge {
 		return Pass{}, fmt.Errorf("%w: the pass at %s was kept %s ago, past %s", ErrNoPass, path, age.Round(time.Minute), maxAge)
 	}
+	if err := wholePass(key, pass.Results); err != nil {
+		return Pass{}, fmt.Errorf("%w: the pass at %s is not whole: %v", ErrNoPass, path, err)
+	}
 	for index, result := range pass.Results {
 		record, err := LoadExecution(result.Execution)
 		if err != nil {
@@ -267,7 +299,7 @@ func FindPass(key ReuseKey, now time.Time, maxAge time.Duration) (Pass, error) {
 		if tested, err := record.Source.Tested(); record.Status != "passed" || err != nil || tested != key.Source {
 			return Pass{}, fmt.Errorf("%w: the record of %s no longer shows a pass on this source", ErrNoPass, strings.Join(result.Command, " "))
 		}
-		pass.Results[index].Reused = path
+		pass.Results[index].Reused, pass.Results[index].ReusedAt, pass.Results[index].ReusedFor = path, now.UTC(), task
 	}
 	return pass, nil
 }
