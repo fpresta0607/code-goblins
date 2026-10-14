@@ -37,6 +37,15 @@ func (r *Reader) AgentTranscript(task, node string) (string, string) {
 	return "", ""
 }
 
+// ErrNoRecord says the last read of a goblin's tree kept no record of the
+// child named.
+var ErrNoRecord = errors.New("no record of that child is kept")
+
+// ChildLines are the newest lines of a child's own output.
+func (r *Reader) ChildLines(task, node string) ([]string, error) {
+	return nil, ErrNoRecord
+}
+
 // AgentLinesKept is how many of a sub-agent's newest lines its terminal
 // holds, and agentLineLimit how long each may run.
 const (

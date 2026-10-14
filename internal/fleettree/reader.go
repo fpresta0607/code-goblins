@@ -45,6 +45,9 @@ type Reader struct {
 	// job is shown. It is asked once for each process that reaches no
 	// harness, since a mark never changes.
 	Owner func(pid int) string
+	// Console reads the process id of the host of the console a process is
+	// attached to; nil reads it through Windows.
+	Console func(pid int) (int, error)
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
