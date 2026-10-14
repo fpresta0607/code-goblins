@@ -50,8 +50,10 @@ type job struct {
 	err        error
 	transport  *devToolsBridge
 	// members are the processes the job held when it was ended, which Gone
-	// checks again.
+	// checks again, and isEnded says the job was ended: a Chrome that closed
+	// when asked leaves it holding none.
 	members []proc.Entry
+	isEnded bool
 }
 
 // Start starts launch's Chrome and returns once its DevTools answer. It is
@@ -204,7 +206,7 @@ func (j *job) end(pid int) error {
 	if err != nil {
 		return fmt.Errorf("end chrome %d's job: %w", pid, err)
 	}
-	j.members = members
+	j.members, j.isEnded = members, true
 	deadline := time.Now().Add(teardownWait)
 	for _, member := range members {
 		if err := awaitGone(member, deadline); err != nil {
@@ -216,8 +218,9 @@ func (j *job) end(pid int) error {
 
 // Gone reports whether everything process's ended job held has exited, for
 // an end that could not confirm it in time: a helper took over a minute to
-// finish exiting on a loaded machine. An end that never ended the job
-// leaves nothing to confirm, so it reads as not gone.
+// finish exiting on a loaded machine. A job that was never ended, because
+// its end failed first, reads as not gone, and one ended after its Chrome
+// closed when asked held nothing and is gone.
 func Gone(process Process) bool {
 	j := process.job
 	if j.unassigned != nil {
@@ -228,7 +231,7 @@ func Gone(process Process) bool {
 			return false
 		}
 	}
-	if len(j.members) == 0 {
+	if !j.isEnded {
 		return false
 	}
 	for _, member := range j.members {
