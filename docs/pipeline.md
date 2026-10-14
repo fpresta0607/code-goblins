@@ -407,7 +407,7 @@ A store failure prevents commands from starting.
 `cfo gate test`, `cfo gate prepush` and `cfo gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-cfo gate turn [--as <name>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `cfo`'s, and everything after it is the command's, its own flags and a `--` of its own included.
@@ -438,6 +438,13 @@ cfo gate turn: run the gate's command without cfo gate turn, and any heavy comma
 A word ends at a space, a quote, `&`, `|`, `;`, `(`, `)`, `<` or `>`, and a program is known by its file name without `.exe`, in any case.
 A refused run tells its goblin that it ended, as a run that did not start does.
 A script the command runs is not read.
+
+**In the background.**
+`--detach <log-file>` starts the same run as a process of its own and returns at once, printing its pid on standard output.
+The run starts the way the supervisor is started: in a console of its own with no window, which its command shares, so nothing of it ever shows on the desktop, in a process group of its own, and out of its caller's job where the job allows it, so it outlives its caller.
+Its standard output and error are appended to `<log-file>`, its pid is written to `<log-file>.pid` for its goblin to end it by, and its last line in the log is `cfo gate turn: the detached run ended with exit <code> after <time>`.
+A run that cannot be started detached starts nothing and exits 125.
+Since no harness waits on a detached run, its end is told to the goblin of any harness that sits idle at its prompt, Claude Code included.
 
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.

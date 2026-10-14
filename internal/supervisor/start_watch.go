@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,11 +54,14 @@ func (s *Service) keepStartWatch(ctx context.Context) {
 
 // startWatching is what the start watch keeps between its readings: the
 // watch, whether each process's console shows, which is asked once in its
-// life, and the owners it watches with their generations and which of them
-// rest after their report, as last read at ownersAt.
+// life, whether the supervisor hid the console window each shown goblin
+// process showed, which it tries once in the process's life, and the owners
+// it watches with their generations and which of them rest after their
+// report, as last read at ownersAt.
 type startWatching struct {
 	watch       startwatch.Watch
 	consoles    map[startedProcess]bool
+	hidden      map[startedProcess]bool
 	owners      []fleettree.Goblin
 	generations map[string]string
 	resting     map[string]startwatch.Rest
@@ -76,7 +80,7 @@ type startedProcess struct {
 func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 	stateDir := s.Store.Home.State
 	if watching.consoles == nil {
-		watching.consoles = map[startedProcess]bool{}
+		watching.consoles, watching.hidden = map[startedProcess]bool{}, map[startedProcess]bool{}
 	}
 	if watching.ownersAt.IsZero() || now.Sub(watching.ownersAt) >= startWatchOwnersEvery || now.Before(watching.ownersAt) {
 		watching.owners, watching.generations = startWatchOwners(stateDir)
@@ -93,12 +97,15 @@ func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("start watch: read the fleet's processes: %w", err)
 	}
-	listWindows, consoleShown := s.Options.Windows, s.Options.ConsoleShown
+	listWindows, consoleShown, hideConsole := s.Options.Windows, s.Options.ConsoleShown, s.Options.HideConsole
 	if listWindows == nil {
 		listWindows = proc.WindowOwners
 	}
 	if consoleShown == nil {
 		consoleShown = proc.ConsoleShown
+	}
+	if hideConsole == nil {
+		hideConsole = hideConsoleOnDesktop
 	}
 	windows, err := listWindows()
 	if err != nil {
@@ -134,7 +141,12 @@ func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 			delete(consoles, key)
 		}
 	}
-	var problems error
+	for key := range watching.hidden {
+		if !running[key] {
+			delete(watching.hidden, key)
+		}
+	}
+	problems := hideGoblinConsoles(reading.Processes, watching.hidden, hideConsole)
 	for _, finding := range watching.watch.Read(reading) {
 		if _, isNew, err := wake.AppendFirst(stateDir, finding.Identity, "check", finding.Owner, finding.Detail); err != nil || !isNew {
 			problems = errors.Join(problems, err)
@@ -143,6 +155,38 @@ func (s *Service) watchStarts(watching *startWatching, now time.Time) error {
 		if _, err := wake.PublishEpisode(stateDir); err != nil {
 			problems = errors.Join(problems, err)
 		}
+	}
+	return problems
+}
+
+// hideGoblinConsoles hides the console window each goblin's process that
+// shows one opened, as a careless background start does: a console Windows
+// gave a program started alone, shown as a window of its own or in Windows
+// Terminal, which stays blank for as long as a heavy run waits and ends the
+// run when the Overlord closes it. A window of the CFO's terminal's is left
+// for the CFO to answer for. Each process is tried once in its life, the
+// first started first, so a console a program shares with what it runs is
+// hidden through the program, which the wake names. hidden keeps what each
+// try found, and each process shown is marked with it.
+func hideGoblinConsoles(processes []startwatch.Process, hidden map[startedProcess]bool, hideConsole func(int) (bool, error)) error {
+	var shown []int
+	for at, process := range processes {
+		if process.Shown != "" && process.Owner != NativeCFOTerminal {
+			shown = append(shown, at)
+		}
+	}
+	slices.SortStableFunc(shown, func(a, b int) int { return processes[a].Started.Compare(processes[b].Started) })
+	var problems error
+	for _, at := range shown {
+		key := startedProcess{processes[at].PID, processes[at].Created}
+		if _, isTried := hidden[key]; !isTried {
+			isHidden, err := hideConsole(processes[at].PID)
+			if err != nil {
+				problems = errors.Join(problems, fmt.Errorf("start watch: hide the console window of %s's pid %d: %w", processes[at].Owner, processes[at].PID, err))
+			}
+			hidden[key] = isHidden
+		}
+		processes[at].IsHidden = hidden[key]
 	}
 	return problems
 }
