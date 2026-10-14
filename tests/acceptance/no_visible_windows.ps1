@@ -122,6 +122,13 @@ foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'
     $results += Watch-Start 'Start-Process at the normal window style' $build.Name {
         Start-Process -FilePath $program -ArgumentList $turn
     }
+    # Its output goes to files, which a careless start sometimes does, so
+    # what the run says of itself can be read.
+    $said = Join-Path $Work "said-$($build.Name.Replace(' ', '-'))"
+    $results += Watch-Start 'Start-Process with its output in files' $build.Name {
+        Start-Process -FilePath $program -ArgumentList $turn -RedirectStandardOutput "$said.out" -RedirectStandardError "$said.err"
+    }
+    "  it said: $((Get-Content "$said.out", "$said.err" -ErrorAction SilentlyContinue) -join ' | ')" | Out-Host
     $results += Watch-Start 'cmd /c start' $build.Name {
         Start-Exactly 'cmd.exe' "/c start `"`" `"$program`" $turn"
     }
