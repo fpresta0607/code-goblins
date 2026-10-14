@@ -81,6 +81,8 @@ func (p *pendingOnly) QueuedJob(context.Context) (cirunner.Pending, error) {
 	return cirunner.Pending{}, nil
 }
 
+func (p *pendingOnly) IsPrivate(context.Context) (bool, error) { return true, nil }
+
 func (p *pendingOnly) RegisterRunner(context.Context, string) (cirunner.Runner, error) {
 	return cirunner.Runner{}, errors.New("not asked for")
 }
@@ -106,10 +108,14 @@ func TestTheWatcherAsksTheRunnerWhileItRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	github := &pendingOnly{asked: make(chan struct{})}
+	pipe, err := cirunner.Listen(cfg.CIRunnerPipe, user.User.Sid.String())
+	if err != nil {
+		t.Fatal(err)
+	}
 	serving, stopServing := context.WithCancel(context.Background())
 	served := make(chan error, 1)
 	go func() {
-		served <- cirunner.Serve(serving, &cirunner.Service{Deps: cirunner.Deps{GitHub: github}, Log: func(string) {}}, cfg.CIRunnerPipe, user.User.Sid.String())
+		served <- pipe.Serve(serving, &cirunner.Service{Deps: cirunner.Deps{GitHub: github, Now: time.Now}, Log: func(string) {}})
 	}()
 	defer func() {
 		stopServing()
