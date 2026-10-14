@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -35,7 +36,7 @@ func TestPruneExecutionsNeverTouchesWhatIsOnlyNamedLikeTheStoresOwn(t *testing.T
 	storedRun(t, dir, "failed", keptFailures+1, now)
 
 	// Act
-	err := pruneExecutions(dir, custody, executionBudget, now)
+	err := pruneExecutions(dir, custody, t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -60,10 +61,39 @@ func TestPruneExecutionsRefusesAStoreFolderThatIsAJunction(t *testing.T) {
 	}
 
 	// Act
-	err := pruneExecutions(dir, t.TempDir(), 0, time.Now())
+	err := pruneExecutions(dir, t.TempDir(), t.TempDir(), 0, time.Now())
 
 	// Assert
 	if err == nil || !isStored(target, id) {
 		t.Fatalf("pruning through a junction = %v, stored = %v, want a refusal that touches nothing", err, isStored(target, id))
+	}
+}
+
+// A pass another process holds so that it cannot be read may name any
+// record, so the store removes none.
+func TestPruneExecutionsRemovesNothingWhileAPassIsHeldUnreadable(t *testing.T) {
+	// Arrange
+	dir, passes := t.TempDir(), t.TempDir()
+	now := time.Now()
+	ids := storedRun(t, dir, "passed", keptPasses+1, now)
+	keptPassOf(t, passes, dir, ids[0], now)
+	held := filepath.Join(passes, rand.Text()+".json")
+	writeAged(t, held, []byte(`{}`), now)
+	name, err := syscall.UTF16PtrFromString(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.CloseHandle(handle)
+
+	// Act
+	err = pruneExecutions(dir, t.TempDir(), passes, executionBudget, now)
+
+	// Assert
+	if err == nil || !isStored(dir, ids[1]) {
+		t.Errorf("pruneExecutions = %v, the oldest unpinned pass stored = %v; want an error and nothing removed", err, isStored(dir, ids[1]))
 	}
 }

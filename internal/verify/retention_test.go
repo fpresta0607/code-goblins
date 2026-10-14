@@ -3,6 +3,7 @@ package verify
 import (
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,7 +70,7 @@ func TestPruneExecutionsKeepsTheNewestOfEachOutcomeApart(t *testing.T) {
 	}
 
 	// Act
-	err := pruneExecutions(dir, custody, executionBudget, now)
+	err := pruneExecutions(dir, custody, t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -99,7 +100,7 @@ func TestPruneExecutionsNeverRemovesOrCountsWhatARunMayStillNeed(t *testing.T) {
 	writeAged(t, foreign, []byte("{}"), old)
 
 	// Act
-	err := pruneExecutions(dir, custody, executionBudget, now)
+	err := pruneExecutions(dir, custody, t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -144,7 +145,7 @@ func TestPruneExecutionsProtectsARecordItCannotReadOnlyWhileItIsYoung(t *testing
 	storedRun(t, dir, "failed", keptFailures, now)
 
 	// Act
-	err = pruneExecutions(dir, custody, executionBudget, now)
+	err = pruneExecutions(dir, custody, t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -171,7 +172,7 @@ func TestPruneExecutionsKeepsTheNewestFailureThatAloneOverrunsItsBudget(t *testi
 	failure := storedExecution(t, dir, "failed", now, now)
 
 	// Act
-	err := pruneExecutions(dir, custody, 1, now)
+	err := pruneExecutions(dir, custody, t.TempDir(), 1, now)
 
 	// Assert
 	if err != nil {
@@ -203,7 +204,7 @@ func TestPruneExecutionsKeepsWhatItKeepsWithinItsBudgetPassesGoingFirst(t *testi
 	budget := sizeOf(newPass) + sizeOf(oldFailure)
 
 	// Act
-	err := pruneExecutions(dir, custody, budget, now)
+	err := pruneExecutions(dir, custody, t.TempDir(), budget, now)
 
 	// Assert
 	if err != nil {
@@ -223,7 +224,7 @@ func TestPruneExecutionsRemovesALogOnlyOnceItIsAbandoned(t *testing.T) {
 	writeAged(t, stale, []byte("log"), now.Add(-2*abandonedExecutionAge))
 
 	// Act
-	err := pruneExecutions(dir, custody, executionBudget, now)
+	err := pruneExecutions(dir, custody, t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -309,7 +310,7 @@ func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
 	}
 
 	// Act
-	err = pruneExecutions(dir, t.TempDir(), executionBudget, now)
+	err = pruneExecutions(dir, t.TempDir(), t.TempDir(), executionBudget, now)
 
 	// Assert
 	if err != nil {
@@ -347,7 +348,7 @@ func TestPruneExecutionsKeepsRunsWithoutLogsOverItsBudget(t *testing.T) {
 	writeAged(t, filepath.Join(dir, id+".json"), data, now.Add(-time.Hour))
 
 	// Act
-	err = pruneExecutions(dir, t.TempDir(), 1, now)
+	err = pruneExecutions(dir, t.TempDir(), t.TempDir(), 1, now)
 
 	// Assert
 	if err != nil {
@@ -358,5 +359,158 @@ func TestPruneExecutionsKeepsRunsWithoutLogsOverItsBudget(t *testing.T) {
 	}
 	if !isStored(dir, passes[len(passes)-1]) || isStored(dir, passes[0]) {
 		t.Fatal("the budget did not trim the passes to the newest")
+	}
+}
+
+// keptPassOf writes a pass into passes, kept at kept, whose one result rests
+// on the record of id in dir.
+func keptPassOf(t *testing.T, passes, dir, id string, kept time.Time) {
+	t.Helper()
+	data, err := json.Marshal(Pass{Results: []Result{{Command: []string{"go", "test"}, Status: "passed", Execution: filepath.Join(dir, id+".json")}}, Kept: kept})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAged(t, filepath.Join(passes, rand.Text()+".json"), data, kept)
+}
+
+// storedBytes is what the record of id and its logs hold in dir.
+func storedBytes(t *testing.T, dir, id string) int64 {
+	t.Helper()
+	var total int64
+	for _, name := range []string{id + ".json", id + ".json.stdout.log", id + ".json.stderr.log"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += info.Size()
+	}
+	return total
+}
+
+// A record a pass rests on is kept while the pass may be taken again, past
+// the passes the store keeps by count, and only then.
+func TestPruneExecutionsKeepsTheRecordAPassMayStillTakeAgain(t *testing.T) {
+	for name, row := range map[string]struct {
+		pass       func(t *testing.T, passes, dir, id string, now time.Time)
+		wantPinned bool
+	}{
+		"a pass kept today": {
+			pass: func(t *testing.T, passes, dir, id string, now time.Time) {
+				keptPassOf(t, passes, dir, id, now.Add(-time.Hour))
+			},
+			wantPinned: true,
+		},
+		"a pass kept past the age a pass is taken at": {
+			pass: func(t *testing.T, passes, dir, id string, now time.Time) {
+				keptPassOf(t, passes, dir, id, now.Add(-keptPassAge-time.Hour))
+			},
+		},
+		// Decoding fills every field it can, so only the parse error tells
+		// this pass, which FindPass refuses, from one kept today.
+		"a pass that cannot be parsed, which is never taken": {
+			pass: func(t *testing.T, passes, dir, id string, now time.Time) {
+				data := fmt.Sprintf(`{"key": 5, "kept": %q, "results": [{"execution": %q}]}`, now.Add(-time.Hour).Format(time.RFC3339Nano), filepath.Join(dir, id+".json"))
+				writeAged(t, filepath.Join(passes, rand.Text()+".json"), []byte(data), now)
+			},
+		},
+		"no pass": {pass: func(*testing.T, string, string, string, time.Time) {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir, passes := t.TempDir(), t.TempDir()
+			now := time.Now()
+			ids := storedRun(t, dir, "passed", keptPasses+1, now)
+			row.pass(t, passes, dir, ids[0], now)
+
+			// Act
+			err := pruneExecutions(dir, t.TempDir(), passes, executionBudget, now)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isStored(dir, ids[0]) != row.wantPinned {
+				t.Errorf("the oldest pass's record stored = %v; want %v", isStored(dir, ids[0]), row.wantPinned)
+			}
+			for index, id := range ids[1:] {
+				if !isStored(dir, id) {
+					t.Fatalf("pass %d of the newest %d was removed, as if a pinned record took its place", index, keptPasses)
+				}
+			}
+		})
+	}
+}
+
+// A record a pass pins counts against the budget though it is never removed,
+// so the budget trims what it can remove.
+func TestPruneExecutionsCountsWhatAPassPinsAgainstItsBudget(t *testing.T) {
+	// Arrange
+	dir, passes := t.TempDir(), t.TempDir()
+	now := time.Now()
+	ids := storedRun(t, dir, "passed", 3, now)
+	keptPassOf(t, passes, dir, ids[0], now)
+	budget := storedBytes(t, dir, ids[0]) + storedBytes(t, dir, ids[1]) + storedBytes(t, dir, ids[2]) - 1
+
+	// Act
+	err := pruneExecutions(dir, t.TempDir(), passes, budget, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isStored(dir, ids[0]) || isStored(dir, ids[1]) || !isStored(dir, ids[2]) {
+		t.Errorf("stored = %v, %v, %v; want the pinned record and the newest pass kept, and the other pass removed for the budget", isStored(dir, ids[0]), isStored(dir, ids[1]), isStored(dir, ids[2]))
+	}
+}
+
+// Passes pin newest first and only within half the budget, so what they pin
+// never crowds out the rest: an older pass's record past that half is
+// removed for the budget as any pass's is.
+func TestPruneExecutionsPinsOnlyWithinHalfItsBudgetNewestPassFirst(t *testing.T) {
+	// Arrange
+	dir, passes := t.TempDir(), t.TempDir()
+	now := time.Now()
+	ids := storedRun(t, dir, "passed", 3, now)
+	keptPassOf(t, passes, dir, ids[0], now.Add(-2*time.Hour))
+	keptPassOf(t, passes, dir, ids[1], now.Add(-time.Hour))
+	budget := storedBytes(t, dir, ids[0]) + storedBytes(t, dir, ids[1]) + storedBytes(t, dir, ids[2]) - 1
+
+	// Act
+	err := pruneExecutions(dir, t.TempDir(), passes, budget, now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isStored(dir, ids[0]) || !isStored(dir, ids[1]) || !isStored(dir, ids[2]) {
+		t.Errorf("stored = %v, %v, %v; want the newer pass's record pinned, the older pass's record past half the budget removed, and the newest record kept", isStored(dir, ids[0]), isStored(dir, ids[1]), isStored(dir, ids[2]))
+	}
+}
+
+func TestPruneExecutionsReadsThePassesWhereKeepPassKeepsThem(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	executions := filepath.Join(store, "executions")
+	if err := os.MkdirAll(executions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	ids := storedRun(t, executions, "passed", keptPasses+1, now)
+	passes, err := passesDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(passes, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keptPassOf(t, passes, executions, ids[0], now)
+
+	// Act
+	err = PruneExecutions(now)
+
+	// Assert
+	if err != nil || !isStored(executions, ids[0]) {
+		t.Fatalf("PruneExecutions = %v, pinned stored = %v, want the passes read where KeepPass keeps them", err, isStored(executions, ids[0]))
 	}
 }
