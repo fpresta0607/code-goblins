@@ -483,7 +483,11 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintln(stdout, "waiting:")
 	}
 	for place, run := range waiting {
-		fmt.Fprintf(stdout, "%d. %s (pid %d), for %s\n", place+1, run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
+		lowest := ""
+		if run.IsLowPriority {
+			lowest = ", at the lowest priority"
+		}
+		fmt.Fprintf(stdout, "%d. %s (pid %d), for %s%s\n", place+1, run.Who, run.PID, now.Sub(run.Since).Round(time.Second), lowest)
 	}
 	if available == nil {
 		fmt.Fprintln(stderr, "available memory cannot be read")

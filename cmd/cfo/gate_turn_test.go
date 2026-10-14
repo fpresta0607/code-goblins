@@ -1144,6 +1144,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 		"a detach with no log":          {"--detach", "--", os.Args[0], gateTurnTestArguments},
 		"a detach with no command":      {"--detach", "run.log", "--"},
 		"a log given a wait's flag":     {"--detach", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
+		"a low priority given a value":  {"--low-priority=yes", "--", os.Args[0], gateTurnTestArguments},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -1158,7 +1159,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
 			}
 			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
-			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
+			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
 				t.Errorf("stderr = %q; want the usage, then a last line that starts cfo gate turn: this run takes no turn: ", stderr.String())
 			}
 			if _, err := os.Stat(slots); !os.IsNotExist(err) {
@@ -1533,6 +1534,115 @@ func TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog(t *testing.T) {
 	if data, _ := os.ReadFile(log); !strings.HasPrefix(string(data), commandOutput("command")+commandErrors("command")) {
 		t.Errorf("log = %q; want the command's output, then the run's last line", data)
 	}
+}
+
+// A run given --low-priority lets a run that asked after it go first.
+func TestGateTurnAtTheLowestPriorityLetsALaterRunGoFirst(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	holder, err := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "a suite that holds the line", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	low := startGateTurn(t, dir, nil, append([]string{"--low-priority"}, turnCommand(dir, "low", 0, true)...)...)
+	eventually(t, "the low-priority run joins the line", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 1
+	})
+	later := startGateTurn(t, dir, nil, turnCommand(dir, "later", 0, true)...)
+	eventually(t, "the later run joins the line", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 2
+	})
+
+	// Act
+	if err := holder.Release(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	eventually(t, "the later run's command starts", func() bool { return left(dir, "later", "started") })
+	if left(dir, "low", "started") {
+		t.Error("the low-priority run started while a run that asked after it held the turn")
+	}
+	letGo(t, dir, "later")
+	later.exit(t, "the later run")
+	eventually(t, "the low-priority run's command starts", func() bool { return left(dir, "low", "started") })
+	letGo(t, dir, "low")
+	low.exit(t, "the low-priority run")
+}
+
+// cfo gate turns says which waiting run waits at the lowest priority.
+func TestGateTurnsMarksALowPriorityRun(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	holder, err := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "a suite that holds the line", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	waiter := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "PrecisionDocs CI: backend-shard (1)", Limit: time.Minute, Poll: 10 * time.Millisecond, IsLowPriority: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = waiter.Wait(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-ended
+	}()
+	eventually(t, "the low-priority run joins the line", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 1 && waiting[0].Who == waiter.Who
+	})
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runGateTurns(&stdout, &stderr, plenty)
+
+	// Assert
+	if exit != 0 || !strings.Contains(stdout.String(), "1. PrecisionDocs CI: backend-shard (1) (pid ") || !strings.Contains(stdout.String(), ", at the lowest priority") {
+		t.Errorf("cfo gate turns exited %d and printed %q; want the waiting run marked as at the lowest priority", exit, stdout.String())
+	}
+}
+
+// A detached run keeps its low priority.
+func TestGateTurnDetachKeepsItsLowPriority(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	holder, err := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "a suite that holds the line", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	log := filepath.Join(t.TempDir(), "run.log")
+	runtime := turnRuntime()
+	runtime.gateTurnSelf = []string{os.Args[0], gateTurnTestWrapper}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, append([]string{"--low-priority", "--detach", log}, turnCommand(dir, "command", 0, true)...)...)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, stderr = %q; want the run started detached", exit, stderr.String())
+	}
+	if data, err := os.ReadFile(log + ".pid"); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			t.Cleanup(func() {
+				if process, err := os.FindProcess(pid); err == nil {
+					_ = process.Kill()
+				}
+			})
+		}
+	}
+	eventually(t, "the detached run joins the line at the lowest priority", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 1 && waiting[0].IsLowPriority
+	})
 }
 
 // A detached run keeps its wait: one that takes no turn within it starts
