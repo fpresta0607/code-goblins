@@ -127,6 +127,8 @@ const report = (page: Page) => page.locator("dialog.afk-report");
 // The recap's headings start closed, behind the board's one caret: this opens
 // each, as a tap on its caret does, to read the lines inside.
 async function openSections(page: Page): Promise<void> {
+  // The recap loads its page when it opens, and its end button comes with it.
+  await report(page).locator(".afk-report-end").waitFor();
   const closed = report(page).locator("details.afk-drawer:not([open]) > summary");
   for (let remaining = await closed.count(); remaining > 0; remaining--) await closed.first().click();
 }
