@@ -317,3 +317,44 @@ func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 		t.Errorf("BriefProcesses() = %q; want it to say %q", BriefProcesses(), want)
 	}
 }
+
+func TestAppendQueuedTaskAddsItsRowAtTheBottomOfTheQueue(t *testing.T) {
+	cases := []struct {
+		name, before, want string
+	}{
+		{
+			name:   "a queue with detail lines and other sections",
+			before: "# Backlog\n\n## Queued\n\n- [ ] first - First\n  its detail\n- [ ] second - Second\n\n## Parked\n\n- [ ] parked - Parked\n\n## Done\n\n- [x] old - Old\n",
+			want:   "# Backlog\n\n## Queued\n\n- [ ] first - First\n  its detail\n- [ ] second - Second\n- [ ] root-widgets-7 - Fix it (repo: widgets)\n\n## Parked\n\n- [ ] parked - Parked\n\n## Done\n\n- [x] old - Old\n",
+		},
+		{name: "no backlog yet", want: "## Queued\n- [ ] root-widgets-7 - Fix it (repo: widgets)\n"},
+		{name: "a row of the same task already done", before: "## Queued\n\n## Done\n\n- [x] root-widgets-7 - Fixed\n", want: "## Queued\n\n## Done\n\n- [x] root-widgets-7 - Fixed\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+			path := filepath.Join(h.Data, "backlog.md")
+			if tc.before != "" {
+				if err := os.WriteFile(path, []byte(tc.before), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			err := AppendQueuedTask(h, "root-widgets-7", "- [ ] root-widgets-7 - Fix it (repo: widgets)")
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("backlog =\n%q\nwant\n%q", got, tc.want)
+			}
+		})
+	}
+}
