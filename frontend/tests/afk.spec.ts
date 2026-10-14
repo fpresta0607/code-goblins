@@ -704,8 +704,10 @@ for (const [where, use, isHisWindow] of [["in the browser", { viewport: { width:
       // Every caret is the board's one chevron, the same glyph History uses.
       await expect(report(page).locator("summary > svg.icon")).toHaveCount(2 + 10);
       if (isHisWindow) {
-        const reads = await report(page).evaluate((element) => element.scrollHeight <= element.clientHeight + 1);
-        expect(reads, "the recap reads in one screen at his window size").toBe(true);
+        // Done and Decided for you, folded, are a short outline: the page they
+        // lengthened to about 7,600 pixels at his window size is mostly Needs you now.
+        const outline = await report(page).evaluate((element) => [...element.querySelectorAll(".afk-part:not(.needs)")].reduce((height, part) => height + part.getBoundingClientRect().height, 0));
+        expect(outline, "the folded Done and Decided for you read as a short outline at his window size").toBeLessThan(800);
       }
 
       // Act: he opens Deployed, and closes it again.
@@ -854,6 +856,7 @@ test("free disk is the only row under Spent when no allowance was used, and has 
   // A report with no disk reading, as the supervisor sends one read at one end.
   await page.route("**/api/afk/report", (route) => route.fulfill({ json: REPORT }));
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
   const spent = report(page).getByRole("region", { name: "Spent" });
   await expect(spent.locator("li")).toHaveCount(3);
   expect(await spent.evaluate((section) => section.textContent)).not.toMatch(/disk/i);
