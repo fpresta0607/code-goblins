@@ -92,8 +92,10 @@ func TestALoginsBrowserSlowToStartIsStillLentOverThePipe(t *testing.T) {
 	terminal.standIn(t)
 	start := broker.start
 	broker.start = func(ctx context.Context, launch browserlogin.Launch) (browserlogin.Process, error) {
-		if err := wait(ctx, runRequestTimeout+5*time.Second); err != nil {
-			return browserlogin.Process{}, err
+		select {
+		case <-ctx.Done():
+			return browserlogin.Process{}, ctx.Err()
+		case <-time.After(runRequestTimeout + 5*time.Second):
 		}
 		return start(ctx, launch)
 	}
