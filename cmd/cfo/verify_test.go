@@ -167,7 +167,8 @@ func TestVerifyRecordsTheSourceEachCommandRanOn(t *testing.T) {
 
 	// Assert
 	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
-	want := verify.Source{Commit: gitIn(t, meta.Worktree, "rev-parse", "HEAD"), Tree: gitIn(t, meta.Worktree, "rev-parse", "HEAD^{tree}"), IsExact: true}
+	tree := gitIn(t, meta.Worktree, "rev-parse", "HEAD^{tree}")
+	want := verify.Source{Commit: gitIn(t, meta.Worktree, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsExact: true}
 	if exit != 0 || stderr.Len() != 0 || len(results) != 1 {
 		t.Fatalf("exit = %d, stderr = %q, results = %+v; want one quiet pass", exit, stderr.String(), results)
 	}
@@ -191,7 +192,7 @@ func TestVerifySaysWhenACommandsSourceChangedWhileItRan(t *testing.T) {
 	if exit != 0 || len(results) != 1 || results[0].Status != "passed" {
 		t.Fatalf("exit = %d, results = %+v; want the command's own pass", exit, results)
 	}
-	if want := "cfo verify: cmd /d /c echo changed> moved.txt tested no one source: verify: the source changed while the run ran"; !strings.HasPrefix(stderr.String(), want) {
+	if want := "cfo verify: cmd /d /c echo changed> moved.txt tested no one source: verify: the source differed between the reads as the run started and once it ended"; !strings.HasPrefix(stderr.String(), want) {
 		t.Errorf("stderr = %q; want it to start %q", stderr.String(), want)
 	}
 	if _, err := results[0].Source.Tested(); err == nil {

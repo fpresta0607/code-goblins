@@ -64,7 +64,8 @@ func TestReadSourceOfACleanWorktreeIsItsCommitsTree(t *testing.T) {
 	source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
 
 	// Assert
-	want := Source{Commit: gitIn(t, dir, "rev-parse", "HEAD"), Tree: gitIn(t, dir, "rev-parse", "HEAD^{tree}"), IsExact: true}
+	tree := gitIn(t, dir, "rev-parse", "HEAD^{tree}")
+	want := Source{Commit: gitIn(t, dir, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsExact: true}
 	if err != nil || source != want {
 		t.Errorf("ReadSource = %+v, %v; want %+v", source, err, want)
 	}
@@ -148,29 +149,35 @@ func TestReadSourceLeavesTheWorktreesOwnIndexAsItWas(t *testing.T) {
 }
 
 // A submodule's own changes are no part of a tree, which records only the
-// commit a submodule is at, so a worktree with one is read as inexact.
+// commit a submodule is at, and neither are the files of one not checked
+// out, so a worktree with either is read as inexact.
 func TestReadSourceIsInexactWhenASubmoduleHoldsChangesOfItsOwn(t *testing.T) {
-	for name, row := range map[string]struct {
-		change    string
-		isIgnored bool
-	}{
-		"a changed file":                      {change: "inner.txt"},
-		"a new file":                          {change: "new.txt"},
-		"a change the settings say to ignore": {change: "inner.txt", isIgnored: true},
+	for name, arrange := range map[string]func(t *testing.T) string{
+		"a changed file": func(t *testing.T) string {
+			dir := sourceSuperproject(t)
+			writeSource(t, dir, "sub/inner.txt", "changed\n")
+			return dir
+		},
+		"a new file": func(t *testing.T) string {
+			dir := sourceSuperproject(t)
+			writeSource(t, dir, "sub/new.txt", "new\n")
+			return dir
+		},
+		"a change the settings say to ignore": func(t *testing.T) string {
+			dir := sourceSuperproject(t)
+			gitIn(t, dir, "config", "submodule.sub.ignore", "all")
+			writeSource(t, dir, "sub/inner.txt", "changed\n")
+			return dir
+		},
+		"a submodule not checked out": func(t *testing.T) string {
+			clone := filepath.Join(t.TempDir(), "clone")
+			gitIn(t, sourceSuperproject(t), "clone", "-q", ".", clone)
+			return clone
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			inner := sourceWorktree(t)
-			writeSource(t, inner, "inner.txt", "inner\n")
-			gitIn(t, inner, "add", "inner.txt")
-			gitIn(t, inner, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "inner")
-			dir := sourceWorktree(t)
-			gitIn(t, dir, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "sub")
-			gitIn(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "submodule")
-			if row.isIgnored {
-				gitIn(t, dir, "config", "submodule.sub.ignore", "all")
-			}
-			writeSource(t, dir, "sub/"+row.change, "changed\n")
+			dir := arrange(t)
 
 			// Act
 			source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
@@ -196,16 +203,24 @@ func (runner afterWriteTree) Run(ctx context.Context, request execx.Request) (ex
 }
 
 // A file that changes on disk after the tree was written is not in it, so
-// the read is inexact.
+// the read is inexact, whatever the repository's settings would hide.
 func TestReadSourceIsInexactWhenAFileChangesWhileItIsRead(t *testing.T) {
-	for name, file := range map[string]string{
-		"a changed file": "a.txt",
-		"a new file":     "new.txt",
+	for name, row := range map[string]struct {
+		file    string
+		setting []string
+	}{
+		"a changed file":                        {file: "a.txt"},
+		"a new file":                            {file: "new.txt"},
+		"a new file the settings hide":          {file: "new.txt", setting: []string{"status.showUntrackedFiles", "no"}},
+		"a changed file whose stat is not read": {file: "a.txt", setting: []string{"core.ignoreStat", "true"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dir := sourceWorktree(t)
-			commands := afterWriteTree{then: func() { writeSource(t, dir, file, "written while read\n") }}
+			if row.setting != nil {
+				gitIn(t, dir, append([]string{"config"}, row.setting...)...)
+			}
+			commands := afterWriteTree{then: func() { writeSource(t, dir, row.file, "written while read\n") }}
 
 			// Act
 			source, err := ReadSource(context.Background(), commands, dir)
@@ -277,5 +292,160 @@ func TestSourceReadsTestedIsTheOneExactSourceOfBothReads(t *testing.T) {
 				t.Errorf("Tested = %+v, %v; want no source and why", source, err)
 			}
 		})
+	}
+}
+
+// sourceSuperproject is a source worktree with a submodule at sub, whose
+// repository has a commit of its own with inner.txt.
+func sourceSuperproject(t *testing.T) string {
+	t.Helper()
+	inner := sourceWorktree(t)
+	writeSource(t, inner, "inner.txt", "inner\n")
+	gitIn(t, inner, "add", "inner.txt")
+	gitIn(t, inner, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "inner")
+	dir := sourceWorktree(t)
+	gitIn(t, dir, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "sub")
+	gitIn(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "submodule")
+	return dir
+}
+
+// A submodule checked out at a commit is in the tree by that commit, so a
+// worktree with one is read exactly, whichever commit it is at.
+func TestReadSourceOfASubmoduleAtACommitIsExact(t *testing.T) {
+	for name, row := range map[string]struct {
+		isMoved bool
+	}{
+		"a submodule at its recorded commit":  {},
+		"a submodule moved to another commit": {isMoved: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := sourceSuperproject(t)
+			if row.isMoved {
+				writeSource(t, dir, "sub/inner.txt", "moved\n")
+				gitIn(t, filepath.Join(dir, "sub"), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-am", "moved")
+			}
+
+			// Act
+			source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
+
+			// Assert
+			if err != nil || !source.IsExact || (source.Tree == source.CommitTree) == row.isMoved {
+				t.Fatalf("ReadSource = %+v, %v; want an exact source that is its commit's own tree only when the submodule did not move", source, err)
+			}
+			gitIn(t, dir, "add", "--all")
+			gitIn(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "what was tested")
+			if committed := gitIn(t, dir, "rev-parse", "HEAD^{tree}"); committed != source.Tree {
+				t.Errorf("a commit of what was on disk has tree %s; the run recorded %s", committed, source.Tree)
+			}
+		})
+	}
+}
+
+// A sparse checkout leaves out of the disk files its commit holds, so its
+// tree does not say what was on disk.
+func TestReadSourceIsInexactInASparseCheckout(t *testing.T) {
+	// Arrange
+	dir := sourceWorktree(t)
+	gitIn(t, dir, "sparse-checkout", "set", "--no-cone", "/a.txt")
+
+	// Act
+	source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
+
+	// Assert
+	if err != nil || source.IsExact {
+		t.Errorf("ReadSource = %+v, %v; want an inexact source", source, err)
+	}
+}
+
+// A read reads the worktree it is given, whatever repository, index or
+// object store the git variables it inherits would name, as a git hook or a
+// gate daemon sets them.
+func TestReadSourceReadsTheWorktreeItIsGivenWhateverGitItInherits(t *testing.T) {
+	for name, arrange := range map[string]func(t *testing.T, dir string) string{
+		"a linked worktree": func(t *testing.T, dir string) string {
+			linked := filepath.Join(t.TempDir(), "linked")
+			gitIn(t, dir, "worktree", "add", "-q", "-b", "linked", linked)
+			writeSource(t, linked, "a.txt", "linked\n")
+			gitIn(t, linked, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-am", "linked")
+			return linked
+		},
+		"a folder inside it": func(t *testing.T, dir string) string {
+			return filepath.Join(dir, "folder")
+		},
+		"a worktree whose path has a space": func(t *testing.T, dir string) string {
+			spaced := filepath.Join(t.TempDir(), "with space")
+			gitIn(t, dir, "clone", "-q", ".", spaced)
+			return spaced
+		},
+		"another repository its variables name": func(t *testing.T, dir string) string {
+			other := sourceWorktree(t)
+			writeSource(t, other, "a.txt", "other\n")
+			gitIn(t, other, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-am", "other")
+			t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+			t.Setenv("GIT_WORK_TREE", other)
+			return dir
+		},
+		"an object store its variables name": func(t *testing.T, dir string) string {
+			t.Setenv("GIT_OBJECT_DIRECTORY", t.TempDir())
+			return dir
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := sourceWorktree(t)
+			read := arrange(t, dir)
+			worktree := read
+			if name == "a folder inside it" {
+				worktree = dir
+			}
+			commit, tree := gitClean(t, worktree, "HEAD"), gitClean(t, worktree, "HEAD^{tree}")
+
+			// Act
+			source, err := ReadSource(context.Background(), execx.OSRunner{}, read)
+
+			// Assert
+			want := Source{Commit: commit, CommitTree: tree, Tree: tree, IsExact: true}
+			if err != nil || source != want {
+				t.Errorf("ReadSource = %+v, %v; want %+v", source, err, want)
+			}
+		})
+	}
+}
+
+// gitClean is git rev-parse name in dir, run with none of the git variables
+// a test set.
+func gitClean(t *testing.T, dir, name string) string {
+	t.Helper()
+	command := exec.Command("git", "rev-parse", name)
+	command.Dir = dir
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "GIT_") {
+			command.Env = append(command.Env, entry)
+		}
+	}
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse %s in %s: %v", name, dir, err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// A read writes nothing into the repository: the content of a changed or new
+// file it stages goes to an object store of its own, which it removes.
+func TestReadSourceWritesNothingIntoTheRepository(t *testing.T) {
+	// Arrange
+	dir := sourceWorktree(t)
+	writeSource(t, dir, "new.txt", "content no object holds\n")
+	blob := gitIn(t, dir, "hash-object", "new.txt")
+
+	// Act
+	source, err := ReadSource(context.Background(), execx.OSRunner{}, dir)
+
+	// Assert
+	command := exec.Command("git", "cat-file", "-e", blob)
+	command.Dir = dir
+	if err != nil || source.Tree == source.CommitTree || command.Run() == nil {
+		t.Errorf("ReadSource = %+v, %v; want a tree with new.txt, and its content still in no object of the repository", source, err)
 	}
 }

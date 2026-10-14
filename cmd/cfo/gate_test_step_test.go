@@ -283,7 +283,7 @@ func TestGateTestRecordsTheSourceEachCheckRanOn(t *testing.T) {
 	if exit != 0 || len(report.Checks) != 2 || strings.Contains(stderr.String(), "source") {
 		t.Fatalf("exit = %d, %d check(s), stderr = %q; want two checks that pass and nothing said of their source", exit, len(report.Checks), stderr.String())
 	}
-	want := verify.Source{Commit: revision(t, dir, "HEAD"), Tree: revision(t, dir, "HEAD^{tree}"), IsExact: true}
+	want := verify.Source{Commit: revision(t, dir, "HEAD"), CommitTree: revision(t, dir, "HEAD^{tree}"), Tree: revision(t, dir, "HEAD^{tree}"), IsExact: true}
 	for index, check := range report.Checks {
 		if tested, err := check.Source.Tested(); err != nil || tested != want {
 			t.Errorf("check %d tested %+v (%v); want %+v", index, tested, err, want)
@@ -315,7 +315,7 @@ func TestGateTestSaysWhenACheckSourceChangedWhileItRan(t *testing.T) {
 	if exit != 0 || len(report.Checks) != 2 || report.Checks[0].Status != "passed" {
 		t.Fatalf("exit = %d, checks = %+v; want go vet's own pass", exit, report.Checks)
 	}
-	if want := "cfo gate test: go vet tested no one source: verify: the source changed while the run ran"; !strings.Contains(stderr.String(), want) {
+	if want := "cfo gate test: go vet tested no one source: verify: the source differed between the reads as the run started and once it ended"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q; want %q", stderr.String(), want)
 	}
 	if _, err := report.Checks[0].Source.Tested(); err == nil {

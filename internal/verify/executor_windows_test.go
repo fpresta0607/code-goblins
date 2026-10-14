@@ -756,13 +756,15 @@ func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 	first := Source{Commit: "c1", Tree: "t1", IsExact: true}
 	moved := Source{Commit: "c1", Tree: "t2", IsExact: true}
 	for name, row := range map[string]struct {
-		end      Source
-		failure  error
-		isTested bool
+		startFailure error
+		end          Source
+		failure      error
+		isTested     bool
 	}{
-		"a steady source":       {end: first, isTested: true},
-		"a source that moved":   {end: moved},
-		"a source not readable": {end: first, failure: errors.New("git failed")},
+		"a steady source":                     {end: first, isTested: true},
+		"a source that moved":                 {end: moved},
+		"a source not readable once it ended": {end: first, failure: errors.New("git failed")},
+		"a source not readable as it started": {end: first, startFailure: errors.New("git failed")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -784,7 +786,7 @@ func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 					t.Errorf("the source was read in %s; want the command's folder %s", dir, root)
 				}
 				if len(hadRun) == 1 {
-					return first, nil
+					return first, row.startFailure
 				}
 				return row.end, row.failure
 			}
@@ -805,14 +807,14 @@ func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if record.Source.Start == nil || *record.Source.Start != first {
-				t.Errorf("the start read = %+v; want %+v", record.Source.Start, first)
+			if (record.Source.Start == nil || *record.Source.Start != first) != (row.startFailure != nil) {
+				t.Errorf("the start read = %+v; want %+v unless it failed", record.Source.Start, first)
 			}
 			if _, err := record.Source.Tested(); (err == nil) != row.isTested {
 				t.Errorf("record reads = %+v, Tested: %v; want tested = %v", record.Source, err, row.isTested)
 			}
-			if row.failure != nil && record.Source.Failure != row.failure.Error() {
-				t.Errorf("the record's read failure = %q; want %q", record.Source.Failure, row.failure)
+			if failure := errors.Join(row.startFailure, row.failure); failure != nil && record.Source.Failure != failure.Error() {
+				t.Errorf("the record's read failure = %q; want %q", record.Source.Failure, failure)
 			}
 		})
 	}

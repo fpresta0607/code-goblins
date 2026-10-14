@@ -99,11 +99,11 @@ func (execution *Execution) Admit(waited time.Duration) error {
 	return execution.persist(next)
 }
 
-// readSource records a read of the source the command runs on: before it
-// starts, or once it has ended.
-func (execution *Execution) readSource(isEnd bool, source Source, failure error) error {
+// readSource records a read of the source the command runs on (record is
+// SourceReads.ReadStart or ReadEnd of the record's reads).
+func (execution *Execution) readSource(record func(reads *SourceReads)) error {
 	next := execution.record
-	next.Source.Read(isEnd, source, failure)
+	record(&next.Source)
 	return execution.persist(next)
 }
 

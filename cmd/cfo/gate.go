@@ -230,11 +230,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				report.Checks = append(report.Checks, check)
 				continue
 			}
-			check.Start, check.Status = time.Now(), "passed"
 			// The check's source is read with its turn held, before it runs
-			// and once it has ended, so the report says what it tested.
-			source, sourceErr := verify.ReadSource(context.Background(), execx.OSRunner{}, dir)
-			check.Source.Read(false, source, sourceErr)
+			// and once it has ended, so the report says what it tested. The
+			// reads count in no check's time against its budget.
+			check.Source.ReadStart(verify.ReadSource(context.Background(), execx.OSRunner{}, dir))
+			check.Start, check.Status = time.Now(), "passed"
 			output := stdout
 			var events *gatetest.Events
 			if command[1] == "test" {
@@ -247,8 +247,8 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			}
 			exit, err := runtime.gateRun(command, dir, env, output, stderr)
 			stopSaying()
-			source, sourceErr = verify.ReadSource(context.Background(), execx.OSRunner{}, dir)
-			check.Source.Read(true, source, sourceErr)
+			ran := time.Since(check.Start)
+			check.Source.ReadEnd(verify.ReadSource(context.Background(), execx.OSRunner{}, dir))
 			if _, sourceErr := check.Source.Tested(); sourceErr != nil {
 				fmt.Fprintf(stderr, "cfo gate test: go %s tested no one source: %v\n", command[1], sourceErr)
 			}
@@ -267,7 +267,6 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				check.Status, report.Status = "failed", "failed"
 				fmt.Fprintf(stderr, "cfo gate test: go %s: exit %d: %v\n", command[1], exit, err)
 			}
-			ran := time.Since(check.Start)
 			check.DurationSeconds = ran.Seconds()
 			if events != nil {
 				check.Packages = recordPackages(stdout, events.Results())

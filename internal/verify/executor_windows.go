@@ -217,16 +217,16 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err != nil {
 		return refuseStart(err)
 	}
+	if executor.Source != nil {
+		source, readError := executor.Source(ctx, request.Dir)
+		if err := execution.readSource(func(reads *SourceReads) { reads.ReadStart(source, readError) }); err != nil {
+			return refuseStart(err)
+		}
+	}
 	// A command that answers an interrupt itself is never sent one that came
 	// before it started, so such an interrupt ends the run here.
 	if err := ctx.Err(); executor.IsConsoleShared && err != nil {
 		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
-	}
-	if executor.Source != nil {
-		source, err := executor.Source(ctx, request.Dir)
-		if err := execution.readSource(false, source, err); err != nil {
-			return refuseStart(err)
-		}
 	}
 	if err := execution.Start(); err != nil {
 		return refuseStart(err)
@@ -356,9 +356,11 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		pending.isEvidencePending = true
 		failure = errors.Join(failure, err)
 	}
+	// The command has ended, so an interrupt since takes nothing from what
+	// it ran on.
 	if executor.Source != nil {
-		source, err := executor.Source(ctx, request.Dir)
-		failure = errors.Join(failure, execution.readSource(true, source, err))
+		source, readError := executor.Source(context.WithoutCancel(ctx), request.Dir)
+		failure = errors.Join(failure, execution.readSource(func(reads *SourceReads) { reads.ReadEnd(source, readError) }))
 	}
 	exitCode = -1
 	if command.ProcessState != nil {
