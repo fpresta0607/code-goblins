@@ -2,6 +2,9 @@ package supervisor
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
@@ -59,6 +62,13 @@ func (s *Service) readTrees(ctx context.Context) {
 		}
 		tree, _ := s.Options.Tree.Read(pass, goblin)
 		trees[meta.ID] = tree
+		if err := keepConversation(s.Store.Home.State, meta, tree.Session); err != nil {
+			s.mu.Lock()
+			if s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error()) {
+				s.fleetErr = errors.Join(s.fleetErr, err)
+			}
+			s.mu.Unlock()
+		}
 	}
 	s.Options.Tree.Forget(live)
 	// A helper hangs under its parent as a child of the parent's tree; a
@@ -73,6 +83,24 @@ func (s *Service) readTrees(ctx context.Context) {
 	s.mu.Lock()
 	s.trees = trees
 	s.mu.Unlock()
+}
+
+// keepConversation keeps session as the conversation meta's goblin is in,
+// for its generation and harness, when its running harness proved one that
+// is not kept yet: once the harness has ended, the board's own reading of it
+// is gone, and the relaunch reads this instead (fleettree.OwnedSession).
+func keepConversation(stateDir string, meta state.TaskMeta, session string) error {
+	if session == "" {
+		return nil
+	}
+	kept, err := state.ReadConversation(stateDir, meta.ID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil && kept.Generation == meta.SpawnGen && kept.Harness == meta.Harness && kept.Session == session {
+		return nil
+	}
+	return state.WriteConversation(stateDir, state.Conversation{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Session: session, ProvedAt: time.Now().UTC()})
 }
 
 // helperStanding is where helper meta stands by its own records: its latest

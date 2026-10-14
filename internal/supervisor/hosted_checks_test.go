@@ -131,6 +131,38 @@ func TestHostedChecksShowNothingForAPullRequestWithoutChecksOrAnotherGoblins(t *
 	}
 }
 
+// A draft's run skips its jobs, and a check that was skipped tested
+// nothing, so a pull request whose every check was skipped shows no result
+// on its card, as one with no checks does, never that its checks passed.
+func TestHostedChecksShowNothingForAPullRequestWhoseEveryCheckWasSkipped(t *testing.T) {
+	// Arrange
+	const testSkipped = `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED","completedAt":"2026-09-30T12:30:00Z"}`
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	if err := state.AppendStatus(h.State, "cg-wakes", "done: PR https://github.com/o/r/pull/209"); err != nil {
+		t.Fatal(err)
+	}
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs = "feat/wakes", "[]"
+	s.Options.CI = forge
+	now := time.Date(2026, 9, 30, 12, 31, 0, 0, time.UTC)
+
+	// Act
+	forge.pulls = hostedRollup("", testPassed)
+	ran := cardChecks(t, s, "cg-wakes", now)
+	forge.pulls = hostedRollup("", testSkipped)
+	skipped := cardChecks(t, s, "cg-wakes", now.Add(ciPollEvery))
+
+	// Assert
+	if ran == nil || ran["state"] != "passed" {
+		t.Fatalf("hosted checks = %v for a pull request whose check passed, want passed, so the card shows checks at all", ran)
+	}
+	if skipped != nil {
+		t.Errorf("hosted checks = %v for a pull request whose every check was skipped, want none", skipped)
+	}
+}
+
 // Once a pull request has not been read for as long as finished checks are
 // kept, its record goes with them.
 func TestHostedChecksAreForgottenWithTheChecksTheyCameFrom(t *testing.T) {
