@@ -173,6 +173,8 @@ $sc = Join-Path $env:SystemRoot 'System32\sc.exe'
 if ($LASTEXITCODE -ne 0) { throw ('sc.exe sidtype failed with exit ' + $LASTEXITCODE) }
 & $sc config ` + ServiceName + ` obj= 'NT SERVICE\` + ServiceName + `'
 if ($LASTEXITCODE -ne 0) { throw ('sc.exe config failed with exit ' + $LASTEXITCODE) }
+& $sc failure ` + ServiceName + ` reset= 86400 actions= restart/60000/restart/60000/restart/60000
+if ($LASTEXITCODE -ne 0) { throw ('sc.exe failure failed with exit ' + $LASTEXITCODE) }
 Add-LocalGroupMember -SID 'S-1-5-32-578' -Member ('NT SERVICE\` + ServiceName + `')`
 	startScript = `Start-Service -Name '` + ServiceName + `'`
 )

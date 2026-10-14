@@ -226,6 +226,15 @@ func TestScriptsRunWindowsToolsByTheirFullPath(t *testing.T) {
 	}
 }
 
+// Windows starts the service again a minute after it stops on a failure,
+// each time, so a crash never leaves a VM running job code with no service
+// to put it back.
+func TestTheServiceIsStartedAgainAfterAFailure(t *testing.T) {
+	if !strings.Contains(serviceScript, "& $sc failure "+ServiceName+" reset= 86400 actions= restart/60000/restart/60000/restart/60000") {
+		t.Errorf("the service script:\n%s\nsets no restart on failure", serviceScript)
+	}
+}
+
 // The service's SID is the one Windows gives NT SERVICE\cg-ci-runner, as
 // sc.exe showsid names it, before the service exists.
 func TestServiceSIDIsTheServicesOwn(t *testing.T) {
