@@ -19,8 +19,9 @@ const (
 	browserFetchTimeout = 2 * time.Minute
 	// signInCloseWait bounds how long a fetch that carries on after a
 	// sign-in waits for the sign-in window's Chrome to be gone, since Chrome
-	// opens a profile once.
-	signInCloseWait = 90 * time.Second
+	// opens a profile once. A Chrome took up to 3m12s from its job's end to
+	// finish exiting on this machine.
+	signInCloseWait = 5 * time.Minute
 	// fetchSeal is how long a fetch in a goblin's own browser seals it at
 	// most: the read is bounded by browserFetchTimeout and hiding the keys
 	// after it takes seconds, so it lifts by itself only when a supervisor
@@ -78,8 +79,7 @@ func (s *Service) fetchCredential(ctx context.Context, request BrowserRequest) (
 // the CFO when that fetch stopped short. A stored key tells the CFO itself.
 func (s *Service) continueFetch(card BrowserSignIn) {
 	defer s.credentialWork.Done()
-	ctx, cancel := context.WithTimeout(context.Background(), signInCloseWait+browserFetchTimeout)
-	defer cancel()
+	closeBound := s.browsers.now().Add(signInCloseWait)
 	tell := func(detail string) {
 		if credential, found := s.Store.credential(card.Fetch); found {
 			s.credentialNotice(credential, detail)
@@ -103,15 +103,16 @@ func (s *Service) continueFetch(card BrowserSignIn) {
 		}
 		s.notify()
 	}()
-	closed, stop := context.WithTimeout(ctx, signInCloseWait)
-	defer stop()
 	for s.browsers.busy(card.Login) {
-		if err := wait(closed, time.Second); err != nil {
+		if !s.browsers.now().Before(closeBound) {
 			reason = "the sign-in window's browser did not close within " + signInCloseWait.String()
 			tell("the fetch for " + card.Fetch + " did not carry on after the " + card.Provider + " sign-in, since " + reason + "; the card still takes the keys pasted")
 			return
 		}
+		time.Sleep(time.Second)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), browserFetchTimeout)
+	defer cancel()
 	lease, err := s.fetchCredential(ctx, BrowserRequest{Action: "fetch", Task: card.Task, Request: card.Fetch})
 	switch {
 	case err != nil:
@@ -142,18 +143,6 @@ func (s *Service) showCarriedFetch(id string) bool {
 	}
 	s.notify()
 	return isShown
-}
-
-// wait sleeps for d, or returns ctx's error once it ends first.
-func wait(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 // busy reports whether a Chrome still runs or closes on login's profile.
