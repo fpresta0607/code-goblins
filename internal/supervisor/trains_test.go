@@ -404,7 +404,7 @@ func TestALoneFinishedPullRequestRidesOnceItWaitedPastTheBound(t *testing.T) {
 }
 
 // One reported done a moment ago waits for a second one to ride beside it.
-func TestTheSupervisorLeavesALoneFinishedPullRequestToTheCFO(t *testing.T) {
+func TestTheSupervisorHoldsALoneFinishedPullRequestForASecondOneAWhile(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
 	project := newTrainProject(t)

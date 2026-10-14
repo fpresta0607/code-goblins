@@ -197,7 +197,10 @@ func openPullRequests(ctx context.Context, runner execx.Runner, repo string) ([]
 		return nil, err
 	}
 	var open []train.PullRequest
-	return open, json.Unmarshal([]byte(out), &open)
+	if err := json.Unmarshal([]byte(out), &open); err != nil {
+		return nil, err
+	}
+	return open, nil
 }
 
 // hasWaitedAlone says whether url, the one pull request that would ride, was
