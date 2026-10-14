@@ -1,10 +1,16 @@
 /* The frame's own stand-in while its page loads or when it cannot be shown,
-   over the frame at its size. The goblin is the board's general avatar. */
-.page-loading, .page-failed { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; background: var(--body-bg); color: var(--muted); font-size: .9375rem; }
-.page-loading .goblin-avatar { position: relative; animation: page-goblin-hop 1s ease-in-out infinite; transform-origin: 50% 100%; }
-.page-loading .goblin-avatar::after { content: ""; position: absolute; left: 20%; right: 20%; bottom: -6px; height: 8px; border-radius: 50%; background: rgba(0, 0, 0, .35); animation: page-goblin-shadow 1s ease-in-out infinite; }
-@keyframes page-goblin-hop { 0%, 100% { transform: translateY(0) scale(1.06, .94); } 50% { transform: translateY(-18px) scale(.97, 1.03); } }
-@keyframes page-goblin-shadow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.6); opacity: .5; } }
+   over the frame at its size: a skeleton of a page with a light sweeping
+   across it. */
+.page-loading, .page-failed { position: absolute; inset: 0; overflow: hidden; display: grid; place-content: center; gap: 12px; background: var(--body-bg); color: var(--muted); font-size: .9375rem; }
+.page-bars { position: absolute; top: 28px; left: 28px; right: 28px; display: grid; gap: 14px; }
+.page-bars i { display: block; height: 14px; border-radius: 7px; background: var(--glass-border); }
+.page-bars i:nth-child(1) { width: 45%; height: 22px; }
+.page-bars i:nth-child(2) { width: 100%; }
+.page-bars i:nth-child(3) { width: 86%; }
+.page-bars i:nth-child(4) { width: 64%; }
+.page-sweep { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 30%, rgba(94, 234, 212, .16) 45%, rgba(190, 255, 240, .3) 50%, rgba(94, 234, 212, .16) 55%, transparent 70%); transform: translateX(-100%); animation: page-glimmer 1.8s ease-in-out infinite; }
+.page-loading-line { position: relative; }
+@keyframes page-glimmer { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .page-loading .goblin-avatar, .page-loading .goblin-avatar::after { animation: none; }
+  .page-sweep { animation: none; transform: none; background: linear-gradient(105deg, transparent 30%, rgba(94, 234, 212, .1) 50%, transparent 70%); }
 }
