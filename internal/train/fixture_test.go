@@ -222,8 +222,9 @@ type fakeGitHub struct {
 	// pending is how many CI reads answer that the checks still run. While
 	// any is left, a workflow run reads as still running too.
 	pending int
-	// noChecks answers every CI read with no checks at all.
-	noChecks bool
+	// noChecks answers every CI read with no checks at all, and skipped with
+	// a check that was skipped, as a draft's run leaves it.
+	noChecks, skipped bool
 	// modified is how many merges are refused as GitHub refuses one whose
 	// base moved during it, before one goes through.
 	modified int
@@ -504,6 +505,9 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	}
 	if f.foreign {
 		check = Check{Kind: "StatusContext", Context: "scan", State: check.Conclusion, TargetURL: "https://scan.example/report"}
+	}
+	if f.skipped {
+		check.Status, check.Conclusion = "COMPLETED", "SKIPPED"
 	}
 	checks := []Check{check}
 	if f.noChecks {
