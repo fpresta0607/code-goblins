@@ -501,6 +501,7 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
+A list of the job's members that a process starting or exiting left counting more members than it names is a race, not an unreadable job, so it is read again a millisecond later until the two agree, at most 32 times, and never taken short, since the end of a run goes by it.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
 Recovery uses `TerminateAndWait`, which spares nothing.

@@ -97,31 +97,52 @@ func (t *Tree) privateWorkingSet() (total uint64, unreadable uint32, err error) 
 	return total, unreadable, nil
 }
 
-// memberIDs reads the ids of the processes the job holds now.
+// memberReadAttempts bounds how often memberIDs reads a list whose members
+// change while it is read.
+const memberReadAttempts = 32
+
+// readJobMembers fills buffer with job's list of process ids, as
+// JOBOBJECT_BASIC_PROCESS_ID_LIST lays it out, and a test stands in for it.
+var readJobMembers = func(job windows.Handle, buffer []uintptr) error {
+	return windows.QueryInformationJobObject(job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&buffer[0])), uint32(len(buffer))*uint32(unsafe.Sizeof(uintptr(0))), nil)
+}
+
+// memberIDs reads the ids of the processes the job holds now. Windows counts
+// the job's members and lists them in one call, and a member that starts or
+// exits during it leaves the count past the list for up to half a
+// millisecond, as while go build starts compilers. That is a race, not an
+// unreadable job, so the list is read again a moment later until the two
+// agree, within memberReadAttempts. A short list is never taken, since the
+// end of a run goes by it to show that nothing else still runs.
 func (t *Tree) memberIDs() ([]uint32, error) {
 	// Two DWORD counts precede pointer-sized process IDs. Growth is bounded
 	// so a changing job cannot turn one sample into an unbounded allocation.
 	const headerWords = 8 / unsafe.Sizeof(uintptr(0))
-	for capacity := 64; capacity <= 65536; capacity *= 4 {
+	capacity := 64
+	for range memberReadAttempts {
 		buffer := make([]uintptr, int(headerWords)+capacity)
-		err := windows.QueryInformationJobObject(t.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&buffer[0])), uint32(len(buffer))*uint32(unsafe.Sizeof(uintptr(0))), nil)
-		if errors.Is(err, windows.ERROR_MORE_DATA) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("execx: read job members: %w", err)
-		}
+		err := readJobMembers(t.job, buffer)
 		counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
-		if counts[0] != counts[1] || counts[1] > uint32(capacity) {
-			return nil, errors.New("execx: incomplete job member sample")
+		switch {
+		case errors.Is(err, windows.ERROR_MORE_DATA) || (err == nil && counts[0] > uint32(capacity)):
+			if capacity *= 4; capacity > 65536 {
+				return nil, errors.New("execx: job member sample exceeds its bound")
+			}
+		case err != nil:
+			return nil, fmt.Errorf("execx: read job members: %w", err)
+		case counts[1] > uint32(capacity):
+			return nil, errors.New("execx: job member list overran its buffer")
+		case counts[0] == counts[1]:
+			ids := make([]uint32, counts[1])
+			for index, pid := range buffer[int(headerWords) : int(headerWords)+int(counts[1])] {
+				ids[index] = uint32(pid)
+			}
+			return ids, nil
+		default:
+			time.Sleep(time.Millisecond)
 		}
-		ids := make([]uint32, counts[1])
-		for index, pid := range buffer[int(headerWords) : int(headerWords)+int(counts[1])] {
-			ids[index] = uint32(pid)
-		}
-		return ids, nil
 	}
-	return nil, errors.New("execx: job member sample exceeds its bound")
+	return nil, fmt.Errorf("execx: job members changed through each of %d reads of them", memberReadAttempts)
 }
 
 // Members names the processes still running in the job, by image name and
