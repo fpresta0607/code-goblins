@@ -84,6 +84,9 @@ func TestReadEndsAChildWhoseProcessesEndedOnceSilentPastTheMark(t *testing.T) {
 		{name: "a quiet shell whose process still runs", tool: "Bash", command: "goblins gate turn -- go test ./...", started: quiet,
 			running: []Process{{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: quiet}},
 			lines:   map[int]string{200: `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'goblins gate turn -- go test ./...' < /dev/null"`}, want: Silent},
+		{name: "a quiet shell with quotes in its command whose process still runs", tool: "Bash", command: "echo \"it's\"; sleep 600", started: quiet,
+			running: []Process{{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: quiet}},
+			lines:   map[int]string{200: `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'echo \"it'\"'\"'s\"; sleep 600' < /dev/null"`}, want: Silent},
 		{name: "a quiet PowerShell shell whose process still runs", tool: "PowerShell", command: "Wait-Process -Id 4242", started: quiet,
 			running: []Process{{PID: 200, ParentPID: 100, Exe: "cmd.exe", Created: 20, Started: quiet}},
 			lines:   map[int]string{200: `C:\WINDOWS\System32\cmd.exe /d /s /c ""C:\WINDOWS\System32\chcp.com" 65001 >nul & "powershell.exe" -NoProfile > "` + output + `" 2>&1"`}, want: Silent},
@@ -133,6 +136,26 @@ func TestReadEndsAChildWhoseProcessesEndedOnceSilentPastTheMark(t *testing.T) {
 				if node.Kind == KindProcess {
 					t.Errorf("the child's own process is drawn again as %+v", node)
 				}
+			}
+		})
+	}
+}
+
+// A Claude Code shell's command line holds the command it runs as one bash
+// word inside a Windows argument: Windows escapes each double quote, and
+// Claude Code writes each single quote as '"'"'. The command is read back
+// as typed, so a shell's processes are matched to it whatever it quotes.
+func TestShellCommandReadsTheCommandAsTyped(t *testing.T) {
+	for _, tc := range []struct{ name, line, want string }{
+		{"a heredoc with quotes on several lines", "\"C:\\Program Files\\Git\\bin\\bash.exe\" -c \"source snapshot.sh 2>/dev/null || true && eval 'cat <<'\\\"'\\\"'X'\\\"'\\\"' > /dev/null\nit'\\\"'\\\"'s a \\\"quoted\\\" heredoc\nX\necho \\\"it'\\\"'\\\"'s multi\nline\\\"; sleep 600' < /dev/null && pwd -P >| /tmp/cwd\"",
+			"cat <<'X' > /dev/null\nit's a \"quoted\" heredoc\nX\necho \"it's multi\nline\"; sleep 600"},
+		{"a single quote written the older way", `bash.exe -c "eval 'echo it'\''s' < /dev/null"`, "echo it's"},
+		{"a plain command", `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'go test ./internal/... 2>&1 | tail -5' \< /dev/null"`, "go test ./internal/... 2>&1 | tail -5"},
+		{"no command evaluated", `C:\WINDOWS\system32\cmd.exe /d /s /c "npm run dev"`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shellCommand(tc.line); got != tc.want {
+				t.Errorf("shellCommand = %q, want %q", got, tc.want)
 			}
 		})
 	}
