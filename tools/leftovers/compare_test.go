@@ -245,11 +245,15 @@ func TestNoisePassesOverWhatWindowsProvisionsForItsPackagedApps(t *testing.T) {
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\AppHost\IndexedDB\Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\Notifications\BackgroundCapability\S-1-15-2-577703620-721806600\App.AppXa2g9313bzvs2knz17p3sr2k6j7ftv102.mca`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\MicrosoftCorporationII.WindowsSubsystemForLinux_8wekyb3d8bbwe!wsl`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\Windows.Defender.MpUxDlp`},
 	}
 	near := []difference{
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\WindowsApps\goblins.exe`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\AppXCodeGoblins`},
 		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Classes\CLSID\{0123}`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\Windows.Defender.MpUxDlp.CodeGoblins`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\CodeGoblins.Notifier`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\cfo`},
 		{Change: changeLeft, Kind: kindFile, Identity: `C:\Users\a\AppData\Local\Microsoft\Windows\WindowsAppsX\x.exe`},
 	}
 
