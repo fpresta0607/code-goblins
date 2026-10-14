@@ -175,6 +175,8 @@ if ($LASTEXITCODE -ne 0) { throw ('sc.exe sidtype failed with exit ' + $LASTEXIT
 if ($LASTEXITCODE -ne 0) { throw ('sc.exe config failed with exit ' + $LASTEXITCODE) }
 & $sc failure ` + ServiceName + ` reset= 86400 actions= restart/60000/restart/60000/restart/60000
 if ($LASTEXITCODE -ne 0) { throw ('sc.exe failure failed with exit ' + $LASTEXITCODE) }
+& $sc failureflag ` + ServiceName + ` 1
+if ($LASTEXITCODE -ne 0) { throw ('sc.exe failureflag failed with exit ' + $LASTEXITCODE) }
 Add-LocalGroupMember -SID 'S-1-5-32-578' -Member ('NT SERVICE\` + ServiceName + `')`
 	startScript = `Start-Service -Name '` + ServiceName + `'`
 )
@@ -208,8 +210,13 @@ func InstallSteps(o InstallOptions) []Step {
 		},
 		{
 			Title: "make the service's folder, owned by Administrators, which only SYSTEM, Administrators and the service may open",
-			Says:  scriptSays(folderScript, folderEnv...),
-			Run:   runScript(o.Commands, "make the service's folder", folderScript, folderEnv...),
+			Says:  append(scriptSays(folderScript, folderEnv...), checkFolderSays),
+			Run: func(ctx context.Context) error {
+				if err := runScript(o.Commands, "make the service's folder", folderScript, folderEnv...)(ctx); err != nil {
+					return err
+				}
+				return checkInstalledFolder(o.Dir)
+			},
 		},
 		{
 			Title: "download and check the image",
@@ -269,8 +276,13 @@ func InstallSteps(o InstallOptions) []Step {
 		},
 		{
 			Title: "keep the App's settings and key",
-			Says:  []string{"write app.json to " + o.Dir + " for App " + strconv.FormatInt(o.AppID, 10) + ", installation " + strconv.FormatInt(o.InstallationID, 10) + ", on " + o.Owner + "/" + o.Repo + ", whose pipe " + o.User + " may open", "copy " + o.KeyFile + " to " + filepath.Join(o.Dir, "app-key.pem")},
-			Run:   func(context.Context) error { return keepApp(o) },
+			Says:  []string{checkFolderSays, "write app.json to " + o.Dir + " for App " + strconv.FormatInt(o.AppID, 10) + ", installation " + strconv.FormatInt(o.InstallationID, 10) + ", on " + o.Owner + "/" + o.Repo + ", whose pipe " + o.User + " may open", "copy " + o.KeyFile + " to " + filepath.Join(o.Dir, "app-key.pem")},
+			Run: func(context.Context) error {
+				if err := checkInstalledFolder(o.Dir); err != nil {
+					return err
+				}
+				return keepApp(o)
+			},
 		},
 		{
 			Title: "start the service",
@@ -292,6 +304,9 @@ func InstallSteps(o InstallOptions) []Step {
 	}
 	return steps
 }
+
+// checkFolderSays is what a dry run says of checkInstalledFolder.
+const checkFolderSays = "refuse the service's folder unless it and its parent are no links, are owned by SYSTEM or Administrators, and are open to them, and the service in the folder, alone"
 
 // checkProgram refuses a program outside Program Files, which only
 // Administrators may change. The service runs it in Hyper-V Administrators,

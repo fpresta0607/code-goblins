@@ -227,11 +227,14 @@ func TestScriptsRunWindowsToolsByTheirFullPath(t *testing.T) {
 }
 
 // Windows starts the service again a minute after it stops on a failure,
-// each time, so a crash never leaves a VM running job code with no service
-// to put it back.
+// each time, whether it crashed or stopped itself with an exit code that
+// says it failed, as when GitHub is out of reach at its start, so no failure
+// leaves a VM running job code with no service to put it back.
 func TestTheServiceIsStartedAgainAfterAFailure(t *testing.T) {
-	if !strings.Contains(serviceScript, "& $sc failure "+ServiceName+" reset= 86400 actions= restart/60000/restart/60000/restart/60000") {
-		t.Errorf("the service script:\n%s\nsets no restart on failure", serviceScript)
+	for _, want := range []string{"& $sc failure " + ServiceName + " reset= 86400 actions= restart/60000/restart/60000/restart/60000", "& $sc failureflag " + ServiceName + " 1"} {
+		if !strings.Contains(serviceScript, want) {
+			t.Errorf("the service script:\n%s\nlacks %q", serviceScript, want)
+		}
 	}
 }
 

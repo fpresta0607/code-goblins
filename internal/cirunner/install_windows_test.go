@@ -157,6 +157,129 @@ func TestTheInstallRefusesAFolderAnotherCouldHold(t *testing.T) {
 	}
 }
 
+// The install's folder and its parent must be held as the install makes
+// them, owned by SYSTEM or Administrators, no link, and open to them, and the
+// service in the folder, alone: a parent another made between the install's
+// first check and its making of the folder, or a folder swapped since, is
+// refused. A folder held so can be made only elevated, so the rows that need
+// one run only there, as on GitHub's runner.
+func TestTheInstallRefusesAFolderNotHeldAsItMadeIt(t *testing.T) {
+	isElevated := windows.GetCurrentProcessToken().IsElevated()
+	heldParent := func(t *testing.T) string {
+		parent := t.TempDir()
+		setAccess(t, parent, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
+		return parent
+	}
+	for name, row := range map[string]struct {
+		arrange      func(t *testing.T) string
+		want         string
+		needsElevate bool
+	}{
+		"a parent the user owns": {
+			arrange: func(t *testing.T) string {
+				parent := t.TempDir()
+				protectFolder(t, parent)
+				ownByThisUser(t, parent)
+				return filepath.Join(parent, "ci-runner")
+			},
+			want: "is owned by " + thisUser(t),
+		},
+		"a parent that is a link": {
+			arrange: func(t *testing.T) string {
+				parent := filepath.Join(t.TempDir(), "Code Goblins")
+				if output, err := execx.CommandContext(context.Background(), filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/c", "mklink", "/J", parent, t.TempDir()).CombinedOutput(); err != nil {
+					t.Fatalf("mklink /J: %v: %s", err, output)
+				}
+				return filepath.Join(parent, "ci-runner")
+			},
+			want: "is a link",
+		},
+		"a folder the user owns": {
+			arrange: func(t *testing.T) string {
+				dir := filepath.Join(heldParent(t), "ci-runner")
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				protectFolder(t, dir)
+				ownByThisUser(t, dir)
+				return dir
+			},
+			want:         "is owned by " + thisUser(t),
+			needsElevate: true,
+		},
+		"a folder open to the user": {
+			arrange: func(t *testing.T) string {
+				dir := filepath.Join(heldParent(t), "ci-runner")
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				protectFolder(t, dir)
+				return dir
+			},
+			want:         "lets " + thisUser(t) + " in",
+			needsElevate: true,
+		},
+		"a folder held as the install makes it": {
+			arrange: func(t *testing.T) string {
+				dir := filepath.Join(heldParent(t), "ci-runner")
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				setAccess(t, dir, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;"+ServiceSID(ServiceName)+")")
+				return dir
+			},
+			needsElevate: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if row.needsElevate && !isElevated {
+				t.Skip("only an elevated test can make a folder Administrators own")
+			}
+			// Arrange
+			dir := row.arrange(t)
+
+			// Act
+			err := checkInstalledFolder(dir)
+
+			// Assert
+			if row.want == "" && err != nil || row.want != "" && (err == nil || !strings.Contains(err.Error(), row.want)) {
+				t.Errorf("checkInstalledFolder = %v; want %q, or nothing", err, row.want)
+			}
+		})
+	}
+}
+
+// The step that makes the folder checks it once its script has run, and the
+// step that keeps the App's key checks it again before it writes anything,
+// so the key never goes into a folder another holds.
+func TestTheInstallChecksItsFolderBeforeTheKeyGoesIn(t *testing.T) {
+	// Arrange
+	parent := t.TempDir()
+	protectFolder(t, parent)
+	ownByThisUser(t, parent)
+	options, _ := installOptions(t, parent, &recorder{})
+	keys, _ := serviceFolder(t, goodSettings, "pkcs1")
+	options.KeyFile = filepath.Join(keys, "app-key.pem")
+	if err := os.Mkdir(options.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	steps := InstallSteps(options)
+
+	// Act
+	folderErr := steps[1].Run(context.Background())
+	keepErr := steps[9].Run(context.Background())
+
+	// Assert
+	for step, err := range map[string]error{steps[1].Title: folderErr, steps[9].Title: keepErr} {
+		if err == nil || !strings.Contains(err.Error(), "is owned by "+thisUser(t)) {
+			t.Errorf("%s = %v; want the folder refused for its parent's owner", step, err)
+		}
+	}
+	if entries, err := os.ReadDir(options.Dir); err != nil || len(entries) != 0 {
+		t.Errorf("the folder holds %d file(s) (%v); want the key and settings kept out", len(entries), err)
+	}
+}
+
 // The install's own making of the folder refuses one that is here already,
 // as a folder another made between the check and the making would be.
 func TestTheInstallMakesNoFolderThatIsHereAlready(t *testing.T) {
