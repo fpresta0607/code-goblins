@@ -3,20 +3,26 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -41,9 +47,14 @@ const (
 	// disk to spare, whose checks only say that they ran, as a command a turn
 	// is taken for.
 	gateTurnTestPrepush = "gate-turn-test-prepush"
+	// gateTurnTestCtrlC sends a Ctrl+C to the console of the process its
+	// argument names, as a person at that console would, and takes no part
+	// in it itself.
+	gateTurnTestCtrlC = "gate-turn-test-ctrl-c"
 	// gateTurnTestMemoryVariable names a file. While it exists the wrapper's
 	// machine is short of memory: of commit when the file is named
-	// commit-short, and of physical memory otherwise.
+	// commit-short, of physical memory under the desktop reserve when it is
+	// named reserve-short, and of physical memory under the floor otherwise.
 	gateTurnTestMemoryVariable = "CFO_GATE_TURN_TEST_MEMORY"
 )
 
@@ -55,14 +66,23 @@ func runGateTurnTestProgram() (int, bool) {
 	}
 	switch os.Args[1] {
 	case gateTurnTestWrapper:
+		// A program a person starts at a console hears its Ctrl+C, while one
+		// this test binary starts inherits the binary's own way of ignoring
+		// it, so the wrapper takes it back for itself and what it starts.
+		if ok, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler").Call(0, 0); ok == 0 {
+			return 6, true
+		}
 		runtime := defaultCommandRuntime()
 		marker := os.Getenv(gateTurnTestMemoryVariable)
 		runtime.availableMemory = func() (supervisor.Memory, error) {
 			memory := supervisor.Memory{Available: 64 << 30, CommitAvailable: 64 << 30}
 			if _, err := os.Stat(marker); err == nil {
-				if filepath.Base(marker) == "commit-short" {
+				switch filepath.Base(marker) {
+				case "commit-short":
 					memory.CommitAvailable = 3 << 30
-				} else {
+				case "reserve-short":
+					memory.Available = 1 << 30
+				default:
 					memory.Available = 3 << 30
 				}
 			}
@@ -71,6 +91,23 @@ func runGateTurnTestProgram() (int, bool) {
 		return runWithRuntime(append([]string{"gate", "turn"}, os.Args[2:]...), os.Stdout, os.Stderr, runtime), true
 	case gateTurnTestCommand:
 		return runGateTurnTestCommand(os.Args[2:]), true
+	case gateTurnTestCtrlC:
+		pid, err := strconv.Atoi(os.Args[2])
+		if err != nil {
+			return 2, true
+		}
+		kernel := windows.NewLazySystemDLL("kernel32.dll")
+		// This process starts with no console, so it can join that one.
+		if ok, _, _ := kernel.NewProc("AttachConsole").Call(uintptr(pid)); ok == 0 {
+			return 3, true
+		}
+		if ok, _, _ := kernel.NewProc("SetConsoleCtrlHandler").Call(0, 1); ok == 0 {
+			return 4, true
+		}
+		if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_C_EVENT, 0); err != nil {
+			return 5, true
+		}
+		return 0, true
 	case gateTurnTestArguments:
 		if err := json.NewEncoder(os.Stdout).Encode(os.Args[2:]); err != nil {
 			return 1, true
@@ -113,6 +150,13 @@ func runGateTurnTestCommand(args []string) int {
 	if err != nil {
 		return 99
 	}
+	// A command told to answer a Ctrl+C listens for one before it says it
+	// started, leaves name.interrupted when it hears it and exits 7.
+	var interrupts chan os.Signal
+	if len(args) > 3 && args[3] == "answer-ctrl-c" {
+		interrupts = make(chan os.Signal, 1)
+		signal.Notify(interrupts, os.Interrupt)
+	}
 	if err := os.WriteFile(filepath.Join(dir, name+".pid"), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return 99
 	}
@@ -128,6 +172,17 @@ func runGateTurnTestCommand(args []string) int {
 	}
 	os.Stdout.WriteString(commandOutput(name))
 	os.Stderr.WriteString(commandErrors(name))
+	if interrupts != nil {
+		select {
+		case <-interrupts:
+			if err := os.WriteFile(filepath.Join(dir, name+".interrupted"), nil, 0o644); err != nil {
+				return 99
+			}
+			return 7
+		case <-time.After(time.Minute):
+			return 98
+		}
+	}
 	for len(args) > 3 && args[3] == "hold" {
 		if _, err := os.Stat(filepath.Join(dir, name+".release")); err == nil {
 			break
@@ -231,6 +286,10 @@ func startGateTurn(t *testing.T, dir string, env []string, args ...string) *turn
 	t.Helper()
 	run := &turnRun{process: exec.Command(os.Args[0], append([]string{gateTurnTestWrapper}, args...)...), stdout: &lockedBuffer{}, stderr: &lockedBuffer{}, exited: make(chan int, 1)}
 	run.process.Dir, run.process.Env = dir, append(os.Environ(), env...)
+	// A console of its own, with no window, so a console event the run sends,
+	// by design or by a fault, reaches the run and what it starts, and never
+	// the console the tests run in.
+	run.process.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	run.process.Stdout, run.process.Stderr = run.stdout, run.stderr
 	// A command that outlives its wrapper keeps the wrapper's output open,
 	// and the wait for the wrapper does not wait for the command.
@@ -274,9 +333,36 @@ func (run *turnRun) running(t *testing.T, what string) {
 }
 
 // gateTurn runs cfo gate turn in this process, on a machine with memory to
-// spare.
+// spare. Its output is pipes', as a process's own is files, copied into
+// stdout and stderr as it comes.
 func gateTurn(runtime commandRuntime, stdout, stderr *lockedBuffer, args ...string) int {
-	return runWithRuntime(append([]string{"gate", "turn"}, args...), stdout, stderr, runtime)
+	outputReader, outputWriter, err := os.Pipe()
+	if err != nil {
+		panic(err)
+	}
+	errorsReader, errorsWriter, err := os.Pipe()
+	if err != nil {
+		panic(err)
+	}
+	var copied sync.WaitGroup
+	copied.Add(2)
+	go func() { defer copied.Done(); _, _ = io.Copy(stdout, outputReader) }()
+	go func() { defer copied.Done(); _, _ = io.Copy(stderr, errorsReader) }()
+	exit := runWithRuntime(append([]string{"gate", "turn"}, args...), outputWriter, errorsWriter, runtime)
+	outputWriter.Close()
+	errorsWriter.Close()
+	// A process that outlives the run, as a machine service it left running
+	// does, keeps the pipes open, so the copies are waited for a while and
+	// then cut off.
+	isCopied := make(chan struct{})
+	go func() { copied.Wait(); close(isCopied) }()
+	select {
+	case <-isCopied:
+	case <-time.After(5 * time.Second):
+	}
+	outputReader.Close()
+	errorsReader.Close()
+	return exit
 }
 
 // turnRuntime is the runtime of a machine with memory to spare.
@@ -761,7 +847,7 @@ func TestGateTurnInterruptedWhileItWaitsLeavesTheLineAndStartsNothing(t *testing
 	case <-time.After(time.Minute):
 		t.Fatalf("the run had not ended a minute after it was interrupted; stderr=%q", stderr.String())
 	}
-	if want := "cfo gate turn: this run takes no turn: it was interrupted while it waited\n"; !strings.HasSuffix(stderr.String(), want) {
+	if want := "cfo gate turn: this run takes no turn: it was interrupted before its command started\n"; !strings.HasSuffix(stderr.String(), want) {
 		t.Errorf("stderr = %q; want it to end with %q", stderr.String(), want)
 	}
 	holding, waiting, err := verify.Line(slots)
@@ -941,6 +1027,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 		"a name with no --":        {"--as", "a named run", os.Args[0], gateTurnTestArguments},
 		"a name that is missing":   {"--as"},
 		"an argument of no kind":   {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
+		"an empty program":         {"--", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -982,5 +1069,194 @@ func TestGateTurnSaysWhenItsCommandDidNotStart(t *testing.T) {
 	}
 	if holding, waiting, err := verify.Line(slots); err != nil || len(holding) != 0 || len(waiting) != 0 {
 		t.Errorf("the line holds %+v and %+v (%v); want the turn given back", holding, waiting, err)
+	}
+}
+
+// A run keeps a record of its execution with the report store's others, and
+// none of its command's output, which its caller keeps, and prunes the store
+// after it, as a cfo verify tier does.
+func TestGateTurnKeepsARecordOfItsRunButNotItsOutput(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	executions := filepath.Join(filepath.Dir(slots), "executions")
+	if err := os.MkdirAll(executions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := filepath.Join(executions, "AAAAAAAAAAAAAAAAAAAAAAAAAA.json.stdout.log")
+	if err := os.WriteFile(abandoned, []byte("log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(abandoned, old, old); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, turnCommand(dir, "command", 0, false)...)
+
+	// Assert
+	if exit != 0 || stdout.String() != commandOutput("command") {
+		t.Fatalf("exit = %d, stdout = %q; want the command's 0 and its own output", exit, stdout.String())
+	}
+	records, err := filepath.Glob(filepath.Join(executions, "*.json"))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records = %v, %v; want the run's one", records, err)
+	}
+	record, err := verify.LoadExecution(records[0])
+	if err != nil || record.Status != "passed" || record.StdoutLog != "" || record.StderrLog != "" || record.Command[0] != os.Args[0] {
+		t.Fatalf("record = %+v, %v; want the command's pass with no logs", record, err)
+	}
+	if logs, err := filepath.Glob(filepath.Join(executions, "*.log")); err != nil || len(logs) != 0 {
+		t.Fatalf("logs = %v, %v; want none, the abandoned one pruned", logs, err)
+	}
+}
+
+// A machine service the command started, as Docker Desktop serves the whole
+// machine, is left running and named, and the run keeps its command's exit
+// code.
+func TestGateTurnLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	// A name of its own, so the test finds its stand-in among every process.
+	image := "com.docker.standin-" + strings.ToLower(rand.Text()) + ".exe"
+	service := filepath.Join(programs, image)
+	standin.Put(t, service)
+	for _, variable := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--", "cmd", "/d", "/c", "start", "", "/b", service)
+
+	// Assert
+	processes, err := proc.Processes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Whatever the run did, the stand-in it started ends with the test.
+	isRunning := false
+	for _, process := range processes {
+		if strings.EqualFold(process.ExeBase, image) {
+			standin.Hold(t, process.PID)
+			isRunning = true
+		}
+	}
+	if exit != 0 || !isRunning {
+		t.Fatalf("exit = %d, the service runs = %v; want the command's 0 and the service left running; stderr=%q", exit, isRunning, stderr.String())
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()), "cfo gate turn: its command started "+image+" pid") || !strings.Contains(stderr.String(), "which serves the whole machine, so the run left it running") {
+		t.Fatalf("stderr = %q; want a line naming the service left running", stderr.String())
+	}
+}
+
+// Free memory under the desktop reserve for its ten seconds ends the run's
+// command with everything it started, and the run exits 125 with a last line
+// that says why, which a gate parks the run on: what the command was ended
+// at is no result of its own.
+func TestGateTurnEndsItsCommandWhenMemoryStaysUnderTheReserve(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	marker := filepath.Join(t.TempDir(), "reserve-short")
+	run := startGateTurn(t, dir, []string{gateTurnTestMemoryVariable + "=" + marker}, turnCommand(dir, "command", 0, true)...)
+	eventually(t, "the run's command starts", func() bool { return left(dir, "command", "started") })
+
+	// Act
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	exit := run.exit(t, "the run, with memory under the reserve,")
+	if exit != 125 || left(dir, "command", "ended") {
+		t.Fatalf("exit = %d and the command ended by itself = %v; want 125, no result of the command's, with the command ended by the run; stderr=%q", exit, left(dir, "command", "ended"), run.stderr.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(run.stderr.String(), "\n"), "\n")
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: ") || !strings.Contains(last, "reserve pressure") {
+		t.Fatalf("last line = %q; want the run saying why it ended its command, which a gate parks the run on", last)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "command.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, isRunning := proc.StartTime(pid); isRunning {
+		t.Fatalf("the command, pid %d, still runs after its run ended it", pid)
+	}
+}
+
+// A run whose record cannot be begun, as in a store whose executions folder
+// is a file, took no turn and started nothing, so it exits 125 and says so,
+// which a gate parks rather than read as a failed test.
+func TestGateTurnTakesNoTurnWhenItsRecordCannotBeBegun(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(slots), "executions"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, turnCommand(dir, "command", 0, false)...)
+
+	// Assert
+	lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
+	if exit != 125 || left(dir, "command", "started") || !strings.HasPrefix(lines[len(lines)-1], "cfo gate turn: this run takes no turn: ") {
+		t.Fatalf("exit = %d, the command started = %v, stderr = %q; want 125 with nothing started and a last line that says so", exit, left(dir, "command", "started"), stderr.String())
+	}
+}
+
+// A Ctrl+C at the console reaches the command as it reaches the run, since
+// the command shares the run's console group: the command answers it with
+// an exit of its own, and the run holds its turn until then and exits with
+// it. A command in a group of its own would not hear it at all.
+func TestGateTurnsCommandHearsTheConsolesCtrlC(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	run := startGateTurn(t, dir, nil, "--", os.Args[0], gateTurnTestCommand, dir, "command", "0", "answer-ctrl-c")
+	eventually(t, "the run's command starts", func() bool { return left(dir, "command", "started") })
+
+	// Act
+	sender := exec.Command(os.Args[0], gateTurnTestCtrlC, strconv.Itoa(run.process.Process.Pid))
+	sender.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+	if output, err := sender.CombinedOutput(); err != nil {
+		t.Fatalf("the console's Ctrl+C was not sent: %v %s", err, output)
+	}
+
+	// Assert
+	if exit := run.exit(t, "the run, once the console's Ctrl+C reached its command,"); exit != 7 || !left(dir, "command", "interrupted") {
+		t.Fatalf("exit = %d and the command heard the Ctrl+C = %v; want the command's own 7; stderr=%q", exit, left(dir, "command", "interrupted"), run.stderr.String())
+	}
+	if holding, waiting, err := verify.Line(slots); err != nil || len(holding) != 0 || len(waiting) != 0 {
+		t.Fatalf("after the run the line holds %+v and %+v (%v); want it empty", holding, waiting, err)
+	}
+}
+
+// A run with no standard output or error, as a process started without them
+// has, takes no turn and starts nothing, rather than keep the command's
+// output in the report store where its caller would never see it.
+func TestGateTurnTakesNoTurnWithoutStandardOutput(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	var missing *os.File
+
+	// Act
+	exit := runWithRuntime(append([]string{"gate", "turn"}, turnCommand(dir, "command", 0, false)...), missing, missing, turnRuntime())
+
+	// Assert
+	if exit != 125 || left(dir, "command", "started") {
+		t.Fatalf("exit = %d, the command started = %v; want 125 with nothing started", exit, left(dir, "command", "started"))
 	}
 }

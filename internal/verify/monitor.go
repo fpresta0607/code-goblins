@@ -48,6 +48,20 @@ type Measurement struct {
 // ErrLimit is the failure of a command that ran past its limit.
 var ErrLimit = errors.New("verify: the command ran past its limit")
 
+// ErrNoTurn is the failure of a run that took no turn, or one interrupted
+// once it had taken it, so its command never started, and ErrNotStarted that
+// of one that took its turn and gave it back because its command could not
+// start.
+var (
+	ErrNoTurn     = errors.New("verify: the run took no turn")
+	ErrNotStarted = errors.New("verify: the command did not start")
+)
+
+// ErrPressure is the failure of a run free memory or commit stayed under its
+// desktop reserve through: the run ended its command for the machine's sake,
+// so its exit code is no result of the command's own.
+var ErrPressure = errors.New("verify: reserve pressure")
+
 // Leftover is a process a command left running, by image name and pid.
 type Leftover struct {
 	Name string `json:"name"`
@@ -81,9 +95,10 @@ type Monitor struct {
 	Grace   time.Duration
 	// Exited is closed once the command's own process has exited. Linger,
 	// ten seconds unless set, is how long what it left running may run on
-	// after it. What still runs then is ended and named as a leftover, and
-	// the run keeps the command's own result. Without Exited the run waits
-	// for the whole job.
+	// after it. What still runs then, or once free memory has stayed under
+	// the reserve for Sustain after the exit, is ended and named as a
+	// leftover, and the run keeps the command's own result. Without Exited
+	// the run waits for the whole job, and pressure fails it.
 	Exited <-chan struct{}
 	Linger time.Duration
 	// Cancel requests graceful cancellation and must return promptly.
@@ -151,13 +166,24 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 				break
 			}
 		}
+		if exitedAt.IsZero() && monitor.Exited != nil {
+			select {
+			case <-monitor.Exited:
+				exitedAt = time.Now()
+			default:
+			}
+		}
 		if headroom.PhysicalAvailable >= monitor.Reserve.PhysicalAvailable && headroom.CommitAvailable >= monitor.Reserve.CommitAvailable {
 			pressedSince = time.Time{}
 		} else if pressedSince.IsZero() {
 			pressedSince = time.Now()
 		}
-		if !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain {
-			failure = fmt.Errorf("verify: reserve pressure for %s: physical available %d, reserve %d, commit available %d, reserve %d", monitor.Sustain, headroom.PhysicalAvailable, monitor.Reserve.PhysicalAvailable, headroom.CommitAvailable, monitor.Reserve.CommitAvailable)
+		isPressed := !pressedSince.IsZero() && time.Since(pressedSince) >= monitor.Sustain
+		// Once the command's own process has exited, its result is its own,
+		// so pressure then ends what it left as the linger's end does and
+		// fails nothing.
+		if isPressed && exitedAt.IsZero() {
+			failure = fmt.Errorf("%w for %s: %.1f GB of memory and %.1f GB of commit available, under the desktop reserve of %.1f GB and %.1f GB", ErrPressure, monitor.Sustain, Gigabytes(headroom.PhysicalAvailable), Gigabytes(headroom.CommitAvailable), Gigabytes(monitor.Reserve.PhysicalAvailable), Gigabytes(monitor.Reserve.CommitAvailable))
 			break
 		}
 		if failure = ctx.Err(); failure != nil {
@@ -166,14 +192,7 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 		if usage.ActiveProcesses == 0 {
 			break
 		}
-		if exitedAt.IsZero() && monitor.Exited != nil {
-			select {
-			case <-monitor.Exited:
-				exitedAt = time.Now()
-			default:
-			}
-		}
-		if !exitedAt.IsZero() && time.Since(exitedAt) >= monitor.Linger {
+		if !exitedAt.IsZero() && (isPressed || time.Since(exitedAt) >= monitor.Linger) {
 			members, err := tree.Members()
 			if err != nil {
 				failure = fmt.Errorf("verify: read what the command left running: %w", err)

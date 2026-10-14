@@ -16,17 +16,23 @@ import (
 )
 
 // The executions store keeps the newest passes, failures and refusals each
-// apart, so a burst of one never evicts the evidence of another. What it
-// counts fits executionBudget together, passes going first, then refusals,
-// then failures, but never past the newest pass and the newest
-// keptAlwaysFailures failures, so a run's own evidence outlives a budget it
-// overran alone.
+// apart, so a burst of one never evicts the evidence of another, and apart
+// from them the runs that kept no logs. What it counts fits executionBudget
+// together, passes going first, then refusals, then failures, but never past
+// the newest pass and the newest keptAlwaysFailures failures, so a run's own
+// evidence outlives a budget it overran alone. Runs that kept no logs are a
+// record each, which would free next to nothing, so only their count bounds
+// them.
 const (
 	keptPasses         = 100
 	keptFailures       = 50
 	keptRefusals       = 20
 	keptAlwaysFailures = 5
-	executionBudget    = 2 << 30
+	// keptUnlogged are the runs that kept no logs, as cfo gate turn's, whose
+	// output their caller keeps. They are kept apart, so a burst of them
+	// never evicts a cfo verify run's logs, which are kept nowhere else.
+	keptUnlogged    = 200
+	executionBudget = 2 << 30
 	// abandonedExecutionAge is how long a record still pending or one that
 	// cannot be read, and a log without its record, are kept: no run lasts
 	// that long, so by then its controller has gone without finishing it.
@@ -105,7 +111,7 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 			records[id] = info
 		}
 	}
-	var passes, failures, refusals []stored
+	var passes, failures, refusals, unlogged []stored
 	for id, info := range records {
 		if _, err := os.Lstat(filepath.Join(custodyDir, id+".json")); !errors.Is(err, os.ErrNotExist) {
 			continue
@@ -125,6 +131,12 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 			continue
 		}
 		entry := stored{id: id, created: record.Created, size: sizes[id]}
+		if len(logs[id]) == 0 {
+			if record.Status != "pending" || !isYoung {
+				unlogged = append(unlogged, entry)
+			}
+			continue
+		}
 		switch record.Status {
 		case "pending":
 			if !isYoung {
@@ -147,9 +159,9 @@ func pruneExecutions(dir, custodyDir string, budget int64, now time.Time) error 
 		}
 		return list[:min(len(list), count)]
 	}
-	passes, failures, refusals = keep(passes, keptPasses), keep(failures, keptFailures), keep(refusals, keptRefusals)
+	passes, failures, refusals, unlogged = keep(passes, keptPasses), keep(failures, keptFailures), keep(refusals, keptRefusals), keep(unlogged, keptUnlogged)
 	var total int64
-	for _, list := range [][]stored{passes, failures, refusals} {
+	for _, list := range [][]stored{passes, failures, refusals, unlogged} {
 		for _, kept := range list {
 			total += kept.size
 		}

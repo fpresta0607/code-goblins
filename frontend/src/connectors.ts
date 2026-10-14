@@ -5,33 +5,41 @@ export type Mark = { brand: BrandKey } | { glyph: IconName };
 
 // Checked in order against the name with case and punctuation removed, so
 // "chrome-devtools", "GITHUB_TOKEN" and "neon-auth" all find their service.
-// Short names are anchored so "butterfly" never reads as Fly.io.
-const SERVICES: [RegExp, Mark][] = [
-  [/github|^gh(token|pat)?$/, { brand: "github" }],
-  [/chrome|devtools/, { brand: "chrome" }],
-  [/playwright/, { glyph: "browser-check" }],
-  [/context7/, { glyph: "book" }],
-  [/supabase/, { brand: "supabase" }],
-  [/sentry/, { brand: "sentry" }],
-  [/stripe/, { brand: "stripe" }],
-  [/vercel/, { brand: "vercel" }],
-  [/^fly/, { brand: "fly" }],
-  [/neon/, { brand: "neon" }],
-  [/notion/, { brand: "notion" }],
-  [/openrouter/, { brand: "openrouter" }],
-  [/openai/, { brand: "openai" }],
-  [/anthropic|claude/, { brand: "anthropic" }],
-  [/gemini/, { brand: "gemini" }],
-  [/kimi|moonshot/, { brand: "moonshot" }],
-  [/resend/, { brand: "resend" }],
-  [/upstash/, { brand: "upstash" }],
-  [/redis/, { brand: "redis" }],
-  [/qdrant/, { brand: "qdrant" }],
-  [/railway/, { brand: "railway" }],
-  [/ionos/, { brand: "ionos" }],
-  [/postgres|^pg/, { brand: "postgres" }],
-  [/database|^db/, { glyph: "database" }],
+// Short names are anchored so "butterfly" never reads as Fly.io. Each also
+// says in one line what the service does, under its name on its connector
+// card.
+const SERVICES: [RegExp, Mark, string][] = [
+  [/github|^gh(token|pat)?$/, { brand: "github" }, "Repositories, pull requests and Actions"],
+  [/chrome|devtools/, { brand: "chrome" }, "Drives a Chrome browser"],
+  [/playwright/, { glyph: "browser-check" }, "Drives a browser for tests"],
+  [/context7/, { brand: "context7" }, "Current library documentation"],
+  [/supabase/, { brand: "supabase" }, "Supabase database, auth and storage"],
+  [/sentry/, { brand: "sentry" }, "Errors and performance"],
+  [/stripe/, { brand: "stripe" }, "Payments and billing"],
+  [/vercel/, { brand: "vercel" }, "Deploys and hosting"],
+  [/^fly/, { brand: "fly" }, "Fly.io apps and machines"],
+  [/neon/, { brand: "neon" }, "Serverless Postgres"],
+  [/notion/, { brand: "notion" }, "Notion pages and databases"],
+  [/openrouter/, { brand: "openrouter" }, "Models from many providers"],
+  [/openai/, { brand: "openai" }, "OpenAI models"],
+  [/anthropic|claude/, { brand: "anthropic" }, "Claude models"],
+  [/gemini/, { brand: "gemini" }, "Gemini models"],
+  [/google/, { brand: "google" }, "Google APIs"],
+  [/kimi|moonshot/, { brand: "moonshot" }, "Kimi models"],
+  [/resend/, { brand: "resend" }, "Sends email"],
+  [/upstash/, { brand: "upstash" }, "Serverless Redis and queues"],
+  [/redis/, { brand: "redis" }, "Redis data store"],
+  [/qdrant/, { brand: "qdrant" }, "Vector search"],
+  [/railway/, { brand: "railway" }, "Railway apps and databases"],
+  [/ionos/, { brand: "ionos" }, "IONOS hosting and domains"],
+  [/postgres|^pg/, { brand: "postgres" }, "PostgreSQL database"],
+  [/database|^db/, { glyph: "database" }, "Database access"],
 ];
+
+const serviceOf = (name: string) => {
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return key ? SERVICES.find(([pattern]) => pattern.test(key)) : undefined;
+};
 
 // The shell a run item uses. Git Bash wears the GNU Bash mark; Simple Icons
 // carries no PowerShell mark, so both PowerShells use the terminal glyph.
@@ -52,8 +60,18 @@ export function runLabel(shell: string, admin: boolean): string {
 }
 
 export function connectorMark(name: string, kind: "mcp" | "credential"): Mark {
-  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return SERVICES.find(([pattern]) => key && pattern.test(key))?.[1] || (kind === "mcp" ? { brand: "mcp" } : { glyph: "key" });
+  return serviceOf(name)?.[1] || (kind === "mcp" ? { brand: "mcp" } : { glyph: "key" });
+}
+
+// connectorLogo is a service's own logo on its connector card, bundled with
+// the board, or its initial on a plain tile when the board carries none.
+export function connectorLogo(name: string): { brand: BrandKey } | { initial: string } {
+  const mark = serviceOf(name)?.[1];
+  return mark && "brand" in mark ? { brand: mark.brand } : { initial: name.trim().charAt(0).toUpperCase() || "?" };
+}
+
+export function connectorAbout(name: string): string {
+  return serviceOf(name)?.[2] || "";
 }
 
 export function harnessMark(harness: string): Mark {

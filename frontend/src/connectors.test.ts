@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectorMark, harnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
+import { connectorAbout, connectorLogo, connectorMark, harnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
 import { harnessTip } from "./workflow.ts";
 
 test("every connector name the fleet declares resolves to its service mark", () => {
   const cases: [string, "mcp" | "credential", object][] = [
     ["github", "mcp", { brand: "github" }], ["GITHUB_TOKEN", "credential", { brand: "github" }], ["GH_TOKEN", "credential", { brand: "github" }],
-    ["chrome-devtools", "mcp", { brand: "chrome" }], ["playwright", "mcp", { glyph: "browser-check" }], ["context7", "mcp", { glyph: "book" }],
+    ["chrome-devtools", "mcp", { brand: "chrome" }], ["playwright", "mcp", { glyph: "browser-check" }], ["context7", "mcp", { brand: "context7" }],
     ["supabase", "mcp", { brand: "supabase" }], ["SUPABASE_SERVICE_ROLE_KEY", "credential", { brand: "supabase" }], ["sentry", "mcp", { brand: "sentry" }],
     ["STRIPE_SECRET_KEY", "credential", { brand: "stripe" }], ["vercel", "mcp", { brand: "vercel" }], ["FLY_API_TOKEN", "credential", { brand: "fly" }],
     ["neon", "mcp", { brand: "neon" }], ["neon-auth", "mcp", { brand: "neon" }], ["notion", "mcp", { brand: "notion" }],
@@ -77,5 +77,21 @@ test("the one button on a run card says where the command runs", () => {
 
     // Assert
     assert.equal(label, want, shell);
+  }
+});
+
+// The Overlord, 2026-10-13: connector cards "like caldu code conenctors...
+// pelase use the actual logo", each with one line on what it does.
+test("a connector card shows the service's own bundled logo, or its initial on a plain tile", () => {
+  const cases: [string, ReturnType<typeof connectorLogo>][] = [
+    ["github", { brand: "github" }], ["context7", { brand: "context7" }], ["openrouter", { brand: "openrouter" }], ["google-report", { brand: "google" }],
+    ["playwright", { initial: "P" }], ["database", { initial: "D" }], ["acme-internal", { initial: "A" }], ["", { initial: "?" }],
+  ];
+  for (const [name, logo] of cases) assert.deepEqual(connectorLogo(name), logo, name);
+});
+
+test("a connector card says in one line what a known service does, and nothing for an unknown one", () => {
+  for (const [name, about] of [["github", "Repositories, pull requests and Actions"], ["context7", "Current library documentation"], ["openrouter", "Models from many providers"], ["google-report", "Google APIs"], ["acme-internal", ""]]) {
+    assert.equal(connectorAbout(name), about, name);
   }
 });
