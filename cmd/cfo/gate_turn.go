@@ -36,7 +36,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -154,6 +154,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		tell(exitNoTurn)
 		return exitNoTurn
 	}
+	executor.Admission.IsLowPriority = request.isLowPriority
 	executor.Admission.Estimate = request.memory
 	// The command writes to this run's own output, which a process's always
 	// is a file of, so it sees what this run's caller gives it, console or
@@ -267,6 +268,9 @@ type gateTurnRequest struct {
 	as string
 	// wait, when set, bounds the wait for the turn.
 	wait time.Duration
+	// isLowPriority has the run wait at the lowest priority, behind every
+	// other run that waits, whenever that one joined.
+	isLowPriority bool
 	// memory, when set, is the most memory, in bytes, the run is expected
 	// to use, which the line weighs when it has two slots, and memoryText
 	// how it was given.
@@ -333,6 +337,8 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			return gateTurnRequest{}, errors.New("--as is given no name")
 		case args[at] == "--wait":
 			return gateTurnRequest{}, errors.New("--wait is given no duration")
+		case args[at] == "--low-priority":
+			request.isLowPriority = true
 		case args[at] == "--memory":
 			return gateTurnRequest{}, errors.New("--memory is given no size")
 		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
@@ -383,6 +389,9 @@ func detachedArguments(request gateTurnRequest) []string {
 	}
 	if request.memoryText != "" {
 		args = append(args, "--memory="+request.memoryText)
+	}
+	if request.isLowPriority {
+		args = append(args, "--low-priority")
 	}
 	return append(append(args, "--"), request.command...)
 }

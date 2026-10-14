@@ -1,5 +1,6 @@
 import { expect, holdStream, test, type Page } from "./site";
 import { treeFleet } from "./fixtures/tree-branches-fleet";
+import { parseSnapshot } from "../src/types"
 
 // The Overlord, 2026-10-08: "baby goblins should be clickable to open their
 // agent terminals". A baby goblin opens the same task panel a goblin opens,
@@ -20,13 +21,38 @@ const TRANSCRIPT = ["> Find where the harness starts sub-agents and what each on
 // output.
 const OUTPUTS: Record<string, string[]> = {
   "shell:b1": ["> go test ./internal/monitor/...", "ok  internal/monitor 41.2s"],
-  "process:5120:1": ["> npm run dev", "node.exe (pid 5121), 409 MB: node node_modules/vite/bin/vite.js --port 5173"],
+  "process:5120:1": ["> npm run dev", "VITE ready on port 5173"],
 };
 
 async function open(page: Page, width = 1600) {
   await page.setViewportSize({ width, height: 1000 });
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
-  await holdStream(page, treeFleet(Date.now()));
+  const fleet = parseSnapshot(treeFleet(Date.now()))
+  const children = fleet.tasks[0].tree!.children
+  children.find(child => child.id === "process:5120:1")!.state = "working"
+  children.find(child => child.id === "process:6100:2")!.state = "silent"
+  await holdStream(page, fleet);
+  await page.addInitScript(({ outputs, transcript }) => {
+    const BoardStream = window.EventSource
+    class ChildStream extends BoardStream {
+      private timer: ReturnType<typeof setTimeout> | undefined
+      private node = ""
+      private snapshot = (event: Event) => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify((event as CustomEvent).detail) }))
+      private receive = (event: Event) => {
+        const detail = (event as CustomEvent<{ node: string; lines: string[] }>).detail
+        if (detail.node === this.node) this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify({ lines: detail.lines }) }))
+      }
+      constructor(url: string | URL) {
+        super(String(url))
+        if (!String(url).includes("/agent?")) { window.addEventListener("fleet-snapshot", this.snapshot); return }
+        this.node = new URL(url, location.href).searchParams.get("node") || ""
+        window.addEventListener("child-output", this.receive)
+        this.timer = setTimeout(() => this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify({ lines: outputs[this.node] || transcript }) })), this.node === "process:5120:1" ? 1500 : 0)
+      }
+      close() { super.close(); clearTimeout(this.timer); window.removeEventListener("child-output", this.receive); window.removeEventListener("fleet-snapshot", this.snapshot) }
+    }
+    Object.defineProperty(window, "EventSource", { value: ChildStream })
+  }, { outputs: OUTPUTS, transcript: TRANSCRIPT })
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const node = url.searchParams.get("node") || "";
@@ -37,6 +63,7 @@ async function open(page: Page, width = 1600) {
   });
   await page.goto("/");
   await expect(page.locator(".board-column").first()).toBeVisible();
+  return fleet
 }
 
 const baby = (page: Page, label: string) => page.locator(".tree-branches").getByRole("button", { name: new RegExp("^" + label) });
@@ -141,20 +168,19 @@ test("baby goblins are named after their goblin in the order they started, each 
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   const names = (label: string) => page.getByRole("list", { name: "What runs under " + label }).locator(".tree-child strong").allTextContents();
-  expect(await names("Grub - Tree Surgeon")).toEqual(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Keeper", "Grub V - Process Wrangler"]);
+  expect(await names("Grub - Tree Surgeon")).toEqual(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Keeper"]);
   expect(await names("Kip - Echo Chaser")).toEqual(["Kip Jr. - Export Tracer"]);
   expect(await names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toEqual(["Moss Jr. - Branch Measurer", "Moss II - List Checker", "Pip - Rail Fitter"]);
 });
 
-test("every baby goblin, idle and silent ones too, opens its panel and none is greyed", async ({ page }) => {
+test("working children open their panels and silent children have no card", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   for (const child of await page.locator(".tree-branches .tree-child").all()) expect(await child.evaluate((node) => getComputedStyle(node).opacity), await child.locator("strong").textContent() || "").toBe("1");
   await baby(page, "Grub IV - Server Keeper").click();
   await expect(title(page)).toHaveText(/^Grub IV - Server Keeper.*npm run dev/);
   await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
-  await baby(page, "Grub V - Process Wrangler").click();
-  await expect(title(page)).toHaveText(/^Grub V - Process Wrangler.*python -I survey\.py/);
+  await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
 });
 
 test("a baby goblin shows no raw command line, its task is in its tip and its panel, and its state is a plain chip that is never yellow", async ({ page }) => {
@@ -163,13 +189,38 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await expect(page.locator(".tree-branches").first()).toBeVisible();
   for (const branches of await page.locator(".tree-branches").all()) await expect(branches).not.toContainText(/cmd\.exe|WINDOWS/);
-  const silent = baby(page, "Grub V - Process Wrangler");
-  const chip = silent.locator(".state-chip");
-  await expect(chip).toHaveText("Silent 34m");
+  const shell = baby(page, "Grub III - Test Runner");
+  const chip = shell.locator(".state-chip");
+  await expect(chip).toHaveText("Working 40m");
   const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, dot: getComputedStyle(node.querySelector(".status-dot")!).backgroundColor }));
   const working = await look(baby(page, "Grub Jr. - Plumbing Mapper").locator(".state-chip"));
-  const idle = await look(baby(page, "Grub IV - Server Keeper").locator(".state-chip"));
-  expect(await look(chip), "the plain text of every state, and the dot of an idle one").toEqual({ color: working.color, dot: idle.dot });
-  await silent.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("python -I survey.py");
+  expect(await look(chip)).toEqual(working);
+  await shell.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("go test ./internal/monitor/...");
 });
+
+for (const [name, node, initial, next] of [
+  ["Grub III - Test Runner", "shell:b1", OUTPUTS["shell:b1"], "--- PASS: TestLiveOutput"],
+  ["Grub Jr. - Plumbing Mapper", AGENT, TRANSCRIPT, "Found the output capture"],
+] as const) {
+  test(`${name} follows new output without reopening the panel`, async ({ page }) => {
+    await open(page)
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+    await baby(page, name).click()
+    const terminal = page.getByRole("log", { name: "Terminal of " + name })
+    await expect(terminal).toContainText(initial.at(-1)!)
+    await page.evaluate(({ node, lines }) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node, lines } })), { node, lines: [...initial, "", next] })
+    await expect(terminal).toContainText(next)
+    await expect(terminal).not.toContainText("(pid ")
+  })
+}
+
+test("a silent child has no card and returns as soon as it works again", async ({ page }) => {
+  const fleet = await open(page)
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+  await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
+  fleet.tasks[0].tree!.children.find(child => child.id === "process:6100:2")!.state = "working"
+  fleet.revision++
+  await page.evaluate(snapshot => window.dispatchEvent(new CustomEvent("fleet-snapshot", { detail: snapshot })), fleet)
+  await expect(baby(page, "Grub V - Process Wrangler")).toBeVisible()
+})
