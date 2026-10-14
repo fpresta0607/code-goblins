@@ -733,12 +733,69 @@ func prOwner(goblins []ciGoblin, pr ghPullRequest, isFleets func() bool) string 
 	return ""
 }
 
+// projectWorktrees lists the worktrees git registers for project by their
+// physical paths, leaving out one that is gone from disk. A project git
+// cannot list has none: its goblins' own worktrees and extras are read as
+// before.
+func projectWorktrees(ctx context.Context, runner execx.Runner, project string) []string {
+	out, err := runOutput(ctx, runner, project, "git", "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil
+	}
+	var paths []string
+	for _, line := range strings.Split(out, "\n") {
+		if path, isWorktree := strings.CutPrefix(strings.TrimSpace(line), "worktree "); isWorktree {
+			if canonical, err := fsx.Canonical(path); err == nil {
+				paths = append(paths, canonical)
+			}
+		}
+	}
+	return paths
+}
+
+// ownWorktrees are the worktrees of listed, meta's project's, that lie in the
+// task's own folders, its worktree and its scratch folder, other than its
+// worktree and extras themselves. On 2026-10-14 three pull requests of live
+// goblins came from branches made in worktrees they added in their scratch
+// folders, and pr_health called each the Overlord's own (#847). A worktree
+// Claude Code makes for a session lies inside the checkout it runs in.
+func ownWorktrees(meta state.TaskMeta, listed []string) []string {
+	known := append([]string{meta.Worktree}, meta.Extras...)
+	var own []string
+	for _, path := range listed {
+		if slices.ContainsFunc(known, func(worktree string) bool { return fsx.SamePath(worktree, path) }) {
+			continue
+		}
+		if isInside(path, meta.Worktree) || isInside(path, meta.Scratch) {
+			own = append(own, path)
+		}
+	}
+	return own
+}
+
+// isInside says whether path, a physical path, lies under folder.
+func isInside(path, folder string) bool {
+	if folder == "" {
+		return false
+	}
+	folder, err := fsx.Canonical(folder)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(folder, path)
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
 // ciGoblins reads every live goblin's repository, branches and pull requests.
 func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGoblin {
 	var goblins []ciGoblin
+	worktrees := map[string][]string{}
 	for _, meta := range liveTasks(stateDir) {
 		if meta.Project == "" {
 			continue
+		}
+		if _, isListed := worktrees[meta.Project]; !isListed {
+			worktrees[meta.Project] = projectWorktrees(ctx, runner, meta.Project)
 		}
 		goblin := ciGoblin{id: meta.ID, repo: filepath.Clean(meta.Project), meta: meta}
 		if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Pause != nil && (record.Pause.Reason == "ci" || record.Pause.Reason == "deploy") {
@@ -751,9 +808,10 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 			goblin.branch, _ = runOutput(ctx, runner, meta.Worktree, "git", "branch", "--show-current")
 			goblin.held = heldBranches(ctx, runner, meta.Worktree)
 		}
-		// An extra worktree is the task's own, so the branch it has checked
-		// out is held as those the others had.
-		for _, extra := range meta.Extras {
+		// An extra worktree is the task's own, and so is one the goblin added
+		// in its own folders, so the branch it has checked out is held as
+		// those the others had.
+		for _, extra := range append(slices.Clone(meta.Extras), ownWorktrees(meta, worktrees[meta.Project])...) {
 			if current, err := runOutput(ctx, runner, extra, "git", "branch", "--show-current"); err == nil && current != "" {
 				goblin.held = append(goblin.held, current)
 			}
