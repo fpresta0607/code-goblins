@@ -353,6 +353,7 @@ A report is written whole or not at all, and the board reads them: a live task's
 
 Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
 Any other command stands in the same line behind `cfo gate turn`, described under [Any command in the line](#any-command-in-the-line).
+The janitor's prunes of the package caches stand in it too, each as its own `cfo gate turn`, started only while the line has one slot that no run holds or waits for.
 Each command releases its turn when execution ends and joins the common line again before its next command.
 The default remains one, which keeps heavy commands from competing for the same machine's resources.
 Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.

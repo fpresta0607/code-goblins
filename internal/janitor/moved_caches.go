@@ -1,7 +1,6 @@
 package janitor
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,9 +20,10 @@ var movedCaches = []string{"uv", "pnpm", "npm", "go-build", "go-mod", "playwrigh
 // its cache variables when it starts, so one started before the move still
 // builds against the home's caches; they stay while any such terminal runs,
 // and so does everything while a task still runs in a Herdr pane, whose start
-// no record keeps. They go within a turn of the machine's heavy line, as the
-// caches' prunes do (trimCaches).
-func (cfg Config) retireMovedCaches(ctx context.Context, record *Record) {
+// no record keeps. Each removal starts only while the machine's heavy line is
+// free, as each of the caches' prunes does (trimCaches), though a run that
+// takes its turn once one has started is not stopped.
+func (cfg Config) retireMovedCaches(record *Record) {
 	if cfg.Home.DevDrive == "" {
 		return
 	}
@@ -37,28 +37,15 @@ func (cfg Config) retireMovedCaches(ctx context.Context, record *Record) {
 		record.Kept = append(record.Kept, Item{Kind: "cache", Path: old, Detail: holder + "'s terminal started before the caches moved to the Dev Drive and still builds against these"})
 		return
 	}
-	var present []string
 	for _, name := range movedCaches {
-		if _, err := os.Stat(filepath.Join(old, name)); err == nil {
-			present = append(present, filepath.Join(old, name))
+		path := filepath.Join(old, name)
+		if _, err := os.Stat(path); err != nil {
+			continue
 		}
-	}
-	if len(present) == 0 {
-		return
-	}
-	// A run that builds against the old caches holds or waits for a turn,
-	// so they go only within a turn of the sweep's own.
-	release, err := cfg.takeHeavyTurn(ctx)
-	if err != nil {
-		record.Kept = append(record.Kept, Item{Kind: "cache", Path: old, Detail: "kept for the next sweep, which took no turn in the machine's heavy line: " + err.Error()})
-		return
-	}
-	defer func() {
-		if err := release(); err != nil {
-			record.Notes = append(record.Notes, "the sweep's turn in the machine's heavy line could not be given back: "+err.Error())
+		if err := cfg.lineFree(); err != nil {
+			record.Kept = append(record.Kept, Item{Kind: "cache", Path: path, Detail: "kept for the next sweep, as the machine's heavy line is not free: " + err.Error()})
+			continue
 		}
-	}()
-	for _, path := range present {
 		bytes := Size(path)
 		if err := fsx.RemoveAll(path); err != nil {
 			record.Kept = append(record.Kept, Item{Kind: "cache", Path: path, Detail: "could not be removed: " + err.Error()})

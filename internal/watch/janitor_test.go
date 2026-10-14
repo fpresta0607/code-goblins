@@ -18,11 +18,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// The janitor's turn in the machine's heavy line is taken only when the line
-// is free, and held until given back, so no run starts building meanwhile. A
-// run that holds the line, or waits at its head for memory, makes it fail
-// within its wait, naming that run as cfo gate turns does.
-func TestHeavyTurnIsTakenOnlyFromAFreeLine(t *testing.T) {
+// The machine's heavy line is free for a prune only with one slot that no
+// run holds or waits for, naming the run as cfo gate turns does, and a line
+// of two slots is never free, since a turn in one leaves a build beside it.
+func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 	for name, row := range map[string]struct {
 		occupy   func(t *testing.T, store string)
 		wantSaid string
@@ -36,7 +35,7 @@ func TestHeavyTurnIsTakenOnlyFromAFreeLine(t *testing.T) {
 				}
 				t.Cleanup(func() { _ = turn.Release() })
 			},
-			wantSaid: "cfo gate test at 0123abcd (pid %d) holds the machine's heavy line",
+			wantSaid: fmt.Sprintf("cfo gate test at 0123abcd (pid %d) holds the machine's heavy line", os.Getpid()),
 		},
 		"a run that waits for memory": {
 			occupy: func(t *testing.T, store string) {
@@ -54,7 +53,18 @@ func TestHeavyTurnIsTakenOnlyFromAFreeLine(t *testing.T) {
 				}
 				t.Fatal("the run never joined the line")
 			},
-			wantSaid: "cfo verify fast of task t1 (pid %d) waits for the machine's heavy line",
+			wantSaid: fmt.Sprintf("cfo verify fast of task t1 (pid %d) waits for the machine's heavy line", os.Getpid()),
+		},
+		"a line of two slots": {
+			occupy: func(t *testing.T, store string) {
+				if err := os.MkdirAll(store, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(store, "capacity.json"), []byte(`{"capacity": 2}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantSaid: "the line has 2 slots, and a turn in one leaves a build beside it in another",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -69,29 +79,28 @@ func TestHeavyTurnIsTakenOnlyFromAFreeLine(t *testing.T) {
 			}
 
 			// Act
-			release, err := heavyTurn(context.Background())
+			err = heavyLine{executable: `C:\cg\cfo.exe`}.Free()
 
 			// Assert
-			if row.wantSaid != "" {
-				if want := fmt.Sprintf(row.wantSaid, os.Getpid()); err == nil || err.Error() != want {
-					t.Fatalf("heavyTurn = %v; want %q", err, want)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("heavyTurn on a free line = %v", err)
-			}
-			holding, _, lineErr := verify.Line(store)
-			if lineErr != nil || len(holding) != 1 || holding[0].Who != "the janitor, deleting from the package caches" {
-				t.Fatalf("the line holds %+v, %v; want the janitor while it deletes", holding, lineErr)
-			}
-			if err := release(); err != nil {
-				t.Fatal(err)
-			}
-			if holding, _, err := verify.Line(store); err != nil || len(holding) != 0 {
-				t.Errorf("the line holds %+v, %v once the janitor gave its turn back; want nothing", holding, err)
+			if row.wantSaid == "" && err != nil || row.wantSaid != "" && (err == nil || err.Error() != row.wantSaid) {
+				t.Errorf("Free = %v; want %q", err, row.wantSaid)
 			}
 		})
+	}
+}
+
+// A prune runs in a turn this build's cfo gate turn takes for it, named for
+// whoever reads the line.
+func TestHeavyLineWrapsAPruneInThisBuildsGateTurn(t *testing.T) {
+	// Arrange
+	line := heavyLine{executable: `C:\cg\cfo.exe`}
+
+	// Act
+	command := line.Wrap("the janitor, pruning the uv cache", []string{"uv", "cache", "prune"})
+
+	// Assert
+	if want := []string{`C:\cg\cfo.exe`, "gate", "turn", "--as", "the janitor, pruning the uv cache", "--", "uv", "cache", "prune"}; !slices.Equal(command, want) {
+		t.Errorf("Wrap = %q, want %q", command, want)
 	}
 }
 

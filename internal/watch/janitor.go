@@ -2,9 +2,7 @@ package watch
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,51 +23,47 @@ import (
 // minutes, a worktree's removal seconds each.
 const janitorBudget = 30 * time.Minute
 
-// heavyTurnWait is how long the janitor waits for a turn in the machine's
-// heavy line before it leaves its cache deletions to the next sweep.
-const heavyTurnWait = 5 * time.Second
+// heavyLine is the machine's heavy line as the janitor sees it: the
+// admission store this build's runs take their turns in, and this build's
+// cfo gate turn, which takes one for a prune.
+type heavyLine struct {
+	// executable is this build, whose gate turn the prunes run in.
+	executable string
+}
 
-// heavyTurn takes a turn in the machine's heavy line for the janitor's
-// deletions from the package caches, so no run that takes its turn starts
-// building from them meanwhile, and returns what gives it back. It takes only
-// a turn free within heavyTurnWait: a run that holds the line or waits in it
-// makes it fail, naming that run as cfo gate turns does.
-func heavyTurn(ctx context.Context) (func() error, error) {
+// Free is nil while the line has one slot, which no run holds or waits for.
+// A line of two slots is never free, since a turn in one leaves a build in
+// the other beside the prune.
+func (line heavyLine) Free() error {
 	store, err := verify.AdmissionDir()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	wait, cancel := context.WithTimeout(ctx, heavyTurnWait)
-	defer cancel()
-	turn, err := verify.Admission{
-		Dir: store,
-		// A deletion needs no memory of its own: its turn only keeps builds
-		// from starting beside it, so the line's memory floor never holds it
-		// back.
-		Available: func() (uint64, error) { return math.MaxUint64, nil },
-		Who:       "the janitor, deleting from the package caches",
-		Budget:    janitorBudget,
-		Limit:     verify.NoLimit,
-		Poll:      100 * time.Millisecond,
-	}.Wait(wait)
-	if err == nil {
-		return turn.Release, nil
+	capacity, _, err := verify.AdmissionLimits(store)
+	if err != nil {
+		return err
 	}
-	// A wait cut by its deadline as it took the turn still holds the slot.
-	err = errors.Join(err, turn.Release())
-	if wait.Err() == nil {
-		return nil, err
+	if capacity != 1 {
+		return fmt.Errorf("the line has %d slots, and a turn in one leaves a build beside it in another", capacity)
 	}
-	holding, waiting, lineErr := verify.Line(store)
+	holding, waiting, err := verify.Line(store)
 	switch {
-	case lineErr != nil:
-		return nil, fmt.Errorf("the line was not free within %s and cannot be read: %w", heavyTurnWait, lineErr)
+	case err != nil:
+		return err
 	case len(holding) > 0:
-		return nil, fmt.Errorf("%s (pid %d) holds the machine's heavy line", holding[0].Who, holding[0].PID)
+		return fmt.Errorf("%s (pid %d) holds the machine's heavy line", holding[0].Who, holding[0].PID)
 	case len(waiting) > 0:
-		return nil, fmt.Errorf("%s (pid %d) waits for the machine's heavy line", waiting[0].Who, waiting[0].PID)
+		return fmt.Errorf("%s (pid %d) waits for the machine's heavy line", waiting[0].Who, waiting[0].PID)
 	}
-	return nil, fmt.Errorf("the machine's heavy line was not free within %s", heavyTurnWait)
+	return nil
+}
+
+// Wrap is command run by this build's cfo gate turn, which waits for its turn,
+// runs the command as a measured execution, and gives the turn back as it
+// ends. A gate turn that dies leaves its turn to the line's recovery of a
+// dead holder, so the long-lived watcher never holds one itself.
+func (line heavyLine) Wrap(who string, command []string) []string {
+	return append([]string{line.executable, "gate", "turn", "--as", who, "--"}, command...)
 }
 
 // janitorRunning keeps this process to one janitor pass at a time.
@@ -116,6 +110,11 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	if profile, err := os.UserHomeDir(); err == nil {
 		browserSessions = filepath.Join(profile, ".chrome-devtools-axi", "sessions")
 	}
+	// A sweep that cannot name this build deletes no cache.
+	var line janitor.HeavyLine
+	if executable, err := os.Executable(); err == nil {
+		line = heavyLine{executable: executable}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), janitorBudget)
 	defer cancel()
 	record := janitor.Sweep(ctx, janitor.Config{
@@ -141,7 +140,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		Watched:    previous.Processes.Watched,
 
 		BrowserSessions: browserSessions,
-		HeavyTurn:       heavyTurn,
+		Line:            line,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return
