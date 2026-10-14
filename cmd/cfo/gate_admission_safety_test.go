@@ -93,9 +93,10 @@ func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 }
 
 func TestGateAdmissionRequiresBothMemoryFloors(t *testing.T) {
-	for _, capacity := range []int{1, 2} {
+	// One slot's floor is flat. Two slots' is weighed, and on an empty line
+	// is a run's default estimate, 2.5 GiB, and the desktop reserve, 2 GiB.
+	for capacity, floor := range map[int]uint64{1: supervisor.MemoryFloor, 2: 9 << 29} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
-			floor := uint64(capacity) * supervisor.MemoryFloor
 			for _, sample := range []struct {
 				name             string
 				physical, commit uint64
@@ -214,16 +215,18 @@ func TestGateTurnsReportsUnavailableCustodyOrMemory(t *testing.T) {
 	}
 }
 
+// One slot's floor is flat. Two slots' is weighed, and on an empty line is a
+// run's default estimate, 2.5 GiB, and the desktop reserve, 2 GiB.
 func TestGateTurnsUsesSharedCapacityFloor(t *testing.T) {
-	for _, capacity := range []int{1, 2} {
+	for capacity, floor := range map[int]uint64{1: supervisor.MemoryFloor, 2: 9 << 29} {
 		for _, sample := range []struct {
 			name             string
 			physical, commit uint64
 			shouldReport     bool
 		}{
-			{"exact", uint64(capacity) * supervisor.MemoryFloor, uint64(capacity) * supervisor.MemoryFloor, false},
-			{"physical_short", uint64(capacity)*supervisor.MemoryFloor - 1, 16 << 30, true},
-			{"commit_short", 16 << 30, uint64(capacity)*supervisor.MemoryFloor - 1, true},
+			{"exact", floor, floor, false},
+			{"physical_short", floor - 1, 16 << 30, true},
+			{"commit_short", 16 << 30, floor - 1, true},
 		} {
 			t.Run(fmt.Sprint(capacity)+"/"+sample.name, func(t *testing.T) {
 				// Arrange
@@ -244,7 +247,6 @@ func TestGateTurnsUsesSharedCapacityFloor(t *testing.T) {
 				exit := gateTurns(available, &stdout, &stderr)
 
 				// Assert
-				floor := uint64(capacity) * supervisor.MemoryFloor
 				reported := strings.Contains(stdout.String(), "both require")
 				if exit != 0 || stderr.Len() != 0 || reported != sample.shouldReport || (reported && !strings.Contains(stdout.String(), fmt.Sprintf("%.1f GB floor", float64(floor)/(1<<30)))) {
 					t.Fatalf("shared floor report is wrong: exit=%d stdout=%s stderr=%s", exit, &stdout, &stderr)
