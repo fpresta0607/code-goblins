@@ -1,0 +1,89 @@
+#cloud-config
+# The desktop CI runner's VM, as its first boot makes it once, before the
+# install takes the checkpoint every job starts from. No user can sign in:
+# runner has no password, no key and no sudo, and the image's default user
+# is not made.
+hostname: cg-ci-precisiondocs
+users:
+  - name: runner
+    shell: /bin/bash
+    lock_passwd: true
+package_update: true
+packages:
+  - docker.io
+  - curl
+write_files:
+  # The network comes up on Hyper-V's adapter whatever its address, since
+  # the address cloud-init would match is not kept with the checkpoint.
+  - path: /etc/netplan/60-cg-ci.yaml
+    permissions: "0600"
+    content: |
+      network:
+        version: 2
+        ethernets:
+          hyperv:
+            match:
+              driver: hv_netvsc
+            dhcp4: true
+  # Each job's settings come on the DVD labelled CGJOB, so the unit waits for
+  # that DVD and never runs at the first boot, which has none.
+  - path: /etc/systemd/system/cg-ci-job.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Code Goblins desktop CI job
+      Requires=dev-disk-by\x2dlabel-CGJOB.device
+      After=dev-disk-by\x2dlabel-CGJOB.device network-online.target docker.service
+      Wants=network-online.target docker.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/bin/cg-ci-job.sh
+      ExecStopPost=/usr/bin/systemctl poweroff
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/bin/cg-ci-job.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Runs the one job GitHub gives this boot's runner, then the unit
+      # powers the VM off, and the service puts it back to clean.
+      set -eu
+      mkdir -p /mnt/cgjob
+      mount -o ro /dev/disk/by-label/CGJOB /mnt/cgjob
+      install -o runner -m 0600 /mnt/cgjob/jitconfig /run/cg-ci-jitconfig
+      umount /mnt/cgjob
+      exec runuser -u runner -- /opt/actions-runner/run.sh --jitconfig "$(cat /run/cg-ci-jitconfig)"
+  # The first boot's setup stops at its first failure, and only a setup that
+  # ran to its end leaves the mark the power-off waits for, so a VM whose
+  # setup failed stays on and the install says so, never taking it for made.
+  - path: /usr/local/sbin/cg-ci-setup.sh
+    permissions: "0700"
+    content: |
+      #!/bin/sh
+      set -eu
+      docker --version
+      usermod -aG docker runner
+      curl -fsSL -o /tmp/actions-runner.tar.gz '{{.RunnerURL}}'
+      echo '{{.RunnerSHA256}}  /tmp/actions-runner.tar.gz' | sha256sum -c -
+      mkdir -p /opt/actions-runner
+      tar -xzf /tmp/actions-runner.tar.gz -C /opt/actions-runner
+      rm /tmp/actions-runner.tar.gz
+      /opt/actions-runner/bin/installdependencies.sh
+      # The runner hands each job these variables: the shards' pytest
+      # workers, sized to the VM's 4 processors.
+      echo PYTEST_XDIST_AUTO_NUM_WORKERS=2 > /opt/actions-runner/.env
+      chown -R runner:runner /opt/actions-runner
+      rm -f /etc/netplan/50-cloud-init.yaml
+      systemctl enable cg-ci-job.service
+      # Every job boots from this disk with no settings disk, so cloud-init,
+      # finding none, must not take that for a new machine and run again.
+      touch /etc/cloud/cloud-init.disabled
+      touch /var/lib/cg-ci-made
+runcmd:
+  - [/usr/local/sbin/cg-ci-setup.sh]
+power_state:
+  mode: poweroff
+  message: the desktop CI runner's VM is made
+  condition: test -f /var/lib/cg-ci-made
