@@ -92,6 +92,14 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
 	standin.Put(t, program)
+	// A program's first run on this machine waits for its scan, which a
+	// loaded machine stretched past a three second limit on 2026-10-14, so
+	// the program has run once before its run is timed.
+	warm := exec.Command(program)
+	warm.Env = append(os.Environ(), standin.Env("", standin.Rule{Any: true, Exit: 0})...)
+	if err := warm.Run(); err != nil {
+		t.Fatal(err)
+	}
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 	holder := exec.Command(os.Args[0])
 	holder.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+executor.Admission.Dir)
@@ -110,21 +118,22 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 	if line, err := bufio.NewReader(said).ReadString('\n'); err != nil || strings.TrimSpace(line) != "holding" {
 		t.Fatalf("the holder said %q, %v", line, err)
 	}
+	// The wait outlasts the limit, which has room for a loaded machine.
 	go func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(12 * time.Second)
 		release.Close()
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Act
-	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 3*time.Second)
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 10*time.Second)
 
 	// Assert
 	if err != nil || result.ExitCode != 0 || string(result.Stdout) != "ran" {
 		t.Fatalf("a quick command behind a longer wait = %+v, %v", result, err)
 	}
-	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 4 {
+	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 11 {
 		t.Fatalf("evidence = %+v, want a pass after a wait longer than the limit", evidence)
 	}
 }
