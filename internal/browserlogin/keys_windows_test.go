@@ -95,41 +95,53 @@ var standInRecipeKeys = []keypages.Key{
 	{Name: "STRIPE_TEST_SECRET_KEY", Row: "Secret key", Reveal: "Reveal test key", Prefix: "sk_test_"},
 }
 
-// pageText is the text of the browser's first page, and its address.
-func pageText(t *testing.T, address string) (string, string) {
+// openPages are the browser's pages: each one's address, and its document,
+// once it finished loading.
+func openPages(t *testing.T, address string) map[string]string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	sockets, err := pageSockets(ctx, address)
-	if err != nil || len(sockets) == 0 {
-		t.Fatalf("pages = %v, %v", sockets, err)
-	}
-	connection, err := cdp.Dial(ctx, sockets[0])
+	tabs, err := pages(ctx, address)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer connection.Close()
-	var answer struct {
-		Result struct {
-			Value []string `json:"value"`
-		} `json:"result"`
-	}
-	for ctx.Err() == nil {
-		err = connection.Call(ctx, "Runtime.evaluate", map[string]any{"expression": `document.readyState === "complete" ? [location.href, document.documentElement.outerHTML] : []`, "returnByValue": true}, &answer)
-		if err == nil && len(answer.Result.Value) == 2 {
-			return answer.Result.Value[1], answer.Result.Value[0]
+	documents := map[string]string{}
+	for _, tab := range tabs {
+		connection, err := cdp.Dial(ctx, tab.Socket)
+		if err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(50 * time.Millisecond)
+		var answer struct {
+			Result struct {
+				Value []string `json:"value"`
+			} `json:"result"`
+		}
+		for ctx.Err() == nil {
+			err = connection.Call(ctx, "Runtime.evaluate", map[string]any{"expression": `document.readyState === "complete" ? [location.href, document.documentElement.outerHTML] : []`, "returnByValue": true}, &answer)
+			if err == nil && len(answer.Result.Value) == 2 {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		connection.Close()
+		if len(answer.Result.Value) != 2 {
+			t.Fatal("a page never finished loading")
+		}
+		documents[tab.ID] = answer.Result.Value[0] + "\n" + answer.Result.Value[1]
 	}
-	t.Fatal("the page never finished loading")
-	return "", ""
+	return documents
 }
 
-func TestReadKeysRevealsAndReadsOnlyTheRecipesKeysThenHidesThem(t *testing.T) {
+func TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses(t *testing.T) {
 	// Arrange
 	publishable, secret := keyCanary(t, "pk_test_"), keyCanary(t, "sk_test_")
 	keys := newStandInKeyPage(t, publishable, secret)
 	process, _ := startChrome(t, []string{"localhost"})
+	// The goblin holding the browser has a page of its own open.
+	if failed, _ := navigate(t, process.URL, strings.Replace(keys.server.URL, "127.0.0.1", "localhost", 1)+"/the-goblins-page"); failed != "" {
+		t.Fatalf("the goblin's page did not load: %s", failed)
+	}
+	before := openPages(t, process.URL)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -146,9 +158,14 @@ func TestReadKeysRevealsAndReadsOnlyTheRecipesKeysThenHidesThem(t *testing.T) {
 	if keys.reveals.Load() != 1 {
 		t.Fatalf("reveals = %d, want the one trusted click", keys.reveals.Load())
 	}
-	text, address := pageText(t, process.URL)
-	if strings.Contains(text, secret) || !strings.HasSuffix(address, "/acct_standin/test/apikeys") {
-		t.Fatalf("the page at %s still shows the revealed key, or is not the masked key page", address)
+	after := openPages(t, process.URL)
+	if len(after) != len(before) {
+		t.Fatalf("pages %d after the fetch, %d before, want the fetch's tab closed", len(after), len(before))
+	}
+	for id, document := range after {
+		if document != before[id] || strings.Contains(document, secret) {
+			t.Fatal("a page the fetch did not open changed, or a page still shows the revealed key")
+		}
 	}
 }
 

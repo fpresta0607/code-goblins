@@ -16,6 +16,17 @@ func TestReadPayloadPreToolUse(t *testing.T) {
 	}
 }
 
+func TestReadPayloadPostToolUseKeepsTheCallAndItsResponse(t *testing.T) {
+	p, ok := ReadPayload(strings.NewReader(`{"session_id":"s4","tool_name":"Read","tool_use_id":"toolu_1","tool_response":{"file":{"content":"line one\nline two"}}}`))
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	want := Payload{SessionID: "s4", ToolName: "Read", ToolUseID: "toolu_1", ToolResponse: `{"file":{"content":"line one\nline two"}}`}
+	if p != want {
+		t.Errorf("ReadPayload = %+v, want %+v", p, want)
+	}
+}
+
 func TestReadPayloadSessionStart(t *testing.T) {
 	p, ok := ReadPayload(strings.NewReader(`{"session_id":"s2","source":"startup"}`))
 	if !ok {

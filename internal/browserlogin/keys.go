@@ -51,37 +51,31 @@ const tokensNearLabel = `function(prefix) {
 }`
 
 // ReadKeys reads keys from account's key page in the browser at address,
-// which no one else drives while it does: it loads the page, checks that it
-// is signed in on that account, clicks each key's reveal control, reads the
-// key from beside its row's name, and then loads a blank page and the key
-// page again, so no key is left on screen. It returns each value by its
-// name, and no error names a value or anything else of the page.
+// in a tab of its own that a goblin holding the browser never drives: it
+// loads the page, checks that it is signed in on that account, clicks each
+// key's reveal control, reads the key from beside its row's name, and then
+// loads a blank page and closes the tab, so no key is left on screen and the
+// goblin's own page is as it was. It returns each value by its name, and no
+// error names a value or anything else of the page.
 func ReadKeys(ctx context.Context, address string, provider keypages.Provider, account string, keys []keypages.Key) (map[string]string, error) {
 	page, err := provider.AccountPage(account)
 	if err != nil {
 		return nil, err
 	}
-	sockets, err := pageSockets(ctx, address)
+	tab, connection, err := openTab(ctx, address)
 	if err != nil {
-		return nil, err
-	}
-	if len(sockets) == 0 {
-		return nil, errors.New("the browser has no page")
-	}
-	connection, err := cdp.Dial(ctx, sockets[0])
-	if err != nil {
-		return nil, errors.New("the key page did not answer")
-	}
-	defer connection.Close()
-	if err := openKeyPage(ctx, connection, provider, page, account); err != nil {
 		return nil, err
 	}
 	defer func() {
 		hide, cancel := context.WithTimeout(context.WithoutCancel(ctx), hideWait)
 		defer cancel()
 		_ = loadPage(hide, connection, "about:blank")
-		_ = loadPage(hide, connection, page)
+		connection.Close()
+		_ = closeTab(hide, address, tab)
 	}()
+	if err := openKeyPage(ctx, connection, provider, page, account); err != nil {
+		return nil, err
+	}
 	values := map[string]string{}
 	for _, key := range keys {
 		if key.Reveal != "" {
@@ -100,6 +94,52 @@ func ReadKeys(ctx context.Context, address string, provider keypages.Provider, a
 		values[key.Name] = value
 	}
 	return values, nil
+}
+
+// openTab opens a blank tab in the browser at address and returns its ID
+// and a connection to it.
+func openTab(ctx context.Context, address string) (string, *cdp.Conn, error) {
+	var created struct {
+		ID string `json:"targetId"`
+	}
+	if err := callBrowser(ctx, address, "Target.createTarget", map[string]string{"url": "about:blank"}, &created); err != nil || created.ID == "" {
+		return "", nil, errors.New("the browser did not open a tab for the key page")
+	}
+	tabs, err := pages(ctx, address)
+	if err != nil {
+		_ = closeTab(ctx, address, created.ID)
+		return "", nil, err
+	}
+	index := slices.IndexFunc(tabs, func(tab page) bool { return tab.ID == created.ID })
+	if index < 0 {
+		_ = closeTab(ctx, address, created.ID)
+		return "", nil, errors.New("the browser did not list the key page's tab")
+	}
+	connection, err := cdp.Dial(ctx, tabs[index].Socket)
+	if err != nil {
+		_ = closeTab(ctx, address, created.ID)
+		return "", nil, errors.New("the key page did not answer")
+	}
+	return created.ID, connection, nil
+}
+
+// closeTab closes tab id in the browser at address.
+func closeTab(ctx context.Context, address, id string) error {
+	return callBrowser(ctx, address, "Target.closeTarget", map[string]string{"targetId": id}, nil)
+}
+
+// callBrowser runs one command on the browser's own DevTools connection.
+func callBrowser(ctx context.Context, address, method string, params, result any) error {
+	socket, err := browserSocket(ctx, address)
+	if err != nil {
+		return err
+	}
+	connection, err := cdp.Dial(ctx, socket)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	return connection.Call(ctx, method, params, result)
 }
 
 // openKeyPage loads page and waits until it shows account signed in. A page
