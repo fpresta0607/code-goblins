@@ -58,45 +58,7 @@ func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 		root.Body = string(body)
 	}
-	if runtime.resolveHome == nil || runtime.repositoryOf == nil {
-		fmt.Fprintln(stderr, "cfo issue file: command runtime is incomplete")
-		return 1
-	}
-	checkout, err := runtime.resolveProject(*projectName)
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo issue file: %v\n", err)
-		return 1
-	}
-	h, err := runtime.resolveHome()
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo issue file: %v\n", err)
-		return 1
-	}
-	ctx := context.Background()
-	repository, err := runtime.repositoryOf(ctx, checkout)
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo issue file: %v\n", err)
-		return 1
-	}
-	commands := runtime.github
-	if commands == nil {
-		commands = execx.OSRunner{}
-	}
-	github := tickets.GitHub{Commands: commands}
-	screen, err := issueScreen(ctx, github, runtime, h, checkout, repository, root)
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo issue file: %v\n", err)
-		return 1
-	}
-	if refusal := screen.Refusal(strings.Join([]string{root.Title, root.Body, root.Evidence, root.Key}, "\n")); refusal != "" {
-		where := "private"
-		if screen.IsPublic {
-			where = "public"
-		}
-		fmt.Fprintf(stderr, "cfo issue file: refused: the issue would go on %s, which is %s, and %s; write it without that\n", repository, where, refusal)
-		return 1
-	}
-	filed, err := github.FileRoot(ctx, repository, root, time.Now())
+	filed, err := fileRoot(context.Background(), runtime, *projectName, root, time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo issue file: %v\n", err)
 		return 1
@@ -107,6 +69,45 @@ func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	fmt.Fprintf(stdout, "filed #%d %s with the %s label\n", filed.Number, filed.URL, tickets.RootLabel)
 	return 0
+}
+
+// fileRoot files root on the repository of the project projectArg names,
+// a name or a path, through the screen of what the issue may say: the one
+// filing path the command, a merge train and the supervisor share. A
+// refusal is an error that says what the screen found.
+func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, root tickets.Root, now time.Time) (tickets.FiledRoot, error) {
+	if runtime.resolveHome == nil || runtime.repositoryOf == nil {
+		return tickets.FiledRoot{}, errors.New("command runtime is incomplete")
+	}
+	checkout, err := runtime.resolveProject(projectArg)
+	if err != nil {
+		return tickets.FiledRoot{}, err
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return tickets.FiledRoot{}, err
+	}
+	repository, err := runtime.repositoryOf(ctx, checkout)
+	if err != nil {
+		return tickets.FiledRoot{}, err
+	}
+	commands := runtime.github
+	if commands == nil {
+		commands = execx.OSRunner{}
+	}
+	github := tickets.GitHub{Commands: commands}
+	screen, err := issueScreen(ctx, github, runtime, h, checkout, repository, root)
+	if err != nil {
+		return tickets.FiledRoot{}, err
+	}
+	if refusal := screen.Refusal(strings.Join([]string{root.Title, root.Body, root.Evidence, root.Key}, "\n")); refusal != "" {
+		where := "private"
+		if screen.IsPublic {
+			where = "public"
+		}
+		return tickets.FiledRoot{}, fmt.Errorf("refused: the issue would go on %s, which is %s, and %s; write it without that", repository, where, refusal)
+	}
+	return github.FileRoot(ctx, repository, root, now)
 }
 
 // issueScreen is what a root issue filed on repository may not say: every
