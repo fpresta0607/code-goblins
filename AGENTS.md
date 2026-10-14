@@ -512,7 +512,7 @@ Your job is the whole list, not only the goblins in flight.
 While memory is free, every paused goblin whose pause cleared resumes and the next queued task starts, until nothing that could run is left; the last goblin retiring is never the end.
 The product does this by itself in every home, with no setting, and wakes you for what it cannot do:
 
-- **The supervisor starts the work.** `cfo serve` reads memory once a minute, and at each reading with 5 GB of memory and of commit free it takes one slot: a reported production defect, then the oldest paused goblin whose pause cleared, then the top of the queue, unless a goblin paused for memory comes back first.
+- **The supervisor starts the work.** `cfo serve` reads memory once a minute, and at each reading with 5 GB of memory and of commit free it takes one slot: a reported production defect, then the oldest paused goblin whose pause cleared, then the top of the queue, with a [root issue](#root-issues) it picked up after every other queued task, unless a goblin paused for memory comes back first.
   Slots go by memory alone: no count of goblins holds a start back, however many run.
   The board's meters say none of it in words: what it could not start reaches you as the `idle` wake below.
 - **A row says what it waits for, and starts when that clears.** A row under `## Queued` waits while its title line carries `blocked-by: <what> - <why>`, and the scheduler starts it by itself at the first reading with memory free after every one of them cleared, with no edit to the row: `until 2026-10-10T00:00Z` (an RFC3339 time, seconds optional) once that time passes, `memory 12 GB` once a reading has that much memory and commit free, a task id once that task's outcome says it delivered, and a GitHub pull request URL once it merged.
@@ -1041,6 +1041,14 @@ The fleet files what its own signals already name, through the same command path
 - **A red default branch.** Each red push run of a repository's default branch that wakes you as `ci_finished` is filed on that repository once its failed jobs are read, keyed by its workflow and those jobs.
 - **An error the supervisor meets again.** A line of the supervisor's errors met again an hour or more after it was first met is filed on the repository of the home's own checkout, keyed by its class: the line with its paths, quoted text, hashes and numbers taken out, once a class in each run of the supervisor.
 A filing that fails, such as one the screen refuses, reaches you as a `root_unfiled:` check wake with the reason, and you file it by hand.
+
+The fleet picks those issues up by itself, project by project.
+Every 30 minutes `cfo serve` reads the open `ops-root` issues of the GitHub repository of each project the home keeps a record for under `data/projects/`, one call a repository, and passes over a project with no checkout here or no GitHub origin.
+It takes an issue, oldest first, only when its author is the repository's owner, a member of its organisation or a collaborator, no one is assigned to it, no `cfo:` state label is on it, it is not on record in `state/root-pickups.json` as picked up already, and no queued or live task of the project names it to take up.
+Each issue it takes becomes task `root-<repository>-<number>` with a brief built from the issue, its text quoted so no line of it is read as a setting, whose acceptance criteria ask for a fix at the cause, a test that is red before it, and `Fixes #<number>` in the pull request so the issue closes when it merges.
+Its row goes to the bottom of `## Queued` with `(priority: ops-root)`, and the scheduler starts it behind every other queued task, as memory allows.
+At most two picked-up issues of one repository wait or run at a time, and a notify starting `picked up:` tells you of each.
+An issue on record is never picked up again, even when its task ends without fixing it: dispatch it yourself, or close it.
 Every brief says this in its Constraints, as `cfo brief` writes it.
 
 ## Escalation
