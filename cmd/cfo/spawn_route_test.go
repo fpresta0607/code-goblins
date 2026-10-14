@@ -49,17 +49,28 @@ func briefWith(t *testing.T, task string) string {
 	return path
 }
 
-func fixtureQuota(t *testing.T, name string) func(context.Context) (quota.Report, string) {
+// fixtureQuota gives deps the quota reading in the named fixture and a clock
+// stopped at the moment it was taken, so the reading is judged as it was
+// then on any date.
+func fixtureQuota(t *testing.T, deps *commandRuntime, name string) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "quota", "testdata", name+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := quota.Parse(data, time.Date(2026, 9, 17, 12, 31, 0, 0, time.UTC))
+	var reading struct {
+		GeneratedAt time.Time `json:"generatedAt"`
+	}
+	if err := json.Unmarshal(data, &reading); err != nil {
+		t.Fatal(err)
+	}
+	taken := reading.GeneratedAt
+	report, err := quota.Parse(data, taken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return func(context.Context) (quota.Report, string) { return report, "" }
+	deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+	deps.now = func() time.Time { return taken }
 }
 
 func captureSpawn(deps *commandRuntime, output string) *spawn.Request {
@@ -293,7 +304,7 @@ func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
 	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","escalate_to":"deep","lanes":{
 	"build":{"harness":"codex","model":"gpt-5.5","effort":"high","note":"ordinary"},
 	"deep":{"harness":"claude","model":"opus","effort":"xhigh","note":"escalation"}}}`)
-	deps.quota = fixtureQuota(t, "exhausted")
+	fixtureQuota(t, &deps, "exhausted")
 	got := captureSpawn(&deps, "spawned g23")
 	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
 
@@ -304,7 +315,7 @@ func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
 	if string(got.Harness) != "claude" || got.Model != "fable" || got.Effort != "low" {
 		t.Errorf("request = %+v, want the escalation lane with both overrides applied", *got)
 	}
-	if !strings.Contains(stdout.String(), " quota=build: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; deep: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
+	if !strings.Contains(stdout.String(), " quota=build: codex at its 5 percent weekly allowance floor, resets 2026-09-20T12:17:37Z; deep: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
 		t.Errorf("stdout = %q, want the fable scope judged on the fallback lane and both overrides reported", stdout.String())
 	}
 }
@@ -436,7 +447,7 @@ const codexDeepTable = `{"rules":[],"default_lane":"build","escalate_to":"deep",
 func TestRunSpawnRefusesAnExhaustedHighRiskLaneDespiteAvailableOrdinaryQuota(t *testing.T) {
 	// Arrange
 	h, deps := routedRuntime(t, codexDeepTable)
-	deps.quota = fixtureQuota(t, "exhausted")
+	fixtureQuota(t, &deps, "exhausted")
 	isCalled := false
 	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
 		isCalled = true
@@ -450,7 +461,7 @@ func TestRunSpawnRefusesAnExhaustedHighRiskLaneDespiteAvailableOrdinaryQuota(t *
 	if exit != 1 || isCalled || stdout.Len() != 0 {
 		t.Fatalf("exit=%d called=%v stdout=%q, want refusal before dispatch", exit, isCalled, stdout.String())
 	}
-	want := "cfo spawn: no usable lane: deep: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z\n"
+	want := "cfo spawn: no usable lane: deep: codex at its 5 percent weekly allowance floor, resets 2026-09-20T12:17:37Z\n"
 	if stderr.String() != want {
 		t.Errorf("stderr=%q, want %q", stderr.String(), want)
 	}
@@ -461,7 +472,7 @@ func TestRunSpawnRefusesAnExhaustedHighRiskLaneDespiteAvailableOrdinaryQuota(t *
 
 func TestRunSpawnRefusesWhenNoLaneIsUsable(t *testing.T) {
 	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","lanes":{"build":{"harness":"codex","model":"gpt-5.5","effort":"high"}}}`)
-	deps.quota = fixtureQuota(t, "exhausted")
+	fixtureQuota(t, &deps, "exhausted")
 	called := false
 	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
 		called = true
@@ -474,14 +485,14 @@ func TestRunSpawnRefusesWhenNoLaneIsUsable(t *testing.T) {
 	if exit != 1 || called {
 		t.Fatalf("exit = %d called = %v, want a refusal before anything is spawned", exit, called)
 	}
-	if want := "cfo spawn: no usable lane: build: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z\n"; stderr.String() != want || stdout.Len() != 0 {
+	if want := "cfo spawn: no usable lane: build: codex at its 5 percent weekly allowance floor, resets 2026-09-20T12:17:37Z\n"; stderr.String() != want || stdout.Len() != 0 {
 		t.Errorf("stderr = %q stdout = %q, want %q", stderr.String(), stdout.String(), want)
 	}
 }
 
 func TestRunSpawnKeepsALaneThatIsOnlyProjectedToExhaust(t *testing.T) {
 	_, deps := routedRuntime(t, shippedRoutingJSON(t))
-	deps.quota = fixtureQuota(t, "projected")
+	fixtureQuota(t, &deps, "projected")
 	got := captureSpawn(&deps, "spawned g17")
 	brief := briefWith(t, "Security review of the session cookie signing before launch.")
 
@@ -517,20 +528,23 @@ func TestRunSpawnRoutesAsConfiguredWhenQuotaAxiIsMissing(t *testing.T) {
 	}
 }
 
+// An explicit harness whose session is spent, with its week above the
+// floor, is dispatched with the exhaustion said; one at its weekly floor is
+// refused (TestRunSpawnHonorsFivePercentWeeklyReserve).
 func TestRunSpawnWarnsAnExplicitHarnessThatIsExhaustedWithoutBlocking(t *testing.T) {
 	_, deps := routedRuntime(t, shippedRoutingJSON(t))
-	deps.quota = fixtureQuota(t, "exhausted")
+	fixtureQuota(t, &deps, "session-spent")
 	got := captureSpawn(&deps, "spawned g19")
 	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
 
 	var stdout, stderr bytes.Buffer
-	if exit := runWithRuntime([]string{"spawn", "g19", "--project", `C:\project`, "--brief", brief, "--harness", "codex"}, &stdout, &stderr, deps); exit != 0 {
+	if exit := runWithRuntime([]string{"spawn", "g19", "--project", `C:\project`, "--brief", brief, "--harness", "claude"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
-	if string(got.Harness) != "codex" {
+	if string(got.Harness) != "claude" {
 		t.Errorf("request = %+v, want the explicit harness dispatched anyway", *got)
 	}
-	if want := "spawned g19\nrouted lane=explicit class=implementation risk=normal source=--harness flag quota=codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; explicit --harness wins\n"; stdout.String() != want {
+	if want := "spawned g19\nrouted lane=explicit class=implementation risk=normal source=--harness flag quota=claude all_models exhausted_now, resets 2026-10-08T00:50:00Z; explicit --harness wins\n"; stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
 	}
 }

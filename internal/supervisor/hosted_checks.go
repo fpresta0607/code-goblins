@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"slices"
 	"time"
 )
 
@@ -23,9 +24,11 @@ type HostedChecks struct {
 }
 
 // recordHostedChecks keeps what pr's checks say now, or forgets pr when it has
-// none, which leaves nothing for its card to show.
+// none, which leaves nothing for its card to show. Checks that all concluded
+// skipped or neutral are none: a draft's run skips its jobs, and they tested
+// nothing.
 func recordHostedChecks(w *fleetWakes, pr ghPullRequest, now time.Time) {
-	if len(pr.Checks) == 0 {
+	if !slices.ContainsFunc(pr.Checks, func(check ghCheck) bool { return !check.concluded() || check.hasRun() }) {
 		delete(w.Hosted, pr.URL)
 		return
 	}

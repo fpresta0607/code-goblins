@@ -11,7 +11,9 @@
 // jobs.
 //
 // It writes the workflow's outputs to standard output, go as the JSON list
-// of the Go jobs and frontend and browser as true or false, and what it
+// of the Go jobs, frontend and browser as true or false, and everything as
+// true when the run starts every job, which lets a run that passed record
+// its tree for a push to reuse (tools/pushreuse), and what it
 // decided and why to standard error. Run it from the repository, on the
 // merge of a pull request into its base:
 //
@@ -105,7 +107,7 @@ func write(jobs gatetest.Jobs, plan gatetest.Plan, table gatetest.JobTable, stdo
 		fmt.Fprintf(stderr, "ci plan: go (%s): %s\n", shard.Shard, verdict(running[shard.Shard]))
 	}
 	fmt.Fprintf(stderr, "ci plan: frontend: %s\nci plan: browser: %s\n", verdict(jobs.Frontend), verdict(jobs.Browser))
-	_, err = fmt.Fprintf(stdout, "go=%s\nfrontend=%t\nbrowser=%t\n", shards, jobs.Frontend, jobs.Browser)
+	_, err = fmt.Fprintf(stdout, "go=%s\nfrontend=%t\nbrowser=%t\neverything=%t\n", shards, jobs.Frontend, jobs.Browser, jobs.Everything)
 	return err
 }
 

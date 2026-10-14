@@ -266,8 +266,9 @@ func TestAComebackPlanningErrorStillSchedulesWaitingWork(t *testing.T) {
 
 // After a restart the CFO comes back first, then each goblin that was
 // working, one at a time, a reading apart once memory has read at the
-// next-start mark twice; a goblin that finished, was paused or stopped, ran
-// in an older sign-in or started in this one stays as it is.
+// next-start mark twice, one whose terminal ran in an older sign-in among
+// them; a goblin that finished, was paused or stopped, or started in this
+// sign-in stays as it is.
 func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing.T) {
 	// Arrange
 	recorder := &comebackRecorder{}
@@ -297,7 +298,7 @@ func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing
 	// Act
 	reading(t, service, 0)
 	afterFirst := recorder.came()
-	for minute := 1; minute <= 4; minute++ {
+	for minute := 1; minute <= 5; minute++ {
 		reading(t, service, minute)
 	}
 
@@ -305,14 +306,14 @@ func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing
 	if !slices.Equal(afterFirst, []string{NativeCFOTerminal}) {
 		t.Errorf("the first reading brought back %v, want the CFO alone", afterFirst)
 	}
-	if came := recorder.came(); !slices.Equal(came, []string{NativeCFOTerminal, "alpha", "bravo", "charlie"}) {
-		t.Errorf("came back in order %v, want the CFO, then alpha, bravo and charlie", came)
+	if came := recorder.came(); !slices.Equal(came, []string{NativeCFOTerminal, "alpha", "bravo", "charlie", "older"}) {
+		t.Errorf("came back in order %v, want the CFO, then alpha, bravo, charlie and older", came)
 	}
 	record, err := state.ReadComeback(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !record.SignedIn.Equal(thisSignIn) || record.CFO == nil || record.CFO.State != state.ComebackBack || len(record.Goblins) != 3 {
+	if !record.SignedIn.Equal(thisSignIn) || record.CFO == nil || record.CFO.State != state.ComebackBack || len(record.Goblins) != 4 {
 		t.Fatalf("the comeback record is %+v", record)
 	}
 	for _, entry := range record.Goblins {
@@ -324,6 +325,130 @@ func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing
 	// come back.
 	if calls := spawner.recorded(); len(calls) != 1 || calls[0][0] != "resume" || calls[0][1] != "paused" {
 		t.Errorf("dispatches %v, want the paused goblin resumed after the comeback", calls)
+	}
+}
+
+// Every goblin a restart left meant to run comes back, whatever its host
+// record says. On 2026-10-14 Ursula's host removed its record because her
+// harness ended before her host did at the restart, and the comeback, which
+// planned only goblins whose host record named the sign-in before, left her
+// behind. A resume the restart cut short, before or after it published its
+// generation, leaves its goblin meant to run too.
+// A goblin paused or stopped, whose pause or stop was cut short, whose failed
+// pause took hold once its terminal ended, or whose resume failed and waits
+// for a Resume, stays as it was left, and so does a terminal of this
+// sign-in, which the restart did not end.
+func TestARestartBringsBackEveryGoblinLeftMeantToRunWhateverItsHostRecordSays(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	lifecycle := func(meta state.TaskMeta, operation, action, phase string) {
+		t.Helper()
+		if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: operation, Action: action, Phase: phase, Started: lastSignIn, Updated: lastSignIn}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withoutRecord := func(meta state.TaskMeta) {
+		t.Helper()
+		if err := os.Remove(filepath.Join(h.State, "hosts", meta.ID+".json")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	interrupted := func(id, phase string) {
+		t.Helper()
+		meta := workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
+		meta.ResumeOperation = "resume-" + id
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+		lifecycle(meta, meta.ResumeOperation, "resume", phase)
+		withoutRecord(meta)
+	}
+	workingGoblin(t, h, "has-record", lastSignIn.Add(time.Hour))
+	withoutRecord(workingGoblin(t, h, "no-record", lastSignIn.Add(time.Hour)))
+	unreadable := workingGoblin(t, h, "unreadable-record", lastSignIn.Add(time.Hour))
+	writeFile(t, filepath.Join(h.State, "hosts", unreadable.ID+".json"), "{")
+	workingGoblin(t, h, "older-record", lastSignIn.Add(-time.Hour))
+	interrupted("resume-cut-short", "resuming")
+	interrupted("resume-failed", "failed")
+	unpublished := workingGoblin(t, h, "resume-cut-before-publishing", lastSignIn.Add(time.Hour))
+	lifecycle(unpublished, "resume-unpublished", "resume", "resuming")
+	withoutRecord(unpublished)
+	for _, left := range [][3]string{{"pause-failed", "pause", "failed"}, {"paused", "pause", "paused"}, {"pause-cut-short", "pause", "pausing"}, {"stopped", "stop", "stopped"}, {"stop-cut-short", "stop", "stopping"}, {"stop-failed", "stop", "failed"}} {
+		meta := workingGoblin(t, h, left[0], lastSignIn.Add(time.Hour))
+		lifecycle(meta, "operation-"+left[0], left[1], left[2])
+		withoutRecord(meta)
+	}
+	workingGoblin(t, h, "this-sign-in", thisSignIn.Add(time.Minute))
+
+	// Act
+	for minute := range 12 {
+		// Other checks name the unreadable record as a problem at every
+		// reading, which is theirs to report and no reason to leave its
+		// goblin behind.
+		err := service.checkFleet(t.Context(), thisSignIn.Add(time.Duration(minute)*time.Minute))
+		if err != nil && !strings.Contains(err.Error(), "record unreadable-record is unreadable") {
+			t.Fatal(err)
+		}
+		awaitComeback(t, service)
+	}
+
+	// Assert
+	want := []string{"has-record", "no-record", "older-record", "resume-cut-before-publishing", "resume-cut-short", "unreadable-record"}
+	if came := slices.Sorted(slices.Values(recorder.came())); !slices.Equal(came, want) {
+		t.Errorf("came back %v, want %v", came, want)
+	}
+	record, err := state.ReadComeback(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range record.Goblins {
+		if entry.State != state.ComebackBack {
+			t.Errorf("%s is %s, want back", entry.ID, entry.State)
+		}
+	}
+}
+
+// The CFO a restart ended comes back whatever its host record says: its
+// registration names the program it ran in the sign-in before. One that
+// registered in an older sign-in, or in this one, was not ended by the
+// restart.
+func TestARestartBringsTheCFOBackWhoseHostRecordIsGone(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		registered time.Time
+		shouldCome bool
+	}{
+		{name: "registered in the sign-in before", registered: lastSignIn.Add(time.Minute), shouldCome: true},
+		{name: "registered in an older sign-in", registered: lastSignIn.Add(-time.Minute)},
+		{name: "registered in this sign-in", registered: thisSignIn.Add(time.Minute)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			recorder := &comebackRecorder{}
+			service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+			hostname, err := os.Hostname()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(primaryRegistration{Host: NativeCFOTerminal, Agent: "claude", Process: lock.Info{PID: 999999, OwnerPID: 999999, Start: testCase.registered, Hostname: hostname}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(h.State, "primary.json"), string(data))
+
+			// Act
+			reading(t, service, 0)
+
+			// Assert
+			want := []string(nil)
+			if testCase.shouldCome {
+				want = []string{NativeCFOTerminal}
+			}
+			if came := recorder.came(); !slices.Equal(came, want) {
+				t.Errorf("came back %v, want %v", came, want)
+			}
+		})
 	}
 }
 
@@ -586,18 +711,22 @@ func TestTheFirstSupervisorBringsNothingBackAndALaterOneInTheSameSignInCarriesOn
 
 func TestTheComebackRechecksWaitingGoblinsBeforeLaunching(t *testing.T) {
 	for _, testCase := range []struct {
-		name, evaluation, lifecycle   string
-		isStale, isRetired, isRunning bool
-		shouldLaunch                  bool
+		name, evaluation, lifecycle, action string
+		isStale, isRetired, isRunning       bool
+		isResumeOperation, shouldLaunch     bool
 	}{
 		{name: "done", evaluation: "done"},
 		{name: "merged", evaluation: "merged"},
 		{name: "paused", lifecycle: "paused"},
 		{name: "stopped", lifecycle: "stopped"},
 		{name: "pausing", lifecycle: "pausing"},
-		{name: "resuming", lifecycle: "resuming"},
+		{name: "resume cut short before it published", lifecycle: "resuming", shouldLaunch: true},
 		{name: "stopping", lifecycle: "stopping"},
 		{name: "failed", lifecycle: "failed"},
+		{name: "resume cut short", lifecycle: "resuming", isResumeOperation: true, shouldLaunch: true},
+		{name: "resume failed", lifecycle: "failed", isResumeOperation: true},
+		{name: "pause failed", lifecycle: "failed", action: "pause"},
+		{name: "stop failed", lifecycle: "failed", action: "stop"},
 		{name: "retired", isRetired: true},
 		{name: "terminal already answers", isRunning: true},
 		{name: "old completion", evaluation: "done", isStale: true, shouldLaunch: true},
@@ -628,6 +757,15 @@ func TestTheComebackRechecksWaitingGoblinsBeforeLaunching(t *testing.T) {
 					action = "pause"
 				} else if testCase.lifecycle == "stopped" || testCase.lifecycle == "stopping" {
 					action = "stop"
+				}
+				if testCase.action != "" {
+					action = testCase.action
+				}
+				if testCase.isResumeOperation {
+					meta.ResumeOperation = "changed"
+					if err := state.WriteTaskMeta(h.State, meta); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: generation, Operation: "changed", Action: action, Phase: testCase.lifecycle, Started: thisSignIn}); err != nil {
 					t.Fatal(err)
@@ -678,6 +816,9 @@ func TestTheComebackRechecksWaitingGoblinsBeforeLaunching(t *testing.T) {
 	}
 }
 
+// A goblin an earlier comeback left waiting, brought back or could not bring
+// back comes back at the next restart as its current generation: each
+// restart brings back every goblin it left meant to run.
 func TestTheComebackCarriesWaitingTaskIdentityAcrossGenerationPublication(t *testing.T) {
 	for _, priorState := range []string{state.ComebackWaiting, state.ComebackBack, state.ComebackStopped} {
 		t.Run(priorState, func(t *testing.T) {
@@ -697,12 +838,8 @@ func TestTheComebackCarriesWaitingTaskIdentityAcrossGenerationPublication(t *tes
 			}
 			reading(t, service, 1)
 
-			if priorState == state.ComebackWaiting {
-				if len(record.Goblins) != 1 || record.Goblins[0].Generation != meta.SpawnGen || !slices.Equal(recorder.came(), []string{meta.ID}) {
-					t.Fatalf("planned %+v and resumed %v, want the waiting task's current generation", record.Goblins, recorder.came())
-				}
-			} else if len(record.Goblins) != 0 || len(recorder.came()) != 0 {
-				t.Fatalf("planned %+v and resumed %v from an earlier %s entry", record.Goblins, recorder.came(), priorState)
+			if len(record.Goblins) != 1 || record.Goblins[0].Generation != meta.SpawnGen || !slices.Equal(recorder.came(), []string{meta.ID}) {
+				t.Fatalf("planned %+v and resumed %v after an earlier %s entry, want the task's current generation", record.Goblins, recorder.came(), priorState)
 			}
 		})
 	}

@@ -312,8 +312,11 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 			if workflow.On.MergeGroup == nil || !slices.Equal(workflow.On.MergeGroup.Types, []string{"checks_requested"}) {
 				t.Errorf("%s runs on merge_group %+v, want types [checks_requested]", name, workflow.On.MergeGroup)
 			}
-			if reads := strings.Count(string(source), "github.event.pull_request"); reads != 1 {
-				t.Errorf("%s reads the pull request's fields %d times, want once, in the concurrency group with its fallback", name, reads)
+			// A job's draft condition reads one field too, which is empty in
+			// a queue run, so the job runs there.
+			reads := strings.Count(string(source), "github.event.pull_request") - strings.Count(string(source), draftCondition)
+			if reads != 1 {
+				t.Errorf("%s reads the pull request's fields %d times beside its draft conditions, want once, in the concurrency group with its fallback", name, reads)
 			}
 		})
 	}
@@ -322,6 +325,7 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
+// The one run it skips is a draft's, which cannot merge.
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	// Arrange
 	jobs := goWorkflowJobs(t)
@@ -341,8 +345,68 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	if len(others) == 0 || !slices.Equal(needs, others) {
 		t.Errorf("test needs %v, want every other job: %v", needs, others)
 	}
-	if check.If != "always()" {
-		t.Errorf("test runs if %q, want always(), so a failed or cancelled job cannot leave it skipped", check.If)
+	if want := "${{ always() && " + draftCondition + " }}"; check.If != want {
+		t.Errorf("test runs if %q, want %q, so a failed or cancelled job cannot leave it skipped", check.If, want)
+	}
+}
+
+// draftCondition is a job's condition that it runs on anything but a draft.
+// Outside a pull request the field is empty, so the job runs.
+const draftCondition = "!github.event.pull_request.draft"
+
+// A goblin's pull request is a draft until its head is the one it means to
+// merge, and the fix rounds it pushes before that start no hosted job: every
+// job that waits on no other skips a draft, and the rest wait on those, so
+// nothing runs. Marking it ready is a pull_request event of its own, which
+// runs every job on that head.
+func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, file := range files {
+		name := filepath.Base(file)
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(source), "pull_request:") {
+			continue
+		}
+		checked++
+		t.Run(name, func(t *testing.T) {
+
+			// Act
+			var workflow struct {
+				On struct {
+					PullRequest struct {
+						Types []string `yaml:"types"`
+					} `yaml:"pull_request"`
+				} `yaml:"on"`
+				Jobs map[string]struct {
+					If    string          `yaml:"if"`
+					Needs goWorkflowNeeds `yaml:"needs"`
+				} `yaml:"jobs"`
+			}
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if want := []string{"opened", "synchronize", "reopened", "ready_for_review"}; !slices.Equal(workflow.On.PullRequest.Types, want) {
+				t.Errorf("%s runs on pull_request types %v, want %v", name, workflow.On.PullRequest.Types, want)
+			}
+			for job, spec := range workflow.Jobs {
+				isPushOnly := spec.If == "github.event_name == 'push'"
+				if (len(spec.Needs) == 0 || strings.Contains(spec.If, "always()")) && !strings.Contains(spec.If, draftCondition) && !isPushOnly {
+					t.Errorf("%s job %s runs if %q, which a draft does not stop", name, job, spec.If)
+				}
+			}
+		})
+	}
+	if checked < 3 {
+		t.Errorf("%d workflows run on pull requests, want go, install and windows at least: the glob or the trigger's spelling changed", checked)
 	}
 }
 
@@ -578,5 +642,88 @@ func TestGoWorkflowKeepsThePinnedSQLiteReleaseInTheCache(t *testing.T) {
 	version := strings.TrimSuffix(link[strings.LastIndex(link, "-")+1:], ".zip")
 	if len(pin) != 64 || !strings.HasPrefix(link, "https://www.sqlite.org/") || version == "" || !strings.Contains(key, version) || !strings.HasSuffix(key, "-"+pin[:16]) {
 		t.Errorf("the cache key %q, the release %q and its SHA-256 %q: want a release of sqlite.org, and a key that names its version and ends with the first 16 characters of its SHA-256", key, link, pin)
+	}
+}
+
+// A push whose plan found a pull request run that passed its exact tree on
+// the same main started no job, and its check passes naming that run. A plan
+// that says so on any other event, or names no run, passes nothing: only a
+// push reads the records, and only by a run's number.
+func TestGoWorkflowsRequiredCheckPassesAPushWhoseTreeAPullRequestRunPassed(t *testing.T) {
+	pwsh, err := exec.LookPath("pwsh.exe")
+	if err != nil {
+		t.Skip("the step runs in PowerShell 7, which is not installed")
+	}
+	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "test", "Require every job to have passed")
+	reused := func(plan, run string) string {
+		outputs, _ := json.Marshal(map[string]string{"frontend": "false", "browser": "false", "go": "[]", "everything": "false", "reused": run})
+		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":"skipped","outputs":{}},"browser":{"result":"skipped","outputs":{}},"go":{"result":"skipped","outputs":{}}}`, plan, outputs)
+	}
+	for name, test := range map[string]struct {
+		results, event string
+		wantOK         bool
+	}{
+		"a push whose tree a pull request run passed": {reused("success", "38578690102"), "push", true},
+		"a push whose plan named no run":              {reused("success", ""), "push", false},
+		"a push whose plan named something but a run": {reused("success", "run=7"), "push", false},
+		"a push whose plan failed":                    {reused("failure", "38578690102"), "push", false},
+		"a train's run that says it reused one":       {reused("success", "38578690102"), "pull_request", false},
+		"a merge queue run that says it reused one":   {reused("success", "38578690102"), "merge_group", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			script := filepath.Join(t.TempDir(), "step.ps1")
+			if err := os.WriteFile(script, []byte("$ErrorActionPreference = 'stop'\r\n"+step), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-File", script)
+			cmd.Env = append(os.Environ(), "RESULTS="+test.results, "OWN_RUN=false", "EVENT="+test.event)
+
+			// Act
+			out, err := cmd.CombinedOutput()
+
+			// Assert
+			if test.wantOK && (err != nil || !strings.Contains(string(out), "pull request run 38578690102 passed this tree")) {
+				t.Errorf("the check failed or named no run: %v\n%s", err, out)
+			}
+			if !test.wantOK && err == nil {
+				t.Errorf("the check passed:\n%s", out)
+			}
+		})
+	}
+}
+
+// The installs wait on reuse, which runs only on a push, and a skipped job
+// skips every job after it unless the job's condition says otherwise: the
+// first pull request run of this record left none, its passed job skipped
+// though both installs passed. So passed reads both installs' own results
+// and runs on a pull request only when each succeeded.
+func TestInstallWorkflowRecordsARunOnlyWhenBothInstallsPassed(t *testing.T) {
+	// Arrange
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "install.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			If    string          `yaml:"if"`
+			Needs goWorkflowNeeds `yaml:"needs"`
+		} `yaml:"jobs"`
+	}
+
+	// Act
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	passed := workflow.Jobs["passed"]
+
+	// Assert
+	if !slices.Equal(passed.Needs, goWorkflowNeeds{"one-line", "dev"}) {
+		t.Errorf("passed needs %v, want both installs", passed.Needs)
+	}
+	for _, want := range []string{"!cancelled()", "github.event_name == 'pull_request'", "needs.one-line.result == 'success'", "needs.dev.result == 'success'"} {
+		if !strings.Contains(passed.If, want) {
+			t.Errorf("passed runs if %q, which lacks %q", passed.If, want)
+		}
 	}
 }

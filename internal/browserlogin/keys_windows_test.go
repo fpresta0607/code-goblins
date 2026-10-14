@@ -90,6 +90,16 @@ func (k *standInKeyPage) provider() keypages.Provider {
 	return keypages.Provider{ID: "standin", Name: "Stand-in", Hosts: []string{"localhost"}, KeyPage: address + "/test/apikeys", SignedInPath: "^/(acct_[a-z]+/)?test/apikeys$", AccountPath: "^/(acct_[a-z]+)/test/apikeys$"}
 }
 
+// busyPage keeps a page's main thread busy 1.5 s at a time, so each read of
+// the page waits on it and a wait's bound runs out inside one, as a slow
+// machine makes it do now and then.
+const busyPage = `<script>setInterval(() => { const end = Date.now() + 1500; while (Date.now() < end) {} }, 0);</script>`
+
+// stuckPage keeps a page's main thread busy while it loads for longer than
+// a wait's whole bound, so the signed-in wait's bound runs out inside a
+// read of it.
+var stuckPage = fmt.Sprintf(`<script>{ const end = Date.now() + %d; while (Date.now() < end) {} }</script>`, (keyWait + 5*time.Second).Milliseconds())
+
 var standInRecipeKeys = []keypages.Key{
 	{Name: "STRIPE_TEST_PUBLISHABLE_KEY", Row: "Publishable key", Prefix: "pk_test_"},
 	{Name: "STRIPE_TEST_SECRET_KEY", Row: "Secret key", Reveal: "Reveal test key", Prefix: "sk_test_"},
@@ -178,6 +188,9 @@ func TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem(t *testing.T) {
 		isRevealed bool
 	}{
 		{"signed out", func(k *standInKeyPage) { k.isSignedIn = false }, ErrSignedOut, false},
+		{"a key page too busy to settle in time", func(k *standInKeyPage) {
+			k.page = strings.Replace(k.page, `</title>`, `</title>`+stuckPage, 1)
+		}, errKeyPageSlow, false},
 		{"another account", func(k *standInKeyPage) { k.account = "acct_other" }, nil, false},
 		{"two reveal controls", func(k *standInKeyPage) {
 			k.page = strings.Replace(k.page, `<button>Roll key</button>`, `<button>Reveal test key</button>`, 1)
@@ -185,7 +198,14 @@ func TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem(t *testing.T) {
 		{"no secret key row", func(k *standInKeyPage) {
 			k.page = strings.Replace(k.page, `<th>Secret key</th>`, `<th>Signing key</th>`, 1)
 		}, ErrPageChanged, false},
-		{"a key that stays masked", func(k *standInKeyPage) { k.secret = "sk_test_••••••••4abc" }, nil, true},
+		{"no secret key row on a busy page", func(k *standInKeyPage) {
+			k.page = strings.Replace(k.page, `<th>Secret key</th>`, `<th>Signing key</th>`, 1) + busyPage
+		}, ErrPageChanged, false},
+		{"a key that stays masked", func(k *standInKeyPage) { k.secret = "sk_test_••••••••4abc" }, errKeyMasked, true},
+		{"a key that stays masked on a busy page", func(k *standInKeyPage) {
+			k.secret = "sk_test_••••••••4abc"
+			k.page += busyPage
+		}, errKeyMasked, true},
 		{"two different keys beside one row", func(k *standInKeyPage) {
 			k.page = strings.Replace(k.page, `<button id="reveal">`, `<code>`+keyCanary(t, "sk_test_")+`</code> <button id="reveal">`, 1)
 		}, ErrPageChanged, true},
@@ -213,6 +233,29 @@ func TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem(t *testing.T) {
 			}
 			if isRevealed := keys.reveals.Load() > 0; isRevealed != test.isRevealed {
 				t.Fatalf("revealed = %t, want %t", isRevealed, test.isRevealed)
+			}
+		})
+	}
+}
+
+// A wait's own bound running out inside a read decides the wait's answer,
+// and the caller's running out does not.
+func TestIsWaitOverOnlyWhenTheWaitsOwnBoundRanOut(t *testing.T) {
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	live := context.Background()
+	for _, test := range []struct {
+		name         string
+		wait, caller context.Context
+		isOver       bool
+	}{
+		{"the wait's bound ran out", ended, live, true},
+		{"the caller's ran out too", ended, ended, false},
+		{"neither ran out", live, live, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if isOver := isWaitOver(test.wait, test.caller); isOver != test.isOver {
+				t.Fatalf("over = %t, want %t", isOver, test.isOver)
 			}
 		})
 	}

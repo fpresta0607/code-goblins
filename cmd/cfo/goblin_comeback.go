@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -32,8 +34,9 @@ const restartNote = "The machine restarted, which ended your terminal; this is y
 
 // bringGoblinsBack brings back, in place, every goblin a reboot or sign-out
 // ended: each task with a record whose native terminal no longer runs,
-// except one paused or stopped on purpose. Each comes back through the
-// switch cfo switch makes to what the task already runs, keeping its
+// except one paused or stopped on purpose. One whose resume the reboot cut
+// short comes back through a resume that finishes it, and each other through
+// the switch cfo switch makes to what the task already runs, keeping its
 // worktree, its uncommitted work, its harness, model and effort, on its own
 // conversation where the board's record proves it is the task's and from a
 // handoff where it does not. Each launch is admitted on what the one before
@@ -72,24 +75,37 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 	switch {
 	case err != nil && !errors.Is(err, os.ErrNotExist):
 		return goblinComeback{id: id, said: "its lifecycle record cannot be read: " + err.Error()}, true
-	case err == nil && record.Generation == meta.SpawnGen:
-		switch record.Phase {
-		case "paused", "stopped":
+	case err == nil && !record.LeavesRunning(h.State, meta):
+		switch {
+		// A failed pause took hold once the terminal ended, so the goblin is
+		// paused, as one paused on purpose is.
+		case record.SuppressesMonitoring(h.State), record.Action == "pause" && record.Phase == "failed":
 			return goblinComeback{}, false
-		case "pausing", "resuming", "stopping":
-			if record.SuppressesMonitoring(h.State) {
-				return goblinComeback{}, false
-			}
-			return goblinComeback{id: id, said: fmt.Sprintf("its %s was cut short; finish it from its card on the board", record.Action)}, true
-		case "failed":
+		case record.Phase == "failed":
 			return goblinComeback{id: id, said: fmt.Sprintf("its %s failed before it ended; see its card on the board", record.Action)}, true
 		}
+		return goblinComeback{id: id, said: fmt.Sprintf("its %s was cut short; finish it from its card on the board", record.Action)}, true
 	}
 	if runtime.nativeTerminalRuns(h.State, id) {
 		return goblinComeback{}, false
 	}
 	if err := runtime.admitLaunch(h); err != nil {
 		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
+	}
+	// A resume the reboot cut short is finished by a resume, which takes up
+	// what its record kept and leaves the record running, where a bare
+	// switch would leave it reading resuming.
+	if err == nil && record.Phase == "resuming" {
+		_, err := runtime.taskLifecycle(ctx, h, lifecycle.Request{ID: id, Generation: meta.SpawnGen, Operation: fmt.Sprintf("op-%d", time.Now().UnixNano()), Action: "resume", Reason: "the machine restarted", ResumeNote: note, IsWatched: true}, "")
+		switch {
+		case errors.Is(err, state.ErrNoRoom):
+			return goblinComeback{id: id, said: err.Error(), isWaiting: true}, true
+		case errors.Is(err, lock.ErrHeld):
+			return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
+		case err != nil:
+			return goblinComeback{id: id, said: "it could not come back: " + err.Error()}, true
+		}
+		return goblinComeback{id: id, said: "back, with the resume the restart cut short finished", isBack: true}, true
 	}
 	session, err := fleettree.OwnedSession(h.State, meta)
 	if err != nil {

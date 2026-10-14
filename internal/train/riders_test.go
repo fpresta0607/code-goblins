@@ -24,12 +24,15 @@ func TestRidersLeaveOutWhatMustNotRide(t *testing.T) {
 		change func(*PullRequest)
 		why    string
 	}{
-		"a draft":                     {func(pr *PullRequest) { pr.IsDraft = true }, "it is a draft"},
-		"a held pull request":         {func(pr *PullRequest) { pr.Labels = []Label{{Name: "Hold"}} }, "it is held"},
-		"one from another fork":       {func(pr *PullRequest) { pr.IsCrossRepository = true }, "another repository"},
-		"one in conflict with main":   {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "it conflicts with main"},
-		"one with changes requested":  {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "it waits on a review"},
-		"one with no checks":          {func(pr *PullRequest) { pr.Checks = nil }, "it has no checks"},
+		"a draft":                    {func(pr *PullRequest) { pr.IsDraft = true }, "it is a draft"},
+		"a held pull request":        {func(pr *PullRequest) { pr.Labels = []Label{{Name: "Hold"}} }, "it is held"},
+		"one from another fork":      {func(pr *PullRequest) { pr.IsCrossRepository = true }, "another repository"},
+		"one in conflict with main":  {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "it conflicts with main"},
+		"one with changes requested": {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "it waits on a review"},
+		"one with no checks":         {func(pr *PullRequest) { pr.Checks = nil }, "it has no checks"},
+		"one whose every check was skipped": {func(pr *PullRequest) {
+			pr.Checks = []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SKIPPED"}, {Kind: "CheckRun", Name: "lint", Status: "COMPLETED", Conclusion: "NEUTRAL"}}
+		}, "no check ran on its head"},
 		"one whose checks run":        {func(pr *PullRequest) { pr.Checks[1].State = "PENDING" }, "still running"},
 		"one whose checks failed":     {func(pr *PullRequest) { pr.Checks[0].Conclusion = "FAILURE" }, "its checks failed"},
 		"one no goblin reported done": {func(pr *PullRequest) { pr.URL += "0" }, "no goblin reported it done"},

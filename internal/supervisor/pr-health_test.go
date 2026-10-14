@@ -91,8 +91,7 @@ func TestPRHealthReportsEveryUnhealthyHead(t *testing.T) {
 		wantDetail string
 	}{
 		{"conflicting goblin", "CONFLICTING", 3, "[]", true, false, "cg-health", "conflicts"},
-		{"behind without checks", "MERGEABLE", 2, "[]", true, false, "cg-health", "behind"},
-		{"behind with failed checks", "MERGEABLE", 2, `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`, true, false, "cg-health", "behind"},
+		{"behind without a goblin", "MERGEABLE", 2, "[]", false, false, "", "behind"},
 		{"teammate without a goblin", "CONFLICTING", 0, "[]", false, false, "", "teammate"},
 		{"fork with matching branch name", "MERGEABLE", 2, "[]", true, true, "", "teammate"},
 	} {
@@ -127,6 +126,9 @@ func TestPRHealthReportsEveryUnhealthyHead(t *testing.T) {
 
 func TestPRHealthDeduplicatesConditionsAndNewHeadsAcrossRestarts(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
+	// No live goblin holds the pull request, so it is told whenever it
+	// falls behind.
+	forge.branch = "feat/elsewhere"
 	for _, reading := range []struct {
 		after     time.Duration
 		head      string
@@ -158,6 +160,9 @@ func TestPRHealthDeduplicatesConditionsAndNewHeadsAcrossRestarts(t *testing.T) {
 
 func TestPRHealthRetainsAHeadOpenForWeeksAndForgetsClosedHeads(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
+	// No live goblin holds the pull request, so it is told whenever it
+	// falls behind.
+	forge.branch = "feat/elsewhere"
 	forge.pulls, forge.comparisons = healthPull("head-one", "MERGEABLE", false, "[]"), healthComparison("head-one", 3)
 	for day := range 16 {
 		if err := service.checkFleet(context.Background(), now.Add(time.Duration(day)*24*time.Hour)); err != nil {
@@ -248,6 +253,9 @@ func TestPRHealthRejectsUnreadPullRequestLists(t *testing.T) {
 
 func TestPRHealthBatchesAllOpenHeadsInOneComparisonCall(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
+	// No live goblin holds the pull request, so it is told whenever it
+	// falls behind.
+	forge.branch = "feat/elsewhere"
 	forge.pulls = strings.TrimSuffix(healthPull("head-one", "MERGEABLE", false, "[]"), "]") + `,{"number":210,"url":"https://github.com/o/r/pull/210","headRefName":"other","headRefOid":"head-two","mergeable":"MERGEABLE","author":{"login":"teammate"}}]`
 	forge.comparisons = `{"data":{"repository":{"ref":{"pr209":{"behindBy":2,"headTarget":{"oid":"head-one"},"baseTarget":{"oid":"base"}},"pr210":{"behindBy":3,"headTarget":{"oid":"head-two"},"baseTarget":{"oid":"base"}}}}}}`
 
@@ -358,6 +366,9 @@ func TestPRHealthRetryAfterStartsWhenTheResponseArrives(t *testing.T) {
 
 func TestPRHealthReportsAReadableHeadWhenAnotherComparisonFails(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
+	// No live goblin holds the pull request, so it is told whenever it
+	// falls behind.
+	forge.branch = "feat/elsewhere"
 	forge.pulls = strings.TrimSuffix(healthPull("head-one", "MERGEABLE", false, "[]"), "]") + `,{"number":210,"url":"https://github.com/o/r/pull/210","headRefName":"other","headRefOid":"head-two","mergeable":"UNKNOWN"}]`
 	forge.comparisons = `{"data":{"repository":{"ref":{"pr209":{"behindBy":2,"headTarget":{"oid":"head-one"},"baseTarget":{"oid":"base"}},"pr210":null}}},"errors":[{"message":"could not resolve head-two"}]}`
 
@@ -445,6 +456,9 @@ func TestPRHealthBackOffOnRunDetailsStaysVisible(t *testing.T) {
 
 func TestPRUnreadWakesOncePerHeadWhateverThePollErrors(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
+	// No live goblin holds the pull request, so it is told whenever it
+	// falls behind.
+	forge.branch = "feat/elsewhere"
 	for poll, reading := range []struct {
 		after      time.Duration
 		head       string
@@ -495,6 +509,9 @@ func TestPRUnreadWakesOncePerHeadWhateverThePollErrors(t *testing.T) {
 
 func TestPRUnreadWakesForTheListingLimitOnceUntilItClears(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
+	// No live goblin holds the pull request, so it is told whenever it
+	// falls behind.
+	forge.branch = "feat/elsewhere"
 	pull := strings.TrimSuffix(strings.TrimPrefix(healthPull("head-one", "MERGEABLE", false, "[]"), "["), "]")
 	capped := "[" + strings.TrimSuffix(strings.Repeat(pull+",", 100), ",") + "]"
 	underLimit := "[" + strings.TrimSuffix(strings.Repeat(pull+",", 99), ",") + "]"
@@ -681,12 +698,12 @@ func finishedPull(mergeable, author, checks, labels string) string {
 // and 1000446), and seven times more once a train's riders were left alone
 // (wakes 1000612 to 1000667), each for a green, mergeable pull request its
 // goblin had not yet reported done. A merge train tests main and its riders
-// together, so a goblin's own pull request that is only behind its base, with
-// its checks passed or still running, is behind to no one's concern, whether
-// its goblin reported it, holds its branch now or held it before, and whether
-// it is held. A head whose checks failed or that has none is told, a conflict
-// always is, and so is a head no train will ever take: a teammate's, and one
-// no live goblin holds.
+// together, so a goblin's own pull request that is only behind its base is
+// behind to no one's concern, whether its goblin reported it, holds its
+// branch now or held it before, and whether it is held, until it is next to
+// land with no train to test it. A head whose checks failed or that has none
+// asks for nothing either, a conflict always is told, and so is a head no
+// live goblin holds: a teammate's, and the fleet's own from another branch.
 func TestPRHealthSaysNothingOfAGoblinsPullRequestThatIsOnlyBehindItsBase(t *testing.T) {
 	const failed = `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`
 	const mine, theirs = "tell cg-health to merge", "the fleet reports a teammate's pull request and never pushes to it"
@@ -700,14 +717,14 @@ func TestPRHealthSaysNothingOfAGoblinsPullRequestThatIsOnlyBehindItsBase(t *test
 		isReportedDone     bool
 		want               []string
 	}{
-		{name: "green and reported done", mergeable: "MERGEABLE", author: "o", checks: passedCheck, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true},
+		{name: "green, reported done and alone, so next to land", mergeable: "MERGEABLE", author: "o", checks: passedCheck, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true, want: []string{"cg-health's PR #209", "next to land", "cfo pr train", mine}},
 		{name: "green and not yet reported done", mergeable: "MERGEABLE", author: "o", checks: passedCheck, labels: "[]", checkedOut: "feat/wakes"},
 		{name: "green, on a branch its worktree held before", mergeable: "MERGEABLE", author: "o", checks: passedCheck, labels: "[]", checkedOut: "feat/next", reflog: "checkout: moving from feat/wakes to feat/next\n"},
 		{name: "green and held", mergeable: "MERGEABLE", author: "o", checks: passedCheck, labels: held, checkedOut: "feat/wakes", isReportedDone: true},
 		{name: "its checks still running, which it waits for", mergeable: "MERGEABLE", author: "o", checks: `[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]`, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true},
 		{name: "in conflict with its base", mergeable: "CONFLICTING", author: "o", checks: passedCheck, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true, want: []string{"cg-health's PR #209", "conflicts with its base", mine}},
-		{name: "its checks failed", mergeable: "MERGEABLE", author: "o", checks: failed, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true, want: []string{"cg-health's PR #209", "2 commits behind", mine}},
-		{name: "it has no checks", mergeable: "MERGEABLE", author: "o", checks: "[]", labels: "[]", checkedOut: "feat/wakes", want: []string{"cg-health's PR #209", "2 commits behind", mine}},
+		{name: "its checks failed", mergeable: "MERGEABLE", author: "o", checks: failed, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true},
+		{name: "it has no checks", mergeable: "MERGEABLE", author: "o", checks: "[]", labels: "[]", checkedOut: "feat/wakes"},
 		{name: "a teammate's, green", mergeable: "MERGEABLE", author: "teammate", checks: passedCheck, labels: "[]", checkedOut: "feat/next", want: []string{"teammate's PR #209", "2 commits behind", theirs}},
 		{name: "another account's that the goblin works on, green, which no train takes", mergeable: "MERGEABLE", author: "teammate", checks: passedCheck, labels: "[]", checkedOut: "feat/wakes", isReportedDone: true, want: []string{"cg-health's PR #209", "2 commits behind", mine}},
 		{name: "the fleet's own account's, green, from a branch no live goblin holds", mergeable: "MERGEABLE", author: "o", checks: passedCheck, labels: "[]", checkedOut: "feat/next", want: []string{"o's PR #209", "2 commits behind", "the fleet reports a pull request its own account opened from a branch no live goblin holds"}},
@@ -733,7 +750,7 @@ func TestPRHealthSaysNothingOfAGoblinsPullRequestThatIsOnlyBehindItsBase(t *test
 			wakes := prWakes(t, h, "pr_health")
 			if len(test.want) == 0 {
 				if len(wakes) != 0 {
-					t.Fatalf("health wakes = %+v, want none for a goblin's own pull request that is only behind its base", wakes)
+					t.Fatalf("health wakes = %+v, want none for a goblin's own pull request that is only behind its base and not next to land", wakes)
 				}
 				return
 			}
@@ -756,9 +773,9 @@ func TestPRHealthSaysNothingOfAGoblinsPullRequestThatIsOnlyBehindItsBase(t *test
 // commits behind main minutes after its push, while its checks still ran
 // (wake 1000554). A head whose checks are still running is not yet one a
 // merge train has passed over: it is left alone until they conclude, and is
-// then judged by the train's own test. A conflict wakes at once all the same,
-// and checks that never conclude are waited for as long as a train waits for
-// its own, three hours.
+// then judged as any behind head is: told only once it is next to land. A
+// conflict wakes at once all the same, and checks that never conclude ask
+// nothing of its goblin, since they never passed.
 func TestPRHealthLeavesABehindHeadAloneWhileItsChecksRun(t *testing.T) {
 	const running = `[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]`
 	const failed = `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`
@@ -771,11 +788,11 @@ func TestPRHealthLeavesABehindHeadAloneWhileItsChecksRun(t *testing.T) {
 		after                time.Duration
 		wantOnceTheyConclude string
 	}{
-		{"then they pass", "MERGEABLE", "", passedCheck, "[]", ciPollEvery, ""},
-		{"then they fail", "MERGEABLE", "", failed, "[]", ciPollEvery, "2 commits behind"},
+		{"then they pass, alone and so next to land", "MERGEABLE", "", passedCheck, "[]", ciPollEvery, "next to land"},
+		{"then they fail", "MERGEABLE", "", failed, "[]", ciPollEvery, ""},
 		{"then they pass on a held pull request", "MERGEABLE", "", passedCheck, held, ciPollEvery, ""},
 		{"and still run at the next poll", "MERGEABLE", "", running, "[]", ciPollEvery, ""},
-		{"and still run when a train would have given up on them", "MERGEABLE", "", running, "[]", 3 * time.Hour, "2 commits behind"},
+		{"and still run when a train would have given up on them", "MERGEABLE", "", running, "[]", 3 * time.Hour, ""},
 		{"on a head in conflict with its base", "CONFLICTING", "conflicts with its base", running, "[]", ciPollEvery, "conflicts with its base"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -870,18 +887,21 @@ func TestPRHealthNamesAGoblinsPullRequestFromEveryBranchItsWorktreeHeld(t *testi
 	}
 }
 
-// A head left alone while its checks had passed is told once they have not:
-// here the same head's checks were run again and failed.
-func TestPRHealthTellsOfABehindHeadOnceItsChecksFail(t *testing.T) {
+// A head left alone while its checks failed is told once they pass on a
+// second run and it is next to land: failed checks never ask for main.
+func TestPRHealthTellsOfABehindHeadOnceItIsNextToLand(t *testing.T) {
 	// Arrange
 	service, h, forge, now := healthService(t, true)
-	forge.pulls = finishedPull("MERGEABLE", "o", passedCheck, "[]")
+	if err := state.AppendStatus(h.State, "cg-health", "done: PR https://github.com/o/r/pull/209"); err != nil {
+		t.Fatal(err)
+	}
+	forge.pulls = finishedPull("MERGEABLE", "o", `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`, "[]")
 	forge.comparisons = healthComparison("head-one", 2)
 	if err := service.checkFleet(context.Background(), now); err != nil {
 		t.Fatal(err)
 	}
-	whilePassed := prWakes(t, h, "pr_health")
-	forge.pulls = finishedPull("MERGEABLE", "o", `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`, "[]")
+	whileFailed := prWakes(t, h, "pr_health")
+	forge.pulls = finishedPull("MERGEABLE", "o", passedCheck, "[]")
 
 	// Act
 	if err := service.checkFleet(context.Background(), now.Add(ciPollEvery)); err != nil {
@@ -890,7 +910,7 @@ func TestPRHealthTellsOfABehindHeadOnceItsChecksFail(t *testing.T) {
 
 	// Assert
 	wakes := prWakes(t, h, "pr_health")
-	if len(whilePassed) != 0 || len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "2 commits behind") {
-		t.Fatalf("health wakes = %+v while its checks had passed and %+v once they failed, want none and then one saying it is behind", whilePassed, wakes)
+	if len(whileFailed) != 0 || len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "2 commits behind") || !strings.Contains(wakes[0].Detail, "next to land") {
+		t.Fatalf("health wakes = %+v while its checks had failed and %+v once they passed, want none and then one saying it is behind and next to land", whileFailed, wakes)
 	}
 }

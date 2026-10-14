@@ -3,14 +3,18 @@ name: windows
 # Proves on a hosted runner's desktop what no test may show on a person's:
 # that no console window a fleet process opens stays on the desktop. A
 # careless start of cfo gate turn, a goblin's background run, opens a window
-# with main's build and closes it at once with this commit's, cfo gate turn
+# with the last main's build before the fix and closes it at once with this
+# commit's, cfo gate turn
 # --detach opens none, and the supervisor's backstop takes a careless
 # console off the desktop. Each runs twice, with the console host and with
 # Windows Terminal as the default terminal, which the runner's image has
 # installed. The tests that show a window run only here, where
 # CFO_WINDOW_PROOF names the default terminal.
 on:
+  # A draft runs nothing, and marking it ready runs the proof on its head, as
+  # the go workflow does.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - cmd/cfo/main.go
       - cmd/cfo/own_console*.go
@@ -31,6 +35,7 @@ concurrency:
 
 jobs:
   windows:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-2025
     timeout-minutes: 30
     strategy:
@@ -53,12 +58,18 @@ jobs:
         with:
           go-version: stable
           cache: false
-      - name: Build cfo from main and from this commit
+      # The proof needs a build that still shows a careless start's window.
+      # Since PR 818 landed the fix, main hides it too, so a baseline built
+      # from origin/main failed the proof's own premise on every pull request
+      # this workflow ran on. The baseline is pinned to 9c0042229, the first
+      # parent of 818's merge and the last main without the fix. The proof
+      # still names that build main.
+      - name: Build cfo from the last main without the fix and from this commit
         shell: pwsh
         run: |
           go build -o "$env:RUNNER_TEMP\branch\cfo.exe" ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git worktree add "$env:RUNNER_TEMP\main-source" origin/main
+          git worktree add "$env:RUNNER_TEMP\main-source" 9c004222974af7e5b751c55953450f2324dd5f7f
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C "$env:RUNNER_TEMP\main-source" build -o "$env:RUNNER_TEMP\main\cfo.exe" ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

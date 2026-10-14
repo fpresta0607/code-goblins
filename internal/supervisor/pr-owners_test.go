@@ -123,7 +123,7 @@ func TestPRHealthGroupsAPollsUnhealthyPullRequestsIntoOneWakePerRepository(t *te
 	// Arrange
 	service, h, forge, now := healthService(t, true)
 	forge.pulls = "[" + strings.Join([]string{
-		listedPull("o", 209, "feat/wakes", "head-one", "MERGEABLE", "fpresta0607"),
+		listedPull("o", 209, "feat/wakes", "head-one", "CONFLICTING", "fpresta0607"),
 		listedPull("o", 210, "feat/b", "head-b", "CONFLICTING", "teammate"),
 		listedPull("o", 211, "feat/c", "head-c", "MERGEABLE", "teammate"),
 		listedPull("o", 212, "feat/d", "head-d", "MERGEABLE", "teammate"),
@@ -240,8 +240,10 @@ func TestPRHealthWaitsForGitHubsMergeabilityBeforeReportingABehindHead(t *testin
 }
 
 func TestPRHealthReportsABehindHeadWhoseMergeabilityStaysUnknown(t *testing.T) {
-	// Arrange
+	// Arrange: no live goblin holds the pull request, so it is told whenever
+	// it falls behind.
 	service, h, forge, now := healthService(t, true)
+	forge.branch = "feat/elsewhere"
 	forge.pulls, forge.comparisons = healthPull("head-one", "UNKNOWN", false, "[]"), healthComparison("head-one", 3)
 
 	for _, after := range []time.Duration{0, 4 * time.Minute, 8 * time.Minute, mergeabilityGrace} {

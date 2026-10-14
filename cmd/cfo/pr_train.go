@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -78,8 +77,11 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			return err
 		},
 		// While AFK mode is on, what a train merges is logged as merged, with
-		// the run that proved it, as cfo pr merge logs its own. The switch is
-		// read at each merge, since a train can outlast it.
+		// the run that proved it, as cfo pr merge logs its own, but by the
+		// supervisor, which reads the train's record and the pull request:
+		// a train started detached does not run under the registered CFO,
+		// which the log of a decision needs. The switch is read at each
+		// merge, since a train can outlast it.
 		Landed: func(_ context.Context, t train.Train, car train.Car) {
 			away, err := afkAuthorityOf(runtime)
 			if err != nil {
@@ -89,7 +91,7 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			if away == nil {
 				return
 			}
-			if err := away.log(afk.Entry{Kind: afk.KindMerge, What: car.URL, Link: car.URL, Evidence: t.Evidence(), Outcome: afk.OutcomeMerged}); err != nil {
+			if err := runtime.trainLandingLogger()(h, t.ID, car.URL); err != nil {
 				fmt.Fprintf(stderr, "cfo pr train: AFK mode's log did not take the merge of %s (%v): log it with cfo afk log --kind merge\n", car.URL, err)
 			}
 		},

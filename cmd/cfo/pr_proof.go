@@ -94,6 +94,7 @@ func verifyPRReady(ctx context.Context, url string, commands execx.Runner) (prPr
 		return prProof{}, errors.New("production gate: PR exposes no status checks; refusing an unverified merge")
 	}
 
+	hasRun := false
 	for _, check := range view.Checks {
 		normalized, err := normalizePRCheck(check)
 		if err != nil {
@@ -109,11 +110,19 @@ func verifyPRReady(ctx context.Context, url string, commands execx.Runner) (prPr
 			return prProof{}, fmt.Errorf("production gate: %s is %s, not completed", name, emptyAs(status, "pending"))
 		}
 		switch conclusion {
-		case "SUCCESS", "NEUTRAL", "SKIPPED":
+		case "SUCCESS":
+			hasRun = true
+		case "NEUTRAL", "SKIPPED":
 			// GitHub treats these as terminal non-failing conclusions.
 		default:
 			return prProof{}, fmt.Errorf("production gate: %s concluded %s", name, emptyAs(conclusion, "unknown"))
 		}
+	}
+	// A draft's run skips its jobs, so a pull request just marked ready
+	// shows them until its ready run registers: skipped and neutral checks
+	// alone tested nothing.
+	if !hasRun {
+		return prProof{}, errors.New("production gate: no check ran on the PR's head, every one was skipped or neutral; refusing an unverified merge")
 	}
 
 	return prProof{HeadRefOID: view.HeadRefOID, Checks: len(view.Checks), Author: view.Author.Login, BaseRefName: view.BaseRefName, CrossRepository: view.IsCrossRepository}, nil
