@@ -286,6 +286,124 @@ func TestRunsTakeTheirTurnsInTheOrderTheyAsked(t *testing.T) {
 	}
 }
 
+// A run at the lowest priority takes its turn only while no other run waits:
+// a run that asked after it still goes first, and the later run is told it is
+// next in line.
+func TestALowPriorityRunLetsALaterRunGoFirst(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	holder := within(t, take(t, a), "the holder")
+	var lowSaid, laterSaid said
+	low := a
+	low.IsLowPriority, low.Waiting = true, lowSaid.waiting
+	lowTaken := take(t, low)
+	lowSaid.waits(t, lowTaken, "the low-priority run, while the holder had the turn,")
+	a.Waiting = laterSaid.waiting
+	later := take(t, a)
+	laterLine := laterSaid.waits(t, later, "the run that asked after it, while the holder had the turn,")
+
+	// Act
+	holder.Release()
+
+	// Assert
+	turn := within(t, later, "the run that asked after the low-priority one")
+	notYet(t, lowTaken, "the low-priority run, while the later run held the turn,")
+	turn.Release()
+	within(t, lowTaken, "the low-priority run, once no other run waited").Release()
+	if !strings.HasSuffix(laterLine, "; this run is next in line") {
+		t.Errorf("the later run said %q; want it next in line, ahead of the low-priority run", laterLine)
+	}
+}
+
+// Runs at the lowest priority keep the order they asked in among themselves.
+func TestLowPriorityRunsTakeTheirTurnsInTheOrderTheyAsked(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	holder := within(t, take(t, a), "the holder")
+	a.IsLowPriority = true
+	var early, late said
+	a.Waiting = early.waiting
+	earlier := take(t, a)
+	early.waits(t, earlier, "the low-priority run that asked first,")
+	a.Waiting = late.waiting
+	later := take(t, a)
+	late.waits(t, later, "the low-priority run that asked second,")
+
+	// Act
+	holder.Release()
+
+	// Assert
+	turn := within(t, earlier, "the low-priority run that asked first")
+	notYet(t, later, "the low-priority run that asked second, while the first held the turn,")
+	turn.Release()
+	within(t, later, "the low-priority run that asked second").Release()
+}
+
+// Line lists the runs at the lowest priority after every other waiting run,
+// whenever they joined, and marks them, as any build that reads the line by
+// the names of its places orders them.
+func TestLineListsLowPriorityRunsAfterAllOthers(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	line := filepath.Join(dir, "line")
+	if err := os.MkdirAll(line, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, place := range []string{lowPriorityPlace + "00000000000000000001-10-1", "00000000000000000002-11-1"} {
+		record, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Start: now.Add(-3 * time.Hour), Acquired: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string][]byte{place: record, place + ".run": []byte(`{"who":"the run at ` + place + `"}`)} {
+			if err := os.WriteFile(filepath.Join(line, name), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Act
+	_, waiting, err := Line(dir)
+
+	// Assert
+	if err != nil || len(waiting) != 2 || waiting[0].IsLowPriority || !waiting[1].IsLowPriority || !strings.HasPrefix(waiting[1].Who, "the run at "+lowPriorityPlace) {
+		t.Errorf("Line waiting = %+v, %v; want the ordinary run that joined later first, then the low-priority run, marked", waiting, err)
+	}
+}
+
+// A low-priority waiter whose process is gone leaves the line as any waiter
+// does, so it holds back no run behind it.
+func TestAGoneLowPriorityWaiterLeavesTheLine(t *testing.T) {
+	// Arrange
+	line := filepath.Join(t.TempDir(), "line")
+	if err := os.MkdirAll(line, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := lowPriorityPlace + "00000000000000000001-10-1"
+	record, err := json.Marshal(lock.Info{PID: 4194300, OwnerPID: 4194300, Hostname: hostname, Start: time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC), Acquired: time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(line, gone), record, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	ahead, err := inFront(line, lowPriorityPlace+"00000000000000000002-11-1")
+
+	// Assert
+	if err != nil || ahead != 0 {
+		t.Errorf("inFront = %d, %v; want no run ahead of it, the gone waiter taken out", ahead, err)
+	}
+	if _, err := os.Stat(filepath.Join(line, gone)); !os.IsNotExist(err) {
+		t.Errorf("the gone waiter's place %s: %v; want it removed", gone, err)
+	}
+}
+
 // A waiting run says so again when its place in line changes, so its output
 // shows it moving up: one run ahead of it, then next in line.
 func TestAWaitingRunSaysWhenItsPlaceInLineChanges(t *testing.T) {

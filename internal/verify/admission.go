@@ -49,6 +49,10 @@ type Admission struct {
 	// its place in line changes, and once a minute: how long so far, and what
 	// for.
 	Waiting func(waited time.Duration, why string)
+	// IsLowPriority has the run wait at the lowest priority: it takes its turn
+	// only while no other run waits, and any run that joins the line after it
+	// still goes first. A turn it has taken is its own until it gives it back.
+	IsLowPriority bool
 }
 
 // NoLimit is the Limit of a run that waits for memory for as long as the
@@ -129,6 +133,14 @@ type card struct {
 // apart.
 var arrivals atomic.Int64
 
+// lowPriorityPlace begins the place of a run that waits at the lowest
+// priority. Every other place begins with a digit, which sorts before it, so
+// every other run counts a low-priority run as behind it whenever either
+// joined, and low-priority runs keep the order they asked in among
+// themselves. Any build compares places by name, so an older one orders a
+// low-priority run the same way.
+const lowPriorityPlace = "z-"
+
 // Wait joins the line and returns once the run has its turn: no run that
 // asked earlier still waits, the machine has the memory, and a slot is free,
 // or was left by a process whose recorded identity is verifiably gone. A
@@ -177,6 +189,9 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 	place := fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
+	if a.IsLowPriority {
+		place = lowPriorityPlace + place
+	}
 	owner, err := lock.AcquireExclusiveNamedStrict(line, place)
 	if err != nil {
 		return Turn{}, err
@@ -655,6 +670,8 @@ type Standing struct {
 	// said so, and Now what such a run says it is doing.
 	Budget time.Duration
 	Now    string
+	// IsLowPriority says a waiting run waits at the lowest priority.
+	IsLowPriority bool
 }
 
 // Line reads who holds the turns kept in dir, slot by slot, and who waits, in
@@ -685,7 +702,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 			}
 			if record.Alive() {
 				says := readCard(filepath.Join(dir, name))
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace)})
 			}
 		}
 		return runs, nil
