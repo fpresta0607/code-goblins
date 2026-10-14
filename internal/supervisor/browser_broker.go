@@ -66,14 +66,19 @@ type browserBroker struct {
 	start      func(context.Context, browserlogin.Launch) (browserlogin.Process, error)
 	end        func(context.Context, browserlogin.Process) error
 	alive      func(browserlogin.Process) bool
-	now        func() time.Time
+	// gone checks again a Chrome whose end could not confirm it had exited.
+	gone func(browserlogin.Process) bool
+	now  func() time.Time
 	// report tells of a Chrome that could not be closed.
 	report func(error)
 	// processes are the Chromes this broker started, by login, and closing
 	// the logins whose Chrome is closing now, which work waits for.
-	processes map[string]browserlogin.Process
-	closing   map[string]bool
-	signing   map[string]string
+	// unconfirmed are the closing logins whose Chrome's end could not
+	// confirm it had exited, which each sweep checks again.
+	processes   map[string]browserlogin.Process
+	closing     map[string]bool
+	unconfirmed map[string]bool
+	signing     map[string]string
 	// fetching are the logins whose Chrome a fetch drives now, by the task
 	// it fetches for, which no task is lent while it does.
 	fetching map[string]string
@@ -97,24 +102,26 @@ func newBrowserBroker(stateDir, dataDir string, options Options, report func(err
 		memory = options.Dispatch.Memory
 	}
 	return &browserBroker{
-		state:      stateDir,
-		data:       dataDir,
-		recipes:    options.KeyPages,
-		memory:     memory,
-		live:       func(task string) error { return terminalAnswers(stateDir, task) },
-		executable: browserlogin.Executable,
-		start:      browserlogin.Start,
-		end:        browserlogin.End,
-		alive:      browserlogin.Running,
-		now:        time.Now,
-		report:     report,
-		processes:  map[string]browserlogin.Process{},
-		closing:    map[string]bool{},
-		signing:    map[string]string{},
-		fetching:   map[string]string{},
-		signOuts:   map[string]bool{},
-		signedIn:   browserlogin.SignedIn,
-		readKeys:   browserlogin.ReadKeys,
+		state:       stateDir,
+		data:        dataDir,
+		recipes:     options.KeyPages,
+		memory:      memory,
+		live:        func(task string) error { return terminalAnswers(stateDir, task) },
+		executable:  browserlogin.Executable,
+		start:       browserlogin.Start,
+		end:         browserlogin.End,
+		alive:       browserlogin.Running,
+		gone:        browserlogin.Gone,
+		now:         time.Now,
+		report:      report,
+		processes:   map[string]browserlogin.Process{},
+		closing:     map[string]bool{},
+		unconfirmed: map[string]bool{},
+		signing:     map[string]string{},
+		fetching:    map[string]string{},
+		signOuts:    map[string]bool{},
+		signedIn:    browserlogin.SignedIn,
+		readKeys:    browserlogin.ReadKeys,
 	}
 }
 
@@ -360,8 +367,12 @@ func (b *browserBroker) closeProcess(id string) {
 	b.work.Add(1)
 	go func() {
 		defer b.work.Done()
-		err := b.end(context.Background(), process)
-		if err != nil {
+		if err := b.end(context.Background(), process); err != nil {
+			// The login stays closing, so its profile stays fenced, until a
+			// sweep finds the Chrome gone.
+			b.mu.Lock()
+			b.unconfirmed[id] = true
+			b.mu.Unlock()
 			b.report(fmt.Errorf("the browser of login %s: %w", id, err))
 			return
 		}
@@ -386,15 +397,29 @@ func (b *browserBroker) closeProcess(id string) {
 // sweep closes each browser that exited, or whose task has left or kept it
 // past its lease, and forgets a record of a browser this broker never
 // started, which a supervisor that stopped left behind: its Chrome ended
-// with it, since a Chrome runs in a job its supervisor holds.
+// with it, since a Chrome runs in a job its supervisor holds. A login whose
+// Chrome's end could not confirm it had exited is lent again once it has.
 func (b *browserBroker) sweep() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	var failed []error
+	for id := range b.unconfirmed {
+		if b.gone(b.processes[id]) {
+			if b.signOuts[id] {
+				if err := browserlogin.RemoveProfile(b.state, id); err != nil {
+					failed = append(failed, fmt.Errorf("login %s was not signed out after its fetch: %w", id, err))
+				}
+			}
+			delete(b.unconfirmed, id)
+			delete(b.signOuts, id)
+			delete(b.processes, id)
+			delete(b.closing, id)
+		}
+	}
 	logins, err := browserlogin.Read(b.state)
 	if err != nil {
-		return err
+		return errors.Join(append(failed, err)...)
 	}
-	var failed []error
 	changed := false
 	for index, login := range logins {
 		if login.Browser == nil {

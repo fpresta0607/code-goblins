@@ -159,7 +159,7 @@ func (s *Service) checkChange(input lifecycleRequest) (meta state.TaskMeta, prio
 	if input.Action != "resume" {
 		return meta, prior, false, nil
 	}
-	isInterrupted = prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
+	isInterrupted = prior.IsInterruptedResume(meta)
 	isEndedPause := pauseTookHold(s.Store.Home.State, meta.Backend, prior)
 	if err != nil || prior.Generation != meta.SpawnGen && !isInterrupted || prior.Phase != "paused" && !isEndedPause && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
 		return meta, prior, false, taskRefusal{reason: "Only a paused task can resume"}
