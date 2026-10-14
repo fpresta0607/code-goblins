@@ -38,6 +38,7 @@ var Labels = []string{"self-hosted", "linux", "x64", "cg-desktop"}
 // ever asked for.
 var allowedCalls = []string{
 	"POST /app/installations/{installation}/access_tokens",
+	"GET /repos/{owner}/{repo}",
 	"GET /repos/{owner}/{repo}/actions/runs",
 	"GET /repos/{owner}/{repo}/actions/runs/{id}/jobs",
 	"POST /repos/{owner}/{repo}/actions/runners/generate-jitconfig",
@@ -180,6 +181,22 @@ func (g *GitHub) RegisterRunner(ctx context.Context, name string) (Runner, error
 		return Runner{}, errors.New("cirunner: GitHub registered no runner with a configuration")
 	}
 	return Runner{ID: answer.Runner.ID, Name: answer.Runner.Name, Config: answer.Config}, nil
+}
+
+// IsPrivate says whether the service's repository is private. A
+// self-hosted runner must never serve a public repository, whose pull
+// requests anyone may open.
+func (g *GitHub) IsPrivate(ctx context.Context) (bool, error) {
+	var answer struct {
+		Private *bool `json:"private"`
+	}
+	if err := g.do(ctx, http.MethodGet, g.repoPath(""), nil, nil, &answer); err != nil {
+		return false, err
+	}
+	if answer.Private == nil {
+		return false, errors.New("cirunner: GitHub did not say whether the repository is private")
+	}
+	return *answer.Private, nil
 }
 
 // RunnerState says whether the runner id is running a job and whether it is

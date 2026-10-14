@@ -3,6 +3,7 @@ package cirunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -179,6 +180,40 @@ func TestRunStartsNothingWhenNoJobWaits(t *testing.T) {
 			}
 			if calls := f.callsMade(); len(calls) != 0 || f.asks != 1 {
 				t.Errorf("the run made %q after %d ask(s); want one ask of GitHub and nothing else", calls, f.asks)
+			}
+		})
+	}
+}
+
+// A public repository is refused at the service's start and before each
+// run, since a self-hosted runner must never serve one, and the refusal
+// starts nothing: no VM, and no runner registered.
+func TestServiceRefusesAPublicRepository(t *testing.T) {
+	for name, act := range map[string]func(s *Service) error{
+		"starting": func(s *Service) error { return s.Start(context.Background()) },
+		"running": func(s *Service) error {
+			outcome, err := s.Run(context.Background(), func(string) {})
+			if outcome != Failed {
+				return fmt.Errorf("the run ended %q", outcome)
+			}
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{isPublic: true}
+			var config string
+			s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits}
+
+			// Act
+			err := act(s)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "the repository is public") {
+				t.Errorf("%s = %v; want the public repository refused", name, err)
+			}
+			if calls := f.callsMade(); len(calls) != 0 || f.asks != 0 {
+				t.Errorf("%s made %q and %d ask(s) for a job; want nothing", name, calls, f.asks)
 			}
 		})
 	}

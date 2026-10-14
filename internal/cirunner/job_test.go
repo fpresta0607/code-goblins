@@ -38,6 +38,14 @@ type fakeJob struct {
 	failFirst map[string]int
 	// offHeld, when set, holds each turn of the VM off until it is closed.
 	offHeld chan struct{}
+	// isPublic says the repository is public.
+	isPublic bool
+}
+
+func (f *fakeJob) IsPrivate(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.isPublic, nil
 }
 
 func (f *fakeJob) note(ctx context.Context, call string) error {

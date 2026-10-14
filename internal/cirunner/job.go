@@ -51,6 +51,7 @@ const (
 
 // Runners are the GitHub calls a job makes.
 type Runners interface {
+	IsPrivate(ctx context.Context) (bool, error)
 	QueuedJob(ctx context.Context) (Pending, error)
 	RegisterRunner(ctx context.Context, name string) (Runner, error)
 	RunnerState(ctx context.Context, id int64) (isBusy, isOnline bool, err error)

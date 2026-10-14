@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
@@ -36,7 +37,12 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "service":
-		if err := svc.Run(serviceName, handler{dir: serviceFolder()}); err != nil {
+		dir, err := serviceFolder()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cg-ci-runner: %v\n", err)
+			os.Exit(1)
+		}
+		if err := svc.Run(serviceName, handler{dir: dir}); err != nil {
 			fmt.Fprintf(os.Stderr, "cg-ci-runner: run as a service: %v\n", err)
 			os.Exit(1)
 		}
@@ -55,9 +61,14 @@ func main() {
 }
 
 // serviceFolder holds the service's settings, the App's key, its log and
-// each job's DVD.
-func serviceFolder() string {
-	return filepath.Join(os.Getenv("ProgramData"), "Code Goblins", "ci-runner")
+// each job's DVD. ProgramData is Windows' own, never what a variable a user
+// can set says.
+func serviceFolder() (string, error) {
+	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if err != nil {
+		return "", fmt.Errorf("find ProgramData: %w", err)
+	}
+	return filepath.Join(programData, "Code Goblins", "ci-runner"), nil
 }
 
 // handler runs the service for Windows' service manager.

@@ -111,6 +111,9 @@ func sleep(ctx context.Context, d time.Duration) {
 // registered, as a job's end would have, before the service takes any run:
 // a service that stopped mid-job, as in a crash, left both behind.
 func (s *Service) Start(ctx context.Context) error {
+	if err := s.refusePublic(ctx); err != nil {
+		return err
+	}
 	if err := putBack(ctx, s.Deps.VM); err != nil {
 		return err
 	}
@@ -137,6 +140,20 @@ func (s *Service) Pending(ctx context.Context) (Pending, error) {
 	return pending, nil
 }
 
+// refusePublic refuses a repository that is not private, at the service's
+// start and before each run, since a repository can be made public at any
+// time and a self-hosted runner must never serve one.
+func (s *Service) refusePublic(ctx context.Context) error {
+	isPrivate, err := s.Deps.GitHub.IsPrivate(ctx)
+	if err != nil {
+		return fmt.Errorf("cirunner: ask GitHub whether the repository is private: %w", err)
+	}
+	if !isPrivate {
+		return errors.New("cirunner: the repository is public, and a self-hosted runner must never serve a public repository")
+	}
+	return nil
+}
+
 // lockBefore locks mu, or gives up when ctx ends first.
 func lockBefore(ctx context.Context, mu *sync.Mutex) error {
 	for !mu.TryLock() {
@@ -150,9 +167,10 @@ func lockBefore(ctx context.Context, mu *sync.Mutex) error {
 }
 
 // Run runs one job, or refuses with ErrBusy while one runs. It first asks
-// GitHub whether a job of the runner's waits, and starts nothing, neither
-// the VM nor a runner, when none does: a client of the pipe can ask for a
-// run whenever it likes, but only a waiting job starts the VM.
+// GitHub whether the repository is still private and whether a job of the
+// runner's waits, and starts nothing, neither the VM nor a runner, unless
+// both are so: a client of the pipe can ask for a run whenever it likes, but
+// only a waiting job of a private repository starts the VM.
 func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, error) {
 	s.mu.Lock()
 	if !s.started.IsZero() {
@@ -163,10 +181,16 @@ func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, erro
 	s.started = started
 	s.mu.Unlock()
 	var outcome Outcome
-	pending, err := s.Deps.GitHub.QueuedJob(ctx)
+	var pending Pending
+	err := s.refusePublic(ctx)
+	if err == nil {
+		if pending, err = s.Deps.GitHub.QueuedJob(ctx); err != nil {
+			err = fmt.Errorf("cirunner: find a waiting job: %w", err)
+		}
+	}
 	switch {
 	case err != nil:
-		outcome, err = ended(ctx, fmt.Errorf("cirunner: find a waiting job: %w", err))
+		outcome, err = ended(ctx, err)
 	case !pending.IsWaiting:
 		outcome = NoJob
 	default:

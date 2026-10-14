@@ -10,6 +10,26 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
+// The service's folder is in Windows' own ProgramData, whatever a variable
+// a user can set says.
+func TestTheServiceFolderIsNotTakenFromTheEnvironment(t *testing.T) {
+	// Arrange
+	planted := t.TempDir()
+	t.Setenv("ProgramData", planted)
+	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	dir, err := serviceFolder()
+
+	// Assert
+	if want := filepath.Join(programData, "Code Goblins", "ci-runner"); err != nil || dir != want {
+		t.Errorf("serviceFolder = %q, %v; want %q, not under %s", dir, err, want, planted)
+	}
+}
+
 // A service whose settings cannot be read stops with an error of its own,
 // and its log says why, before it serves anything.
 func TestServiceThatCannotReadItsSettingsStopsAndSaysWhy(t *testing.T) {

@@ -39,6 +39,9 @@ type fakeGitHub struct {
 	expires       time.Time
 	deleteStatus  int
 	isRedirecting bool
+	// visibility is what the repository's own answer says of "private": a
+	// bool, or nothing when nil.
+	visibility any
 }
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +56,12 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			expires = time.Now().Add(time.Hour)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"token": fmt.Sprintf("installation-token-%d", len(f.asked)), "expires_at": expires})
+	case r.Method == "GET" && r.URL.Path == "/repos/fpresta0607/PrecisionDocs-AI":
+		answer := map[string]any{"full_name": "fpresta0607/PrecisionDocs-AI"}
+		if f.visibility != nil {
+			answer["private"] = f.visibility
+		}
+		json.NewEncoder(w).Encode(answer)
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/actions/runs") && f.isRedirecting:
 		http.Redirect(w, r, "/user", http.StatusMovedPermanently)
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/actions/runs"):
@@ -116,13 +125,15 @@ func desktopJob(name, status string, labels []string, created time.Time) map[str
 func TestGitHubCallsOnlyItsPinnedPaths(t *testing.T) {
 	// Arrange
 	fake := &fakeGitHub{
-		jobs:    []map[string]any{desktopJob("desktop-backend-shard (1)", "queued", Labels, time.Now())},
-		runners: []map[string]any{{"id": 41, "name": RunnerPrefix + "1"}},
+		jobs:       []map[string]any{desktopJob("desktop-backend-shard (1)", "queued", Labels, time.Now())},
+		runners:    []map[string]any{{"id": 41, "name": RunnerPrefix + "1"}},
+		visibility: true,
 	}
 	g := testGitHub(t, fake)
 	ctx := context.Background()
 
 	// Act
+	_, privateErr := g.IsPrivate(ctx)
 	_, queuedErr := g.QueuedJob(ctx)
 	runner, registerErr := g.RegisterRunner(ctx, RunnerPrefix+"1")
 	_, _, stateErr := g.RunnerState(ctx, runner.ID)
@@ -130,7 +141,7 @@ func TestGitHubCallsOnlyItsPinnedPaths(t *testing.T) {
 	ownErr := g.DeleteOwnRunners(ctx)
 
 	// Assert
-	if err := errors.Join(queuedErr, registerErr, stateErr, deleteErr, ownErr); err != nil {
+	if err := errors.Join(privateErr, queuedErr, registerErr, stateErr, deleteErr, ownErr); err != nil {
 		t.Fatalf("the calls failed: %v", err)
 	}
 	made := map[string]bool{}
@@ -302,6 +313,33 @@ func TestRegisterRunnerAsksForOneJobOnTheDesktopLabels(t *testing.T) {
 }
 
 // Only runners the service registered, by their name, are deleted.
+// The repository's visibility is read from its own answer, and an answer
+// that does not say is no answer, never taken as private.
+func TestIsPrivateReadsTheRepositorysVisibility(t *testing.T) {
+	for name, row := range map[string]struct {
+		visibility any
+		want       bool
+		isErr      bool
+	}{
+		"private":  {visibility: true, want: true},
+		"public":   {visibility: false, want: false},
+		"not said": {isErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			g := testGitHub(t, &fakeGitHub{visibility: row.visibility})
+
+			// Act
+			isPrivate, err := g.IsPrivate(context.Background())
+
+			// Assert
+			if isPrivate != row.want || (err != nil) != row.isErr {
+				t.Errorf("IsPrivate = %v, %v; want %v with an error %v", isPrivate, err, row.want, row.isErr)
+			}
+		})
+	}
+}
+
 // The service's own runners are found on every page of the repository's
 // runners, a hundred a page, not on the first alone.
 func TestDeleteOwnRunnersReadsEveryPage(t *testing.T) {
