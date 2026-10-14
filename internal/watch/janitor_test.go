@@ -46,8 +46,9 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 					_, _ = verify.Admission{Dir: store, Floor: 4 << 30, Available: func() (uint64, error) { return 1 << 30, nil }, Who: "cfo verify fast of task t1", Limit: verify.NoLimit, Poll: 10 * time.Millisecond}.Wait(ctx)
 				}()
 				t.Cleanup(func() { cancel(); <-ended })
+				// A run stands in line a moment before its card names it.
 				for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-					if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 {
+					if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 && waiting[0].Who == "cfo verify fast of task t1" {
 						return
 					}
 				}
