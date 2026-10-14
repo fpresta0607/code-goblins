@@ -3,8 +3,10 @@ package fleettree
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,7 +79,12 @@ func TestReadEndsAChildWhoseProcessesEndedOnceSilentPastTheMark(t *testing.T) {
 		started time.Time
 		running []Process
 		lines   map[int]string
-		want    State
+		// waited is how long the call waited to run, as for a permission
+		// prompt, and unreadable says its process's command line cannot be
+		// read.
+		waited     time.Duration
+		unreadable bool
+		want       State
 	}{
 		{name: "a shell whose processes ended, quiet for hours", tool: "Bash", command: "go test ./...", started: quiet, want: Done},
 		{name: "a monitor whose processes ended, quiet for hours", tool: "Monitor", command: "until done; do sleep 20; done", started: quiet, want: Done},
@@ -94,6 +101,11 @@ func TestReadEndsAChildWhoseProcessesEndedOnceSilentPastTheMark(t *testing.T) {
 			running: []Process{{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: quiet}},
 			lines:   map[int]string{200: `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'until done; do sleep 20; done' < /dev/null"`}, want: Silent},
 		{name: "a shell whose processes ended moments ago", tool: "Bash", command: "go test ./...", started: recent, want: Working},
+		{name: "a quiet shell whose process started after a long wait to run", tool: "Bash", command: "npm run dev", started: quiet, waited: 5 * time.Minute,
+			running: []Process{{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: quiet.Add(5 * time.Minute)}},
+			lines:   map[int]string{200: `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'npm run dev' < /dev/null"`}, want: Silent},
+		{name: "a quiet shell beside a process whose command line cannot be read", tool: "Bash", command: "npm run dev", started: quiet,
+			running: []Process{{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: quiet}}, unreadable: true, want: Silent},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -105,14 +117,19 @@ func TestReadEndsAChildWhoseProcessesEndedOnceSilentPastTheMark(t *testing.T) {
 			}
 			goblin, _ := claudeGoblin(t, home,
 				call("toolu_S", tc.tool, object{"command": tc.command, "description": "Wait on the run", "run_in_background": true}, tc.started),
-				result("toolu_S", "Command running in background with ID: b5. Output is being written to: "+output, recorded, tc.started),
+				result("toolu_S", "Command running in background with ID: b5. Output is being written to: "+output, recorded, tc.started.Add(tc.waited)),
 			)
 			goblin.HarnessPID = 100
 			reader := Reader{
 				Home:        home,
 				Processes:   func() ([]Process, error) { return staleHarness(tc.running...), nil },
 				Listeners:   func() (map[int][]int, error) { return nil, nil },
-				CommandLine: func(pid int) (string, error) { return tc.lines[pid], nil },
+				CommandLine: func(pid int) (string, error) {
+					if tc.unreadable {
+						return "", errors.New("access is denied")
+					}
+					return tc.lines[pid], nil
+				},
 				Now:         func() time.Time { return at },
 			}
 
@@ -257,6 +274,8 @@ func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
 		result("toolu_S1", "Command running in background with ID: b1. Output is being written to: "+first, object{"backgroundTaskId": "b1"}, start),
 		call("toolu_S2", "Bash", object{"command": "npm run build", "description": "Build the board", "run_in_background": true}, start),
 		result("toolu_S2", "Command running in background with ID: b2. Output is being written to: "+second, object{"backgroundTaskId": "b2"}, start),
+		call("toolu_S3", "Bash", object{"command": "go vet ./...", "description": "Vet the tree", "run_in_background": true}, start),
+		result("toolu_S3", "Command running in background with ID: b3. Output is being written to: "+filepath.Join(home, "tasks", "b3.output"), object{"backgroundTaskId": "b3"}, start),
 		call("toolu_M", "Monitor", object{"description": "CI checks", "command": "gh pr checks 398 --watch"}, start),
 		result("toolu_M", "Monitor started", object{"taskId": "m1"}, start),
 		queued(notification("m1", "", "", `Monitor event: "CI checks"`, "test: pending\nlint: pass"), at.Add(-time.Minute)),
@@ -284,6 +303,7 @@ func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
 	}{
 		{"shell:b1", []string{"> go test ./internal/monitor/", "ok  internal/monitor 41.2s"}},
 		{"shell:b2", []string{"> npm run build", "building the board", "dist/board ready"}},
+		{"shell:b3", []string{"> go vet ./..."}},
 		{"monitor:m1", []string{"> gh pr checks 398 --watch", "test: pending", "lint: pass"}},
 		{"process:600:60", []string{"> npm run dev", "cmd.exe (pid 600), 3 MB: npm run dev", "node.exe (pid 601), 150 MB: node node_modules/vite/bin/vite.js --port 5173"}},
 	} {
@@ -301,6 +321,113 @@ func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
 		t.Run("none for "+tc.task+" "+tc.node, func(t *testing.T) {
 			if lines, err := reader.ChildLines(tc.task, tc.node); !errors.Is(err, ErrNoRecord) {
 				t.Errorf("ChildLines(%s, %s) = %q, %v; want ErrNoRecord", tc.task, tc.node, lines, err)
+			}
+		})
+	}
+}
+
+// A child's terminal holds its newest lines, however many processes a job
+// runs.
+func TestChildLinesKeepsTheNewestLines(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	start := at.Add(-20 * time.Minute)
+	goblin, _ := claudeGoblin(t, home)
+	goblin.HarnessPID = 100
+	running := []Process{{PID: 600, ParentPID: 100, Exe: "chrome.exe", Created: 60, Started: start}}
+	for i := range ChildLinesKept + 50 {
+		running = append(running, Process{PID: 1000 + i, ParentPID: 600, Exe: "chrome.exe", Created: int64(1000 + i), Started: start})
+	}
+	reader := Reader{
+		Home:        home,
+		Processes:   func() ([]Process, error) { return staleHarness(running...), nil },
+		Listeners:   func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) { return "chrome.exe --headless=new", nil },
+		Now:         func() time.Time { return at },
+	}
+	if _, err := reader.Read(context.Background(), goblin); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	lines, err := reader.ChildLines("tree", "process:600:60")
+
+	// Assert
+	if err != nil || len(lines) != ChildLinesKept || !strings.HasPrefix(lines[len(lines)-1], fmt.Sprintf("chrome.exe (pid %d)", 1000+ChildLinesKept+49)) {
+		t.Errorf("ChildLines kept %d lines ending %q, %v; want the newest %d", len(lines), lines[len(lines)-1:], err, ChildLinesKept)
+	}
+}
+
+// Two background shells can run the same command. A job belongs to the one
+// that started nearest it, so the other, whose processes ended, ends.
+func TestReadGivesAJobToTheShellThatStartedNearestIt(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	first, second := at.Add(-2*time.Hour), at.Add(-2*time.Hour+90*time.Second)
+	goblin, _ := claudeGoblin(t, home,
+		call("toolu_A", "Bash", object{"command": "npm run dev", "description": "Start the board", "run_in_background": true}, first),
+		result("toolu_A", "Command running in background with ID: b1", object{"backgroundTaskId": "b1"}, first),
+		call("toolu_B", "Bash", object{"command": "npm run dev", "description": "Start the board again", "run_in_background": true}, second),
+		result("toolu_B", "Command running in background with ID: b2", object{"backgroundTaskId": "b2"}, second),
+	)
+	goblin.HarnessPID = 100
+	reader := Reader{
+		Home:      home,
+		Processes: func() ([]Process, error) { return staleHarness(Process{PID: 200, ParentPID: 100, Exe: "bash.exe", Created: 20, Started: second}), nil },
+		Listeners: func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) {
+			return `"C:\Program Files\Git\bin\bash.exe" -c "source snapshot.sh && eval 'npm run dev' < /dev/null"`, nil
+		},
+		Now: func() time.Time { return at },
+	}
+
+	// Act
+	tree, _ := reader.Read(context.Background(), goblin)
+
+	// Assert
+	if earlier, later := child(t, tree, "shell:b1"), child(t, tree, "shell:b2"); earlier.State != Done || later.State != Silent {
+		t.Errorf("shells = %s and %s, want the first done and the second, which runs the job, silent", earlier.State, later.State)
+	}
+}
+
+// Every process of a goblin's harness ends with it, so once its harness has
+// ended nothing its record left open still runs. A list of processes that
+// could not be read proves nothing.
+func TestReadEndsEveryOpenChildOnceItsHarnessHasEnded(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		read   func() ([]Process, error)
+		ending bool
+	}{
+		{"its harness gone", func() ([]Process, error) { return []Process{{PID: 1, Exe: "System"}}, nil }, true},
+		{"the processes unreadable", func() ([]Process, error) { return nil, errors.New("access is denied") }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			start := at.Add(-time.Hour)
+			goblin, _ := claudeGoblin(t, home,
+				call("toolu_A", "Agent", object{"description": "Map plumbing"}, start),
+				result("toolu_A", "launched", object{"status": "async_launched", "agentId": "a1"}, start),
+				call("toolu_S", "Bash", object{"command": "go test ./...", "description": "Run the tests", "run_in_background": true}, start),
+				result("toolu_S", "Command running in background with ID: b1", object{"backgroundTaskId": "b1"}, start),
+				call("toolu_M", "Monitor", object{"description": "CI checks", "command": "gh pr checks 1 --watch"}, start),
+				result("toolu_M", "Monitor started", object{"taskId": "m1"}, start),
+			)
+			goblin.HarnessPID, goblin.HarnessStarted = 100, staleHarnessStart
+			reader := Reader{Home: home, Processes: tc.read, Now: func() time.Time { return at }}
+
+			// Act
+			tree, _ := reader.Read(context.Background(), goblin)
+
+			// Assert
+			for _, node := range tree.Children {
+				if isEnded := node.State == Done || node.State == Failed; isEnded != tc.ending {
+					t.Errorf("%s = %s, want ended %v", node.ID, node.State, tc.ending)
+				}
+			}
+			if len(tree.Children) != 3 {
+				t.Errorf("children = %+v, want the three the record holds", tree.Children)
 			}
 		})
 	}

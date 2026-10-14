@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -216,12 +217,27 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		for _, job := range jobs {
 			runs[job.Parent] = true
 		}
+		// A job whose command line could not be read may be any child's, so
+		// no child is judged by its processes while one cannot be.
+		isJudged := !slices.ContainsFunc(jobs, func(job Node) bool { return job.isUnread })
 		tree.Children, tree.own = drawn(mergeShells(append(tree.Children, jobs...)))
 		launched := harness.top.Started.Add(HarnessLaunch)
 		for i := range tree.Children {
-			endUnseen(&tree.Children[i], commands, runs, launched, now)
+			if isJudged {
+				endUnseen(&tree.Children[i], commands, runs, launched, now)
+			}
 		}
 		r.forgetEnded(processes)
+	} else if goblin.HarnessPID != 0 && processErr == nil {
+		// Everything the harness ran ended with it, however its record left
+		// it.
+		for i := range tree.Children {
+			child := &tree.Children[i]
+			if child.Kind != KindGate && (child.State == Working || child.State == Silent) {
+				finish(child, Failed, later(child.LastActivity, child.Started))
+				child.LastLine = "ended with its harness"
+			}
+		}
 	}
 	if node, ok := r.gateNode(ctx, meta, processes, now); ok {
 		tree.Children = append(tree.Children, node)
@@ -406,8 +422,13 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 	facts.listens = listens
 	var nodes []Node
 	for _, job := range harness.jobs {
+		isRootRead := true
 		for _, member := range job.members {
-			facts.commands[member.PID] = r.command(member)
+			command, isRead := r.command(member)
+			facts.commands[member.PID] = command
+			if member.PID == job.root.PID {
+				isRootRead = isRead
+			}
 		}
 		group, label, detail := classify(job, facts)
 		key := processKey{job.root.PID, job.root.Created}
@@ -447,27 +468,32 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 			node.Parent = shell
 		}
 		node.lines = jobLines(job, facts.commands)
+		node.isUnread = !isRootRead
 		nodes = append(nodes, node)
 	}
 	return nodes, err
 }
 
-// command is a process's command line, read once in its life.
-func (r *Reader) command(process Process) string {
+// command is a process's command line, read once in its life, and isRead
+// is false while it cannot be read, which is tried again at the next read.
+func (r *Reader) command(process Process) (command string, isRead bool) {
 	if r.commands == nil {
 		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
 	}
 	key := processKey{process.PID, process.Created}
-	command, isRead := r.commands[key]
-	if !isRead {
-		commandLine := r.CommandLine
-		if commandLine == nil {
-			commandLine = proc.CommandLine
-		}
-		command, _ = commandLine(process.PID)
-		r.commands[key] = command
+	if command, isRead = r.commands[key]; isRead {
+		return command, true
 	}
-	return command
+	commandLine := r.CommandLine
+	if commandLine == nil {
+		commandLine = proc.CommandLine
+	}
+	command, err := commandLine(process.PID)
+	if err != nil {
+		return "", false
+	}
+	r.commands[key] = command
+	return command, true
 }
 
 // ownerReads bounds how many processes of one detached tree are asked whose
@@ -581,24 +607,29 @@ func (r *Reader) forgetEnded(processes []Process) {
 	}
 }
 
-// shellOf is the background shell or monitor a job runs for, when the job's
-// first process started with it and evaluates its command, or, as Claude
-// Code runs a PowerShell command, writes to its output file.
+// shellOf is the background shell or monitor a job runs for: of those whose
+// command the job's first process evaluates, or, as Claude Code runs a
+// PowerShell command, whose output file it writes to, the one that started
+// nearest it, between the call that asked for it and when it was said to
+// run, since a call can wait to run, as on a permission prompt.
 func shellOf(job job, commandLine string, commands map[string]string, children []Node) string {
 	command := strings.TrimSpace(shellCommand(commandLine))
+	nearest, apart := "", time.Duration(0)
 	for _, child := range children {
 		if child.Kind != KindShell && child.Kind != KindMonitor || child.State != Working && child.State != Silent {
 			continue
 		}
-		if started := job.root.Started.Sub(child.Started); started <= -shellStartWindow || started >= shellStartWindow {
+		if job.root.Started.Before(child.Started.Add(-shellStartWindow)) || job.root.Started.After(later(child.Started, child.LastActivity).Add(shellStartWindow)) {
 			continue
 		}
 		_, taskID, _ := strings.Cut(child.ID, ":")
-		if command != "" && strings.TrimSpace(commands[child.ID]) == command || strings.Contains(commandLine, `\`+taskID+".output") || strings.Contains(commandLine, "/"+taskID+".output") {
-			return child.ID
+		if command != "" && strings.TrimSpace(commands[child.ID]) == command || strings.Contains(commandLine, `\`+taskID+`.output" 2>&1`) {
+			if distance := job.root.Started.Sub(child.Started).Abs(); nearest == "" || distance < apart {
+				nearest, apart = child.ID, distance
+			}
 		}
 	}
-	return ""
+	return nearest
 }
 
 // console is the process id of the host of the console process pid is

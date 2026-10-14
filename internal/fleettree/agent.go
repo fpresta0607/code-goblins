@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"slices"
 	"strings"
 
@@ -28,27 +29,15 @@ type childRecord struct {
 	output     string
 }
 
-// AgentTranscript is the record the harness keeps of the sub-agent node of
-// task's goblin, as the reader last read that goblin's tree, and the harness
-// that keeps it: Claude Code's transcript of the sub-agent, or a Codex child
-// agent's rollout. It is empty for a node the last read found no record of.
-func (r *Reader) AgentTranscript(task, node string) (string, string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	records := r.records[task]
-	if path := records.children[node].transcript; path != "" {
-		return path, records.harness
-	}
-	return "", ""
-}
-
 // ErrNoRecord says the last read of a goblin's tree kept no output of the
 // child named.
 var ErrNoRecord = errors.New("no output of that child is kept")
 
 // ChildLines are the newest lines of a child of task's goblin's own output,
-// as the reader last read that goblin's tree: a sub-agent's work as its own
-// record holds it (AgentLines), a background shell's command and what it
+// as the reader last read that goblin's tree: a sub-agent's work as the
+// record its harness keeps of it holds it, Claude Code's transcript of the
+// sub-agent or a Codex child agent's rollout (AgentLines), a background
+// shell's command and what it
 // wrote, a monitor's command and its events, the programs a job of
 // processes runs, or a gate run's steps. Never the goblin's, and never
 // another child's.
@@ -62,15 +51,18 @@ func (r *Reader) ChildLines(task, node string) ([]string, error) {
 		return nil, ErrNoRecord
 	case record.transcript != "":
 		return AgentLines(record.transcript, records.harness)
-	case record.output != "":
+	}
+	lines := slices.Clone(record.lines)
+	if record.output != "" {
+		// A shell that wrote nothing yet, or whose output was cleaned up,
+		// has only its command to show.
 		output, err := outputFileLines(record.output)
-		if err != nil {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
-		lines := append(slices.Clone(record.lines), output...)
-		return lines[max(0, len(lines)-ChildLinesKept):], nil
+		lines = append(lines, output...)
 	}
-	return record.lines, nil
+	return lines[max(0, len(lines)-ChildLinesKept):], nil
 }
 
 // outputFileLines are the newest lines a background shell wrote to its

@@ -327,7 +327,7 @@ func (l *claudeLog) notification(text string, at time.Time, isQueued bool) {
 	if child == nil {
 		return
 	}
-	if path := tags["output-file"]; path != "" {
+	if path := tags["output-file"]; strings.HasSuffix(path, ".output") {
 		l.outputs[id] = path
 	}
 	switch tags["status"] {
