@@ -78,10 +78,18 @@ func fromBoard(address string) bool {
 // there.
 const shownMessage = "shown"
 
-// shownScript asks the window's page to say it is there. The window takes
-// the word of a board's page alone, so WebView2's error page, which has no
-// way to answer, counts as no board.
-const shownScript = `window.chrome?.webview?.postMessage("` + shownMessage + `");`
+// shownScript asks the window's page to say it is there and drawing. The
+// window takes the word of a board's page alone, so WebView2's error page,
+// which has no way to answer, counts as no board. A board's page answers once
+// its root holds what it drew and, while it is in sight, once it has drawn a
+// frame: a page whose script never ran or whose app came down holds nothing,
+// and one whose WebView2 cannot draw, such as while its GPU process is held at
+// its start, draws no frame though it stays loaded and in sight.
+const shownScript = `(() => {
+  if (!document.getElementById("root")?.firstElementChild) return;
+  const answer = () => window.chrome?.webview?.postMessage("` + shownMessage + `");
+  if (document.visibilityState === "hidden") answer(); else requestAnimationFrame(answer);
+})();`
 
 // PageStep is what the window does with its page after a look at the board.
 type PageStep int
@@ -89,21 +97,40 @@ type PageStep int
 const (
 	// Leave the page as it is.
 	Leave PageStep = iota
-	// Ask the page whether it is a board's, with shownScript.
+	// Ask the page whether it is a board's and drawing, with shownScript.
 	Ask
 	// Load the board.
 	Load
+	// Repaint: end the WebView2 GPU process, which WebView2 starts again.
+	Repaint
 )
+
+// silentLooks is how many looks in a row a shown window's page may leave
+// unanswered, about ten seconds, before the window mends it: long enough for
+// a page busy drawing, short of leaving him a black window.
+const silentLooks = 3
+
+// retryLooks is how many looks a page that a load and a new GPU process did
+// not mend stays silent before the window tries both again.
+const retryLooks = 20
+
+// mending is what the window does, in turn, for a page that stays silent
+// while the window is shown: load the board, which mends a page whose script
+// or app is gone, then end the GPU process, which mends one whose WebView2
+// GPU process hangs.
+var mending = []PageStep{Load, Repaint}
 
 // Page decides when the window loads its board again. A window that looked
 // for its board while the supervisor was down sits on WebView2's error page,
 // whose own retries grow to half an hour apart, and nothing tells the window
 // that a load failed. So when the board answers again after not answering,
 // the window asks its page whether it is a board's, and loads the board when
-// no board's page has said so by the next look. A board's page that is shown
-// answers at once and is left as it is: it reconnects by itself, and a load
-// would take an answer from under the Overlord's hands. A page that never
-// answers is loaded once each time the board comes back, never in a loop.
+// no board's page has said so by the next look. A board's page that answers
+// is left as it is: it reconnects by itself, and a load would take an answer
+// from under the Overlord's hands. A page that never answers is loaded once
+// each time the board comes back, never in a loop. While the window is shown
+// it asks at every look, since a page can stop drawing with nothing else
+// changing, and mends a page that stays silent, saying so in the window.
 type Page struct {
 	mu sync.Mutex
 	// down: the board did not answer at a look.
@@ -112,28 +139,70 @@ type Page struct {
 	asked bool
 	// shown: a board's page answered since it was asked.
 	shown bool
+	// silent: looks in a row at which the shown window's page had not
+	// answered.
+	silent int
+	// tries: the mending steps taken since the page last answered.
+	tries int
+	// stalled: the window is mending a page that draws nothing.
+	stalled bool
 }
 
-// Look takes whether the board answers now and returns what the window does
-// with its page.
-func (p *Page) Look(answers bool) PageStep {
+// Look takes whether the board answers now and whether the window is shown,
+// and returns what the window does with its page.
+func (p *Page) Look(answers, seen bool) PageStep {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	unanswered := p.asked && !p.shown
+	if p.asked && p.shown {
+		p.down, p.silent, p.tries, p.stalled = false, 0, 0, false
+	}
+	p.asked = false
+	if !seen {
+		p.stalled = false
+	}
 	switch {
 	case !answers:
-		p.down, p.asked = true, false
+		p.down = true
 		return Leave
-	case !p.down:
-		return Leave
-	case !p.asked:
+	case unanswered && p.down:
+		p.down = false
+		return Load
+	case unanswered && seen:
+		p.silent++
+	}
+	if step, ok := p.mend(); ok {
+		return step
+	}
+	if p.down || seen {
 		p.asked, p.shown = true, false
 		return Ask
 	}
-	p.down, p.asked = false, false
-	if p.shown {
-		return Leave
+	return Leave
+}
+
+// mend returns the next mending step once the page has been silent long
+// enough for it.
+func (p *Page) mend() (PageStep, bool) {
+	switch {
+	case p.silent >= silentLooks && p.tries < len(mending):
+	case p.silent >= retryLooks:
+		p.tries = 0
+	default:
+		return Leave, false
 	}
-	return Load
+	step := mending[p.tries]
+	p.tries++
+	p.silent, p.stalled = 0, true
+	return step, true
+}
+
+// Stalled reports whether the window is mending a page that draws nothing,
+// which it says in place of the page.
+func (p *Page) Stalled() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stalled
 }
 
 // Shown notes that a board's page said it is there.

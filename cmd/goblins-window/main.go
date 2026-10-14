@@ -223,6 +223,7 @@ func main() {
 
 	follow := &Follower{StateDir: *stateDir, Current: *board}
 	watcher := &Watcher{}
+	notice := &Notice{}
 	started := time.Now()
 	go func() {
 		for range time.Tick(3 * time.Second) {
@@ -242,13 +243,22 @@ func main() {
 			if moved {
 				window.SetURL(url)
 			} else {
-				switch page.Look(answers) {
+				switch page.Look(answers, !away(window)) {
 				case Ask:
 					window.ExecJS(shownScript)
 				case Load:
+					if page.Stalled() {
+						log.Printf("the board's page drew nothing while the window showed it: loading it again")
+					}
 					window.SetURL(url)
+				case Repaint:
+					log.Printf("the board's page still drew nothing: ending the window's WebView2 GPU process, which WebView2 starts again")
+					if err := endGPU(os.Getpid()); err != nil {
+						log.Printf("end the window's WebView2 GPU process: %v", err)
+					}
 				}
 			}
+			notice.Show(window, page.Stalled())
 			// What newly waits on the Overlord is told from here while he
 			// cannot see the board: its page, which Windows runs at the lowest
 			// priority while it is hidden, tells it late.

@@ -2,9 +2,11 @@ package fleettree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +36,7 @@ func TestReadGivesASubagentItsPromptAsItsTask(t *testing.T) {
 // The board opens a sub-agent's own record as its terminal: Claude Code's
 // transcript of that sub-agent, found by the id its result named or by the
 // .meta.json beside it, and only for a sub-agent of that goblin's tree.
-func TestAgentTranscriptIsTheSubagentsOwnRecord(t *testing.T) {
+func TestChildLinesOfASubagentAreItsOwnRecord(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	goblin, session := claudeGoblin(t, home,
@@ -54,35 +56,38 @@ func TestAgentTranscriptIsTheSubagentsOwnRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, tc := range []struct{ task, node, want string }{
-		{"tree", "subagent:toolu_A", filepath.Join(session, "subagents", "agent-a1.jsonl")},
-		{"tree", "subagent:toolu_B", filepath.Join(session, "subagents", "agent-a9.jsonl")},
-		{"tree", "subagent:toolu_C", ""},
-		{"tree", "shell:b1", ""},
-		{"tree", "subagent:toolu_X", ""},
-		{"other", "subagent:toolu_A", ""},
+	for _, tc := range []struct {
+		task, node string
+		want       []string
+	}{
+		{"tree", "subagent:toolu_A", []string{"● reading"}},
+		{"tree", "subagent:toolu_B", []string{"● finding"}},
+		{"tree", "subagent:toolu_C", nil},
+		{"tree", "subagent:toolu_X", nil},
+		{"other", "subagent:toolu_A", nil},
 	} {
 		t.Run(tc.task+" "+tc.node, func(t *testing.T) {
 			// Act
-			path, harness := reader.AgentTranscript(tc.task, tc.node)
+			lines, err := reader.ChildLines(tc.task, tc.node)
 
 			// Assert
-			if path != tc.want || (path != "" && harness != "claude") {
-				t.Errorf("AgentTranscript = %q, %q; want %q", path, harness, tc.want)
+			if tc.want == nil && !errors.Is(err, ErrNoRecord) || tc.want != nil && (err != nil || !slices.Equal(lines, tc.want)) {
+				t.Errorf("ChildLines = %q, %v; want %q", lines, err, tc.want)
 			}
 		})
 	}
 }
 
 // A Codex child agent's own record is its rollout.
-func TestAgentTranscriptOfACodexChildIsItsRollout(t *testing.T) {
+func TestChildLinesOfACodexChildAreItsRollout(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	worktree := t.TempDir()
 	day := filepath.Join(home, ".codex", "sessions", "2026", "10", "06")
 	writeLines(t, filepath.Join(day, "rollout-2026-10-06T15-00-00-root.jsonl"), at, sessionMeta("root", worktree, "", "", "", at.Add(-time.Hour)))
 	rollout := filepath.Join(day, "rollout-2026-10-06T15-10-00-c1.jsonl")
-	writeLines(t, rollout, at, sessionMeta("c1", worktree, "root", "/root/map_monitor", "Curie", at.Add(-time.Hour)), codexEvent("task_started", at, nil))
+	writeLines(t, rollout, at, sessionMeta("c1", worktree, "root", "/root/map_monitor", "Curie", at.Add(-time.Hour)), codexEvent("task_started", at, nil),
+		object{"type": "response_item", "payload": object{"type": "message", "role": "assistant", "content": []object{{"type": "output_text", "text": "Mapping the monitor"}}}})
 	writeLines(t, filepath.Join(day, "rollout-2026-10-06T15-20-00-x9.jsonl"), at, sessionMeta("x9", worktree, "elsewhere", "/root/other", "Noether", at.Add(-time.Hour)))
 	reader := Reader{Home: home, Now: func() time.Time { return at }}
 	if _, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex", Backend: "native", Worktree: worktree}}); err != nil {
@@ -90,17 +95,17 @@ func TestAgentTranscriptOfACodexChildIsItsRollout(t *testing.T) {
 	}
 
 	// Act
-	path, harness := reader.AgentTranscript("tree", "subagent:c1")
-	other, _ := reader.AgentTranscript("tree", "subagent:x9")
+	lines, err := reader.ChildLines("tree", "subagent:c1")
+	other, otherErr := reader.ChildLines("tree", "subagent:x9")
 
 	// Assert
-	if path != rollout || harness != "codex" || other != "" {
-		t.Errorf("AgentTranscript = %q, %q and another thread's agent %q; want the child's own rollout only", path, harness, other)
+	if err != nil || !slices.Equal(lines, []string{"● Mapping the monitor"}) || !errors.Is(otherErr, ErrNoRecord) {
+		t.Errorf("ChildLines = %q, %v and another thread's agent %q, %v; want the child's own rollout only", lines, err, other, otherErr)
 	}
 }
 
 // What a dead goblin's reader kept is forgotten with it.
-func TestForgetDropsAGoblinsAgentTranscripts(t *testing.T) {
+func TestForgetDropsAGoblinsChildRecords(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	goblin, session := claudeGoblin(t, home,
@@ -116,8 +121,8 @@ func TestForgetDropsAGoblinsAgentTranscripts(t *testing.T) {
 	reader.Forget(map[string]bool{})
 
 	// Assert
-	if path, _ := reader.AgentTranscript("tree", "subagent:toolu_A"); path != "" {
-		t.Errorf("AgentTranscript after Forget = %q, want none", path)
+	if lines, err := reader.ChildLines("tree", "subagent:toolu_A"); !errors.Is(err, ErrNoRecord) {
+		t.Errorf("ChildLines after Forget = %q, %v; want none kept", lines, err)
 	}
 }
 
@@ -208,7 +213,7 @@ func TestAgentLinesKeepTheNewestLines(t *testing.T) {
 	// Arrange
 	path := filepath.Join(t.TempDir(), "agent-a1.jsonl")
 	var entries []any
-	for i := range AgentLinesKept + 50 {
+	for i := range ChildLinesKept + 50 {
 		entries = append(entries, said(fmt.Sprintf("step %d %s", i, strings.Repeat("x", 600)), at))
 	}
 	writeLines(t, path, at, entries...)
@@ -220,8 +225,8 @@ func TestAgentLinesKeepTheNewestLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != AgentLinesKept || !strings.HasPrefix(lines[len(lines)-1], fmt.Sprintf("● step %d ", AgentLinesKept+49)) {
-		t.Fatalf("kept %d lines ending %q, want the newest %d", len(lines), lines[len(lines)-1], AgentLinesKept)
+	if len(lines) != ChildLinesKept || !strings.HasPrefix(lines[len(lines)-1], fmt.Sprintf("● step %d ", ChildLinesKept+49)) {
+		t.Fatalf("kept %d lines ending %q, want the newest %d", len(lines), lines[len(lines)-1], ChildLinesKept)
 	}
 	for _, line := range lines {
 		if len([]rune(line)) > 400 {

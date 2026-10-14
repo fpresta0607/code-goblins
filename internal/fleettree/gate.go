@@ -97,7 +97,7 @@ func gateNode(reading gateReading, born time.Time, processes []Process, usual ma
 	if first.IsZero() || isEnded && !born.IsZero() && first.Before(born) {
 		return Node{}, false
 	}
-	node := Node{ID: "gate:" + reading.progress.RunID, Kind: KindGate, Started: first, LastActivity: last, SourceUpdatedAt: last}
+	node := Node{ID: "gate:" + reading.progress.RunID, Kind: KindGate, Started: first, LastActivity: last, SourceUpdatedAt: last, lines: gateLines(reading.steps)}
 	for _, step := range reading.steps {
 		word, active := gateWords[step.Status]
 		// An ended run's step records name no work going on, only the step
@@ -131,6 +131,20 @@ func gateNode(reading gateReading, born time.Time, processes []Process, usual ma
 	}
 	node.Label, node.State, node.Detail, node.Finished = ended.label, ended.state, ended.detail, last
 	return node, true
+}
+
+// gateLines are a gate run's own output on the board: each of its steps
+// with its status and what it last did.
+func gateLines(steps []pipeline.StepDetail) []string {
+	lines := []string{}
+	for _, step := range steps {
+		line := step.Name + ": " + strings.ReplaceAll(step.Status, "_", " ")
+		if activity := firstLine(step.LastActivity); activity != "" {
+			line += ", " + activity
+		}
+		lines = append(lines, bounded(line, agentLineLimit))
+	}
+	return lines
 }
 
 // agentMemory is the private memory of a gate step's agent and everything
