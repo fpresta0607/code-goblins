@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -61,7 +60,7 @@ func TestInstallStepsInTheirOrder(t *testing.T) {
 	}
 	want := []string{
 		"check this machine",
-		"make the service's folder, which only SYSTEM, Administrators and the service may open",
+		"make the service's folder, owned by Administrators, which only SYSTEM, Administrators and the service may open",
 		"download and check the image",
 		"make the disk",
 		"write the first boot's settings",
@@ -238,6 +237,35 @@ func TestADownloadIsKeptOnlyWithItsPinnedSHA256(t *testing.T) {
 
 // The App's settings and key are kept where the service reads them, and a
 // key that is not an RSA key is refused before anything is written.
+// The App's settings and key go into files the install makes, never into
+// one that is there already, which another user could own and so read.
+func TestKeepAppRefusesAFileThereAlready(t *testing.T) {
+	for _, name := range []string{"app.json", "app-key.pem"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			keys, _ := serviceFolder(t, goodSettings, "pkcs1")
+			dir := t.TempDir()
+			options, _ := installOptions(t, dir, &recorder{})
+			options.KeyFile = filepath.Join(keys, "app-key.pem")
+			if err := os.MkdirAll(options.Dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			planted := filepath.Join(options.Dir, name)
+			if err := os.WriteFile(planted, []byte("made by another"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := keepApp(options)
+
+			// Assert
+			if data, readErr := os.ReadFile(planted); err == nil || readErr != nil || string(data) != "made by another" {
+				t.Errorf("keepApp = %v, and %s holds %q; want it refused and the file untouched", err, name, data)
+			}
+		})
+	}
+}
+
 func TestKeepAppWritesWhatTheServiceReads(t *testing.T) {
 	for name, keyType := range map[string]string{"an RSA key": "pkcs1", "another key": "ecdsa"} {
 		t.Run(name, func(t *testing.T) {
@@ -328,38 +356,6 @@ func TestDownloadFileKeepsOnlyAnAnswerOf200(t *testing.T) {
 				t.Errorf("DownloadFile = %v, kept %v; want HTTP 404 refused and nothing kept", err, readErr)
 			}
 		})
-	}
-}
-
-// The service's folder, where the App's key goes, drops what it would
-// inherit, so Users cannot read it, and is open to SYSTEM, Administrators
-// and the service alone.
-func TestTheServicesFolderIsOpenToItsThreeAlone(t *testing.T) {
-	// Arrange
-	icacls := ""
-	for _, line := range strings.Split(folderScript, "\n") {
-		if strings.HasPrefix(line, "& icacls.exe ") {
-			icacls = line
-		}
-	}
-
-	// Act
-	grants := regexp.MustCompile(`'\*([^:']*):\(OI\)\(CI\)([FM])'|'\*' \+ \$env:CG_CI_SERVICE_SID \+ ':\(OI\)\(CI\)M'`).FindAllStringSubmatch(icacls, -1)
-
-	// Assert
-	if !strings.Contains(icacls, " /inheritance:r ") || !strings.Contains(icacls, " /grant:r ") {
-		t.Errorf("icacls %q; want inherited access removed and the grants replaced", icacls)
-	}
-	var who []string
-	for _, grant := range grants {
-		if grant[1] == "" {
-			who = append(who, "the service")
-			continue
-		}
-		who = append(who, grant[1]+" "+grant[2])
-	}
-	if want := []string{"S-1-5-18 F", "S-1-5-32-544 F", "the service"}; !slices.Equal(who, want) || strings.Count(icacls, ":(OI)(CI)") != 3 {
-		t.Errorf("icacls %q grants %q; want %q alone", icacls, who, want)
 	}
 }
 

@@ -58,6 +58,15 @@ func rightMachine() machine {
 		VMMemoryMaximum:                 6 << 30,
 		IsCheckpoint:                    true,
 		FolderAccess:                    []string{"S-1-5-18", "S-1-5-32-544", ServiceSID(ServiceName), "S-1-5-18"},
+		ServiceProgram:                  `C:\Program Files\Code Goblins\ci-runner\cg-ci-runner.exe`,
+		Owners: map[string]string{
+			"the service folder's parent": "S-1-5-32-544",
+			"the service folder":          "S-1-5-32-544",
+			"the App's settings":          "S-1-5-32-544",
+			"the App's key":               "S-1-5-32-544",
+			"the VM's folder":             "S-1-5-32-544",
+			"the program's folder":        "S-1-5-32-544",
+		},
 	}
 }
 
@@ -68,16 +77,21 @@ func TestCheckMachineSaysWhatIsNotAsTheInstallLeftIt(t *testing.T) {
 		change func(*machine)
 		want   string
 	}{
-		"as the install left it":    {change: func(*machine) {}},
-		"a stopped service":         {change: func(m *machine) { m.ServiceState = "Stopped" }, want: "it is Stopped"},
-		"a service as LocalSystem":  {change: func(m *machine) { m.ServiceAccount = "LocalSystem" }, want: "it runs as LocalSystem"},
-		"an account out of Hyper-V": {change: func(m *machine) { m.IsServiceInHyperVAdministrators = false }, want: "it is not"},
-		"a folder open to Users":    {change: func(m *machine) { m.FolderAccess = append(m.FolderAccess, "S-1-5-32-545") }, want: "S-1-5-32-545"},
-		"a folder inheriting":       {change: func(m *machine) { m.IsFolderInheriting = true }, want: "inheriting true"},
-		"no VM":                     {change: func(m *machine) { m.IsVM = false }, want: "is here false"},
-		"a VM with 8 processors":    {change: func(m *machine) { m.VMProcessors = 8 }, want: "8 processors"},
-		"a VM with more memory":     {change: func(m *machine) { m.VMMemoryMaximum = 8 << 30 }, want: "8589934592 bytes"},
-		"no clean checkpoint":       {change: func(m *machine) { m.IsCheckpoint = false }, want: "it is not"},
+		"as the install left it":         {change: func(*machine) {}},
+		"a stopped service":              {change: func(m *machine) { m.ServiceState = "Stopped" }, want: "it is Stopped"},
+		"a service as LocalSystem":       {change: func(m *machine) { m.ServiceAccount = "LocalSystem" }, want: "it runs as LocalSystem"},
+		"an account out of Hyper-V":      {change: func(m *machine) { m.IsServiceInHyperVAdministrators = false }, want: "it is not"},
+		"a folder open to Users":         {change: func(m *machine) { m.FolderAccess = append(m.FolderAccess, "S-1-5-32-545") }, want: "S-1-5-32-545"},
+		"a folder inheriting":            {change: func(m *machine) { m.IsFolderInheriting = true }, want: "inheriting true"},
+		"no VM":                          {change: func(m *machine) { m.IsVM = false }, want: "is here false"},
+		"a VM with 8 processors":         {change: func(m *machine) { m.VMProcessors = 8 }, want: "8 processors"},
+		"a VM with more memory":          {change: func(m *machine) { m.VMMemoryMaximum = 8 << 30 }, want: "8589934592 bytes"},
+		"no clean checkpoint":            {change: func(m *machine) { m.IsCheckpoint = false }, want: "it is not"},
+		"a key the user owns":            {change: func(m *machine) { m.Owners["the App's key"] = "S-1-5-21-1-2-3-1001" }, want: "the App's key is owned by S-1-5-21-1-2-3-1001"},
+		"a parent the user owns":         {change: func(m *machine) { m.Owners["the service folder's parent"] = "S-1-5-21-1-2-3-1001" }, want: "the service folder's parent is owned by S-1-5-21-1-2-3-1001"},
+		"an owner unread":                {change: func(m *machine) { delete(m.Owners, "the VM's folder") }, want: "5 of its 6 owners were read"},
+		"a program in Downloads":         {change: func(m *machine) { m.ServiceProgram = `C:\Users\u\Downloads\cg-ci-runner.exe` }, want: `it runs C:\Users\u\Downloads\cg-ci-runner.exe`},
+		"a program beside Program Files": {change: func(m *machine) { m.ServiceProgram = `C:\Program Files Evil\cg-ci-runner.exe` }, want: "Program Files Evil"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -85,7 +99,7 @@ func TestCheckMachineSaysWhatIsNotAsTheInstallLeftIt(t *testing.T) {
 			row.change(&found)
 
 			// Act
-			findings := checkMachine(found)
+			findings := checkMachine(found, `C:\Program Files`)
 
 			// Assert
 			var problems []string

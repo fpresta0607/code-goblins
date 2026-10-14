@@ -31,9 +31,6 @@ const (
 	fleetAccess = "0x12019b"
 )
 
-// ErrNotServing is a pipe no service answers on.
-var ErrNotServing = errors.New("cirunner: the CI runner service is not running")
-
 // Begin takes the pipe name, then puts back what a stop mid-job left
 // (Service.Start), so the name is the service's from its first moment, and
 // no process can make the pipe while the service starts and answer the

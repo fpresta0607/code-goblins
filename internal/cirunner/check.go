@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -24,7 +25,12 @@ type Finding struct {
 var appPermissions = map[string]string{"administration": "write", "actions": "read", "metadata": "read"}
 
 // machineScript reads, as JSON, what the install made on this machine.
-const machineScript = `$service = Get-CimInstance -ClassName Win32_Service -Filter "Name='` + ServiceName + `'"
+const machineScript = `function Get-Owner([string]$Path) {
+    if ($Path -and (Test-Path -LiteralPath $Path)) { (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier]).Value } else { '' }
+}
+$service = Get-CimInstance -ClassName Win32_Service -Filter "Name='` + ServiceName + `'"
+$program = ''
+if ([string]$service.PathName -match '^"([^"]+)"') { $program = $Matches[1] }
 $vm = Get-VM -Name '` + VMName + `' -ErrorAction SilentlyContinue
 $members = @(Get-LocalGroupMember -SID 'S-1-5-32-578' | ForEach-Object { $_.SID.Value })
 $acl = Get-Acl -LiteralPath $env:CG_CI_DIR
@@ -39,6 +45,15 @@ $acl = Get-Acl -LiteralPath $env:CG_CI_DIR
   is_checkpoint = [bool](Get-VMSnapshot -VMName '` + VMName + `' -Name '` + CleanCheckpoint + `' -ErrorAction SilentlyContinue)
   is_folder_inheriting = -not $acl.AreAccessRulesProtected
   folder_access = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value })
+  service_program = $program
+  owners = [ordered]@{
+    "the service folder's parent" = Get-Owner (Split-Path -Parent $env:CG_CI_DIR)
+    "the service folder" = Get-Owner $env:CG_CI_DIR
+    "the App's settings" = Get-Owner (Join-Path $env:CG_CI_DIR 'app.json')
+    "the App's key" = Get-Owner (Join-Path $env:CG_CI_DIR 'app-key.pem')
+    "the VM's folder" = Get-Owner (Join-Path $env:CG_CI_DIR 'vm')
+    "the program's folder" = Get-Owner $(if ($program) { Split-Path -Parent $program } else { '' })
+  }
 } | ConvertTo-Json -Compress`
 
 // machine is what machineScript reads.
@@ -53,6 +68,10 @@ type machine struct {
 	IsCheckpoint                    bool     `json:"is_checkpoint"`
 	IsFolderInheriting              bool     `json:"is_folder_inheriting"`
 	FolderAccess                    []string `json:"folder_access"`
+	// ServiceProgram is the program the service runs, and Owners the owner of
+	// each of the folders and files the service trusts, by what it is.
+	ServiceProgram string            `json:"service_program"`
+	Owners         map[string]string `json:"owners"`
 }
 
 // CheckOptions are what the check reads: the service's folder and its one
@@ -74,10 +93,14 @@ func Check(ctx context.Context, o CheckOptions) []Finding {
 	if err == nil {
 		err = json.Unmarshal([]byte(output), &found)
 	}
+	programFiles, folderErr := programFilesFolder()
+	if err == nil {
+		err = folderErr
+	}
 	if err != nil {
 		findings = append(findings, Finding{Checked: "this machine", Problem: err.Error()})
 	} else {
-		findings = append(findings, checkMachine(found)...)
+		findings = append(findings, checkMachine(found, programFiles)...)
 	}
 	installation, err := o.Installation(ctx)
 	if err != nil {
@@ -96,8 +119,9 @@ func Check(ctx context.Context, o CheckOptions) []Finding {
 }
 
 // checkMachine says what of the service, its account, its folder and its VM
-// is not as the install left them.
-func checkMachine(found machine) []Finding {
+// is not as the install left them, with programFiles the folder the service's
+// program must be in.
+func checkMachine(found machine, programFiles string) []Finding {
 	serviceSID := ServiceSID(ServiceName)
 	finding := func(checked string, isRight bool, problem string) Finding {
 		if isRight {
@@ -110,11 +134,23 @@ func checkMachine(found machine) []Finding {
 	access = slices.Compact(access)
 	wantAccess := []string{"S-1-5-18", "S-1-5-32-544", serviceSID}
 	sort.Strings(wantAccess)
+	var owned []string
+	for _, what := range slices.Sorted(maps.Keys(found.Owners)) {
+		if owner := found.Owners[what]; !slices.Contains([]string{"S-1-5-18", "S-1-5-32-544", serviceSID}, owner) {
+			owned = append(owned, what+" is owned by "+orNothing(owner))
+		}
+	}
+	if len(found.Owners) != 6 {
+		owned = append(owned, fmt.Sprintf("%d of its 6 owners were read", len(found.Owners)))
+	}
+	relative, relErr := filepath.Rel(programFiles, found.ServiceProgram)
 	return []Finding{
 		finding("the service runs", found.ServiceState == "Running", "it is "+orNothing(found.ServiceState)),
 		finding("the service runs as NT SERVICE\\"+ServiceName, strings.EqualFold(found.ServiceAccount, "NT SERVICE\\"+ServiceName), "it runs as "+orNothing(found.ServiceAccount)),
 		finding("the service's account is in Hyper-V Administrators", found.IsServiceInHyperVAdministrators, "it is not"),
 		finding("the service's folder is open to SYSTEM, Administrators and the service alone", !found.IsFolderInheriting && slices.Equal(access, wantAccess), fmt.Sprintf("it is open to %s, inheriting %v", strings.Join(access, ", "), found.IsFolderInheriting)),
+		finding("what the service trusts is owned by SYSTEM, Administrators or the service", len(owned) == 0, strings.Join(owned, ", and ")),
+		finding("the service runs its program from "+programFiles, found.ServiceProgram != "" && relErr == nil && filepath.IsLocal(relative), "it runs "+orNothing(found.ServiceProgram)),
 		finding("the VM "+VMName+" is here, generation 2, with 4 processors and 6 GB at most", found.IsVM && found.VMGeneration == 2 && found.VMProcessors == 4 && found.VMMemoryMaximum == 6<<30, fmt.Sprintf("is here %v, generation %d, %d processors, %d bytes at most", found.IsVM, found.VMGeneration, found.VMProcessors, found.VMMemoryMaximum)),
 		finding("the VM's "+CleanCheckpoint+" checkpoint is here", found.IsCheckpoint, "it is not"),
 	}

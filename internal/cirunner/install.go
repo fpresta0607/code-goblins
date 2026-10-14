@@ -86,19 +86,41 @@ func ServiceSID(name string) string {
 	return strings.Join(parts, "-")
 }
 
+// folderCheckScript refuses a service folder that is here already, and a
+// parent folder that is a link or is owned by anyone but SYSTEM and
+// Administrators. The install makes the folder itself, owned by
+// Administrators, since whoever made it first owns it, and an owner may
+// change its access at any time and read the App's key once it lands.
+const folderCheckScript = `if (Test-Path -LiteralPath $env:CG_CI_DIR) { throw ($env:CG_CI_DIR + ' is here already, and the install makes it itself, so that no other user made it: uninstall the runner first, or remove it') }
+$parent = Split-Path -Parent $env:CG_CI_DIR
+if (Test-Path -LiteralPath $parent) {
+    if ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw ($parent + ' is a link, so the install will not make the service folder in it') }
+    $owner = (Get-Acl -LiteralPath $parent).GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-18' -and $owner -ne 'S-1-5-32-544') { throw ($parent + ' is owned by ' + $owner + ', not SYSTEM or Administrators, so the install will not make the service folder in it') }
+}`
+
 // The install's scripts. Each takes the paths it needs from the environment,
 // never in its text, and names the VM, its checkpoint and the service only as
 // the constants they are.
 const (
-	checkScript = `if (-not (Get-Command Get-VM -ErrorAction SilentlyContinue)) { throw 'Hyper-V is not on: turn on the Hyper-V feature, restart, and run the install again' }
+	checkScript = folderCheckScript + `
+if (-not (Get-Command Get-VM -ErrorAction SilentlyContinue)) { throw 'Hyper-V is not on: turn on the Hyper-V feature, restart, and run the install again' }
 if (Get-VM -Name '` + VMName + `' -ErrorAction SilentlyContinue) { throw 'a VM named ` + VMName + ` is here already: uninstall the runner first' }
 if (Get-Service -Name '` + ServiceName + `' -ErrorAction SilentlyContinue) { throw 'the ` + ServiceName + ` service is here already: uninstall the runner first' }
 $null = Get-VMSwitch -Name 'Default Switch'
 $free = (Get-Item -LiteralPath $env:CG_CI_ROOT).PSDrive.Free
 if ($free -lt [int64]$env:CG_CI_FREE) { throw ('the drive holds ' + [math]::Floor($free / 1GB) + ' GB free, and the runner needs ' + [math]::Floor([int64]$env:CG_CI_FREE / 1GB)) }`
-	folderScript = `$null = New-Item -ItemType Directory -Force -Path $env:CG_CI_DIR
-& icacls.exe $env:CG_CI_DIR /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ('*' + $env:CG_CI_SERVICE_SID + ':(OI)(CI)M') /Q
-if ($LASTEXITCODE -ne 0) { throw ('icacls failed with exit ' + $LASTEXITCODE) }`
+	folderScript = `function New-HeldFolder([string]$Path, [string]$Sddl) {
+    if (Test-Path -LiteralPath $Path) { throw ($Path + ' is here already, and the install makes it itself') }
+    $security = New-Object Security.AccessControl.DirectorySecurity
+    $security.SetSecurityDescriptorSddlForm($Sddl)
+    $null = [IO.Directory]::CreateDirectory($Path, $security)
+    $owner = (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544' -or @(Get-ChildItem -LiteralPath $Path -Force).Count -ne 0) { throw ($Path + ' was made by another before the install made it') }
+}
+$parent = Split-Path -Parent $env:CG_CI_DIR
+if (-not (Test-Path -LiteralPath $parent)) { New-HeldFolder $parent 'O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)' }
+New-HeldFolder $env:CG_CI_DIR ('O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;' + $env:CG_CI_SERVICE_SID + ')')`
 	diskScript = `Convert-VHD -Path $env:CG_CI_VHD -DestinationPath $env:CG_CI_DISK -VHDType Dynamic
 Resize-VHD -Path $env:CG_CI_DISK -SizeBytes 64GB
 Remove-Item -LiteralPath $env:CG_CI_VHD, $env:CG_CI_IMAGE`
@@ -135,7 +157,7 @@ func InstallSteps(o InstallOptions) []Step {
 	disk := filepath.Join(vmDir, "disk.vhdx")
 	settings := filepath.Join(vmDir, "settings.vhdx")
 	settingsFiles := filepath.Join(vmDir, "settings")
-	checkEnv := []string{"CG_CI_ROOT=" + filepath.VolumeName(o.Dir) + `\`, "CG_CI_FREE=" + strconv.Itoa(minimumFree)}
+	checkEnv := []string{"CG_CI_DIR=" + o.Dir, "CG_CI_ROOT=" + filepath.VolumeName(o.Dir) + `\`, "CG_CI_FREE=" + strconv.Itoa(minimumFree)}
 	folderEnv := []string{"CG_CI_DIR=" + o.Dir, "CG_CI_SERVICE_SID=" + ServiceSID(ServiceName)}
 	diskEnv := []string{"CG_CI_VHD=" + vhd, "CG_CI_DISK=" + disk, "CG_CI_IMAGE=" + image}
 	settingsEnv := []string{"CG_CI_SETTINGS=" + settings, "CG_CI_SETTINGS_FILES=" + settingsFiles}
@@ -146,11 +168,16 @@ func InstallSteps(o InstallOptions) []Step {
 	return []Step{
 		{
 			Title: "check this machine",
-			Says:  scriptSays(checkScript, checkEnv...),
-			Run:   runScript(o.Commands, "check this machine", checkScript, checkEnv...),
+			Says:  append([]string{"refuse the program unless it is in Program Files: " + o.Program}, scriptSays(checkScript, checkEnv...)...),
+			Run: func(ctx context.Context) error {
+				if err := checkProgram(o.Program); err != nil {
+					return err
+				}
+				return runScript(o.Commands, "check this machine", checkScript, checkEnv...)(ctx)
+			},
 		},
 		{
-			Title: "make the service's folder, which only SYSTEM, Administrators and the service may open",
+			Title: "make the service's folder, owned by Administrators, which only SYSTEM, Administrators and the service may open",
 			Says:  scriptSays(folderScript, folderEnv...),
 			Run:   runScript(o.Commands, "make the service's folder", folderScript, folderEnv...),
 		},
@@ -226,6 +253,20 @@ func InstallSteps(o InstallOptions) []Step {
 			Run:   func(ctx context.Context) error { return ready(ctx, o.Ask, o.Sleep, readyLimit) },
 		},
 	}
+}
+
+// checkProgram refuses a program outside Program Files, which only
+// Administrators may change. The service runs it in Hyper-V Administrators,
+// holding the App's key, so whoever may change the program owns both.
+func checkProgram(program string) error {
+	programFiles, err := programFilesFolder()
+	if err != nil {
+		return err
+	}
+	if relative, err := filepath.Rel(programFiles, program); err != nil || !filepath.IsLocal(relative) {
+		return fmt.Errorf("cirunner: %s is not in %s, which only Administrators may change, so the service will not run it: install from the release's ci-runner-install.ps1, which puts it there", program, programFiles)
+	}
+	return nil
 }
 
 // runScript is a step's run of script in Windows PowerShell with commands,
@@ -330,17 +371,29 @@ func keepApp(o InstallOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(o.Dir, "app.json"), append(settings, '\n'), 0o600); err != nil {
+	if err := writeNew(filepath.Join(o.Dir, "app.json"), append(settings, '\n')); err != nil {
 		return err
 	}
 	data, err := fsx.ReadFile(o.KeyFile)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(o.Dir, "app-key.pem"), data, 0o600); err != nil {
+	if err := writeNew(filepath.Join(o.Dir, "app-key.pem"), data); err != nil {
 		return err
 	}
 	_, _, err = ReadConfig(o.Dir)
+	return err
+}
+
+// writeNew writes data to a file at path that is not there yet, so a file
+// another user made, and owns, never holds the App's settings or key.
+func writeNew(path string, data []byte) (failure error) {
+	file, err := fsx.CreateNew(path, 0o600)
+	if err != nil {
+		return fmt.Errorf("cirunner: make %s: %w", path, err)
+	}
+	defer func() { failure = errors.Join(failure, file.Close()) }()
+	_, err = file.Write(data)
 	return err
 }
 
