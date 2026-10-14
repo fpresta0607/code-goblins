@@ -1,13 +1,16 @@
 package fleettree
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,13 +48,16 @@ type Reader struct {
 	// job is shown. It is asked once for each process that reaches no
 	// harness, since a mark never changes.
 	Owner func(pid int) string
+	// Console reads the process id of the host of the console a process is
+	// attached to; nil reads it through Windows.
+	Console func(pid int) (int, error)
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
 	mu           sync.Mutex
 	owners       map[processKey]string
 	logs         map[string]*claudeLog
-	agents       map[string]agentRecords
+	records      map[string]childRecords
 	rolloutMetas map[string]rolloutMeta
 	commands     map[processKey]string
 	readings     map[processKey]cpuReading
@@ -130,8 +136,8 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	}
 
 	path, metas := r.conversation(ctx, goblin, harness.harness, isRunning)
-	var shellCommands map[string]string
-	delete(r.agents, meta.ID)
+	var commands map[string]string
+	records := childRecords{harness: strings.ToLower(meta.Harness), children: map[string]childRecord{}}
 	switch strings.ToLower(meta.Harness) {
 	case "claude":
 		if path == "" {
@@ -144,8 +150,8 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		}
 		tree.ConversationAt = log.writtenAt()
 		tree.Children = append(tree.Children, log.nodes(now)...)
-		shellCommands = log.commands
-		r.keepAgents(meta.ID, "claude", log.transcripts)
+		commands = log.commands
+		maps.Copy(records.children, log.records)
 	case "codex":
 		if path == "" {
 			tree.Unread = append(tree.Unread, "conversation: no Codex rollout of this goblin's own")
@@ -155,7 +161,9 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		if root := metas[path].id; root != "" {
 			children, rollouts := codexChildren(metas, root)
 			tree.Children = append(tree.Children, children...)
-			r.keepAgents(meta.ID, "codex", rollouts)
+			for node, rollout := range rollouts {
+				records.children[node] = childRecord{transcript: rollout}
+			}
 		}
 	case "pi":
 		// pi 0.85 records no sub-agents and no background jobs; only its
@@ -172,26 +180,64 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 				child.LastLine = "ended with an earlier run of its harness"
 			}
 		}
-		jobs, err := r.jobNodes(harness, shellCommands, tree.Children, now)
+		jobs, err := r.jobNodes(harness, commands, tree.Children, now)
 		if err != nil {
 			tree.Unread = append(tree.Unread, "listening ports: "+err.Error())
 		}
-		tree.Children = mergeShells(append(tree.Children, jobs...))
-		// A detached job is shown beside the others and is no shell's. A run
-		// or a script at work in one is the goblin's work, as a test suite a
-		// script started in the background is. A server or a browser left
-		// detached serves or draws whatever the goblin does, so its processor
-		// use says nothing of the goblin's work.
-		left, _ := r.jobNodes(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)}, nil, nil, now)
-		for _, node := range left {
+		// countsIn is the child each process of the harness's jobs counts in.
+		countsIn := map[int]string{}
+		for i, job := range harness.jobs {
+			for _, member := range job.members {
+				countsIn[member.PID] = cmp.Or(jobs[i].Parent, jobs[i].ID)
+			}
+		}
+		// A detached job is the goblin's work. A run or a script at work in
+		// one is, as a test suite a script started in the background is. A
+		// server or a browser left detached serves or draws whatever the
+		// goblin does, so its processor use says nothing of the goblin's
+		// work. Git Bash runs each program of a pipeline or a loop by
+		// replacing its own process, which leaves the program no parent, so
+		// a detached job counts in the child whose processes host the console
+		// it is attached to.
+		detached := r.detachedJobs(meta.ID, processes, harness)
+		left, _ := r.jobNodes(harnessProcesses{jobs: detached}, commands, tree.Children, now)
+		for i := range left {
+			node := &left[i]
 			node.Detached = true
 			if node.Group == GroupDevServer || node.Group == GroupBrowser {
 				node.cpu, node.process, node.outsideWork = 0, "", true
 			}
 			tree.Memory += node.Memory
-			tree.Children = append(tree.Children, node)
+			if node.Parent == "" {
+				node.Parent = countsIn[r.console(detached[i].root.PID)]
+			}
+		}
+		jobs = append(jobs, left...)
+		runs := map[string]bool{}
+		for _, job := range jobs {
+			runs[job.Parent] = true
+		}
+		// A job whose command line could not be read may be any child's, so
+		// no child is judged by its processes while one cannot be.
+		isJudged := !slices.ContainsFunc(jobs, func(job Node) bool { return job.isUnread })
+		tree.Children, tree.own = drawn(mergeShells(append(tree.Children, jobs...)))
+		launched := harness.top.Started.Add(HarnessLaunch)
+		for i := range tree.Children {
+			if isJudged {
+				endUnseen(&tree.Children[i], commands, runs, launched, now)
+			}
 		}
 		r.forgetEnded(processes)
+	} else if goblin.HarnessPID != 0 && processErr == nil {
+		// Everything the harness ran ended with it, however its record left
+		// it.
+		for i := range tree.Children {
+			child := &tree.Children[i]
+			if child.Kind != KindGate && (child.State == Working || child.State == Silent) {
+				finish(child, Failed, later(child.LastActivity, child.Started))
+				child.LastLine = "ended with its harness"
+			}
+		}
 	}
 	if node, ok := r.gateNode(ctx, meta, processes, now); ok {
 		tree.Children = append(tree.Children, node)
@@ -205,7 +251,14 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		settle(child, now)
 		child.FetchedAt = now
 		tree.SourceUpdatedAt = later(tree.SourceUpdatedAt, child.SourceUpdatedAt)
+		if _, isKept := records.children[child.ID]; !isKept && child.lines != nil {
+			records.children[child.ID] = childRecord{lines: child.lines}
+		}
 	}
+	if r.records == nil {
+		r.records = map[string]childRecords{}
+	}
+	r.records[meta.ID] = records
 	if isRunning {
 		tree.SourceUpdatedAt = now
 	}
@@ -321,9 +374,9 @@ func (r *Reader) Forget(live map[string]bool) {
 			delete(r.logs, task)
 		}
 	}
-	for task := range r.agents {
+	for task := range r.records {
 		if !live[task] {
-			delete(r.agents, task)
+			delete(r.records, task)
 		}
 	}
 	for task := range r.gates {
@@ -356,7 +409,7 @@ func claudeProcessSession(home string, harness Process) string {
 // jobNodes are the jobs the harness started, each with what it is doing,
 // its memory and whether it is using the processor. err says the listening
 // ports could not be read, so no job reads as a dev server.
-func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]string, children []Node, now time.Time) ([]Node, error) {
+func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, children []Node, now time.Time) ([]Node, error) {
 	if len(harness.jobs) == 0 {
 		return nil, nil
 	}
@@ -369,8 +422,13 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 	facts.listens = listens
 	var nodes []Node
 	for _, job := range harness.jobs {
+		isRootRead := true
 		for _, member := range job.members {
-			facts.commands[member.PID] = r.command(member)
+			command, isRead := r.command(member)
+			facts.commands[member.PID] = command
+			if member.PID == job.root.PID {
+				isRootRead = isRead
+			}
 		}
 		group, label, detail := classify(job, facts)
 		key := processKey{job.root.PID, job.root.Created}
@@ -406,30 +464,36 @@ func (r *Reader) jobNodes(harness harnessProcesses, shellCommands map[string]str
 		if job.isService(facts) {
 			node.cpu, node.process, node.outsideWork = 0, "", true
 		}
-		if shell := shellOf(job, facts.commands[job.root.PID], shellCommands, children); shell != "" {
+		if shell := shellOf(job, facts.commands[job.root.PID], commands, children); shell != "" {
 			node.Parent = shell
 		}
+		node.lines = jobLines(job, facts.commands)
+		node.isUnread = !isRootRead
 		nodes = append(nodes, node)
 	}
 	return nodes, err
 }
 
-// command is a process's command line, read once in its life.
-func (r *Reader) command(process Process) string {
+// command is a process's command line, read once in its life, and isRead
+// is false while it cannot be read, which is tried again at the next read.
+func (r *Reader) command(process Process) (command string, isRead bool) {
 	if r.commands == nil {
 		r.commands, r.readings = map[processKey]string{}, map[processKey]cpuReading{}
 	}
 	key := processKey{process.PID, process.Created}
-	command, isRead := r.commands[key]
-	if !isRead {
-		commandLine := r.CommandLine
-		if commandLine == nil {
-			commandLine = proc.CommandLine
-		}
-		command, _ = commandLine(process.PID)
-		r.commands[key] = command
+	if command, isRead = r.commands[key]; isRead {
+		return command, true
 	}
-	return command
+	commandLine := r.CommandLine
+	if commandLine == nil {
+		commandLine = proc.CommandLine
+	}
+	command, err := commandLine(process.PID)
+	if err != nil {
+		return "", false
+	}
+	r.commands[key] = command
+	return command, true
 }
 
 // ownerReads bounds how many processes of one detached tree are asked whose
@@ -543,28 +607,84 @@ func (r *Reader) forgetEnded(processes []Process) {
 	}
 }
 
-// shellOf is the background shell a job runs for, when the job's first
-// process evaluates that shell's command and started with it.
-func shellOf(job job, commandLine string, shellCommands map[string]string, children []Node) string {
+// shellOf is the background shell or monitor a job runs for: of those whose
+// command the job's first process evaluates, or, as Claude Code runs a
+// PowerShell command, whose output file it writes to, the one that started
+// nearest it, between the call that asked for it and when it was said to
+// run, since a call can wait to run, as on a permission prompt.
+func shellOf(job job, commandLine string, commands map[string]string, children []Node) string {
 	command := strings.TrimSpace(shellCommand(commandLine))
-	if command == "" {
-		return ""
-	}
+	nearest, apart := "", time.Duration(0)
 	for _, child := range children {
-		if child.Kind != KindShell || child.State != Working && child.State != Silent {
+		if child.Kind != KindShell && child.Kind != KindMonitor || child.State != Working && child.State != Silent {
 			continue
 		}
-		started := job.root.Started.Sub(child.Started)
-		if strings.TrimSpace(shellCommands[child.ID]) == command && started > -shellStartWindow && started < shellStartWindow {
-			return child.ID
+		if job.root.Started.Before(child.Started.Add(-shellStartWindow)) || job.root.Started.After(later(child.Started, child.LastActivity).Add(shellStartWindow)) {
+			continue
+		}
+		_, taskID, _ := strings.Cut(child.ID, ":")
+		if command != "" && strings.TrimSpace(commands[child.ID]) == command || strings.Contains(commandLine, `\`+taskID+`.output" 2>&1`) {
+			if distance := job.root.Started.Sub(child.Started).Abs(); nearest == "" || distance < apart {
+				nearest, apart = child.ID, distance
+			}
 		}
 	}
-	return ""
+	return nearest
 }
 
-// mergeShells folds each job a background shell runs into that shell: the
-// shell carries the job's memory, what it is doing and its processor use,
-// and the job is not listed again.
+// console is the process id of the host of the console process pid is
+// attached to, 0 when it has none or it cannot be read.
+func (r *Reader) console(pid int) int {
+	read := r.Console
+	if read == nil {
+		read = proc.ConsoleHost
+	}
+	host, err := read(pid)
+	if err != nil {
+		return 0
+	}
+	return host
+}
+
+// drawn splits children into those the board draws, and the jobs of the
+// goblin's own commands, which count in the goblin: a job no shell or
+// monitor runs that is no server, test run, build or browser, and no machine
+// service, such as a command the goblin runs in the foreground or a waiter
+// a script left.
+func drawn(children []Node) (shown, own []Node) {
+	shown = []Node{}
+	for _, child := range children {
+		if child.Kind == KindProcess && child.Group == GroupOther && !child.outsideWork {
+			own = append(own, child)
+		} else {
+			shown = append(shown, child)
+		}
+	}
+	return shown, own
+}
+
+// endUnseen ends a background shell or monitor whose processes have all
+// ended once it has been quiet for SilentAfter: Claude Code records no end
+// of one stopped from its own screen or ended with its conversation, and
+// the mark leaves time for the record of one that did end. runs names the
+// children a process still runs for. Only a child whose command is known,
+// and that started after its harness launched, when its processes were read
+// as jobs, is judged.
+func endUnseen(child *Node, commands map[string]string, runs map[string]bool, launched, now time.Time) {
+	if child.Kind != KindShell && child.Kind != KindMonitor || child.State != Working && child.State != Silent {
+		return
+	}
+	quiet := later(child.LastActivity, child.Started)
+	if strings.TrimSpace(commands[child.ID]) == "" || !child.Started.After(launched) || runs[child.ID] || now.Sub(quiet) < SilentAfter {
+		return
+	}
+	finish(child, Done, quiet)
+}
+
+// mergeShells folds each job a background shell or monitor runs into that
+// child: the child carries the job's memory, what it is doing and its
+// processor use, is named by its first job, its own shell, and the job is
+// not listed again.
 func mergeShells(children []Node) []Node {
 	jobs := map[string][]Node{}
 	for _, child := range children {
@@ -580,7 +700,9 @@ func mergeShells(children []Node) []Node {
 		for _, job := range jobs[child.ID] {
 			child.Memory += job.Memory
 			child.cpu += job.cpu
-			child.process = job.process
+			if child.process == "" {
+				child.process = job.process
+			}
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}
