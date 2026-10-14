@@ -30,7 +30,7 @@ func runDeliver(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	file := f.String("file", "", "the file to deliver: a goblin's from its worktree, task scratch or data directory")
 	isDownload := f.Bool("download", false, "offer the file to download on its page: a generated asset or a file the Overlord asked to keep")
 	task := f.String("task", "", "your task ID, run from your own pane; omit only from the registered primary CFO")
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	for _, required := range []struct{ flag, value string }{{"--id", *id}, {"--title", *title}, {"--file", *file}} {

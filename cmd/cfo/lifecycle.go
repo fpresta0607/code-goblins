@@ -30,7 +30,7 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	untilTask := flags.String("until-task", "", "pause until this task delivers")
 	untilPR := flags.String("until-pr", "", "pause until this GitHub pull request merges")
 	revision := flags.String("revision", "", "expected queued task revision")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
 	if err := state.ValidTaskID(args[0]); err != nil {
