@@ -33,6 +33,7 @@ type fetchBoard struct {
 	broker  *browserBroker
 	chrome  *fakeChrome
 	gone    map[string]bool
+	now     *time.Time
 	home    home.Home
 	vault   string
 	request CredentialRequest
@@ -55,14 +56,14 @@ type fetchRead struct {
 func newFetchBoard(t *testing.T, names ...string) *fetchBoard {
 	t.Helper()
 	store, h := testStore(t)
-	broker, chrome, gone, _ := testBroker(t)
+	broker, chrome, gone, now := testBroker(t)
 	broker.state = h.State
 	recipes, err := keypages.Parse(codegoblins.KeyPages)
 	if err != nil {
 		t.Fatal(err)
 	}
 	broker.recipes = recipes
-	b := &fetchBoard{t: t, broker: broker, chrome: chrome, gone: gone, home: h, vault: t.TempDir(), page: map[string]string{
+	b := &fetchBoard{t: t, broker: broker, chrome: chrome, gone: gone, now: now, home: h, vault: t.TempDir(), page: map[string]string{
 		"STRIPE_TEST_PUBLISHABLE_KEY": "pk" + "_test_" + strings.TrimPrefix(newCanary(t), "sk_test_"),
 		"STRIPE_TEST_SECRET_KEY":      newCanary(t),
 	}}
@@ -375,8 +376,9 @@ func TestAFetchRefusesWhatItMustNotReadAndStoresNothing(t *testing.T) {
 		}, false},
 		{"a task that left", func(b *fetchBoard) { b.gone["pd-keys"] = true }, false},
 		{"a login whose sign-in named no account", func(b *fetchBoard) { b.signedIn("") }, false},
-		{"a login lent to a goblin's browser", func(b *fetchBoard) {
-			if _, err := b.broker.attach(context.Background(), "pd-keys", "stripe"); err != nil {
+		{"a login lent to another goblin", func(b *fetchBoard) {
+			brokerTask(t, b.broker, "pd-other", "PrecisionDocs-AI")
+			if _, err := b.broker.attach(context.Background(), "pd-other", "stripe"); err != nil {
 				t.Fatal(err)
 			}
 		}, false},

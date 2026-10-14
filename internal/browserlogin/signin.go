@@ -23,12 +23,12 @@ var accountID = regexp.MustCompile(`^[A-Za-z0-9_-]{0,128}$`)
 // address, page content, password fields, codes, cookies or navigation
 // history.
 func SignedIn(ctx context.Context, address string, provider keypages.Provider) (bool, string, error) {
-	sockets, err := pageSockets(ctx, address)
+	tabs, err := pages(ctx, address)
 	if err != nil {
 		return false, "", err
 	}
-	for _, socket := range sockets {
-		connection, err := cdp.Dial(ctx, socket)
+	for _, tab := range tabs {
+		connection, err := cdp.Dial(ctx, tab.Socket)
 		if err != nil {
 			return false, "", errors.New("the sign-in page did not answer")
 		}
@@ -51,9 +51,16 @@ func SignedIn(ctx context.Context, address string, provider keypages.Provider) (
 // a later check finds settled.
 var errPageChanging = errors.New("the page is loading another document")
 
-// pageSockets are the DevTools sockets of the pages of the browser at
-// address, each refused unless it is that browser's own.
-func pageSockets(ctx context.Context, address string) ([]string, error) {
+// page is one page of a browser: its target ID and its DevTools socket.
+type page struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Socket string `json:"webSocketDebuggerUrl"`
+}
+
+// pages are the pages of the browser at address, each refused unless its
+// socket is that browser's own.
+func pages(ctx context.Context, address string) ([]page, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/json/list", nil)
 	if err != nil {
 		return nil, errors.New("the browser has no usable address")
@@ -66,29 +73,26 @@ func pageSockets(ctx context.Context, address string) ([]string, error) {
 	if response.StatusCode != http.StatusOK {
 		return nil, errors.New("the browser did not list its pages")
 	}
-	var pages []struct {
-		Type   string `json:"type"`
-		Socket string `json:"webSocketDebuggerUrl"`
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&pages); err != nil {
+	var listed []page
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&listed); err != nil {
 		return nil, errors.New("the browser gave no readable page list")
 	}
 	browser, err := url.Parse(address)
 	if err != nil {
 		return nil, errors.New("the browser has no usable address")
 	}
-	var sockets []string
-	for _, page := range pages {
-		if page.Type != "page" {
+	var found []page
+	for _, tab := range listed {
+		if tab.Type != "page" {
 			continue
 		}
-		socket, err := url.Parse(page.Socket)
+		socket, err := url.Parse(tab.Socket)
 		if err != nil || socket.Scheme != "ws" || socket.Host != browser.Host || socket.User != nil {
 			return nil, errors.New("a page is outside its browser")
 		}
-		sockets = append(sockets, page.Socket)
+		found = append(found, tab)
 	}
-	return sockets, nil
+	return found, nil
 }
 
 // pageSignedIn checks the page on connection the way SignedIn does.

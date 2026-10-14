@@ -417,6 +417,11 @@ func (b *browserBroker) closeAll() error {
 // keepBrowsers sweeps the broker's browsers until ctx ends, then closes
 // them.
 func (s *Service) keepBrowsers(ctx context.Context) {
+	// A supervisor that starts runs no fetch, so a seal one that stopped
+	// mid-fetch left behind lifts now.
+	if err := browserlogin.ClearSeals(s.browsers.state); err != nil {
+		s.publish(fmt.Errorf("browser seals: %w", err))
+	}
 	if err := s.browsers.sweep(); err != nil {
 		s.publish(fmt.Errorf("browser logins: %w", err))
 	}
