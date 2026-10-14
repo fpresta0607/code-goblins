@@ -198,6 +198,9 @@ func passesDir() (string, error) {
 // of the key's commands passed, in order, with a record of its execution in
 // the executions store, and tested the key's source.
 func wholePass(key ReuseKey, results []Result) error {
+	if len(key.Commands) == 0 {
+		return errors.New("verify: a tier with no command is no pass")
+	}
 	if len(results) != len(key.Commands) {
 		return fmt.Errorf("verify: %d result(s) of %d command(s) is no whole pass", len(results), len(key.Commands))
 	}

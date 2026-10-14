@@ -693,7 +693,9 @@ func TestVerifyKeepsNoPassOfAFailedTier(t *testing.T) {
 	}
 	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"tiers": ["fast"]}}`)
 	var first bytes.Buffer
-	runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime)
+	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 1 || strings.Contains(first.String(), "can be taken again") {
+		t.Fatalf("the first run exited %d and said %q; want a failure with its key read", exit, first.String())
+	}
 
 	// Act
 	var stdout, stderr bytes.Buffer

@@ -113,6 +113,7 @@ A record without `reuse` runs every time, and so does an unstamped `cfo` build, 
 What the key does not hold can change a check's result unseen: files outside the worktree, the network and services, the time of day, every variable not declared, line endings, modes and the case of a name as docs/pipeline.md says, the Windows build, and a change made and undone between the two reads of the key.
 A `cfo` a tier's command starts from its PATH is another build than the one that verifies, so a tier that runs `cfo` declares `["cfo","version"]` among its tools.
 Files git ignores by `.git/info/exclude` or a user's `core.excludesFile`, as the dependencies and `.env` copies cfo links into a worktree, are no part of the source, so a check that reads them declares them as inputs.
+A dependency folder cfo links in is a junction, which no key reads, so a record declares a file inside it instead, as a lockfile or an install marker.
 A pass is kept for a week at most, and taken only while the execution records it names are kept.
 These same-user records save a local run and approve no GitHub check.
 
