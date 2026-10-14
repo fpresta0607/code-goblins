@@ -102,37 +102,51 @@ func TestReadReuseKeyChangesWithEachInput(t *testing.T) {
 // all be read: an unstamped build, an incomplete source, no default branch
 // to measure the branch against, or a tool that fails.
 func TestReadReuseKeyRefusesWhatItCannotRead(t *testing.T) {
-	for name, arrange := range map[string]func(t *testing.T, dir string) (ReuseKey, project.Reuse){
-		"an unstamped build": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+	for name, row := range map[string]struct {
+		arrange   func(t *testing.T, dir string) (ReuseKey, project.Reuse)
+		wantError string
+	}{
+		"an unstamped build": {wantError: "an unstamped cfo build", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			key := namedKey()
 			key.Executor = "dev"
 			return key, reuseDeclared()
-		},
-		"an incomplete source": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		}},
+		// A sparse checkout leaves a.txt's neighbours off the disk, which the
+		// tree then holds as its commit has them.
+		"an incomplete source": {wantError: "the tree does not hold all of what is on disk", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+			if err := os.RemoveAll(filepath.Join(dir, "build")); err != nil {
+				t.Fatal(err)
+			}
 			gitIn(t, dir, "sparse-checkout", "set", "--no-cone", "/a.txt")
 			return namedKey(), reuseDeclared()
-		},
-		"no default branch": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		}},
+		// With .gitignore off the disk, the build is a file outside the
+		// sparse checkout, which git will not stage.
+		"a source that cannot be read": {wantError: "read the source", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+			gitIn(t, dir, "sparse-checkout", "set", "--no-cone", "/a.txt")
+			return namedKey(), reuseDeclared()
+		}},
+		"no default branch": {wantError: "no default branch", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			gitIn(t, dir, "update-ref", "-d", "refs/remotes/origin/main")
 			return namedKey(), reuseDeclared()
-		},
-		"a tool that fails": func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
+		}},
+		"a tool that fails": {wantError: "read the tool git no-such-command", arrange: func(t *testing.T, dir string) (ReuseKey, project.Reuse) {
 			declared := reuseDeclared()
 			declared.Tools = []project.Command{{"git", "no-such-command"}}
 			return namedKey(), declared
-		},
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dir := reuseWorktree(t)
-			key, declared := arrange(t, dir)
+			key, declared := row.arrange(t, dir)
 
 			// Act
 			read, err := ReadReuseKey(context.Background(), execx.OSRunner{}, dir, key, declared)
 
 			// Assert
-			if err == nil {
-				t.Errorf("ReadReuseKey = %+v; want an error", read)
+			if err == nil || !strings.Contains(err.Error(), row.wantError) {
+				t.Errorf("ReadReuseKey = %+v, %v; want an error that says %q", read, err, row.wantError)
 			}
 		})
 	}
@@ -380,27 +394,36 @@ func TestFindPassFindsNothingInAPassThatIsNotWhole(t *testing.T) {
 }
 
 // A pass file under a key's name that holds another key's pass is no pass of
-// that key.
+// that key, though the other key has the same source and its pass is whole,
+// as only the key itself shows what else the pass depended on.
 func TestFindPassFindsNothingInAPassOfAnotherKey(t *testing.T) {
-	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
-	key, other := sealedKey(), sealedKey()
-	other.Source.Tree = "t2"
-	other.Source.CommitTree = "t2"
-	now := time.Now()
-	if err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(keptAt(other), keptAt(key)); err != nil {
-		t.Fatal(err)
-	}
+	for name, differ := range map[string]func(key *ReuseKey){
+		"another input":    func(key *ReuseKey) { key.Inputs = "i2" },
+		"another base":     func(key *ReuseKey) { key.Base = "b2" },
+		"another tool":     func(key *ReuseKey) { key.Tools = []string{"git version 3"} },
+		"another platform": func(key *ReuseKey) { key.Platform = "windows/arm64" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			key, other := sealedKey(), sealedKey()
+			differ(&other)
+			now := time.Now()
+			if err := KeepPass(other, []Result{passedRun(t, other, other.Commands[0])}, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(keptAt(other), keptAt(key)); err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	pass, err := FindPass(key, now, 24*time.Hour, "t1")
+			// Act
+			pass, err := FindPass(key, now, 24*time.Hour, "t1")
 
-	// Assert
-	if !errors.Is(err, ErrNoPass) {
-		t.Errorf("FindPass = %+v, %v; want ErrNoPass", pass, err)
+			// Assert
+			if !errors.Is(err, ErrNoPass) || !strings.Contains(err.Error(), "is not this key's") {
+				t.Errorf("FindPass = %+v, %v; want ErrNoPass for a pass of another key", pass, err)
+			}
+		})
 	}
 }
 
