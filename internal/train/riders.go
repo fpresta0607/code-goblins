@@ -96,23 +96,34 @@ func (c Check) link() string {
 	return c.DetailsURL
 }
 
-// checksOutcome says how a rollup stands: "none" with no checks, "pending"
-// while any runs, else "passed" or "failed" with the checks that failed.
+// hasRun says whether a concluded check ran: one that was skipped or
+// neutral tested nothing, though GitHub's merge box counts it as passing.
+func (c Check) hasRun() bool {
+	return c.Kind == "StatusContext" || c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+}
+
+// checksOutcome says how a rollup stands: "none" with no checks or none that
+// ran, "pending" while any runs, else "passed" or "failed" with the checks
+// that failed. A draft's run skips its jobs, so a pull request marked ready
+// shows its draft run's skipped checks until its ready run registers, and
+// those are no evidence that anything passed.
 func checksOutcome(checks []Check) (string, []Check) {
-	if len(checks) == 0 {
-		return "none", nil
-	}
 	var failed []Check
+	hasRun := false
 	for _, check := range checks {
 		if !check.isConcluded() {
 			return "pending", nil
 		}
+		hasRun = hasRun || check.hasRun()
 		if !check.isPassed() {
 			failed = append(failed, check)
 		}
 	}
-	if len(failed) > 0 {
+	switch {
+	case len(failed) > 0:
 		return "failed", failed
+	case !hasRun:
+		return "none", nil
 	}
 	return "passed", nil
 }
@@ -186,8 +197,10 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			why = "it conflicts with " + base
 		case pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED":
 			why = "it waits on a review"
-		case outcome == "none":
+		case outcome == "none" && len(pr.Checks) == 0:
 			why = "it has no checks"
+		case outcome == "none":
+			why = "no check ran on its head: every one was skipped"
 		case outcome == "pending":
 			why = "its checks are still running"
 		case outcome == "failed":

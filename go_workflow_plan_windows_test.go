@@ -99,8 +99,8 @@ func TestGoWorkflowJobsStartOnlyAsThePlanSays(t *testing.T) {
 	if include := jobs["go"].Strategy.Matrix.Include; include != "${{ fromJSON(needs.plan.outputs.go) }}" {
 		t.Errorf("the go job runs %q, want the go jobs the plan started", include)
 	}
-	if len(jobs["plan"].Needs) != 0 || jobs["plan"].If != "" {
-		t.Errorf("the plan job needs %v and starts if %q, want it to start with every run", jobs["plan"].Needs, jobs["plan"].If)
+	if want := "${{ " + draftCondition + " }}"; len(jobs["plan"].Needs) != 0 || jobs["plan"].If != want {
+		t.Errorf("the plan job needs %v and starts if %q, want it to start with every run but a draft's, if %q", jobs["plan"].Needs, jobs["plan"].If, want)
 	}
 	checks := ""
 	for _, step := range workflow.Jobs["test"].Steps {

@@ -134,9 +134,9 @@ type prHealthChange struct {
 }
 
 // checksPassed says every check of a pull request has concluded and passed,
-// and that it has one.
+// and that one of them ran rather than being skipped.
 func checksPassed(checks []ghCheck) bool {
-	return len(checks) > 0 && !slices.ContainsFunc(checks, func(check ghCheck) bool { return !check.concluded() || !check.passed() })
+	return slices.ContainsFunc(checks, ghCheck.hasRun) && !slices.ContainsFunc(checks, func(check ghCheck) bool { return !check.concluded() || !check.passed() })
 }
 
 // healthChange says whether pr's head, as record last saw it, has fallen into
@@ -158,12 +158,13 @@ func checksPassed(checks []ghCheck) bool {
 // on 2026-10-10 seven wakes said a goblin's green pull request was behind
 // main, each before its goblin had reported it done. A head whose checks
 // failed or that has none is told, and so is one no train takes, a
-// teammate's and one no live goblin holds.
+// teammate's and one no live goblin holds. A draft that is only behind is
+// told of nobody: it is not yet the head its author means to merge.
 func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now time.Time, isRider func() bool) (prHealthChange, bool) {
 	isAwaitingGitHub := !record.UnknownSince.IsZero() && now.Sub(record.UnknownSince) < mergeabilityGrace
 	isAwaitingChecks := !record.RunningSince.IsZero() && now.Sub(record.RunningSince) < train.RunDeadline
 	isConflicting := pr.Mergeable == "CONFLICTING"
-	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks || checksPassed(pr.Checks) && isRider()) {
+	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || pr.IsDraft || record.HasBehindWake || isAwaitingGitHub || isAwaitingChecks || checksPassed(pr.Checks) && isRider()) {
 		return prHealthChange{}, false
 	}
 	return prHealthChange{pr: pr, behind: behind, isConflicting: isConflicting}, true

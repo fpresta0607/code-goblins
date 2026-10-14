@@ -657,7 +657,13 @@ A secondmate is a specialized persistent goblin that runs from its own isolated 
 The goblin's branch is its deliverable.
 
 - `no-mistakes` — the goblin uses `cfo pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work needing your decision rather than an automatic approval; follow [docs/pipeline.md](docs/pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `cfo pr merge`.
-- `direct-PR` — open the PR (with `gh-axi` or `gh`), record it with `cfo pr check`, and wait for merge authority before `cfo pr merge`.
+- `direct-PR` — open the PR as a draft (`gh pr create --draft`), record it with `cfo pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `cfo pr merge`.
+
+A pull request is a draft until its head is the one its goblin means to merge, so the fix rounds before that start no hosted CI: a repository's workflows skip a draft and run on `ready_for_review`, and each push to a ready pull request runs them again.
+The goblin's first instruction says so for a direct-PR task.
+A gate opens its pull request ready, at the head its review, tests and lint passed, since its `ci` step waits on that pull request's CI: opened as a draft, a workflow that skips drafts would leave the step nothing to wait on, or skipped checks it would read as passed.
+A merge train and `cfo pr merge` take only a ready pull request, and only one on whose head a check ran: a check that was skipped or neutral tested nothing, though GitHub counts it as passing, and a pull request just marked ready shows its draft run's skipped checks until its ready run registers.
+The supervisor raises no `ci_finished` for a draft, and no `pr_health` for a draft that is only behind its base.
 - `local-only` — the goblin stops with a clean branch; land it with `cfo merge-local <id>` only on the Supreme Overlord's word.
 
 `cfo pr merge` and `cfo merge-local` never merge red or divergent work — they refuse loudly. After a merge, tell the Supreme Overlord the full PR URL.
@@ -736,7 +742,7 @@ A click on a train's card opens its panel: every pull request of the batch with 
 While a train runs, hold other merges to its branch: a merge outside it makes the train test again.
 PR health wakes leave alone a train's own pull request and the pull requests a running train carries.
 
-A pull request rides when it is into the default branch from this repository, opened by the account `gh` works as (a teammate's never rides, even one a goblin reported), its goblin's latest reports are `done` naming it, every check on its own head passed, it is not a draft, wants no review, is not in conflict with the base, and carries no `hold` label.
+A pull request rides when it is into the default branch from this repository, opened by the account `gh` works as (a teammate's never rides, even one a goblin reported), its goblin's latest reports are `done` naming it, every check on its own head passed and at least one of them ran rather than being skipped, it is not a draft, wants no review, is not in conflict with the base, and carries no `hold` label.
 Label a pull request `hold` to keep it off every train: one only the Supreme Overlord's word merges (recovery, security, money paths) or one he said to wait on (`gh pr edit <n> --add-label hold`, after `gh label create hold` once per repository).
 A pull request a train found broken stays off trains until its head changes.
 
@@ -777,6 +783,7 @@ A pull request a train found broken stays off trains until its head changes.
   That holds whether the goblin reported the PR `done` yet, whichever of its branches the PR is on, and whether it is held.
   A behind head whose checks are still running raises nothing either: it waits until they conclude, for three hours at most, as long as a train waits for its own run, and is then judged the same way.
   A conflict always wakes you, and so does a behind head whose checks failed or that has none, and one no train will take: a teammate's, and one no live goblin holds.
+  A draft that is only behind raises nothing, since it is not yet the head its author means to merge.
   One GraphQL request compares the watched head SHAs, fork heads included, without conditional ETags for POST reads.
   A poll raises at most one `pr_health` wake of kind `pr` per repository, keyed `health:<owner>/<name>`, naming each PR whose head fell into a condition you were not woken for.
   A goblin's PR names the goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, one CI run and never force-push.

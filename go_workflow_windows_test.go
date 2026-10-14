@@ -312,8 +312,11 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 			if workflow.On.MergeGroup == nil || !slices.Equal(workflow.On.MergeGroup.Types, []string{"checks_requested"}) {
 				t.Errorf("%s runs on merge_group %+v, want types [checks_requested]", name, workflow.On.MergeGroup)
 			}
-			if reads := strings.Count(string(source), "github.event.pull_request"); reads != 1 {
-				t.Errorf("%s reads the pull request's fields %d times, want once, in the concurrency group with its fallback", name, reads)
+			// A job's draft condition reads one field too, which is empty in
+			// a queue run, so the job runs there.
+			reads := strings.Count(string(source), "github.event.pull_request") - strings.Count(string(source), draftCondition)
+			if reads != 1 {
+				t.Errorf("%s reads the pull request's fields %d times beside its draft conditions, want once, in the concurrency group with its fallback", name, reads)
 			}
 		})
 	}
@@ -322,6 +325,7 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
+// The one run it skips is a draft's, which cannot merge.
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	// Arrange
 	jobs := goWorkflowJobs(t)
@@ -341,8 +345,55 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	if len(others) == 0 || !slices.Equal(needs, others) {
 		t.Errorf("test needs %v, want every other job: %v", needs, others)
 	}
-	if check.If != "always()" {
-		t.Errorf("test runs if %q, want always(), so a failed or cancelled job cannot leave it skipped", check.If)
+	if want := "${{ always() && " + draftCondition + " }}"; check.If != want {
+		t.Errorf("test runs if %q, want %q, so a failed or cancelled job cannot leave it skipped", check.If, want)
+	}
+}
+
+// draftCondition is a job's condition that it runs on anything but a draft.
+// Outside a pull request the field is empty, so the job runs.
+const draftCondition = "!github.event.pull_request.draft"
+
+// A goblin's pull request is a draft until its head is the one it means to
+// merge, and the fix rounds it pushes before that start no hosted job: every
+// job that waits on no other skips a draft, and the rest wait on those, so
+// nothing runs. Marking it ready is a pull_request event of its own, which
+// runs every job on that head.
+func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
+	for _, name := range []string{"go.yml", "install.yml"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			var workflow struct {
+				On struct {
+					PullRequest struct {
+						Types []string `yaml:"types"`
+					} `yaml:"pull_request"`
+				} `yaml:"on"`
+				Jobs map[string]struct {
+					If    string          `yaml:"if"`
+					Needs goWorkflowNeeds `yaml:"needs"`
+				} `yaml:"jobs"`
+			}
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if want := []string{"opened", "synchronize", "reopened", "ready_for_review"}; !slices.Equal(workflow.On.PullRequest.Types, want) {
+				t.Errorf("%s runs on pull_request types %v, want %v", name, workflow.On.PullRequest.Types, want)
+			}
+			for job, spec := range workflow.Jobs {
+				if (len(spec.Needs) == 0 || strings.Contains(spec.If, "always()")) && !strings.Contains(spec.If, draftCondition) {
+					t.Errorf("%s job %s runs if %q, which a draft does not stop", name, job, spec.If)
+				}
+			}
+		})
 	}
 }
 

@@ -828,6 +828,7 @@ type ghPullRequest struct {
 	HeadRefOid        string    `json:"headRefOid"`
 	Checks            []ghCheck `json:"statusCheckRollup"`
 	Mergeable         string    `json:"mergeable"`
+	IsDraft           bool      `json:"isDraft"`
 	ReviewDecision    string    `json:"reviewDecision"`
 	BaseRefName       string    `json:"baseRefName"`
 	IsCrossRepository bool      `json:"isCrossRepository"`
@@ -884,6 +885,12 @@ func (c ghCheck) passed() bool {
 
 // link is the check's own page: a check run's details, or the target a
 // commit status names.
+// hasRun says whether a concluded check ran: one that was skipped or
+// neutral tested nothing, though GitHub's merge box counts it as passing.
+func (c ghCheck) hasRun() bool {
+	return c.Kind == "StatusContext" || c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+}
+
 func (c ghCheck) link() string {
 	if c.Kind == "StatusContext" {
 		return c.TargetURL
@@ -1046,13 +1053,16 @@ func runsPullRequestWorkflows(repo string) bool {
 // repository whose pull requests run workflows, the checks other apps report
 // are not the whole result: on 2026-10-07 a wake said "all 1 passed" with
 // only GitGuardian's in. So pr finishes once a workflow has reported too, or
-// says no workflow ran once workflowStartGrace has passed without one. A pull
-// request that conflicts with its base runs no workflows at all, and its
+// says no workflow ran once workflowStartGrace has passed without one. A
+// workflow check that was skipped ran nothing: a draft's run skips its jobs,
+// so a pull request marked ready shows them until its ready run registers. A
+// draft is not yet the head its goblin means to merge and finishes nothing. A
+// pull request that conflicts with its base runs no workflows at all, and its
 // pr_health wake says so instead. readOnce reads the tests that failed once
 // and passed on their second try in the head's workflow runs, which the wake
 // names: it is asked only when a wake is raised, and nil reads none.
 func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullRequest, isRunningWorkflows bool, now time.Time, readOnce func() ([]string, error)) error {
-	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" {
+	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" || pr.IsDraft {
 		return nil
 	}
 	var parts, failed, reported []string
@@ -1063,7 +1073,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		}
 		parts = append(parts, check.name()+"="+check.outcome()+"@"+check.CompletedAt)
 		reported = append(reported, check.name())
-		hasWorkflow = hasWorkflow || check.WorkflowName != ""
+		hasWorkflow = hasWorkflow || check.WorkflowName != "" && check.hasRun()
 		if !check.passed() {
 			failed = append(failed, check.name())
 		}
@@ -1107,7 +1117,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	switch {
 	case isUnstarted:
 		sort.Strings(reported)
-		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported (%d of %d failed); next: check why its workflows did not start, such as a path filter or a skipped trigger, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
+		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported, and a workflow's skipped check ran nothing (%d of %d failed); next: check why its workflows did not start, such as a path filter, a skipped trigger or a workflow that does not run on ready_for_review, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
 	case len(failed) == 0:
 		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), once, pr.URL)
 	default:

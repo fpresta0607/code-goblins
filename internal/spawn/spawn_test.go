@@ -1270,10 +1270,10 @@ type worktreeGit struct {
 	events     *[]string
 	acquireErr error
 	acquired   string
-	top       string
-	topErr    error
-	returnErr error
-	returned  int
+	top        string
+	topErr     error
+	returnErr  error
+	returned   int
 }
 
 func (g *worktreeGit) Acquire(_ context.Context, project, path, ref string) (string, error) {
@@ -1472,6 +1472,36 @@ func TestASpawnSharesNoEnvFileTheManifestDoesNotName(t *testing.T) {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q: the goblin is told before its dev server fails", instruction, want)
 		}
+	}
+}
+
+// A goblin that opens its own pull request opens it as a draft and marks it
+// ready once, on the head it means to merge, so the pushes before that start
+// no hosted CI. A gate opens its pull request itself, at the head its review,
+// tests and lint passed, and a helper opens none.
+func TestNotifyInstructionOpensADirectPullRequestAsADraftUntilItsHeadIsFinal(t *testing.T) {
+	// Arrange
+	for _, test := range []struct {
+		name   string
+		meta   state.TaskMeta
+		isTold bool
+	}{
+		{"a direct-PR goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "direct-PR"}, true},
+		{"a gated goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "no-mistakes"}, false},
+		{"a local-only goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "local-only"}, false},
+		{"a helper", state.TaskMeta{ID: "task-7-h1", Kind: "ship", Mode: "local-only", Parent: "task-7"}, false},
+		{"a scout", state.TaskMeta{ID: "task-7", Kind: "scout", Mode: "direct-PR"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			instruction := notifyInstruction(test.meta)
+
+			// Assert
+			isTold := strings.Contains(instruction, "gh pr create --draft") && strings.Contains(instruction, "gh pr ready <url>")
+			if isTold != test.isTold {
+				t.Errorf("told to open a draft and mark it ready = %v, want %v:\n%s", isTold, test.isTold, instruction)
+			}
+		})
 	}
 }
 
