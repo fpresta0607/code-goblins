@@ -757,7 +757,8 @@ A repository's first train makes the label, and a label the repository already h
 The label never stops a train: one that could not be put on reaches you as a `merge_train:` wake that names the pull request and the command that puts it on by hand.
 Another repository that asks GitHub for a release's notes leaves the label out in a `.github/release.yml` of its own.
 
-The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
+The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, or one has waited alone 10 minutes since its goblin first reported it done, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
+A train that ends on a poll's step reads the open pull requests again and starts the next train on that same poll, so a pull request reported done while a train ran rides as soon as that train is over.
 `cfo pr train` joins the train already running in the project and waits until it is over.
 Each train records every CI run it starts, with the pull requests it tested and how it ended.
 The board shows one card for each batch of pull requests: a train that landed nothing is folded into the later train that took its pull requests on, which counts its runs on from it, and one that landed nothing and was not retried shows once, saying why.

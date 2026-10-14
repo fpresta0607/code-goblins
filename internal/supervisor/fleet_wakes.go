@@ -1050,9 +1050,9 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 // loneRider is the URL of the one goblin pull request a merge train would
 // take onto branch now, when it is the only one and no train runs in the
 // repository: the supervisor starts a train for two or more, and one alone
-// waits to be landed by hand. It is empty when none or several would ride,
-// and when the trains or the account gh works as cannot be read, which
-// leaves nothing to ask of a goblin.
+// waits loneRiderWait for a second before it rides alone. It is empty when
+// none or several would ride, and when the trains or the account gh works as
+// cannot be read, which leaves nothing to ask of a goblin.
 func loneRider(ctx context.Context, runner execx.Runner, stateDir, repo string, listed []train.PullRequest, branch string, owners *fleetOwners, goblins []train.Goblin) string {
 	if len(listed) == 0 {
 		return ""

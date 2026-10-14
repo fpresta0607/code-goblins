@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -21,8 +22,12 @@ import (
 const trainsShownFor = 6 * time.Hour
 
 // minimumRiders is how many green goblin pull requests waiting on one base
-// start a train by themselves: one alone is merged as it always was.
-const minimumRiders = 2
+// start a train by themselves, and loneRiderWait how long after its goblin
+// reported it done one alone waits for a second before it rides alone.
+const (
+	minimumRiders = 2
+	loneRiderWait = 10 * time.Minute
+)
 
 // TrainRepository reads the GitHub repository a checkout's origin is and its
 // default branch, as the CI poll reads them, for a merge train.
@@ -96,8 +101,10 @@ func doneReports(lines []string, spawned time.Time) (done, reported map[string]t
 
 // runTrain takes the merge train running on repo a step, or starts one when
 // at least minimumRiders goblins' finished pull requests wait green on its
-// default branch. open is the pull request list the poll read, nil when it
-// could not be read: a running train still takes its step, and none starts.
+// default branch, or one has waited loneRiderWait alone. open is the pull
+// request list the poll read, nil when it could not be read: a running train
+// still takes its step, and none starts. A train that ends on its step starts
+// the next one on the same poll, from the open pull requests read again.
 // A step, a start cut short, a read of the repository or a read of the
 // account gh works as that fails is tried again on the next poll, and
 // returned only once it failed failingPasses polls in a row. On 2026-10-10
@@ -114,10 +121,24 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	trains, listErr := train.List(stateDir)
 	engine := s.trainEngine(runner, repository.Slug)
 	if running, isRunning := train.Running(trains, repository.Slug); isRunning {
-		return errors.Join(listErr, advanceTrain(ctx, engine, running.ID))
+		if err := advanceTrain(ctx, engine, running.ID); err != nil {
+			return errors.Join(listErr, err)
+		}
+		// open was read before this step, so a train that just landed leaves
+		// the riders it merged listed open, and on 2026-10-14 the pull requests
+		// reported done while it ran waited for a later poll (#852). A list
+		// that cannot be read starts nothing, and the next poll's own list
+		// reports why.
+		if ended, err := train.Read(stateDir, running.ID); err != nil || !ended.IsFinished() {
+			return listErr
+		}
+		if open, err = openPullRequests(ctx, runner, repo); err != nil {
+			return listErr
+		}
+		trains, listErr = train.List(stateDir)
 	}
 	goblins := TrainGoblins(stateDir, repo)
-	if len(doneAndOpen(goblins, open)) < minimumRiders {
+	if done := doneAndOpen(goblins, open); len(done) == 0 || len(done) < minimumRiders && !hasWaitedAlone(goblins, done[0]) {
 		return listErr
 	}
 	viewer, err := runOutput(ctx, runner, repo, "gh", "api", "user", "--jq", ".login")
@@ -126,7 +147,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	}
 	delete(w.Failing, "train viewer:"+repo)
 	riders, _ := train.Riders(open, repository.Base, viewer, goblins, trains)
-	if len(riders) < minimumRiders {
+	if len(riders) == 0 || len(riders) < minimumRiders && !hasWaitedAlone(goblins, riders[0].URL) {
 		return listErr
 	}
 	started, err := engine.Start(ctx, repository, riders)
@@ -167,6 +188,26 @@ func advanceTrain(ctx context.Context, engine train.Engine, id string) error {
 		return nil
 	}
 	return err
+}
+
+// openPullRequests lists repo's open pull requests as the CI poll lists them.
+func openPullRequests(ctx context.Context, runner execx.Runner, repo string) ([]train.PullRequest, error) {
+	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", train.ListFields)
+	if err != nil {
+		return nil, err
+	}
+	var open []train.PullRequest
+	return open, json.Unmarshal([]byte(out), &open)
+}
+
+// hasWaitedAlone says whether url, the one pull request that would ride, was
+// first reported done loneRiderWait ago: a second may never come, and on
+// 2026-10-14 #842 waited 22 minutes for one after the train before it (#852).
+func hasWaitedAlone(goblins []train.Goblin, url string) bool {
+	return slices.ContainsFunc(goblins, func(goblin train.Goblin) bool {
+		done, isDone := goblin.Done[url]
+		return isDone && time.Since(done) >= loneRiderWait
+	})
 }
 
 // doneAndOpen names the open pull requests a goblin reported done, so the
