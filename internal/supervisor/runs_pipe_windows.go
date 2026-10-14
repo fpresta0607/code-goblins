@@ -193,6 +193,12 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 					reply.Browser = &lease
 				}
 			}
+		case "credential-step":
+			if req.Step == nil {
+				err = errors.New("a card step names no card")
+			} else {
+				err = s.stepCredential(int(pid), connected, *req.Step)
+			}
 		default:
 			s.runRequests.Lock()
 			switch req.Kind {
