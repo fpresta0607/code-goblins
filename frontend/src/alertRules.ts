@@ -62,10 +62,8 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
 // boardAlerts is the items new in the Command Center between two snapshots
 // that ask the Overlord something: a question, review, command or credential
 // request. The first snapshot a page sees alerts nothing: what already waits
-// is under the badge. A question that was open inside its page's card is not
-// new when it shows as a card of its own. A goblin's question the CFO left
-// waits in the Command Center without an alert: the CFO falling behind is
-// said on its bar.
+// is under the badge. A goblin's question the CFO left waits in the Command
+// Center without an alert: the CFO falling behind is said on its bar.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
   const known = openKeys(previous);

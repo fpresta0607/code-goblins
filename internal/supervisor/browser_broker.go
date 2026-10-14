@@ -25,21 +25,25 @@ const (
 )
 
 // BrowserRequest is a goblin's ask for its project's login of a provider:
-// lend me its browser, or take it back.
+// lend me its browser, or take it back, or fetch the keys a credential
+// request names from its key page.
 type BrowserRequest struct {
 	Action   string `json:"action"`
 	Task     string `json:"task"`
 	Provider string `json:"provider"`
+	Request  string `json:"request,omitempty"`
 }
 
 // BrowserLease is a login's browser lent to a task: the login and the
-// DevTools address of its Chrome on this machine.
+// DevTools address of its Chrome on this machine. A fetch's answer names
+// the keys it stored instead, or the sign-in card it filed.
 type BrowserLease struct {
-	Login    string `json:"login"`
-	Provider string `json:"provider"`
-	Account  string `json:"account"`
-	URL      string `json:"url"`
-	SignIn   string `json:"sign_in,omitempty"`
+	Login    string   `json:"login"`
+	Provider string   `json:"provider"`
+	Account  string   `json:"account"`
+	URL      string   `json:"url"`
+	SignIn   string   `json:"sign_in,omitempty"`
+	Fetched  []string `json:"fetched,omitempty"`
 }
 
 // browserBroker lends each login's Chrome to one task at a time. It is the
@@ -75,8 +79,12 @@ type browserBroker struct {
 	closing     map[string]bool
 	unconfirmed map[string]bool
 	signing     map[string]string
-	signedIn    func(context.Context, string, keypages.Provider) (bool, error)
-	work        sync.WaitGroup
+	// fetching are the logins whose Chrome a fetch drives now, by the task
+	// it fetches for, which no task is lent while it does.
+	fetching map[string]string
+	signedIn func(context.Context, string, keypages.Provider) (bool, string, error)
+	readKeys func(context.Context, string, keypages.Provider, string, []keypages.Key) (map[string]string, error)
+	work     sync.WaitGroup
 	// closed says the supervisor is stopping: its browsers are closed and
 	// no other starts.
 	closed bool
@@ -107,7 +115,9 @@ func newBrowserBroker(stateDir, dataDir string, options Options, report func(err
 		closing:     map[string]bool{},
 		unconfirmed: map[string]bool{},
 		signing:     map[string]string{},
+		fetching:    map[string]string{},
 		signedIn:    browserlogin.SignedIn,
+		readKeys:    browserlogin.ReadKeys,
 	}
 }
 
@@ -126,6 +136,9 @@ func RequestBrowser(h home.Home, request BrowserRequest) (BrowserLease, error) {
 	}
 	if request.Action == "sign-in" && (reply.Browser == nil || reply.Browser.SignIn == "") {
 		return BrowserLease{}, errors.New("the supervisor did not return a sign-in card")
+	}
+	if request.Action == "fetch" && (reply.Browser == nil || reply.Browser.SignIn == "" && len(reply.Browser.Fetched) == 0) {
+		return BrowserLease{}, errors.New("the supervisor named neither the keys it fetched nor a sign-in card")
 	}
 	if reply.Browser == nil {
 		return BrowserLease{}, nil
@@ -192,6 +205,9 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 	login := &logins[index]
 	if b.signing[login.ID] != "" {
 		return BrowserLease{}, errors.New("this login is waiting for its sign-in window to close")
+	}
+	if b.fetching[login.ID] != "" {
+		return BrowserLease{}, fmt.Errorf("a key fetch for %s drives this login's browser now. Ask again in a minute", b.fetching[login.ID])
 	}
 	// A Chrome that exited on its own is closed as the sweep would, which
 	// ends what is left of it before the profile is opened again.
@@ -421,6 +437,11 @@ func (b *browserBroker) closeAll() error {
 // keepBrowsers sweeps the broker's browsers until ctx ends, then closes
 // them.
 func (s *Service) keepBrowsers(ctx context.Context) {
+	// A supervisor that starts runs no fetch, so a seal one that stopped
+	// mid-fetch left behind lifts now.
+	if err := browserlogin.ClearSeals(s.browsers.state); err != nil {
+		s.publish(fmt.Errorf("browser seals: %w", err))
+	}
 	if err := s.browsers.sweep(); err != nil {
 		s.publish(fmt.Errorf("browser logins: %w", err))
 	}

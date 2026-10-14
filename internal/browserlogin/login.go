@@ -19,9 +19,14 @@ type Login struct {
 	Provider string `json:"provider"`
 	// Account is the account's name as the Overlord reads it.
 	Account string `json:"account"`
+	// AccountID is the provider's ID of the account his last sign-in showed,
+	// as its recipe's account path reads it from the page's address, empty
+	// when the address named none. A fetch reads keys only on that account.
+	AccountID string `json:"account_id,omitempty"`
 	// Projects are the credential scopes whose goblins may use the login.
-	Projects []string   `json:"projects"`
-	UsedAt   *time.Time `json:"used_at,omitempty"`
+	Projects   []string   `json:"projects"`
+	SignedInAt *time.Time `json:"signed_in_at,omitempty"`
+	UsedAt     *time.Time `json:"used_at,omitempty"`
 	// Browser is the Chrome the broker runs on the login's profile now, nil
 	// while none runs.
 	Browser *Browser `json:"browser,omitempty"`

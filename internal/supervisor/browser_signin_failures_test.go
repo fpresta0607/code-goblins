@@ -117,8 +117,8 @@ func TestBrowserSignInPageFailureClosesItsWindowWithoutPublishingPageText(t *tes
 	if err := service.processBrowserSignIns(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	service.browsers.signedIn = func(context.Context, string, keypages.Provider) (bool, error) {
-		return false, errors.New("private-page-text")
+	service.browsers.signedIn = func(context.Context, string, keypages.Provider) (bool, string, error) {
+		return false, "", errors.New("private-page-text")
 	}
 
 	if err := service.processBrowserSignIns(context.Background()); err != nil {

@@ -28,7 +28,7 @@ func TestRecipesAreRefused(t *testing.T) {
 		json string
 		want string
 	}{
-		{"an unknown field", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["stripe.com"],"keys":"all"}]}`, `unknown field "keys"`},
+		{"an unknown field", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["stripe.com"],"cookies":"all"}]}`, `unknown field "cookies"`},
 		{"an id with capitals", `{"providers":[{"id":"Stripe","name":"Stripe","hosts":["stripe.com"]}]}`, "lowercase letters and digits"},
 		{"a provider listed twice", `{"providers":[{"id":"stripe","name":"Stripe","hosts":["stripe.com"],"key_page":"https://stripe.com/test/apikeys","signed_in_path":"^/test/apikeys$"},{"id":"stripe","name":"Stripe","hosts":["stripe.com"]}]}`, "listed twice"},
 		{"no name", `{"providers":[{"id":"stripe","name":" ","hosts":["stripe.com"]}]}`, "has no name"},

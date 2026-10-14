@@ -1,9 +1,38 @@
 package spawn
 
 import (
-	"github.com/fpresta0607/code-goblins/internal/state"
+	"fmt"
 	"os"
+	"path/filepath"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// goblinSettingsFile is the Claude Code settings file, in the home's state
+// folder, that every Claude Code goblin starts with.
+const goblinSettingsFile = "goblin-claude-settings.json"
+
+// goblinSettings writes the settings file a goblin of this home on kind
+// starts with, which holds the goblin hooks, and returns its path: written
+// anew at each launch, so it is this build's set. Only Claude Code takes
+// one, and for any other harness it writes nothing and returns "".
+func (s *Service) goblinSettings(kind harness.Kind) (string, error) {
+	if kind != harness.Claude {
+		return "", nil
+	}
+	settings, err := install.GoblinSettings(s.HomeRoot)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(s.StateDir, goblinSettingsFile)
+	if err := fsx.AtomicWriteFile(path, settings); err != nil {
+		return "", fmt.Errorf("write the goblin hooks to %s: %w", path, err)
+	}
+	return path, nil
+}
 
 // BrowserSessionVariable names the session chrome-devtools-axi keeps its
 // bridge and its browser under. A terminal with none shares the tool's one
