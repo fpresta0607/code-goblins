@@ -49,6 +49,14 @@ func leaveOwnConsole(args []string, isGoblins bool) {
 	leaveConsole()
 }
 
+// leftConsoleFiles are the standard files leaveConsole replaced, kept for
+// as long as the process runs so that no finalizer ever closes them. A new
+// console's output and error are one handle, which the two files share, and
+// a finalizer for each would close it twice, the second time closing
+// whatever handle had taken its number since: on a hosted runner that was
+// the next command cfo gate turn started, which then failed to start.
+var leftConsoleFiles []*os.File
+
 // leaveConsole takes this process out of its console, and points its
 // standard input, output and error that were the console's at the null
 // device instead.
@@ -78,6 +86,7 @@ func leaveConsole() {
 		if err != nil {
 			continue
 		}
+		leftConsoleFiles = append(leftConsoleFiles, *handle.file)
 		*handle.file = null
 		_ = windows.SetStdHandle(handle.id, windows.Handle(null.Fd()))
 	}

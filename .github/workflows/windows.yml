@@ -77,7 +77,7 @@ jobs:
         run: |
           go test ./cmd/cfo -run '^(TestACommandStartedAloneInANewConsoleClosesItsWindow|TestIsShownOnPurposeKeepsOnlyWhatTheOverlordStartsToLookAt|TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog)$' -count=1 -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test ./internal/proc -run '^(TestHideConsoleTakesACarelessConsoleOffTheDesktop|TestHideConsoleHidesNothingOfAConsoleWithNoWindow)$' -count=1 -v
+          go test ./internal/proc -run '^(TestHideConsoleTakesACarelessConsoleOffTheDesktop|TestHideConsoleHidesNothingOfAConsoleWithNoWindow)$' -count=5 -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Measure each careless start and a detached run
         shell: powershell

@@ -71,7 +71,6 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $front = -1
     $any = -1
     $command = -1
-    $told = $false
     $runs = @{}
     while (((Get-Date) - $started).TotalSeconds -lt $watchFor) {
         $at = [int]((Get-Date) - $started).TotalMilliseconds
@@ -89,14 +88,6 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
                 $null = $process.Handle
                 $runs[$process.Id] = $process
             }
-        }
-        # Three seconds in, what the run's line and its cfo say, for a run
-        # whose command did not start.
-        if ($at -ge 3000 -and -not $told) {
-            $told = $true
-            $alive = (Get-Process -Name cfo -ErrorAction SilentlyContinue | Where-Object { -not $existing[$_.Id] } | ForEach-Object { $_.Id }) -join ', '
-            "[$Terminal / $Build / $Name] cfo running: $alive" | Out-Host
-            & $Cfo gate turns 2>&1 | ForEach-Object { "  $_" } | Out-Host
         }
         Start-Sleep -Milliseconds 100
     }
@@ -122,13 +113,11 @@ foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'
     $results += Watch-Start 'Start-Process at the normal window style' $build.Name {
         Start-Process -FilePath $program -ArgumentList $turn
     }
-    # Its output goes to files, which a careless start sometimes does, so
-    # what the run says of itself can be read.
+    # Its output goes to files, as a careless start's sometimes does.
     $said = Join-Path $Work "said-$($build.Name.Replace(' ', '-'))"
     $results += Watch-Start 'Start-Process with its output in files' $build.Name {
         Start-Process -FilePath $program -ArgumentList $turn -RedirectStandardOutput "$said.out" -RedirectStandardError "$said.err"
     }
-    "  it said: $((Get-Content "$said.out", "$said.err" -ErrorAction SilentlyContinue) -join ' | ')" | Out-Host
     $results += Watch-Start 'cmd /c start' $build.Name {
         Start-Exactly 'cmd.exe' "/c start `"`" `"$program`" $turn"
     }
@@ -144,10 +133,6 @@ $results += Watch-Start 'cfo gate turn --detach' 'this branch' {
 $detachedEnd = (Get-Content $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
 
 $results | Format-Table -AutoSize | Out-String -Width 200
-# Why a run's command did not start, as its execution record says.
-foreach ($store in @($env:CFO_VERIFY_DIR, (Join-Path $env:LOCALAPPDATA 'cfoerify')) | Where-Object { $_ -and (Test-Path $_) }) {
-    Get-ChildItem -Recurse -File -Path $store | Select-String -Pattern '"failure"' | ForEach-Object { "record $($_.Path): $($_.Line.Trim())" }
-}
 "detached run's last line: $detachedEnd"
 
 if ($env:GITHUB_STEP_SUMMARY) {

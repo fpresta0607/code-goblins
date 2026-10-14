@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -166,21 +167,33 @@ func TestIsShownOnPurposeKeepsOnlyWhatTheOverlordStartsToLookAt(t *testing.T) {
 const leftConsoleTestProgram = "left-console-test-program"
 
 func runLeftConsoleTestProgram(report string) int {
-	// Its standard handles are its console's, as a careless start's are.
-	for _, handle := range []struct {
-		id   uint32
-		file **os.File
-		name string
-	}{{windows.STD_INPUT_HANDLE, &os.Stdin, "CONIN$"}, {windows.STD_OUTPUT_HANDLE, &os.Stdout, "CONOUT$"}, {windows.STD_ERROR_HANDLE, &os.Stderr, "CONOUT$"}} {
-		console, err := os.OpenFile(handle.name, os.O_RDWR, 0)
-		if err != nil || windows.SetStdHandle(handle.id, windows.Handle(console.Fd())) != nil {
-			return 1
-		}
-		*handle.file = console
+	// Its standard handles are its console's, as a careless start's are:
+	// Windows gives a new console's output and error one handle.
+	input, err := os.OpenFile("CONIN$", os.O_RDWR, 0)
+	if err != nil {
+		return 1
+	}
+	output, err := os.OpenFile("CONOUT$", os.O_RDWR, 0)
+	if err != nil {
+		return 1
+	}
+	if windows.SetStdHandle(windows.STD_INPUT_HANDLE, windows.Handle(input.Fd())) != nil || windows.SetStdHandle(windows.STD_OUTPUT_HANDLE, windows.Handle(output.Fd())) != nil || windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(output.Fd())) != nil {
+		return 1
+	}
+	os.Stdin, os.Stdout, os.Stderr = input, output, os.NewFile(output.Fd(), "/dev/stderr")
+	// A finalizer that ran on a file leaveConsole replaced is the one that
+	// closes its handle a second time.
+	var finalized atomic.Int32
+	for _, file := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
+		runtime.SetFinalizer(file, func(*os.File) { finalized.Add(1) })
 	}
 	leaveConsole()
+	for range 3 {
+		runtime.GC()
+		time.Sleep(50 * time.Millisecond)
+	}
 	failed, first := startsFailing()
-	if err := os.WriteFile(report+".tmp", fmt.Appendf(nil, "failed=%d first=%v", failed, first), 0o600); err != nil || os.Rename(report+".tmp", report) != nil {
+	if err := os.WriteFile(report+".tmp", fmt.Appendf(nil, "finalized=%d failed=%d first=%v", finalized.Load(), failed, first), 0o600); err != nil || os.Rename(report+".tmp", report) != nil {
 		return 1
 	}
 	return 0
@@ -211,8 +224,9 @@ func startsFailing() (int, error) {
 
 // A process that left its console starts programs with its standard handles
 // as before, however often the garbage collector runs: the files that held
-// the console's handles are closed as it leaves, never by a finalizer later,
-// which would close whatever handle took their numbers. On a hosted runner a
+// the console's handles are never finalized, since a console's output and
+// error share one handle, and a finalizer for each would close it twice,
+// the second time closing whatever handle took its number. On a hosted runner a
 // careless run's command failed to start, exit 126, in five of eight runs
 // before this held. Its console has no window, so nothing shows.
 func TestALeftConsoleLeavesItsStartsWorking(t *testing.T) {
@@ -232,7 +246,7 @@ func TestALeftConsoleLeavesItsStartsWorking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(got), "failed=0 ") {
+	if !strings.HasPrefix(string(got), "finalized=0 failed=0 ") {
 		t.Fatalf("after leaving its console: %s; want every start to succeed", got)
 	}
 }
