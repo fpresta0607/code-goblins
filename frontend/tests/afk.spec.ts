@@ -629,7 +629,8 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
         return under || outside ? [(row.querySelector(".afk-row-what")?.textContent || "") + (under ? " (text under its head)" : " (head outside its box)")] : [];
       }));
       expect(overlaps).toEqual([]);
-      expect(await report(page).locator(".afk-row .goblin-avatar").count()).toBeGreaterThanOrEqual(4);
+      // What still waits is a card in the Command Center, not a row with a head here.
+      expect(await report(page).locator(".afk-row .goblin-avatar").count()).toBeGreaterThanOrEqual(3);
       expect(await fits(page)).toBe(true);
 
       // Assert: the CFO answered each For you row, so it wears the CFO's head.
