@@ -42,11 +42,28 @@ New-Item -ItemType Directory -Force $env:CFO_HOME, $env:CFO_STATE_OVERRIDE, $env
 
 $watchFor = 10
 $bash = 'C:\Program Files\Git\bin\bash.exe'
+$turn = 'gate turn -- ping -n 30 127.0.0.1'
+
+# Start-Exactly starts program with exactly the command line arguments,
+# which Windows PowerShell would otherwise rewrite: it drops a bare -- it
+# passes to a native program. It shows what the program printed, which is
+# where a start that started nothing says why.
+function Start-Exactly([string]$Program, [string]$Arguments) {
+    $info = New-Object Diagnostics.ProcessStartInfo $Program, $Arguments
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($info)
+    $printed = $process.StandardOutput.ReadToEnd() + $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($printed.Trim()) { "  $Program printed: $($printed.Trim())" | Out-Host }
+}
 
 # Watch-Start runs a start and watches the desktop for $watchFor seconds: the
 # windows it opened, how long after the start the last one was still in
-# front, and how long the last one was there at all, minimized or not. The
-# processes it started are ended by their pids.
+# front, how long the last one was there at all, minimized or not, and how
+# long the run's command, ping, was seen running. What it started is ended by
+# its pids.
 function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $before = [Desktop]::Shown()
     $existing = @{}
@@ -56,7 +73,7 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $opened = @{}
     $front = -1
     $any = -1
-    $ran = $null
+    $command = -1
     while (((Get-Date) - $started).TotalSeconds -lt $watchFor) {
         $at = [int]((Get-Date) - $started).TotalMilliseconds
         foreach ($entry in ([Desktop]::Shown()).GetEnumerator()) {
@@ -65,45 +82,38 @@ function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
             $any = $at
             if (-not $entry.Value) { $front = $at }
         }
-        # What the start left running two seconds in, which says whether it
-        # started cfo at all.
-        if ($null -eq $ran -and $at -ge 2000) {
-            $ran = (Get-CimInstance Win32_Process | Where-Object { -not $existing[[int]$_.ProcessId] } | ForEach-Object { "$($_.Name) [$($_.CommandLine)]" }) -join '; '
-        }
+        if (Get-Process -Name PING -ErrorAction SilentlyContinue | Where-Object { -not $existing[$_.Id] }) { $command = $at }
         Start-Sleep -Milliseconds 100
     }
-    "[$Terminal / $Build / $Name] ran: $ran" | Out-Host
     foreach ($process in Get-Process) {
         if (-not $existing[$process.Id] -and $process.ProcessName -in 'cfo', 'PING', 'cmd', 'bash', 'conhost', 'OpenConsole') {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         }
     }
     Start-Sleep -Seconds 1
-    [pscustomobject]@{ Terminal = $Terminal; Build = $Build; Start = $Name; Windows = $opened.Count; InFrontUntilMs = $front; ShownUntilMs = $any }
+    [pscustomobject]@{ Terminal = $Terminal; Build = $Build; Start = $Name; Windows = $opened.Count; InFrontUntilMs = $front; ShownUntilMs = $any; CommandUntilMs = $command }
 }
 
 $results = @()
 foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'; Cfo = $Cfo })) {
     $program = $build.Cfo
-    $unix = '/' + $program.Replace(':', '').Replace('\', '/')
-    $turn = @('gate', 'turn', '--', 'ping', '-n', '30', '127.0.0.1')
     $results += Watch-Start 'Win32_Process Create with no ShowWindow' $build.Name {
-        Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "`"$program`" $($turn -join ' ')" } | Out-Null
+        Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "`"$program`" $turn" } | Out-Null
     }
     $results += Watch-Start 'Start-Process at the normal window style' $build.Name {
         Start-Process -FilePath $program -ArgumentList $turn
     }
     $results += Watch-Start 'cmd /c start' $build.Name {
-        cmd /c start "`"`"" "`"$program`"" @turn
+        Start-Exactly 'cmd.exe' "/c start `"`" `"$program`" $turn"
     }
+    # Git for Windows' start, which hands its arguments to cmd's start.
     $results += Watch-Start 'a new console from Git Bash' $build.Name {
-        & $bash -c "start '$unix' $($turn -join ' ')"
+        Start-Exactly $bash "-c `"start '$($program.Replace('\', '/'))' $turn`""
     }
 }
 $log = Join-Path $Work 'detached.log'
 $results += Watch-Start 'cfo gate turn --detach' 'this branch' {
-    & $Cfo gate turn --detach $log -- ping -n 3 127.0.0.1 | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "cfo gate turn --detach exited $LASTEXITCODE" }
+    Start-Exactly $Cfo "gate turn --detach `"$log`" -- ping -n 3 127.0.0.1"
 }
 $detachedEnd = (Get-Content $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
 
@@ -111,29 +121,35 @@ $results | Format-Table -AutoSize | Out-String -Width 200
 "detached run's last line: $detachedEnd"
 
 if ($env:GITHUB_STEP_SUMMARY) {
-    $summary = @("### $Terminal as the default terminal", '', '| Build | Start | New windows | In front until | Shown until |', '|---|---|---|---|---|')
+    $summary = @("### $Terminal as the default terminal", '', '| Build | Start | New windows | In front until | Shown until | Its command ran until |', '|---|---|---|---|---|---|')
     foreach ($row in $results) {
         $front = if ($row.InFrontUntilMs -lt 0) { 'never' } else { "$($row.InFrontUntilMs) ms" }
         $shown = if ($row.ShownUntilMs -lt 0) { 'never' } else { "$($row.ShownUntilMs) ms" }
-        $summary += "| $($row.Build) | $($row.Start) | $($row.Windows) | $front | $shown |"
+        $ran = if ($row.CommandUntilMs -lt 0) { 'never' } else { "$($row.CommandUntilMs) ms" }
+        $summary += "| $($row.Build) | $($row.Start) | $($row.Windows) | $front | $shown | $ran |"
     }
     $summary += '', "Detached run's last line: ``$detachedEnd``", ''
     $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY
 }
 
-# The branch's careless starts show nothing beyond a moment, and its
-# detached run nothing at all. main's careless starts showing a window is the
-# premise: without it this proof would prove nothing.
+# Every careless start reached its command and ran it to the end of the
+# watch, so each measures a real run. main's showed a window for the whole
+# watch, the premise without which this proof would prove nothing. The
+# branch's show nothing beyond a moment, and its detached run nothing at all.
 $failures = @()
 foreach ($row in $results) {
+    $isCareless = $row.Start -ne 'cfo gate turn --detach'
+    if ($isCareless -and $row.CommandUntilMs -lt ($watchFor * 1000 - 1000)) {
+        $failures += "$($row.Build)'s $($row.Start) did not keep its command running for the watch, so it measures no real run"
+    }
     if ($row.Build -eq 'main' -and $row.ShownUntilMs -lt ($watchFor * 1000 - 1000)) {
         $failures += "main's $($row.Start) showed no window for the whole watch, so this desktop does not show what the proof needs"
     }
-    if ($row.Build -eq 'this branch' -and $row.Start -ne 'cfo gate turn --detach' -and $row.ShownUntilMs -gt 1000) {
+    if ($row.Build -eq 'this branch' -and $isCareless -and $row.ShownUntilMs -gt 1000) {
         $failures += "this branch's $($row.Start) still showed a window $($row.ShownUntilMs) ms after it started"
     }
-    if ($row.Start -eq 'cfo gate turn --detach' -and $row.Windows -ne 0) {
-        $failures += "cfo gate turn --detach showed $($row.Windows) windows"
+    if (-not $isCareless -and ($row.Windows -ne 0 -or $row.CommandUntilMs -lt 0)) {
+        $failures += "cfo gate turn --detach showed $($row.Windows) windows and ran its command until $($row.CommandUntilMs) ms"
     }
 }
 if ($detachedEnd -notlike 'cfo gate turn: the detached run ended with exit 0 after *') {
