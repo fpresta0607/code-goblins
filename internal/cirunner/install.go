@@ -135,15 +135,6 @@ func InstallSteps(o InstallOptions) []Step {
 	disk := filepath.Join(vmDir, "disk.vhdx")
 	settings := filepath.Join(vmDir, "settings.vhdx")
 	settingsFiles := filepath.Join(vmDir, "settings")
-	run := func(doing, script string, env ...string) func(ctx context.Context) error {
-		return func(ctx context.Context) error {
-			_, err := powerShell(ctx, o.Commands, installStepLimit, doing, script, env...)
-			return err
-		}
-	}
-	says := func(script string, env ...string) []string {
-		return append(append([]string{}, env...), strings.Split(script, "\n")...)
-	}
 	checkEnv := []string{"CG_CI_ROOT=" + filepath.VolumeName(o.Dir) + `\`, "CG_CI_FREE=" + strconv.Itoa(minimumFree)}
 	folderEnv := []string{"CG_CI_DIR=" + o.Dir, "CG_CI_SERVICE_SID=" + ServiceSID(ServiceName)}
 	diskEnv := []string{"CG_CI_VHD=" + vhd, "CG_CI_DISK=" + disk, "CG_CI_IMAGE=" + image}
@@ -155,13 +146,13 @@ func InstallSteps(o InstallOptions) []Step {
 	return []Step{
 		{
 			Title: "check this machine",
-			Says:  says(checkScript, checkEnv...),
-			Run:   run("check this machine", checkScript, checkEnv...),
+			Says:  scriptSays(checkScript, checkEnv...),
+			Run:   runScript(o.Commands, "check this machine", checkScript, checkEnv...),
 		},
 		{
 			Title: "make the service's folder, which only SYSTEM, Administrators and the service may open",
-			Says:  says(folderScript, folderEnv...),
-			Run:   run("make the service's folder", folderScript, folderEnv...),
+			Says:  scriptSays(folderScript, folderEnv...),
+			Run:   runScript(o.Commands, "make the service's folder", folderScript, folderEnv...),
 		},
 		{
 			Title: "download and check the image",
@@ -178,7 +169,7 @@ func InstallSteps(o InstallOptions) []Step {
 		},
 		{
 			Title: "make the disk",
-			Says:  append([]string{"convert " + image + " from qcow2 to the fixed VHD " + vhd + ", in cg-ci-runner"}, says(diskScript, diskEnv...)...),
+			Says:  append([]string{"convert " + image + " from qcow2 to the fixed VHD " + vhd + ", in cg-ci-runner"}, scriptSays(diskScript, diskEnv...)...),
 			Run: func(ctx context.Context) error {
 				if err := os.MkdirAll(vmDir, 0o700); err != nil {
 					return err
@@ -186,38 +177,38 @@ func InstallSteps(o InstallOptions) []Step {
 				if err := ConvertQCOW2(image, vhd, o.Now()); err != nil {
 					return err
 				}
-				return run("make the disk", diskScript, diskEnv...)(ctx)
+				return runScript(o.Commands, "make the disk", diskScript, diskEnv...)(ctx)
 			},
 		},
 		{
 			Title: "write the first boot's settings",
-			Says:  append([]string{"write user-data and meta-data to " + settingsFiles}, says(settingsScript, settingsEnv...)...),
+			Says:  append([]string{"write user-data and meta-data to " + settingsFiles}, scriptSays(settingsScript, settingsEnv...)...),
 			Run: func(ctx context.Context) error {
 				if err := writeFirstBoot(settingsFiles); err != nil {
 					return err
 				}
-				return run("write the first boot's settings", settingsScript, settingsEnv...)(ctx)
+				return runScript(o.Commands, "write the first boot's settings", settingsScript, settingsEnv...)(ctx)
 			},
 		},
 		{
 			Title: "create the VM",
-			Says:  says(vmScript, vmEnv...),
-			Run:   run("create the VM", vmScript, vmEnv...),
+			Says:  scriptSays(vmScript, vmEnv...),
+			Run:   runScript(o.Commands, "create the VM", vmScript, vmEnv...),
 		},
 		{
 			Title: "first boot and its checkpoint",
-			Says:  append([]string{"start the VM and wait, for 30 minutes at most, for its first boot to power it off"}, says(checkpointScript, checkpointEnv...)...),
+			Says:  append([]string{"start the VM and wait, for 30 minutes at most, for its first boot to power it off"}, scriptSays(checkpointScript, checkpointEnv...)...),
 			Run: func(ctx context.Context) error {
 				if err := waitForFirstBoot(ctx, vm, o.Sleep, firstBootLimit); err != nil {
 					return err
 				}
-				return run("take the clean checkpoint", checkpointScript, checkpointEnv...)(ctx)
+				return runScript(o.Commands, "take the clean checkpoint", checkpointScript, checkpointEnv...)(ctx)
 			},
 		},
 		{
 			Title: "create the service and its account",
-			Says:  says(serviceScript, serviceEnv...),
-			Run:   run("create the service and its account", serviceScript, serviceEnv...),
+			Says:  scriptSays(serviceScript, serviceEnv...),
+			Run:   runScript(o.Commands, "create the service and its account", serviceScript, serviceEnv...),
 		},
 		{
 			Title: "keep the App's settings and key",
@@ -226,8 +217,8 @@ func InstallSteps(o InstallOptions) []Step {
 		},
 		{
 			Title: "start the service",
-			Says:  says(startScript),
-			Run:   run("start the service", startScript),
+			Says:  scriptSays(startScript),
+			Run:   runScript(o.Commands, "start the service", startScript),
 		},
 		{
 			Title: "readiness check",
@@ -235,6 +226,21 @@ func InstallSteps(o InstallOptions) []Step {
 			Run:   func(ctx context.Context) error { return ready(ctx, o.Ask, o.Sleep, readyLimit) },
 		},
 	}
+}
+
+// runScript is a step's run of script in Windows PowerShell with commands,
+// within installStepLimit, with env added to its environment.
+func runScript(commands execx.Runner, doing, script string, env ...string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := powerShell(ctx, commands, installStepLimit, doing, script, env...)
+		return err
+	}
+}
+
+// scriptSays is what a dry run says of a step that runs script with env: the
+// environment, then each line.
+func scriptSays(script string, env ...string) []string {
+	return append(append([]string{}, env...), strings.Split(script, "\n")...)
 }
 
 // RunSteps runs steps in order, saying each to out, and stops at the first
