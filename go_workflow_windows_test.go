@@ -692,3 +692,38 @@ func TestGoWorkflowsRequiredCheckPassesAPushWhoseTreeAPullRequestRunPassed(t *te
 		})
 	}
 }
+
+// The installs wait on reuse, which runs only on a push, and a skipped job
+// skips every job after it unless the job's condition says otherwise: the
+// first pull request run of this record left none, its passed job skipped
+// though both installs passed. So passed reads both installs' own results
+// and runs on a pull request only when each succeeded.
+func TestInstallWorkflowRecordsARunOnlyWhenBothInstallsPassed(t *testing.T) {
+	// Arrange
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "install.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			If    string          `yaml:"if"`
+			Needs goWorkflowNeeds `yaml:"needs"`
+		} `yaml:"jobs"`
+	}
+
+	// Act
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	passed := workflow.Jobs["passed"]
+
+	// Assert
+	if !slices.Equal(passed.Needs, goWorkflowNeeds{"one-line", "dev"}) {
+		t.Errorf("passed needs %v, want both installs", passed.Needs)
+	}
+	for _, want := range []string{"!cancelled()", "github.event_name == 'pull_request'", "needs.one-line.result == 'success'", "needs.dev.result == 'success'"} {
+		if !strings.Contains(passed.If, want) {
+			t.Errorf("passed runs if %q, which lacks %q", passed.If, want)
+		}
+	}
+}
