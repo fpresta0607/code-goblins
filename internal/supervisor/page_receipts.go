@@ -30,7 +30,6 @@ func (r pageReceiptState) clone() pageReceiptState {
 	for i := range r.Answers {
 		r.Answers[i].Poll.Prompts = slices.Clone(r.Answers[i].Poll.Prompts)
 		r.Answers[i].Item.ImageSums = slices.Clone(r.Answers[i].Item.ImageSums)
-		r.Answers[i].Questions = slices.Clone(r.Answers[i].Questions)
 	}
 	r.DeliveryHolds = maps.Clone(r.DeliveryHolds)
 	return r

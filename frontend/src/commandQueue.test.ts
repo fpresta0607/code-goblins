@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, cardKey, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -55,7 +55,7 @@ test("a goblin's question is the CFO's to answer: it never waits on the Overlord
     tasks: [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }],
     questions: [question("g-asks", "billing", "2026-10-02T19:14:14Z"), question("cfo-asks", "", "2026-10-02T19:20:00Z"),
       question("g-answered", "billing", "2026-10-02T19:00:00Z", "succeeded", { answered_by: "cfo", answered_option: "A", answered_at: "2026-10-02T19:01:00Z" }),
-      question("g-on-its-page", "billing", "2026-10-02T19:10:00Z", "pending", { page: "plan-billing" })],
+      question("g-on-its-page", "billing", "2026-10-02T19:10:00Z")],
     reviews: [review("plan-billing", "billing", "2026-10-02T19:09:00Z"), review("waiting-billing-9", "billing", "2026-10-02T19:15:00Z", "open", { title: "Waiting on you: answer my question" })],
   });
   assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:cfo-asks", "review:plan-billing", "review:waiting-billing-9"], "only what is for him waits");
@@ -89,23 +89,23 @@ test("a goblin's question the CFO has left for ten minutes waits on the Overlord
 
 // Answered from his Command Center, the question is no longer pending, and its
 // card stays in this sitting to show how the answer went, as the CFO's own
-// questions' cards do. One asked on its goblin's review page is still shown by
-// that page's card alone, however long the CFO leaves it.
-test("a goblin's question he answers keeps its card in the sitting, and one on a review page stays on that page's card", () => {
+// questions' cards do. One its goblin asked while its review page is open is
+// its own card beside the page's, never folded into it.
+test("a goblin's question he answers keeps its card in the sitting, and one beside its goblin's open page is its own card", () => {
   // Arrange
   const at = "2026-10-13T14:03:01Z";
   const tasks = [{ id: "billing", phase: "blocked", generation: "g1", verified: false, archived: false, merged: false }];
   const sent = parseSnapshot({ healthy: true, at, tasks, questions: [question("left", "billing", "2026-10-13T13:43:01Z", "queued", { answer_id: "answer-1" })] });
-  const onItsPage = parseSnapshot({ healthy: true, at, tasks,
-    questions: [question("on-page", "billing", "2026-10-13T13:43:01Z", "pending", { page: "plan-billing" })], reviews: [review("plan-billing", "billing", "2026-10-13T13:40:00Z")] });
+  const besideItsPage = parseSnapshot({ healthy: true, at, tasks,
+    questions: [question("beside-page", "billing", "2026-10-13T13:43:01Z")], reviews: [review("plan-billing", "billing", "2026-10-13T13:40:00Z")] });
 
   // Act
   const kept = waitingItems(sent, new Set(["question:left"])).map((item) => item.key);
-  const pageCards = waitingItems(onItsPage).map((item) => item.key);
+  const cards = waitingItems(besideItsPage).map((item) => item.key);
 
   // Assert
   assert.deepEqual(kept, ["question:left"], "his answered question keeps its card while he is there");
-  assert.deepEqual(pageCards, ["review:plan-billing"], "its page's card shows it, never a second card");
+  assert.deepEqual(cards, ["review:plan-billing", "question:beside-page"], "the page and the question each have their own card");
 });
 
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
@@ -322,17 +322,6 @@ test("a review he answered on its own page reads as answered by him there, with 
   assert.equal(answeredElsewhere(itemFor(snapshot, "review:r1")!), false, "an answer sent from its card is not an answer given elsewhere");
 });
 
-test("a question asked with its review page open is that page's card, never a second one", () => {
-  const page = "http://127.0.0.1:4387/session/ec2e";
-  const snapshot = parseSnapshot({ healthy: true,
-    questions: [question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "pending", { page: "waiting-polish-3584" }), question("pick-a-theme", "", "2026-09-30T23:44:00Z")],
-    reviews: [review("waiting-polish-3584", "polish", "2026-09-30T23:42:53Z", "open", { lavish: page, lavish_page: "C:/data/review-kanban/index.html", question: "notify-polish-3585" })],
-  });
-  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:pick-a-theme", "review:waiting-polish-3584"], "one card for the page and its question");
-  assert.equal(cardKey(snapshot, "question:notify-polish-3585"), "review:waiting-polish-3584", "the question is shown by its page's card");
-  assert.equal(cardKey(snapshot, "question:pick-a-theme"), "question:pick-a-theme");
-});
-
 test("a question answered on the page that carried it says so", () => {
   const [onPage, cleared] = parseSnapshot({ healthy: true, questions: [
     question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "succeeded", { answer: "Build as drawn", answer_kind: "other", answered_by: "overlord", answered_in: "page", answered_at: "2026-09-30T23:50:00Z" }),
@@ -469,7 +458,7 @@ test("a CFO reply is queued until transport confirms it was submitted", () => {
 test("every open item of his is one the board has announced, never a goblin's question, and nothing closed", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true,
-    questions: [question("carried", "gb-a", "2026-09-26T10:00:00Z", "pending", { page: "plan" }), question("alone", "", "2026-09-26T10:00:00Z"), question("sent", "", "2026-09-26T10:00:00Z", "uncertain"), question("for-the-cfo", "gb-b", "2026-09-26T10:00:00Z")],
+    questions: [question("beside-its-page", "gb-a", "2026-09-26T10:00:00Z"), question("alone", "", "2026-09-26T10:00:00Z"), question("sent", "", "2026-09-26T10:00:00Z", "uncertain"), question("for-the-cfo", "gb-b", "2026-09-26T10:00:00Z")],
     reviews: [review("plan", "gb-a", "2026-09-26T10:00:00Z"), review("cleared", "gb-a", "2026-09-26T10:00:00Z", "cleared")],
     runs: [{ id: "install", identity: "cfo-1", title: "Install", state: "ready", created_at: "2026-09-26T10:00:00Z" }] });
 
@@ -478,7 +467,7 @@ test("every open item of his is one the board has announced, never a goblin's qu
 
   // Assert
   assert.deepEqual([...open].sort(), ["question:alone", "review:plan", "run:install"]);
-  assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "the carried question shows as its page's card");
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "a goblin's question beside its open page is never his");
 });
 
 test("a choice or written text on an item still waiting stays unsent until its send finishes successfully; one on a closed item does not", () => {
