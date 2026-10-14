@@ -66,11 +66,13 @@ type Turn struct {
 	Waited time.Duration
 	// Note says what was out of the ordinary about how the turn was taken,
 	// when anything was, including an admission failure.
-	Note    string
-	token   string
-	dir     string
-	slot    string
-	release func(context.Context) error
+	Note  string
+	token string
+	dir   string
+	slot  string
+	// release gives the turn back, trying a busy line's lock again for
+	// busyLimit.
+	release func(ctx context.Context, busyLimit time.Duration) error
 	say     func(now string)
 	measure func(used uint64)
 	// busyLimit is how long a custody change of the turn's tries again while
@@ -124,7 +126,7 @@ func (t Turn) ReleaseContext(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if t.release != nil {
-		return t.release(ctx)
+		return t.release(ctx, t.busyLimit)
 	}
 	return nil
 }
@@ -539,7 +541,7 @@ func (a Admission) inside() (Turn, bool) {
 			a.sayInside(name, token, now)
 		}
 	}
-	release := func(ctx context.Context) error {
+	release := func(ctx context.Context, _ time.Duration) error {
 		if err := lockBefore(ctx, &mu); err != nil {
 			return err
 		}
@@ -646,12 +648,14 @@ func (a Admission) take(capacity int) (turn Turn, failure error) {
 		}
 		var mu sync.Mutex
 		isReleased := false
-		release := func(ctx context.Context) (failure error) {
+		release := func(ctx context.Context, busyLimit time.Duration) (failure error) {
 			if err := lockBefore(ctx, &mu); err != nil {
 				return err
 			}
 			defer mu.Unlock()
-			unlock, err := custodyMutationContext(ctx, a.Dir)
+			// A run that took its turn gives it back through a busy moment
+			// of the line's lock, as it took it.
+			unlock, err := custodyReleaseWhileBusy(ctx, a.Dir, busyLimit)
 			if err != nil {
 				return err
 			}

@@ -987,6 +987,51 @@ func shortCustodyBudget(t *testing.T) (restore func()) {
 	return restore
 }
 
+// A turn's release, and the completion of an execution's custody in it, wait
+// out a busy moment of the line's lock as taking the turn does, rather than
+// failing on the first custody change that finds it busy.
+func TestATurnsChangesWaitOutABusyMomentOfTheLinesLock(t *testing.T) {
+	for _, hold := range []string{"in this process", "by its lock file"} {
+		// Each prepares its change while the lock is free, and returns it.
+		for name, prepare := range map[string]func(t *testing.T, turn Turn) func() error{
+			"releasing its turn": func(t *testing.T, turn Turn) func() error { return turn.Release },
+			"completing its custody": func(t *testing.T, turn Turn) func() error {
+				guard, err := turn.ProtectContext(context.Background(), "protected-run", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return guard.Complete
+			},
+		} {
+			t.Run(hold+", "+name, func(t *testing.T) {
+				// Arrange
+				a := admission(t)
+				turn := within(t, take(t, a), "the run")
+				t.Cleanup(func() { _ = turn.Release() })
+				change := prepare(t, turn)
+				shortCustodyBudget(t)
+				errs := make(chan error, 1)
+				release := holdLineLock(t, a.Dir, hold)
+
+				// Act
+				go func() { errs <- change() }()
+				time.Sleep(400 * time.Millisecond)
+				release()
+
+				// Assert
+				select {
+				case err := <-errs:
+					if err != nil {
+						t.Errorf("the change ended with %v; want it to wait out the lock's busy moment", err)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("the change never ended")
+				}
+			})
+		}
+	}
+}
+
 // holdLineLock holds the line's lock in dir as hold says, and returns what
 // lets it go, which the test's end also does.
 func holdLineLock(t *testing.T, dir string, hold string) (release func()) {
@@ -1120,6 +1165,24 @@ func TestARunGivesUpALockBusyPastItsLimitAtEachChange(t *testing.T) {
 			holdLineLock(t, a.Dir, "in this process")
 			_, err := turn.ProtectContext(context.Background(), "protected-run", "")
 			return err
+		},
+		"releasing its turn": func(t *testing.T, a Admission) error {
+			turn := within(t, take(t, a), "the run")
+			t.Cleanup(func() { _ = turn.Release() })
+			shortCustodyBudget(t)
+			holdLineLock(t, a.Dir, "in this process")
+			return turn.Release()
+		},
+		"completing its custody": func(t *testing.T, a Admission) error {
+			turn := within(t, take(t, a), "the run")
+			t.Cleanup(func() { _ = turn.Release() })
+			guard, err := turn.ProtectContext(context.Background(), "protected-run", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			shortCustodyBudget(t)
+			holdLineLock(t, a.Dir, "in this process")
+			return guard.Complete()
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
