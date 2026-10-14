@@ -356,6 +356,32 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandDidNotStart(t *testing.T) 
 	}
 }
 
+// A refused wait on a gate tells its goblin so, as a run that did not start
+// does: the goblin that left it in the background waits on it all the same.
+func TestGateTurnTellsItsIdleCodexGoblinThatItsGateWaitWasRefused(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	h, worktree, proof := goblinTerminal(t, "codex")
+	t.Setenv(host.IDVariable, runEndGoblin)
+	t.Setenv(host.ProofVariable, proof)
+	t.Chdir(worktree)
+	sent := &sentTexts{}
+	runtime := turnRuntime()
+	runtime.resolveHome = func() (home.Home, error) { return h, nil }
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	missing := filepath.Join(t.TempDir(), "no-mistakes.exe")
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, "--as", "fix round", "--", missing, "axi", "respond", "--action", "fix")
+
+	// Assert
+	got := sent.all()
+	if exit != exitNoTurn || len(got) != 1 || !strings.HasPrefix(got[0], fmt.Sprintf("%s: Your run fix round ended with exit %d after ", runEndGoblin, exitNoTurn)) {
+		t.Errorf("exit = %d, typed %q; want exit %d and one line naming the run", exit, got, exitNoTurn)
+	}
+}
+
 // An interrupted run tells its goblin nothing: whoever interrupted it knows.
 func TestGateTurnInterruptedTellsItsGoblinNothing(t *testing.T) {
 	// Arrange

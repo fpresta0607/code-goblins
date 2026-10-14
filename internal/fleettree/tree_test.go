@@ -205,7 +205,7 @@ func TestReadIgnoresAProcessThatReusedTheHarnessesID(t *testing.T) {
 	if len(reused.Children) != 0 || reused.Memory != 0 || len(reused.Unread) == 0 {
 		t.Errorf("tree over a reused id = %+v, want nothing of another program's, and why", reused)
 	}
-	if len(own.Children) != 3 || own.Memory == 0 {
+	if jobs, _ := own.Jobs(); len(jobs) != 3 || own.Memory == 0 {
 		t.Errorf("tree over the recorded process = %+v, want its jobs", own)
 	}
 }

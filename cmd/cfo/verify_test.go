@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,9 +31,18 @@ func verifyTask(t *testing.T, fast string) commandRuntime {
 
 // measuredTask is a task of the project demo, whose record holds settings,
 // on a machine with memory to spare, with a verification store of the
-// test's own. It returns the task's folder for what its tiers save.
+// test's own and a worktree with one commit. It returns the task's folder
+// for what its tiers save.
 func measuredTask(t *testing.T, settings string) (commandRuntime, string) {
 	t.Helper()
+	worktree := t.TempDir()
+	gitIn(t, worktree, "init", "-q")
+	if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, worktree, "add", "a.txt")
+	gitIn(t, worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "start")
+	gitIn(t, worktree, "update-ref", "refs/remotes/origin/main", "HEAD")
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	h := testHome(t)
 	record := projectcfg.Path(h.Data, "demo")
@@ -46,7 +56,7 @@ func measuredTask(t *testing.T, settings string) (commandRuntime, string) {
 		t.Fatal(err)
 	}
 	taskTmp := t.TempDir()
-	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "t1", Project: filepath.Join(t.TempDir(), "demo"), Worktree: t.TempDir(), TaskTmp: taskTmp}); err != nil {
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "t1", Project: filepath.Join(t.TempDir(), "demo"), Worktree: worktree, TaskTmp: taskTmp}); err != nil {
 		t.Fatal(err)
 	}
 	runtime := testCommandRuntimeForHome(h)
@@ -136,6 +146,59 @@ func TestVerifyRecordsEachCommandAsAMeasuredExecution(t *testing.T) {
 	}
 	if execution.Status != "passed" || !execution.Measurement.CleanupConfirmed || execution.Measurement.Usage.TotalProcesses == 0 {
 		t.Fatalf("execution = %+v, want a measured pass", execution)
+	}
+}
+
+// Each command's result keeps the source it ran on, read once its turn was
+// taken and once it had ended.
+func TestVerifyRecordsTheSourceEachCommandRanOn(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	h, err := runtime.resolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	tree := gitIn(t, meta.Worktree, "rev-parse", "HEAD^{tree}")
+	want := verify.Source{Commit: gitIn(t, meta.Worktree, "rev-parse", "HEAD"), CommitTree: tree, Tree: tree, IsComplete: true}
+	if exit != 0 || stderr.Len() != 0 || len(results) != 1 {
+		t.Fatalf("exit = %d, stderr = %q, results = %+v; want one quiet pass", exit, stderr.String(), results)
+	}
+	if tested, err := results[0].Source.Tested(); err != nil || tested != want {
+		t.Errorf("the command tested %+v (%v); want %+v", tested, err, want)
+	}
+}
+
+// A command whose source changed while it ran keeps its own result, and the
+// tier says that it tested no one source.
+func TestVerifySaysWhenACommandsSourceChangedWhileItRan(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "echo changed> moved.txt"]]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if exit != 0 || len(results) != 1 || results[0].Status != "passed" {
+		t.Fatalf("exit = %d, results = %+v; want the command's own pass", exit, results)
+	}
+	if want := "cfo verify: cmd /d /c echo changed> moved.txt tested no one source: verify: the source differed between the reads as the run started and once it ended"; !strings.HasPrefix(stderr.String(), want) {
+		t.Errorf("stderr = %q; want it to start %q", stderr.String(), want)
+	}
+	if _, err := results[0].Source.Tested(); err == nil {
+		t.Errorf("the result's reads %+v name a tested source; want none", results[0].Source)
 	}
 }
 
@@ -468,5 +531,247 @@ func TestVerifyLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Status != "passed" || len(results[0].Spared) != 1 || len(results[0].Leftovers) != 0 || !strings.EqualFold(results[0].Spared[0].Name, image) {
 		t.Fatalf("saved = %+v, want a pass that names the service as spared and nothing as ended", results)
+	}
+}
+
+// countedTier is the record settings of a fast tier whose one command adds a
+// line to counter each time it runs, with reuse declared as declared, and a
+// cfo build stamped as an installed one is, which reuse requires.
+func countedTier(t *testing.T, counter, declared string) string {
+	t.Helper()
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := `"verification": {"fast": [` + string(command) + `]`
+	if declared != "" {
+		settings += `, "reuse": ` + declared
+	}
+	return settings + `}`
+}
+
+// runs is how many times the counted command ran.
+func runs(t *testing.T, counter string) int {
+	t.Helper()
+	data, err := os.ReadFile(counter)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(data), "ran")
+}
+
+// A tier that passed on a source takes that pass again on the same source
+// with the same declared inputs, instead of running, says so, and saves the
+// pass's results as taken from it.
+func TestVerifyTakesAPassAgainOnTheSameSource(t *testing.T) {
+	// Arrange
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	runtime, taskTmp := measuredTask(t, countedTier(t, counter, `{"tiers": ["fast"], "tools": [["git", "version"]]}`))
+	var first bytes.Buffer
+	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 {
+		t.Fatalf("the first run exited %d: %s", exit, first.String())
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || runs(t, counter) != 1 {
+		t.Fatalf("exit = %d, the command ran %d time(s); want 0 and one run in all; stderr=%q", exit, runs(t, counter), stderr.String())
+	}
+	if want := "cfo verify: the fast tier passed on this source at "; !strings.HasPrefix(stderr.String(), want) {
+		t.Errorf("stderr = %q; want it to start %q", stderr.String(), want)
+	}
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) != 1 || results[0].Status != "passed" || results[0].Reused == "" || results[0].Execution == "" {
+		t.Errorf("results = %+v; want the pass's result, taken from it", results)
+	}
+}
+
+// ignoreBuild commits a .gitignore to the task's worktree that ignores
+// build/ and built.txt, and moves the default branch to it, and returns the
+// worktree.
+func ignoreBuild(t *testing.T, runtime commandRuntime) string {
+	t.Helper()
+	h, err := runtime.resolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta.Worktree, ".gitignore"), []byte("build/\nbuilt.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, meta.Worktree, "add", ".gitignore")
+	gitIn(t, meta.Worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "ignore the build")
+	gitIn(t, meta.Worktree, "update-ref", "refs/remotes/origin/main", "HEAD")
+	return meta.Worktree
+}
+
+// A tier runs again when anything its pass depends on changed, when its
+// record declares nothing a pass depends on besides git's files, or when it
+// is not among the tiers the declaration names.
+func TestVerifyRunsAgainWhenItsPassCannotBeTaken(t *testing.T) {
+	for name, row := range map[string]struct {
+		declared string
+		change   func(t *testing.T, worktree, record string)
+	}{
+		"no reuse declared":  {},
+		"another tier named": {declared: `{"tiers": ["full"]}`},
+		"another time limit": {declared: `{"tiers": ["fast"]}`, change: func(t *testing.T, worktree, record string) {
+			data, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			limited := strings.Replace(string(data), `"verification": {`, `"verification": {"max_fast_seconds": 120, `, 1)
+			if err := os.WriteFile(record, []byte(limited), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"a file git sees": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree, record string) {
+			if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"a declared input": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree, record string) {
+			if err := os.MkdirAll(filepath.Join(worktree, "build"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(worktree, "build", "page.html"), []byte("built\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			counter := filepath.Join(t.TempDir(), "count.txt")
+			runtime, _ := measuredTask(t, countedTier(t, counter, row.declared))
+			worktree := ignoreBuild(t, runtime)
+			var first bytes.Buffer
+			if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 || strings.Contains(first.String(), "can be taken again") || strings.Contains(first.String(), "is not kept") {
+				t.Fatalf("the first run exited %d and said %q; want a quiet pass", exit, first.String())
+			}
+			if row.change != nil {
+				h, err := runtime.resolveHome()
+				if err != nil {
+					t.Fatal(err)
+				}
+				row.change(t, worktree, projectcfg.Path(h.Data, "demo"))
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 0 || runs(t, counter) != 2 {
+				t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs; stderr=%q", exit, runs(t, counter), stderr.String())
+			}
+		})
+	}
+}
+
+// A tier that failed keeps no pass, so it runs again.
+func TestVerifyKeepsNoPassOfAFailedTier(t *testing.T) {
+	// Arrange
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& exit 3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"tiers": ["fast"]}}`)
+	var first bytes.Buffer
+	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 1 || strings.Contains(first.String(), "can be taken again") {
+		t.Fatalf("the first run exited %d and said %q; want a failure with its key read", exit, first.String())
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || runs(t, counter) != 2 {
+		t.Errorf("exit = %d, the command ran %d time(s); want 1 and two runs", exit, runs(t, counter))
+	}
+}
+
+// A tier whose pass cannot be keyed says why and runs.
+func TestVerifySaysWhyItsPassCannotBeKeyed(t *testing.T) {
+	// Arrange
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	runtime, _ := measuredTask(t, countedTier(t, counter, `{"tiers": ["fast"]}`))
+	version = "dev"
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if want := "cfo verify: the fast tier runs, as no pass of it can be taken again: verify: an unstamped cfo build"; exit != 0 || runs(t, counter) != 1 || !strings.HasPrefix(stderr.String(), want) {
+		t.Errorf("exit = %d, %d run(s), stderr = %q; want 0, one run, and a line that starts %q", exit, runs(t, counter), stderr.String(), want)
+	}
+}
+
+// A pass is not kept when a declared input read otherwise once the tier had
+// run, though the tier passed: with the input as it was before, the next run
+// finds no pass and runs again.
+func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
+	// Arrange
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo built> built.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {"tiers": ["fast"], "inputs": ["built.txt"]}}`)
+	worktree := ignoreBuild(t, runtime)
+	var first bytes.Buffer
+	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 || !strings.Contains(first.String(), "is not kept to be taken again") {
+		t.Fatalf("the first run exited %d and said %q; want a pass not kept", exit, first.String())
+	}
+	if err := os.Remove(filepath.Join(worktree, "built.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || runs(t, counter) != 2 {
+		t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs; stderr=%q", exit, runs(t, counter), stderr.String())
+	}
+}
+
+// A command that never started read no source, so the tier says nothing of
+// its source, only that it took no turn.
+func TestVerifySaysNothingOfTheSourceOfACommandThatNeverStarted(t *testing.T) {
+	// Arrange
+	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	runtime.availableMemory = func() (supervisor.Memory, error) {
+		return supervisor.Memory{}, errors.New("memory cannot be read")
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || strings.Contains(stderr.String(), "tested no one source") {
+		t.Errorf("exit = %d, stderr = %q; want a failure that says nothing of a source", exit, stderr.String())
 	}
 }

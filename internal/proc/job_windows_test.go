@@ -9,9 +9,85 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// Windows counts a job's processes and lists them in one call, and a process
+// that starts or exits during it can leave the count and the list apart: a
+// job whose processes churned showed it in about one read of 25,000, for up
+// to half a millisecond. The list is read again until they agree, its room
+// grows when Windows says the list does not fit, and a job whose list never
+// agrees, or never fits its bound, is unreadable rather than taken short.
+func TestJobProcessIDsReadsTheListAgainUntilItsCountAgrees(t *testing.T) {
+	header := int(8 / unsafe.Sizeof(uintptr(0)))
+	tooLong := syscall.Errno(errorMoreData)
+	for name, row := range map[string]struct {
+		// read is what read number read of the list finds, with room for
+		// that many ids: the count, the ids it lists, or an error.
+		read      func(read int, room uint32) (counted, listed uint32, err error)
+		wantReads int
+		wantIDs   int
+		wantError string
+	}{
+		"a list that changed during one read": {wantReads: 2, wantIDs: 2, read: func(read int, room uint32) (uint32, uint32, error) {
+			if read == 1 {
+				return 3, 2, nil
+			}
+			return 2, 2, nil
+		}},
+		"a list too long for its room": {wantReads: 2, wantIDs: 100, read: func(read int, room uint32) (uint32, uint32, error) {
+			if room < 100 {
+				return 0, 0, tooLong
+			}
+			return 100, 100, nil
+		}},
+		"a count past its room with no error": {wantReads: 2, wantIDs: 100, read: func(read int, room uint32) (uint32, uint32, error) {
+			return 100, min(100, room), nil
+		}},
+		"a list too long for every room": {wantReads: 6, wantError: "exceeds its bound", read: func(read int, room uint32) (uint32, uint32, error) {
+			return 0, 0, tooLong
+		}},
+		"a list that changed through every read": {wantError: "changed through every read", read: func(read int, room uint32) (uint32, uint32, error) {
+			return 3, 2, nil
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			reads := 0
+			original := readJobList
+			t.Cleanup(func() { readJobList = original })
+			readJobList = func(_ syscall.Handle, buffer []uintptr) error {
+				reads++
+				counted, listed, err := row.read(reads, uint32(len(buffer)-header))
+				if err != nil {
+					return err
+				}
+				counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
+				counts[0], counts[1] = counted, listed
+				for index := range int(listed) {
+					buffer[header+index] = uintptr(reads*1000 + index)
+				}
+				return nil
+			}
+
+			// Act
+			ids, err := JobProcessIDs(0)
+
+			// Assert
+			if row.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), row.wantError) || (row.wantReads != 0 && reads != row.wantReads) || reads < 2 {
+					t.Fatalf("JobProcessIDs = %v, %v after %d read(s); want an error that says %q after %d", ids, err, reads, row.wantError, row.wantReads)
+				}
+				return
+			}
+			if err != nil || reads != row.wantReads || len(ids) != row.wantIDs || ids[0] != uint32(reads*1000) {
+				t.Fatalf("JobProcessIDs = %v, %v after %d read(s); want the %d ids of read %d, the one that agreed", ids, err, reads, row.wantIDs, row.wantReads)
+			}
+		})
+	}
+}
 
 // TestJobHolderFixture is a process holding a job open, which waits to be
 // ended.

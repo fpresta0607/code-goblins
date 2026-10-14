@@ -34,6 +34,16 @@ type Result struct {
 	Execution string     `json:"execution,omitempty"`
 	Leftovers []Leftover `json:"leftovers,omitempty"`
 	Spared    []Leftover `json:"spared,omitempty"`
+	// Source is what the command ran on, read once its turn was taken and
+	// once it had ended, as its execution record keeps it.
+	Source SourceReads `json:"source,omitzero"`
+	// Reused is the pass this result was taken from instead of a run
+	// (FindPass), ReusedAt when, and ReusedFor the task that took it. The
+	// result's other fields are the original run's, its Execution among
+	// them.
+	Reused    string    `json:"reused,omitempty"`
+	ReusedAt  time.Time `json:"reused_at,omitzero"`
+	ReusedFor string    `json:"reused_for,omitempty"`
 	// Packages are what became of each package a test command ran.
 	Packages []PackageResult `json:"packages,omitempty"`
 }

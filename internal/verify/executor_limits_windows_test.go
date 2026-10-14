@@ -92,6 +92,14 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 	standin.RemoveAtCleanup(t, root)
 	program := filepath.Join(root, "workload.exe")
 	standin.Put(t, program)
+	// A program's first run on this machine waits for its scan, which a
+	// loaded machine stretched past a three second limit on 2026-10-14, so
+	// the program has run once before its run is timed.
+	warm := exec.Command(program)
+	warm.Env = append(os.Environ(), standin.Env("", standin.Rule{Any: true, Exit: 0})...)
+	if err := warm.Run(); err != nil {
+		t.Fatal(err)
+	}
 	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
 	holder := exec.Command(os.Args[0])
 	holder.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+executor.Admission.Dir)
@@ -110,21 +118,22 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 	if line, err := bufio.NewReader(said).ReadString('\n'); err != nil || strings.TrimSpace(line) != "holding" {
 		t.Fatalf("the holder said %q, %v", line, err)
 	}
+	// The wait outlasts the limit, which has room for a loaded machine.
 	go func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(12 * time.Second)
 		release.Close()
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Act
-	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 3*time.Second)
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 10*time.Second)
 
 	// Assert
 	if err != nil || result.ExitCode != 0 || string(result.Stdout) != "ran" {
 		t.Fatalf("a quick command behind a longer wait = %+v, %v", result, err)
 	}
-	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 4 {
+	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 11 {
 		t.Fatalf("evidence = %+v, want a pass after a wait longer than the limit", evidence)
 	}
 }
@@ -184,16 +193,27 @@ func TestExecutorRefusesAnUntrustedDesktopReserveBeforeStarting(t *testing.T) {
 }
 
 func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
+	if os.Getenv(limitsRole) == "starter" {
+		// The command starts a child and exits at once, so its own run never
+		// waits on a child's start, which a loaded machine stretched past a
+		// four second limit on 2026-10-14.
+		child := exec.Command("ping", "-n", "60", "127.0.0.1")
+		if err := child.Start(); err != nil {
+			os.Exit(8)
+		}
+		os.Exit(0)
+	}
 	// Arrange
 	store := t.TempDir()
 	t.Setenv("CFO_VERIFY_DIR", store)
-	// The command exits well inside its limit and leaves a child past it.
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: 6 * time.Second, Headroom: plentyOfMemory}}
+	// The command exits well inside its limit, and its child lives through
+	// the linger, past the limit, which would end it if the limit still ran.
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: 12 * time.Second, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Act
-	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 4*time.Second)
+	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorLimitStopsOnceTheCommandExits$"}, Env: append(os.Environ(), limitsRole+"=starter")}, 8*time.Second)
 
 	// Assert
 	if err != nil {
@@ -678,6 +698,41 @@ func TestExecutorEndsASharedRunInterruptedBeforeItsCommandStarted(t *testing.T) 
 	}
 }
 
+// An interrupt that comes while the source is read, before the command
+// starts, ends a shared run as one before the read does: the read comes
+// before the check for an interrupt, so the command never starts.
+func TestExecutorEndsASharedRunInterruptedWhileItsSourceIsRead(t *testing.T) {
+	if os.Getenv(limitsRole) == "must-not-start" {
+		_ = os.WriteFile("started", []byte("started"), 0o600)
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: true}
+	executor.Source = func(context.Context, string) (Source, error) {
+		cancel()
+		return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
+	}
+
+	// Act
+	result, _, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsASharedRunInterruptedWhileItsSourceIsRead$"}, Env: append(os.Environ(), limitsRole+"=must-not-start")}, 0)
+
+	// Assert
+	if !errors.Is(err, ErrNoTurn) || !errors.Is(err, context.Canceled) || result.ExitCode != -1 {
+		t.Fatalf("run = %+v, %v; want no turn's result for an interrupt", result, err)
+	}
+	if _, statError := os.Stat(filepath.Join(root, "started")); statError == nil {
+		t.Fatal("the command started after its run was interrupted")
+	}
+	holders, waiters, lineError := Line(executor.Admission.Dir)
+	if lineError != nil || len(holders)+len(waiters) != 0 {
+		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, lineError)
+	}
+}
+
 // A running sample is progress, not the run's evidence, so one that cannot
 // be written ends no command: the command runs to its own end, and the run
 // keeps its exit code.
@@ -734,5 +789,44 @@ func TestExecutorKeepsRunningWhenASampleCannotBeWritten(t *testing.T) {
 	}
 	if record == "" {
 		t.Fatal("no sample's record was taken away, so the test proved nothing")
+	}
+}
+
+// A shared run's command answers an interrupt itself and runs to its own
+// end, so the source is read once it has ended whatever the interrupt: the
+// read is not made on the interrupted context.
+func TestExecutorReadsTheEndOfASharedRunPastAnInterrupt(t *testing.T) {
+	if os.Getenv(limitsRole) == "ends-a-moment-later" {
+		time.Sleep(time.Second)
+		os.Exit(0)
+	}
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var endRead error
+	reads := 0
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: true}
+	executor.Source = func(read context.Context, dir string) (Source, error) {
+		reads++
+		if reads == 1 {
+			time.AfterFunc(200*time.Millisecond, cancel)
+		} else {
+			endRead = read.Err()
+		}
+		return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
+	}
+
+	// Act
+	_, path, _ := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorReadsTheEndOfASharedRunPastAnInterrupt$"}, Env: append(os.Environ(), limitsRole+"=ends-a-moment-later")}, 0)
+
+	// Assert
+	record, err := LoadExecution(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 || endRead != nil || record.Source.End == nil {
+		t.Errorf("reads = %d, the end read's context said %v, record reads = %+v; want the end read made on a context no interrupt ended", reads, endRead, record.Source)
 	}
 }
