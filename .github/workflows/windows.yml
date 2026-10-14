@@ -1,8 +1,27 @@
 name: windows
 
+# Proves on a hosted runner's desktop what no test may show on a person's:
+# that no console window a fleet process opens stays on the desktop. A
+# careless start of cfo gate turn, a goblin's background run, opens a window
+# with main's build and closes it at once with this commit's, cfo gate turn
+# --detach opens none, and the supervisor's backstop takes a careless
+# console off the desktop. Each runs twice, with the console host and with
+# Windows Terminal as the default terminal, which the runner's image has
+# installed. The tests that show a window run only here, where
+# CFO_WINDOW_PROOF names the default terminal.
 on:
   push:
     branches: [fix/no-visible-windows]
+  pull_request:
+    paths:
+      - cmd/cfo/main.go
+      - cmd/cfo/own_console*.go
+      - cmd/cfo/gate_turn*.go
+      - cmd/cfo/launcher.go
+      - internal/execx/**
+      - internal/proc/**
+      - tests/acceptance/no_visible_windows.ps1
+      - .github/workflows/windows.yml
 
 permissions:
   contents: read
@@ -12,44 +31,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  experiment:
+  windows:
     runs-on: windows-2025
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows' console host, and Windows Terminal, by the class ids
+          # Windows' default terminal setting stores.
+          - terminal: the console host
+            console: '{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}'
+            host: '{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}'
+          - terminal: Windows Terminal
+            console: '{2EACA947-7F5F-4CFA-BA87-8F7FBEEFBE69}'
+            host: '{E12CFF52-A866-4C77-9A90-F570A7AA2C6B}'
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: stable
           cache: false
-      - name: Build cfo
+      - name: Build cfo from main and from this commit
         shell: pwsh
         run: |
-          go build -o "$env:RUNNER_TEMP\bin\cfo.exe" ./cmd/cfo
+          go build -o "$env:RUNNER_TEMP\branch\cfo.exe" ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Console host
-        shell: powershell
-        run: .\tests\acceptance\window_experiment.ps1 -Cfo "$env:RUNNER_TEMP\bin\cfo.exe" -Work "$env:RUNNER_TEMP\conhost" -Phase conhost
-      - name: Install Windows Terminal as the default terminal
+          git worktree add "$env:RUNNER_TEMP\main-source" origin/main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go -C "$env:RUNNER_TEMP\main-source" build -o "$env:RUNNER_TEMP\main\cfo.exe" ./cmd/cfo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Make ${{ matrix.terminal }} the default terminal
+        shell: pwsh
+        run: |
+          New-Item -Force 'HKCU:\Console\%%Startup' | Out-Null
+          Set-ItemProperty 'HKCU:\Console\%%Startup' DelegationConsole '${{ matrix.console }}'
+          Set-ItemProperty 'HKCU:\Console\%%Startup' DelegationTerminal '${{ matrix.host }}'
+          Get-AppxPackage Microsoft.WindowsTerminal | Select-Object Name, Version | Out-String
+      - name: Run the tests that show a window
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          CFO_WINDOW_PROOF: ${{ matrix.terminal }}
         run: |
-          $tag = gh release list --repo microsoft/terminal --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName'
-          "release $tag"
-          gh release download $tag --repo microsoft/terminal --pattern '*PreinstallKit.zip' --dir "$env:RUNNER_TEMP\wt"
+          go test ./cmd/cfo -run '^(TestACommandStartedAloneInANewConsoleClosesItsWindow|TestIsShownOnPurposeKeepsOnlyWhatTheOverlordStartsToLookAt|TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog)$' -count=1 -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $kit = Get-ChildItem "$env:RUNNER_TEMP\wt\*.zip" | Select-Object -First 1
-          Expand-Archive $kit.FullName "$env:RUNNER_TEMP\wt\kit"
-          Get-ChildItem -Recurse "$env:RUNNER_TEMP\wt\kit" | Select-Object -ExpandProperty FullName
-          $bundle = Get-ChildItem "$env:RUNNER_TEMP\wt\kit\*.msixbundle" | Select-Object -First 1
-          $license = Get-ChildItem "$env:RUNNER_TEMP\wt\kit\*License*.xml" | Select-Object -First 1
-          $dependencies = Get-ChildItem "$env:RUNNER_TEMP\wt\kit\*x64*.appx" | Select-Object -ExpandProperty FullName
-          Add-AppxProvisionedPackage -Online -PackagePath $bundle.FullName -DependencyPackagePath $dependencies -LicensePath $license.FullName | Out-String
-          Add-AppxPackage -Path $bundle.FullName -DependencyPath $dependencies
-          Get-AppxPackage Microsoft.WindowsTerminal | Select-Object Name, Version | Out-String
-          New-Item -Force 'HKCU:\Console\%%Startup' | Out-Null
-          Set-ItemProperty 'HKCU:\Console\%%Startup' DelegationConsole '{2EACA947-7F5F-4CFA-BA87-8F7FBEEFBE69}'
-          Set-ItemProperty 'HKCU:\Console\%%Startup' DelegationTerminal '{E12CFF52-A866-4C77-9A90-F570A7AA2C6B}'
-      - name: Windows Terminal
+          go test ./internal/proc -run '^(TestHideConsoleTakesACarelessConsoleOffTheDesktop|TestHideConsoleHidesNothingOfAConsoleWithNoWindow)$' -count=1 -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Measure each careless start and a detached run
         shell: powershell
-        run: .\tests\acceptance\window_experiment.ps1 -Cfo "$env:RUNNER_TEMP\bin\cfo.exe" -Work "$env:RUNNER_TEMP\wt-run" -Phase terminal
+        run: .\tests\acceptance\no_visible_windows.ps1 -BaseCfo "$env:RUNNER_TEMP\main\cfo.exe" -Cfo "$env:RUNNER_TEMP\branch\cfo.exe" -Terminal '${{ matrix.terminal }}' -Work "$env:RUNNER_TEMP\proof"

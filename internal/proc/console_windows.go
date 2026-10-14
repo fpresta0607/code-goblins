@@ -1,7 +1,9 @@
 package proc
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -30,6 +32,62 @@ func ConsoleShown(pid int, windowOwners map[int]bool) (bool, error) {
 		}
 		return windowOwners[int(basic.InheritedFromUniqueProcessId)], nil
 	}
+}
+
+// consoleWindowClasses are the classes of the windows a console shows
+// through: a classic console host's own window, and the pseudo console
+// window of a console handed to a terminal such as Windows Terminal, which
+// the terminal follows. Windows says a console's window belongs to a process
+// attached to the console, or to its console host.
+var consoleWindowClasses = []string{"ConsoleWindowClass", "PseudoConsoleWindow"}
+
+// showWindowAsync is user32's ShowWindowAsync, which x/sys/windows does not
+// wrap. It posts the change to the window's thread rather than wait for it,
+// so a console host that does not answer cannot hold its caller up.
+var showWindowAsync = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindowAsync")
+
+// windowHide is SW_HIDE.
+const windowHide = 0
+
+// HideConsole hides each console window that shows on the desktop for
+// process pid's console, and says whether it hid any: the console host's
+// own, or the pseudo console window of a console handed to Windows
+// Terminal, which then minimizes the window it shows the console in. It
+// hides no other window, and ends nothing: the process runs on, and a
+// person can close it no more.
+func HideConsole(pid int) (bool, error) {
+	host, err := ConsoleHost(pid)
+	if err != nil {
+		return false, err
+	}
+	listed, err := topLevelWindows()
+	if err != nil {
+		return false, err
+	}
+	isHidden := false
+	var problems error
+	for _, each := range listed {
+		if !each.IsShown || each.Owner != pid && (host == 0 || each.Owner != host) {
+			continue
+		}
+		class := make([]uint16, 256)
+		copied, err := windows.GetClassName(each.Handle, &class[0], int32(len(class)))
+		if err != nil || !slices.Contains(consoleWindowClasses, windows.UTF16ToString(class[:copied])) {
+			continue
+		}
+		// A window that closed since it was listed leaves its handle free
+		// for the next window made, which may be another program's.
+		var owner uint32
+		if _, err := windows.GetWindowThreadProcessId(each.Handle, &owner); err != nil || int(owner) != each.Owner {
+			continue
+		}
+		if posted, _, err := showWindowAsync.Call(uintptr(each.Handle), windowHide); posted == 0 {
+			problems = errors.Join(problems, fmt.Errorf("proc: hide console window %#x of pid %d: %w", each.Handle, pid, err))
+			continue
+		}
+		isHidden = true
+	}
+	return isHidden, problems
 }
 
 // ConsoleHost is the process id of the console host that the console

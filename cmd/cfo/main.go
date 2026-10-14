@@ -138,6 +138,7 @@ commands:
 `
 
 func main() {
+	leaveOwnConsole(os.Args[1:], invokedAsGoblins())
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
@@ -289,6 +290,10 @@ type commandRuntime struct {
 	// one while it waits and keeps its turn through one while its command
 	// runs.
 	interrupts func() (signals <-chan os.Signal, stop func())
+	// gateTurnSelf is the program and the leading arguments that run cfo
+	// gate turn, which cfo gate turn --detach starts the run it detaches
+	// with; nil is this binary's gate turn.
+	gateTurnSelf []string
 	// trainEvery is how often cfo pr train looks at its train's CI. Zero, in
 	// every runtime but a test's, is the trainEvery constant.
 	trainEvery time.Duration

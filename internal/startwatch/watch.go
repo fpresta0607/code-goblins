@@ -47,6 +47,8 @@ type Process struct {
 	// Shown says how the process shows on the Overlord's screen, as a wake
 	// says it, such as "a window of its own", and is empty when it does not.
 	Shown string
+	// IsHidden says the supervisor hid the console window it showed.
+	IsHidden bool
 }
 
 // Rest is a goblin that reported done or failed and rests since: the report
@@ -182,7 +184,12 @@ func (w *Watch) windows(reading Reading) []Finding {
 		if process.Owner == reading.CFO {
 			next = "end it by its pid unless the Overlord uses it"
 		}
-		findings = append(findings, Finding{Identity: identity, Owner: process.Owner, Detail: fmt.Sprintf("window_shown: %s's %s (pid %d), started %s, shows %s on the Overlord's screen: %s. Next: %s", ownerName(process.Owner, reading.CFO), filepath.Base(process.Exe), process.PID, process.Started.UTC().Format("15:04Z"), process.Shown, shownCommand(process.Command), next)})
+		shows := "shows " + process.Shown + " on the Overlord's screen"
+		if process.IsHidden {
+			shows = "showed " + process.Shown + " on the Overlord's screen, which the supervisor hid"
+			next = "tell " + process.Owner + " to start a heavy run with cfo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"
+		}
+		findings = append(findings, Finding{Identity: identity, Owner: process.Owner, Detail: fmt.Sprintf("window_shown: %s's %s (pid %d), started %s, %s: %s. Next: %s", ownerName(process.Owner, reading.CFO), filepath.Base(process.Exe), process.PID, process.Started.UTC().Format("15:04Z"), shows, shownCommand(process.Command), next)})
 	}
 	return findings
 }
