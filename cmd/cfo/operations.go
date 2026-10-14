@@ -216,7 +216,46 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			key, isKeyed = read, true
 		}
 	}
-	res, e := runMeasuredTier("cfo verify", cmds, *tier, meta, time.Duration(seconds)*time.Second, p, stderr, runtime)
+	// A keyed tier reads its key again once its first command holds its turn,
+	// since the worktree can change while it waits, and takes a pass a run
+	// ahead of it in the line kept for that key meanwhile, instead of running.
+	var ready func(context.Context) error
+	var taken verifyrun.Pass
+	if isKeyed {
+		isAsked := false
+		ready = func(ctx context.Context) error {
+			if isAsked {
+				return nil
+			}
+			isAsked = true
+			now, err := verifyrun.ReadReuseKey(ctx, execx.OSRunner{}, meta.Worktree, key, *m.Verification.Reuse)
+			if err != nil {
+				isKeyed = false
+				fmt.Fprintf(stderr, "cfo verify: the %s tier's pass is not kept to be taken again, as its key could not be read at its turn: %v\n", *tier, err)
+				return nil
+			}
+			key = now
+			pass, err := verifyrun.FindPass(now, time.Now(), m.Verification.Reuse.MaxAge(), meta.ID)
+			if err != nil {
+				if !errors.Is(err, verifyrun.ErrNoPass) {
+					fmt.Fprintf(stderr, "cfo verify: the %s tier runs, as its pass could not be read at its turn: %v\n", *tier, err)
+				}
+				return nil
+			}
+			taken = pass
+			return errPassTaken
+		}
+	}
+	res, e := runMeasuredTier("cfo verify", cmds, *tier, meta, time.Duration(seconds)*time.Second, p, stderr, runtime, ready)
+	if len(taken.Results) > 0 && e == nil {
+		if err := verifyrun.Save(p, taken.Results); err != nil {
+			fmt.Fprintf(stderr, "cfo verify: what the tier took could not be saved to %s: %v\n", p, err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "cfo verify: the %s tier passed on this source at %s, kept by a run ahead of this one while it waited, so it takes that pass instead of running: %s\n", *tier, taken.Kept.Format(time.RFC3339), taken.Results[0].Reused)
+		fmt.Fprintln(stdout, p)
+		return 0
+	}
 	// A pass is kept for its key only if its key read the same once the tier
 	// had run.
 	if e == nil && isKeyed {
@@ -251,14 +290,21 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	return 0
 }
 
+// errPassTaken is why a keyed tier's first command never started: the tier
+// took a pass kept for its key while it waited.
+var errPassTaken = errors.New("cfo verify: a run ahead of this one kept the tier's pass on this same source while it waited, so it takes that pass instead")
+
 // runMeasuredTier runs a tier's commands as measured executions in the
 // machine's one line for heavy runs, each limited from when it starts, and
 // saves what became of each to path. Before it waits it saves that the tier
 // is running, so a tier ended in its wait never leaves an earlier pass
 // standing, and a tier that ran nothing saves why with status not_run. A
 // result that cannot be saved fails the tier, since nothing else would show
-// what it did.
-func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime) ([]verifyrun.Result, error) {
+// what it did. ready, when set, is asked before each command starts whether
+// the tier still needs it (verify.Executor.Ready). A tier it ends with
+// errPassTaken saves nothing and returns no result and no error, so that its
+// caller saves the pass it took.
+func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime, ready func(context.Context) error) ([]verifyrun.Result, error) {
 	running := verifyrun.Result{Scope: scope, Task: meta.ID, Start: time.Now(), ExitCode: -1, Status: "running"}
 	if err := verifyrun.Save(path, []verifyrun.Result{running}); err != nil {
 		return nil, fmt.Errorf("%s: what the tier does could not be saved to %s: %w", name, path, err)
@@ -274,6 +320,7 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	executor.Source = func(ctx context.Context, dir string) (verifyrun.Source, error) {
 		return verifyrun.ReadSource(ctx, execx.OSRunner{}, dir)
 	}
+	executor.Ready = ready
 	res, runError := verifyrun.Runner{Commands: executor}.Run(context.Background(), cmds, scope, meta.ID, "", meta.Worktree, limit)
 	if len(res) == 0 && runError != nil {
 		res = notRun(runError)
@@ -282,7 +329,11 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	failure := errors.Join(runError, executor.RetryCleanup(cleanup))
+	cleanupError := executor.RetryCleanup(cleanup)
+	if errors.Is(runError, errPassTaken) && cleanupError == nil {
+		return nil, nil
+	}
+	failure := errors.Join(runError, cleanupError)
 	for index, result := range res {
 		if result.Execution == "" {
 			continue
@@ -370,7 +421,7 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stdout, p)
 		return 0
 	}
-	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime)
+	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime, nil)
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1

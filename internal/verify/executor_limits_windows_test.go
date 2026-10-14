@@ -183,6 +183,60 @@ func TestExecutorRefusesAnUntrustedDesktopReserveBeforeStarting(t *testing.T) {
 	}
 }
 
+// A run is asked whether it still needs its command once it holds its turn,
+// and a run that does not gives the turn back with the command never started
+// and why recorded.
+func TestExecutorStartsTheCommandOnlyWhenItsRunStillNeedsIt(t *testing.T) {
+	for name, row := range map[string]struct {
+		ready     error
+		isStarted bool
+	}{
+		"a run that needs it":       {isStarted: true},
+		"a run whose work was done": {ready: errors.New("a run ahead did this work")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			root := t.TempDir()
+			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
+			asked, isHeldWhenAsked := 0, false
+			executor.Ready = func(context.Context) error {
+				asked++
+				_, err := os.Stat(filepath.Join(executor.Admission.Dir, "slot-1"))
+				isHeldWhenAsked = err == nil
+				return row.ready
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Act
+			_, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: "cmd", Args: []string{"/d", "/c", "echo ran> ran.txt"}}, 0)
+
+			// Assert
+			if asked != 1 || !isHeldWhenAsked {
+				t.Fatalf("the run was asked %d time(s), with its turn held %v; want once, with it held", asked, isHeldWhenAsked)
+			}
+			_, statErr := os.Stat(filepath.Join(root, "ran.txt"))
+			if isStarted := statErr == nil; isStarted != row.isStarted {
+				t.Fatalf("the command started = %v, want %v", isStarted, row.isStarted)
+			}
+			evidence := readExecution(t, record)
+			if row.isStarted {
+				if err != nil || evidence.Status != "passed" {
+					t.Fatalf("a run that needs its command = %v, evidence %+v; want a pass", err, evidence)
+				}
+				return
+			}
+			if !errors.Is(err, ErrNotStarted) || !errors.Is(err, row.ready) || evidence.Status != "not_started" || evidence.ExitCode != nil || !strings.Contains(evidence.Failure, row.ready.Error()) {
+				t.Fatalf("a run whose work was done = %v, evidence %+v; want it never started, saying why", err, evidence)
+			}
+			if _, err := os.Stat(filepath.Join(executor.Admission.Dir, "slot-1")); !os.IsNotExist(err) {
+				t.Fatalf("the run kept its turn: %v", err)
+			}
+		})
+	}
+}
+
 func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
