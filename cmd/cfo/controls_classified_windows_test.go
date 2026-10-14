@@ -63,6 +63,7 @@ var staysAtNormal = map[string]string{
 	"run-request":       "files a card nothing waits on",
 	"setup":             "the launcher's setup, which waits on a person",
 	"voice-worker":      "runs the speech engine, which is heavy, and leaves before the dispatch",
+	"ci-runner":         "waits on a desktop CI job, which is work",
 }
 
 // dispatched reads main.go for every command cfo dispatches on: each label of

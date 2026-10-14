@@ -25,9 +25,6 @@ const (
 	pendingLimit = 30 * time.Second
 )
 
-// ErrNotServing is a pipe no service answers on.
-var ErrNotServing = errors.New("cirunner: the CI runner service is not running")
-
 // Serve answers the fleet on the pipe name until ctx ends, then waits for the
 // job a client asked for, if one runs, to end and be cleaned up. Only
 // SYSTEM, Administrators, the service itself and allowed, a SID, may open

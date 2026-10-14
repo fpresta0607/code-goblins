@@ -1,5 +1,7 @@
 package cirunner
 
+import "errors"
+
 // PipeName is where the service answers the fleet.
 const PipeName = `\\.\pipe\code-goblins-ci-runner`
 
@@ -34,3 +36,6 @@ type Reply struct {
 	Outcome Outcome  `json:"outcome,omitempty"`
 	Error   string   `json:"error,omitempty"`
 }
+
+// ErrNotServing is a pipe no service answers on.
+var ErrNotServing = errors.New("cirunner: the CI runner service is not running")

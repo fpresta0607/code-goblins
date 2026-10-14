@@ -113,6 +113,9 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 		// A goblin's for its own task, and the credential commands the
 		// board's own terminals run.
 		{"notify", "helper", "pipeline", "gate", "worktree", "services", "present", "review", "deliver", "auth"},
+		// The desktop CI runner's: a job the supervisor starts in the line,
+		// and the runner service's status.
+		{"ci-runner"},
 	}
 	sometimes := []string{"drain", "reap", "allowance-floor"}
 	source, err := os.ReadFile("main.go")
