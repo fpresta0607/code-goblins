@@ -283,7 +283,7 @@ func TestAFKLogSendsADecisionWithWhatIsWrongWhatWasTriedItsChoicesAndTheAnswer(t
 	}
 }
 
-// A step only he can take is one plain line: what it is and why the CFO
+// A step only he can take is one card once he is back: what it is and why the CFO
 // cannot take it, never a question.
 func TestAFKLogSendsAStepOnlyHeCanTakeAsAPlainLine(t *testing.T) {
 	// Arrange

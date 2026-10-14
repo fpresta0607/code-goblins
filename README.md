@@ -817,7 +817,7 @@ While it is on:
 - Out of AFK mode these stay yours: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   While you are away only what a tool refuses or needs your own sign-in stays yours, as you chose on 12 October: a teammate's pull request, an update of Code Goblins, spend your account refuses, and your sign-ins and identity checks.
   The CFO decides the rest, and deletes data only after a backup it can restore.
-  It asks you nothing: each step only you can take gets a backlog row and one plain line at the end of your recap, never a question, and the work goes around it.
+  It asks you nothing: each step only you can take gets a backlog row and, once you are back, one card in your Command Center, and the work goes around it.
 - Every decision you would have been asked, the CFO answers itself with its recommendation and acts on.
   When you turn AFK mode off, each is settled: it is in the Command Center's **History** with the CFO's answer, marked as given while you were away, never in your queue.
   **Change** on the recap, or **Change answer** in History, sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
@@ -838,9 +838,13 @@ It leads with a merge that did not land, the recap's one warning, which says in 
 Then come what went live, migrations applied and builds installed, in the CFO's own words with their run or pull request, then what merged, one line to a repository with each pull request a link, anything else the CFO did, the goblins paused at a floor, what goblins finished that did not merge, and **Spent**.
 What waited on you in the Command Center and no longer does folds under **Settled**, and a line the CFO logged by mistake folds under **Struck by the CFO** with its reason.
 **Decided for you** follows: each question the CFO answered with its recommendation, yours under **For you** and the goblins' under **For the goblins**, each with its answer and **Change**, which opens it in History.
-**Needs you** comes last, and only when something does, in the lantern box of what waits on you: each step only you can take, such as your own sign-in or a step a tool refused, as one plain line, then each item that still waits on you in the Command Center, with **Answer**.
+**Needs you** comes last, and only when something does: it says how many things wait for you in the Command Center, one card each, with **Open Command Center**.
+Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
+A step whose card could not be made stays a plain line.
+**Done** and **Decided for you** open and close behind the board's one thin caret, the same one History and the task panel use, and start open.
+Every heading inside them, **Deployed**, **Merged**, **Spent**, **For the goblins** and the rest, does the same and starts closed, showing only its name and its count, so the whole recap reads in one screen and you open only what you want to read.
 What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
-**Go through them** at the top opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
+**Open Command Center** at the top of Needs you opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
 **Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
 The Command Center's list offers **Go through them** too whenever two or more things wait on you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
@@ -884,13 +888,11 @@ For you (1)
 
 NEEDS YOU
 
-Needs you (1)
-- Sign in to Vercel for pd-auth
-  Evidence: Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in
-
-Waiting on you in the Command Center (1), each as it stands now
+Waiting on you in the Command Center (2), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   The CFO recommends: Keep it held.
+  Now: still waiting on you.
+- question:afk-his-20261002T031200.000000000Z, the CFO's: Sign in to Vercel for pd-auth
   Now: still waiting on you.
 ```
 

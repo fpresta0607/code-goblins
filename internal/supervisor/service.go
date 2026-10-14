@@ -285,6 +285,9 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
+	// hisSettled are the cards of steps only he can take whose steps the log
+	// holds settled, which afkChange guards.
+	hisSettled map[string]bool
 	// inspectCaller reads the ancestry and environment of the process a
 	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
@@ -701,6 +704,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
+	reconcileErr = errors.Join(reconcileErr, s.settleHisCards(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
 	s.sweepPages(ctx)

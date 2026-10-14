@@ -123,6 +123,15 @@ const header = (page: Page) => page.locator(".panel-header");
 const toggle = (page: Page) => page.getByRole("switch", { name: "AFK mode" });
 const offer = (page: Page) => page.locator("dialog.afk-dialog").filter({ hasText: "Welcome back" });
 const report = (page: Page) => page.locator("dialog.afk-report");
+
+// The recap's headings start closed, behind the board's one caret: this opens
+// each, as a tap on its caret does, to read the lines inside.
+async function openSections(page: Page): Promise<void> {
+  // The recap loads its page when it opens, and its end button comes with it.
+  await report(page).locator(".afk-report-end").waitFor();
+  const closed = report(page).locator("details.afk-drawer:not([open]) > summary");
+  for (let remaining = await closed.count(); remaining > 0; remaining--) await closed.first().click();
+}
 // The toggle is in the header of the CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
   await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
@@ -512,13 +521,14 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
 
     // Act
     await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+    await openSections(page);
 
     // Assert: the headline, then the three parts in order.
     const title = report(page).locator(".afk-report-title");
     await expect(title.locator("h2")).toHaveText("AFK recap");
     await expect(title.locator(".afk-headline")).toHaveText(/^You were away 8h25m, from .+ to .+\. 2 things need you\. The CFO merged 1 pull request, made 1 deploy and answered 2 questions\.$/);
     await expect(title).toContainText("Turned on from your board, off from your terminal.");
-    await expect(report(page).locator(".afk-part > h3")).toHaveText(["Needs you", "Done", "Decided for you"]);
+    await expect(report(page).locator(".afk-part > h3, .afk-part > details > summary")).toHaveText(["Needs you", "Done", "Decided for you"]);
     const groups = (part: string) => report(page).getByRole("region", { name: part, exact: true }).locator(".afk-group").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")));
     expect(await groups("Done")).toEqual(["Not merged", "Deployed", "Merged", "Other", "Paused at a floor", "Also finished", "Spent", "Settled"]);
     expect(await groups("Decided for you")).toEqual(["For you", "For the goblins"]);
@@ -528,7 +538,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await page.screenshot({ path: testInfo.outputPath(`recap-${viewport.width}.png`) });
     const needsHead = report(page).getByRole("region", { name: "Needs you" }).locator("h3");
     await expect(report(page).locator(".afk-part").first()).toHaveAccessibleName("Needs you");
-    await expect(report(page).getByRole("button", { name: "Go through them" })).toBeVisible();
+    await expect(report(page).getByRole("button", { name: "Open Command Center" })).toBeVisible();
     expect((await needsHead.boundingBox())!.y).toBeLessThan((await report(page).getByRole("region", { name: "Done", exact: true }).boundingBox())!.y);
 
     // Done, in plain words with each line's link: what went live in the
@@ -559,12 +569,13 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await expect(forGoblins.locator(".afk-row-what")).toHaveText("Which CSV dialect?");
     await expect(forGoblins.locator(".afk-row-detail")).toHaveText("The CFO answered nw-invoice-export: RFC 4180");
 
-    // Needs you, first: the step only he can take, then what still waits on
-    // him in the Command Center, each one line in the box of what waits.
-    const needs = report(page).getByRole("region", { name: "Needs you" }).locator("li");
-    await expect(needs.locator(".afk-row-what")).toHaveText(["Sign in to Vercel for nw-search-index", "Migration 0042 drops the legacy_invoices table. Apply it?"]);
-    await expect(needs.nth(1).getByRole("button", { name: "Open in the Command Center" })).toBeVisible();
-    await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveClass(/primary/);
+    // Needs you, first: how many things wait for him in the Command Center,
+    // one card each, with the button that opens them, then a line for the step
+    // only he can take that has no card of its own.
+    const needsPart = report(page).getByRole("region", { name: "Needs you" });
+    await expect(needsPart.locator(".afk-part-note")).toHaveText("1 thing waits for you in the Command Center, one card each.");
+    await expect(needsPart.locator("li .afk-row-what")).toHaveText(["Sign in to Vercel for nw-search-index"]);
+    await expect(report(page).getByRole("button", { name: "Open Command Center" })).toHaveClass(/primary/);
 
     // Act: he taps a line's Evidence, then taps it again.
     const toggle = merged.getByRole("button", { name: "Evidence" });
@@ -576,8 +587,9 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     await expect(report(page).locator(".afk-row-evidence")).toHaveCount(1);
     await toggle.click();
     await expect(merged.locator(".afk-row-evidence")).toHaveCount(0);
-    await needs.first().getByRole("button", { name: "Evidence" }).click();
-    await expect(needs.first().locator(".afk-row-evidence")).toHaveText("Vercel asks for his own sign-in in a browser. Backlog row nw-vercel-sign-in");
+    const step = needsPart.locator("li");
+    await step.getByRole("button", { name: "Evidence" }).click();
+    await expect(step.locator(".afk-row-evidence")).toHaveText("Vercel asks for his own sign-in in a browser. Backlog row nw-vercel-sign-in");
     expect(await fits(page)).toBe(true);
   });
 }
@@ -602,6 +614,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
 
       // Act
       await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+      await openSections(page);
 
       // The shipped board has the recap's stylesheet ahead of the board's, as
       // its entry imports the one first, while this run's build splits it into
@@ -627,7 +640,8 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
         return under || outside ? [(row.querySelector(".afk-row-what")?.textContent || "") + (under ? " (text under its head)" : " (head outside its box)")] : [];
       }));
       expect(overlaps).toEqual([]);
-      expect(await report(page).locator(".afk-row .goblin-avatar").count()).toBeGreaterThanOrEqual(4);
+      // What still waits is a card in the Command Center, not a row with a head here.
+      expect(await report(page).locator(".afk-row .goblin-avatar").count()).toBeGreaterThanOrEqual(3);
       expect(await fits(page)).toBe(true);
 
       // Assert: the CFO answered each For you row, so it wears the CFO's head.
@@ -644,36 +658,128 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
   }
 }
 
-// Open on a line of Needs you opens that one item in the Command Center, as
-// Go through them opens the first of all of them.
-test("Open on a line of Needs you opens that item to answer, and only that item", async ({ page }) => {
-  const second = question("q-second", "Ship the board release now?");
-  await open(page, snapshot({ questions: [QUESTIONS[0], second], afk: KEPT }));
-  const held = [HELD[0], { item: "question:q-second", task: "", what: second.text, at: second.created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Do it" }];
-  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, held } }));
-  await openCfoPanel(page);
-  await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
-  const needs = report(page).getByRole("region", { name: "Needs you" }).locator("li");
-  await expect(needs.getByRole("button", { name: "Open in the Command Center" })).toHaveCount(2);
+// Needs you says how many cards wait in the Command Center instead of their
+// words: each step only he can take became one card when AFK mode turned off,
+// and Open Command Center opens only the ones that wait.
+for (const [where, use] of [["in the browser", { viewport: { width: 1440, height: 1200 } }], ["in the desktop window", { viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 }]] as const) {
+  test.describe(where, () => {
+    test.use(use);
 
-  // Act
-  await needs.filter({ hasText: second.text }).getByRole("button", { name: "Open in the Command Center" }).click();
+    test("Needs you says how many wait with Open Command Center, never their words", async ({ page }) => {
+      const second = question("q-second", "Ship the board release now?");
+      await open(page, snapshot({ questions: [QUESTIONS[0], second], afk: KEPT }));
+      const held = [HELD[0], { item: "question:q-second", task: "", what: second.text, at: second.created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Do it" }];
+      await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: REPORT.sections.filter((section) => section.group !== "needs"), held } }));
+      await openCfoPanel(page);
+      await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+      const needsPart = report(page).getByRole("region", { name: "Needs you" });
+      await expect(needsPart.locator(".afk-part-note")).toHaveText("2 things wait for you in the Command Center, one card each.");
+      await expect(needsPart.locator("li")).toHaveCount(0);
+      await expect(report(page).getByText(second.text)).toHaveCount(0);
 
-  // Assert
-  await expect(report(page)).toHaveCount(0);
-  const dialog = page.locator("dialog.question-modal");
-  await expect(dialog.locator(".stack-pager")).toHaveCount(0);
-  await expect(dialog.locator(".question-body")).toContainText(second.text);
-});
+      // Act
+      await report(page).getByRole("button", { name: "Open Command Center" }).click();
+
+      // Assert
+      await expect(report(page)).toHaveCount(0);
+      const dialog = page.locator("dialog.question-modal");
+      await expect(dialog.locator(".stack-pager")).toHaveCount(1);
+      await expect(dialog.locator(".question-body")).toContainText(HELD[0].what);
+    });
+
+    test("Needs you fits its count, its button and a step with no card in one row of the part", async ({ page }) => {
+      await open(page, snapshot({ afk: KEPT }));
+      await openCfoPanel(page);
+      await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+      const needsPart = report(page).getByRole("region", { name: "Needs you" });
+      const head = await needsPart.locator("h3").boundingBox();
+      const button = await needsPart.getByRole("button", { name: "Open Command Center" }).boundingBox();
+      expect(Math.abs((head!.y + head!.height / 2) - (button!.y + button!.height / 2))).toBeLessThan(24);
+      expect(await fits(page)).toBe(true);
+    });
+  });
+}
+
+// The Overlord, 2026-10-14, of the report he read at 13:18Z: "AFK reports should
+// be collapsible, please", answered on its page: Done and Decided for you start
+// open, and every heading inside them starts closed, showing its name and its
+// count, behind the same thin caret every disclosure on the board uses.
+for (const [where, use, isHisWindow] of [["in the browser", { viewport: { width: 1440, height: 1200 } }, false], ["in the desktop window", { viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 }, true]] as const) {
+  test.describe(where, () => {
+    test.use(use);
+
+    test("each heading of the recap opens and closes with the caret, and starts closed with its name and count", async ({ page }) => {
+      // Arrange
+      await open(page, snapshot({ afk: KEPT }));
+      await openCfoPanel(page);
+
+      // Act
+      await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+
+      // Assert: the parts are open and each heading inside them is closed.
+      const part = (name: string) => report(page).getByRole("region", { name, exact: true });
+      await expect(part("Done").locator("> details.afk-part-drawer")).toHaveAttribute("open", "");
+      await expect(part("Decided for you").locator("> details.afk-part-drawer")).toHaveAttribute("open", "");
+      const heads = report(page).locator(".afk-group > details > summary");
+      await expect(heads).toHaveText(["Not merged 1", "Deployed 1", "Merged 1", "Other 1", "Paused at a floor 1", "Also finished 1", /^Spent/, "Settled 1", "For you 1", "For the goblins 1"]);
+      await expect(report(page).locator(".afk-group > details[open]")).toHaveCount(0);
+      await expect(report(page).locator(".afk-group li")).toHaveCount(0);
+      // Every caret is the board's one chevron, the same glyph History uses.
+      await expect(report(page).locator("summary > svg.icon")).toHaveCount(2 + 10);
+      if (isHisWindow) {
+        // Done and Decided for you, folded, are a short outline: the page they
+        // lengthened to about 7,600 pixels at his window size is mostly Needs you now.
+        const outline = await report(page).evaluate((element) => [...element.querySelectorAll(".afk-part:not(.needs)")].reduce((height, part) => height + part.getBoundingClientRect().height, 0));
+        expect(outline, "the folded Done and Decided for you read as a short outline at his window size").toBeLessThan(800);
+      }
+
+      // Act: he opens Deployed, and closes it again.
+      const deployed = part("Done").getByRole("region", { name: "Deployed" });
+      await deployed.locator("summary").click();
+
+      // Assert
+      await expect(deployed.locator("details")).toHaveAttribute("open", "");
+      await expect(deployed.locator("li .afk-row-what")).toHaveText("northwind-api production at 3f9c2ab: pull request 412, a login is rate limited");
+      expect(await deployed.locator("summary > svg").evaluate((icon) => getComputedStyle(icon).transform)).not.toBe("none");
+      await deployed.locator("summary").click();
+      await expect(deployed.locator("li")).toHaveCount(0);
+
+      // Act: he closes Done, which takes its headings with it, and opens it again.
+      await part("Done").locator("> details > summary").click();
+      await expect(part("Done").getByRole("region", { name: "Merged", exact: true })).toHaveCount(0);
+      await part("Done").locator("> details > summary").click();
+      await expect(part("Done").getByRole("region", { name: "Merged", exact: true })).toBeVisible();
+      await expect(part("Done").locator(".afk-group > details[open]")).toHaveCount(0);
+      expect(await fits(page)).toBe(true);
+    });
+
+    test("the keyboard opens a heading with Enter and closes it with Space, and a heading's lines are in the page only while it is open", async ({ page }) => {
+      // Arrange
+      await open(page, snapshot({ afk: KEPT }));
+      await openCfoPanel(page);
+      await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+      const merged = report(page).getByRole("region", { name: "Merged", exact: true });
+
+      // Act
+      await merged.locator("summary").focus();
+      await page.keyboard.press("Enter");
+
+      // Assert
+      await expect(merged.locator("li")).toHaveCount(1);
+      await page.keyboard.press("Space");
+      await expect(merged.locator("li")).toHaveCount(0);
+    });
+  });
+}
 
 for (const isOnlySettled of [false, true]) {
-  test(`with ${isOnlySettled ? "only settled items" : "nothing that needs him"} the recap has no Go through them and no Needs you, what was settled folds, and with nothing used it has no Spent`, async ({ page }) => {
+  test(`with ${isOnlySettled ? "only settled items" : "nothing that needs him"} the recap has no Open Command Center and no Needs you, what was settled folds, and with nothing used it has no Spent`, async ({ page }) => {
     await open(page, snapshot({ afk: KEPT }));
     await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, sections: isOnlySettled ? [] : REPORT.sections.filter((section) => section.group !== "needs"), finished: isOnlySettled ? [] : REPORT.finished, held: [REPORT.held[1]], spent: [] } }));
     await openCfoPanel(page);
     await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
     await expect(report(page).locator(".afk-headline")).toContainText("Nothing needs you.");
-    await expect(report(page).getByRole("button", { name: "Go through them" })).toHaveCount(0);
+    await expect(report(page).getByRole("button", { name: "Open Command Center" })).toHaveCount(0);
     await expect(report(page).getByRole("region", { name: "Needs you" })).toHaveCount(0);
     const settledGroup = report(page).getByRole("region", { name: "Settled" });
     await expect(settledGroup.locator("summary")).toHaveText("Settled 1");
@@ -696,6 +802,7 @@ test("a malformed link leaves the recap readable with its evidence", async ({ pa
   await openCfoPanel(page);
 
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
 
   const row = report(page).getByRole("region", { name: "Deployed", exact: true });
   await expect(row.locator(".afk-row-what")).toHaveText(entry.what);
@@ -728,6 +835,7 @@ for (const row of DISK_ROWS) {
 
     // Act
     await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+    await openSections(page);
 
     // Assert
     const spent = report(page).getByRole("region", { name: "Spent" }).locator("li");
@@ -763,6 +871,7 @@ test("free disk is the only row under Spent when no allowance was used, and has 
 
   // Act
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
 
   // Assert
   await expect(report(page).getByRole("region", { name: "Spent" }).locator("li")).toHaveText(["Disk (C:)337.0 GB freeAFK used 3.5 GB"]);
@@ -770,6 +879,7 @@ test("free disk is the only row under Spent when no allowance was used, and has 
   // A report with no disk reading, as the supervisor sends one read at one end.
   await page.route("**/api/afk/report", (route) => route.fulfill({ json: REPORT }));
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
   const spent = report(page).getByRole("region", { name: "Spent" });
   await expect(spent.locator("li")).toHaveCount(3);
   expect(await spent.evaluate((section) => section.textContent)).not.toMatch(/disk/i);
@@ -777,11 +887,11 @@ test("free disk is the only row under Spent when no allowance was used, and has 
 
 // The Overlord, 2026-10-12: "Anything the CFO has already answered should not
 // appear as a [line] for you ... It should just be something that was already
-// ... settled in history, the command center". Go through them opens the
+// ... settled in history, the command center". Open Command Center opens the
 // Command Center on what still waits on him from the stretch, and only that.
 // Change on a decision the CFO answered opens it in History, marked as given
 // while he was away, where Change answer sends his change once.
-test("Go through them steps through only what still waits from the stretch, and Change opens the CFO's answer in History to change", async ({ page }) => {
+test("Open Command Center steps through only what still waits from the stretch, and Change opens the CFO's answer in History to change", async ({ page }) => {
   const sent: Record<string, unknown>[] = [];
   // A question the CFO asked him after AFK mode ended waits beside the
   // stretch's, and is not among them.
@@ -795,9 +905,10 @@ test("Go through them steps through only what still waits from the stretch, and 
   const posted = () => sent.map((action) => [action.kind, action.question_id, action.text]);
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
 
-  // Act: he goes through them.
-  await report(page).getByRole("button", { name: "Go through them" }).click();
+  // Act: he opens the Command Center from the recap.
+  await report(page).getByRole("button", { name: "Open Command Center" }).click();
 
   // Assert: the Command Center opens on the question held from before, the
   // only one of the stretch's that waits: not the CFO's answer, and not the
@@ -812,6 +923,7 @@ test("Go through them steps through only what still waits from the stretch, and 
 
   // Act: he changes the CFO's answer from the recap.
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
   await report(page).getByRole("region", { name: "For you", exact: true }).getByRole("button", { name: "Change" }).click();
 
   // Assert: its card in History opens with the CFO's answer checked, given
@@ -872,6 +984,7 @@ test("on a phone each row under Spent keeps its name on one line, with its figur
 
   // Act
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+  await openSections(page);
 
   // Assert
   const section = report(page).getByRole("region", { name: "Spent" });
@@ -915,6 +1028,7 @@ test.describe("in the desktop window", () => {
 
     // Act
     await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
+    await openSections(page);
 
     // Assert
     const merged = report(page).getByRole("region", { name: "Merged", exact: true });

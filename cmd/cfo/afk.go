@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -76,7 +78,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintf(stdout, "AFK mode %s on since %s, turned on %s.\n", is, switched.Since.UTC().Format("2006-01-02 15:04 UTC"), afk.SwitchedBy(switched.From, switched.Asked))
 		if asked != "" {
 			// The CFO reads this, having made the switch at his ask.
-			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You answer every decision yourself with your recommendation, act on it and log it. A step only he can take gets a backlog row and a cfo afk log --kind his line, one plain line in his recap, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer.")
+			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You answer every decision yourself with your recommendation, act on it and log it. A step only he can take gets a backlog row and a cfo afk log --kind his line, which becomes one card in his Command Center when he is back, and the work goes around it. A goblin's Scrawl page reaches you as its question: read the page and answer it with cfo answer.")
 			fmt.Fprintln(stdout, "His own switch, on the board or in a terminal of his own, turns it off at any time. cfo afk status shows what was decided and held.")
 			return 0
 		}
@@ -180,6 +182,7 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	tried := fs.String("tried", "", "for a left line: what you already tried")
 	var options []string
 	fs.Func("option", "for a left line: one choice its question in his History offers, given once for each", func(value string) error { options = append(options, value); return nil })
+	run := fs.String("run", "", "for a his line that is a command he runs: the .ps1 or .sh file that holds it, which his Command Center shows as a run item with one click")
 	recommend := fs.String("recommend", "", "for a left line: the choice you recommend, exactly as one --option")
 	answer := fs.String("answer", "", "for a left line: the choice you made with your recommendation and acted on, exactly as one --option, settled in his History once he is back, where he can change it")
 	if err := fs.Parse(args); err != nil {
@@ -189,6 +192,9 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	switch {
 	case fs.NArg() != 0:
 		fmt.Fprintf(stderr, "cfo afk log: unexpected argument %q; quote what was decided and its evidence\n", fs.Arg(0))
+		return 2
+	case *run != "" && *kind != afk.KindHis:
+		fmt.Fprintln(stderr, "cfo afk log: --run goes with --kind his: it names a command the Overlord runs")
 		return 2
 	case !left && (*diagnosis != "" || *tried != "" || len(options) > 0 || *recommend != "" || *answer != ""):
 		fmt.Fprintln(stderr, "cfo afk log: --diagnosis, --tried, --option, --recommend and --answer go with --kind left")
@@ -210,6 +216,13 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 		return 2
 	}
 	entry := afk.Entry{Kind: *kind, What: strings.TrimSpace(*what), Evidence: strings.TrimSpace(*evidence), Link: strings.TrimSpace(*link), Diagnosis: strings.TrimSpace(*diagnosis), Tried: strings.TrimSpace(*tried), Options: options, Recommendation: *recommend, Answer: *answer}
+	if *run != "" {
+		var err error
+		if entry.Shell, entry.Command, err = hisCommand(*run); err != nil {
+			fmt.Fprintf(stderr, "cfo afk log: --run %v\n", err)
+			return 2
+		}
+	}
 	merged := false
 	if url := afk.PullRequestURL(entry.Link, entry.What); entry.Kind == afk.KindMerge && url != "" {
 		// A merge logged by hand records no outcome of its own, so what
@@ -233,6 +246,29 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 		fmt.Fprintln(stdout, "GitHub says it merged, so the line records the outcome merged.")
 	}
 	return 0
+}
+
+// hisCommand reads the command file of a step only the Overlord can take, with
+// the shell its extension names, as cfo notify --run reads one.
+func hisCommand(file string) (shell, command string, err error) {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".ps1":
+		shell = "powershell"
+	case ".sh":
+		shell = "bash"
+	default:
+		return "", "", errors.New("takes a .ps1 file, which runs in Windows PowerShell, or a .sh file, which runs in Git Bash")
+	}
+	if command, err = supervisor.ReadRunCommand(file); err != nil {
+		return "", "", err
+	}
+	if strings.TrimSpace(command) == "" {
+		return "", "", fmt.Errorf("%s is empty", file)
+	}
+	if err := supervisor.CheckRunCommand(shell, command); err != nil {
+		return "", "", fmt.Errorf("%s: %w", file, err)
+	}
+	return shell, command, nil
 }
 
 // pullRequestReadTimeout bounds the one read of a pull request that logging a
