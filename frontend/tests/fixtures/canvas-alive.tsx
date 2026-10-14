@@ -28,8 +28,8 @@ const families: Record<string, Child[]> = {
     child("process:pip-2", { kind: "process", group: "test", label: "Test run", task: "go test ./...", started: minutes(6), memory: megabytes(1228) }),
   ],
   "pd-email": [
-    child("process:mabel-1", { kind: "process", group: "dev-server", label: "Dev server :2375", task: "Docker Desktop", state: "waiting", detached: true, started: minutes(290), last_activity: minutes(5), memory: megabytes(257) }),
-    child("process:mabel-2", { kind: "process", group: "other", label: "stripe listen", task: "stripe listen --forward-to localhost:3000/api/stripe/webhook", state: "waiting", started: minutes(30), memory: megabytes(8) }),
+    child("process:mabel-1", { kind: "process", group: "dev-server", label: "Dev server :2375", task: "Docker Desktop", detached: true, started: minutes(290), last_activity: minutes(0), memory: megabytes(257) }),
+    child("process:mabel-2", { kind: "process", group: "other", label: "stripe listen", task: "stripe listen --forward-to localhost:3000/api/stripe/webhook", started: minutes(30), memory: megabytes(8) }),
   ],
 };
 const activity: Record<string, number> = { "cg-tests": 0, "pd-email": 0 };
