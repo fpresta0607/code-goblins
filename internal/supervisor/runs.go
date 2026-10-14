@@ -246,15 +246,17 @@ type runPipeRequest struct {
 	AFK *afk.Entry `json:"afk,omitempty"`
 	// Asked is the Overlord's words when the CFO asks for his AFK switch at
 	// his ask, as the CFO quotes them.
-	Asked  string         `json:"asked,omitempty"`
-	Helper *HelperRequest `json:"helper,omitempty"`
+	Asked   string          `json:"asked,omitempty"`
+	Helper  *HelperRequest  `json:"helper,omitempty"`
+	Browser *BrowserRequest `json:"browser,omitempty"`
 }
 
 // pipeReply is the supervisor's answer to one request over its pipe: why it
 // was refused, or, for a helper, the helper it is starting.
 type pipeReply struct {
-	Error  string       `json:"error,omitempty"`
-	Helper *HelperStart `json:"helper,omitempty"`
+	Error   string        `json:"error,omitempty"`
+	Helper  *HelperStart  `json:"helper,omitempty"`
+	Browser *BrowserLease `json:"browser,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process
