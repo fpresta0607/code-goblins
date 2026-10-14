@@ -6,7 +6,10 @@ name: install
 # the setup program's install of that same release, and `.\install.cmd -Dev`
 # from this checkout. Each ends with dictation ready.
 on:
+  # A draft runs nothing, and marking it ready runs both installs on its
+  # head, as the go workflow does.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - install.ps1
       - install.cmd
@@ -84,6 +87,7 @@ jobs:
     # The setup program runs the install script in Windows PowerShell, out of
     # sight, as CodeGoblinsSetup.exe does once Install is pressed.
     name: ${{ matrix.via }} (${{ matrix.shell }})
+    if: ${{ !github.event.pull_request.draft }}
     strategy:
       fail-fast: false
       matrix:
@@ -348,6 +352,7 @@ jobs:
           retention-days: 14
 
   dev:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-latest
     # -Dev runs the same third-party installers as the one-line install.
     timeout-minutes: 30

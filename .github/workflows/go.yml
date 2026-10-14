@@ -3,7 +3,11 @@ name: go
 on:
   push:
     branches: [main]
+  # A draft runs nothing: its goblin pushes fix rounds to it before its head
+  # is final, and marking it ready runs every job on that head. A draft
+  # cannot merge, so its test check, skipped, approves nothing.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   # The merge queue tests each group of pull requests on main's tip before it
   # merges them, and needs the required test check to report on that run.
   merge_group:
@@ -83,6 +87,7 @@ env:
 # job the plan started passed.
 jobs:
   plan:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-latest
     outputs:
       go: ${{ steps.plan.outputs.go }}
@@ -376,7 +381,7 @@ jobs:
   # may leave a job out: in a merge train's run and every other, a job that
   # did not succeed fails the check whatever the plan said.
   test:
-    if: always()
+    if: ${{ always() && !github.event.pull_request.draft }}
     needs: [plan, frontend, browser, go]
     runs-on: ubuntu-latest
     steps:

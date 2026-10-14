@@ -182,6 +182,73 @@ func TestOwnedSessionTakesOnlyThisGenerationsGoblin(t *testing.T) {
 	}
 }
 
+// The board's record holds no session where the native session hooks are
+// not installed, as on the live home on 2026-10-14, when every goblin a
+// restart ended came back from a handoff. The conversation the goblin's own
+// running harness proved, kept for its generation, names it then, and the
+// board's record still comes first where it has one.
+func TestOwnedSessionTakesTheConversationTheRunningHarnessProved(t *testing.T) {
+	for name, test := range map[string]struct {
+		board string
+		meta  state.TaskMeta
+		want  string
+	}{
+		"kept, with no board record":       {"", state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s2"}, "proved-conversation"},
+		"kept, with an empty board record": {`{}`, state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s2"}, "proved-conversation"},
+		"kept for an earlier generation":   {"", state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s3"}, ""},
+		"kept for another harness":         {"", state.TaskMeta{ID: "tree", Harness: "codex", SpawnGen: "s2"}, ""},
+		"kept for another task":            {"", state.TaskMeta{ID: "other", Harness: "claude", SpawnGen: "s2"}, ""},
+		"the board's record first":         {`{"sessions":{"n1":{"native_id":"board-conversation","harness":"claude","role":"goblin","task_id":"tree","generation":"s2"}},"task_sessions":{"tree":"n1"}}`, state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s2"}, "board-conversation"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			if test.board != "" {
+				writeFile(t, filepath.Join(stateDir, ".supervisor.json"), test.board, at)
+			}
+			if err := state.WriteConversation(stateDir, state.Conversation{ID: "tree", Generation: "s2", Harness: "claude", Session: "proved-conversation", ProvedAt: at}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			got, err := OwnedSession(stateDir, test.meta)
+
+			// Assert
+			if err != nil || got != test.want {
+				t.Errorf("OwnedSession = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+// A goblin's tree names the conversation its running harness proves it is
+// in, as RunningSession reads it, and none while the harness does not run.
+func TestReadNamesTheConversationTheRunningHarnessProves(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".claude", "sessions", "4242.json"), `{"pid":4242,"sessionId":"own-session","procStart":"134357962423340710"}`, at)
+	claude := Process{PID: 4242, ParentPID: 1, Exe: "claude.exe", Created: 134357962423340710, Started: filetime(134357962423340710)}
+	for name, test := range map[string]struct {
+		pid  int
+		want string
+	}{
+		"running":     {4242, "own-session"},
+		"not running": {0, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			reader := Reader{Home: home, Processes: func() ([]Process, error) { return []Process{claude}, nil }, Listeners: func() (map[int][]int, error) { return nil, nil }, Now: func() time.Time { return at }}
+
+			// Act
+			tree, _ := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "claude"}, HarnessPID: test.pid})
+
+			// Assert
+			if tree.Session != test.want {
+				t.Errorf("Read named conversation %q, want %q", tree.Session, test.want)
+			}
+		})
+	}
+}
+
 // A process id the host recorded for the goblin's harness, now held by a
 // later process, is no part of the goblin: nothing under it is the
 // goblin's.
