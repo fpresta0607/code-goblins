@@ -1513,11 +1513,7 @@ func TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the pid file holds %q: %v", data, err)
 	}
-	t.Cleanup(func() {
-		if process, err := os.FindProcess(pid); err == nil {
-			_ = process.Kill()
-		}
-	})
+	endAtCleanup(t, pid)
 	if want := fmt.Sprintf("cfo gate turn: started the run hidden and detached as pid %d: its output goes to %s, its pid is in %s, and its last line there says how it ended\n", pid, log, log+".pid"); stdout.String() != want {
 		t.Errorf("stdout = %q; want %q", stdout.String(), want)
 	}
@@ -1533,6 +1529,22 @@ func TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog(t *testing.T) {
 	if data, _ := os.ReadFile(log); !strings.HasPrefix(string(data), commandOutput("command")+commandErrors("command")) {
 		t.Errorf("log = %q; want the command's output, then the run's last line", data)
 	}
+}
+
+// endAtCleanup ends the detached run pid when the test ends, and waits until
+// it has: Kill only asks Windows to end it, and the run's log stays open, so
+// its folder cannot be removed, until it has ended. The process is opened
+// now, while the run lives, so a pid reused once it ends is never ended.
+func endAtCleanup(t *testing.T, pid int) {
+	t.Helper()
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	t.Cleanup(func() {
+		_ = process.Kill()
+		_, _ = process.Wait()
+	})
 }
 
 // A detached run keeps its wait: one that takes no turn within it starts
@@ -1560,11 +1572,7 @@ func TestGateTurnDetachKeepsItsWait(t *testing.T) {
 	}
 	if data, err := os.ReadFile(log + ".pid"); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-			t.Cleanup(func() {
-				if process, err := os.FindProcess(pid); err == nil {
-					_ = process.Kill()
-				}
-			})
+			endAtCleanup(t, pid)
 		}
 	}
 	eventually(t, "the detached run says how it ended", func() bool {
