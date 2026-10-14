@@ -61,14 +61,19 @@ type browserBroker struct {
 	start      func(context.Context, browserlogin.Launch) (browserlogin.Process, error)
 	end        func(context.Context, browserlogin.Process) error
 	alive      func(browserlogin.Process) bool
-	now        func() time.Time
+	// gone checks again a Chrome whose end could not confirm it had exited.
+	gone func(browserlogin.Process) bool
+	now  func() time.Time
 	// report tells of a Chrome that could not be closed.
 	report func(error)
 	// processes are the Chromes this broker started, by login, and closing
 	// the logins whose Chrome is closing now, which work waits for.
-	processes map[string]browserlogin.Process
-	closing   map[string]bool
-	work      sync.WaitGroup
+	// unconfirmed are the closing logins whose Chrome's end could not
+	// confirm it had exited, which each sweep checks again.
+	processes   map[string]browserlogin.Process
+	closing     map[string]bool
+	unconfirmed map[string]bool
+	work        sync.WaitGroup
 	// closed says the supervisor is stopping: its browsers are closed and
 	// no other starts.
 	closed bool
@@ -83,19 +88,21 @@ func newBrowserBroker(stateDir, dataDir string, options Options, report func(err
 		memory = options.Dispatch.Memory
 	}
 	return &browserBroker{
-		state:      stateDir,
-		data:       dataDir,
-		recipes:    options.KeyPages,
-		memory:     memory,
-		live:       func(task string) error { return terminalAnswers(stateDir, task) },
-		executable: browserlogin.Executable,
-		start:      browserlogin.Start,
-		end:        browserlogin.End,
-		alive:      browserlogin.Running,
-		now:        time.Now,
-		report:     report,
-		processes:  map[string]browserlogin.Process{},
-		closing:    map[string]bool{},
+		state:       stateDir,
+		data:        dataDir,
+		recipes:     options.KeyPages,
+		memory:      memory,
+		live:        func(task string) error { return terminalAnswers(stateDir, task) },
+		executable:  browserlogin.Executable,
+		start:       browserlogin.Start,
+		end:         browserlogin.End,
+		alive:       browserlogin.Running,
+		gone:        browserlogin.Gone,
+		now:         time.Now,
+		report:      report,
+		processes:   map[string]browserlogin.Process{},
+		closing:     map[string]bool{},
+		unconfirmed: map[string]bool{},
 	}
 }
 
@@ -316,24 +323,37 @@ func (b *browserBroker) closeProcess(id string) {
 	go func() {
 		defer b.work.Done()
 		err := b.end(context.Background(), process)
+		b.mu.Lock()
+		if err != nil {
+			// The login stays closing, so its profile stays fenced, until a
+			// sweep finds the Chrome gone.
+			b.unconfirmed[id] = true
+		} else {
+			delete(b.processes, id)
+			delete(b.closing, id)
+		}
+		b.mu.Unlock()
 		if err != nil {
 			b.report(fmt.Errorf("the browser of login %s: %w", id, err))
-			return
 		}
-		b.mu.Lock()
-		delete(b.processes, id)
-		delete(b.closing, id)
-		b.mu.Unlock()
 	}()
 }
 
 // sweep closes each browser that exited, or whose task has left or kept it
 // past its lease, and forgets a record of a browser this broker never
 // started, which a supervisor that stopped left behind: its Chrome ended
-// with it, since a Chrome runs in a job its supervisor holds.
+// with it, since a Chrome runs in a job its supervisor holds. A login whose
+// Chrome's end could not confirm it had exited is lent again once it has.
 func (b *browserBroker) sweep() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for id := range b.unconfirmed {
+		if b.gone(b.processes[id]) {
+			delete(b.unconfirmed, id)
+			delete(b.processes, id)
+			delete(b.closing, id)
+		}
+	}
 	logins, err := browserlogin.Read(b.state)
 	if err != nil {
 		return err

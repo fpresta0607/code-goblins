@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // startChrome starts a headless Chrome on a fresh profile and ends it with
@@ -221,6 +222,40 @@ func TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents(t *testing.T) {
 	var result struct{ Result struct{ Value int } }
 	if err := json.Unmarshal(response.Result, &result); err != nil || response.ID != 2 || response.Session != session || result.Result.Value != 42 {
 		t.Fatal("an auto-attached page did not receive its command and reply")
+	}
+}
+
+func TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited(t *testing.T) {
+	// Arrange
+	process, _ := startChrome(t, []string{"localhost"})
+	isGoneWhileRunning := Gone(process)
+
+	// Act
+	err := End(context.Background(), process)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isGoneWhileRunning || !Gone(process) {
+		t.Fatalf("gone while running = %t, after its end = %t, want false then true", isGoneWhileRunning, Gone(process))
+	}
+}
+
+func TestGoneReadsAnEndedJobMemberStillRunningAsNotGone(t *testing.T) {
+	// Arrange
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("cannot read this process's start")
+	}
+	process := Process{PID: os.Getpid(), Started: started, job: &job{members: []proc.Entry{{PID: os.Getpid(), Start: started}}}}
+
+	// Act
+	isGone := Gone(process)
+
+	// Assert
+	if isGone {
+		t.Fatal("a job member that still runs read as gone")
 	}
 }
 
