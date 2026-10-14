@@ -21,6 +21,10 @@ type Request struct {
 	Reason     string
 	Until      string
 	Session    string
+	// ResumeNote is told to a goblin a resume brings back, after what its
+	// record kept for it: the comeback after a restart says the machine
+	// restarted.
+	ResumeNote string
 	// IsWatched says whoever asked reads the outcome from the command they
 	// typed, so finishing the operation sends no notice: the CFO retiring a
 	// goblin must not be woken by its own pause.
@@ -125,7 +129,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	}
 	isAlreadyRunning := false
 	if request.Action == "resume" {
-		isInterruptedResume := prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
+		isInterruptedResume := prior.IsInterruptedResume(meta)
 		// A pause that failed while its goblin ran took effect once its
 		// terminal ended, so the goblin resumes as a paused one does.
 		isEndedPause := false
@@ -197,7 +201,11 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	}
 	if request.Action == "resume" {
 		if !isAlreadyRunning {
-			err = service.Operations.Resume(ctx, meta, prior)
+			told := prior
+			if request.ResumeNote != "" {
+				told.ResumeNote = strings.TrimPrefix(prior.ResumeNote+"\n"+request.ResumeNote, "\n")
+			}
+			err = service.Operations.Resume(ctx, meta, told)
 			// A relaunch refused for room started nothing, so the record
 			// goes back to what it was, as for a Resume refused before the
 			// record changed: a goblin paused for memory stays paused for
