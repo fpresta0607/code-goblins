@@ -17,6 +17,21 @@ func protectFolder(t *testing.T, dir string) {
 	setAccess(t, dir, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;"+thisUser(t)+")")
 }
 
+// ownByThisUser makes the test's own user path's owner, as a folder an agent
+// made is owned. A folder's maker is its owner only when it runs
+// unelevated: an elevated administrator's new folders, as GitHub's runner
+// makes them, are owned by Administrators.
+func ownByThisUser(t *testing.T, path string) {
+	t.Helper()
+	user, err := windows.StringToSid(thisUser(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func setAccess(t *testing.T, path, sddl string) {
 	t.Helper()
 	descriptor, err := windows.SecurityDescriptorFromString(sddl)
@@ -84,6 +99,7 @@ func TestAFolderOwnedByAnotherIsRefused(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 	protectFolder(t, dir)
+	ownByThisUser(t, dir)
 
 	// Act
 	err := checkHeldBy(dir, []string{"S-1-5-18", "S-1-5-32-544"}, true)
