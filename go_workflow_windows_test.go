@@ -243,7 +243,7 @@ func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
 func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	// Arrange
 	const superseded = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}"
-	groups := map[string]string{"go.yml": superseded, "install.yml": superseded, "release.yml": ""}
+	groups := map[string]string{"go.yml": superseded, "install.yml": superseded, "release.yml": "", "windows.yml": superseded}
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
 		t.Fatal(err)

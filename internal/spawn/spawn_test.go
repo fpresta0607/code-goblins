@@ -929,7 +929,8 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 				"a whole test suite, a full build, a browser suite or any other heavy local run as " + exe + " gate turn -- <command>",
 				"says on standard error which run it waits for",
 				"125 means it took no turn and ran nothing",
-				"where your tool's time limit cannot cut the wait short",
+				"start it in the background as " + exe + " gate turn --detach <log-file> -- <command>",
+				"never with a process start of your own, such as Win32_Process Create, Start-Process or start, which opens a window on the Overlord's desktop",
 				"A test you run by name needs no turn.",
 				"A WSL or Docker run, and a load or stress run, still need the CFO's word first, since no turn covers them.",
 			} {
