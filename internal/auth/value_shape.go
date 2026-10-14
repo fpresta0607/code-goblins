@@ -77,6 +77,9 @@ func ValueProblem(name, value string) string {
 		if len(value) < kind.shortest {
 			return name + " is too short to be a whole " + kind.kind
 		}
+		if strings.ContainsAny(value, ".…•*") || strings.ContainsFunc(value, unicode.IsSpace) {
+			return name + " holds masking marks or whitespace, so it is not a whole " + kind.kind
+		}
 		return ""
 	}
 	switch last := words[len(words)-1]; {

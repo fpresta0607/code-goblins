@@ -527,8 +527,8 @@ export interface CredentialRequest {
   hints: CredentialHint[];
   // services are the auth.json services that read each name.
   services: Record<string, string[]>;
-  // state is open, saved or expired; typed are the saved names typed in its terminal.
-  state: string; saved: string[]; replaced: string[]; typed: string[]; written: string[]; reason: string;
+  // state is open, saved or expired; typed are the saved names typed in its terminal, and fetched those a fetch read from its key page.
+  state: string; saved: string[]; replaced: string[]; typed: string[]; fetched: string[]; written: string[]; reason: string;
   created_at: string; expires_at: string; closed_at: string;
 }
 // A name's format hint from its project's auth.json: how its value should
@@ -680,7 +680,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
       const h = object(hint);
       return { name: string(h.name), prefixes: strings(h.prefixes), warn: array(h.warn).map((warning) => { const w = object(warning); return { prefix: string(w.prefix), say: string(w.say) }; }) };
     }),
-    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), written: strings(c.written), reason: string(c.reason),
+    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), fetched: strings(c.fetched), written: strings(c.written), reason: string(c.reason),
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
   };
 }

@@ -5,7 +5,12 @@
       "name": "Stripe",
       "key_page": "https://dashboard.stripe.com/test/apikeys",
       "signed_in_path": "^/(acct_[a-zA-Z0-9]+/)?test/apikeys/?$",
-      "hosts": ["stripe.com", "*.stripe.com", "stripe.network", "*.stripe.network", "stripecdn.com", "*.stripecdn.com"]
+      "account_path": "^/(acct_[a-zA-Z0-9]+)/test/apikeys/?$",
+      "hosts": ["stripe.com", "*.stripe.com", "stripe.network", "*.stripe.network", "stripecdn.com", "*.stripecdn.com"],
+      "keys": [
+        {"name": "STRIPE_TEST_PUBLISHABLE_KEY", "row": "Publishable key", "prefix": "pk_test_"},
+        {"name": "STRIPE_TEST_SECRET_KEY", "row": "Secret key", "reveal": "Reveal test key", "prefix": "sk_test_"}
+      ]
     }
   ]
 }
