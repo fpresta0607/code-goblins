@@ -46,6 +46,9 @@ type Collector struct {
 	Home   home.Home
 	Docker DockerSource
 	System SystemSource
+	// VerificationStore is the verification store's folder, measured beside
+	// the home. Empty measures it as not named.
+	VerificationStore string
 }
 
 // Collect reads every source once.
@@ -135,7 +138,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 			metas = append(metas, meta)
 		}
 	}
-	inv.Storage = janitor.Measure(c.Home, metas)
+	inv.Storage = janitor.Measure(c.Home, metas, c.VerificationStore)
 	if record, err := janitor.ReadRecord(c.Home.State); err == nil {
 		inv.Janitor = &record
 	}

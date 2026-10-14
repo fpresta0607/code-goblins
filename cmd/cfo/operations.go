@@ -234,6 +234,13 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintf(stderr, "cfo verify: old passes could not all be removed: %v\n", err)
 		}
 	}
+	// The store keeps the newest records within its budget, and the records
+	// a pass rests on, so it prunes once the tier's own pass is kept. One it
+	// cannot remove now is tried again after the next tier, so the tier
+	// keeps its own result.
+	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
+		fmt.Fprintf(stderr, "cfo verify: old execution records could not all be removed: %v\n", err)
+	}
 	if e != nil {
 		// A check ends with the line that names what failed, so the tier
 		// says that line, and the file that holds everything the check said.
@@ -306,12 +313,6 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	if err := verifyrun.Save(path, res); err != nil {
 		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
 	}
-	// The store keeps the newest records within its budget. One it cannot
-	// remove now is tried again after the next tier, so the tier keeps its
-	// own result.
-	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
-		fmt.Fprintf(stderr, "%s: old execution records could not all be removed: %v\n", name, err)
-	}
 	return res, failure
 }
 
@@ -371,6 +372,9 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		return 0
 	}
 	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime)
+	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
+		fmt.Fprintf(stderr, "cfo security: old execution records could not all be removed: %v\n", err)
+	}
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1

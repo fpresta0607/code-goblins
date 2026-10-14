@@ -117,6 +117,8 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	if profile, err := os.UserHomeDir(); err == nil {
 		browserSessions = filepath.Join(profile, ".chrome-devtools-axi", "sessions")
 	}
+	// A store whose folder cannot be named is measured as not named.
+	verificationStore, _ := verify.StoreDir()
 	// A sweep that cannot name this build deletes no cache.
 	var line janitor.HeavyLine
 	if executable, err := os.Executable(); err == nil {
@@ -148,6 +150,8 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 
 		BrowserSessions: browserSessions,
 		Line:            line,
+
+		VerificationStore: verificationStore,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return
