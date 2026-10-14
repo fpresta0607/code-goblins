@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -29,9 +30,11 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"strings"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // api reads one GitHub REST path and returns its body.
@@ -64,14 +67,18 @@ func main() {
 }
 
 // gh reads path through the GitHub CLI, which the runner signs in with
-// GH_TOKEN.
+// GH_TOKEN, and gives up on it after a minute.
 func gh(path string) ([]byte, error) {
-	out, err := exec.Command("gh", "api", path).Output()
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return nil, fmt.Errorf("gh api %s: %w: %s", path, err, strings.TrimSpace(string(exit.Stderr)))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	result, err := execx.OSRunner{}.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", path}})
+	if err != nil {
+		return nil, fmt.Errorf("gh api %s: %w", path, err)
 	}
-	return out, err
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("gh api %s: exit %d: %s", path, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+	}
+	return result.Stdout, nil
 }
 
 // recordName is the artifact name of a passed run of workflow on the commit
