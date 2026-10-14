@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	// devToolsWait bounds a Chrome's start up to its DevTools answering.
-	devToolsWait = 30 * time.Second
+	// devToolsWait bounds a Chrome's start up to its DevTools answering. One
+	// took over 30 s on a loaded CI runner on 2026-10-14, and a fetch's own
+	// bound of two minutes leaves room for twice that.
+	devToolsWait = time.Minute
 	// closeWait is how long a Chrome asked to close has before it is ended.
 	// A headless Chrome took 6 to 10 seconds to exit on this machine.
 	closeWait = 15 * time.Second

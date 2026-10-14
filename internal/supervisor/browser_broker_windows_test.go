@@ -79,6 +79,35 @@ func TestHelperPipeRefusesAnotherTasksCaller(t *testing.T) {
 	}
 }
 
+// Lending a login's browser starts its Chrome, which a loaded machine took
+// over half a minute to answer on 2026-10-14, so the pipe gives it the time
+// it gives a fetch, which starts one too.
+func TestALoginsBrowserSlowToStartIsStillLentOverThePipe(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	broker, _, _, _ := testBroker(t)
+	broker.state = h.State
+	brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+	terminal := hostTerminal(t, h.State, "pd-keys")
+	terminal.standIn(t)
+	start := broker.start
+	broker.start = func(ctx context.Context, launch browserlogin.Launch) (browserlogin.Process, error) {
+		if err := wait(ctx, runRequestTimeout+5*time.Second); err != nil {
+			return browserlogin.Process{}, err
+		}
+		return start(ctx, launch)
+	}
+	runPipe(t, &Service{Store: store, browsers: broker})
+
+	// Act
+	reply, err := askPipe(h.State, runPipeRequest{Kind: "browser", Browser: &BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}})
+
+	// Assert
+	if err != nil || reply.Browser == nil || reply.Browser.Login != "stripe-precisiondocs-ai" {
+		t.Fatalf("reply = %+v, %v, want the login's browser lent after its slow start", reply, err)
+	}
+}
+
 // A goblin's ask over the supervisor's pipe starts a real Chrome on the
 // login's own profile, headless and held to its provider's hosts, and giving
 // it back closes it until nothing of it holds the profile.
