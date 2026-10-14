@@ -5,6 +5,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 var (
@@ -62,13 +64,13 @@ var leftConsoleFiles []*os.File
 // device instead.
 func leaveConsole() {
 	standard := []struct {
-		id   uint32
-		file **os.File
-		flag int
+		id      uint32
+		file    **os.File
+		isInput bool
 	}{
-		{windows.STD_INPUT_HANDLE, &os.Stdin, os.O_RDONLY},
-		{windows.STD_OUTPUT_HANDLE, &os.Stdout, os.O_WRONLY},
-		{windows.STD_ERROR_HANDLE, &os.Stderr, os.O_WRONLY},
+		{windows.STD_INPUT_HANDLE, &os.Stdin, true},
+		{windows.STD_OUTPUT_HANDLE, &os.Stdout, false},
+		{windows.STD_ERROR_HANDLE, &os.Stderr, false},
 	}
 	var isConsole [3]bool
 	for at, handle := range standard {
@@ -82,7 +84,10 @@ func leaveConsole() {
 		if !isConsole[at] {
 			continue
 		}
-		null, err := os.OpenFile(os.DevNull, handle.flag, 0)
+		null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if handle.isInput {
+			null, err = fsx.Open(os.DevNull)
+		}
 		if err != nil {
 			continue
 		}
