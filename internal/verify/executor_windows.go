@@ -45,6 +45,12 @@ type Executor struct {
 	// Took, when set, is told how long the run waited for its turn, once it
 	// has taken it and before its command starts.
 	Took func(waited time.Duration)
+	// Source, when set, reads the source the command runs on (ReadSource)
+	// once its turn is taken and before it starts, and again once it has
+	// ended. The record keeps both reads, so it says what was tested and
+	// whether it moved while the command ran. A read that fails is recorded,
+	// and the command runs and keeps its result all the same.
+	Source func(ctx context.Context, dir string) (Source, error)
 
 	mu      sync.Mutex
 	pending map[string]*pendingCleanup
@@ -211,6 +217,12 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err != nil {
 		return refuseStart(err)
 	}
+	if executor.Source != nil {
+		source, readError := executor.Source(ctx, request.Dir)
+		if err := execution.readSource(func(reads *SourceReads) { reads.ReadStart(source, readError) }); err != nil {
+			return refuseStart(err)
+		}
+	}
 	// A command that answers an interrupt itself is never sent one that came
 	// before it started, so such an interrupt ends the run here.
 	if err := ctx.Err(); executor.IsConsoleShared && err != nil {
@@ -343,6 +355,12 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err := execution.Observe(measurement); err != nil {
 		pending.isEvidencePending = true
 		failure = errors.Join(failure, err)
+	}
+	// The command has ended, so an interrupt since takes nothing from what
+	// it ran on.
+	if executor.Source != nil {
+		source, readError := executor.Source(context.WithoutCancel(ctx), request.Dir)
+		failure = errors.Join(failure, execution.readSource(func(reads *SourceReads) { reads.ReadEnd(source, readError) }))
 	}
 	exitCode = -1
 	if command.ProcessState != nil {

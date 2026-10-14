@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -91,6 +92,9 @@ func TestReadShowsTheGoblinsGateRunAndItsActiveStep(t *testing.T) {
 	}
 	if gate.reads != 1 || len(again.Children) != 1 {
 		t.Errorf("gate read %d times for two tree reads within %v, want once", gate.reads, GateEvery)
+	}
+	if lines, err := reader.ChildLines("tree", "gate:01M3"); err != nil || !slices.Equal(lines, []string{"review: completed", "test: running, go test ./internal/fleettree", "lint: pending"}) {
+		t.Errorf("gate's own lines = %q, %v; want each of its steps", lines, err)
 	}
 }
 
