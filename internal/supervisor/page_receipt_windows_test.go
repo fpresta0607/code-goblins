@@ -563,10 +563,6 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	meta, _, page := askOnAPage(t, store)
 	original := store.Snapshot().Reviews[0]
 	answer := pageAnswer{ID: "historical-approval", Item: original, IsAnswer: true, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}}
-	answer.Questions = store.questionsOnPage(original)
-	if len(answer.Questions) != 1 {
-		t.Fatal("old question was not captured")
-	}
 	if err := store.keepPageAnswer(answer); err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +573,7 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := PublishWait(h, meta.ID, record.Seq+20, "review the new version", pageLink, page, ""); err != nil {
@@ -656,17 +652,16 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	}
 }
 
-func TestPageReceiptRecoveryAnswersOnlyItsCapturedQuestion(t *testing.T) {
+// A page answer recovered after a restart answers its page only: neither the
+// question its goblin asked before it nor one asked after it reads answered.
+func TestPageReceiptRecoveryAnswersNoQuestion(t *testing.T) {
 	for _, hasLaterQuestion := range []bool{false, true} {
-		t.Run(map[bool]string{false: "captured question", true: "later question on same version"}[hasLaterQuestion], func(t *testing.T) {
+		t.Run(map[bool]string{false: "question asked before the answer", true: "later question on same version"}[hasLaterQuestion], func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
 			meta, firstWake, page := askOnAPage(t, store)
 			original := store.Snapshot().Reviews[0]
-			answer := pageAnswer{ID: "captured-question", Item: original, Questions: store.questionsOnPage(original), IsAnswer: true, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}}
-			if len(answer.Questions) != 1 {
-				t.Fatal("pending question not captured")
-			}
+			answer := pageAnswer{ID: "page-answer", Item: original, IsAnswer: true, Status: "collecting", Poll: axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}}
 			if err := store.keepPageAnswer(answer); err != nil {
 				t.Fatal(err)
 			}
@@ -679,7 +674,7 @@ func TestPageReceiptRecoveryAnswersOnlyItsCapturedQuestion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, nil); err != nil {
+				if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
 					t.Fatal(err)
 				}
 				wantedWake = record
@@ -691,9 +686,6 @@ func TestPageReceiptRecoveryAnswersOnlyItsCapturedQuestion(t *testing.T) {
 			if err := restarted.ingestQuestions(); err != nil {
 				t.Fatal(err)
 			}
-			if got := restarted.questionsOnPage(original); len(got) != 0 {
-				t.Errorf("closed historical row captured current questions: %+v", got)
-			}
 			recovered := &Service{Store: restarted, Options: Options{PollPage: newScrawlPage(0).poll}}
 
 			// Act
@@ -702,15 +694,8 @@ func TestPageReceiptRecoveryAnswersOnlyItsCapturedQuestion(t *testing.T) {
 
 			// Assert
 			for _, question := range restarted.Snapshot().Questions {
-				if question.Seq != wantedWake.Seq {
-					continue
-				}
-				if hasLaterQuestion {
-					if question.Status != "pending" || question.AnsweredBy != "" {
-						t.Errorf("uncaptured question answered: %+v", question)
-					}
-				} else if question.Status != "succeeded" || question.AnsweredBy != "overlord" {
-					t.Errorf("captured question lost its answer: %+v", question)
+				if question.Seq == wantedWake.Seq && (question.Status != "pending" || question.AnsweredBy != "") {
+					t.Errorf("the page's answer answered question %+v, want it pending", question)
 				}
 			}
 			pending, err := wake.Pending(h.State)
@@ -718,11 +703,8 @@ func TestPageReceiptRecoveryAnswersOnlyItsCapturedQuestion(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, record := range pending {
-				if record.Seq != wantedWake.Seq {
-					continue
-				}
-				if hasLaterQuestion && record.AnsweredBy != "" || !hasLaterQuestion && record.AnsweredBy != wake.AnsweredByOverlord {
-					t.Errorf("incorrect wake answer: %+v", record)
+				if record.Seq == wantedWake.Seq && record.AnsweredBy != "" {
+					t.Errorf("the page's answer retired the question's wake: %+v", record)
 				}
 			}
 			if _, isWatched := restarted.watchedPages()[pageKey(page)]; isWatched {

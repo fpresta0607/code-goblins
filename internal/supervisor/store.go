@@ -764,7 +764,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 	case question >= 0:
 		a.Dismissed = s.clearQuestion(question)
 	case a.Kind == "review_clear":
-		a.Dismissed = s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
+		s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
 	}
 	s.db.Actions = append(s.db.Actions, a)
 	if answer {
@@ -877,15 +877,6 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				result.At = time.Now().UTC()
 				result.Generation = a.Generation
 				s.db.Tasks[a.TaskID] = result
-			}
-		}
-		// An answer closes the pages that carry its question, and its goblin's
-		// waits on the Overlord up to it, once, when it is sent or taken: a
-		// delivery that settles later was sent first.
-		if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
-			if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
-				s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
-				s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
 			}
 		}
 	}
