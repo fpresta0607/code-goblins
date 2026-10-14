@@ -1,3 +1,5 @@
+//go:build windows
+
 package cirunner
 
 import (
@@ -7,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -44,14 +48,17 @@ func eachHyperVCall(h HyperV) {
 	_, _ = h.IsRunning(ctx)
 }
 
-// Every Hyper-V call runs Windows PowerShell by its full path, with no
-// profile, no module path from PowerShell 7, and a script that stops at its
-// first error and names the one VM.
+// Every Hyper-V call runs Windows PowerShell by its full path in Windows'
+// own folder, with no profile, only Windows' own modules, and a script that
+// stops at its first error and names the one VM.
 func TestHyperVRunsFixedScriptsForItsOneVM(t *testing.T) {
 	// Arrange
-	t.Setenv("SystemRoot", `C:\Windows`)
 	t.Setenv("PSModulePath", `C:\Program Files\PowerShell\7\Modules`)
 	commands := &recorder{result: execx.Result{Stdout: []byte("Off")}}
+	windowsFolder, err := windows.GetSystemWindowsDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	eachHyperVCall(HyperV{Commands: commands})
@@ -60,7 +67,8 @@ func TestHyperVRunsFixedScriptsForItsOneVM(t *testing.T) {
 	if len(commands.ran) != 5 {
 		t.Fatalf("ran %d commands; want one for each of the 5 calls", len(commands.ran))
 	}
-	shell := filepath.Join(`C:\Windows`, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	shell := filepath.Join(windowsFolder, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	modules := "PSModulePath=" + filepath.Join(windowsFolder, "System32", "WindowsPowerShell", "v1.0", "Modules")
 	for i, request := range commands.ran {
 		if !request.KillTree || commands.limits[i] <= 0 || commands.limits[i] > hyperVLimit {
 			t.Errorf("ran %q as a tree %v with %v to run; want it ended with all it started past %v", script(request), request.KillTree, commands.limits[i], hyperVLimit)
@@ -72,9 +80,56 @@ func TestHyperVRunsFixedScriptsForItsOneVM(t *testing.T) {
 		if !strings.HasPrefix(text, "$ErrorActionPreference = 'Stop'; ") || !strings.Contains(text, "'"+VMName+"'") {
 			t.Errorf("ran %q; want a script that stops at its first error and names %s", text, VMName)
 		}
-		if slices.ContainsFunc(request.Env, func(entry string) bool { return strings.HasPrefix(strings.ToUpper(entry), "PSMODULEPATH=") }) {
-			t.Errorf("ran %q with PowerShell 7's module path; want none", text)
+		paths := slices.DeleteFunc(slices.Clone(request.Env), func(entry string) bool { return !strings.HasPrefix(strings.ToUpper(entry), "PSMODULEPATH=") })
+		if !slices.Equal(paths, []string{modules}) {
+			t.Errorf("ran %q with module paths %q; want %q alone", text, paths, modules)
 		}
+	}
+}
+
+// An elevated command runs in its user's session, whose variables that user
+// can set, so Windows PowerShell takes nothing from them that chooses what
+// runs: not Windows' folder, the search path, the module path, nor a
+// profiler.
+func TestHyperVTakesNothingFromAUsersEnvironment(t *testing.T) {
+	// Arrange
+	for name, value := range map[string]string{
+		"SystemRoot":           `C:\planted`,
+		"windir":               `C:\planted`,
+		"Path":                 `C:\planted`,
+		"PATHEXT":              ".PS1",
+		"ComSpec":              `C:\planted\cmd.exe`,
+		"PSModulePath":         `C:\planted`,
+		"COR_ENABLE_PROFILING": "1",
+		"COR_PROFILER_PATH":    `C:\planted\profiler.dll`,
+		"ProgramFiles":         `C:\planted`,
+	} {
+		t.Setenv(name, value)
+	}
+	commands := &recorder{result: execx.Result{Stdout: []byte("Off")}}
+	windowsFolder, err := windows.GetSystemWindowsDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_ = HyperV{Commands: commands}.TurnOff(context.Background())
+
+	// Assert
+	if len(commands.ran) != 1 {
+		t.Fatalf("ran %d commands; want one", len(commands.ran))
+	}
+	request := commands.ran[0]
+	if !strings.HasPrefix(request.Name, windowsFolder+`\`) {
+		t.Errorf("ran %s; want Windows PowerShell from Windows' own folder, %s", request.Name, windowsFolder)
+	}
+	for _, entry := range request.Env {
+		if strings.Contains(entry, "planted") || strings.HasPrefix(strings.ToUpper(entry), "COR_") {
+			t.Errorf("Windows PowerShell got %q from the user's environment", entry)
+		}
+	}
+	if want := "SystemRoot=" + windowsFolder; !slices.Contains(request.Env, want) {
+		t.Errorf("Windows PowerShell got %q; want %s", request.Env, want)
 	}
 }
 

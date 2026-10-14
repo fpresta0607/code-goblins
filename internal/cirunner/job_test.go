@@ -3,6 +3,9 @@ package cirunner
 import (
 	"context"
 	"errors"
+	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -26,6 +29,25 @@ type fakeJob struct {
 	deleted   []int64
 	// deleting is how long deleting a runner takes.
 	deleting time.Duration
+	// queued, when set, is the job GitHub says waits, and queuedErr what
+	// asking for it fails with. asks counts the asks, and asking is how long
+	// GitHub takes to answer one.
+	queued    *Pending
+	queuedErr error
+	asks      int
+	asking    time.Duration
+	// failFirst is how many of each call's first tries fail.
+	failFirst map[string]int
+	// offHeld, when set, holds each turn of the VM off until it is closed.
+	offHeld chan struct{}
+	// isPublic says the repository is public.
+	isPublic bool
+}
+
+func (f *fakeJob) IsPrivate(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.isPublic, nil
 }
 
 func (f *fakeJob) note(ctx context.Context, call string) error {
@@ -38,10 +60,17 @@ func (f *fakeJob) note(ctx context.Context, call string) error {
 	if f.failing == call {
 		return errors.New(call + " failed")
 	}
+	if f.failFirst[call] > 0 {
+		f.failFirst[call]--
+		return errors.New(call + " failed this time")
+	}
 	return nil
 }
 
 func (f *fakeJob) TurnOff(ctx context.Context) error {
+	if f.offHeld != nil {
+		<-f.offHeld
+	}
 	err := f.note(ctx, "off")
 	if err == nil {
 		f.mu.Lock()
@@ -81,6 +110,18 @@ func (f *fakeJob) IsRunning(ctx context.Context) (bool, error) {
 }
 
 func (f *fakeJob) QueuedJob(context.Context) (Pending, error) {
+	f.mu.Lock()
+	f.asks++
+	f.mu.Unlock()
+	time.Sleep(f.asking)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.queuedErr != nil {
+		return Pending{}, f.queuedErr
+	}
+	if f.queued != nil {
+		return *f.queued, nil
+	}
 	return Pending{IsWaiting: true, RunID: 7, Job: "desktop-backend-shard (1)"}, nil
 }
 
@@ -186,11 +227,96 @@ func TestRunOneJobEndsEachWayItCan(t *testing.T) {
 				t.Error("the VM still runs after the job ended")
 			}
 			calls := f.callsMade()
-			if !slices.Equal(calls[len(calls)-3:], []string{"off", "restore", "delete"}) {
-				t.Errorf("the job's last calls were %q; want the VM off, back at clean, and the runner deleted", calls)
+			deletes := 1
+			if row.failing == "delete" {
+				deletes = cleanupTries
 			}
-			if !slices.Equal(f.deleted, []int64{41}) {
+			want := append([]string{"off", "restore"}, slices.Repeat([]string{"delete"}, deletes)...)
+			if len(calls) < len(want) || !slices.Equal(calls[len(calls)-len(want):], want) {
+				t.Errorf("the job's last calls were %q; want the VM off, back at clean, and the runner deleted, %d time(s)", calls, deletes)
+			}
+			if !slices.Equal(f.deleted, slices.Repeat([]int64{41}, deletes)) {
 				t.Errorf("deleted runners %v; want the job's own runner, 41", f.deleted)
+			}
+		})
+	}
+}
+
+// A cleanup step that fails is tried again, a pause apart, up to
+// cleanupTries in all: a VM still running the job's code, or a runner GitHub
+// still counts busy, is put back or deleted at a later try.
+func TestRunOneJobTriesItsCleanupAgain(t *testing.T) {
+	for name, row := range map[string]struct {
+		failFirst map[string]int
+		want      []string
+	}{
+		"turning the VM off fails once":     {failFirst: map[string]int{"off": 1}, want: []string{"off", "off", "restore", "delete"}},
+		"putting it back fails twice":       {failFirst: map[string]int{"restore": 2}, want: []string{"off", "restore", "off", "restore", "off", "restore", "delete"}},
+		"deleting the runner fails twice":   {failFirst: map[string]int{"delete": 2}, want: []string{"off", "restore", "delete", "delete", "delete"}},
+		"every step works at its first try": {want: []string{"off", "restore", "delete"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{busyAt: 2, offAt: 5}
+			var config string
+			d := testDeps(f, &config)
+			// The failures begin once the job runs, so the job's own first
+			// putting back is not one of them.
+			sleep, isSet := d.Sleep, false
+			d.Sleep = func(ctx context.Context, step time.Duration) {
+				if !isSet {
+					f.mu.Lock()
+					f.failFirst, isSet = maps.Clone(row.failFirst), true
+					f.mu.Unlock()
+				}
+				sleep(ctx, step)
+			}
+
+			// Act
+			outcome, err := RunOneJob(context.Background(), d, DefaultLimits, func(string) {})
+
+			// Assert
+			calls := f.callsMade()
+			cleanup := calls[slices.Index(calls, "start")+1:]
+			if outcome != Ran || err != nil || !slices.Equal(cleanup, row.want) {
+				t.Errorf("RunOneJob = %q, %v, cleaning up with %q; want ran with no error, cleaning up with %q", outcome, err, cleanup, row.want)
+			}
+		})
+	}
+}
+
+// The job's DVD holds its runner's configuration, and goes once the VM is
+// back at clean. A VM that could not be put back may still hold it, so it
+// stays.
+func TestRunOneJobRemovesItsDVD(t *testing.T) {
+	for name, row := range map[string]struct {
+		failing   string
+		isRemoved bool
+	}{
+		"the VM put back":              {isRemoved: true},
+		"the VM could not be put back": {failing: "restore", isRemoved: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{busyAt: 2, offAt: 5}
+			var config string
+			d := testDeps(f, &config)
+			iso := filepath.Join(t.TempDir(), "job.iso")
+			d.DVD = func(given string) (string, error) { return iso, BuildDVD(iso, given) }
+			sleep := d.Sleep
+			d.Sleep = func(ctx context.Context, step time.Duration) {
+				f.mu.Lock()
+				f.failing = row.failing
+				f.mu.Unlock()
+				sleep(ctx, step)
+			}
+
+			// Act
+			_, _ = RunOneJob(context.Background(), d, DefaultLimits, func(string) {})
+
+			// Assert
+			if _, err := os.Stat(iso); os.IsNotExist(err) != row.isRemoved {
+				t.Errorf("the DVD after the job: %v; want it removed = %v", err, row.isRemoved)
 			}
 		})
 	}
