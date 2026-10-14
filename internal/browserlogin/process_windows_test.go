@@ -15,9 +15,11 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // startChrome starts a headless Chrome on a fresh profile and ends it with
@@ -226,6 +228,63 @@ func TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents(t *testing.T) {
 	var result struct{ Result struct{ Value int } }
 	if err := json.Unmarshal(response.Result, &result); err != nil || response.ID != 2 || response.Session != session || result.Result.Value != 42 {
 		t.Fatal("an auto-attached page did not receive its command and reply")
+	}
+}
+
+func TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited(t *testing.T) {
+	// Arrange
+	process, _ := startChrome(t, []string{"localhost"})
+	isGoneWhileRunning := Gone(process)
+
+	// Act
+	err := End(context.Background(), process)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isGoneWhileRunning || !Gone(process) {
+		t.Fatalf("gone while running = %t, after its end = %t, want false then true", isGoneWhileRunning, Gone(process))
+	}
+}
+
+// A Chrome that closed when asked leaves its job holding nothing when the
+// job is ended, and that job is gone. One whose end never ran is not.
+func TestGoneReadsAJobByWhetherItWasEndedWhenItHeldNothing(t *testing.T) {
+	// Arrange
+	handle, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended := Process{PID: 4242, job: &job{handle: handle}}
+	never := Process{PID: 4243, job: &job{}}
+
+	// Act
+	err = ended.close()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !Gone(ended) || Gone(never) {
+		t.Fatalf("gone after an end of nothing = %t, with no end = %t, want true then false", Gone(ended), Gone(never))
+	}
+}
+
+func TestGoneReadsAnEndedJobMemberStillRunningAsNotGone(t *testing.T) {
+	// Arrange
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("cannot read this process's start")
+	}
+	process := Process{PID: os.Getpid(), Started: started, job: &job{members: []proc.Entry{{PID: os.Getpid(), Start: started}}, isEnded: true}}
+
+	// Act
+	isGone := Gone(process)
+
+	// Assert
+	if isGone {
+		t.Fatal("a job member that still runs read as gone")
 	}
 }
 
