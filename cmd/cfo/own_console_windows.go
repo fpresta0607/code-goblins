@@ -46,6 +46,13 @@ func leaveOwnConsole(args []string, isGoblins bool) {
 	if count, _, _ := consoleProcessListProc.Call(uintptr(unsafe.Pointer(&processes[0])), uintptr(len(processes))); count != 1 {
 		return
 	}
+	leaveConsole()
+}
+
+// leaveConsole takes this process out of its console, and points its
+// standard input, output and error that were the console's at the null
+// device instead.
+func leaveConsole() {
 	standard := []struct {
 		id   uint32
 		file **os.File

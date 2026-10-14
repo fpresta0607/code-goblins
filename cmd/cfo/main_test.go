@@ -148,6 +148,9 @@ func TestMain(m *testing.M) {
 	if code, ok := runGateTreeTestProgram(); ok {
 		os.Exit(code)
 	}
+	if len(os.Args) > 2 && os.Args[1] == leftConsoleTestProgram {
+		os.Exit(runLeftConsoleTestProgram(os.Args[2]))
+	}
 	if len(os.Args) > 2 && os.Args[1] == ownConsoleTestProgram {
 		os.Exit(runOwnConsoleTestProgram(os.Args[2:]))
 	}

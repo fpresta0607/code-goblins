@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -31,7 +33,8 @@ const ownConsoleTestProgram = "own-console-test-program"
 func runOwnConsoleTestProgram(args []string) int {
 	leaveOwnConsole(args[1:], false)
 	window, _, _ := consoleWindowProc.Call()
-	if err := os.WriteFile(args[0]+".tmp", fmt.Appendf(nil, "window=%d", window), 0o600); err != nil || os.Rename(args[0]+".tmp", args[0]) != nil {
+	failed, first := startsFailing()
+	if err := os.WriteFile(args[0]+".tmp", fmt.Appendf(nil, "window=%d failed=%d first=%v", window, failed, first), 0o600); err != nil || os.Rename(args[0]+".tmp", args[0]) != nil {
 		return 1
 	}
 	time.Sleep(15 * time.Second)
@@ -112,13 +115,13 @@ func TestACommandStartedAloneInANewConsoleClosesItsWindow(t *testing.T) {
 				t.Fatal(err)
 			}
 			if c.isWindowed {
-				if len(shown) == 0 || string(got) == "window=0" {
+				if len(shown) == 0 || strings.HasPrefix(string(got), "window=0 ") {
 					t.Fatalf("with %s as the default terminal, cfo %s reported %s and the desktop shows no new window; want its console's window shown", terminal, strings.Join(c.args, " "), got)
 				}
 				return
 			}
-			if string(got) != "window=0" || len(shown) != 0 {
-				t.Fatalf("with %s as the default terminal, cfo %s reported %s and a second after it the desktop still shows %q; want no console and no window", terminal, strings.Join(c.args, " "), got, shown)
+			if !strings.HasPrefix(string(got), "window=0 failed=0 ") || len(shown) != 0 {
+				t.Fatalf("with %s as the default terminal, cfo %s reported %s and a second after it the desktop still shows %q; want no console, every start of a program working and no window", terminal, strings.Join(c.args, " "), got, shown)
 			}
 		})
 	}
@@ -153,5 +156,81 @@ func TestIsShownOnPurposeKeepsOnlyWhatTheOverlordStartsToLookAt(t *testing.T) {
 		if got != c.want {
 			t.Errorf("isShownOnPurpose(%q, goblins %t) = %t; want %t", c.args, c.isGoblins, got, c.want)
 		}
+	}
+}
+
+// leftConsoleTestProgram runs this binary as a process that leaves its
+// console (leaveConsole), lets the garbage collector run, and then starts a
+// program again and again with its standard handles, as cfo gate turn
+// starts its command, writing to its report how many starts failed.
+const leftConsoleTestProgram = "left-console-test-program"
+
+func runLeftConsoleTestProgram(report string) int {
+	// Its standard handles are its console's, as a careless start's are.
+	for _, handle := range []struct {
+		id   uint32
+		file **os.File
+		name string
+	}{{windows.STD_INPUT_HANDLE, &os.Stdin, "CONIN$"}, {windows.STD_OUTPUT_HANDLE, &os.Stdout, "CONOUT$"}, {windows.STD_ERROR_HANDLE, &os.Stderr, "CONOUT$"}} {
+		console, err := os.OpenFile(handle.name, os.O_RDWR, 0)
+		if err != nil || windows.SetStdHandle(handle.id, windows.Handle(console.Fd())) != nil {
+			return 1
+		}
+		*handle.file = console
+	}
+	leaveConsole()
+	failed, first := startsFailing()
+	if err := os.WriteFile(report+".tmp", fmt.Appendf(nil, "failed=%d first=%v", failed, first), 0o600); err != nil || os.Rename(report+".tmp", report) != nil {
+		return 1
+	}
+	return 0
+}
+
+// startsFailing starts a program 20 times with this process's standard
+// handles, as cfo gate turn starts its command, letting the garbage
+// collector run before each, and returns how many failed to start and the
+// first failure.
+func startsFailing() (int, error) {
+	failed := 0
+	var first error
+	for range 20 {
+		runtime.GC()
+		command := execx.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/c", "exit", "0")
+		command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := command.Run(); err != nil {
+			failed++
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	return failed, first
+}
+
+// A process that left its console starts programs with its standard handles
+// as before, however often the garbage collector runs: the files that held
+// the console's handles are closed as it leaves, never by a finalizer later,
+// which would close whatever handle took their numbers. On a hosted runner a
+// careless run's command failed to start, exit 126, in five of eight runs
+// before this held. Its console has no window, so nothing shows.
+func TestALeftConsoleLeavesItsStartsWorking(t *testing.T) {
+	// Arrange
+	report := filepath.Join(t.TempDir(), "report")
+	command := exec.Command(os.Args[0], leftConsoleTestProgram, report)
+	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+
+	// Act
+	output, err := command.CombinedOutput()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the program failed: %v: %s", err, output)
+	}
+	got, err := fsx.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(got), "failed=0 ") {
+		t.Fatalf("after leaving its console: %s; want every start to succeed", got)
 	}
 }
