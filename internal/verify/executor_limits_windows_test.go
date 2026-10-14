@@ -184,16 +184,27 @@ func TestExecutorRefusesAnUntrustedDesktopReserveBeforeStarting(t *testing.T) {
 }
 
 func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
+	if os.Getenv(limitsRole) == "starter" {
+		// The command starts a child and exits at once, so its own run never
+		// waits on a child's start, which a loaded machine stretched past a
+		// four second limit on 2026-10-14.
+		child := exec.Command("ping", "-n", "60", "127.0.0.1")
+		if err := child.Start(); err != nil {
+			os.Exit(8)
+		}
+		os.Exit(0)
+	}
 	// Arrange
 	store := t.TempDir()
 	t.Setenv("CFO_VERIFY_DIR", store)
-	// The command exits well inside its limit and leaves a child past it.
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: 6 * time.Second, Headroom: plentyOfMemory}}
+	// The command exits well inside its limit, and its child lives through
+	// the linger, past the limit, which would end it if the limit still ran.
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Grace: 10 * time.Millisecond, Linger: 12 * time.Second, Headroom: plentyOfMemory}}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Act
-	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorEndsAndNamesWhatTheCommandLeftRunning$"}, Env: append(os.Environ(), limitsRole+"=parent")}, 4*time.Second)
+	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorLimitStopsOnceTheCommandExits$"}, Env: append(os.Environ(), limitsRole+"=starter")}, 8*time.Second)
 
 	// Assert
 	if err != nil {
