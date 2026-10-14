@@ -242,7 +242,7 @@ func main() {
 			if moved {
 				window.SetURL(url)
 			} else {
-				switch page.Look(answers) {
+				switch page.Look(answers, !away(window)) {
 				case Ask:
 					window.ExecJS(shownScript)
 				case Load:

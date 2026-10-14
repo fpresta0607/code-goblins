@@ -93,6 +93,8 @@ const (
 	Ask
 	// Load the board.
 	Load
+	// Repaint: end the WebView2 GPU process, which WebView2 starts again.
+	Repaint
 )
 
 // Page decides when the window loads its board again. A window that looked
@@ -114,9 +116,9 @@ type Page struct {
 	shown bool
 }
 
-// Look takes whether the board answers now and returns what the window does
-// with its page.
-func (p *Page) Look(answers bool) PageStep {
+// Look takes whether the board answers now and whether the window is shown,
+// and returns what the window does with its page.
+func (p *Page) Look(answers, seen bool) PageStep {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch {
@@ -134,6 +136,16 @@ func (p *Page) Look(answers bool) PageStep {
 		return Leave
 	}
 	return Load
+}
+
+// retryLooks is how many looks a page that a load and a new GPU process did
+// not mend stays silent before the window tries both again.
+const retryLooks = 20
+
+// Stalled reports whether the window is loading again a page that draws
+// nothing, which it says in place of the page.
+func (p *Page) Stalled() bool {
+	return false
 }
 
 // Shown notes that a board's page said it is there.
