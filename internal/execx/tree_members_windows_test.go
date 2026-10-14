@@ -13,12 +13,16 @@ import (
 // sample, as a run's monitor samples go build's: on 2026-10-14 a run was cut
 // with "incomplete job member sample" while its list of members changed as it
 // was read. proc.JobProcessIDs proves each rule of that read with a stand-in;
-// this samples a real job, which the old read failed within a second.
+// this samples a real job, which the old read failed within a second. The
+// job is sampled from its start until its root exits, so every member it
+// started was started and exited while it was sampled, however long a busy
+// machine takes to start the root.
 func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
+	const rounds, perRound = 10, 4
 	if os.Getenv("EXECX_TEST_CHURN") != "" {
-		for deadline := time.Now().Add(4 * time.Second); time.Now().Before(deadline); {
+		for range rounds {
 			var children []*exec.Cmd
-			for range 4 {
+			for range perRound {
 				child := exec.Command("cmd", "/d", "/c", "exit 0")
 				if err := child.Start(); err != nil {
 					os.Exit(7)
@@ -38,27 +42,37 @@ func TestTreeUsageReadsAJobWhoseMembersChurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = tree.End(); _ = command.Wait() })
+	exited := make(chan error, 1)
+	go func() { exited <- command.Wait() }()
+	t.Cleanup(func() { _, _ = tree.End(); <-exited })
 
 	// Act
 	samples := 0
-	var usage TreeUsage
 	var failure error
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline) && failure == nil; samples++ {
-		var sampled TreeUsage
-		if sampled, failure = tree.Usage(); failure == nil {
-			usage = sampled
+	isRunning := true
+	// The bound only fails a root that never exits; the churn takes a second
+	// or two on an idle machine.
+	for bound := time.After(2 * time.Minute); isRunning && failure == nil; samples++ {
+		select {
+		case err := <-exited:
+			exited <- err
+			isRunning = false
+		case <-bound:
+			t.Fatalf("the churning root did not exit within its bound, after %d samples", samples)
+		default:
 		}
+		_, failure = tree.Usage()
 	}
+	usage, usageError := tree.Usage()
 
 	// Assert
-	if failure != nil {
-		t.Fatalf("sample %d of a churning job = %v, want every sample read", samples, failure)
+	if failure != nil || usageError != nil {
+		t.Fatalf("sample %d of a churning job = %v, %v, want every sample read", samples, failure, usageError)
 	}
 	// The job's lifetime count shows its members did churn while it was
 	// sampled, so the samples above read a changing list.
-	if usage.TotalProcesses < 20 {
-		t.Fatalf("the job held %d processes in all, want at least 20 started and exited while it was sampled", usage.TotalProcesses)
+	if want := uint32(1 + rounds*perRound); usage.TotalProcesses < want {
+		t.Fatalf("the job held %d processes in all, want at least %d started and exited while it was sampled", usage.TotalProcesses, want)
 	}
 }
 

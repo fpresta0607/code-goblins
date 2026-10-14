@@ -80,6 +80,9 @@ type Config struct {
 	// deletes from the package caches and runs each prune in a turn of. Nil
 	// deletes no cache.
 	Line HeavyLine
+	// VerificationStore is the verification store's folder, which the sweep
+	// measures beside the home. Empty measures it as not named.
+	VerificationStore string
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -162,7 +165,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	for _, task := range cfg.Inventory.Tasks {
 		metas = append(metas, task.Meta)
 	}
-	record.Buckets = Measure(cfg.Home, metas)
+	record.Buckets = Measure(cfg.Home, metas, cfg.VerificationStore)
 	cfg.reportDataSize(&record)
 	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {
 		record.Disk = reading
