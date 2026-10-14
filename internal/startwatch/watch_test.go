@@ -63,6 +63,29 @@ func TestAWindowAGoblinsProcessShowsIsToldOnce(t *testing.T) {
 	}
 }
 
+// A console window the supervisor hid is told as hidden, with the command
+// that opened it and what the goblin should start its heavy runs with, so
+// none opens again.
+func TestAConsoleWindowTheSupervisorHidIsToldAsHidden(t *testing.T) {
+	// Arrange
+	waiter := started("cg-a", 400, "goblins.exe", `C:\Users\o\AppData\Local\CodeGoblins\bin\goblins.exe gate turn -- go test ./...`)
+	waiter.Shown, waiter.IsHidden = "a console window", true
+	var watch Watch
+
+	// Act
+	findings := watch.Read(Reading{At: at, CFO: "cfo", Processes: []Process{waiter}})
+
+	// Assert
+	if len(findings) != 1 {
+		t.Fatalf("findings = %q, want the waiter once", details(findings))
+	}
+	for _, want := range []string{"window_shown: cg-a's goblins.exe (pid 400)", "showed a console window on the Overlord's screen, which the supervisor hid: ", "gate turn -- go test ./...", "Next: tell cg-a to start a heavy run with cfo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"} {
+		if !strings.Contains(findings[0].Detail, want) {
+			t.Errorf("detail = %q, want %q", findings[0].Detail, want)
+		}
+	}
+}
+
 // A command one owner starts again and again is a loop: told once, when the
 // tenth new process of it within two minutes is seen. A carrier, a process
 // its harness started itself, a machine service and what a test run or a
