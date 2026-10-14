@@ -623,16 +623,26 @@ func ignoreBuild(t *testing.T, runtime commandRuntime) string {
 func TestVerifyRunsAgainWhenItsPassCannotBeTaken(t *testing.T) {
 	for name, row := range map[string]struct {
 		declared string
-		change   func(t *testing.T, worktree string)
+		change   func(t *testing.T, worktree, record string)
 	}{
 		"no reuse declared":  {},
 		"another tier named": {declared: `{"tiers": ["full"]}`},
-		"a file git sees": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
+		"another time limit": {declared: `{"tiers": ["fast"]}`, change: func(t *testing.T, worktree, record string) {
+			data, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			limited := strings.Replace(string(data), `"verification": {`, `"verification": {"max_fast_seconds": 120, `, 1)
+			if err := os.WriteFile(record, []byte(limited), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"a file git sees": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree, record string) {
 			if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("changed\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}},
-		"a declared input": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
+		"a declared input": {declared: `{"tiers": ["fast"], "inputs": ["build"]}`, change: func(t *testing.T, worktree, record string) {
 			if err := os.MkdirAll(filepath.Join(worktree, "build"), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -651,7 +661,11 @@ func TestVerifyRunsAgainWhenItsPassCannotBeTaken(t *testing.T) {
 				t.Fatalf("the first run exited %d and said %q; want a quiet pass", exit, first.String())
 			}
 			if row.change != nil {
-				row.change(t, worktree)
+				h, err := runtime.resolveHome()
+				if err != nil {
+					t.Fatal(err)
+				}
+				row.change(t, worktree, projectcfg.Path(h.Data, "demo"))
 			}
 
 			// Act

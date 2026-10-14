@@ -146,7 +146,6 @@ func inputsDigest(ctx context.Context, dir string, inputs []string) (string, err
 			}
 			switch {
 			case entry.IsDir():
-				fmt.Fprintf(digest, "%s\x00folder\n", filepath.ToSlash(name))
 			case entry.Type().IsRegular():
 				sum, err := fileDigest(path)
 				if err != nil {
