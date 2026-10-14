@@ -174,11 +174,32 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) Snapshot {
 		if entry.Kind == "mcp" && entry.Status == "unauthorized" && len(entry.Actions) == 0 {
 			entry.Detail = "Sign in from your own harness session, or ask the CFO for token access."
 		}
+		entry.Grant = grantOffered(*entry, meta)
 	}
 	sort.SliceStable(result.Entries, func(a, b int) bool {
 		return result.Entries[a].Kind+result.Entries[a].Name < result.Entries[b].Kind+result.Entries[b].Name
 	})
 	return result
+}
+
+// grantOffered is what an entry's connector card offers, as cfo auth grant
+// and cfo auth revoke would change it: grant for a service the task does not
+// carry or a project MCP server its harness was not given, revoke for one the
+// task's record names, and nothing for a credential variable or an MCP server
+// from outside the project's .mcp.json.
+func grantOffered(entry Entry, meta state.TaskMeta) string {
+	kind, name, _ := strings.Cut(entry.ID, ":")
+	switch {
+	case kind == "service" && entry.Status == "withheld":
+		return "grant"
+	case kind == "service":
+		return "revoke"
+	case (kind == "mcp" || kind == "withheld") && slices.Contains(meta.MCPServers, name):
+		return "revoke"
+	case kind == "withheld":
+		return "grant"
+	}
+	return ""
 }
 
 var credentialName = regexp.MustCompile(`(?i)(TOKEN|API_KEY|PASSWORD|SECRET|CONNECTION_STRING|DATABASE_URL)$`)

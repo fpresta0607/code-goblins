@@ -15,6 +15,10 @@ type Entry struct {
 	Source    string    `json:"source,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`
 	Actions   []string  `json:"actions,omitempty"`
+	// Grant is what the entry's connector card offers: grant for a service or
+	// a project MCP server the task does not carry, revoke for one its record
+	// names, or empty for one no cfo auth grant changes.
+	Grant string `json:"grant,omitempty"`
 }
 type Snapshot struct {
 	Entries   []Entry   `json:"entries"`

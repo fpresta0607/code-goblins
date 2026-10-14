@@ -189,42 +189,56 @@ func TestAnEndedGateTurnEndsEverythingItsCommandStarted(t *testing.T) {
 	}
 }
 
-// Interrupted while its command runs, a run lets the command answer for
-// itself, and once the command has ended it ends what the command left
-// running and names it by name and pid.
-func TestAnInterruptedGateTurnEndsWhatItsCommandLeftRunning(t *testing.T) {
-	// Arrange
-	turnLine(t)
-	folder := t.TempDir()
-	signals := make(chan os.Signal, 1)
-	runtime := turnRuntime()
-	runtime.interrupts = func() (<-chan os.Signal, func()) { return signals, func() {} }
-	var stdout, stderr lockedBuffer
-	exited := make(chan int, 1)
-	go func() {
-		exited <- gateTurn(runtime, &stdout, &stderr, append([]string{"--"}, treeCommand(folder)...)...)
-	}()
-	tree := foundIn(t, findTree(folder))
+// Once its command has ended, interrupted or not, a run lets what the
+// command left running go on for the linger, then ends it and names it by
+// name and pid: what a command leaves is the run's, so the run's turn is
+// never given back with it still running. Interrupted, the run lets the
+// command answer for itself first.
+func TestAGateTurnEndsWhatItsCommandLeftRunning(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		isInterrupted bool
+	}{
+		{name: "interrupted", isInterrupted: true},
+		{name: "exited by itself"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			turnLine(t)
+			folder := t.TempDir()
+			signals := make(chan os.Signal, 1)
+			runtime := turnRuntime()
+			runtime.interrupts = func() (<-chan os.Signal, func()) { return signals, func() {} }
+			var stdout, stderr lockedBuffer
+			exited := make(chan int, 1)
+			go func() {
+				exited <- gateTurn(runtime, &stdout, &stderr, append([]string{"--"}, treeCommand(folder)...)...)
+			}()
+			tree := foundIn(t, findTree(folder))
 
-	// Act
-	signals <- os.Interrupt
-	if err := treetest.Release(folder); err != nil {
-		t.Fatal(err)
-	}
+			// Act
+			if test.isInterrupted {
+				signals <- os.Interrupt
+			}
+			if err := treetest.Release(folder); err != nil {
+				t.Fatal(err)
+			}
 
-	// Assert
-	select {
-	case exit := <-exited:
-		if exit != 0 {
-			t.Errorf("exit = %d, want the command's 0; stderr=%q", exit, stderr.String())
-		}
-	case <-time.After(time.Minute):
-		t.Fatalf("the run had not ended a minute after its command was let go; stderr=%q", stderr.String())
-	}
-	if !tree.Helper.Ends() {
-		t.Error("the helper the command left running still runs, want it ended once the interrupted command had ended")
-	}
-	if !named(stderr.String(), tree.Helper) {
-		t.Errorf("stderr %q does not name the helper, pid %d, among what the run ended", stderr.String(), tree.Helper.PID)
+			// Assert
+			select {
+			case exit := <-exited:
+				if exit != 0 {
+					t.Errorf("exit = %d, want the command's 0; stderr=%q", exit, stderr.String())
+				}
+			case <-time.After(time.Minute):
+				t.Fatalf("the run had not ended a minute after its command was let go; stderr=%q", stderr.String())
+			}
+			if !tree.Helper.Ends() {
+				t.Error("the helper the command left running still runs, want it ended once the command had ended")
+			}
+			if !named(stderr.String(), tree.Helper) {
+				t.Errorf("stderr %q does not name the helper, pid %d, among what the run ended", stderr.String(), tree.Helper.PID)
+			}
+		})
 	}
 }
