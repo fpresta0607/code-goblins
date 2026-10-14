@@ -1,5 +1,5 @@
-import { parseBrowserLogins } from "./browser-logins";
-import { array, object, string, strings } from "./types";
+import { parseBrowserLogins } from "./browser-logins.ts";
+import { array, object, string, strings } from "./types.ts";
 
 export function parseConnections(value: unknown) {
   const result = object(value);
@@ -10,7 +10,8 @@ export function parseConnections(value: unknown) {
     checkedAt: string(result.checked_at),
     entries: array(result.entries).map((value) => {
       const entry = object(value);
-      return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), checkedAt: string(entry.checked_at), actions: strings(entry.actions) };
+      const grant = string(entry.grant);
+      return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), actions: strings(entry.actions), grant: grant === "grant" || grant === "revoke" ? grant : "" };
     }),
     browserLogins: parseBrowserLogins(result.browser_logins),
   };
@@ -22,12 +23,15 @@ export function connectionStatus(status: string): string {
   return ({ connected: "Connected", provided: "Provided", unauthorized: "Sign in", expired: "Expired", missing: "Missing", wrong_target: "Wrong project", unreachable: "Unreachable", failed: "Failed", unverified: "Unverified", disabled: "Disabled", withheld: "Withheld", skipped: "Optional", checking: "Checking" } as Record<string, string>)[status] || "Unverified";
 }
 
+// connectionTrouble is what a connector that is failing says in its faint
+// mark's tooltip: its state and its reason. One that works, is being checked,
+// is optional or is not carried has none.
+export function connectionTrouble(entry: ConnectionEntry): string {
+  if (["connected", "provided", "withheld", "skipped", "checking"].includes(entry.status)) return "";
+  return connectionStatus(entry.status) + (entry.detail ? ": " + entry.detail : "");
+}
+
 export function connectionAction(action: string, name: string): string {
   if (action.startsWith("store:")) return "Store " + action.slice(6) + " from clipboard";
   return (action === "cli" ? "Open CLI sign-in for " : "Sign in to ") + name;
-}
-
-export function checkedTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) || date.getFullYear() < 2000 ? "Not checked yet" : "Checked " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }

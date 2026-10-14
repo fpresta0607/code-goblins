@@ -42,8 +42,9 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await page.goto("/tests/fixtures/connections.html");
     await page.getByText("Connections", { exact: true }).click();
     const panel = page.getByRole("region", { name: "Connections" });
-    await expect(panel.getByText("Connected", { exact: true })).toHaveCount(2);
-    await expect(panel.getByText("Withheld", { exact: true })).toBeVisible();
+    await expect(panel.locator(".connector-card")).toHaveCount(5);
+    await expect(panel.locator(".connector-trouble")).toHaveCount(1);
+    await expect(panel).not.toContainText(/Connected|Withheld/);
     await expect(panel.getByText("TEST_TOKEN", { exact: true })).toBeVisible();
     await expect(panel.getByText("Configured is not connected.", { exact: false })).toHaveCount(0);
     await page.locator("main").screenshot({ path: "test-results/connections-before-" + viewport.width + ".png" });
@@ -51,10 +52,10 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await context7.getByRole("button", { name: "Sign in to Context7" }).click();
     await expect(page).toHaveTitle("run:connections-login-fixture");
     await page.clock.runFor(5 * 60 * 1000);
-    await expect(context7.getByText("Sign in", { exact: true })).toBeVisible();
+    await expect(context7.locator(".connector-trouble")).toHaveAttribute("data-tip", "Sign in: Sign-in required.");
     expect(checks).toBe(1);
     await page.evaluate(() => (window as unknown as { finishRepair: (id: string) => void }).finishRepair("connections-login-fixture"));
-    await expect(context7.getByText("Connected", { exact: true })).toBeVisible();
+    await expect(context7.locator(".connector-trouble")).toHaveCount(0);
     expect(checks).toBe(2);
     await page.evaluate(() => document.fonts.ready);
     const layout = await panel.evaluate((element) => ({

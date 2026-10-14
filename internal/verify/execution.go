@@ -28,8 +28,10 @@ type ExecutionRecord struct {
 	Status       string                `json:"status"`
 	ExitCode     *int                  `json:"exit_code"`
 	Failure      string                `json:"failure,omitempty"`
-	StdoutLog    string                `json:"stdout_log"`
-	StderrLog    string                `json:"stderr_log"`
+	// The logs are the command's output, or none when the command wrote to
+	// its caller's own output (Executor.Stdout), which its caller keeps.
+	StdoutLog string `json:"stdout_log,omitempty"`
+	StderrLog string `json:"stderr_log,omitempty"`
 }
 
 type ExecutionTransition struct {
@@ -64,6 +66,14 @@ func BeginExecution(root string, command []string) (*Execution, error) {
 }
 
 func (execution *Execution) Path() string { return execution.path }
+
+// keepNoLogs records that the command writes to its caller's own output, so
+// the execution keeps no logs of it.
+func (execution *Execution) keepNoLogs() error {
+	next := execution.record
+	next.StdoutLog, next.StderrLog = "", ""
+	return execution.persist(next)
+}
 
 // LoadExecution reads the execution record at path.
 func LoadExecution(path string) (ExecutionRecord, error) {
