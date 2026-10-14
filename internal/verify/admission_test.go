@@ -1077,6 +1077,44 @@ func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 	}
 }
 
+// A run's limit on a busy lock counts from when the lock turned busy, not from
+// when the run reached the head of the line: a run that waited there for a
+// slot longer than its limit still waits out a brief busy moment of the lock.
+func TestARunThatWaitedForASlotStillWaitsOutABriefBusyLock(t *testing.T) {
+	// Arrange
+	shortCustodyBudget(t)
+	holder := within(t, take(t, admission(t)), "the run that holds the slot")
+	a := admission(t)
+	a.Dir = holder.dir
+	// The lock stays busy past a poll and a change's budget, so the run finds
+	// it busy, and well within the limit, which the run's wait for the slot
+	// passes twice over.
+	a.Limit = 600 * time.Millisecond
+	a.Poll = 50 * time.Millisecond
+	var says said
+	a.Waiting = says.waiting
+	taken := take(t, a)
+	says.atLeast(t, 1)
+	time.Sleep(1200 * time.Millisecond)
+	if err := holder.Release(); err != nil {
+		t.Fatal(err)
+	}
+	release := holdLineLock(t, a.Dir, "in this process")
+	time.Sleep(300 * time.Millisecond)
+
+	// Act
+	release()
+
+	// Assert
+	turn := within(t, taken, "the run that waited for a slot, then found the lock busy")
+	if err := turn.Release(); err != nil {
+		t.Errorf("Release: %v", err)
+	}
+	if lines := strings.Join(says.atLeast(t, 2), "\n"); !strings.Contains(lines, "the line's lock is busy") {
+		t.Fatalf("the run said %q; want it to have found the lock busy after its slot was free", lines)
+	}
+}
+
 // A run that finds the line's lock busy as it first checks the line waits the
 // lock out, rather than taking no turn before it even joins the line.
 func TestARunWaitsOutABusyLockBeforeItJoinsTheLine(t *testing.T) {
@@ -1124,12 +1162,15 @@ func TestProtectWaitsOutABusyLock(t *testing.T) {
 			})
 
 			// Act
+			started := time.Now()
 			guard, err := turn.ProtectContext(ctx, "protected-run", "")
 
 			// Assert
 			if row.isInterrupted {
-				if err == nil || errors.Is(err, errCustodyBusy) && ctx.Err() == nil {
-					t.Errorf("ProtectContext: %v; want it ended by the interrupt", err)
+				// The turn's limit is a minute, so a protection that went on
+				// trying past the interrupt would return only then.
+				if err == nil || errors.Is(err, errCustodyBusy) && ctx.Err() == nil || time.Since(started) > 5*time.Second {
+					t.Errorf("ProtectContext: %v after %s; want it ended by the interrupt at once", err, time.Since(started))
 				}
 				return
 			}
