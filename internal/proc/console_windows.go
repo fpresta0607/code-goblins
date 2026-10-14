@@ -1,7 +1,11 @@
 package proc
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"slices"
+	"strconv"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -30,6 +34,89 @@ func ConsoleShown(pid int, windowOwners map[int]bool) (bool, error) {
 		}
 		return windowOwners[int(basic.InheritedFromUniqueProcessId)], nil
 	}
+}
+
+// consoleWindowClasses are the classes of the windows a console shows
+// through: a classic console host's own window, and the pseudo console
+// window of a console handed to a terminal such as Windows Terminal, which
+// the terminal follows.
+var consoleWindowClasses = []string{"ConsoleWindowClass", "PseudoConsoleWindow"}
+
+var (
+	attachConsole         = kernel32.NewProc("AttachConsole")
+	getConsoleWindow      = kernel32.NewProc("GetConsoleWindow")
+	setConsoleCtrlHandler = kernel32.NewProc("SetConsoleCtrlHandler")
+	// showWindowAsync is user32's ShowWindowAsync, which x/sys/windows does
+	// not wrap. It posts the change to the window's thread rather than wait
+	// for it, so a console host that does not answer cannot hold its caller
+	// up.
+	showWindowAsync = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindowAsync")
+)
+
+// windowHide is SW_HIDE.
+const windowHide = 0
+
+// ConsoleWindowRole, as a program's first argument, makes a program built
+// with this package print the window of the console the pid after it runs
+// in, and exit, instead of running. Started with no console of its own, it
+// can attach to another's, which is the one way Windows names a console's
+// window: a console handed to Windows Terminal shows through a pseudo
+// console window that neither the console's processes nor its console host
+// own, but a process of another console host Windows Terminal started.
+const ConsoleWindowRole = "cfo-console-window"
+
+func init() {
+	if len(os.Args) == 2 && os.Args[0] == ConsoleWindowRole {
+		os.Exit(printConsoleWindow(os.Args[1]))
+	}
+}
+
+// printConsoleWindow attaches this process to the console the pid it is
+// given runs in and prints the console's window, 0 for a process with no
+// console.
+func printConsoleWindow(pidArgument string) int {
+	pid, err := strconv.Atoi(pidArgument)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	// A Ctrl-C typed to the console reaches every process attached to it.
+	// This one ignores it and finishes the read.
+	_, _, _ = setConsoleCtrlHandler.Call(0, 1)
+	if attached, _, err := attachConsole.Call(uintptr(pid)); attached == 0 {
+		if errors.Is(err, windows.ERROR_INVALID_HANDLE) {
+			fmt.Println(0)
+			return 0
+		}
+		fmt.Fprintf(os.Stderr, "attach to the console of pid %d: %v\n", pid, err)
+		return 1
+	}
+	window, _, _ := getConsoleWindow.Call()
+	fmt.Println(window)
+	return 0
+}
+
+// HideConsoleWindow hides window, a console's window as a program started
+// as ConsoleWindowRole printed it, when it shows on the desktop, and says
+// whether it hid it: a console host's own window, or the pseudo console
+// window of a console handed to Windows Terminal, which then minimizes the
+// window it shows the console in. It ends nothing: the console's programs
+// run on, and a person can close it no more.
+func HideConsoleWindow(window windows.HWND) (bool, error) {
+	if window == 0 || !windows.IsWindowVisible(window) {
+		return false, nil
+	}
+	// A window that closed since it was read leaves its handle free for the
+	// next window made, which may be another program's.
+	class := make([]uint16, 256)
+	copied, err := windows.GetClassName(window, &class[0], int32(len(class)))
+	if err != nil || !slices.Contains(consoleWindowClasses, windows.UTF16ToString(class[:copied])) {
+		return false, nil
+	}
+	if posted, _, err := showWindowAsync.Call(uintptr(window), windowHide); posted == 0 {
+		return false, fmt.Errorf("proc: hide console window %#x: %w", window, err)
+	}
+	return true, nil
 }
 
 // ConsoleHost is the process id of the console host that the console

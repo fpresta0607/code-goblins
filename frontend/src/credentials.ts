@@ -1,4 +1,4 @@
-import type { CredentialHint, CredentialRequest } from "./types.ts";
+import type { CredentialFetch, CredentialHint, CredentialRequest } from "./types.ts";
 
 // Names as a sentence lists them: "A", "A and B", "A, B and C".
 export const listNames = (names: string[]) => names.length < 2 ? names.join("") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
@@ -77,6 +77,14 @@ export function storedTip(request: CredentialRequest, name: string): string {
   const how = request.fetched.includes(name) ? "fetched from the page" : request.typed.includes(name) ? "typed in the terminal" : "pasted on the card";
   return (request.replaced.includes(name) ? "Replaced" : "Stored") + " in the " + request.project + " vault, " + how +
     (request.written.includes(name) ? ", and set in " + request.env_file : "");
+}
+
+// What a card's Fetch it for me offers: the keys a reviewed page reads, with
+// the project's login, straight into the vault.
+export function fetchOffer(fetch: CredentialFetch): string {
+  const what = fetch.names.length === 2 ? "both keys" : fetch.names.length === 1 ? fetch.names[0] : `the ${fetch.names.length} keys`;
+  const page = fetch.names.every((name) => name.split("_").includes("TEST")) ? "test key page" : "key page";
+  return `The fleet can read ${what} from ${fetch.provider}'s ${page} with the ${fetch.login} login, straight into the vault. No agent sees ${fetch.names.length === 1 ? "it" : "them"}.`;
 }
 
 // The tip on the check of a name the vault held before the request.

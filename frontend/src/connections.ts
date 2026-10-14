@@ -1,3 +1,4 @@
+import { parseBrowserLogins } from "./browser-logins.ts";
 import { array, object, string, strings } from "./types.ts";
 
 export function parseConnections(value: unknown) {
@@ -12,6 +13,7 @@ export function parseConnections(value: unknown) {
       const grant = string(entry.grant);
       return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), actions: strings(entry.actions), grant: grant === "grant" || grant === "revoke" ? grant : "" };
     }),
+    browserLogins: parseBrowserLogins(result.browser_logins),
   };
 }
 

@@ -5,7 +5,7 @@ import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
-import { credentialHeading, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials";
+import { credentialHeading, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials";
 import { CredentialField } from "./credential-field";
 import { CredentialReplaceDialog } from "./credential-replace-dialog";
 import { RunTerminal } from "./run-terminal";
@@ -54,6 +54,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  // His click on Fetch it for me, until the board's answer comes back.
+  const [isFetching, setIsFetching] = useState(false);
   const commandBox = useRef<HTMLPreElement>(null);
   const local = onThisMachine(window.location.hostname);
   const open = request.state === "open";
@@ -105,6 +107,15 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       else showFeedback(message(failure));
     } finally { setBusy(false); }
   };
+  // Fetch asks the board to read the keys a reviewed page shows into the
+  // vault; the card shows the fetch running and how it ended.
+  const fetchKeys = async () => {
+    setIsFetching(true); showFeedback("");
+    try { await call("/api/credentials/fetch", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation }) }); }
+    catch (failure: unknown) { showFeedback(message(failure)); }
+    finally { setIsFetching(false); }
+  };
+  const offer = open && local && request.fetch && request.fetch.names.some((name) => needed.includes(name)) ? request.fetch : null;
   // A page without the clipboard, such as a board opened over plain http,
   // selects the commands for Ctrl+C instead, and says so beside his click.
   const copy = () => {
@@ -134,6 +145,13 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     {!open && <p className="credential-outcome" data-tip={request.reason}><Icon name="clock" /><strong>Closed</strong></p>}
     {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."}</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
+    {offer && <div className="credential-fetch">
+      <p>{fetchOffer(offer)}</p>
+      {offer.state === "fetching"
+        ? <p className="credential-fetching" role="status"><Icon name="refresh" />Fetching from {offer.provider}'s page</p>
+        : <button type="button" className="primary" disabled={!connected || isFetching || terminalOpen} onClick={() => void fetchKeys()}><Icon name="download" />Fetch it for me</button>}
+      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped" data-tip={offer.reason}><Icon name="warning" />Fetch stopped</span>}
+    </div>}
     <table className="credential-table">
       <colgroup><col className="credential-name-column" /><col /></colgroup>
       <thead><tr><th scope="col">Name</th><th scope="col">Value</th></tr></thead>

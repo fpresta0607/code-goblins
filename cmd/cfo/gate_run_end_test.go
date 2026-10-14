@@ -28,6 +28,9 @@ var (
 	codexIdle    = []string{"• Ran go test ./...", "", "› Ask Codex to do anything", "", "  gpt-6-astra xhigh · ~\\cg-run-end"}
 	codexWorking = []string{"• Working (2m 10s • esc to interrupt)", "", "› Ask Codex to do anything", "", "  gpt-6-astra xhigh · ~\\cg-run-end"}
 	piIdle       = []string{"Done.", "────────────────────", "", "────────────────────", "0.8%/1.0M (auto)"}
+	// As Claude Code 2.1.288 draws them.
+	claudeIdle    = []string{"● Ran go test ./...", "", "────────────────────", "> ", "────────────────────", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	claudeWorking = []string{"✽ Reticulating… (2m 10s · esc to interrupt)", "", "────────────────────", "> ", "────────────────────", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
 )
 
 // sentTexts keeps what a runtime's sendText was asked to type, by target,
@@ -97,12 +100,15 @@ func TestTellGoblinRunEndedTellsOnlyAnIdleGoblinOfItsOwnRun(t *testing.T) {
 		folder      string
 		isProven    bool
 		hasHostID   bool
+		isDetached  bool
 		isToldOfEnd bool
 	}{
 		{name: "codex goblin idle at its prompt", harness: "codex", screen: codexIdle, folder: "frontend", isProven: true, hasHostID: true, isToldOfEnd: true},
 		{name: "pi goblin idle at its prompt", harness: "pi", screen: piIdle, folder: ".", isProven: true, hasHostID: true, isToldOfEnd: true},
 		{name: "codex goblin in a turn", harness: "codex", screen: codexWorking, folder: "frontend", isProven: true, hasHostID: true},
 		{name: "claude goblin, whose harness starts a turn itself", harness: "claude", screen: codexIdle, folder: ".", isProven: true, hasHostID: true},
+		{name: "claude goblin idle after a detached run, which its harness never waited on", harness: "claude", screen: claudeIdle, folder: ".", isProven: true, hasHostID: true, isDetached: true, isToldOfEnd: true},
+		{name: "claude goblin in a turn after a detached run", harness: "claude", screen: claudeWorking, folder: ".", isProven: true, hasHostID: true, isDetached: true},
 		{name: "a gate step outside its worktrees", harness: "codex", screen: codexIdle, folder: "elsewhere", isProven: true, hasHostID: true},
 		{name: "a folder beside the worktree named like it", harness: "codex", screen: codexIdle, folder: "../cg-run-end-2", isProven: true, hasHostID: true},
 		{name: "a proof its terminal never gave", harness: "codex", screen: codexIdle, folder: ".", hasHostID: true},
@@ -132,7 +138,7 @@ func TestTellGoblinRunEndedTellsOnlyAnIdleGoblinOfItsOwnRun(t *testing.T) {
 			var stderr strings.Builder
 
 			// Act
-			tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate turn", dir, "npm test", 3, 95*time.Second, &stderr)
+			tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate turn", dir, "npm test", c.isDetached, 3, 95*time.Second, &stderr)
 
 			// Assert
 			want := []string(nil)
@@ -161,7 +167,7 @@ func TestTellGoblinRunEndedNamesTheRunOnOneBoundedLine(t *testing.T) {
 	what := "cmd.exe /c\r\nnpm test " + strings.Repeat("x", 300)
 
 	// Act
-	tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate turn", worktree, what, 0, time.Second, &strings.Builder{})
+	tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate turn", worktree, what, false, 0, time.Second, &strings.Builder{})
 
 	// Assert
 	want := runEndGoblin + ": Your run cmd.exe /c npm test " + strings.Repeat("x", runEndWhatReach-len("cmd.exe /c npm test ")) + "... ended with exit 0 after 1s; read its output and carry on from it."
@@ -192,7 +198,7 @@ func TestTellGoblinRunEndedSaysOnlyADeliveryThatFailed(t *testing.T) {
 			var stderr strings.Builder
 
 			// Act
-			tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate prepush", worktree, "cfo gate prepush", 0, time.Minute, &stderr)
+			tellGoblinRunEnded(context.Background(), runtime, func(name string) string { return environment[name] }, "cfo gate prepush", worktree, "cfo gate prepush", false, 0, time.Minute, &stderr)
 
 			// Assert
 			if stderr.String() != c.want {
@@ -353,6 +359,32 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandDidNotStart(t *testing.T) 
 	}
 	if strings.Join(sent.checks, "") != "" {
 		t.Errorf("the turn was held by %q as the goblin was told; want it given back first", sent.checks)
+	}
+}
+
+// A refused wait on a gate tells its goblin so, as a run that did not start
+// does: the goblin that left it in the background waits on it all the same.
+func TestGateTurnTellsItsIdleCodexGoblinThatItsGateWaitWasRefused(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	h, worktree, proof := goblinTerminal(t, "codex")
+	t.Setenv(host.IDVariable, runEndGoblin)
+	t.Setenv(host.ProofVariable, proof)
+	t.Chdir(worktree)
+	sent := &sentTexts{}
+	runtime := turnRuntime()
+	runtime.resolveHome = func() (home.Home, error) { return h, nil }
+	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	missing := filepath.Join(t.TempDir(), "no-mistakes.exe")
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, "--as", "fix round", "--", missing, "axi", "respond", "--action", "fix")
+
+	// Assert
+	got := sent.all()
+	if exit != exitNoTurn || len(got) != 1 || !strings.HasPrefix(got[0], fmt.Sprintf("%s: Your run fix round ended with exit %d after ", runEndGoblin, exitNoTurn)) {
+		t.Errorf("exit = %d, typed %q; want exit %d and one line naming the run", exit, got, exitNoTurn)
 	}
 }
 

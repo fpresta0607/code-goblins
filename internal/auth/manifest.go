@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -126,8 +127,60 @@ type Manifest struct {
 	// card can warn about a pasted value of the wrong kind. A hint warns; it
 	// never refuses a value.
 	Formats []Format `json:"formats,omitempty"`
+	// Logins name the browser logins the project's goblins fetch keys with,
+	// at most one for each provider. Projects that name the same provider
+	// and account share one login, so he signs in once for them all.
+	Logins []BrowserLogin `json:"logins,omitempty"`
 	// Path is where the manifest was loaded from. It is not serialized.
 	Path string `json:"-"`
+}
+
+// BrowserLogin is a browser login a project's goblins fetch keys with: the
+// key page recipe's provider, the account it signs in to by the name the
+// Overlord reads, and the provider's ID of that account, such as Stripe's
+// acct_ ID, which a fetch reads keys on. A login that signs out after each
+// fetch keeps no session between fetches.
+type BrowserLogin struct {
+	Provider           string `json:"provider"`
+	Account            string `json:"account"`
+	AccountID          string `json:"account_id,omitempty"`
+	SignsOutAfterFetch bool   `json:"signs_out_after_fetch,omitempty"`
+}
+
+var (
+	loginProvider  = regexp.MustCompile(`^[a-z0-9]{1,32}$`)
+	loginAccount   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`)
+	loginAccountID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+)
+
+// LoginFor is the login the project names for provider.
+func (m Manifest) LoginFor(provider string) (BrowserLogin, bool) {
+	for _, login := range m.Logins {
+		if login.Provider == provider {
+			return login, true
+		}
+	}
+	return BrowserLogin{}, false
+}
+
+// validateLogins refuses a login a fetch could not use or could confuse: no
+// provider a recipe could name, no account name or one a profile folder
+// could not be named for, an account ID no page address holds, or a second
+// login of one provider.
+func validateLogins(logins []BrowserLogin) error {
+	for index, login := range logins {
+		switch {
+		case !loginProvider.MatchString(login.Provider):
+			return fmt.Errorf("login %d's provider %q is no recipe's provider", index, login.Provider)
+		case !loginAccount.MatchString(login.Account):
+			return fmt.Errorf("login %d's account %q is not a name of at most 64 letters, digits, spaces, dots, dashes and underscores", index, login.Account)
+		case login.AccountID != "" && !loginAccountID.MatchString(login.AccountID):
+			return fmt.Errorf("login %d's account ID is not one a page's address holds", index)
+		case slices.IndexFunc(logins, func(other BrowserLogin) bool { return other.Provider == login.Provider }) != index:
+			return fmt.Errorf("the provider %s has two logins", login.Provider)
+		}
+	}
+	return nil
 }
 
 // Format is the shape of the values a set of credential names takes.
@@ -277,7 +330,10 @@ func (m Manifest) Validate() error {
 			return err
 		}
 	}
-	return validateFormats(m.Formats)
+	if err := validateFormats(m.Formats); err != nil {
+		return err
+	}
+	return validateLogins(m.Logins)
 }
 
 // validateAliases refuses an alias that names something the service does not

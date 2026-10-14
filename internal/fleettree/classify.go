@@ -107,18 +107,57 @@ func jobDetail(j job, programs map[string]bool) string {
 	return strings.Join(names, ", ") + ", " + count
 }
 
-// evaluated is the command a Claude Code shell runs: it wraps each command
-// as eval '<command>' after sourcing its shell snapshot, with each single
-// quote written as '\”.
-var evaluated = regexp.MustCompile(`eval '((?:[^']|'\\'')*)'`)
-
-// shellCommand is the command a shell's command line runs, as typed.
+// shellCommand is the command a shell's command line runs, as typed. Claude
+// Code runs each command as bash -c "<setup> && eval <command> < /dev/null",
+// the command quoted as one bash word, each single quote in it written as
+// '"'"' and each double quote escaped once more for Windows.
 func shellCommand(commandLine string) string {
-	match := evaluated.FindStringSubmatch(commandLine)
-	if match == nil {
+	arguments, err := proc.SplitCommandLine(commandLine)
+	if err != nil {
 		return ""
 	}
-	return strings.ReplaceAll(match[1], `'\''`, `'`)
+	for _, argument := range arguments {
+		if _, script, found := strings.Cut(" "+argument, " eval "); found {
+			return bashWord(script)
+		}
+	}
+	return ""
+}
+
+// bashWord is the first word of script as bash reads it: its single-quoted,
+// double-quoted and escaped parts joined, up to the first blank outside
+// quotes. An unterminated quote reads as no word.
+func bashWord(script string) string {
+	var word strings.Builder
+	for i := 0; i < len(script); i++ {
+		switch character := script[i]; {
+		case character == '\'':
+			end := strings.IndexByte(script[i+1:], '\'')
+			if end < 0 {
+				return ""
+			}
+			word.WriteString(script[i+1 : i+1+end])
+			i += end + 1
+		case character == '"':
+			for i++; i < len(script) && script[i] != '"'; i++ {
+				if script[i] == '\\' && i+1 < len(script) && strings.IndexByte("\"\\$`", script[i+1]) >= 0 {
+					i++
+				}
+				word.WriteByte(script[i])
+			}
+			if i == len(script) {
+				return ""
+			}
+		case character == '\\' && i+1 < len(script):
+			i++
+			word.WriteByte(script[i])
+		case character == ' ' || character == '\t' || character == '\n':
+			return word.String()
+		default:
+			word.WriteByte(character)
+		}
+	}
+	return word.String()
 }
 
 // cmdWrapper is cmd.exe running one command, as Windows starts npm's and
@@ -145,6 +184,37 @@ func commandTask(commandLine string) string {
 		command = programPath.ReplaceAllString(command, "$1$2$3")
 	}
 	return task(command)
+}
+
+// jobLines are a job's own output on the board: the command it runs, then
+// each of its processes with its memory and what it runs.
+func jobLines(j job, commands map[int]string) []string {
+	lines := typed(commandTask(commands[j.root.PID]))
+	for _, member := range j.members {
+		line := fmt.Sprintf("%s (pid %d), %s", member.Exe, member.PID, memoryText(member.Memory))
+		if command := commandTask(commands[member.PID]); command != "" {
+			line += ": " + command
+		}
+		lines = append(lines, bounded(line, agentLineLimit))
+	}
+	return lines
+}
+
+// typed is a command as a terminal shows it was typed, after >, and nothing
+// for no command.
+func typed(command string) []string {
+	if command = firstLine(command); command == "" {
+		return nil
+	}
+	return []string{bounded("> "+command, agentLineLimit)}
+}
+
+// memoryText says an amount of memory as the board does.
+func memoryText(bytes uint64) string {
+	if bytes >= 1<<30 {
+		return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
+	}
+	return fmt.Sprintf("%d MB", (bytes+1<<19)>>20)
 }
 
 // commandLabel is a short label for what a job's first process runs.

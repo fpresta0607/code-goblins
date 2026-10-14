@@ -160,6 +160,11 @@ func runGateTurnTestCommand(args []string) int {
 	if err := os.WriteFile(filepath.Join(dir, name+".pid"), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return 99
 	}
+	// The console window it was given, 0 for a console with none.
+	window, _, _ := getConsoleWindow.Call()
+	if err := os.WriteFile(filepath.Join(dir, name+".window"), []byte(strconv.FormatUint(uint64(window), 10)), 0o644); err != nil {
+		return 99
+	}
 	started := filepath.Join(dir, name+".started")
 	if err := os.WriteFile(started, []byte(os.Getenv(verify.TurnVariable)), 0o644); err != nil {
 		return 99
@@ -1028,6 +1033,8 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 		"a name that is missing":   {"--as"},
 		"an argument of no kind":   {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
 		"an empty program":         {"--", ""},
+		"a detach with no log":     {"--detach", "--", os.Args[0], gateTurnTestArguments},
+		"a detach with no command": {"--detach", "run.log", "--"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -1042,11 +1049,117 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
 			}
 			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
-			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
+			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
 				t.Errorf("stderr = %q; want the usage, then a last line that starts cfo gate turn: this run takes no turn: ", stderr.String())
 			}
 			if _, err := os.Stat(slots); !os.IsNotExist(err) {
 				t.Errorf("the line's folder %s: %v; want none made by a run that took no turn", slots, err)
+			}
+		})
+	}
+}
+
+// A command that waits on a gate takes no turn and starts nothing: the gate's
+// test command takes the turn itself, so a turn held while the gate's agents
+// work only keeps the line waiting. The run exits 125, says why, and says
+// what to run instead, its command on one line, so the last line is still
+// the run's own. Every program here is missing, and each shell's command
+// first changes to a folder that is, so a run that started one would start
+// no gate.
+func TestGateTurnRefusesACommandThatWaitsOnAGate(t *testing.T) {
+	missing := t.TempDir()
+	noMistakes := filepath.Join(missing, "no-mistakes.exe")
+	for name, row := range map[string]struct {
+		waits   string
+		command []string
+	}{
+		"no-mistakes axi run":         {"no-mistakes axi run", []string{noMistakes, "axi", "run", "--wait", "10m"}},
+		"no-mistakes axi respond":     {"no-mistakes axi respond", []string{noMistakes, "axi", "respond", "--action", "fix"}},
+		"no-mistakes axi answer":      {"no-mistakes axi answer", []string{noMistakes, "axi", "answer", "--option", "1"}},
+		"a program named in capitals": {"no-mistakes axi run", []string{filepath.Join(missing, "No-Mistakes.EXE"), "axi", "run"}},
+		"cfo pipeline run":            {"cfo pipeline run", []string{filepath.Join(missing, "cfo.exe"), "pipeline", "run", "cg-example", "--intent", "an intent"}},
+		"goblins pipeline run":        {"goblins pipeline run", []string{filepath.Join(missing, "goblins.exe"), "pipeline", "run", "cg-example", "--intent", "an intent"}},
+		"goblins pipeline respond":    {"goblins pipeline respond", []string{filepath.Join(missing, "goblins"), "pipeline", "respond", "cg-example", "--action", "approve"}},
+		"inside a shell's command":    {"no-mistakes axi respond", []string{"cmd.exe", "/d", "/c", `cd /d "` + filepath.Join(missing, "absent") + `"&&no-mistakes axi respond --action fix`}},
+		"beside a heavy command":      {"no-mistakes axi respond", []string{"cmd.exe", "/d", "/c", `cd /d "` + filepath.Join(missing, "absent") + `"&&go version&&no-mistakes axi respond --action fix`}},
+		"across lines":                {"no-mistakes axi run", []string{"cmd.exe", "/d", "/c", "cd /d \"" + filepath.Join(missing, "absent") + "\"\r\nno-mistakes axi run"}},
+		"a forward-slash path":        {"cfo pipeline respond", []string{filepath.ToSlash(filepath.Join(missing, "cfo.exe")), "pipeline", "respond", "cg-example"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			slots := turnLine(t)
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--as", "a named run", "--"}, row.command...)...)
+
+			// Assert
+			if exit != 125 || stdout.String() != "" {
+				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
+			}
+			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
+			why := "cfo gate turn: this run takes no turn: " + row.waits + " waits on a gate"
+			instead := "cfo gate turn: run the gate's command without cfo gate turn, and any heavy command beside it in a cfo gate turn of its own: " + strings.Join(strings.Fields(strings.Join(row.command, " ")), " ")
+			if len(lines) != 2 || !strings.HasPrefix(lines[0], why) || lines[1] != instead {
+				t.Errorf("stderr = %q; want a line that starts %q, then %q", stderr.String(), why, instead)
+			}
+			if _, err := os.Stat(slots); !os.IsNotExist(err) {
+				t.Errorf("the line's folder %s: %v; want none made by a run that took no turn", slots, err)
+			}
+		})
+	}
+}
+
+// A command whose words only name a gate, or a step of one that does not
+// wait, runs as any other does.
+func TestGateTurnRunsACommandThatOnlyNamesAGate(t *testing.T) {
+	for name, given := range map[string][]string{
+		"a status":                         {"no-mistakes", "axi", "status"},
+		"a step's logs":                    {"no-mistakes", "axi", "logs", "--step", "test"},
+		"a recovery":                       {"cfo", "pipeline", "recover", "cg-example"},
+		"a subcommand with no program":     {"axi", "run"},
+		"a test of the gate's code":        {"go", "test", "./internal/pipeline", "-run", "TestRespond"},
+		"a program named like cfo":         {"mycfo", "pipeline", "run"},
+		"a program named like no-mistakes": {"no-mistakes-helper", "axi", "run"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			turnLine(t)
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--", os.Args[0], gateTurnTestArguments}, given...)...)
+
+			// Assert
+			var got []string
+			if err := json.Unmarshal([]byte(stdout.String()), &got); exit != 0 || err != nil || fmt.Sprint(got) != fmt.Sprint(given) {
+				t.Errorf("exit = %d, the command was given %q (%v); want %q; stderr=%q", exit, got, err, given, stderr.String())
+			}
+		})
+	}
+}
+
+// A shell's command string ends a word wherever cmd or PowerShell would,
+// with or without a space, so a gate's command is read however it is joined.
+func TestGateWaitReadsTheWordsOfAShellsCommand(t *testing.T) {
+	for name, line := range map[string]string{
+		"a double-quoted program": `"C:\with space\no-mistakes.exe" axi run`,
+		"a single-quoted program": `& 'C:\with space\no-mistakes.exe' axi run`,
+		"after &&":                `cd /d C:\repo&&no-mistakes axi run`,
+		"before a pipe":           `no-mistakes axi run|more`,
+		"after a semicolon":       `cd C:\repo;no-mistakes axi run`,
+		"in parentheses":          `(no-mistakes axi run)`,
+		"across lines and tabs":   "no-mistakes\taxi\r\nrun",
+		"before a redirect":       `no-mistakes axi run>out.txt`,
+		"before an input":         `no-mistakes axi run<answers.txt`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			waits := gateWait([]string{"cmd.exe", "/c", line})
+
+			// Assert
+			if waits != "no-mistakes axi run" {
+				t.Errorf("gateWait read %q in %q; want no-mistakes axi run", waits, line)
 			}
 		})
 	}
@@ -1258,5 +1371,121 @@ func TestGateTurnTakesNoTurnWithoutStandardOutput(t *testing.T) {
 	// Assert
 	if exit != 125 || left(dir, "command", "started") {
 		t.Fatalf("exit = %d, the command started = %v; want 125 with nothing started", exit, left(dir, "command", "started"))
+	}
+}
+
+// A goblin starts its heavy run in the background with --detach, rather
+// than with a process start of its own that may show a console window on the
+// Overlord's desktop: the run starts hidden and detached, in a console with
+// no window at all that its command shares, its output appended to the log
+// and its pid written beside it, and cfo gate turn returns at once with the
+// pid. Its last line in the log says how it ended.
+func TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	log := filepath.Join(t.TempDir(), "run.log")
+	runtime := turnRuntime()
+	runtime.gateTurnSelf = []string{os.Args[0], gateTurnTestWrapper}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, append([]string{"--detach", log}, turnCommand(dir, "command", 3, true)...)...)
+
+	// Assert
+	if exit != 0 || stderr.String() != "" {
+		t.Fatalf("exit = %d, stderr = %q; want 0 and nothing on stderr", exit, stderr.String())
+	}
+	data, err := os.ReadFile(log + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("the pid file holds %q: %v", data, err)
+	}
+	t.Cleanup(func() {
+		if process, err := os.FindProcess(pid); err == nil {
+			_ = process.Kill()
+		}
+	})
+	if want := fmt.Sprintf("cfo gate turn: started the run hidden and detached as pid %d: its output goes to %s, its pid is in %s, and its last line there says how it ended\n", pid, log, log+".pid"); stdout.String() != want {
+		t.Errorf("stdout = %q; want %q", stdout.String(), want)
+	}
+	eventually(t, "the detached run's command starts", func() bool { return left(dir, "command", "started") })
+	if window, err := os.ReadFile(filepath.Join(dir, "command.window")); err != nil || string(window) != "0" {
+		t.Errorf("the command's console window = %q (%v); want 0, a console with no window", window, err)
+	}
+	letGo(t, dir, "command")
+	eventually(t, "the detached run says how it ended", func() bool {
+		data, _ := os.ReadFile(log)
+		return strings.Contains(string(data), "cfo gate turn: the detached run ended with exit 3 after ")
+	})
+	if data, _ := os.ReadFile(log); !strings.HasPrefix(string(data), commandOutput("command")+commandErrors("command")) {
+		t.Errorf("log = %q; want the command's output, then the run's last line", data)
+	}
+}
+
+// A run that cannot be detached starts nothing, says why and takes no turn.
+func TestGateTurnDetachThatCannotStartTakesNoTurn(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	log := filepath.Join(t.TempDir(), "no-such-folder", "run.log")
+	runtime := turnRuntime()
+	runtime.gateTurnSelf = []string{os.Args[0], gateTurnTestWrapper}
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(runtime, &stdout, &stderr, append([]string{"--detach", log}, turnCommand(dir, "command", 0, false)...)...)
+
+	// Assert
+	if exit != 125 || stdout.String() != "" || !strings.HasPrefix(stderr.String(), "cfo gate turn: this run takes no turn: it could not be started detached: ") {
+		t.Errorf("exit = %d, stdout = %q, stderr = %q; want 125, nothing on stdout and why on stderr", exit, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(log + ".pid"); !os.IsNotExist(err) {
+		t.Errorf("pid file: %v; want none", err)
+	}
+	if _, err := os.Stat(slots); !os.IsNotExist(err) || left(dir, "command", "started") {
+		t.Errorf("the line's folder %v, the command started %v; want neither", err, left(dir, "command", "started"))
+	}
+}
+
+// A run with no console at all, as a careless start's is once it has left
+// the console Windows made for it (leaveOwnConsole), with its standard
+// output and error on the null device, still takes its turn and runs its
+// command to its end. Nothing here can show a window: a process with no
+// console gives its children consoles with none.
+func TestGateTurnWithNoConsoleRunsItsCommand(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	run := exec.Command(os.Args[0], append([]string{gateTurnTestWrapper}, turnCommand(dir, "command", 4, false)...)...)
+	run.Stdin, run.Stdout, run.Stderr = null, null, null
+	run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+
+	// Act
+	if err := run.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- run.Wait() }()
+	var exit int
+	select {
+	case <-exited:
+		exit = run.ProcessState.ExitCode()
+	case <-time.After(time.Minute):
+		_ = run.Process.Kill()
+		t.Fatal("the run with no console had not ended after a minute")
+	}
+
+	// Assert
+	if exit != 4 || !left(dir, "command", "ended") {
+		t.Fatalf("exit = %d and the command ended = %v; want the command's own 4", exit, left(dir, "command", "ended"))
 	}
 }

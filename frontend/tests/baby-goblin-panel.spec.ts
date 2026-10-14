@@ -5,7 +5,9 @@ import { treeFleet } from "./fixtures/tree-branches-fleet";
 // agent terminals". A baby goblin opens the same task panel a goblin opens,
 // with its name and its task in one line above its agent terminal: a
 // sub-agent's own transcript as it runs, a helper goblin's own terminal, and
-// for any other child its goblin's terminal. Baby goblins live on the canvas,
+// for any other child its own output, never its goblin's terminal (the
+// Overlord, 2026-10-13, of Clem II and Clem IV: "seems to be same terminal
+// when i click on each card"). Baby goblins live on the canvas,
 // never as cards on the board, whose goblin card counts them and opens the
 // canvas on that goblin. The Overlord, 13:20Z: "why are the idle ones
 // unclickable also what would be cool is the same goblin naming convention
@@ -14,6 +16,12 @@ import { treeFleet } from "./fixtures/tree-branches-fleet";
 const AGENT = "subagent:toolu_A";
 // What the supervisor reads from the sub-agent's own transcript.
 const TRANSCRIPT = ["> Find where the harness starts sub-agents and what each one records", "● Grep(subagents/agent-)", "  ⎿ Found 3 files", "● Reading internal/fleettree/claude.go"];
+// What the supervisor reads of a background shell's and a dev server's own
+// output.
+const OUTPUTS: Record<string, string[]> = {
+  "shell:b1": ["> go test ./internal/monitor/...", "ok  internal/monitor 41.2s"],
+  "process:5120:1": ["> npm run dev", "node.exe (pid 5121), 409 MB: node node_modules/vite/bin/vite.js --port 5173"],
+};
 
 async function open(page: Page, width = 1600) {
   await page.setViewportSize({ width, height: 1000 });
@@ -21,7 +29,10 @@ async function open(page: Page, width = 1600) {
   await holdStream(page, treeFleet(Date.now()));
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/api/tasks/fleet/agent" && url.searchParams.get("node") === AGENT) await route.fulfill({ json: { lines: TRANSCRIPT } });
+    const node = url.searchParams.get("node") || "";
+    if (url.pathname === "/api/tasks/fleet/agent" && node === AGENT) await route.fulfill({ json: { lines: TRANSCRIPT } });
+    // The dev server's output comes slowly, so its terminal shows before it does.
+    else if (url.pathname === "/api/tasks/fleet/agent" && OUTPUTS[node]) await new Promise((done) => setTimeout(done, node === "process:5120:1" ? 1500 : 0)).then(() => route.fulfill({ json: { lines: OUTPUTS[node] } }));
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -55,14 +66,19 @@ test("clicking a helper goblin opens that helper's own panel", async ({ page }) 
   await expect(page.locator(".panel-goblin-task")).toHaveText("Fit the phone rails");
 });
 
-test("clicking any other baby goblin opens its goblin's terminal under the baby goblin's name and task", async ({ page }) => {
+test("clicking two other baby goblins shows each one's own output under its name and task, never its goblin's terminal", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  await baby(page, "Grub III - Test Runner").click();
-  await expect(title(page)).toHaveText(/^Grub III - Test Runner.*go test \.\/internal\/monitor/);
-  expect(await isOneLine(page)).toBe(true);
-  await expect(page.locator(".deck-slot:not([hidden])").getByRole("region", { name: "Goblin terminal" })).toHaveCount(1);
-  await expect(page.getByRole("log")).toHaveCount(0);
+  for (const [name, task, node, other] of [["Grub III - Test Runner", /go test \.\/internal\/monitor/, "shell:b1", "process:5120:1"], ["Grub IV - Server Keeper", /npm run dev/, "process:5120:1", "shell:b1"]] as const) {
+    await baby(page, name).click();
+    const terminal = page.getByRole("log", { name: "Terminal of " + name });
+    await expect(terminal, "never the last child's output while its own is on its way").not.toContainText(OUTPUTS[other].at(-1)!, { timeout: 500 });
+    await expect(title(page)).toHaveText(new RegExp("^" + name + ".*" + task.source));
+    expect(await isOneLine(page)).toBe(true);
+    for (const line of OUTPUTS[node]) await expect(terminal).toContainText(line);
+    await expect(terminal, "only its own output").not.toContainText(OUTPUTS[other].at(-1)!);
+    await expect(page.locator(".deck-slot:not([hidden])").getByRole("region", { name: "Goblin terminal" })).toHaveCount(0);
+  }
 });
 
 test("hovering a baby goblin shows its task at once", async ({ page }) => {
