@@ -2,7 +2,9 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,18 +25,51 @@ import (
 // minutes, a worktree's removal seconds each.
 const janitorBudget = 30 * time.Minute
 
-// heavyRun names the run that holds a turn in the machine's heavy line, as
-// cfo gate turns prints it, or nothing while none does.
-func heavyRun() (string, error) {
+// heavyTurnWait is how long the janitor waits for a turn in the machine's
+// heavy line before it leaves its cache deletions to the next sweep.
+const heavyTurnWait = 5 * time.Second
+
+// heavyTurn takes a turn in the machine's heavy line for the janitor's
+// deletions from the package caches, so no run that takes its turn starts
+// building from them meanwhile, and returns what gives it back. It takes only
+// a turn free within heavyTurnWait: a run that holds the line or waits in it
+// makes it fail, naming that run as cfo gate turns does.
+func heavyTurn(ctx context.Context) (func() error, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	holding, _, err := verify.Line(store)
-	if err != nil || len(holding) == 0 {
-		return "", err
+	wait, cancel := context.WithTimeout(ctx, heavyTurnWait)
+	defer cancel()
+	turn, err := verify.Admission{
+		Dir: store,
+		// A deletion needs no memory of its own: its turn only keeps builds
+		// from starting beside it, so the line's memory floor never holds it
+		// back.
+		Available: func() (uint64, error) { return math.MaxUint64, nil },
+		Who:       "the janitor, deleting from the package caches",
+		Budget:    janitorBudget,
+		Limit:     verify.NoLimit,
+		Poll:      100 * time.Millisecond,
+	}.Wait(wait)
+	if err == nil {
+		return turn.Release, nil
 	}
-	return fmt.Sprintf("%s (pid %d)", holding[0].Who, holding[0].PID), nil
+	// A wait cut by its deadline as it took the turn still holds the slot.
+	err = errors.Join(err, turn.Release())
+	if wait.Err() == nil {
+		return nil, err
+	}
+	holding, waiting, lineErr := verify.Line(store)
+	switch {
+	case lineErr != nil:
+		return nil, fmt.Errorf("the line was not free within %s and cannot be read: %w", heavyTurnWait, lineErr)
+	case len(holding) > 0:
+		return nil, fmt.Errorf("%s (pid %d) holds the machine's heavy line", holding[0].Who, holding[0].PID)
+	case len(waiting) > 0:
+		return nil, fmt.Errorf("%s (pid %d) waits for the machine's heavy line", waiting[0].Who, waiting[0].PID)
+	}
+	return nil, fmt.Errorf("the machine's heavy line was not free within %s", heavyTurnWait)
 }
 
 // janitorRunning keeps this process to one janitor pass at a time.
@@ -106,7 +141,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		Watched:    previous.Processes.Watched,
 
 		BrowserSessions: browserSessions,
-		HeavyRun:        heavyRun,
+		HeavyTurn:       heavyTurn,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return

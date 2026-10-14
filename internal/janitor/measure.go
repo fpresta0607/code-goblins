@@ -21,10 +21,12 @@ type Buckets struct {
 	Bin       int64            `json:"bin"`
 	State     int64            `json:"state"`
 	Data      int64            `json:"data"`
-	// Incomplete names the buckets that held an entry the sweep could not
-	// read, whose bytes are then what it could count, not all they hold: a
-	// worktree or scratch folder by its task, a cache by its folder, or bin,
-	// state or data.
+	// Incomplete names, as cfo runtime's table does, the buckets that held an
+	// entry the sweep could not read, whose bytes are then what it could
+	// count, not all they hold: "task <id> worktrees", "task <id> scratch",
+	// "caches\<tool>", "caches" when the folder could not be listed, "bin",
+	// "state" or "data". Links are not followed and count as nothing, and a
+	// path that is not there, as on a volume not mounted, holds nothing.
 	Incomplete []string `json:"incomplete,omitempty"`
 }
 
@@ -52,10 +54,15 @@ func Sum(group map[string]int64) int64 {
 // outside the home, where an older build put it, is measured where it is.
 func Measure(h home.Home, tasks []state.TaskMeta) Buckets {
 	buckets := Buckets{Worktrees: map[string]int64{}, Scratch: map[string]int64{}, Caches: map[string]int64{}}
+	incomplete := func(bucket string) {
+		if !slices.Contains(buckets.Incomplete, bucket) {
+			buckets.Incomplete = append(buckets.Incomplete, bucket)
+		}
+	}
 	measure := func(bucket, path string) int64 {
 		bytes, isWhole := sizeOf(path)
-		if !isWhole && !slices.Contains(buckets.Incomplete, bucket) {
-			buckets.Incomplete = append(buckets.Incomplete, bucket)
+		if !isWhole {
+			incomplete(bucket)
 		}
 		return bytes
 	}
@@ -63,18 +70,23 @@ func Measure(h home.Home, tasks []state.TaskMeta) Buckets {
 		var bytes int64
 		for _, path := range append([]string{meta.Worktree}, meta.Extras...) {
 			if path != "" {
-				bytes += measure("worktree "+meta.ID, path)
+				bytes += measure("task "+meta.ID+" worktrees", path)
 			}
 		}
 		buckets.Worktrees[meta.ID] = bytes
 		if scratch, err := state.TaskScratch(h.State, meta); err == nil {
-			buckets.Scratch[meta.ID] = measure("scratch "+meta.ID, scratch)
+			buckets.Scratch[meta.ID] = measure("task "+meta.ID+" scratch", scratch)
+		} else {
+			incomplete("task " + meta.ID + " scratch")
 		}
 	}
-	entries, _ := os.ReadDir(h.Caches())
+	entries, err := os.ReadDir(h.Caches())
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		incomplete("caches")
+	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			buckets.Caches[entry.Name()] = measure("cache "+entry.Name(), filepath.Join(h.Caches(), entry.Name()))
+			buckets.Caches[entry.Name()] = measure(`caches\`+entry.Name(), filepath.Join(h.Caches(), entry.Name()))
 		}
 	}
 	buckets.Bin = measure("bin", h.Bin())
@@ -94,16 +106,25 @@ func Size(path string) int64 {
 // not there holds nothing, and an entry gone while it was walked is read.
 func sizeOf(path string) (bytes int64, isWhole bool) {
 	isWhole = true
-	_ = filepath.WalkDir(path, func(_ string, entry fs.DirEntry, err error) error {
-		if err == nil && entry.Type().IsRegular() {
-			var info fs.FileInfo
-			if info, err = entry.Info(); err == nil {
-				bytes += info.Size()
-			}
-		}
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	unread := func(err error) {
+		if !errors.Is(err, fs.ErrNotExist) {
 			isWhole = false
 		}
+	}
+	_ = filepath.WalkDir(path, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			unread(err)
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			unread(err)
+			return nil
+		}
+		bytes += info.Size()
 		return nil
 	})
 	return bytes, isWhole

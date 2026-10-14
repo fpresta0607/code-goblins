@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,17 @@ func (f *sweepFixture) worktree(t *testing.T, name string) reap.WorktreeDir {
 }
 
 func (f *sweepFixture) config(inv reap.Inventory) Config {
-	return Config{Home: f.home, Commands: execx.OSRunner{}, Settings: fleetconfig.Defaults(), Inventory: inv, Now: f.now, SelfPID: os.Getpid()}
+	return Config{Home: f.home, Commands: execx.OSRunner{}, Settings: fleetconfig.Defaults(), Inventory: inv, Now: f.now, SelfPID: os.Getpid(), HeavyTurn: freeTurn}
+}
+
+// freeTurn stands in for a turn in the machine's heavy line taken at once.
+func freeTurn(context.Context) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+// busyTurn stands in for a turn refused, as when a run holds the line.
+func busyTurn(context.Context) (func() error, error) {
+	return nil, errors.New("cfo gate test at 0123abcd (pid 4242) holds the machine's heavy line")
 }
 
 func has(items []Item, path string) (Item, bool) {
@@ -166,9 +177,11 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 	for name, test := range map[string]struct {
 		started time.Duration
 		retired bool
+		isBusy  bool
 	}{
-		"a terminal started before the move still runs": {-2 * time.Hour, false},
-		"every terminal started after the move":         {time.Minute, true},
+		"a terminal started before the move still runs": {started: -2 * time.Hour},
+		"every terminal started after the move":         {started: time.Minute, retired: true},
+		"a busy heavy line":                             {started: time.Minute, isBusy: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -189,6 +202,9 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 				Processes: []reap.Process{selfProcess(t), terminal},
 			})
 			cfg.TempDir = t.TempDir()
+			if test.isBusy {
+				cfg.HeavyTurn = busyTurn
+			}
 
 			// Act
 			record := Sweep(context.Background(), cfg)
@@ -521,25 +537,31 @@ func TestSweepTrimsTheCachesWithTheLeastRecentlyUsedToolFirst(t *testing.T) {
 }
 
 // A cache tool's prune can delete a whole cache, as go clean -cache does, so
-// the sweep trims nothing while a run holds the machine's heavy line, whose
-// build reads those caches, or while it cannot read the line, and says why.
-func TestSweepTrimsNoCacheWhileARunHoldsTheHeavyLine(t *testing.T) {
+// the prunes run within a turn of the machine's heavy line, and a sweep that
+// takes none at once, as when a run holds the line or waits in it, or that
+// is given no line, trims nothing and says why.
+func TestSweepTrimsTheCachesOnlyWithinATurnOfTheHeavyLine(t *testing.T) {
 	for name, row := range map[string]struct {
-		heavyRun  func() (string, error)
-		wantPrune bool
+		heavyTurn func(*pruneRunner) func(context.Context) (func() error, error)
+		wantRan   []string
 		wantNote  string
 	}{
-		"a run holds the line": {
-			heavyRun: func() (string, error) { return "cfo gate test at 0123abcd (pid 4242)", nil },
-			wantNote: "while cfo gate test at 0123abcd (pid 4242) holds the machine's heavy line",
-		},
-		"a line that cannot be read": {
-			heavyRun: func() (string, error) { return "", errors.New("the line is unreadable") },
-			wantNote: "the machine's heavy line could not be read: the line is unreadable",
-		},
 		"a free line": {
-			heavyRun:  func() (string, error) { return "", nil },
-			wantPrune: true,
+			heavyTurn: func(runner *pruneRunner) func(context.Context) (func() error, error) {
+				return func(context.Context) (func() error, error) {
+					runner.ran = append(runner.ran, "take the turn")
+					return func() error { runner.ran = append(runner.ran, "give it back"); return nil }, nil
+				}
+			},
+			wantRan: []string{"take the turn", "uv cache prune", "give it back"},
+		},
+		"a busy line": {
+			heavyTurn: func(*pruneRunner) func(context.Context) (func() error, error) { return busyTurn },
+			wantNote:  "are not trimmed, as the sweep took no turn in the machine's heavy line: cfo gate test at 0123abcd (pid 4242) holds the machine's heavy line",
+		},
+		"no line given": {
+			heavyTurn: func(*pruneRunner) func(context.Context) (func() error, error) { return nil },
+			wantNote:  "the sweep was given no heavy line to take a turn in",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -556,14 +578,14 @@ func TestSweepTrimsNoCacheWhileARunHoldsTheHeavyLine(t *testing.T) {
 			cfg := f.config(reap.Inventory{})
 			cfg.Commands = runner
 			cfg.Settings.CachesCapGB = 0.5 / 1024
-			cfg.HeavyRun = row.heavyRun
+			cfg.HeavyTurn = row.heavyTurn(runner)
 
 			// Act
 			record := Sweep(context.Background(), cfg)
 
 			// Assert
-			if isPruned := len(runner.ran) > 0; isPruned != row.wantPrune {
-				t.Fatalf("prunes run = %v, want a prune %v", runner.ran, row.wantPrune)
+			if !slices.Equal(runner.ran, row.wantRan) {
+				t.Fatalf("ran = %v, want %v", runner.ran, row.wantRan)
 			}
 			if row.wantNote == "" {
 				return

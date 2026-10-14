@@ -22,6 +22,7 @@ package janitor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -76,9 +77,20 @@ type Config struct {
 	// BrowserSessions is the folder chrome-devtools-axi keeps a folder for
 	// each named session in. Empty removes none.
 	BrowserSessions string
-	// HeavyRun names the run that holds the machine's heavy line, or nothing
-	// while none does. Nil reads no line.
-	HeavyRun func() (string, error)
+	// HeavyTurn takes a turn in the machine's heavy line for the sweep's
+	// deletions from the package caches that builds read, so no run that
+	// takes its turn starts building beside them, and returns what gives the
+	// turn back. It fails, saying why, when a run holds the line or waits in
+	// it. Nil takes no turn, so the sweep deletes no cache.
+	HeavyTurn func(ctx context.Context) (release func() error, err error)
+}
+
+// takeHeavyTurn is HeavyTurn, or the refusal of a sweep given none.
+func (cfg Config) takeHeavyTurn(ctx context.Context) (func() error, error) {
+	if cfg.HeavyTurn == nil {
+		return nil, errors.New("the sweep was given no heavy line to take a turn in")
+	}
+	return cfg.HeavyTurn(ctx)
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -150,7 +162,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		cfg.removeTempLeaks(processes, &record)
 		cfg.trimRetiredTasks(processes, &record)
 		cfg.keepRecentBackups(processes, &record)
-		cfg.retireMovedCaches(&record)
+		cfg.retireMovedCaches(ctx, &record)
 		cfg.removeStaleBrowserSessions(&record)
 	}
 	cfg.trimCaches(ctx, &record)

@@ -18,32 +18,80 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// The sweep's reading of the machine's heavy line names the run that holds a
-// turn, as the sweep says it while it trims no cache, and nothing while no
-// run does.
-func TestHeavyRunNamesTheRunThatHoldsTheLine(t *testing.T) {
-	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
-	free, freeErr := heavyRun()
-	store, err := verify.AdmissionDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	turn, err := verify.Admission{Dir: store, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "cfo gate test at 0123abcd", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = turn.Release() })
+// The janitor's turn in the machine's heavy line is taken only when the line
+// is free, and held until given back, so no run starts building meanwhile. A
+// run that holds the line, or waits at its head for memory, makes it fail
+// within its wait, naming that run as cfo gate turns does.
+func TestHeavyTurnIsTakenOnlyFromAFreeLine(t *testing.T) {
+	for name, row := range map[string]struct {
+		occupy   func(t *testing.T, store string)
+		wantSaid string
+	}{
+		"a free line": {},
+		"a run that holds the line": {
+			occupy: func(t *testing.T, store string) {
+				turn, err := verify.Admission{Dir: store, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "cfo gate test at 0123abcd", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = turn.Release() })
+			},
+			wantSaid: "cfo gate test at 0123abcd (pid %d) holds the machine's heavy line",
+		},
+		"a run that waits for memory": {
+			occupy: func(t *testing.T, store string) {
+				ctx, cancel := context.WithCancel(context.Background())
+				ended := make(chan struct{})
+				go func() {
+					defer close(ended)
+					_, _ = verify.Admission{Dir: store, Floor: 4 << 30, Available: func() (uint64, error) { return 1 << 30, nil }, Who: "cfo verify fast of task t1", Limit: verify.NoLimit, Poll: 10 * time.Millisecond}.Wait(ctx)
+				}()
+				t.Cleanup(func() { cancel(); <-ended })
+				for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+					if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 {
+						return
+					}
+				}
+				t.Fatal("the run never joined the line")
+			},
+			wantSaid: "cfo verify fast of task t1 (pid %d) waits for the machine's heavy line",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			store, err := verify.AdmissionDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row.occupy != nil {
+				row.occupy(t, store)
+			}
 
-	// Act
-	held, heldErr := heavyRun()
+			// Act
+			release, err := heavyTurn(context.Background())
 
-	// Assert
-	if free != "" || freeErr != nil {
-		t.Errorf("with no turn held, heavyRun = %q, %v; want nothing", free, freeErr)
-	}
-	if want := fmt.Sprintf("cfo gate test at 0123abcd (pid %d)", os.Getpid()); held != want || heldErr != nil {
-		t.Errorf("with a turn held, heavyRun = %q, %v; want %q", held, heldErr, want)
+			// Assert
+			if row.wantSaid != "" {
+				if want := fmt.Sprintf(row.wantSaid, os.Getpid()); err == nil || err.Error() != want {
+					t.Fatalf("heavyTurn = %v; want %q", err, want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("heavyTurn on a free line = %v", err)
+			}
+			holding, _, lineErr := verify.Line(store)
+			if lineErr != nil || len(holding) != 1 || holding[0].Who != "the janitor, deleting from the package caches" {
+				t.Fatalf("the line holds %+v, %v; want the janitor while it deletes", holding, lineErr)
+			}
+			if err := release(); err != nil {
+				t.Fatal(err)
+			}
+			if holding, _, err := verify.Line(store); err != nil || len(holding) != 0 {
+				t.Errorf("the line holds %+v, %v once the janitor gave its turn back; want nothing", holding, err)
+			}
+		})
 	}
 }
 
