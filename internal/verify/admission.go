@@ -19,7 +19,8 @@ import (
 
 // Admission is how verification runs take turns on one machine. A run holds
 // one of a fixed number of slots while its heavy checks run, runs take the
-// slots in the order they asked, and a run starts only once the machine has
+// slots in the order they asked, low-priority runs after every other, and a
+// run starts only once the machine has
 // memory to spare. Each run looking at the machine by itself is what let
 // four test steps start together on memory each had seen free: a slot is
 // taken or it is not.
@@ -50,8 +51,10 @@ type Admission struct {
 	// for.
 	Waiting func(waited time.Duration, why string)
 	// IsLowPriority has the run wait at the lowest priority: it takes its turn
-	// only while no other run waits, and any run that joins the line after it
-	// still goes first. A turn it has taken is its own until it gives it back.
+	// only while no ordinary run waits, and an ordinary run that joins the line
+	// after it still goes first. Low-priority runs keep the order they asked in
+	// among themselves. A turn it has taken, or is in the moment of taking, is
+	// its own until it gives it back.
 	IsLowPriority bool
 }
 
@@ -142,7 +145,7 @@ var arrivals atomic.Int64
 const lowPriorityPlace = "z-"
 
 // Wait joins the line and returns once the run has its turn: no run that
-// asked earlier still waits, the machine has the memory, and a slot is free,
+// stands ahead of it in the line still waits, the machine has the memory, and a slot is free,
 // or was left by a process whose recorded identity is verifiably gone. A
 // run whose wait fails gets the time it had waited with the error, so the
 // wait is on record even though no turn came of it.
