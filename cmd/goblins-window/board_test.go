@@ -89,7 +89,7 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 
 			var got []PageStep
 			for at, answers := range test.looks {
-				got = append(got, page.Look(answers))
+				got = append(got, page.Look(answers, false))
 				if slices.Contains(test.shown, at) {
 					page.Shown()
 				}
@@ -399,5 +399,79 @@ func TestStartAtLoginAddsAndRemovesItsEntry(t *testing.T) {
 	defer key.Close()
 	if _, _, err := key.GetStringValue(runValue); err == nil {
 		t.Error("the entry is still there after removing it")
+	}
+}
+
+// A shown window whose board answers but whose page draws no frame, as when
+// WebView2's GPU process is lost and its relaunch is held, loads its board
+// again once the page has stayed silent for three looks, and says so until
+// the page answers. A page that draws is only ever asked.
+func TestAShownPageThatDrawsNothingIsLoadedAgain(t *testing.T) {
+	for name, test := range map[string]struct {
+		answering bool
+		want      []PageStep
+		stalled   bool
+	}{
+		"a page that draws nothing": {false, []PageStep{Ask, Ask, Ask, Load, Ask}, true},
+		"a page that draws":         {true, []PageStep{Ask, Ask, Ask, Ask, Ask}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			page := &Page{}
+
+			var got []PageStep
+			for range 5 {
+				got = append(got, page.Look(true, true))
+				if test.answering {
+					page.Shown()
+				}
+			}
+
+			if !slices.Equal(got, test.want) {
+				t.Errorf("steps = %v, want %v (0 leave, 1 ask, 2 load, 3 repaint)", got, test.want)
+			}
+			if page.Stalled() != test.stalled {
+				t.Errorf("stalled = %t, want %t", page.Stalled(), test.stalled)
+			}
+		})
+	}
+}
+
+// A page still silent after its load is not a page the load can mend, such
+// as one whose WebView2 GPU process hangs: the window then ends that GPU
+// process, which WebView2 starts again, and, if that does not mend it either,
+// tries again a minute later rather than in a loop. The page answering ends
+// the recovery and its notice, and a later silence starts it afresh.
+func TestTheWindowRecoversItsSilentPageByItself(t *testing.T) {
+	page := &Page{}
+	look := func(count int, answering bool) []PageStep {
+		var steps []PageStep
+		for range count {
+			steps = append(steps, page.Look(true, true))
+			if answering {
+				page.Shown()
+			}
+		}
+		return steps
+	}
+
+	silent := look(4+4+retryLooks+1, false)
+	stalledSilent := page.Stalled()
+	answered := look(2, true)
+	stalledAnswered := page.Stalled()
+	again := look(4, false)
+
+	wantSilent := []PageStep{Ask, Ask, Ask, Load, Ask, Ask, Ask, Repaint}
+	for range retryLooks {
+		wantSilent = append(wantSilent, Ask)
+	}
+	wantSilent = append(wantSilent, Load)
+	if !slices.Equal(silent, wantSilent) || !stalledSilent {
+		t.Errorf("silent steps = %v, stalled = %t, want %v (0 leave, 1 ask, 2 load, 3 repaint) and the notice", silent, stalledSilent, wantSilent)
+	}
+	if !slices.Equal(answered, []PageStep{Ask, Ask}) || stalledAnswered {
+		t.Errorf("after an answer: steps = %v, stalled = %t, want asks and no notice", answered, stalledAnswered)
+	}
+	if !slices.Equal(again, []PageStep{Ask, Ask, Ask, Load}) || !page.Stalled() {
+		t.Errorf("a later silence: steps = %v, stalled = %t, want a load and the notice", again, page.Stalled())
 	}
 }

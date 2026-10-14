@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 
@@ -8,26 +9,25 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// agentLines answers the newest lines of a sub-agent's own record, for its
-// terminal on the board: the sub-agent node of the task's goblin, which the
-// board's last read of the goblin's tree holds. The record is the one that
-// read found, never a path the browser names.
+// agentLines answers the newest lines of a child's own output, for its
+// terminal on the board: a child of the task's goblin that the board's last
+// read of the goblin's tree holds, read as that read found it
+// (fleettree.Reader.ChildLines), never from a path the browser names.
 func (h *HTTP) agentLines(w http.ResponseWriter, meta state.TaskMeta, node string) {
 	h.Service.mu.Lock()
 	tree, isRead := h.Service.trees[meta.ID]
 	h.Service.mu.Unlock()
 	if !isRead || tree.Generation != meta.SpawnGen || !slices.ContainsFunc(tree.Children, func(child fleettree.Node) bool {
-		return child.ID == node && child.Kind == fleettree.KindSubagent
+		return child.ID == node && child.Kind != fleettree.KindHelper
 	}) || h.Service.Options.Tree == nil {
-		apiError(w, 404, "No sub-agent of this goblin by that id")
+		apiError(w, 404, "No child of this goblin by that id")
 		return
 	}
-	path, harness := h.Service.Options.Tree.AgentTranscript(meta.ID, node)
-	if path == "" {
-		apiError(w, 404, "The sub-agent's record is not kept")
+	lines, err := h.Service.Options.Tree.ChildLines(meta.ID, node)
+	if errors.Is(err, fleettree.ErrNoRecord) {
+		apiError(w, 404, "The child's output is not kept")
 		return
 	}
-	lines, err := fleettree.AgentLines(path, harness)
 	if err != nil {
 		apiError(w, 503, err.Error())
 		return

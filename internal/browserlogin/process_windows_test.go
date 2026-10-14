@@ -216,9 +216,14 @@ func TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents(t *testing.T) {
 	if err := wsjson.Write(ctx, connection, devToolsMessage{ID: 2, Method: "Runtime.evaluate", Session: session, Params: json.RawMessage(`{"expression":"6 * 7","returnByValue":true}`)}); err != nil {
 		t.Fatal(err)
 	}
+	// Chrome may send an event first, such as another target's attachment,
+	// so the reply is the message that answers the command's id.
 	var response devToolsMessage
-	if err := wsjson.Read(ctx, connection, &response); err != nil {
-		t.Fatal(err)
+	for response.ID != 2 {
+		response = devToolsMessage{}
+		if err := wsjson.Read(ctx, connection, &response); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var result struct{ Result struct{ Value int } }
 	if err := json.Unmarshal(response.Result, &result); err != nil || response.ID != 2 || response.Session != session || result.Result.Value != 42 {
