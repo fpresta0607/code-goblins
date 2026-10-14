@@ -1052,6 +1052,112 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 	}
 }
 
+// A command that waits on a gate takes no turn and starts nothing: the gate's
+// test command takes the turn itself, so a turn held while the gate's agents
+// work only keeps the line waiting. The run exits 125, says why, and says
+// what to run instead, its command on one line, so the last line is still
+// the run's own. Every program here is missing, and each shell's command
+// first changes to a folder that is, so a run that started one would start
+// no gate.
+func TestGateTurnRefusesACommandThatWaitsOnAGate(t *testing.T) {
+	missing := t.TempDir()
+	noMistakes := filepath.Join(missing, "no-mistakes.exe")
+	for name, row := range map[string]struct {
+		waits   string
+		command []string
+	}{
+		"no-mistakes axi run":         {"no-mistakes axi run", []string{noMistakes, "axi", "run", "--wait", "10m"}},
+		"no-mistakes axi respond":     {"no-mistakes axi respond", []string{noMistakes, "axi", "respond", "--action", "fix"}},
+		"no-mistakes axi answer":      {"no-mistakes axi answer", []string{noMistakes, "axi", "answer", "--option", "1"}},
+		"a program named in capitals": {"no-mistakes axi run", []string{filepath.Join(missing, "No-Mistakes.EXE"), "axi", "run"}},
+		"cfo pipeline run":            {"cfo pipeline run", []string{filepath.Join(missing, "cfo.exe"), "pipeline", "run", "cg-example", "--intent", "an intent"}},
+		"goblins pipeline run":        {"goblins pipeline run", []string{filepath.Join(missing, "goblins.exe"), "pipeline", "run", "cg-example", "--intent", "an intent"}},
+		"goblins pipeline respond":    {"goblins pipeline respond", []string{filepath.Join(missing, "goblins"), "pipeline", "respond", "cg-example", "--action", "approve"}},
+		"inside a shell's command":    {"no-mistakes axi respond", []string{"cmd.exe", "/d", "/c", `cd /d "` + filepath.Join(missing, "absent") + `"&&no-mistakes axi respond --action fix`}},
+		"beside a heavy command":      {"no-mistakes axi respond", []string{"cmd.exe", "/d", "/c", `cd /d "` + filepath.Join(missing, "absent") + `"&&go version&&no-mistakes axi respond --action fix`}},
+		"across lines":                {"no-mistakes axi run", []string{"cmd.exe", "/d", "/c", "cd /d \"" + filepath.Join(missing, "absent") + "\"\r\nno-mistakes axi run"}},
+		"a forward-slash path":        {"cfo pipeline respond", []string{filepath.ToSlash(filepath.Join(missing, "cfo.exe")), "pipeline", "respond", "cg-example"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			slots := turnLine(t)
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--as", "a named run", "--"}, row.command...)...)
+
+			// Assert
+			if exit != 125 || stdout.String() != "" {
+				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
+			}
+			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
+			why := "cfo gate turn: this run takes no turn: " + row.waits + " waits on a gate"
+			instead := "cfo gate turn: run the gate's command without cfo gate turn, and any heavy command beside it in a cfo gate turn of its own: " + strings.Join(strings.Fields(strings.Join(row.command, " ")), " ")
+			if len(lines) != 2 || !strings.HasPrefix(lines[0], why) || lines[1] != instead {
+				t.Errorf("stderr = %q; want a line that starts %q, then %q", stderr.String(), why, instead)
+			}
+			if _, err := os.Stat(slots); !os.IsNotExist(err) {
+				t.Errorf("the line's folder %s: %v; want none made by a run that took no turn", slots, err)
+			}
+		})
+	}
+}
+
+// A command whose words only name a gate, or a step of one that does not
+// wait, runs as any other does.
+func TestGateTurnRunsACommandThatOnlyNamesAGate(t *testing.T) {
+	for name, given := range map[string][]string{
+		"a status":                         {"no-mistakes", "axi", "status"},
+		"a step's logs":                    {"no-mistakes", "axi", "logs", "--step", "test"},
+		"a recovery":                       {"cfo", "pipeline", "recover", "cg-example"},
+		"a subcommand with no program":     {"axi", "run"},
+		"a test of the gate's code":        {"go", "test", "./internal/pipeline", "-run", "TestRespond"},
+		"a program named like cfo":         {"mycfo", "pipeline", "run"},
+		"a program named like no-mistakes": {"no-mistakes-helper", "axi", "run"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			turnLine(t)
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--", os.Args[0], gateTurnTestArguments}, given...)...)
+
+			// Assert
+			var got []string
+			if err := json.Unmarshal([]byte(stdout.String()), &got); exit != 0 || err != nil || fmt.Sprint(got) != fmt.Sprint(given) {
+				t.Errorf("exit = %d, the command was given %q (%v); want %q; stderr=%q", exit, got, err, given, stderr.String())
+			}
+		})
+	}
+}
+
+// A shell's command string ends a word wherever cmd or PowerShell would,
+// with or without a space, so a gate's command is read however it is joined.
+func TestGateWaitReadsTheWordsOfAShellsCommand(t *testing.T) {
+	for name, line := range map[string]string{
+		"a double-quoted program": `"C:\with space\no-mistakes.exe" axi run`,
+		"a single-quoted program": `& 'C:\with space\no-mistakes.exe' axi run`,
+		"after &&":                `cd /d C:\repo&&no-mistakes axi run`,
+		"before a pipe":           `no-mistakes axi run|more`,
+		"after a semicolon":       `cd C:\repo;no-mistakes axi run`,
+		"in parentheses":          `(no-mistakes axi run)`,
+		"across lines and tabs":   "no-mistakes\taxi\r\nrun",
+		"before a redirect":       `no-mistakes axi run>out.txt`,
+		"before an input":         `no-mistakes axi run<answers.txt`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			waits := gateWait([]string{"cmd.exe", "/c", line})
+
+			// Assert
+			if waits != "no-mistakes axi run" {
+				t.Errorf("gateWait read %q in %q; want no-mistakes axi run", waits, line)
+			}
+		})
+	}
+}
+
 // A command that cannot be started is said so, with exit 126, and the turn
 // taken for it is given back.
 func TestGateTurnSaysWhenItsCommandDidNotStart(t *testing.T) {

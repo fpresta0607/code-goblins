@@ -85,21 +85,63 @@ func (s *Service) continueFetch(card BrowserSignIn) {
 			s.credentialNotice(credential, detail)
 		}
 	}
+	// The key card shows the fetch running, so his click starts no second
+	// one, and says how it ended, as for a fetch his click started. A fetch
+	// his click started that runs already says so itself.
+	isShown := s.showCarriedFetch(card.Fetch)
+	reason := ""
+	defer func() {
+		if !isShown {
+			return
+		}
+		if _, err := s.Store.updateCredential(card.Fetch, func(r *CredentialRequest) {
+			if r.Fetch != nil {
+				r.Fetch.State, r.Fetch.Reason = "", reason
+			}
+		}); err != nil {
+			s.publish(err)
+		}
+		s.notify()
+	}()
 	closed, stop := context.WithTimeout(ctx, signInCloseWait)
 	defer stop()
 	for s.browsers.busy(card.Login) {
 		if err := wait(closed, time.Second); err != nil {
-			tell("the fetch for " + card.Fetch + " did not carry on after the " + card.Provider + " sign-in, since the sign-in window's browser did not close within " + signInCloseWait.String() + "; the card still takes the keys pasted")
+			reason = "the sign-in window's browser did not close within " + signInCloseWait.String()
+			tell("the fetch for " + card.Fetch + " did not carry on after the " + card.Provider + " sign-in, since " + reason + "; the card still takes the keys pasted")
 			return
 		}
 	}
 	lease, err := s.fetchCredential(ctx, BrowserRequest{Action: "fetch", Task: card.Task, Request: card.Fetch})
 	switch {
 	case err != nil:
-		tell("the fetch for " + card.Fetch + " after the " + card.Provider + " sign-in stopped: " + bounded(err.Error(), 300) + "; the card still takes the keys pasted")
+		reason = bounded(err.Error(), 300)
+		tell("the fetch for " + card.Fetch + " after the " + card.Provider + " sign-in stopped: " + reason + "; the card still takes the keys pasted")
 	case lease.SignIn != "":
 		tell("the fetch for " + card.Fetch + " met a " + card.Provider + " page that asks for a sign-in again; his sign-in card is back on the board")
 	}
+}
+
+// showCarriedFetch marks the fetch of request id running on its key card,
+// as his click does and under the same lock, unless a fetch runs on it
+// already, and says whether it did.
+func (s *Service) showCarriedFetch(id string) bool {
+	s.credentialSaves.Lock()
+	defer s.credentialSaves.Unlock()
+	if _, found := s.Store.credential(id); !found {
+		return false
+	}
+	isShown := false
+	if _, err := s.Store.updateCredential(id, func(r *CredentialRequest) {
+		if r.Fetch != nil && r.Fetch.State != "fetching" {
+			r.Fetch.State, r.Fetch.Reason, isShown = "fetching", "", true
+		}
+	}); err != nil {
+		s.publish(err)
+		return false
+	}
+	s.notify()
+	return isShown
 }
 
 // wait sleeps for d, or returns ctx's error once it ends first.
@@ -140,6 +182,9 @@ func (b *browserBroker) fetch(ctx context.Context, task, project string, provide
 		err = endErr
 	}
 	if errors.Is(err, browserlogin.ErrSignedOut) {
+		if err := b.recordSignedOut(login.ID); err != nil {
+			b.report(fmt.Errorf("login %s met a sign-in page but could not be recorded signed out: %w", login.ID, err))
+		}
 		return login, nil, errNeedsSignIn
 	}
 	if err != nil {
@@ -165,7 +210,7 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 	if b.closed {
 		return refuse(browserlogin.Login{}, errors.New("the supervisor is stopping, so no browser starts"))
 	}
-	meta, err := b.grantedTask(task, provider.ID)
+	meta, manifest, err := b.grantedTask(task, provider.ID)
 	if err != nil {
 		return refuse(browserlogin.Login{}, err)
 	}
@@ -179,16 +224,28 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 	if err != nil {
 		return refuse(browserlogin.Login{}, err)
 	}
-	index, err := projectLogin(logins, provider, project)
+	logins, index, err := projectLogin(logins, provider, project, manifest)
 	if err != nil {
 		return refuse(browserlogin.Login{}, err)
 	}
-	if index < 0 || logins[index].SignedInAt == nil {
+	if logins[index].SignedInAt == nil {
 		return refuse(browserlogin.Login{}, errNeedsSignIn)
 	}
 	login := &logins[index]
+	// The fetch reads on the account the project's manifest names, or else
+	// on the one his last sign-in showed.
+	account := login.AccountID
+	declared, isDeclared := manifest.LoginFor(provider.ID)
+	if isDeclared && declared.AccountID != "" {
+		account = declared.AccountID
+	}
+	// A login the project names to sign out after each fetch keeps no
+	// session once the browser the fetch reads in has closed.
+	signsOut := isDeclared && declared.SignsOutAfterFetch
+	reading := *login
+	reading.AccountID = account
 	switch {
-	case login.AccountID == "":
+	case account == "":
 		return refuse(*login, fmt.Errorf("his last sign-in to the %s login showed no account in the page's address, so a fetch cannot check that it reads the login's own account. Paste the keys on the card", provider.Name))
 	case b.signing[login.ID] != "":
 		return refuse(*login, errors.New("this login is waiting for its sign-in window to close"))
@@ -209,7 +266,10 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 			return refuse(*login, fmt.Errorf("the browser lent to %s could not be sealed, so nothing was read in it: %w", task, err))
 		}
 		b.fetching[login.ID] = task
-		return *login, process, true, nil
+		if signsOut {
+			b.signOuts[login.ID] = true
+		}
+		return reading, process, true, nil
 	case b.closing[login.ID]:
 		return refuse(*login, fmt.Errorf("%s's %s login's last browser is still closing, and Chrome opens a profile once. Ask again in a minute", project, provider.Name))
 	}
@@ -236,7 +296,7 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 		b.closeProcess(login.ID)
 		return refuse(*login, fmt.Errorf("the %s login's browser did not start: %w", provider.Name, err))
 	}
-	current, err := b.grantedTask(task, provider.ID)
+	current, _, err := b.grantedTask(task, provider.ID)
 	if err == nil && (current.SpawnGen != meta.SpawnGen || current.Project != meta.Project) {
 		err = errors.New("the task changed while its browser was starting")
 	}
@@ -256,7 +316,10 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 		return refuse(*login, err)
 	}
 	b.fetching[login.ID] = task
-	return *login, process, false, nil
+	if signsOut {
+		b.signOuts[login.ID] = true
+	}
+	return reading, process, false, nil
 }
 
 // endFetch ends task's fetch on login: it lifts the seal of the browser lent

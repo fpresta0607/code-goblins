@@ -23,6 +23,20 @@
 .connector-toggle { display: grid; place-items: center; width: 44px; height: 44px; flex: none; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: var(--ghost-bg); color: #edf4f3; }
 .connector-toggle .icon { width: 20px; height: 20px; }
 .connector-toggle.is-carried { color: var(--accent-green); }
+.browser-login-name { flex-wrap: wrap; row-gap: 2px; }
+.browser-login-name strong { white-space: normal; overflow-wrap: anywhere; }
+.browser-login-state { display: inline-flex; align-items: center; flex: none; gap: 6px; font-weight: 700; white-space: nowrap; }
+.browser-login-state .icon { width: 18px; height: 18px; }
+.browser-login-state.is-signed-in { color: var(--mint); }
+.browser-login-state.is-signed-out { color: var(--amber); }
+.forget-login { width: min(520px, calc(100vw - 28px)); padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.forget-login::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+.forget-login h2 { margin: 0 0 10px; font-size: 1.5rem; }
+.forget-login p { margin: 0 0 22px; line-height: 1.55; overflow-wrap: anywhere; }
+.forget-login-choices { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.forget-login-choices button { display: inline-flex; align-items: center; gap: 8px; }
+.forget-login-choices .icon { width: 18px; height: 18px; }
+.forget-login-confirm { background: var(--amber); border-color: var(--amber); color: #2b1d02; font-weight: 700; }
 .connections .chip { font-size: 1rem; color: #c5d3df; }
 @media (max-width: 480px) {
   .connector-card { gap: 12px; padding: 12px; }

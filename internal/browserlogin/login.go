@@ -24,7 +24,11 @@ type Login struct {
 	// when the address named none. A fetch reads keys only on that account.
 	AccountID string `json:"account_id,omitempty"`
 	// Projects are the credential scopes whose goblins may use the login.
-	Projects   []string   `json:"projects"`
+	Projects []string `json:"projects"`
+	// IsShared says a project's manifest names the login, so every other
+	// project that names the same account may join it. A login no manifest
+	// named is its project's own.
+	IsShared   bool       `json:"shared,omitempty"`
 	SignedInAt *time.Time `json:"signed_in_at,omitempty"`
 	UsedAt     *time.Time `json:"used_at,omitempty"`
 	// Browser is the Chrome the broker runs on the login's profile now, nil
