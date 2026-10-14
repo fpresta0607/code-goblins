@@ -60,6 +60,10 @@ type Options struct {
 	// or MERGED; without it a finished task whose merge no fleet history
 	// shows reads Finished.
 	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
+	// FileRoot files a root issue on the repository of a project, a name or
+	// a path, through the screen cfo issue file uses, or comments on the
+	// open issue of the same root; without it the supervisor files none.
+	FileRoot func(ctx context.Context, project string, root tickets.Root) (tickets.FiledRoot, error)
 	// Tickets keeps a GitHub issue for each task in a repository other
 	// people work in; without it no ticket is kept.
 	Tickets *Tickets
@@ -191,6 +195,11 @@ type Service struct {
 	errorLines   map[string]time.Time
 	errorsUntold []string
 	errorsWoke   time.Time
+	// errorClassesMet holds when the supervisor first met each class of its
+	// errors, and errorClassesFiled the classes this run filed as root
+	// issues for meeting them again.
+	errorClassesMet   map[string]time.Time
+	errorClassesFiled map[string]bool
 	// answersDue wakes the worker as the answers held for the Overlord's next
 	// one come due. Only the worker touches it.
 	answersDue   *time.Timer

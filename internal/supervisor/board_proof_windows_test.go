@@ -195,6 +195,30 @@ func TestWhatIsNotHisIsRefusedWhereHisWindowAndAGrantedBrowserAreTaken(t *testin
 	}
 }
 
+// The supervisor's own user is read from the machine the proof reads,
+// whatever pid this process has. On a runner where this test process was
+// pid 6200, the browser's pid in the cases above, the stand-in's other user
+// for that pid read as the supervisor's own, and that user's browser passed
+// as his.
+func TestABrowserOfAnotherUserIsRefusedWhenItsPIDIsTheSupervisorsOwn(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	his, err := boardService(store).grantBoard(edgeProgram, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := proc.Owner{User: "S-1-5-21-1004-1002", Session: hisDesktop.Session}
+	s, request := boardAsked(t, store, boardAsk{ancestry: cutBrowser, secret: his, owners: map[int]proc.Owner{cutBrowser[len(cutBrowser)-1].PID: other, os.Getpid(): other}})
+
+	// Act
+	from, err := s.overlordsBoard(request, credentialBoardHost, time.Now(), askingBoard)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "runs as another Windows user") {
+		t.Fatalf("overlordsBoard = %q, %v, want it refused as another Windows user's", from, err)
+	}
+}
+
 // A program whose owner Windows will not name is not taken for his.
 func TestABoardWhoseOwnerCannotBeReadIsRefused(t *testing.T) {
 	// Arrange
