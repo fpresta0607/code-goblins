@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -45,7 +46,34 @@ type Verification struct {
 	ChangedOnly    bool      `json:"changed_only,omitempty"`
 	MaxFastSeconds int       `json:"max_fast_seconds,omitempty"`
 	MaxFullSeconds int       `json:"max_full_seconds,omitempty"`
+	Reuse          *Reuse    `json:"reuse,omitempty"`
 }
+
+// Reuse declares what a tier's checks read besides the files git sees, so
+// that a pass of the tier on the same source with the same of these is taken
+// again instead of run (verify.ReadReuseKey). A tier with none declared runs
+// every time.
+type Reuse struct {
+	// Inputs are files and folders inside the worktree that git ignores and
+	// the checks read, as a build a package embeds.
+	Inputs []string `json:"inputs,omitempty"`
+	// Tools are commands whose output names a tool the checks run, as go
+	// version does.
+	Tools []Command `json:"tools,omitempty"`
+	// Environment names the variables the checks read.
+	Environment []string `json:"environment,omitempty"`
+	// MaxAgeHours is how old a pass may be, a day unless set.
+	MaxAgeHours int `json:"max_age_hours,omitempty"`
+}
+
+// MaxAge is how old a pass may be.
+func (r Reuse) MaxAge() time.Duration {
+	if r.MaxAgeHours == 0 {
+		return 24 * time.Hour
+	}
+	return time.Duration(r.MaxAgeHours) * time.Hour
+}
+
 type Security struct {
 	Mode     string    `json:"mode,omitempty"`
 	Fast     []Command `json:"fast,omitempty"`
@@ -159,6 +187,29 @@ func (m Manifest) Validate() error {
 		}
 		if err := validateCommand(t.Verify); err != nil {
 			return err
+		}
+	}
+	if reuse := m.Verification.Reuse; reuse != nil {
+		for _, input := range reuse.Inputs {
+			if !filepath.IsLocal(filepath.FromSlash(input)) {
+				return fmt.Errorf("project manifest: reuse input %q is not a path inside the worktree", input)
+			}
+		}
+		for _, tool := range reuse.Tools {
+			if len(tool) == 0 || tool[0] == "" {
+				return errors.New("project manifest: reuse tool command is empty")
+			}
+			if err := validateCommand(tool); err != nil {
+				return err
+			}
+		}
+		for _, variable := range reuse.Environment {
+			if strings.TrimSpace(variable) == "" || strings.Contains(variable, "=") {
+				return fmt.Errorf("project manifest: reuse variable %q is no variable name", variable)
+			}
+		}
+		if reuse.MaxAgeHours < 0 {
+			return errors.New("project manifest: reuse max_age_hours is negative")
 		}
 	}
 	if m.Deployment.Required && len(m.Deployment.Targets) == 0 {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,7 @@ func measuredTask(t *testing.T, settings string) (commandRuntime, string) {
 	}
 	gitIn(t, worktree, "add", "a.txt")
 	gitIn(t, worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "start")
+	gitIn(t, worktree, "update-ref", "refs/remotes/origin/main", "HEAD")
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	h := testHome(t)
 	record := projectcfg.Path(h.Data, "demo")
@@ -529,5 +531,162 @@ func TestVerifyLeavesAMachineServiceItsCommandStartedRunning(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Status != "passed" || len(results[0].Spared) != 1 || len(results[0].Leftovers) != 0 || !strings.EqualFold(results[0].Spared[0].Name, image) {
 		t.Fatalf("saved = %+v, want a pass that names the service as spared and nothing as ended", results)
+	}
+}
+
+// countedTier is the record settings of a fast tier whose one command adds a
+// line to counter each time it runs, with reuse declared as declared, and a
+// cfo build stamped as an installed one is, which reuse requires.
+func countedTier(t *testing.T, counter, declared string) string {
+	t.Helper()
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := `"verification": {"fast": [` + string(command) + `]`
+	if declared != "" {
+		settings += `, "reuse": ` + declared
+	}
+	return settings + `}`
+}
+
+// runs is how many times the counted command ran.
+func runs(t *testing.T, counter string) int {
+	t.Helper()
+	data, err := os.ReadFile(counter)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(data), "ran")
+}
+
+// A tier that passed on a source takes that pass again on the same source
+// with the same declared inputs, instead of running, says so, and saves the
+// pass's results as taken from it.
+func TestVerifyTakesAPassAgainOnTheSameSource(t *testing.T) {
+	// Arrange
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	runtime, taskTmp := measuredTask(t, countedTier(t, counter, `{"tools": [["git", "version"]]}`))
+	var first bytes.Buffer
+	if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 {
+		t.Fatalf("the first run exited %d: %s", exit, first.String())
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || runs(t, counter) != 1 {
+		t.Fatalf("exit = %d, the command ran %d time(s); want 0 and one run in all; stderr=%q", exit, runs(t, counter), stderr.String())
+	}
+	if want := "cfo verify: the fast tier passed on this source at "; !strings.HasPrefix(stderr.String(), want) {
+		t.Errorf("stderr = %q; want it to start %q", stderr.String(), want)
+	}
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) != 1 || results[0].Status != "passed" || results[0].Reused == "" || results[0].Execution == "" {
+		t.Errorf("results = %+v; want the pass's result, taken from it", results)
+	}
+}
+
+// A tier runs again when anything its pass depends on changed, or when its
+// record declares nothing a pass depends on besides git's files.
+func TestVerifyRunsAgainWhenItsPassCannotBeTaken(t *testing.T) {
+	for name, row := range map[string]struct {
+		declared string
+		change   func(t *testing.T, worktree string)
+	}{
+		"no reuse declared": {},
+		"a file git sees": {declared: `{"inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
+			if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"a declared input": {declared: `{"inputs": ["build"]}`, change: func(t *testing.T, worktree string) {
+			if err := os.MkdirAll(filepath.Join(worktree, "build"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(worktree, "build", "page.html"), []byte("built\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			counter := filepath.Join(t.TempDir(), "count.txt")
+			runtime, _ := measuredTask(t, countedTier(t, counter, row.declared))
+			h, err := runtime.resolveHome()
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := state.ReadTaskMeta(h.State, "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var first bytes.Buffer
+			if exit := runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime); exit != 0 {
+				t.Fatalf("the first run exited %d: %s", exit, first.String())
+			}
+			if row.change != nil {
+				row.change(t, meta.Worktree)
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 0 || runs(t, counter) != 2 {
+				t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs; stderr=%q", exit, runs(t, counter), stderr.String())
+			}
+		})
+	}
+}
+
+// A tier that failed keeps no pass, so it runs again.
+func TestVerifyKeepsNoPassOfAFailedTier(t *testing.T) {
+	// Arrange
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& exit 3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(command)+`], "reuse": {}}`)
+	var first bytes.Buffer
+	runWithRuntime([]string{"verify", "t1"}, &first, &first, runtime)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || runs(t, counter) != 2 {
+		t.Errorf("exit = %d, the command ran %d time(s); want 1 and two runs", exit, runs(t, counter))
+	}
+}
+
+// A tier whose pass cannot be keyed says why and runs.
+func TestVerifySaysWhyItsPassCannotBeKeyed(t *testing.T) {
+	// Arrange
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	runtime, _ := measuredTask(t, countedTier(t, counter, `{}`))
+	version = "dev"
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if want := "cfo verify: the fast tier runs, as no pass of it can be taken again: verify: an unstamped cfo build"; exit != 0 || runs(t, counter) != 1 || !strings.HasPrefix(stderr.String(), want) {
+		t.Errorf("exit = %d, %d run(s), stderr = %q; want 0, one run, and a line that starts %q", exit, runs(t, counter), stderr.String(), want)
 	}
 }

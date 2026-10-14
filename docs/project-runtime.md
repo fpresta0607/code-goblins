@@ -24,7 +24,8 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
     "full":[["go","test","./..."]],
     "changed_only":true,
     "max_fast_seconds":90,
-    "max_full_seconds":900
+    "max_full_seconds":900,
+    "reuse":{"inputs":["internal/boardweb/dist"],"tools":[["go","version"]],"environment":["GOFLAGS"],"max_age_hours":24}
   },
   "security": {
     "mode":"risk",
@@ -101,6 +102,14 @@ Local catalog availability does not prove account quota, and API pricing does no
 No paid model probe or automatic paid-provider fallback is required to choose or validate the routing policy.
 
 Verification is tiered. `cfo verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task and source evidence, the source being the commit and the git tree of the files git does not ignore as they were on disk, read once its turn was taken and again once it had ended, as docs/pipeline.md says. Ignored files, such as installed dependencies, are no part of it. A command whose two reads differed, or could not be read, keeps its own result and is said on standard error to have tested no one source. Each command waits its turn in the machine's one line for heavy runs and runs as a measured execution, whose record its result names, and its time limit starts when it starts, so its wait in line never counts against it. A tier that names no command, or an empty one, fails, and so does a tier whose result cannot be saved. Before it waits, a tier saves one entry with status `running`, so a tier ended in its wait never leaves an earlier pass standing, and a tier that runs nothing saves one entry with status `not_run` and why. Each command's entry says `passed`, `failed` or `timed_out`. What a command leaves running more than ten seconds after it exits is ended and named on standard error and in the command's entry, and the tier keeps the command's own result. A machine service it started, such as Docker Desktop, serves the whole machine, so it is left running and named apart, under `spared`. A tier with an empty command runs none of its commands. A security mode that asks for no scan of a change runs nothing, saves an empty result and passes. `cfo security` follows the project security mode. `cfo deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
+
+A tier takes a pass it already has instead of running when the record declares `verification.reuse`: the files and folders inside the worktree that git ignores and its checks read (`inputs`), commands whose output names the tools they run (`tools`), the variables they read (`environment`), and how old a pass may be (`max_age_hours`, a day unless set).
+The key of a pass is the project, the tier, its commands, the stamped `cfo` build, the complete source as docs/pipeline.md describes it, where the branch left the default branch (`origin/HEAD` or `origin/main`), a digest of the inputs, each tool's output, each variable's value, and the operating system and architecture.
+A pass is kept only when every command passed on that very source and nothing in the key changed while the tier ran.
+It is taken again only for the same key, within its age, while each command's execution record is there and still shows a pass on that source.
+A taken pass is saved with each result naming it under `reused`, and the tier says so on standard error.
+A record without `reuse` runs every time, and so does an unstamped `cfo` build, an incomplete source, or a worktree with no default branch to measure against, which the tier says.
+These same-user records save a local run and approve no GitHub check.
 
 When a direction is rejected, `cfo supersede <task> --reason ...` records a durable supersede event, writes cleanup instructions, and steers the worker to remove unshipped debris before continuing. `cfo hygiene <task>` reports suspicious test debris without deleting it.
 

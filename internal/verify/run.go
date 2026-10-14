@@ -37,6 +37,9 @@ type Result struct {
 	// Source is what the command ran on, read once its turn was taken and
 	// once it had ended, as its execution record keeps it.
 	Source SourceReads `json:"source,omitzero"`
+	// Reused is the pass this result was taken from instead of a run
+	// (FindPass), whose record its Execution names.
+	Reused string `json:"reused,omitempty"`
 	// Packages are what became of each package a test command ran.
 	Packages []PackageResult `json:"packages,omitempty"`
 }

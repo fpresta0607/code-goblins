@@ -182,7 +182,48 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		seconds = 90
 	}
 	p := filepath.Join(meta.TaskTmp, "verification-"+*tier+".json")
+	// A tier whose record declares what its checks read besides git's files
+	// takes a pass it already has on the same source and inputs again,
+	// instead of running.
+	var key verifyrun.ReuseKey
+	isKeyed := false
+	if reuse := m.Verification.Reuse; reuse != nil {
+		named := verifyrun.ReuseKey{Project: m.Project, Scope: *tier, Executor: version}
+		for _, command := range cmds {
+			named.Commands = append(named.Commands, []string(command))
+		}
+		read, err := verifyrun.ReadReuseKey(context.Background(), execx.OSRunner{}, meta.Worktree, named, *reuse)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo verify: the %s tier runs, as no pass of it can be taken again: %v\n", *tier, err)
+		} else if pass, err := verifyrun.FindPass(read, time.Now(), reuse.MaxAge()); err == nil {
+			if err := verifyrun.Save(p, pass.Results); err != nil {
+				fmt.Fprintf(stderr, "cfo verify: what the tier took could not be saved to %s: %v\n", p, err)
+				return 1
+			}
+			fmt.Fprintf(stderr, "cfo verify: the %s tier passed on this source at %s, so it takes that pass again: %s\n", *tier, pass.Kept.Format(time.RFC3339), pass.Results[0].Reused)
+			fmt.Fprintln(stdout, p)
+			return 0
+		} else if !errors.Is(err, verifyrun.ErrNoPass) {
+			fmt.Fprintf(stderr, "cfo verify: the %s tier runs, as its pass could not be read: %v\n", *tier, err)
+		} else {
+			key, isKeyed = read, true
+		}
+	}
 	res, e := runMeasuredTier("cfo verify", cmds, *tier, meta, time.Duration(seconds)*time.Second, p, stderr, runtime)
+	// A pass is kept for its key only if nothing it depends on changed while
+	// the tier ran.
+	if e == nil && isKeyed {
+		after, err := verifyrun.ReadReuseKey(context.Background(), execx.OSRunner{}, meta.Worktree, key, *m.Verification.Reuse)
+		if err == nil && after.ID() != key.ID() {
+			err = errors.New("what it depends on changed while it ran")
+		}
+		if err == nil {
+			_, err = verifyrun.KeepPass(key, res, time.Now())
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo verify: the %s tier's pass is not kept to be taken again: %v\n", *tier, err)
+		}
+	}
 	if e != nil {
 		// A check ends with the line that names what failed, so the tier
 		// says that line, and the file that holds everything the check said.
