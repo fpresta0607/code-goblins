@@ -994,7 +994,6 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	var unreadHeads []ghPullRequest
 	var changes []prHealthChange
 	trainGoblins := sync.OnceValue(func() []train.Goblin { return TrainGoblins(stateDir, repo) })
-	alone := sync.OnceValue(func() string { return loneRider(ctx, runner, stateDir, repo, listed, branch, owners, trainGoblins()) })
 	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
@@ -1024,12 +1023,13 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			behind = *comparison.BehindBy
 		}
 		goblin := goblinOf[pr.URL]
-		// A pull request a train takes is next to land when it would ride
-		// alone, so no train starts to test it, and one no train takes is
-		// next once its goblin reported it done.
+		// A pull request a train takes is never next to land with no train
+		// to test it, since one alone rides a train of its own once it waited
+		// loneRiderWait, and one no train takes is next once its goblin
+		// reported it done.
 		isNextToLand := func() bool {
 			if !pr.IsCrossRepository && isFleets(pr) {
-				return alone() == pr.URL
+				return false
 			}
 			return slices.ContainsFunc(trainGoblins(), func(goblin train.Goblin) bool { _, isDone := goblin.Done[pr.URL]; return isDone })
 		}
@@ -1043,36 +1043,8 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			changes = append(changes, change)
 		}
 	}
-	errs = errors.Join(errs, reportPRHealth(stateDir, w, changes, filepath.Base(repo), branch, now))
+	errs = errors.Join(errs, reportPRHealth(stateDir, w, changes, branch, now))
 	return listed, nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
-}
-
-// loneRider is the URL of the one goblin pull request a merge train would
-// take onto branch now, when it is the only one and no train runs in the
-// repository: the supervisor starts a train for two or more, and one alone
-// waits to be landed by hand. It is empty when none or several would ride,
-// and when the trains or the account gh works as cannot be read, which
-// leaves nothing to ask of a goblin.
-func loneRider(ctx context.Context, runner execx.Runner, stateDir, repo string, listed []train.PullRequest, branch string, owners *fleetOwners, goblins []train.Goblin) string {
-	if len(listed) == 0 {
-		return ""
-	}
-	trains, err := train.List(stateDir)
-	if err != nil {
-		return ""
-	}
-	owner, name := pullRequestRepository(listed[0].URL)
-	if _, isRunning := train.Running(trains, owner+"/"+name); isRunning {
-		return ""
-	}
-	viewer, err := owners.account(ctx, runner, repo)
-	if err != nil {
-		return ""
-	}
-	if riders, _ := train.Riders(listed, branch, viewer, goblins, trains); len(riders) == 1 {
-		return riders[0].URL
-	}
-	return ""
 }
 
 // runsPullRequestWorkflows reports whether repo's checkout has a GitHub

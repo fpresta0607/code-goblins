@@ -181,7 +181,7 @@ func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now tim
 // repository, so a poll that finds dozens raises one wake, never one each.
 // A pull request whose head and condition stay as they were is not named
 // again. The wake waits out ciWakeGap after the repository's last one.
-func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, project, branch string, now time.Time) error {
+func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, branch string, now time.Time) error {
 	if len(changes) == 0 {
 		return nil
 	}
@@ -200,7 +200,7 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, pr
 		case change.isConflicting:
 			condition = "conflicts with its base " + cmp.Or(pr.BaseRefName, branch) + ", so its workflows cannot run"
 		case change.isNextToLand:
-			condition += " and is next to land with no merge train to test it on current " + branch
+			condition += " and is next to land, and no merge train takes it to test it on current " + branch
 		}
 		whose := change.goblin
 		switch {
@@ -222,7 +222,7 @@ func reportPRHealth(stateDir string, w *fleetWakes, changes []prHealthChange, pr
 		detail += "; next: tell " + strings.Join(conflicting, " and ") + mergeMain
 	}
 	if len(landing) > 0 {
-		detail += fmt.Sprintf("; next for a pull request next to land: land it alone with cfo pr train %s, which tests it on current %s with no new head, or tell %s%s", project, branch, strings.Join(landing, " and "), mergeMain)
+		detail += "; next for a pull request next to land: tell " + strings.Join(landing, " and ") + mergeMain
 	}
 	if hasTeammates {
 		detail += "; the fleet reports a teammate's pull request and never pushes to it"

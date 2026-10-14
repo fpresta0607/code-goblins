@@ -759,7 +759,8 @@ A repository's first train makes the label, and a label the repository already h
 The label never stops a train: one that could not be put on reaches you as a `merge_train:` wake that names the pull request and the command that puts it on by hand.
 Another repository that asks GitHub for a release's notes leaves the label out in a `.github/release.yml` of its own.
 
-The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
+The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, or one has waited alone 10 minutes since its goblin first reported it done, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
+A train that ends on a poll's step reads the open pull requests again and starts the next train on that same poll, so a pull request reported done while a train ran rides as soon as that train is over.
 `cfo pr train` joins the train already running in the project and waits until it is over.
 Each train records every CI run it starts, with the pull requests it tested and how it ended.
 The board shows one card for each batch of pull requests: a train that landed nothing is folded into the later train that took its pull requests on, which counts its runs on from it, and one that landed nothing and was not retried shows once, saying why.
@@ -808,14 +809,14 @@ A pull request a train found broken stays off trains until its head changes.
   Git keeps every checkout in the worktree's own reflog, so a goblin that goes on to its second branch still owns the PR of its first, and a supervisor or a goblin that restarts reads the same answer again: nothing about whose a PR is lives in the supervisor's memory.
   A branch the goblin only looked at makes nothing its own, since a PR another account opened is a goblin's only when the goblin said so or has its branch checked out.
   One rule decides a head that is behind, for every PR a live goblin holds: it asks for nothing until the PR is next to land with no merge train to test it on current main, because bringing main in replaces the head and the run on the head it replaced paid for nothing (in PrecisionDocs about $27 a month, at 3.3 runs per merge).
-  A PR the account `gh` works as opened in this repository is next to land when it is the one green PR a train would take now and no train runs there, since the supervisor starts a train for two or more and tests each on the main it lands on; any other goblin's PR is next once its goblin reported it `done` and its checks passed.
+  A PR the account `gh` works as opened in this repository is never next to land, since a train takes it and tests it on the main it lands on: the supervisor starts one for two or more, and for one alone once it waited 10 minutes. Any other goblin's PR is next once its goblin reported it `done` and its checks passed.
   That holds whichever of its branches the PR is on, and a held PR is never next to land, since no train takes it.
   A behind head whose checks failed, have not run or still run asks for nothing: a failure is `ci_finished`'s to tell, and is no reason to bring main in.
   A conflict always wakes you, and so does a behind head no live goblin holds, a teammate's and the fleet's own from a branch no goblin holds, once its checks are no longer running, for three hours at most.
   A draft that is only behind raises nothing, since it is not yet the head its author means to merge.
   One GraphQL request compares the watched head SHAs, fork heads included, without conditional ETags for POST reads.
   A poll raises at most one `pr_health` wake of kind `pr` per repository, keyed `health:<owner>/<name>`, naming each PR whose head fell into a condition you were not woken for.
-  A goblin's PR names the goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, one CI run and never force-push. One next to land names first `cfo pr train <project>`, which lands it alone after one run on current main and puts no new head on it.
+  A goblin's PR names the goblin and the safe update: merge the default branch in with a merge commit, regenerate generated files rather than hand-merging them, one CI run and never force-push.
   A teammate's PR is one another account than the one `gh` works as opened: its wake names the author and link and reports only, and the fleet never pushes to that PR.
   A PR that account opened itself from a branch no live goblin holds, the Overlord's own or a finished task's, is called neither a goblin's nor a teammate's and is reported the same way, and while the account cannot be read the wake says only that no live goblin holds the PR.
   Each condition wakes once per head across restarts and long-lived PRs, and a PR whose head and condition stay as they were is never named again; conflicts take priority, a behind head waits up to ten minutes for GitHub to work out whether it conflicts, a held wake waits out five minutes after the repository's last one, and failed or absent checks do not hold a behind wake.
