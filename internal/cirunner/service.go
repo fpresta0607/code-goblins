@@ -2,6 +2,7 @@ package cirunner
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/rsa"
 	"errors"
 	"fmt"
@@ -79,7 +80,7 @@ func NewService(dir string, log func(string)) (*Service, Config, error) {
 		GitHub: NewGitHub(config, key),
 		VM:     HyperV{Commands: execx.OSRunner{}},
 		DVD: func(runnerConfig string) (string, error) {
-			iso := filepath.Join(work, fmt.Sprintf("job-%d.iso", time.Now().UnixNano()))
+			iso := filepath.Join(work, "job-"+rand.Text()+".iso")
 			return iso, BuildDVD(iso, runnerConfig)
 		},
 		Now:   time.Now,
