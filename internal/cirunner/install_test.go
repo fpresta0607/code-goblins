@@ -362,3 +362,23 @@ func TestTheServicesFolderIsOpenToItsThreeAlone(t *testing.T) {
 		t.Errorf("icacls %q grants %q; want %q alone", icacls, who, want)
 	}
 }
+
+// The install's download step keeps the image only when its SHA-256 is the
+// pinned one, and removes any other.
+func TestTheImageIsKeptOnlyWithItsPinnedSHA256(t *testing.T) {
+	// Arrange
+	options, _ := installOptions(t, t.TempDir(), &recorder{})
+	options.Download = func(_ context.Context, _, path string) error {
+		return os.WriteFile(path, []byte("not Canonical's image"), 0o600)
+	}
+	step := InstallSteps(options)[2]
+
+	// Act
+	err := step.Run(context.Background())
+
+	// Assert
+	image := filepath.Join(options.Dir, "download", "disk.img")
+	if _, statErr := os.Stat(image); err == nil || !strings.Contains(err.Error(), "not the pinned "+ImageSHA256) || statErr == nil {
+		t.Errorf("%s = %v, the image %v; want it refused and removed", step.Title, err, statErr)
+	}
+}

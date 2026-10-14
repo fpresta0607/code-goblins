@@ -507,3 +507,19 @@ func TestInstallationReadsWhatTheAppMayDo(t *testing.T) {
 		}
 	}
 }
+
+// A call outside the pins is refused before the App's own token is made or
+// anything is sent.
+func TestGitHubRefusesAnAppCallOutsideItsPins(t *testing.T) {
+	// Arrange
+	fake := &fakeGitHub{}
+	g := testGitHub(t, fake)
+
+	// Act
+	err := g.doAsApp(context.Background(), "GET", "/app/installations", nil)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "not among the service's pinned GitHub calls") || len(fake.calls()) != 0 {
+		t.Errorf("doAsApp = %v with %q sent; want it refused and nothing sent", err, fake.calls())
+	}
+}
