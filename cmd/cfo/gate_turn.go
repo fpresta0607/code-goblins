@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -71,18 +72,13 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] -- <program> [<argumen
 // no output, which is this run's caller's.
 //
 // A command that waits on a gate (gateWait) takes no turn: the gate's test
-// step takes its own, and a turn held through the gate's agents' work would
-// only keep every other run waiting.
+// command takes its own, and a turn held through the gate's agents' work
+// would only keep every other run waiting.
 func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	as, command, err := parseGateTurn(args)
 	if err != nil {
 		fmt.Fprintln(stderr, gateTurnUsage)
 		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %v\n", err)
-		return exitNoTurn
-	}
-	if waits := gateWait(command); waits != "" {
-		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s waits on a gate, whose test step takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work\n", waits)
-		fmt.Fprintf(stderr, "cfo gate turn: run it without cfo gate turn: %s\n", strings.Join(command, " "))
 		return exitNoTurn
 	}
 	dir, err := os.Getwd()
@@ -123,6 +119,13 @@ func runGateTurn(args []string, stdout, stderr io.Writer, runtime commandRuntime
 			what = as
 		}
 		tellGoblinRunEnded(ctx, runtime, os.Getenv, "cfo gate turn", dir, what, exit, time.Since(started), stderr)
+	}
+	if waits := gateWait(command); waits != "" {
+		fmt.Fprintf(stderr, "cfo gate turn: this run takes no turn: %s waits on a gate, whose test command takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work\n", waits)
+		// The command goes on one line, so the last line is still this run's.
+		fmt.Fprintf(stderr, "cfo gate turn: run the gate's command without cfo gate turn, and any heavy command beside it in a cfo gate turn of its own: %s\n", strings.Join(strings.Fields(strings.Join(command, " ")), " "))
+		tell(exitNoTurn)
+		return exitNoTurn
 	}
 	executor, err := measuredExecutor("cfo gate turn", gateTurnWho(as, command, dir, runtime), stderr, runtime.availableMemory)
 	if err != nil {
@@ -228,22 +231,26 @@ func parseGateTurn(args []string) (as string, command []string, err error) {
 	return "", nil, errors.New("no -- comes before a command")
 }
 
-// gateWait names the words of command that wait on a no-mistakes gate, as
-// no-mistakes axi run, respond and answer and cfo pipeline run and respond
-// wait for the gate's next decision, or is empty. Every argument's words are
-// read, so a shell's command string, as cmd /c and powershell -Command take,
-// is read too. A script the command runs is not.
+// gateWaits are the commands that wait for a no-mistakes gate's next
+// decision, through every agent step before it.
+var gateWaits = []string{
+	"no-mistakes axi run", "no-mistakes axi respond", "no-mistakes axi answer",
+	"cfo pipeline run", "cfo pipeline respond", "goblins pipeline run", "goblins pipeline respond",
+}
+
+// gateWait names the command of gateWaits that command holds, or is empty.
+// Every argument's words are read, so a shell's command string, as cmd /c
+// and powershell -Command take, is read too. A script the command runs is
+// not.
 func gateWait(command []string) string {
 	words := strings.FieldsFunc(strings.Join(command, " "), func(r rune) bool {
-		return unicode.IsSpace(r) || strings.ContainsRune(`"'&|;()`, r)
+		return unicode.IsSpace(r) || strings.ContainsRune(`"'&|;()<>`, r)
 	})
 	for at := 0; at+2 < len(words); at++ {
 		program := strings.ToLower(words[at][strings.LastIndexAny(words[at], `/\`)+1:])
-		program = strings.TrimSuffix(program, ".exe")
-		step := words[at+1] + " " + words[at+2]
-		if program == "no-mistakes" && (step == "axi run" || step == "axi respond" || step == "axi answer") ||
-			(program == "cfo" || program == "goblins") && (step == "pipeline run" || step == "pipeline respond") {
-			return program + " " + step
+		said := strings.TrimSuffix(program, ".exe") + " " + words[at+1] + " " + words[at+2]
+		if slices.Contains(gateWaits, said) {
+			return said
 		}
 	}
 	return ""

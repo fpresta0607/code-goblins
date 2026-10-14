@@ -418,17 +418,19 @@ A gate the goblin started inherits its terminal's environment, but runs its step
 **Not a gate's wait.**
 A command that waits on a no-mistakes gate takes no turn.
 `no-mistakes axi run`, `axi respond` and `axi answer`, and `cfo pipeline run` and `cfo pipeline respond`, which drive them, wait for the gate's next decision, through every agent step before it.
-The gate's test step takes its own turn, since the fork stands the repository's `commands.test` behind `cfo gate turn`, as **A gate behind it** below says, so a turn held while a gate waits orders no heavy run and keeps every other run in line through the gate's agents' work.
+The gate's test command takes its own turn, since the fork stands the repository's `commands.test` behind `cfo gate turn`, as **A gate behind it** below says, so a turn held while a gate waits orders no heavy run and keeps every other run in line through the gate's agents' work.
 On 2026-10-13 two goblins' fix rounds held the turn that way while up to ten runs waited.
-The run exits 125 and says what to run instead, the same command without `cfo gate turn`:
+The run exits 125 and says what to run instead: the gate's command without `cfo gate turn`, and any heavy command that came with it in a `cfo gate turn` of its own.
+It names the command it was given on one line, so its last line is still its own:
 
 ```text
-cfo gate turn: this run takes no turn: no-mistakes axi respond waits on a gate, whose test step takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work
-cfo gate turn: run it without cfo gate turn: no-mistakes axi respond --action fix --wait 10m
+cfo gate turn: this run takes no turn: no-mistakes axi respond waits on a gate, whose test command takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work
+cfo gate turn: run the gate's command without cfo gate turn, and any heavy command beside it in a cfo gate turn of its own: no-mistakes axi respond --action fix --wait 10m
 ```
 
 `cfo` reads the words of every argument, so a shell's command string, as `cmd.exe /c` and `powershell -Command` take, is read too.
-A word ends at a space, a quote, `&`, `|`, `;`, `(` or `)`, and a program is known by its file name without `.exe`, in any case.
+A word ends at a space, a quote, `&`, `|`, `;`, `(`, `)`, `<` or `>`, and a program is known by its file name without `.exe`, in any case.
+A refused run tells its goblin that it ended, as a run that did not start does.
 A script the command runs is not read.
 
 **What it waits for.**
@@ -594,8 +596,7 @@ A gate puts every run's test command behind the line, with no repository naming 
 On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with `--as` before the `--` when the gate names its run.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
 This is the contract the no-mistakes fork's wrapper setting is built against.
-The setting goes on only once the installed `cfo` has `cfo gate turn`: an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command.
-The fork's side, as task cg-gate-fork-minutes agreed it and is building it, is a setting in the machine's `~/.no-mistakes/config.yaml`:
+The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `~/.no-mistakes/config.yaml`, on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
 
 ```yaml
 test_command_wrapper:
