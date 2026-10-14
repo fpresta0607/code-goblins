@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -101,14 +100,5 @@ func browserSocket(ctx context.Context, address string) (string, error) {
 // CloseBrowser asks the Chrome at address to close itself, which writes its
 // session to the profile first, and returns once it has taken the command.
 func CloseBrowser(ctx context.Context, address string) error {
-	socket, err := browserSocket(ctx, address)
-	if err != nil {
-		return err
-	}
-	conn, err := cdp.Dial(ctx, socket)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	return conn.Call(ctx, "Browser.close", nil, nil)
+	return callBrowser(ctx, address, "Browser.close", nil, nil)
 }

@@ -71,3 +71,34 @@ func TestClaudeValidateChecksExecutable(t *testing.T) {
 	}
 	assertRequests(t, runner.requests, []execx.Request{{Name: "claude", Args: []string{"--version"}}})
 }
+
+func TestOnlyAClaudeGoblinStartsWithTheGoblinHookSettings(t *testing.T) {
+	registry := DefaultRegistry()
+	spec := LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Settings: `C:\cfo\state\goblin-claude-settings.json`}
+	for _, kind := range []Kind{Claude, Codex} {
+		t.Run(string(kind), func(t *testing.T) {
+			// Arrange
+			adapter, err := registry.Get(kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			launch, err := adapter.Build(spec)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			at := -1
+			for index, arg := range launch.Args {
+				if arg == "--settings" {
+					at = index
+				}
+			}
+			if isGiven := at >= 0 && at+1 < len(launch.Args) && launch.Args[at+1] == spec.Settings; isGiven != (kind == Claude) {
+				t.Fatalf("Args = %q, want the settings file given to Claude alone", launch.Args)
+			}
+		})
+	}
+}

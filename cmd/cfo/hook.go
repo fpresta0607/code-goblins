@@ -36,6 +36,19 @@ import (
 // break the tool call, so it exits 0 with a one-line stderr diagnostic
 // instead of denying or failing the request.
 func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// The goblin hooks run in a goblin's own Claude Code, which starts with
+	// them (install.GoblinHooks), and for a goblin alone: they sit above the
+	// checks that keep every other hook to the CFO.
+	switch name {
+	case "goblin-seal", "goblin-key-alarm":
+		if os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+			return 0
+		}
+		if name == "goblin-seal" {
+			return hookGoblinSeal(stdin, stderr)
+		}
+		return hookGoblinKeyAlarm(stdin)
+	}
 	// A goblin is never supervised by the CFO's hooks: it is the work being
 	// supervised. Until the hooks moved to user scope this held by accident
 	// - a goblin's worktree has no cfo.exe, so the repo-scoped `[ -x ... ]`
