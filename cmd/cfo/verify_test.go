@@ -614,14 +614,18 @@ func storeFiles(t *testing.T, folder string) []string {
 // same key takes that pass at its turn instead of running, and its command's
 // record says it never started and why. A tier whose worktree changed while
 // it waited runs on what it holds at its turn and keeps its own pass for
-// that, and one whose key cannot be read at its turn runs, takes nothing and
-// keeps nothing, and says so once.
+// that. One whose key, or whose pass, cannot be read at its turn runs, takes
+// nothing and keeps nothing, and says so once.
 func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 	for name, row := range map[string]struct {
-		change     func(t *testing.T, worktree string)
-		isTaken    bool
-		wantPasses int
-		wantSaid   string
+		change func(t *testing.T, worktree string)
+		// keep puts the pass a run ahead kept where the tier finds it, as a
+		// rename of the pass set aside back to its place unless set.
+		keep        func(t *testing.T, aside, kept string)
+		isTaken     bool
+		wantPasses  int
+		wantSaid    string
+		wantNotKept int
 	}{
 		"the same source": {isTaken: true, wantPasses: 1},
 		"a source changed while it waited": {wantPasses: 2, change: func(t *testing.T, worktree string) {
@@ -629,8 +633,13 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		"a key unreadable at its turn": {wantPasses: 1, wantSaid: "cfo verify: the fast tier's pass is not kept to be taken again, as its key could not be read at its turn: ", change: func(t *testing.T, worktree string) {
+		"a key unreadable at its turn": {wantPasses: 1, wantNotKept: 1, wantSaid: "cfo verify: the fast tier's pass is not kept to be taken again, as its key could not be read at its turn: ", change: func(t *testing.T, worktree string) {
 			gitIn(t, worktree, "update-ref", "-d", "refs/remotes/origin/main")
+		}},
+		"a pass unreadable at its turn": {wantPasses: 1, wantSaid: "cfo verify: the fast tier runs and keeps no pass, as its pass could not be read at its turn: ", keep: func(t *testing.T, aside, kept string) {
+			if err := os.Mkdir(kept, 0o755); err != nil {
+				t.Fatal(err)
+			}
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -678,7 +687,9 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 				}
 				row.change(t, meta.Worktree)
 			}
-			if err := os.Rename(aside, kept[0]); err != nil {
+			if row.keep != nil {
+				row.keep(t, aside, kept[0])
+			} else if err := os.Rename(aside, kept[0]); err != nil {
 				t.Fatal(err)
 			}
 			if err := holder.Release(); err != nil {
@@ -700,12 +711,12 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 				t.Fatalf("exit = %d, the command ran %d time(s); want 0 and %d; stderr=%q", exit, runs(t, counter), wantRuns, stderr.String())
 			}
 			said := stderr.String()
-			isTaken := strings.Contains(said, "kept by a run ahead of this one while it waited, so it takes that pass instead of running")
+			isTaken := strings.Contains(said, "cfo verify: the fast tier found at its turn a pass kept at ") && strings.Contains(said, "so it takes that pass instead of running")
 			if passes := storeFiles(t, "passes"); isTaken != row.isTaken || len(passes) != row.wantPasses {
 				t.Fatalf("took the pass = %v, passes %v; want %v and %d pass(es); stderr=%q", isTaken, passes, row.isTaken, row.wantPasses, said)
 			}
-			if row.wantSaid != "" && (!strings.Contains(said, row.wantSaid) || strings.Count(said, "is not kept") != 1) {
-				t.Fatalf("stderr = %q; want one line that says the pass is not kept, starting %q", said, row.wantSaid)
+			if !strings.Contains(said, row.wantSaid) || strings.Count(said, "is not kept") != row.wantNotKept {
+				t.Fatalf("stderr = %q; want it to say %q and that a pass is not kept %d time(s)", said, row.wantSaid, row.wantNotKept)
 			}
 			results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
 			if !row.isTaken {
@@ -889,6 +900,40 @@ func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
 	// Assert
 	if exit != 0 || runs(t, counter) != 2 {
 		t.Errorf("exit = %d, the command ran %d time(s); want 0 and two runs; stderr=%q", exit, runs(t, counter), stderr.String())
+	}
+}
+
+// A tier keys its pass by what its first command started on, so a declared
+// input its first command changes leaves its pass unkept, though a later
+// command started on the changed input and the tier passed: a pass keyed by
+// that later read would be taken where the first command never ran.
+func TestVerifyKeepsNoPassWhenAnEarlierCommandChangedAnInput(t *testing.T) {
+	// Arrange
+	previous := version
+	version = "main-0123abcd"
+	t.Cleanup(func() { version = previous })
+	counter := filepath.Join(t.TempDir(), "count.txt")
+	writes, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo again>> built.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, _ := measuredTask(t, `"verification": {"fast": [`+string(writes)+`, `+string(reads)+`], "reuse": {"tiers": ["fast"], "inputs": ["built.txt"]}}`)
+	ignoreBuild(t, runtime)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || runs(t, counter) != 2 {
+		t.Fatalf("exit = %d, %d command(s) ran; want 0 and both; stderr=%q", exit, runs(t, counter), stderr.String())
+	}
+	if passes := storeFiles(t, "passes"); len(passes) != 0 || !strings.Contains(stderr.String(), "read otherwise once it had run") {
+		t.Errorf("passes = %v, stderr = %q; want no pass kept, as what it depends on read otherwise", passes, stderr.String())
 	}
 }
 

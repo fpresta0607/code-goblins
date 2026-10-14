@@ -206,6 +206,11 @@ func TestExecutorStartsTheCommandOnlyWhenItsRunStillNeedsIt(t *testing.T) {
 				isHeldWhenAsked = err == nil
 				return row.ready
 			}
+			sourceReads := 0
+			executor.Source = func(context.Context, string) (Source, error) {
+				sourceReads++
+				return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
@@ -215,6 +220,10 @@ func TestExecutorStartsTheCommandOnlyWhenItsRunStillNeedsIt(t *testing.T) {
 			// Assert
 			if asked != 1 || !isHeldWhenAsked {
 				t.Fatalf("the run was asked %d time(s), with its turn held %v; want once, with it held", asked, isHeldWhenAsked)
+			}
+			// A run that does not need its command reads no source for it.
+			if wantReads := map[bool]int{true: 2, false: 0}[row.isStarted]; sourceReads != wantReads {
+				t.Fatalf("the source was read %d time(s), want %d", sourceReads, wantReads)
 			}
 			_, statErr := os.Stat(filepath.Join(root, "ran.txt"))
 			if isStarted := statErr == nil; isStarted != row.isStarted {
