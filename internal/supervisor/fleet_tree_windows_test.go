@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -90,6 +91,38 @@ func TestSnapshotCarriesEachLiveGoblinsTree(t *testing.T) {
 	data, err := json.Marshal(snapshot)
 	if err != nil || !strings.Contains(string(data), `"tree":{"task_id":"running"`) || !strings.Contains(string(data), `"source_updated_at"`) || !strings.Contains(string(data), `"fetched_at"`) {
 		t.Errorf("the snapshot's JSON carries no tree with its freshness: %s", data)
+	}
+}
+
+// Each read keeps the conversation a running goblin's own harness proves it
+// is in, for its generation, so once its terminal is gone, as a restart
+// leaves it, its comeback, resume or pause still finds it without the native
+// session hooks. A goblin whose terminal has ended proves nothing new.
+func TestATreeReadKeepsTheConversationTheRunningHarnessProves(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	userHome := t.TempDir()
+	running := treeGoblin(t, h.State, userHome, "running", true)
+	ended := treeGoblin(t, h.State, userHome, "ended", false)
+	service := &Service{Store: store, Instance: "tree", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
+
+	// Act
+	service.readTrees(context.Background())
+	if err := os.Remove(filepath.Join(h.State, "hosts", running.ID+".json")); err != nil {
+		t.Fatal(err)
+	}
+	service.readTrees(context.Background())
+
+	// Assert
+	kept, err := state.ReadConversation(h.State, running.ID)
+	if err != nil || kept.Generation != running.SpawnGen || kept.Harness != "claude" || kept.Session != "running-conversation" || kept.ProvedAt.IsZero() {
+		t.Fatalf("kept conversation %+v, %v; want running-conversation of the running goblin's generation", kept, err)
+	}
+	if session, err := fleettree.OwnedSession(h.State, running); err != nil || session != "running-conversation" {
+		t.Errorf("once its terminal is gone the goblin's own conversation is %q, %v; want the one its harness proved", session, err)
+	}
+	if _, err := state.ReadConversation(h.State, ended.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a goblin whose terminal had ended kept a conversation: %v", err)
 	}
 }
 

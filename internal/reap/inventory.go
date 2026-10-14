@@ -28,6 +28,13 @@ import (
 // a classification test cannot conjure real processes.
 type ProcessLister interface {
 	List(ctx context.Context) ([]Process, error)
+	// SelfAncestry is the sweeping process and its parents on the machine
+	// List reads. The sweep runs inside the CFO's own Claude session
+	// (directly, or hosted by the watcher), so its own harness would
+	// otherwise look exactly like an orphan. It comes from the lister because
+	// pids name processes only on the machine they were read from: a real
+	// parent's pid beside a test's listing names one of the test's processes.
+	SelfAncestry() []int
 }
 
 // PaneReader is the read-only slice of the Herdr client the sweep needs: the
@@ -79,7 +86,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State, ScratchRoots: c.Home.ScratchRoots()}
+	inv := Inventory{Session: c.Session, StateDir: c.Home.State, ScratchRoots: c.Home.ScratchRoots()}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -158,7 +165,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
 			}
 		}
-		inv.Processes = processes
+		inv.Processes, inv.SelfPIDs = processes, c.Processes.SelfAncestry()
 		if err := c.sight(ctx, &inv, &notes); err != nil {
 			return Inventory{}, notes, err
 		}
@@ -812,10 +819,8 @@ func createdAt(path string) time.Time {
 	return time.Unix(0, data.CreationTime.Nanoseconds()).UTC()
 }
 
-// selfAncestry is this process and its parents. The sweep runs inside the
-// CFO's own Claude session (directly, or hosted by the watcher), so its own
-// harness would otherwise look exactly like an orphan.
-func selfAncestry() []int {
+// SelfAncestry reads this process's parents from the Windows process table.
+func (CIMProcesses) SelfAncestry() []int {
 	entries, err := proc.Ancestry(proc.Self(), 12)
 	if err != nil {
 		return []int{proc.Self()}

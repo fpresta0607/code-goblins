@@ -20,6 +20,8 @@ type listed []reap.Process
 
 func (l listed) List(context.Context) ([]reap.Process, error) { return slices.Clone(l), nil }
 
+func (listed) SelfAncestry() []int { return nil }
+
 // The orphan sweep and the process sweep ask one question of a process,
 // whose it is, and must give one answer: on 2026-10-10 the process plan gave
 // every process of a goblin's spawn test to that goblin's terminal while the

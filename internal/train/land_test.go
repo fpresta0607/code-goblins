@@ -511,34 +511,45 @@ func TestALandingThatLeavesMainWithAnotherTreeFailsTheTrain(t *testing.T) {
 	}
 }
 
+// A run whose every check was skipped tested nothing, as a run that never
+// reported did not: GitHub counts a skipped check as passing, and a train
+// that took one for green would land what no CI ran on.
 func TestAdvanceFailsATrainNoCIRanOn(t *testing.T) {
 	t.Parallel()
-	// Arrange
-	s := newScratch(t)
-	gh := newFakeGitHub(s)
-	first := gh.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
-	riders, _ := Riders([]PullRequest{first}, "main", fleetAccount, goblinsFor(first), nil)
-	engine := s.engine(gh)
-	started, err := engine.Start(context.Background(), s.repository(), riders)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gh.noChecks = true
+	for name, answer := range map[string]func(*fakeGitHub){
+		"no check reported":   func(gh *fakeGitHub) { gh.noChecks = true },
+		"every check skipped": func(gh *fakeGitHub) { gh.skipped = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := newScratch(t)
+			gh := newFakeGitHub(s)
+			first := gh.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+			riders, _ := Riders([]PullRequest{first}, "main", fleetAccount, goblinsFor(first), nil)
+			engine := s.engine(gh)
+			started, err := engine.Start(context.Background(), s.repository(), riders)
+			if err != nil {
+				t.Fatal(err)
+			}
+			answer(gh)
 
-	// Act
-	early, earlyErr := engine.Advance(context.Background(), started.ID)
-	s.now = s.now.Add(noCIWithin)
-	late, lateErr := engine.Advance(context.Background(), started.ID)
+			// Act
+			early, earlyErr := engine.Advance(context.Background(), started.ID)
+			s.now = s.now.Add(noCIWithin)
+			late, lateErr := engine.Advance(context.Background(), started.ID)
 
-	// Assert
-	if earlyErr != nil || lateErr != nil {
-		t.Fatal(earlyErr, lateErr)
-	}
-	if early.State != StateTesting {
-		t.Fatalf("train = %s before the wait for CI ran out, want testing", early.State)
-	}
-	if late.State != StateFailed || !strings.Contains(late.Note, "no CI") || late.Cars[0].State != CarReturned {
-		t.Fatalf("train = %+v, want failed with no CI and its pull request returned", late)
+			// Assert
+			if earlyErr != nil || lateErr != nil {
+				t.Fatal(earlyErr, lateErr)
+			}
+			if early.State != StateTesting {
+				t.Fatalf("train = %s before the wait for CI ran out, want testing", early.State)
+			}
+			if late.State != StateFailed || !strings.Contains(late.Note, "no CI") || late.Cars[0].State != CarReturned {
+				t.Fatalf("train = %+v, want failed with no CI and its pull request returned", late)
+			}
+		})
 	}
 }
 
