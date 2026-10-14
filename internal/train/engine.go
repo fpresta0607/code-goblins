@@ -200,7 +200,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	case outcome == "stale" && waited >= noCIWithin:
 		return e.rebuild(ctx, t, fmt.Sprintf("GitHub did not show the train's head %s within %s of its push, so it was built and pushed again", short(t.Head), noCIWithin))
 	case outcome == "none" && waited >= noCIWithin:
-		return e.finish(ctx, t, StateFailed, fmt.Sprintf("no CI ran on its pull request %s within %s of the push: check the repository's workflows run on pull requests", t.PR, noCIWithin))
+		return e.finish(ctx, t, StateFailed, fmt.Sprintf("no CI ran on its pull request %s within %s of the push, or every check was skipped: check the repository's workflows run on pull requests", t.PR, noCIWithin))
 	case outcome == "pending" && waited >= RunDeadline:
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, RunDeadline))
 	case outcome == "passed":
@@ -215,7 +215,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 }
 
 // ci reads the CI of the train's pull request at its head: "stale" until
-// GitHub shows the head, "none" while it has no checks, "pending" until
+// GitHub shows the head, "none" while no check on it ran, "pending" until
 // every check on it concluded, "closed" once the pull request is not open,
 // else "passed" or "failed" with the checks that failed.
 func (e Engine) ci(ctx context.Context, t Train) (string, []Check, error) {

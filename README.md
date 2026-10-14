@@ -106,6 +106,9 @@ See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
 
+A goblin that opens its own pull request opens it as a draft and marks it ready once, on the head it means to merge, so the fix rounds before that start no hosted CI.
+A check that was skipped, as a draft's run skips its jobs, tested nothing: a merge train and `cfo pr merge` take a pull request only once a check on its head ran.
+
 ### Merge trains
 
 Landing green pull requests one at a time costs one CI run each, in a row, because every merge makes the others' runs stale.
