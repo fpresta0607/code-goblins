@@ -95,8 +95,8 @@ const (
 	KindOther     = "other"
 	// KindLeft is a decision the CFO would have asked the Overlord, answered
 	// in his place with its recommendation and acted on, and KindHis a step
-	// only he can take, such as his own sign-in or a step a tool refuses: one
-	// plain line in his recap, never a question.
+	// only he can take, such as his own sign-in or a step a tool refuses: when
+	// AFK mode turns off it becomes one card in his Command Center.
 	KindLeft = "left"
 	KindHis  = "his"
 	// KindStrike strikes through a line the CFO wrote by mistake. It is a
@@ -158,6 +158,11 @@ type Entry struct {
 	// Noted is what the CFO wrote of a merge in lines of its own, set on the
 	// merge it names as the report folds it in, and never written to the log.
 	Noted string `json:"noted,omitempty"`
+	// Command and Shell are the command a step only he can take asks him to
+	// run, with the shell that runs it: when AFK mode turns off the step is a
+	// run item on his Command Center, in place of a question.
+	Command string `json:"command,omitempty"`
+	Shell   string `json:"shell,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -335,6 +340,10 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 		if err := validLeft(entry); err != nil {
 			return Entry{}, err
 		}
+	case entry.Command != "" || entry.Shell != "":
+		if err := validCommand(entry); err != nil {
+			return Entry{}, err
+		}
 	}
 	entry.Struck, entry.Settled, entry.Noted = "", "", ""
 	return record(stateDir, entry, now)
@@ -371,6 +380,24 @@ func validLeft(entry Entry) error {
 	}
 	if !seen[entry.Answer] {
 		return errors.New("the CFO's answer to a decision answered in his place is one of its choices, exactly")
+	}
+	return nil
+}
+
+// maxCommand bounds the command a step only he can take carries, as a run
+// item's command is bounded.
+const maxCommand = 64 << 10
+
+// validCommand refuses a command on any line but a step only he can take, and
+// a step whose command has no shell or no text.
+func validCommand(entry Entry) error {
+	switch {
+	case entry.Kind != KindHis:
+		return errors.New("only a step only he can take, --kind his, carries a command for him to run")
+	case entry.Shell != "powershell" && entry.Shell != "bash":
+		return errors.New("a command for him to run names its shell, powershell or bash")
+	case strings.TrimSpace(entry.Command) == "" || len(entry.Command) > maxCommand:
+		return fmt.Errorf("a command for him to run is text of at most %d KiB", maxCommand>>10)
 	}
 	return nil
 }
@@ -455,6 +482,47 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 	}
 	settle := Entry{At: now.UTC(), Session: state.Session, Kind: KindSettle, What: target.What, Item: stamp, Evidence: how}
 	return settle, appendEntry(stateDir, settle)
+}
+
+// SettleAfter settles the step only the Overlord could take logged at at from
+// the card it became when AFK mode turned off, with how its card was closed: a
+// settle line in the log, as Settle writes one while the stretch is on, so the
+// step reads settled from then on. It belongs to the stretch the line was
+// logged in, and is a no-op for a step struck or settled already.
+func SettleAfter(stateDir string, at time.Time, how string, now time.Time) error {
+	entries, _, err := Entries(stateDir, "")
+	if err != nil {
+		return err
+	}
+	var target *Entry
+	for i, entry := range entries {
+		switch {
+		case entry.Kind == KindStrike && entry.Item == at.UTC().Format(time.RFC3339Nano), entry.Kind == KindSettle && entry.Item == at.UTC().Format(time.RFC3339Nano):
+			return nil
+		case entry.Kind == KindHis && entry.At.Equal(at):
+			target = &entries[i]
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("the log holds no step only he can take logged at %s", at.UTC().Format(time.RFC3339Nano))
+	}
+	return appendEntry(stateDir, Entry{At: now.UTC(), Session: target.Session, Kind: KindSettle, What: target.What, Item: at.UTC().Format(time.RFC3339Nano), Evidence: strings.TrimSpace(how)})
+}
+
+// HisCardID is the ID of the card a step only the Overlord can take becomes in
+// his Command Center when AFK mode turns off: the same for the same line, so
+// a step is one card however often it is looked at.
+func HisCardID(step Entry) string {
+	return "afk-his-" + step.At.UTC().Format("20060102T150405.000000000Z")
+}
+
+// HisCardItem is the Command Center key of that card: a run item for a step
+// that is a command he runs, otherwise a question.
+func HisCardItem(step Entry) string {
+	if step.Command != "" {
+		return "run:" + HisCardID(step)
+	}
+	return "question:" + HisCardID(step)
 }
 
 // LeftQuestionID is the ID of the question a decision the CFO answered in the
