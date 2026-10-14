@@ -23,6 +23,8 @@
 .connector-toggle { display: grid; place-items: center; width: 44px; height: 44px; flex: none; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: var(--ghost-bg); color: #edf4f3; }
 .connector-toggle .icon { width: 20px; height: 20px; }
 .connector-toggle.is-carried { color: var(--accent-green); }
+.browser-login-name { flex-wrap: wrap; row-gap: 2px; }
+.browser-login-name strong { white-space: normal; overflow-wrap: anywhere; }
 .browser-login-state { display: inline-flex; align-items: center; flex: none; gap: 6px; font-weight: 700; white-space: nowrap; }
 .browser-login-state .icon { width: 18px; height: 18px; }
 .browser-login-state.is-signed-in { color: var(--mint); }

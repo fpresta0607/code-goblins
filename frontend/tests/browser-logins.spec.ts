@@ -41,6 +41,13 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await expect(siqstack.getByRole("button", { name: "Sign out of Stripe · SIQstack" })).toHaveCount(0);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
+    // Each login's name shows whole, so two logins of one provider are told
+    // apart at every width: its signed-in state goes below it when both do
+    // not fit on one line.
+    for (const name of ["Stripe · PrecisionDocs", "Stripe · SIQstack"]) {
+      const isWhole = await list.getByText(name, { exact: true }).evaluate((element) => element.scrollWidth <= element.clientWidth);
+      expect(isWhole, name + " shows whole").toBe(true);
+    }
     await page.locator("main").screenshot({ path: "test-results/browser-logins-" + viewport.width + ".png" });
 
     await precision.getByRole("button", { name: "Sign out of Stripe · PrecisionDocs" }).click();
