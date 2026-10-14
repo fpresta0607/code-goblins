@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 )
 
@@ -58,10 +60,42 @@ func countingServer(t *testing.T, data []byte) (url string, asked *atomic.Int32)
 
 const runnerDryRun = "-DryRun -AppId 1 -InstallationId 2 -Repo o/r -Key k -User u"
 
+// skipWhenElevated skips a dry run's test in an elevated session, as on
+// GitHub's runner, where the script refuses a dry run before it downloads
+// anything, as TestCIRunnerInstallScriptRefusesAnElevatedDryRun shows.
+func skipWhenElevated(t *testing.T) {
+	t.Helper()
+	if windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("an elevated dry run is refused before it downloads anything")
+	}
+}
+
+// An elevated dry run is refused before anything is downloaded: elevated,
+// the program it checks in the user's own temp folder, which any program of
+// the user's can change, would run as an administrator. Only an elevated
+// session can ask for one, as GitHub's runner does.
+func TestCIRunnerInstallScriptRefusesAnElevatedDryRun(t *testing.T) {
+	if !windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("only an elevated session can ask for an elevated dry run")
+	}
+	// Arrange
+	program := []byte("MZ a program no one signed")
+	base, asked := countingServer(t, program)
+
+	// Act
+	output, _, err := runCIRunnerInstall(t, runnerPin{base, "SIQstack LLC", fmt.Sprintf("%x", sha256.Sum256(program))}, base, runnerDryRun)
+
+	// Assert
+	if err == nil || !strings.Contains(output, "needs no elevation") || asked.Load() != 0 {
+		t.Errorf("the script = %v, having asked its release %d time(s):\n%s\nwant the dry run refused before anything is downloaded", err, asked.Load(), output)
+	}
+}
+
 // A cg-ci-runner.exe whose SHA-256 is not the one the script pins, or that
 // is not signed by the release's publisher, is refused before it is run or
 // copied, and nothing downloaded is left.
 func TestCIRunnerInstallScriptRefusesAProgramItCannotVerify(t *testing.T) {
+	skipWhenElevated(t)
 	program := []byte("MZ a program no one signed")
 	for name, row := range map[string]struct {
 		programHash string
@@ -95,6 +129,7 @@ func TestCIRunnerInstallScriptRefusesAProgramItCannotVerify(t *testing.T) {
 // the session that names another server is never read, since the elevated
 // install would fetch whatever a program of the user's set it to.
 func TestCIRunnerInstallScriptDownloadsOnlyFromItsRelease(t *testing.T) {
+	skipWhenElevated(t)
 	// Arrange
 	program := []byte("MZ a program no one signed")
 	release, releaseAsked := countingServer(t, nil)
@@ -115,6 +150,7 @@ func TestCIRunnerInstallScriptDownloadsOnlyFromItsRelease(t *testing.T) {
 // A copy that names no publisher, as the repository's own does, installs
 // nothing and downloads nothing, since the service holds a GitHub App's key.
 func TestCIRunnerInstallScriptInstallsNothingUnsigned(t *testing.T) {
+	skipWhenElevated(t)
 	// Arrange
 	base, asked := countingServer(t, nil)
 

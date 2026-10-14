@@ -14,8 +14,8 @@
 #
 #   powershell -NoProfile -ExecutionPolicy AllSigned -File ci-runner-install.ps1 -AppId <id> -InstallationId <id> -Repo <owner/name> -Key <file> -User <account> -RemoveKey
 #
-# -DryRun downloads and checks the program, then shows each step of the
-# install without elevation and changes nothing. -RemoveKey deletes the
+# -DryRun, from a PowerShell that is not elevated, downloads and checks the
+# program, then shows each step of the install and changes nothing. -RemoveKey deletes the
 # App's key file once the service holds its own copy. -Uninstall removes the
 # runner, its VM, its service, its key and its program.
 param(
@@ -47,6 +47,9 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $DryRun -and -not $isElevated) {
     throw "The runner's install makes a service and a Hyper-V VM, so run this from an elevated Windows PowerShell, or with -DryRun to see each step."
+}
+if ($DryRun -and $isElevated) {
+    throw "A dry run changes nothing and needs no elevation, so run it from a Windows PowerShell that is not elevated: elevated, the program it checks in your own temp folder would run as an administrator."
 }
 
 if ($Uninstall) {
@@ -91,8 +94,8 @@ $arguments = @("install", "--app-id", $AppId, "--installation-id", $Installation
 if ($RemoveKey) { $arguments += "--remove-key" }
 
 if ($DryRun) {
-    # A dry run is not elevated, so it may check and run the program from
-    # the user's own temp folder.
+    # A dry run is never elevated, as the script refuses one that is, so it
+    # may check and run the program from the user's own temp folder.
     $folder = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-ci-runner-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $folder | Out-Null
     try {
