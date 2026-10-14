@@ -23,7 +23,7 @@ const browserHandTimeout = 2 * time.Minute
 // runAuthBrowser lends a goblin's browser session its project's login of a
 // provider, or gives it back:
 //
-//	cfo auth browser <provider> --task <id> [--release]
+//	cfo auth browser <provider> --task <id> [--release | --sign-in]
 //
 // The supervisor starts the login's Chrome on its own profile, headless and
 // reaching only the provider's hosts, and this command points the task's
@@ -31,7 +31,7 @@ const browserHandTimeout = 2 * time.Minute
 // drives its own. The login is lent to one task at a time.
 func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintln(stderr, "usage: cfo auth browser <provider> --task <id> [--release]")
+		fmt.Fprintln(stderr, "usage: cfo auth browser <provider> --task <id> [--release | --sign-in]")
 		return 2
 	}
 	provider := args[0]
@@ -39,6 +39,7 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 	flags.SetOutput(stderr)
 	task := flags.String("task", "", "your task's ID")
 	release := flags.Bool("release", false, "give the login's browser back, which closes it")
+	isSignIn := flags.Bool("sign-in", false, "ask for a sign-in on the Command Center")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 		return 2
 	}
@@ -46,11 +47,15 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintln(stderr, "cfo auth browser: --task names your own task's ID")
 		return 2
 	}
+	if *isSignIn && *release {
+		fmt.Fprintln(stderr, "cfo auth browser: choose --sign-in or --release")
+		return 2
+	}
 	// The session the command points is the terminal's own, which spawn
 	// names after its task: any other would hand the login to a browser
 	// session someone else uses, or to the one the tool shares with every
 	// program of the user.
-	if session := os.Getenv(spawn.BrowserSessionVariable); session != *task {
+	if session := os.Getenv(spawn.BrowserSessionVariable); !*isSignIn && session != *task {
 		fmt.Fprintf(stderr, "cfo auth browser: this terminal's browser session is %q, not task %s's own, so nothing was lent\n", session, *task)
 		return 2
 	}
@@ -61,6 +66,15 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), browserHandTimeout)
 	defer cancel()
+	if *isSignIn {
+		lease, err := runtime.requestBrowser(h, supervisor.BrowserRequest{Action: "sign-in", Task: *task, Provider: provider})
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo auth browser: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "The %s sign-in card for %s is ready in the Command Center (%s). Its button opens the window for the person signing in.\n", lease.Provider, lease.Account, lease.SignIn)
+		return 0
+	}
 	if *release {
 		// The session lets go of the browser before it closes, so its next
 		// command starts a browser of its own.

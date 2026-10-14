@@ -35,7 +35,7 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth revoke <task-id> <service> [<service>...]   take services out of a task's record, so no later terminal of it carries them
        cfo auth revoke <task-id> --mcp <server> [<server>...]   take MCP servers out of a task's record, so no later terminal of it is given them
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 for the services it carries
-       cfo auth browser <provider> --task <id> [--release]   drive your project's browser login of a provider with your browser session, or give it back
+       cfo auth browser <provider> --task <id> [--release | --sign-in]   drive your project's provider browser, give it back, or ask for a sign-in on the board
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
 lists the shared scope, which is where every credential stored before

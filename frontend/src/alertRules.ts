@@ -1,5 +1,6 @@
 import { isOpen, itemFor, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
 import { credentialAsk } from "./credentials.ts";
+import { signInHeading } from "./browser-signins.ts";
 import { publishedAt } from "./item-state.ts";
 import { messageBlocks, plainMessage } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
@@ -51,6 +52,7 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   // prefix, its page's link or a table of values its card shows.
   if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " + plainMessage(waitReason(item.review)) : " wants your review: " + plainMessage(item.review.title)));
   if (item.kind === "credential") return alert(item.request.task, asker(item.request.task) + " asks: " + credentialAsk(item.request));
+  if (item.kind === "browser-signin") return alert(item.signin.task, asker(item.signin.task) + " asks: " + signInHeading(item.signin));
   // A new release is an event of its own, announced by Code Goblins itself.
   if (item.run.update) return { ...alert("", "Code Goblins " + item.run.update.to + " is ready: update from " + item.run.update.from), speaker: "Code Goblins" };
   if (item.run.task) return alert(item.run.task, asker(item.run.task) + " asks you to run a command: " + plainMessage(item.run.title));

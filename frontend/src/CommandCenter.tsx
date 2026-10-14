@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { message, request } from "./api";
-import { object, parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
+import { object, parseAction, string, type BoardActivity, type BrowserSignIn, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -11,7 +11,9 @@ import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CfoUnwokenCard } from "./cfo-unwoken-card";
 import { CredentialCard } from "./credential-card";
-import { credentialAsk, credentialSettled } from "./credentials";
+import { credentialAsk, credentialSettled, onThisMachine } from "./credentials";
+import { BrowserSignInCard } from "./browser-signin-card";
+import { signInHeading, signInOutcome } from "./browser-signins";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
@@ -40,6 +42,7 @@ const RESEND_MS = 1000;
 // item key on its change card, as History's Change answer does, as Change on
 // the AFK recap asks.
 export interface CommandFocus { key: string; at: number; keys?: string[]; change?: string }
+interface SignInAttempt { signin: BrowserSignIn; instance: string; isPending: boolean; error: string }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
@@ -66,6 +69,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const pressedOutside = useRef(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [signInAttempts, setSignInAttempts] = useState<Record<string, SignInAttempt>>({});
+  const activeSignInAttempts = useRef(signInAttempts);
+  useLayoutEffect(() => { activeSignInAttempts.current = signInAttempts; }, [signInAttempts]);
   const [publications, setPublications] = useState(() => new Map(asItems(snapshot).map((item) => [item.key, publishedAt(item)])));
   const latestPublications = useRef(publications);
   useLayoutEffect(() => { latestPublications.current = publications; }, [publications]);
@@ -113,7 +119,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
   const ranClean = item?.kind === "run" && !item.run.update && !isOpen(item) && !runMark(item.run).trouble;
   const stored = item?.kind === "credential" && item.request.state === "saved";
-  const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : elsewhere || !!sending && !sending.failed);
+  const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : item.kind === "browser-signin" ? !isOpen(item) : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // A question he answered and moved past opens again, when he goes back to
   // it, with his answer checked and its other choices open to change, never
@@ -252,6 +258,17 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   // Run names the stored item; the browser never sends command text.
   const run = (target: Run) => { if (target.state === "ready") void post("run:" + target.id, { kind: "run", run_id: target.id, generation: target.identity }); };
+  const openSignIn = async (signin: BrowserSignIn) => {
+    if (!connected || !onThisMachine(window.location.hostname) || signin.state !== "ready" || activeSignInAttempts.current[signin.id]?.isPending) return;
+    const attempt: SignInAttempt = { signin, instance: snapshot.instance, isPending: true, error: "" };
+    activeSignInAttempts.current = { ...activeSignInAttempts.current, [signin.id]: attempt };
+    setSignInAttempts((prior) => ({ ...prior, [signin.id]: attempt }));
+    try {
+      await request("/api/browser-signins/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: signin.id, generation: signin.generation }) });
+    } catch (error: unknown) {
+      setSignInAttempts((prior) => prior[signin.id] === attempt ? { ...prior, [signin.id]: { ...attempt, isPending: false, error: message(error) } } : prior);
+    }
+  };
   // An update that did not install offers one Try again, once the board has
   // published its item for the same release again: retryItem is that item,
   // which the press shows and starts at once.
@@ -295,18 +312,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const timer = setTimeout(() => { for (const [key, payload] of waiting) void resend.current(key, object(JSON.parse(payload))); }, RESEND_MS);
     return () => clearTimeout(timer);
   }, [connected, keptBackKey]);
-  const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
+  const taskOf = (candidate: Item) => candidate.kind === "browser-signin" ? candidate.signin.task : candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
   // An Update item is Code Goblins' own, not the CFO's or a goblin's.
   const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
   const askerOf = (candidate: Item) => {
     const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
     return release(candidate) ? "Code Goblins" : taskOf(candidate) ? goblin ? goblinName(goblin) : taskOf(candidate) : "The CFO";
   };
-  const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
-  const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
-  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : candidate.run.cfo_unwoken ? "refresh" : "play";
+  const textOf = (candidate: Item) => candidate.kind === "browser-signin" ? signInHeading(candidate.signin) : candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
+  const created = (candidate: Item) => candidate.kind === "browser-signin" ? candidate.signin.created_at : candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
+  const iconOf = (candidate: Item) => candidate.kind === "browser-signin" ? "lock" : candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : candidate.run.cfo_unwoken ? "refresh" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
-  const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
+  const images = !item || item.kind === "run" || item.kind === "credential" || item.kind === "browser-signin" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
   const presenter = (event: BoardActivity) => {
@@ -314,6 +331,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     return event.cfo_identity ? "The CFO" : goblin ? goblinName(goblin) : event.task_id;
   };
   const settled = settledItems(snapshot).slice(0, 20);
+  // An accepted click stays pending until the broker reports progress, even
+  // when he leaves its card. A late refusal belongs only to that attempt.
+  const staleSignIns = Object.entries(signInAttempts).filter(([id, attempt]) => {
+    const latest = snapshot.browser_signins?.find((signin) => signin.id === id);
+    return !latest || attempt.instance !== snapshot.instance || latest.generation !== attempt.signin.generation || latest.created_at !== attempt.signin.created_at || latest.state !== attempt.signin.state || latest.reason !== attempt.signin.reason;
+  });
+  if (staleSignIns.length) {
+    const stale = new Set(staleSignIns.map(([id]) => id));
+    setSignInAttempts(Object.fromEntries(Object.entries(signInAttempts).filter(([id]) => !stale.has(id))));
+  }
   // Reset before committing this render, including IDs absent between publications.
   // Registration changes identity but keeps created_at, so unfinished answers survive.
   const changed = asItems(snapshot).filter((candidate) => publications.get(candidate.key) !== publishedAt(candidate));
@@ -405,6 +432,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
               : item.kind === "credential" && stored
               ? <DoneCard key={shownKey} heading="Stored" label={credentialSettled(item.request)} pager={pager} />
+              : item.kind === "browser-signin" && item.signin.state === "signed_in"
+              ? <DoneCard key={shownKey} heading="Signed in" label={signInOutcome(item.signin)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />
@@ -413,6 +442,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onDismiss={() => dismiss(item.question)} onImage={setGallery} pager={pager} />
               : item.kind === "credential"
               ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
+              : item.kind === "browser-signin"
+              ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
               : item.kind === "run" && item.run.cfo_unwoken
               ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
               : item.kind === "run" && item.run.update

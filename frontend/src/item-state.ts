@@ -16,14 +16,14 @@ export interface Sent { kind: string; id: string; text: string; answer_kind: str
 // again once it has dropped the record that used it, so an ID alone does not:
 // the same ID with another created_at is a new item. An item's identity is no
 // part of it, since it moves when the CFO registers again.
-export const publishedAt = (item: Item): string => (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.request).created_at;
+export const publishedAt = (item: Item): string => (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.kind === "browser-signin" ? item.signin : item.request).created_at;
 
 // withItems is the last snapshot with the Command Center's items the
 // supervisor sent after it. Items from another supervisor, or older than the
 // snapshot, change nothing, and neither do items with no snapshot to go on.
 export function withItems(current: Snapshot | null, items: Items): Snapshot | null {
   if (!current || current.instance !== items.instance || current.revision > items.revision) return current;
-  return { ...current, revision: items.revision, questions: items.questions, reviews: items.reviews, runs: items.runs, credentials: items.credentials, actions: items.actions };
+  return { ...current, revision: items.revision, questions: items.questions, reviews: items.reviews, runs: items.runs, credentials: items.credentials, browser_signins: items.browser_signins, actions: items.actions };
 }
 
 // How many closed items the board remembers, newest last.
@@ -79,5 +79,6 @@ export function holdClosed(snapshot: Snapshot, closed: ReadonlyMap<string, Item>
   const reviews = snapshot.reviews?.map((review) => { const item = kept({ kind: "review", key: "review:" + review.id, review }); return item.kind === "review" ? item.review : review; });
   const runs = snapshot.runs?.map((run) => { const item = kept({ kind: "run", key: "run:" + run.id, run }); return item.kind === "run" ? item.run : run; });
   const credentials = snapshot.credentials?.map((request) => { const item = kept({ kind: "credential", key: "credential:" + request.id, request }); return item.kind === "credential" ? item.request : request; });
-  return held ? { ...snapshot, questions, reviews, runs, credentials } : snapshot;
+  const browser_signins = snapshot.browser_signins?.map((signin) => { const item = kept({ kind: "browser-signin", key: "browser-signin:" + signin.id, signin }); return item.kind === "browser-signin" ? item.signin : signin; });
+  return held ? { ...snapshot, questions, reviews, runs, credentials, browser_signins } : snapshot;
 }

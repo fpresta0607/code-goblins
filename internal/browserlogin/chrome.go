@@ -24,6 +24,7 @@ type Launch struct {
 	Hosts []string
 	// Headless starts it with no window at all.
 	Headless bool
+	Page     string
 }
 
 // Arguments are Chrome's command line for the launch: the login's profile,
@@ -41,7 +42,11 @@ func (l Launch) Arguments() []string {
 	if len(l.Hosts) > 0 {
 		arguments = append(arguments, "--host-resolver-rules="+HostRules(l.Hosts))
 	}
-	return append(arguments, "about:blank")
+	page := l.Page
+	if page == "" {
+		page = "about:blank"
+	}
+	return append(arguments, page)
 }
 
 // HostRules are Chrome's resolver rules that leave hosts as they are and
