@@ -371,6 +371,12 @@ While it waits, a run says which run holds the turn, for how long and under what
 cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget; 1 run is ahead of this one in line
 ```
 
+Every take, protection and release of a turn goes through the line's lock, which another run's change holds for milliseconds, and each change waits five seconds for it.
+A run that finds the lock busy for all five seconds, as a loaded machine can keep it, as it first checks the line, takes its turn at the head of the line, or protects the turn it took, keeps its place and tries again.
+At the head of the line it says `the line's lock is busy` as the lock turns busy.
+It tries again within its admission's limit, an hour for `cfo gate test` and `cfo gate prepush`, past which it gives up with why, and for as long as it waits for `cfo gate turn` and `cfo verify`, which set none.
+On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
+
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
@@ -417,6 +423,24 @@ A goblin in a turn is not told, since one that waited on the run there has read 
 If the line cannot be typed, the run says so in one line on standard error, and its exit code stays the command's.
 A gate the goblin started inherits its terminal's environment, but runs its steps in the gate's own worktree, so a gate's run types nothing.
 
+**Not a gate's wait.**
+A command that waits on a no-mistakes gate takes no turn.
+`no-mistakes axi run`, `axi respond` and `axi answer`, and `cfo pipeline run` and `cfo pipeline respond`, which drive them, wait for the gate's next decision, through every agent step before it.
+The gate's test command takes its own turn, since the fork stands the repository's `commands.test` behind `cfo gate turn`, as **A gate behind it** below says, so a turn held while a gate waits orders no heavy run and keeps every other run in line through the gate's agents' work.
+On 2026-10-13 two goblins' fix rounds held the turn that way while up to ten runs waited.
+The run exits 125 and says what to run instead: the gate's command without `cfo gate turn`, and any heavy command that came with it in a `cfo gate turn` of its own.
+It names the command it was given on one line, so its last line is still its own:
+
+```text
+cfo gate turn: this run takes no turn: no-mistakes axi respond waits on a gate, whose test command takes its own turn, so a turn held while it waits only keeps every other run in line through the gate's agents' work
+cfo gate turn: run the gate's command without cfo gate turn, and any heavy command beside it in a cfo gate turn of its own: no-mistakes axi respond --action fix --wait 10m
+```
+
+`cfo` reads the words of every argument, so a shell's command string, as `cmd.exe /c` and `powershell -Command` take, is read too.
+A word ends at a space, a quote, `&`, `|`, `;`, `(`, `)`, `<` or `>`, and a program is known by its file name without `.exe`, in any case.
+A refused run tells its goblin that it ended, as a run that did not start does.
+A script the command runs is not read.
+
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
 It sets no limit of its own on either wait.
@@ -454,7 +478,7 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
-| 125 | `cfo gate turn: this run takes no turn: <reason>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the wait was interrupted, standard output or error was no file, as a process's always is, or the arguments named no command, which also prints the usage. |
+| 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the wait was interrupted, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
 | 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
@@ -595,8 +619,7 @@ A gate puts every run's test command behind the line, with no repository naming 
 On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with `--as` before the `--` when the gate names its run.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
 This is the contract the no-mistakes fork's wrapper setting is built against.
-The setting goes on only once the installed `cfo` has `cfo gate turn`: an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command.
-The fork's side, as task cg-gate-fork-minutes agreed it and is building it, is a setting in the machine's `~/.no-mistakes/config.yaml`:
+The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `~/.no-mistakes/config.yaml`, on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
 
 ```yaml
 test_command_wrapper:
@@ -614,6 +637,19 @@ The full path to `cfo.exe` keeps the gate daemon's `PATH` from choosing which `c
 It stands every run's `commands.test` behind the line, each machine-local additional test check, and the re-run of `commands.test` on the base commit, and not prepare, lint, format or a repository gate.
 An exit of 125 or 126 whose last line that is not empty starts with `refusal_prefix`, or a wrapper that cannot be started at all, parks the test step with one `test-command-no-turn` finding: no fix agent is asked, fix runs the test command again, and approve goes on without the baseline.
 So this repository's own `cfo gate test` runs behind `cfo gate turn` under a gate, inside the turn its wrapper holds.
+
+A repository whose `.no-mistakes.yaml` names no `commands.test` gives the fork nothing to wrap: its test step logs `no test command configured` and asks the test agent to run the tests, which it does outside the line.
+So every gated repository names its suite there, on its default branch.
+The string runs as `cmd.exe /c <string>`, so it is in `cmd.exe` syntax, with `&&` between commands.
+A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the line:
+
+```yaml
+commands:
+  prepare: "pnpm install --frozen-lockfile"
+  test: "pnpm run build && pnpm test"
+```
+
+What the test command leaves running is ended ten seconds after it exits, and after a baseline that passed the test agent still gathers live evidence, outside the line.
 
 ## Before a push
 

@@ -81,3 +81,12 @@ func MakeProfile(stateDir, id string) (string, error) {
 	}
 	return path, nil
 }
+
+// RemoveProfile deletes login id's Chrome profile, and with it the session
+// kept there. A login with none has nothing to remove.
+func RemoveProfile(stateDir, id string) error {
+	if !ValidID(id) {
+		return fmt.Errorf("%q cannot name a browser login", id)
+	}
+	return fsx.RemoveAll(ProfileDir(stateDir, id))
+}

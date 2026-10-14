@@ -48,6 +48,12 @@ func JobName(runID string) string {
 // Protect records custody of an execution's workers before any of them
 // starts. evidence names the execution's record, or is empty for none.
 func (turn Turn) Protect(runID, evidence string) (guard Custody, failure error) {
+	return turn.ProtectContext(context.Background(), runID, evidence)
+}
+
+// ProtectContext is Protect that tries its custody change again while the
+// line's lock is busy, within the turn's admission limit and while ctx lasts.
+func (turn Turn) ProtectContext(ctx context.Context, runID, evidence string) (guard Custody, failure error) {
 	if runID == "" || strings.ContainsAny(runID, `/\:.`) || strings.Trim(runID, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != "" {
 		return Custody{}, errors.New("verify: invalid execution run ID")
 	}
@@ -58,7 +64,7 @@ func (turn Turn) Protect(runID, evidence string) (guard Custody, failure error) 
 	if err != nil {
 		return Custody{}, err
 	}
-	unlock, err := custodyMutation(turn.dir)
+	unlock, err := custodyMutationWhileBusy(ctx, turn.dir, turn.busyLimit)
 	if err != nil {
 		return Custody{}, err
 	}
@@ -129,18 +135,55 @@ func custodyMutation(dir string) (func() error, error) {
 	return custodyMutationContext(context.Background(), dir)
 }
 
+// custodyMutationBudget is how long a custody change waits for the line's
+// lock, which another run's change holds for milliseconds.
+var custodyMutationBudget = 5 * time.Second
+
+// errCustodyBusy says a custody change found the line's lock busy for all of
+// custodyMutationBudget, as a loaded machine can keep it, while its caller
+// still waits: the change took no lock, and its caller may try again.
+var errCustodyBusy = errors.New("verify: the line's lock stayed busy")
+
+// markCustodyBusy marks err as errCustodyBusy when it came of a custody
+// change's own budget running out while caller still waits.
+func markCustodyBusy(caller context.Context, err error) error {
+	if caller.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", errCustodyBusy, err)
+	}
+	return err
+}
+
+// custodyMutationWhileBusy is a custody change tried again while it finds the
+// line's lock busy, for at most limit and while ctx lasts: a run that has
+// waited its turn keeps it through a busy moment of the lock. Each try is the
+// change custodyMutation makes, so ctx ends only the trying again.
+func custodyMutationWhileBusy(ctx context.Context, dir string, limit time.Duration) (func() error, error) {
+	start := time.Now()
+	for {
+		unlock, err := custodyMutation(dir)
+		if !errors.Is(err, errCustodyBusy) || ctx.Err() != nil || time.Since(start) >= limit {
+			return unlock, err
+		}
+	}
+}
+
 var custodyMutations = struct {
 	sync.Mutex
 	pending map[string]lock.Info
 }{pending: make(map[string]lock.Info)}
 
 func custodyMutationContext(caller context.Context, dir string) (func() error, error) {
+	unlock, err := takeCustodyMutation(caller, dir)
+	return unlock, markCustodyBusy(caller, err)
+}
+
+func takeCustodyMutation(caller context.Context, dir string) (func() error, error) {
 	key, err := fsx.AbsClean(dir)
 	if err != nil {
 		return nil, err
 	}
 	key = strings.ToLower(key)
-	ctx, cancel := context.WithTimeout(caller, 5*time.Second)
+	ctx, cancel := context.WithTimeout(caller, custodyMutationBudget)
 	defer cancel()
 	const name = "custody-mutation"
 	ticker := time.NewTicker(time.Millisecond)
