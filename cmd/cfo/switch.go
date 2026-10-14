@@ -76,12 +76,9 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		request.ResumeNote = "The Overlord restarted you on your own harness, model and effort."
 	}
 	if request.Harness == "" || string(request.Harness) == meta.Harness {
-		if request.ResumeSession, err = fleettree.OwnedSession(h.State, meta); err != nil {
+		if request.ResumeSession, err = taskSession(h.State, meta); err != nil {
 			fmt.Fprintf(stderr, "switch: %v\n", err)
 			return 1
-		}
-		if request.ResumeSession == "" {
-			request.ResumeSession = runningSession(h.State, meta)
 		}
 	}
 	result, err := runtime.switchTask(context.Background(), h, request)
@@ -94,6 +91,18 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stdout, hint)
 	}
 	return 0
+}
+
+// taskSession is the conversation the task's goblin of its current
+// generation is in: the one the board recorded or kept as its running
+// harness proved it (fleettree.OwnedSession), or else the one its harness,
+// while it runs, records itself.
+func taskSession(stateDir string, meta state.TaskMeta) (string, error) {
+	session, err := fleettree.OwnedSession(stateDir, meta)
+	if err != nil || session != "" {
+		return session, err
+	}
+	return runningSession(stateDir, meta), nil
 }
 
 // runningSession is the conversation the task's running harness is in, as

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -32,16 +30,9 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	if err != nil {
 		return state.Lifecycle{}, err
 	}
-	if data, err := fsx.ReadFile(filepath.Join(h.State, ".supervisor.json")); err == nil {
-		var database supervisor.Database
-		if err := json.Unmarshal(data, &database); err != nil {
-			return state.Lifecycle{}, err
-		}
-		session := database.Sessions[database.TaskSessions[meta.ID]]
-		if session.Generation == meta.SpawnGen && session.TaskID == meta.ID {
-			request.Session = session.NativeID
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	// A pause keeps the goblin's conversation for its resume, which goes on
+	// in it rather than from a handoff.
+	if request.Session, err = taskSession(h.State, meta); err != nil {
 		return state.Lifecycle{}, err
 	}
 	root, err := pipeline.DefaultRoot()

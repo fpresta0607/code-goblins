@@ -138,7 +138,11 @@ type Tree struct {
 	// ConversationAt is when the goblin's own conversation was last
 	// written, zero when it was not found.
 	ConversationAt time.Time `json:"conversation_at,omitzero"`
-	Children       []Node    `json:"children"`
+	// Session is the conversation the goblin's running harness proved it is
+	// in at this read, as RunningSession names it, and empty while the
+	// harness does not run. The board keeps it for the goblin's relaunch.
+	Session  string `json:"-"`
+	Children []Node `json:"children"`
 	// Unread names evidence that could not be read, so a tree that shows
 	// nothing is never mistaken for a goblin running nothing.
 	Unread          []string  `json:"unread,omitempty"`
