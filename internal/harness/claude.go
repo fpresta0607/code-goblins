@@ -24,6 +24,13 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 		return Launch{}, err
 	}
 	launch.Env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] = "false"
+	// Claude Code ends every background shell of a session idle for half an
+	// hour when Windows signals critical memory, whatever each one holds: a
+	// goblin's queued cfo gate turn lost its place in the line that way. The
+	// line ends the one run it lets use the machine's spare memory at the
+	// desktop reserve instead, and the fleet's memory floor pauses whole
+	// goblins (decision 1001550). The setting is read only as Claude starts.
+	launch.Env["CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP"] = "1"
 	// Goblin panes must not inherit the operator's connected claude.ai MCP
 	// servers: those are interactive-auth (OAuth) servers that print "N MCP
 	// servers need authentication - run /mcp" on every launch and do the goblin

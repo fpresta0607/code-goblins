@@ -48,6 +48,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // shows the key was pressed (the Overlord, 2026-10-09, "enter to approve
   // in claude doesnt work").
   const [isUnread, setUnread] = useState(false);
+  // Whether a key he typed was not sent, since the view had no connection
+  // then, until a new connection is whole.
+  const [isUnsent, setUnsent] = useState(false);
   const voice = useVoice(hostPane(query));
   const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); }, instance);
   const dictate = dictation.key;
@@ -80,6 +83,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
         const prior = current.current;
+        // Disposing the view it replaces takes the keyboard from the page, so
+        // where the keyboard was is read first.
+        const hadKeyboard = !!prior?.element.contains(document.activeElement) || !!container.closest(".context-pane")?.contains(document.activeElement);
         current.current = view;
         if (staged.current === view) staged.current = null;
         view.promote();
@@ -89,10 +95,11 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setHasScreen(true);
         setHistoryEnd(null);
         setUnread(view.unread);
+        setUnsent(false);
         setReconnecting(false);
         setEndedWhy("");
         setPhase("live");
-        if (shownValue.current && (wantFocus.current || container.closest(".context-pane")?.contains(document.activeElement))) view.focus();
+        if (shownValue.current && (wantFocus.current || hadKeyboard)) view.focus();
         wantFocus.current = false;
       },
       closed: (code, why) => {
@@ -117,6 +124,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       harness: () => harnessValue.current,
       reading: (end) => { if (current.current === view) setHistoryEnd(end); },
       unread: (unread) => { if (current.current === view) setUnread(unread); },
+      unsent: () => { if (current.current === view) setUnsent(true); },
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -133,9 +141,10 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
-    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{endedWhy ? <p>{endedWhy}</p> : <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
+    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{endedWhy ? <p>{endedWhy}</p> : <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
-    {phase === "live" && isUnread && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
+    {phase !== "connecting" && isUnsent && <span className="terminal-state terminal-unsent" role="status"><span className="status-dot" />{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</span>}
+    {phase === "live" && isUnread && !isUnsent && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
     {(hasMicrophone || dictation.listening) && <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />}
     {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}

@@ -386,6 +386,11 @@ func measuredExecutor(label, who string, says io.Writer, available func() (super
 				fmt.Fprintf(says, "%s: waiting for its turn (%s so far): %s\n", label, waited.Round(time.Second), why)
 			},
 		},
+		Took: func(waited time.Duration) {
+			if waited >= time.Second {
+				fmt.Fprintf(says, "%s: took its turn after %s\n", label, waited.Round(time.Second))
+			}
+		},
 		Monitor: verify.Monitor{Headroom: func() (verify.Headroom, error) {
 			memory, err := available()
 			return verify.Headroom{PhysicalAvailable: memory.Available, CommitAvailable: memory.CommitAvailable}, err
