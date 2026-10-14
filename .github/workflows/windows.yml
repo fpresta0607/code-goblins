@@ -10,8 +10,6 @@ name: windows
 # installed. The tests that show a window run only here, where
 # CFO_WINDOW_PROOF names the default terminal.
 on:
-  push:
-    branches: [fix/no-visible-windows]
   pull_request:
     paths:
       - cmd/cfo/main.go
