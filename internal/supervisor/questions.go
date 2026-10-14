@@ -71,9 +71,10 @@ type Question struct {
 	// goblin has his.
 	ChangeID       string `json:"change_id,omitempty"`
 	ReplacedAnswer string `json:"replaced_answer,omitempty"`
-	// Page is, on the board only, the open review item whose page carries
-	// this question, so the Command Center shows the two as one.
-	Page string `json:"page,omitempty"`
+	// AsksPage is the link of the goblin's Scrawl page that AFK mode asked of
+	// the CFO as this question, so an answer to it is the answer to that page.
+	// It is empty for every other question, whatever its text says.
+	AsksPage string `json:"asks_page,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -131,6 +132,42 @@ func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 	return meta, err
 }
 
+// goblinPipeCaller proves the pipe's peer belongs to the task it names.
+// A check in the CLI alone leaves a raw pipe request free to name any task.
+func goblinPipeCaller(stateDir, taskID string, pid int, connected time.Time) error {
+	meta, err := state.ReadTaskMeta(stateDir, taskID)
+	if err != nil {
+		return err
+	}
+	if meta.Backend != "native" {
+		return fmt.Errorf("task %s runs in no native terminal", taskID)
+	}
+	record, err := host.ReadRecord(stateDir, taskID)
+	if err != nil {
+		return err
+	}
+	entries, err := proc.Ancestry(pid, 32)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 || entries[0].Start.After(connected) || record.ChildStart.IsZero() {
+		return errors.New("the caller's process identity cannot be proven")
+	}
+	isProven := descendsFrom(entries, lock.Info{PID: record.ChildPID, Start: record.ChildStart})
+	if !isProven {
+		identity, err := proc.Identify(pid, entries[0].Start)
+		if err != nil {
+			return err
+		}
+		_, err = terminalProgram(record, identity.Environment)
+		isProven = err == nil
+	}
+	if !isProven {
+		return fmt.Errorf("this process does not run under task %s's terminal", taskID)
+	}
+	return terminalAnswers(stateDir, taskID)
+}
+
 // SurfaceNotify records a goblin's blocking notify with choices for the CFO
 // to answer, labelled with the goblin. A notify without choices and a failed
 // notify stay prose in the CFO's wake queue, except a goblin's Scrawl page,
@@ -139,8 +176,10 @@ func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
 // detail is the notify as the goblin wrote it: the queue holds record's
-// one-line form, and the question keeps its own line breaks.
-func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, images []string) error {
+// one-line form, and the question keeps its own line breaks. page is the link
+// of the goblin's page AFK mode asks of the CFO as this question, and empty
+// for any other question.
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page string, images []string) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -152,7 +191,7 @@ func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, i
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
@@ -360,7 +399,7 @@ type cfoAnswer struct {
 // that is a delivery, submitted once, and it is recorded like one, so neither
 // the CFO nor the board sends a second decision.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
-	identity, release, err := c.CallerIdentity()
+	_, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", false, err
 	}
@@ -424,7 +463,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
 	if onBoard {
-		if err := c.recordAnswer(identity, q, id, chosen, answer, ""); err != nil {
+		if err := c.recordAnswer(q, id, chosen, answer, ""); err != nil {
 			unrecorded = append(unrecorded, err)
 		}
 	}
@@ -471,7 +510,7 @@ var answerPlace = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{0,39}$`)
 // ID, notify-<task>-<sequence> for a goblin's. It returns the choice it
 // recorded.
 func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error) {
-	identity, release, err := c.CallerIdentity()
+	_, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", err
 	}
@@ -530,7 +569,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := c.recordAnswer(identity, q, q.ID, chosen, withNote(chosen, note), in); err != nil {
+	if err := c.recordAnswer(q, q.ID, chosen, withNote(chosen, note), in); err != nil {
 		return "", err
 	}
 	if in == "" {
@@ -574,30 +613,19 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 	return nil
 }
 
-// recordAnswer tells the board which choice closed a goblin's question and
-// closes the goblin's waits on the Overlord up to it, since the goblin has
-// what it waited for; a later wait is its own request.
-func (c *CFOConnection) recordAnswer(identity string, q Question, id, chosen, answer, in string) error {
-	var unrecorded []error
+// recordAnswer tells the board which choice closed a goblin's question. It
+// closes only that question: the goblin's waits on the Overlord, such as a
+// sign-in only he can clear, stay his.
+func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
 	if !slices.Contains(q.Options, chosen) {
 		option = ""
 	}
 	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, At: time.Now().UTC()}}); err != nil {
-		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
+		return fmt.Errorf("the board could not record it: %w", err)
 	}
-	if q.Task == "" {
-		return errors.Join(unrecorded...)
-	}
-	waiting := func(r Review) bool {
-		n, err := strconv.Atoi(strings.TrimPrefix(r.ID, "waiting-"+q.Task+"-"))
-		return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") && err == nil && n <= q.Seq
-	}
-	if err := clearReviews(c.State, identity, "The CFO answered "+q.Task+"'s question.", waiting, false); err != nil {
-		unrecorded = append(unrecorded, fmt.Errorf("its waits on the Overlord stay open: %w", err))
-	}
-	return errors.Join(unrecorded...)
+	return nil
 }
 
 // questionSeq reads the wake sequence a goblin question reference names: the
@@ -822,10 +850,10 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
-		s.closePagesOfQuestion(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
-		return nil
+		s.closePageQuestionAsks(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
+	} else {
+		s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	}
-	s.closePagesOfQuestion(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	return nil
 }
 
@@ -1181,6 +1209,7 @@ func (s *Store) supersedeQuestions() error {
 			// closes as answered by the CFO, with the check of any answer.
 			at := time.Now().UTC()
 			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CFO.", "cfo", &at, switched.On
+			s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question.")
 			changed = true
 		}
 	}

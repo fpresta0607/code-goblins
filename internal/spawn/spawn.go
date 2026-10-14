@@ -414,6 +414,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: %w", err))
 	}
+	settings, err := s.goblinSettings(req.Harness)
+	if err != nil {
+		return fail(result, fmt.Errorf("spawn: %w", err))
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       req.BriefPath,
 		TaskTmp:         taskTmp,
@@ -421,6 +425,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		Model:           req.Model,
 		Effort:          req.Effort,
 		MCPConfig:       provision.MCPConfig,
+		Settings:        settings,
 		CodexMCPServers: codexServers,
 	})
 	if err != nil {

@@ -1,6 +1,6 @@
 //go:build windows
 
-package supervisor
+package proc
 
 import (
 	"errors"
@@ -39,13 +39,13 @@ func (row tcpOwnerRow) remote() netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom4(row.RemoteAddr), uint16(row.RemotePort[0])<<8|uint16(row.RemotePort[1]))
 }
 
-// tcpPeerProcess names the process at the other end of a connection to the
-// board on this machine: the one that owns the socket the connection came
-// from. Windows lists every IPv4 connection once for each of its sockets; the
-// peer's is the one whose own end is peer and whose far end is board.
-func tcpPeerProcess(peer, board netip.AddrPort) (int, error) {
-	peer, board = netip.AddrPortFrom(peer.Addr().Unmap(), peer.Port()), netip.AddrPortFrom(board.Addr().Unmap(), board.Port())
-	if !peer.Addr().Is4() || !board.Addr().Is4() {
+// TCPPeerProcess names the process at the other end of a connection on this
+// machine: the one that owns the socket the connection came from. Windows
+// lists every IPv4 connection once for each of its sockets. The peer's is
+// the one whose own end is peer and whose far end is local.
+func TCPPeerProcess(peer, local netip.AddrPort) (int, error) {
+	peer, local = netip.AddrPortFrom(peer.Addr().Unmap(), peer.Port()), netip.AddrPortFrom(local.Addr().Unmap(), local.Port())
+	if !peer.Addr().Is4() || !local.Addr().Is4() {
 		return 0, errors.New("the connection is not an IPv4 connection")
 	}
 	// The table grows while it is read, so the size Windows asks for is tried
@@ -73,10 +73,10 @@ func tcpPeerProcess(peer, board netip.AddrPort) (int, error) {
 	}
 	if count > 0 {
 		for _, row := range unsafe.Slice((*tcpOwnerRow)(unsafe.Pointer(&table[first])), count) {
-			if row.local() == peer && row.remote() == board {
+			if row.local() == peer && row.remote() == local {
 				return int(row.OwningPID), nil
 			}
 		}
 	}
-	return 0, errors.New("Windows lists no connection from " + peer.String() + " to the board")
+	return 0, errors.New("Windows lists no connection from " + peer.String() + " to " + local.String())
 }

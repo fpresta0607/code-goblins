@@ -87,7 +87,36 @@ func Hooks(root string) []Hook {
 // names to the user's own settings, for that session alone.
 func CFOSettings(root string) ([]byte, error) {
 	file := &settingsFile{values: map[string]any{}}
-	if err := file.addCFOHooks(root); err != nil {
+	if err := file.addHooks(Hooks(root)); err != nil {
+		return nil, err
+	}
+	return file.render()
+}
+
+// GoblinHooks are the hooks every Claude Code goblin starts with, of the
+// home at root, and the single place they are defined. goblin-seal refuses
+// the goblin's browser commands while a key fetch reads in its browser, and
+// so runs only before a shell call. goblin-key-alarm wakes the CFO when a
+// tool's output holds a secret key, and so runs after every tool call: a
+// key read from a file is as exposed as one a command printed.
+func GoblinHooks(root string) []Hook {
+	hooks := []Hook{
+		{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell"},
+		{Name: "goblin-key-alarm", Event: "PostToolUse", Matcher: "*"},
+	}
+	for i := range hooks {
+		hooks[i].Command = filepath.Join(root, home.BinDir, "cfo.exe")
+		hooks[i].Args = []string{"hook", hooks[i].Name}
+	}
+	return hooks
+}
+
+// GoblinSettings is the Claude Code settings document a goblin starts with:
+// the goblin hooks and nothing else, which Claude Code adds to the user's own
+// settings for that session alone.
+func GoblinSettings(root string) ([]byte, error) {
+	file := &settingsFile{values: map[string]any{}}
+	if err := file.addHooks(GoblinHooks(root)); err != nil {
 		return nil, err
 	}
 	return file.render()
@@ -148,13 +177,12 @@ type hookGroup struct {
 	entries []map[string]any
 }
 
-// cfoHookGroups renders the hooks of the home at root as the settings-file
-// groups they are written as: hooks sharing an event and matcher become one
-// group, in the order Hooks lists them.
-func cfoHookGroups(root string) []hookGroup {
+// hookGroups renders hooks as the settings-file groups they are written as:
+// hooks sharing an event and matcher become one group, in the order listed.
+func hookGroups(hooks []Hook) []hookGroup {
 	groups := []hookGroup{}
 	index := map[string]int{}
-	for _, hook := range Hooks(root) {
+	for _, hook := range hooks {
 		args := make([]any, 0, len(hook.Args))
 		for _, arg := range hook.Args {
 			args = append(args, arg)

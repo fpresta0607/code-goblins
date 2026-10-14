@@ -181,9 +181,9 @@ func (f *settingsFile) pruneCFOHooks() error {
 	return nil
 }
 
-// addCFOHooks adds the CFO hook groups of the home at root to the document,
-// each after the groups its event already holds.
-func (f *settingsFile) addCFOHooks(root string) error {
+// addHooks adds the groups of hooks to the document, each after the groups
+// its event already holds.
+func (f *settingsFile) addHooks(hooks []Hook) error {
 	events, err := f.hookEvents()
 	if err != nil {
 		return err
@@ -192,7 +192,7 @@ func (f *settingsFile) addCFOHooks(root string) error {
 		events = map[string]any{}
 		f.values["hooks"] = events
 	}
-	for _, group := range cfoHookGroups(root) {
+	for _, group := range hookGroups(hooks) {
 		existing, ok := events[group.event].([]any)
 		if !ok && events[group.event] != nil {
 			return fmt.Errorf("install: %s has a %q hook list that is not an array", f.path, group.event)

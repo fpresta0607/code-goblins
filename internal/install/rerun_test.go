@@ -44,7 +44,7 @@ func mergeCFOHooks(t *testing.T, path, root string) {
 		events = map[string]any{}
 		document["hooks"] = events
 	}
-	for _, group := range cfoHookGroups(root) {
+	for _, group := range hookGroups(Hooks(root)) {
 		rendered := map[string]any{"hooks": group.entries}
 		if group.matcher != "" {
 			rendered["matcher"] = group.matcher

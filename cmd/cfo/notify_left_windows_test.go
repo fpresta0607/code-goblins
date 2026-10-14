@@ -63,7 +63,10 @@ func TestADoneReportFromAShellWithAPipeNamesOnlyWhatTheGoblinLeftRunning(t *test
 			t.Fatal(err)
 		}
 		shellTree = processesUnder(processes, shell.Process.Pid)
-		if exeIn(shellTree, "report.exe") != nil && exeIn(shellTree, "piped.exe") != nil && exeIn(shellTree, "conhost.exe") != nil {
+		// Enumeration can see a pipeline child before its console startup
+		// finishes. Each stand-in records itself only after entering main.
+		started, _ := os.ReadFile(record)
+		if strings.Count(string(started), "\n") == 4 && exeIn(shellTree, "report.exe") != nil && exeIn(shellTree, "piped.exe") != nil && exeIn(shellTree, "conhost.exe") != nil {
 			break
 		}
 		if time.Now().After(deadline) {

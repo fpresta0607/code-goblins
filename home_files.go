@@ -30,3 +30,9 @@ var Policy embed.FS
 //
 //go:embed config/voice.json
 var Voice []byte
+
+// KeyPages are the key page recipes, which stay the binary's: a recipe runs
+// only as it was reviewed and merged, so no home keeps a copy of its own.
+//
+//go:embed config/key-pages.json
+var KeyPages []byte

@@ -155,27 +155,24 @@ type Item struct {
 
 // waiting lists what a board snapshot holds that asks the Overlord
 // something, which is what the board's page alerts, each in the asker's
-// words as the page says it: a pending question that was not asked from an
-// open review page, whose item it is; an open review item; a command ready or
-// running that no credential card opened, since that terminal shows on its
-// card; and an open request for credentials, by its project alone, so the
-// credential names stay out of a Windows notification. Beside them it returns
-// the keys of what is open on the board without being alerted on its own: a
-// pending question asked from an open review page, which that page's card
-// shows. A question that names a task is a goblin's, which the CFO answers:
-// it is neither listed nor returned as a key. Nothing else on the board, such
+// words as the page says it: a pending question; an open review item; a
+// command ready or running that no credential card opened, since that
+// terminal shows on its card; and an open request for credentials, by its
+// project alone, so the credential names stay out of a Windows notification.
+// A question that names a task is a goblin's, which the CFO answers: it is
+// not listed. Nothing else on the board, such
 // as a goblin blocked, failed or done, is an item. It names the supervisor's
 // instance too, which every request to the board that changes something
 // carries.
-func waiting(snapshot []byte) (string, []Item, []string, error) {
+func waiting(snapshot []byte) (string, []Item, error) {
 	var view struct {
 		Instance string `json:"instance"`
 		Tasks    []struct {
 			ID, Title string
 		} `json:"tasks"`
 		Questions []struct {
-			ID, Text, Status, Page, Task string
-			CreatedAt                    string `json:"created_at"`
+			ID, Text, Status, Task string
+			CreatedAt              string `json:"created_at"`
 		} `json:"questions"`
 		Reviews []struct {
 			ID, Title, State, Task, Lavish string
@@ -195,7 +192,7 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(snapshot, &view); err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
 	// A goblin speaks by its title, as its card names it, and the CFO for
 	// what names no goblin.
@@ -222,13 +219,8 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 		return Item{ID: key + "@" + createdAt, Asker: speaker(task), Text: shortened(text, textLimit)}
 	}
 	var items []Item
-	var folded []string
 	for _, q := range view.Questions {
 		if q.Status != "pending" || q.Task != "" {
-			continue
-		}
-		if q.Page != "" {
-			folded = append(folded, "question:"+q.ID+"@"+q.CreatedAt)
 			continue
 		}
 		items = append(items, item("question:"+q.ID, q.CreatedAt, "", asker("")+" asks: "+lead(q.Text)))
@@ -269,13 +261,11 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" asks for credentials for "+c.Project))
 		}
 	}
-	return view.Instance, items, folded, nil
+	return view.Instance, items, nil
 }
 
 // Watcher tells which items waiting on the Overlord are new since its last
 // look. Its first look only learns what already waits, which the board shows.
-// It remembers a question open inside its page's card as well, so that
-// question is not new when its page closes and it becomes a card of its own.
 type Watcher struct {
 	Client *http.Client
 	// Instance is the supervisor's instance, as the last snapshot read named
@@ -304,16 +294,13 @@ func (w *Watcher) New(board string) ([]Item, bool) {
 	if err != nil {
 		return nil, false
 	}
-	instance, items, folded, err := waiting(data)
+	instance, items, err := waiting(data)
 	if err != nil {
 		return nil, false
 	}
 	w.Instance = instance
 	first := w.seen == nil
 	current := map[string]bool{}
-	for _, key := range folded {
-		current[key] = true
-	}
 	var fresh []Item
 	for _, item := range items {
 		current[item.ID] = true
