@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // ErrBusy is a run asked for while a job runs. The service never queues a
@@ -26,18 +27,50 @@ type Service struct {
 
 	mu      sync.Mutex
 	started time.Time
-	last    string
+	// isWatching says the VM is being looked at for a job's leftovers, which
+	// holds the VM as a job does.
+	isWatching bool
+	last       string
+	// refusals counts the requests refused since refusedAt, the last time a
+	// refusal was logged.
+	refusals  int
+	refusedAt time.Time
+
+	// asking is held while GitHub is asked for a waiting job, so many asks at
+	// once make one, and pending is its answer as of pendingAt.
+	asking    sync.Mutex
+	pending   Pending
+	pendingAt time.Time
 }
+
+const (
+	// pendingFresh is how long an answer about a waiting job is given again
+	// rather than asked for: the fleet looks every 30 seconds, and a client
+	// asking without end must not spend the App's GitHub rate limit.
+	pendingFresh = 15 * time.Second
+	// WatchEvery is how often the service looks for a VM left running with
+	// no job (Service.Watch).
+	WatchEvery = 5 * time.Minute
+)
 
 // NewService is the service as installed in dir: its settings and the App's
 // key read from there, GitHub's API, the VM through Hyper-V, each job's DVD
-// written to dir's work folder, and log for what it says.
+// written to dir's work folder, and log for what it says. It refuses a
+// folder anyone but SYSTEM, Administrators and the service could have made
+// or changed (checkFolder), and makes the work folder afresh, so nothing
+// another user left there carries a job's runner configuration.
 func NewService(dir string, log func(string)) (*Service, Config, error) {
+	if err := checkFolder(dir); err != nil {
+		return nil, Config{}, err
+	}
 	config, key, err := ReadConfig(dir)
 	if err != nil {
 		return nil, Config{}, err
 	}
 	work := filepath.Join(dir, "work")
+	if err := fsx.RemoveAll(work); err != nil {
+		return nil, Config{}, err
+	}
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		return nil, Config{}, err
 	}
@@ -55,7 +88,7 @@ func NewService(dir string, log func(string)) (*Service, Config, error) {
 		GitHub: github,
 		VM:     HyperV{Commands: execx.OSRunner{}},
 		DVD: func(runnerConfig string) (string, error) {
-			iso := filepath.Join(work, "job.iso")
+			iso := filepath.Join(work, fmt.Sprintf("job-%d.iso", time.Now().UnixNano()))
 			return iso, BuildDVD(iso, runnerConfig)
 		},
 		Now:   time.Now,
@@ -84,12 +117,42 @@ func (s *Service) Start(ctx context.Context) error {
 	return s.Deps.GitHub.DeleteOwnRunners(ctx)
 }
 
-// Pending is the desktop job that has waited longest, when one waits.
+// Pending is the desktop job that has waited longest, when one waits. An
+// answer is given again for pendingFresh, and asks made while GitHub is
+// being asked wait for that answer, so asks however many and fast make one
+// set of GitHub calls at a time.
 func (s *Service) Pending(ctx context.Context) (Pending, error) {
-	return s.Deps.GitHub.QueuedJob(ctx)
+	if err := lockBefore(ctx, &s.asking); err != nil {
+		return Pending{}, err
+	}
+	defer s.asking.Unlock()
+	if !s.pendingAt.IsZero() && s.Deps.Now().Sub(s.pendingAt) < pendingFresh {
+		return s.pending, nil
+	}
+	pending, err := s.Deps.GitHub.QueuedJob(ctx)
+	if err != nil {
+		return Pending{}, err
+	}
+	s.pending, s.pendingAt = pending, s.Deps.Now()
+	return pending, nil
 }
 
-// Run runs one job, or refuses with ErrBusy while one runs.
+// lockBefore locks mu, or gives up when ctx ends first.
+func lockBefore(ctx context.Context, mu *sync.Mutex) error {
+	for !mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
+// Run runs one job, or refuses with ErrBusy while one runs. It first asks
+// GitHub whether a job of the runner's waits, and starts nothing, neither
+// the VM nor a runner, when none does: a client of the pipe can ask for a
+// run whenever it likes, but only a waiting job starts the VM.
 func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, error) {
 	s.mu.Lock()
 	if !s.started.IsZero() {
@@ -99,7 +162,16 @@ func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, erro
 	started := s.Deps.Now()
 	s.started = started
 	s.mu.Unlock()
-	outcome, err := RunOneJob(ctx, s.Deps, s.Limits, progress)
+	var outcome Outcome
+	pending, err := s.Deps.GitHub.QueuedJob(ctx)
+	switch {
+	case err != nil:
+		outcome, err = ended(ctx, fmt.Errorf("cirunner: find a waiting job: %w", err))
+	case !pending.IsWaiting:
+		outcome = NoJob
+	default:
+		outcome, err = RunOneJob(ctx, s.Deps, s.Limits, progress)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = time.Time{}
@@ -107,11 +179,63 @@ func (s *Service) Run(ctx context.Context, progress func(string)) (Outcome, erro
 	return outcome, err
 }
 
+// Watch looks at the VM every period while no job runs, until ctx ends, and
+// puts it back to clean when it finds it running: a job's cleanup that
+// failed every try leaves the VM running the job's code, which nothing else
+// would end before the next job or the service's next start.
+func (s *Service) Watch(ctx context.Context, every time.Duration) {
+	for {
+		s.Deps.Sleep(ctx, every)
+		if ctx.Err() != nil {
+			return
+		}
+		s.mu.Lock()
+		if !s.started.IsZero() {
+			s.mu.Unlock()
+			continue
+		}
+		s.started, s.isWatching = s.Deps.Now(), true
+		s.mu.Unlock()
+		if isRunning, err := s.Deps.VM.IsRunning(ctx); err == nil && isRunning {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupLimit)
+			if err := putBack(cleanup, s.Deps.VM); err != nil {
+				s.Log("the VM ran with no job, and could not be put back: " + err.Error())
+			} else {
+				s.Log("the VM ran with no job, and was put back to clean")
+			}
+			cancel()
+		}
+		s.mu.Lock()
+		s.started, s.isWatching = time.Time{}, false
+		s.mu.Unlock()
+	}
+}
+
+// refuse logs a refused request, why being the service's own words and
+// never the request's, at most once a minute with how many were refused
+// since, so a client refused without end cannot push a job's lines out of
+// the log.
+func (s *Service) refuse(why string) {
+	s.mu.Lock()
+	s.refusals++
+	now := s.Deps.Now()
+	if !s.refusedAt.IsZero() && now.Sub(s.refusedAt) < time.Minute {
+		s.mu.Unlock()
+		return
+	}
+	count := s.refusals
+	s.refusals, s.refusedAt = 0, now
+	s.mu.Unlock()
+	s.Log(fmt.Sprintf("refused %d request(s), the last for %s", count, why))
+}
+
 // Status says whether a job runs, and how the last one ended.
 func (s *Service) Status() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
+	case s.isWatching:
+		return "no job runs, and the service is looking at the VM for one's leftovers"
 	case !s.started.IsZero():
 		return "a job runs, started at " + s.started.UTC().Format(time.RFC3339)
 	case s.last != "":

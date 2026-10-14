@@ -65,9 +65,10 @@ type handler struct {
 	dir string
 }
 
-// Execute puts back what a stop mid-job left, serves the fleet until Windows
-// stops the service, and then ends the job that runs, if one does, and waits
-// for its cleanup.
+// Execute takes the pipe, puts back what a stop mid-job left, serves the
+// fleet and watches for a VM left running with no job until Windows stops
+// the service, and then ends the job that runs, if one does, and waits for
+// its cleanup.
 func (h handler) Execute(_ []string, requests <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	changes <- svc.Status{State: svc.StartPending, WaitHint: uint32(startLimit.Milliseconds())}
 	log, err := openLog(filepath.Join(h.dir, "ci-runner.log"), logLimit)
@@ -83,14 +84,19 @@ func (h handler) Execute(_ []string, requests <-chan svc.ChangeRequest, changes 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	starting, started := context.WithTimeout(ctx, startLimit)
-	err = service.Start(starting)
+	pipe, err := cirunner.Begin(starting, service, cirunner.PipeName, config.Allowed)
 	started()
 	if err != nil {
-		log.Say("the service cannot put back the VM and its runners: " + err.Error())
+		log.Say("the service cannot take its pipe, or put back the VM and its runners: " + err.Error())
 		return true, 3
 	}
 	served := make(chan error, 1)
-	go func() { served <- cirunner.Serve(ctx, service, cirunner.PipeName, config.Allowed) }()
+	go func() { served <- pipe.Serve(ctx, service) }()
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		service.Watch(ctx, cirunner.WatchEvery)
+	}()
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	log.Say(fmt.Sprintf("the service started for %s/%s", config.Owner, config.Repo))
 	for {
@@ -106,6 +112,7 @@ func (h handler) Execute(_ []string, requests <-chan svc.ChangeRequest, changes 
 				changes <- svc.Status{State: svc.StopPending, WaitHint: uint32(stopLimit.Milliseconds())}
 				cancel()
 				<-served
+				<-watched
 				log.Say("the service stopped")
 				return false, 0
 			}

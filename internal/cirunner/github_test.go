@@ -1,6 +1,7 @@
 package cirunner
 
 import (
+	"cmp"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -67,7 +69,10 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/actions/runners/generate-jitconfig"):
 		json.NewEncoder(w).Encode(map[string]any{"runner": map[string]any{"id": 41, "name": "cg-desktop-1"}, "encoded_jit_config": "abc"})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/actions/runners"):
-		json.NewEncoder(w).Encode(map[string]any{"runners": f.runners})
+		page, _ := strconv.Atoi(cmp.Or(r.URL.Query().Get("page"), "1"))
+		size, _ := strconv.Atoi(cmp.Or(r.URL.Query().Get("per_page"), "30"))
+		from, to := min((page-1)*size, len(f.runners)), min(page*size, len(f.runners))
+		json.NewEncoder(w).Encode(map[string]any{"runners": f.runners[from:to]})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/actions/runners/41"):
 		json.NewEncoder(w).Encode(map[string]any{"id": 41, "status": "online", "busy": true})
 	case r.Method == "DELETE" && f.deleteStatus != 0:
@@ -297,6 +302,56 @@ func TestRegisterRunnerAsksForOneJobOnTheDesktopLabels(t *testing.T) {
 }
 
 // Only runners the service registered, by their name, are deleted.
+// The service's own runners are found on every page of the repository's
+// runners, a hundred a page, not on the first alone.
+func TestDeleteOwnRunnersReadsEveryPage(t *testing.T) {
+	// Arrange
+	fake := &fakeGitHub{}
+	for id := 1; id <= 250; id++ {
+		name := fmt.Sprintf("someone-elses-%d", id)
+		if id%50 == 0 {
+			name = fmt.Sprintf("%s%d", RunnerPrefix, id)
+		}
+		fake.runners = append(fake.runners, map[string]any{"id": id, "name": name})
+	}
+	g := testGitHub(t, fake)
+
+	// Act
+	err := g.DeleteOwnRunners(context.Background())
+
+	// Assert
+	var deleted []string
+	for _, call := range fake.calls() {
+		if strings.HasPrefix(call, "DELETE ") {
+			deleted = append(deleted, call[strings.LastIndex(call, "/")+1:])
+		}
+	}
+	if want := []string{"50", "100", "150", "200", "250"}; err != nil || !slices.Equal(deleted, want) {
+		t.Errorf("DeleteOwnRunners = %v, deleting %q; want the service's own runners on all three pages, %q", err, deleted, want)
+	}
+}
+
+// A job's name is passed on as printable ASCII alone, at most maxJobName
+// long, since the fleet puts it in the line it shows and its command line.
+func TestQueuedJobPassesOnAPrintableName(t *testing.T) {
+	// Arrange
+	created := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	name := "shard (1)\r\n\"; Remove-Item C:\\ -Recurse\u202e" + strings.Repeat("y", 200)
+	fake := &fakeGitHub{jobs: []map[string]any{desktopJob(name, "queued", Labels, created)}}
+	g := testGitHub(t, fake)
+
+	// Act
+	pending, err := g.QueuedJob(context.Background())
+
+	// Assert
+	if err != nil || len(pending.Job) != maxJobName || strings.ContainsFunc(pending.Job, func(r rune) bool { return r < ' ' || r > '~' }) {
+		t.Errorf("QueuedJob = %q, %v; want the name's printable ASCII alone, %d long", pending.Job, err, maxJobName)
+	}
+	if !strings.HasPrefix(pending.Job, "shard (1)\"; Remove-Item") {
+		t.Errorf("QueuedJob = %q; want the name's printable part kept in order", pending.Job)
+	}
+}
+
 func TestDeleteOwnRunnersSparesOthers(t *testing.T) {
 	// Arrange
 	fake := &fakeGitHub{runners: []map[string]any{{"id": 1, "name": RunnerPrefix + "old"}, {"id": 2, "name": "someone-elses-runner"}, {"id": 3, "name": "a-" + RunnerPrefix + "lookalike"}}}

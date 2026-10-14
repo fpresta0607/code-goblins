@@ -3,7 +3,10 @@ package cirunner
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Limits bound a job: how long the VM's runner waits for a job, how long the
@@ -19,8 +22,15 @@ type Limits struct {
 var DefaultLimits = Limits{Pickup: 5 * time.Minute, Job: 30 * time.Minute, Poll: 5 * time.Second}
 
 // cleanupLimit bounds putting the VM back to clean and deleting the job's
-// runner, however the job ended.
-const cleanupLimit = 2 * time.Minute
+// runner, however the job ended. Each is tried cleanupTries times, a
+// cleanupPause apart, within it: a Hyper-V call slow to start on a machine
+// short of memory, or a runner GitHub still counts busy, must not leave a
+// VM running a job's code or a runner registered.
+const (
+	cleanupLimit = 2 * time.Minute
+	cleanupTries = 3
+	cleanupPause = 5 * time.Second
+)
 
 // Outcome is how a job ended.
 type Outcome string
@@ -74,12 +84,21 @@ func RunOneJob(ctx context.Context, d Deps, limits Limits, progress func(string)
 	if err != nil {
 		return ended(ctx, err)
 	}
+	var iso string
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupLimit)
 		defer cancel()
-		failure = errors.Join(failure, putBack(cleanup, d.VM), d.GitHub.DeleteRunner(cleanup, runner.ID))
+		isClean := again(cleanup, d, func() error { return putBack(cleanup, d.VM) })
+		failure = errors.Join(failure, isClean, again(cleanup, d, func() error { return d.GitHub.DeleteRunner(cleanup, runner.ID) }))
+		// The DVD holds the runner's configuration, spent once the runner
+		// is gone, and goes once the VM no longer holds it.
+		if iso != "" && isClean == nil {
+			if err := fsx.Remove(iso); err != nil && !errors.Is(err, os.ErrNotExist) {
+				failure = errors.Join(failure, err)
+			}
+		}
 	}()
-	iso, err := d.DVD(runner.Config)
+	iso, err = d.DVD(runner.Config)
 	if err != nil {
 		return Failed, err
 	}
@@ -125,6 +144,17 @@ func RunOneJob(ctx context.Context, d Deps, limits Limits, progress func(string)
 		}
 		d.Sleep(ctx, limits.Poll)
 	}
+}
+
+// again runs step up to cleanupTries times, a cleanupPause apart, until it
+// succeeds or ctx ends, and returns its last error.
+func again(ctx context.Context, d Deps, step func() error) error {
+	err := step()
+	for try := 1; err != nil && try < cleanupTries && ctx.Err() == nil; try++ {
+		d.Sleep(ctx, cleanupPause)
+		err = step()
+	}
+	return err
 }
 
 // putBack turns the VM off and puts it back to its clean checkpoint.
