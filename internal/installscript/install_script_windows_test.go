@@ -143,7 +143,7 @@ func TestReleaseSigningIdentityAllowsUnsignedDraftWithoutAzure(t *testing.T) {
 	if !found {
 		t.Fatal("signing identity step has no script")
 	}
-	script, _, found = strings.Cut(script, "      - uses: azure/login@v3\n")
+	script, _, found = strings.Cut(script, "      - uses: azure/login@")
 	if !found {
 		t.Fatal("signing identity script has no Azure login boundary")
 	}
