@@ -101,6 +101,8 @@ type CredentialRequest struct {
 	Replaced []string `json:"replaced,omitempty"`
 	// Typed are the saved names typed in the card's terminal.
 	Typed []string `json:"typed,omitempty"`
+	// Fetched are the saved names a fetch read from the request's key page.
+	Fetched []string `json:"fetched,omitempty"`
 	// Written are the saved names also set in EnvFile.
 	Written []string `json:"written,omitempty"`
 	// Told are the running goblins told to re-source their credentials.
@@ -122,7 +124,7 @@ type CredentialHint struct {
 
 func (r CredentialRequest) clone() CredentialRequest {
 	r.Names, r.Steps, r.Existing, r.Hints = slices.Clone(r.Names), slices.Clone(r.Steps), slices.Clone(r.Existing), slices.Clone(r.Hints)
-	r.Saved, r.Replaced, r.Told, r.Typed, r.Written = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told), slices.Clone(r.Typed), slices.Clone(r.Written)
+	r.Saved, r.Replaced, r.Told, r.Typed, r.Fetched, r.Written = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told), slices.Clone(r.Typed), slices.Clone(r.Fetched), slices.Clone(r.Written)
 	if r.Services != nil {
 		services := make(map[string][]string, len(r.Services))
 		for name, users := range r.Services {
@@ -355,7 +357,7 @@ func (s *Service) ingestCredentialRequests() error {
 // fresh generation, with the names its scope already holds and each name's
 // format hint, open for a day.
 func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialRequest, error) {
-	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Written, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, nil, nil, nil, "", nil
+	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Fetched, r.Written, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, nil, nil, nil, nil, "", nil
 	if err := validCredentialRequest(r); err != nil {
 		return r, err
 	}
@@ -465,12 +467,15 @@ func (s *Store) updateCredential(id string, change func(*CredentialRequest)) (Cr
 
 // credentialSave is what a request's card posts: the request it answers, a
 // value for each name the Overlord filled, and the names he confirmed
-// replacing. It is the one body the board takes a secret value in.
+// replacing. It is the one body the board takes a secret value in. A fetch
+// saves the values it read from the key page the same way, which no card
+// can say it did.
 type credentialSave struct {
 	ID         string            `json:"id"`
 	Generation string            `json:"generation"`
 	Values     map[string]string `json:"values"`
 	Replace    []string          `json:"replace"`
+	isFetched  bool
 }
 
 // credentialOutcome is a save's answer: names and states, never a value.
@@ -655,6 +660,13 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		for _, name := range written {
 			if !slices.Contains(r.Written, name) {
 				r.Written = append(r.Written, name)
+			}
+		}
+		if input.isFetched {
+			for _, name := range saved {
+				if !slices.Contains(r.Fetched, name) {
+					r.Fetched = append(r.Fetched, name)
+				}
 			}
 		}
 		var reasons []string
@@ -965,6 +977,9 @@ func (s *Service) afterCredentialSave(request CredentialRequest, saved []string)
 		}
 	}
 	detail := strings.Join(saved, ", ") + " stored for " + request.Project + " from the board (" + request.ID + ")"
+	if !slices.ContainsFunc(saved, func(name string) bool { return !slices.Contains(request.Fetched, name) }) {
+		detail = strings.Join(saved, ", ") + " fetched from the key page into " + request.Project + "'s vault (" + request.ID + ")"
+	}
 	switch {
 	case len(told) > 0:
 		detail += "; told " + strings.Join(told, ", ") + " to re-source auth.ps1"

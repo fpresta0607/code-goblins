@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -542,26 +543,28 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	}
 }
 
-// Answering a goblin's question closes its waits on the Overlord up to that
-// question at once, since the goblin now has what it was waiting for, and the
-// audit says so; a wait it published after the question stays open.
-func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
+// The CFO's answer to a goblin's question closes only that question: the
+// goblin's waits on the Overlord stay open, filed before the question or
+// after it, and none is recorded as cleared, since a wait only he can clear,
+// such as a sign-in, is never settled by an answer to a different question.
+func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
+	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
-	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick the store"); err != nil {
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: log in to Stripe"); err != nil {
 		t.Fatal(err)
 	}
-	earlier, err := wake.Append(h.State, "notify", "task-1", "waiting on overlord: pick the store")
+	earlier, err := wake.Append(h.State, "notify", "task-1", "waiting on overlord: log in to Stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
 	meta, record, _, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	ctx := context.Background()
-	if err := PublishWait(h, meta.ID, earlier.Seq, "pick the store", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, earlier.Seq, "log in to Stripe", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(h, meta.ID, record.Seq+1, "log in to Stripe", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, record.Seq+1, "pick the store", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -569,6 +572,7 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 	}
 	surfaced(t, store, meta, record, connection)
 
+	// Act
 	if _, _, err := connection.AnswerGoblin(ctx, fmt.Sprint(record.Seq), "sqlite", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -576,15 +580,13 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reviews := store.Snapshot().Reviews
-	if got := reviews[0]; got.State != "cleared" || got.Reason != "The CFO answered task-1's question." {
-		t.Errorf("the goblin's wait after its answer = %+v, want it cleared", got)
+	// Assert
+	for _, got := range store.Snapshot().Reviews {
+		if got.State != "open" {
+			t.Errorf("the goblin's wait %s after the CFO answered its question = %s (%q), want it open", got.ID, got.State, got.Reason)
+		}
 	}
-	if got := reviews[1]; got.State != "open" {
-		t.Errorf("a wait published after the answered question = %+v, want it open", got)
-	}
-	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
-	if err != nil || !strings.Contains(string(audit), fmt.Sprintf(" waiting-task-1-%d task-1 The CFO answered task-1's question.\n", earlier.Seq)) || strings.Contains(string(audit), reviews[1].ID) {
-		t.Errorf("reviews.audit = %q (%v), want only the covered wait recorded", audit, err)
+	if audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("reviews.audit = %q (%v), want no clear recorded", audit, err)
 	}
 }

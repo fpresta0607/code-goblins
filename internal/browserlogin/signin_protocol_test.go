@@ -25,6 +25,8 @@ func TestSignedInRetriesAChangingPageAndRefusesOtherProtocolFailures(t *testing.
 		{"unrelated protocol refusal", `"error":{"code":-32000,"message":"private-page-text"}`, true},
 		{"script exception", `"result":{"exceptionDetails":{"text":"private-page-text"}}`, true},
 		{"wrong result type", `"result":{"result":{"type":"string","value":"private-page-text"}}`, true},
+		{"no signed-in answer", `"result":{"result":{"type":"object","value":{"account":""}}}`, true},
+		{"an account no recipe path could name", `"result":{"result":{"type":"object","value":{"signedIn":true,"account":"acct/private-page-text"}}}`, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var address string
@@ -58,7 +60,7 @@ func TestSignedInRetriesAChangingPageAndRefusesOtherProtocolFailures(t *testing.
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			isSignedIn, err := SignedIn(ctx, address, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})
+			isSignedIn, _, err := SignedIn(ctx, address, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})
 
 			if isSignedIn || (err != nil) != test.shouldFail {
 				t.Fatalf("SignedIn = %t, %v, want false with failure %t", isSignedIn, err, test.shouldFail)
@@ -91,7 +93,7 @@ func TestSignedInRefusesUnusablePageLists(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			isSignedIn, err := SignedIn(ctx, page.URL, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})
+			isSignedIn, _, err := SignedIn(ctx, page.URL, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})
 
 			if isSignedIn || (err != nil) != test.shouldFail {
 				t.Fatalf("SignedIn = %t, %v, want false with failure %t", isSignedIn, err, test.shouldFail)

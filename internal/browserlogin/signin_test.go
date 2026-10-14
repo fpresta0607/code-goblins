@@ -15,9 +15,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 )
 
-func TestSignedInReadsOnlyAReadyPageAddressCheck(t *testing.T) {
-	for _, isSignedIn := range []bool{false, true} {
-		t.Run(map[bool]string{false: "signed out", true: "signed in"}[isSignedIn], func(t *testing.T) {
+func TestSignedInReadsOnlyAReadyPageAddressCheckAndItsAccount(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		isSignedIn bool
+		account    string
+	}{
+		{"signed out", false, ""},
+		{"signed in with no account in the address", true, ""},
+		{"signed in on an account", true, "acct_fixture"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			var address string
 			page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/json/list" {
@@ -46,10 +54,10 @@ func TestSignedInReadsOnlyAReadyPageAddressCheck(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				if command.Method != "Runtime.evaluate" || !strings.Contains(command.Params.Expression, "document.readyState") || !strings.Contains(command.Params.Expression, "location.pathname") || strings.Contains(command.Params.Expression, "document.body") || strings.Contains(command.Params.Expression, "location.href") {
+				if command.Method != "Runtime.evaluate" || !strings.Contains(command.Params.Expression, "document.readyState") || !strings.Contains(command.Params.Expression, "location.pathname") || !strings.Contains(command.Params.Expression, `"account":"^/(acct_[a-z]+)/test/apikeys$"`) || strings.Contains(command.Params.Expression, "document.body") || strings.Contains(command.Params.Expression, "location.href") {
 					t.Error("the sign-in watcher read more than page readiness and its reviewed address")
 				}
-				result := []byte(fmt.Sprintf(`{"id":%d,"result":{"result":{"type":"boolean","value":%t}}}`, command.ID, isSignedIn))
+				result := []byte(fmt.Sprintf(`{"id":%d,"result":{"result":{"type":"object","value":{"signedIn":%t,"account":%q}}}}`, command.ID, test.isSignedIn, test.account))
 				_ = connection.Write(r.Context(), websocket.MessageText, result)
 			}))
 			defer page.Close()
@@ -57,10 +65,10 @@ func TestSignedInReadsOnlyAReadyPageAddressCheck(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			got, err := SignedIn(ctx, address, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})
+			got, account, err := SignedIn(ctx, address, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/(acct_[a-z]+/)?test/apikeys$", AccountPath: "^/(acct_[a-z]+)/test/apikeys$"})
 
-			if err != nil || got != isSignedIn {
-				t.Fatalf("SignedIn = %t, %v, want %t", got, err, isSignedIn)
+			if err != nil || got != test.isSignedIn || account != test.account {
+				t.Fatalf("SignedIn = %t, %q, %v, want %t, %q", got, account, err, test.isSignedIn, test.account)
 			}
 		})
 	}

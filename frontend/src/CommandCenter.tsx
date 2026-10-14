@@ -5,7 +5,7 @@ import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, cardKey, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
@@ -129,9 +129,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
   const show = (key: string) => {
-    const shown = cardKey(snapshot, key);
-    if (finishing && item.key !== shown) setSent((prior) => new Set([...prior, item.key]));
-    setCurrent(shown); setGallery(null); setAllDone(false);
+    if (finishing && item.key !== key) setSent((prior) => new Set([...prior, item.key]));
+    setCurrent(key); setGallery(null); setAllDone(false);
   };
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
@@ -147,7 +146,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const answered = focus?.change ? itemFor(snapshot, focus.change) : undefined;
     // A focus on an item he already answered or cleared, as from a
     // notification that outlived it, opens the list, never another item.
-    const key = focus?.key ? cardKey(snapshot, focus.key) : waiting[0]?.key;
+    const key = focus?.key || waiting[0]?.key;
     setScope(focus?.keys ?? null);
     if (answered?.kind === "question" && canChange(answered.question)) { setInbox(false); setChanging(answered.question.id); }
     else if (focus && !focus.change && key && unscoped.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }

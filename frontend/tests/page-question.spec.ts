@@ -1,11 +1,12 @@
 import { expect, test } from "./site";
 
-// One question, one place: a goblin that asks a question about its open
-// review page gets one card in the Command Center, the page's, which shows
-// the question and the page itself and opens it from one button. The page is
-// where he answers, so the card offers no choices of its own and explains
-// nothing (the Overlord, 2026-10-11).
-test("a question with an open review page is one card that shows the question and the page", async ({ page }) => {
+// A goblin's open review page is one card in the Command Center, which shows
+// the page's own words and the page itself and opens it from one button. The
+// page is where he answers, so the card offers no choices of its own and
+// explains nothing (the Overlord, 2026-10-11). A question the goblin asked
+// meanwhile is the CFO's, never the page's: on 2026-10-13 one shown on Cora's
+// page card was taken for the page, and answering it closed the page.
+test("a goblin's open review page is one card with the page's own words, never its goblin's question", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/page-question.html");
 
@@ -14,7 +15,8 @@ test("a question with an open review page is one card that shows the question an
 
   // Assert
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("May I build item 4's Paused divider and layout switch as drawn?")).toBeVisible();
+  await expect(dialog.getByText("item 4 mockup on the page; reply build or say what to change")).toBeVisible();
+  await expect(dialog.getByText(/May I build item 4/)).toHaveCount(0);
   await expect(dialog.getByRole("radio")).toHaveCount(0);
   await expect(dialog.getByRole("link", { name: "Open review" })).toHaveCount(1);
   await expect(dialog.getByRole("link", { name: "Open review" })).toHaveAttribute("href", "http://127.0.0.1:4387/session/ec2ef7d06dddccbb");
