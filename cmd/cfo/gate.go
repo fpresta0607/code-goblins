@@ -231,6 +231,10 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				continue
 			}
 			check.Start, check.Status = time.Now(), "passed"
+			// The check's source is read with its turn held, before it runs
+			// and once it has ended, so the report says what it tested.
+			source, sourceErr := verify.ReadSource(context.Background(), execx.OSRunner{}, dir)
+			check.Source.Read(false, source, sourceErr)
 			output := stdout
 			var events *gatetest.Events
 			if command[1] == "test" {
@@ -243,6 +247,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			}
 			exit, err := runtime.gateRun(command, dir, env, output, stderr)
 			stopSaying()
+			source, sourceErr = verify.ReadSource(context.Background(), execx.OSRunner{}, dir)
+			check.Source.Read(true, source, sourceErr)
+			if _, sourceErr := check.Source.Tested(); sourceErr != nil {
+				fmt.Fprintf(stderr, "cfo gate test: go %s tested no one source: %v\n", command[1], sourceErr)
+			}
 			if events != nil {
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)

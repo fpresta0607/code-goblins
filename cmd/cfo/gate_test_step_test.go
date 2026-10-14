@@ -266,6 +266,63 @@ func TestGateTestRecordsWhatItRanInAReport(t *testing.T) {
 	}
 }
 
+// Each check of a run keeps the source it ran on, read once its turn was
+// taken and once it had ended.
+func TestGateTestRecordsTheSourceEachCheckRanOn(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	t.Setenv("NO_MISTAKES_GATE", "")
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(standIn(), &stdout, &stderr)
+
+	// Assert
+	report, _ := lastReport(t)
+	if exit != 0 || len(report.Checks) != 2 || strings.Contains(stderr.String(), "source") {
+		t.Fatalf("exit = %d, %d check(s), stderr = %q; want two checks that pass and nothing said of their source", exit, len(report.Checks), stderr.String())
+	}
+	want := verify.Source{Commit: revision(t, dir, "HEAD"), Tree: revision(t, dir, "HEAD^{tree}"), IsExact: true}
+	for index, check := range report.Checks {
+		if tested, err := check.Source.Tested(); err != nil || tested != want {
+			t.Errorf("check %d tested %+v (%v); want %+v", index, tested, err, want)
+		}
+	}
+}
+
+// A check whose source changed while it ran keeps its own result, and the run
+// says that it tested no one source.
+func TestGateTestSaysWhenACheckSourceChangedWhileItRan(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	t.Setenv("NO_MISTAKES_GATE", "")
+	runtime := standIn()
+	runtime.gateRun = func(command []string, dir string, _ []string, _, _ io.Writer) (int, error) {
+		if command[1] == "vet" {
+			return 0, os.WriteFile(filepath.Join(dir, "moved.txt"), []byte("moved\n"), 0o600)
+		}
+		return 0, nil
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(runtime, &stdout, &stderr)
+
+	// Assert
+	report, _ := lastReport(t)
+	if exit != 0 || len(report.Checks) != 2 || report.Checks[0].Status != "passed" {
+		t.Fatalf("exit = %d, checks = %+v; want go vet's own pass", exit, report.Checks)
+	}
+	if want := "cfo gate test: go vet tested no one source: verify: the source changed while the run ran"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q; want %q", stderr.String(), want)
+	}
+	if _, err := report.Checks[0].Source.Tested(); err == nil {
+		t.Errorf("go vet's reads %+v name a tested source; want none", report.Checks[0].Source)
+	}
+}
+
 // A step under the gate runs in the shared gate daemon's environment, which
 // can be another goblin's, so only a goblin's own run names its task.
 func TestOnlyAGoblinsOwnRunNamesItsTask(t *testing.T) {

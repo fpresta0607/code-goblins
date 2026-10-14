@@ -556,6 +556,14 @@ Mutation-lease creation excludes readers until the writer closes, so contenders 
 An interrupted publication that leaves an incomplete record still refuses admission.
 Recovery preserves failure status, and an executor with pending cleanup must not be discarded.
 `cfo verify` and `cfo security` run each command of a tier through this executor, as docs/project-runtime.md says.
+They have it read the source the command runs on, once its turn is taken and before it starts and again once it has ended, and the record keeps both reads under `source`.
+`cfo gate test` reads the source of each of its checks the same way and keeps the reads in its report.
+A read is the commit checked out and the git tree of what was on disk: every file git does not ignore, with its content and mode, staged into an index of the read's own, so the worktree's own index stays as it was.
+So a commit of exactly what was tested has that tree, and a worktree that matches its commit has the commit's own.
+A submodule with changes of its own, which a tree records only by the commit it is at, makes the read inexact.
+A command tested one source only when both reads are the same exact source.
+One whose source changed while it ran, or could not be read, keeps its own result, and the tier or the gate step says on standard error that it tested no one source.
+Ignored files, such as installed dependencies, are not in the tree, and a read writes the content of each changed or new file into the repository's objects, as `git add` does.
 After each tier, and after each `cfo gate turn` run, the executions store keeps the newest 100 passes, 50 failures and 20 runs that never started, each kept apart, so a burst of one never evicts the evidence of another, and apart from them the newest 200 runs that kept no logs, as `cfo gate turn`'s, whose output their caller keeps.
 What it counts fits 2 GiB with its logs, the oldest passes going first, then runs that never started, then failures, but never past the newest pass and the newest five failures, so a run whose own logs overran the budget keeps its evidence.
 A record whose custody is still held, one still pending, and one it cannot read or that a newer cfo wrote, while younger than a week, is never removed or counted, so the 2 GiB covers only what it counts.

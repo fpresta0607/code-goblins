@@ -30,9 +30,17 @@ func verifyTask(t *testing.T, fast string) commandRuntime {
 
 // measuredTask is a task of the project demo, whose record holds settings,
 // on a machine with memory to spare, with a verification store of the
-// test's own. It returns the task's folder for what its tiers save.
+// test's own and a worktree with one commit. It returns the task's folder
+// for what its tiers save.
 func measuredTask(t *testing.T, settings string) (commandRuntime, string) {
 	t.Helper()
+	worktree := t.TempDir()
+	gitIn(t, worktree, "init", "-q")
+	if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, worktree, "add", "a.txt")
+	gitIn(t, worktree, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "start")
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	h := testHome(t)
 	record := projectcfg.Path(h.Data, "demo")
@@ -46,7 +54,7 @@ func measuredTask(t *testing.T, settings string) (commandRuntime, string) {
 		t.Fatal(err)
 	}
 	taskTmp := t.TempDir()
-	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "t1", Project: filepath.Join(t.TempDir(), "demo"), Worktree: t.TempDir(), TaskTmp: taskTmp}); err != nil {
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "t1", Project: filepath.Join(t.TempDir(), "demo"), Worktree: worktree, TaskTmp: taskTmp}); err != nil {
 		t.Fatal(err)
 	}
 	runtime := testCommandRuntimeForHome(h)
@@ -136,6 +144,58 @@ func TestVerifyRecordsEachCommandAsAMeasuredExecution(t *testing.T) {
 	}
 	if execution.Status != "passed" || !execution.Measurement.CleanupConfirmed || execution.Measurement.Usage.TotalProcesses == 0 {
 		t.Fatalf("execution = %+v, want a measured pass", execution)
+	}
+}
+
+// Each command's result keeps the source it ran on, read once its turn was
+// taken and once it had ended.
+func TestVerifyRecordsTheSourceEachCommandRanOn(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
+	h, err := runtime.resolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	want := verify.Source{Commit: gitIn(t, meta.Worktree, "rev-parse", "HEAD"), Tree: gitIn(t, meta.Worktree, "rev-parse", "HEAD^{tree}"), IsExact: true}
+	if exit != 0 || stderr.Len() != 0 || len(results) != 1 {
+		t.Fatalf("exit = %d, stderr = %q, results = %+v; want one quiet pass", exit, stderr.String(), results)
+	}
+	if tested, err := results[0].Source.Tested(); err != nil || tested != want {
+		t.Errorf("the command tested %+v (%v); want %+v", tested, err, want)
+	}
+}
+
+// A command whose source changed while it ran keeps its own result, and the
+// tier says that it tested no one source.
+func TestVerifySaysWhenACommandsSourceChangedWhileItRan(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "echo changed> moved.txt"]]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if exit != 0 || len(results) != 1 || results[0].Status != "passed" {
+		t.Fatalf("exit = %d, results = %+v; want the command's own pass", exit, results)
+	}
+	if want := "cfo verify: cmd /d /c echo changed> moved.txt tested no one source: verify: the source changed while the run ran"; !strings.HasPrefix(stderr.String(), want) {
+		t.Errorf("stderr = %q; want it to start %q", stderr.String(), want)
+	}
+	if _, err := results[0].Source.Tested(); err == nil {
+		t.Errorf("the result's reads %+v name a tested source; want none", results[0].Source)
 	}
 }
 

@@ -32,6 +32,9 @@ type ExecutionRecord struct {
 	// its caller's own output (Executor.Stdout), which its caller keeps.
 	StdoutLog string `json:"stdout_log,omitempty"`
 	StderrLog string `json:"stderr_log,omitempty"`
+	// Source is what the command ran on, read before it started and once it
+	// had ended, when its executor reads it (Executor.Source).
+	Source SourceReads `json:"source,omitzero"`
 }
 
 type ExecutionTransition struct {
@@ -93,6 +96,14 @@ func (execution *Execution) Admit(waited time.Duration) error {
 	next := execution.record
 	next.QueueSeconds = waited.Seconds()
 	next.Measurement.State = Admitted
+	return execution.persist(next)
+}
+
+// readSource records a read of the source the command runs on: before it
+// starts, or once it has ended.
+func (execution *Execution) readSource(isEnd bool, source Source, failure error) error {
+	next := execution.record
+	next.Source.Read(isEnd, source, failure)
 	return execution.persist(next)
 }
 

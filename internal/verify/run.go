@@ -34,6 +34,9 @@ type Result struct {
 	Execution string     `json:"execution,omitempty"`
 	Leftovers []Leftover `json:"leftovers,omitempty"`
 	Spared    []Leftover `json:"spared,omitempty"`
+	// Source is what the command ran on, read once its turn was taken and
+	// once it had ended, as its execution record keeps it.
+	Source SourceReads `json:"source,omitzero"`
 	// Packages are what became of each package a test command ran.
 	Packages []PackageResult `json:"packages,omitempty"`
 }
