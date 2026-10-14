@@ -1030,6 +1030,11 @@ You and every goblin file one with `cfo issue file --project <project> --title <
 Write the body for a public repository: what happens, the cause when known, and when it is done, with no private project name, teammate, path on this machine or secret, which the command refuses on a public repository anyway.
 A root met again is filed the same way: the command finds the open issue of the same root and adds a dated comment with the new evidence.
 A goblin whose terminal carries no GitHub credential cannot file, so its report gives the title and body and you file it.
+
+The fleet files what its own signals already name, through the same command path, its screen and its dedup:
+- **A test that failed by chance.** Each test a merge train's passing run saw fail once and pass on its second try is filed on the train's repository, keyed by its suite and name whatever job ran it, once a run.
+- **An error the supervisor meets again.** A line of the supervisor's errors met again an hour or more after it was first met is filed on the repository of the home's own checkout, keyed by its class: the line with its paths, quoted text, hashes and numbers taken out, once a class in each run of the supervisor.
+A filing that fails, such as one the screen refuses, reaches you as a `root_unfiled:` check wake with the reason, and you file it by hand.
 Every brief says this in its Constraints, as `cfo brief` writes it.
 
 ## Escalation
