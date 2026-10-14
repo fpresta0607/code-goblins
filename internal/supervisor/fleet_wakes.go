@@ -755,18 +755,20 @@ func projectWorktrees(ctx context.Context, runner execx.Runner, project string) 
 
 // ownWorktrees are the worktrees of listed, meta's project's, that lie in the
 // task's own folders, its worktree and its scratch folder, other than its
-// worktree and extras themselves. On 2026-10-14 three pull requests of live
+// worktree and extras themselves. A task an older build spawned records no
+// scratch folder, and its scratch folder is state.TaskScratch's. On 2026-10-14 three pull requests of live
 // goblins came from branches made in worktrees they added in their scratch
 // folders, and pr_health called each the Overlord's own (#847). A worktree
 // Claude Code makes for a session lies inside the checkout it runs in.
-func ownWorktrees(meta state.TaskMeta, listed []string) []string {
-	known := append([]string{meta.Worktree}, meta.Extras...)
+func ownWorktrees(stateDir string, meta state.TaskMeta, listed []string) []string {
+	known := slices.DeleteFunc(append([]string{meta.Worktree}, meta.Extras...), func(worktree string) bool { return worktree == "" })
+	scratch, _ := state.TaskScratch(stateDir, meta)
 	var own []string
 	for _, path := range listed {
 		if slices.ContainsFunc(known, func(worktree string) bool { return fsx.SamePath(worktree, path) }) {
 			continue
 		}
-		if isInside(path, meta.Worktree) || isInside(path, meta.Scratch) {
+		if isInside(path, meta.Worktree) || isInside(path, scratch) {
 			own = append(own, path)
 		}
 	}
@@ -811,7 +813,7 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 		// An extra worktree is the task's own, and so is one the goblin added
 		// in its own folders, so the branch it has checked out is held as
 		// those the others had.
-		for _, extra := range append(slices.Clone(meta.Extras), ownWorktrees(meta, worktrees[meta.Project])...) {
+		for _, extra := range append(slices.Clone(meta.Extras), ownWorktrees(stateDir, meta, worktrees[meta.Project])...) {
 			if current, err := runOutput(ctx, runner, extra, "git", "branch", "--show-current"); err == nil && current != "" {
 				goblin.held = append(goblin.held, current)
 			}
