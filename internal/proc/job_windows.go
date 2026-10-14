@@ -82,7 +82,7 @@ func holdJobs(holderPID int, access uint32) (*HeldJobs, error) {
 	}
 	held := &HeldJobs{}
 	for index, job := range jobs {
-		ids, err := jobProcessIDs(job)
+		ids, err := JobProcessIDs(job)
 		if err != nil {
 			held.Close()
 			closeAll(jobs[index:])
@@ -108,7 +108,7 @@ func (h *HeldJobs) Processes() ([]Entry, error) {
 func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
 	held := make([][]uint32, len(jobs))
 	for index, job := range jobs {
-		ids, err := jobProcessIDs(job)
+		ids, err := JobProcessIDs(job)
 		if err != nil {
 			return nil, err
 		}
@@ -434,27 +434,57 @@ func handleTable() ([]handleEntry, error) {
 	return nil, errors.New("proc: the system handle table exceeds its bound")
 }
 
-// jobProcessIDs lists the processes in a job, from
-// JOBOBJECT_BASIC_PROCESS_ID_LIST: two counts, then the ids as pointers.
-func jobProcessIDs(job syscall.Handle) ([]uint32, error) {
-	for size := 4096; size <= 1<<20; size *= 4 {
-		buffer := make([]byte, size)
-		ok, _, err := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList, uintptr(unsafe.Pointer(&buffer[0])), uintptr(size), 0)
-		if ok == 0 {
-			if errors.Is(err, syscall.Errno(errorMoreData)) {
-				continue
-			}
-			return nil, fmt.Errorf("proc: QueryInformationJobObject: %w", err)
-		}
-		count := int(*(*uint32)(unsafe.Pointer(&buffer[4])))
-		if 8+count*8 > len(buffer) {
-			return nil, errors.New("proc: the job's process list is truncated")
-		}
-		ids := make([]uint32, count)
-		for index := range ids {
-			ids[index] = uint32(*(*uintptr)(unsafe.Pointer(&buffer[8+index*8])))
-		}
-		return ids, nil
+// readJobList fills buffer with job's JOBOBJECT_BASIC_PROCESS_ID_LIST: two
+// counts, then the ids as pointers. A test stands in for it.
+var readJobList = func(job syscall.Handle, buffer []uintptr) error {
+	if ok, _, err := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer))*unsafe.Sizeof(uintptr(0)), 0); ok == 0 {
+		return err
 	}
-	return nil, errors.New("proc: the job's process list exceeds its bound")
+	return nil
+}
+
+// jobListLimit bounds how long JobProcessIDs reads a list that changes while
+// it is read.
+const jobListLimit = 250 * time.Millisecond
+
+// JobProcessIDs lists the processes in a job. Windows counts them and lists
+// them in one call, and a process that starts or exits during it can leave
+// the count apart from the list, for up to half a millisecond on a job whose
+// processes churn, as while go build starts compilers. That is a race, not an
+// unreadable job, so the list is read again a millisecond later until the
+// two agree, for at most jobListLimit, past which the job is unreadable. A
+// list whose count and length disagree is never used, since an end that
+// spares a machine service goes by it to show that nothing else still runs.
+func JobProcessIDs(job syscall.Handle) ([]uint32, error) {
+	// Two DWORD counts precede pointer-sized ids. The room grows only when
+	// the list does not fit, within a bound, so a changing job cannot turn
+	// one read into an unbounded allocation.
+	const headerWords = int(8 / unsafe.Sizeof(uintptr(0)))
+	capacity := 64
+	buffer := make([]uintptr, headerWords+capacity)
+	deadline := time.Now().Add(jobListLimit)
+	for {
+		err := readJobList(job, buffer)
+		counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
+		switch {
+		case errors.Is(err, syscall.Errno(errorMoreData)) || (err == nil && counts[0] > uint32(capacity)):
+			if capacity *= 4; capacity > 65536 {
+				return nil, errors.New("proc: the job's process list exceeds its bound")
+			}
+			buffer = make([]uintptr, headerWords+capacity)
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("proc: QueryInformationJobObject: %w", err)
+		case counts[0] == counts[1]:
+			ids := make([]uint32, counts[1])
+			for index, id := range buffer[headerWords : headerWords+int(counts[1])] {
+				ids[index] = uint32(id)
+			}
+			return ids, nil
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("proc: the job's process list changed through every read for %s", jobListLimit)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

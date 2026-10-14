@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -97,31 +98,14 @@ func (t *Tree) privateWorkingSet() (total uint64, unreadable uint32, err error) 
 	return total, unreadable, nil
 }
 
-// memberIDs reads the ids of the processes the job holds now.
+// memberIDs reads the ids of the processes the job holds now, as
+// proc.JobProcessIDs reads them: never a list Windows counted otherwise.
 func (t *Tree) memberIDs() ([]uint32, error) {
-	// Two DWORD counts precede pointer-sized process IDs. Growth is bounded
-	// so a changing job cannot turn one sample into an unbounded allocation.
-	const headerWords = 8 / unsafe.Sizeof(uintptr(0))
-	for capacity := 64; capacity <= 65536; capacity *= 4 {
-		buffer := make([]uintptr, int(headerWords)+capacity)
-		err := windows.QueryInformationJobObject(t.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&buffer[0])), uint32(len(buffer))*uint32(unsafe.Sizeof(uintptr(0))), nil)
-		if errors.Is(err, windows.ERROR_MORE_DATA) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("execx: read job members: %w", err)
-		}
-		counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
-		if counts[0] != counts[1] || counts[1] > uint32(capacity) {
-			return nil, errors.New("execx: incomplete job member sample")
-		}
-		ids := make([]uint32, counts[1])
-		for index, pid := range buffer[int(headerWords) : int(headerWords)+int(counts[1])] {
-			ids[index] = uint32(pid)
-		}
-		return ids, nil
+	ids, err := proc.JobProcessIDs(syscall.Handle(t.job))
+	if err != nil {
+		return nil, fmt.Errorf("execx: read job members: %w", err)
 	}
-	return nil, errors.New("execx: job member sample exceeds its bound")
+	return ids, nil
 }
 
 // Members names the processes still running in the job, by image name and
