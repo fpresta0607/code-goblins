@@ -1,6 +1,7 @@
 package proc_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,7 +136,19 @@ func TestHideConsoleTakesACarelessConsoleOffTheDesktop(t *testing.T) {
 
 	// Assert
 	if err != nil || !isHidden {
-		t.Fatalf("HideConsole = %t, %v; want a console window hidden", isHidden, err)
+		host, hostErr := proc.ConsoleHost(command.Process.Pid)
+		var shown []string
+		for window := range shownWindows(t) {
+			if _, isOld := before[window]; isOld {
+				continue
+			}
+			var owner uint32
+			_, _ = windows.GetWindowThreadProcessId(window, &owner)
+			class := make([]uint16, 256)
+			copied, _ := windows.GetClassName(window, &class[0], int32(len(class)))
+			shown = append(shown, fmt.Sprintf("%s of pid %d", windows.UTF16ToString(class[:copied]), owner))
+		}
+		t.Fatalf("with %s as the default terminal, HideConsole(%d) = %t, %v; want a console window hidden. Its console host is pid %d (%v), and the new windows are %q", terminal, command.Process.Pid, isHidden, err, host, hostErr, shown)
 	}
 	time.Sleep(time.Second)
 	if count := inFront(); count != 0 {
