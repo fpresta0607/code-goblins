@@ -86,13 +86,19 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 			defer chrome.mu.Unlock()
 			return chrome.alive[process.PID]
 		},
-		now:       func() time.Time { return now },
-		report:    func(err error) { t.Errorf("a browser was not closed: %v", err) },
-		processes: map[string]browserlogin.Process{},
-		closing:   map[string]bool{},
-		signing:   map[string]string{},
-		fetching:  map[string]string{},
-		signOuts:  map[string]bool{},
+		gone: func(process browserlogin.Process) bool {
+			chrome.mu.Lock()
+			defer chrome.mu.Unlock()
+			return !chrome.alive[process.PID]
+		},
+		now:         func() time.Time { return now },
+		report:      func(err error) { t.Errorf("a browser was not closed: %v", err) },
+		processes:   map[string]browserlogin.Process{},
+		closing:     map[string]bool{},
+		unconfirmed: map[string]bool{},
+		signing:     map[string]string{},
+		fetching:    map[string]string{},
+		signOuts:    map[string]bool{},
 	}
 	return broker, chrome, gone, &now
 }
@@ -453,6 +459,46 @@ func TestALoginCannotBeLentAgainWhenItsBrowserDidNotClose(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "still closing") || len(chrome.launches) != 1 || reported == nil {
 		t.Fatalf("attach after failed close = %v, launches %d, report %v, want blocked and reported", err, len(chrome.launches), reported)
+	}
+}
+
+func TestALoginWhoseCloseWasUnconfirmedIsLentAgainOnceItsChromeIsGone(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		isGone, isLentAgain bool
+	}{
+		{"its chrome still there", false, false},
+		{"its chrome gone since", true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			broker, chrome, _, _ := testBroker(t)
+			brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+			if _, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"}); err != nil {
+				t.Fatal(err)
+			}
+			broker.end = func(context.Context, browserlogin.Process) error {
+				return errors.New("chrome 1's processes were not gone 1m0s after its job ended")
+			}
+			broker.report = func(error) {}
+			broker.gone = func(browserlogin.Process) bool { return test.isGone }
+			if err := broker.release("pd-keys", "stripe"); err != nil {
+				t.Fatal(err)
+			}
+			broker.work.Wait()
+
+			// Act
+			sweepErr := broker.sweep()
+			_, err := broker.attach(context.Background(), "pd-keys", "stripe")
+
+			// Assert
+			if sweepErr != nil {
+				t.Fatal(sweepErr)
+			}
+			if isLentAgain := err == nil && len(chrome.launches) == 2; isLentAgain != test.isLentAgain {
+				t.Fatalf("attach after a sweep = %v with %d launches, want lent again %t", err, len(chrome.launches), test.isLentAgain)
+			}
+		})
 	}
 }
 
