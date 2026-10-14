@@ -1,0 +1,420 @@
+package cirunner
+
+import (
+	"bufio"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"golang.org/x/sys/windows"
+)
+
+// testPipe is a pipe name no other test uses.
+func testPipe(t *testing.T) string {
+	t.Helper()
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		t.Fatal(err)
+	}
+	return `\\.\pipe\code-goblins-ci-runner-test-` + hex.EncodeToString(random[:])
+}
+
+// thisUser is the SID of the user the test runs as.
+func thisUser(t *testing.T) string {
+	t.Helper()
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return user.User.Sid.String()
+}
+
+// served is a Service on f answering on a pipe of its own, and what it logged.
+type served struct {
+	service *Service
+	name    string
+	mu      sync.Mutex
+	logged  []string
+}
+
+func (s *served) lines() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.logged)
+}
+
+// serve answers on a fresh pipe with a Service on f until the test ends, and
+// fails the test if Serve does not return once its context ends.
+func serve(t *testing.T, f *fakeJob, allowed string) *served {
+	t.Helper()
+	var config string
+	s := &served{name: testPipe(t)}
+	s.service = &Service{Deps: testDeps(f, &config), Limits: DefaultLimits, Log: func(line string) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.logged = append(s.logged, line)
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan error, 1)
+	go func() { ended <- Serve(ctx, s.service, s.name, allowed) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-ended:
+			if err != nil {
+				t.Errorf("Serve = %v once its context ended; want nil", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("Serve did not return within 10 seconds of its context's end")
+		}
+	})
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		connection, err := dial(context.Background(), s.name)
+		if err == nil {
+			connection.Close()
+			return s
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the pipe never opened: %v", err)
+		}
+	}
+}
+
+// ask asks s and returns every reply.
+func (s *served) ask(ctx context.Context, kind string) ([]Reply, error) {
+	var replies []Reply
+	err := Ask(ctx, s.name, Request{Kind: kind}, func(reply Reply) { replies = append(replies, reply) })
+	return replies, err
+}
+
+// The service answers pending with the job that waits, and status with what
+// runs, one reply each.
+func TestPipeAnswersPendingAndStatus(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, thisUser(t))
+
+	// Act
+	pending, pendingErr := s.ask(context.Background(), AskPending)
+	status, statusErr := s.ask(context.Background(), AskStatus)
+
+	// Assert
+	want := Pending{IsWaiting: true, RunID: 7, Job: "desktop-backend-shard (1)"}
+	if pendingErr != nil || len(pending) != 1 || pending[0].Kind != ReplyPending || pending[0].Pending == nil || *pending[0].Pending != want {
+		t.Errorf("pending = %+v, %v; want one reply naming %+v", pending, pendingErr, want)
+	}
+	if statusErr != nil || len(status) != 1 || status[0].Kind != ReplyStatus || status[0].Line != "no job has run since the service started" {
+		t.Errorf("status = %+v, %v; want one line saying no job has run", status, statusErr)
+	}
+}
+
+// A run's progress comes as it happens, and its one done reply carries its
+// outcome, which the service logs.
+func TestPipeRunStreamsProgressAndEndsWithItsOutcome(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{busyAt: 2, offAt: 5}, thisUser(t))
+
+	// Act
+	replies, err := s.ask(context.Background(), AskRun)
+
+	// Assert
+	var kinds []string
+	for _, reply := range replies {
+		kinds = append(kinds, reply.Kind)
+	}
+	if err != nil || !slices.Equal(kinds, []string{ReplyProgress, ReplyProgress, ReplyProgress, ReplyDone}) || replies[len(replies)-1].Outcome != Ran {
+		t.Errorf("run = %+v, %v; want three progress lines, then done with ran", replies, err)
+	}
+	if lines := s.lines(); !slices.Contains(lines, "the run ended: ran") {
+		t.Errorf("the service logged %q; want the run's outcome", lines)
+	}
+}
+
+// A client that closes the pipe during its run ends the job, as the end of
+// the turn it runs in, and the VM is put back and the runner deleted.
+func TestClosingThePipeAbandonsTheJob(t *testing.T) {
+	// Arrange
+	f := &fakeJob{busyAt: 2}
+	s := serve(t, f, thisUser(t))
+	advance := s.service.Deps.Sleep
+	s.service.Deps.Sleep = func(ctx context.Context, step time.Duration) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Millisecond):
+		}
+		advance(ctx, step)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Act
+	err := Ask(ctx, s.name, Request{Kind: AskRun}, func(reply Reply) {
+		if reply.Kind == ReplyProgress {
+			cancel()
+		}
+	})
+
+	// Assert
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Ask = %v; want it ended with its context", err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(s.service.Status(), "ended with its turn"); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("status %q 10 seconds after the pipe closed; want the job ended with its turn", s.service.Status())
+		}
+	}
+	if calls := f.callsMade(); !slices.Equal(calls[len(calls)-3:], []string{"off", "restore", "delete"}) {
+		t.Errorf("the job's last calls were %q; want the VM off, back at clean, and the runner deleted", calls)
+	}
+}
+
+// A client that connects and sends nothing is dropped within 5 seconds, and
+// another client is answered while it waits.
+func TestServiceDropsAClientThatSendsNothing(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, thisUser(t))
+	silent, err := dial(context.Background(), s.name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silent.Close()
+	connected := time.Now()
+
+	// Act
+	status, statusErr := s.ask(context.Background(), AskStatus)
+	answered := time.Since(connected)
+	_ = silent.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, readErr := silent.Read(make([]byte, 1))
+	dropped := time.Since(connected)
+
+	// Assert
+	if statusErr != nil || len(status) != 1 || answered > 2*time.Second {
+		t.Errorf("status = %+v, %v after %v; want it answered while the silent client waits", status, statusErr, answered)
+	}
+	if readErr == nil || errors.Is(readErr, windows.ERROR_TIMEOUT) || strings.Contains(readErr.Error(), "timeout") || dropped < requestLimit-time.Second || dropped > requestLimit+2*time.Second {
+		t.Errorf("the silent client read %v after %v; want it dropped at %v", readErr, dropped, requestLimit)
+	}
+}
+
+// What the service cannot answer gets one error reply and changes nothing.
+func TestPipeRefusesWhatItCannotAnswer(t *testing.T) {
+	for name, line := range map[string]string{
+		"a kind it does not know":    `{"kind":"delete"}`,
+		"a request that is not JSON": `delete everything`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := &fakeJob{}
+			s := serve(t, f, thisUser(t))
+			connection, err := dial(context.Background(), s.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			_ = connection.SetDeadline(time.Now().Add(10 * time.Second))
+
+			// Act
+			_, writeErr := connection.Write([]byte(line + "\n"))
+			answer, readErr := bufio.NewReader(connection).ReadBytes('\n')
+
+			// Assert
+			var reply Reply
+			if writeErr != nil || readErr != nil || json.Unmarshal(answer, &reply) != nil || reply.Kind != ReplyError || reply.Error == "" {
+				t.Errorf("answered %q, %v, %v; want one error reply", answer, writeErr, readErr)
+			}
+			if calls := f.callsMade(); len(calls) != 0 {
+				t.Errorf("the refusal made calls %q; want none", calls)
+			}
+		})
+	}
+}
+
+// A request line past 4 KiB is dropped unanswered, as soon as it passes.
+func TestPipeDropsARequestPastItsLimit(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, thisUser(t))
+	connection, err := dial(context.Background(), s.name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// Act
+	sent := time.Now()
+	_, writeErr := connection.Write([]byte(strings.Repeat("a", maxRequest+1000)))
+	answer, readErr := bufio.NewReader(connection).ReadBytes('\n')
+	dropped := time.Since(sent)
+
+	// Assert
+	if writeErr != nil || readErr == nil || len(answer) != 0 || strings.Contains(readErr.Error(), "timeout") || dropped > requestLimit/2 {
+		t.Errorf("answered %q, %v, %v after %v; want the client dropped unanswered at once", answer, writeErr, readErr, dropped)
+	}
+}
+
+// Asking where no service answers says so at once.
+func TestAskSaysTheServiceIsNotRunning(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	err := Ask(ctx, testPipe(t), Request{Kind: AskStatus}, func(Reply) {})
+
+	// Assert
+	if !errors.Is(err, ErrNotServing) {
+		t.Errorf("Ask = %v; want ErrNotServing", err)
+	}
+}
+
+// An allowed user that is no SID is refused before any pipe is made, so no
+// text of its own reaches the pipe's security.
+func TestServeRefusesAnAllowedUserThatIsNoSID(t *testing.T) {
+	// Arrange
+	name := testPipe(t)
+	var config string
+	s := &Service{Deps: testDeps(&fakeJob{}, &config), Limits: DefaultLimits, Log: func(string) {}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	err := Serve(ctx, s, name, thisUser(t)+")(A;;GA;;;WD")
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "is not a SID") {
+		t.Errorf("Serve = %v; want the allowed user refused", err)
+	}
+	if _, err := dial(context.Background(), name); !errors.Is(err, ErrNotServing) {
+		t.Errorf("dial = %v; want no pipe made", err)
+	}
+}
+
+// The pipe lets SYSTEM, Administrators and the service's own user open it,
+// and the allowed user read and write it, and no one else.
+func TestPipeAdmitsOnlyItsUsers(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, "S-1-5-32-547")
+	connection, err := dial(context.Background(), s.name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	// Act
+	descriptor, err := windows.GetSecurityInfo(windows.Handle(connection.Fd()), windows.SE_KERNEL_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.LABEL_SECURITY_INFORMATION)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, label, _ := strings.Cut(descriptor.String(), "S:")
+	if !strings.HasSuffix(label, "(ML;;NW;;;ME)") || strings.Count(label, "(") != 1 {
+		t.Errorf("the pipe's label is %q; want medium integrity alone, so the fleet opens it", label)
+	}
+	entries := regexp.MustCompile(`\(A;;([^;]*);;;([^)]*)\)`).FindAllStringSubmatch(dacl, -1)
+	got := map[string]string{}
+	for _, entry := range entries {
+		got[entry[2]] = entry[1]
+	}
+	want := map[string]string{"SY": "FA", "BA": "FA", thisUser(t): "FA", "PU": "0x12019f"}
+	if len(entries) != len(want) || !strings.HasPrefix(dacl, "D:P") {
+		t.Fatalf("the pipe's DACL is %s; want a protected DACL with entries for %v alone", dacl, want)
+	}
+	for sid, access := range want {
+		if got[sid] != access {
+			t.Errorf("the pipe gives %s %q in %s; want %q", sid, got[sid], dacl, access)
+		}
+	}
+}
+
+// A pipe another process already serves is refused, so nothing stands in for
+// a running service by making its pipe first.
+func TestServeRefusesAPipeAnotherAlreadyServes(t *testing.T) {
+	// Arrange
+	first := serve(t, &fakeJob{}, thisUser(t))
+	var config string
+	second := &Service{Deps: testDeps(&fakeJob{}, &config), Limits: DefaultLimits, Log: func(string) {}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ended := make(chan error, 1)
+
+	// Act
+	go func() { ended <- Serve(ctx, second, first.name, thisUser(t)) }()
+
+	// Assert
+	select {
+	case err := <-ended:
+		if err == nil || !strings.Contains(err.Error(), "create pipe") {
+			t.Errorf("a second Serve = %v; want the pipe refused", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("a second Serve on the same pipe served it")
+	}
+}
+
+// A service told to stop during a job ends the job, and returns only once
+// the VM is back at clean and the runner deleted.
+func TestServeEndsARunningJobBeforeItReturns(t *testing.T) {
+	// Arrange
+	f := &fakeJob{busyAt: 2, deleting: 300 * time.Millisecond}
+	name := testPipe(t)
+	var config string
+	s := &Service{Deps: testDeps(f, &config), Limits: DefaultLimits, Log: func(string) {}}
+	advance := s.Deps.Sleep
+	s.Deps.Sleep = func(ctx context.Context, step time.Duration) {
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Millisecond):
+		}
+		advance(ctx, step)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	ended := make(chan error, 1)
+	go func() { ended <- Serve(ctx, s, name, thisUser(t)) }()
+	running := make(chan struct{})
+	go func() {
+		var once sync.Once
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			err := Ask(context.Background(), name, Request{Kind: AskRun}, func(reply Reply) {
+				if reply.Kind == ReplyProgress {
+					once.Do(func() { close(running) })
+				}
+			})
+			if !errors.Is(err, ErrNotServing) {
+				return
+			}
+		}
+	}()
+	<-running
+
+	// Act
+	stop()
+	err := <-ended
+
+	// Assert
+	if calls := f.callsMade(); err != nil || !slices.Equal(calls[len(calls)-3:], []string{"off", "restore", "delete"}) {
+		t.Errorf("Serve = %v with the job's last calls %q; want it to return after the VM is off, back at clean, and the runner deleted", err, calls)
+	}
+}
+
+// A refusal reaches Ask's caller as an error naming it, never as a reply.
+func TestAskReturnsARefusalAsAnError(t *testing.T) {
+	// Arrange
+	s := serve(t, &fakeJob{}, thisUser(t))
+	var replies []Reply
+
+	// Act
+	err := Ask(context.Background(), s.name, Request{Kind: "delete"}, func(reply Reply) { replies = append(replies, reply) })
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), `the service refused: the service answers pending, run and status, not "delete"`) || len(replies) != 0 {
+		t.Errorf("Ask = %v with replies %+v; want the refusal as an error alone", err, replies)
+	}
+}

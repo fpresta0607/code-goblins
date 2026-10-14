@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -31,6 +32,9 @@ type Hypervisor interface {
 // dvdVariable carries the DVD's path to the script that attaches it, so no
 // path is ever part of a script's text.
 const dvdVariable = "CG_CI_DVD"
+
+// hyperVLimit bounds each Hyper-V call.
+const hyperVLimit = 2 * time.Minute
 
 // HyperV drives the VM through fixed Windows PowerShell scripts, run with
 // Commands, that name only VMName and CleanCheckpoint.
@@ -76,7 +80,8 @@ func (h HyperV) IsRunning(ctx context.Context) (bool, error) {
 // extra added to the environment, and returns what it wrote, trimmed. Windows
 // PowerShell is named by its full path, and gets its own module path, as the
 // one-line install gives it, since one inherited from PowerShell 7 lists
-// modules it cannot load.
+// modules it cannot load. A script that runs past hyperVLimit is ended with
+// all it started, so a Hyper-V call that hangs never outlasts a job's limits.
 func (h HyperV) run(ctx context.Context, doing, script string, extra ...string) (string, error) {
 	systemRoot := os.Getenv("SystemRoot")
 	if systemRoot == "" {
@@ -85,10 +90,13 @@ func (h HyperV) run(ctx context.Context, doing, script string, extra ...string) 
 	environment := slices.DeleteFunc(os.Environ(), func(entry string) bool {
 		return strings.HasPrefix(strings.ToUpper(entry), "PSMODULEPATH=")
 	})
+	ctx, cancel := context.WithTimeout(ctx, hyperVLimit)
+	defer cancel()
 	result, err := h.Commands.Run(ctx, execx.Request{
-		Name: filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-		Args: []string{"-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; " + script},
-		Env:  append(environment, extra...),
+		Name:     filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+		Args:     []string{"-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; " + script},
+		Env:      append(environment, extra...),
+		KillTree: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("cirunner: %s: %w", doing, err)

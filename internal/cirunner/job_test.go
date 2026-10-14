@@ -24,6 +24,8 @@ type fakeJob struct {
 	failing   string
 	attached  string
 	deleted   []int64
+	// deleting is how long deleting a runner takes.
+	deleting time.Duration
 }
 
 func (f *fakeJob) note(ctx context.Context, call string) error {
@@ -93,6 +95,7 @@ func (f *fakeJob) RunnerState(ctx context.Context, _ int64) (bool, bool, error) 
 }
 
 func (f *fakeJob) DeleteRunner(ctx context.Context, id int64) error {
+	time.Sleep(f.deleting)
 	err := f.note(ctx, "delete")
 	f.mu.Lock()
 	f.deleted = append(f.deleted, id)

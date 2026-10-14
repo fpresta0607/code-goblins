@@ -4,22 +4,74 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // ErrBusy is a run asked for while a job runs. The service never queues a
 // run, so the machine's heavy line stays the only queue.
 var ErrBusy = errors.New("cirunner: a job already runs")
 
-// Service runs one job at a time, as the fleet asks for each.
+// Service runs one job at a time, as the fleet asks for each, and says each
+// run and each refusal to Log when it answers on the pipe.
 type Service struct {
 	Deps   Deps
 	Limits Limits
+	Log    func(line string)
 
 	mu      sync.Mutex
 	started time.Time
 	last    string
+}
+
+// NewService is the service as installed in dir: its settings and the App's
+// key read from there, GitHub's API, the VM through Hyper-V, each job's DVD
+// written to dir's work folder, and log for what it says.
+func NewService(dir string, log func(string)) (*Service, Config, error) {
+	config, key, err := ReadConfig(dir)
+	if err != nil {
+		return nil, Config{}, err
+	}
+	work := filepath.Join(dir, "work")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		return nil, Config{}, err
+	}
+	github := &GitHub{
+		Client:         &http.Client{Timeout: 30 * time.Second},
+		Base:           "https://api.github.com",
+		AppID:          config.AppID,
+		InstallationID: config.InstallationID,
+		Key:            key,
+		Owner:          config.Owner,
+		Repo:           config.Repo,
+		Now:            time.Now,
+	}
+	deps := Deps{
+		GitHub: github,
+		VM:     HyperV{Commands: execx.OSRunner{}},
+		DVD: func(runnerConfig string) (string, error) {
+			iso := filepath.Join(work, "job.iso")
+			return iso, BuildDVD(iso, runnerConfig)
+		},
+		Now:   time.Now,
+		Sleep: sleep,
+	}
+	return &Service{Deps: deps, Limits: DefaultLimits, Log: log}, config, nil
+}
+
+// sleep waits for d, or until ctx ends.
+func sleep(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
 
 // Start puts the VM back to clean and deletes every runner the service

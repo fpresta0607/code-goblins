@@ -3,6 +3,8 @@ package cirunner
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -111,5 +113,47 @@ func TestServiceStatusSaysWhatRuns(t *testing.T) {
 		if strings.ContainsAny(row.got, ";—") {
 			t.Errorf("Status = %q; want no semicolon or em dash", row.got)
 		}
+	}
+}
+
+// The installed service reads its folder's settings, calls GitHub's API for
+// its one repository, and writes each job's DVD to its work folder.
+func TestNewServiceRunsFromItsFolder(t *testing.T) {
+	// Arrange
+	dir, key := serviceFolder(t, goodSettings, "pkcs1")
+
+	// Act
+	s, config, err := NewService(dir, func(string) {})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	github, isGitHub := s.Deps.GitHub.(*GitHub)
+	if !isGitHub || github.Base != "https://api.github.com" || github.Owner != "fpresta0607" || github.Repo != "PrecisionDocs-AI" || github.AppID != 1 || github.InstallationID != 2 || !github.Key.Equal(key) || github.Client.Timeout == 0 {
+		t.Errorf("GitHub = %+v; want the settings' App and repository at GitHub's API, with a timeout", s.Deps.GitHub)
+	}
+	if _, isHyperV := s.Deps.VM.(HyperV); !isHyperV || s.Limits != DefaultLimits || config.Allowed != "S-1-5-21-1-2-3-1001" {
+		t.Errorf("VM %T, limits %+v, allowed %q; want Hyper-V, the default limits and the settings' user", s.Deps.VM, s.Limits, config.Allowed)
+	}
+	iso, err := s.Deps.DVD("abc")
+	if image, readErr := os.ReadFile(iso); err != nil || readErr != nil || iso != filepath.Join(dir, "work", "job.iso") || len(image) == 0 {
+		t.Errorf("DVD = %q, %v, %v; want it written to the work folder", iso, err, readErr)
+	}
+}
+
+// The service's sleep ends with its context.
+func TestSleepEndsWithItsContext(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	started := time.Now()
+
+	// Act
+	sleep(ctx, time.Hour)
+
+	// Assert
+	if waited := time.Since(started); waited > time.Second {
+		t.Errorf("sleep waited %v on an ended context; want it to end at once", waited)
 	}
 }

@@ -6,18 +6,26 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// recorder keeps every command HyperV runs and answers each with result.
+// recorder keeps every command HyperV runs, and how long each had, and
+// answers each with result.
 type recorder struct {
 	ran    []execx.Request
+	limits []time.Duration
 	result execx.Result
 }
 
-func (r *recorder) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+func (r *recorder) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	r.ran = append(r.ran, request)
+	limit := time.Duration(-1)
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		limit = time.Until(deadline)
+	}
+	r.limits = append(r.limits, limit)
 	return r.result, nil
 }
 
@@ -53,7 +61,10 @@ func TestHyperVRunsFixedScriptsForItsOneVM(t *testing.T) {
 		t.Fatalf("ran %d commands; want one for each of the 5 calls", len(commands.ran))
 	}
 	shell := filepath.Join(`C:\Windows`, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-	for _, request := range commands.ran {
+	for i, request := range commands.ran {
+		if !request.KillTree || commands.limits[i] <= 0 || commands.limits[i] > hyperVLimit {
+			t.Errorf("ran %q as a tree %v with %v to run; want it ended with all it started past %v", script(request), request.KillTree, commands.limits[i], hyperVLimit)
+		}
 		text := script(request)
 		if request.Name != shell || !slices.Equal(request.Args[:3], []string{"-NoProfile", "-NonInteractive", "-Command"}) {
 			t.Errorf("ran %s %q; want %s -NoProfile -NonInteractive -Command", request.Name, request.Args, shell)
