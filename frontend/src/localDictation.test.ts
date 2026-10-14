@@ -113,6 +113,36 @@ test("whether any 10 ms of a sound is loud", () => {
   assert.equal(isSpoken({ samples: new Float32Array([.9, .9]), rate: 16000 }), false, "less than 10 ms is no part at all");
 });
 
+// A sound said at levels, at rate, in a room: each part is speech whose RMS
+// is decibels of full scale, or the room alone, whose hiss is at room
+// decibels.
+function saidAt(rate: number, room: number, ...parts: [number | "room", number][]): Sound {
+  const samples: number[] = [];
+  const hiss = Math.SQRT2 * 10 ** (room / 20);
+  for (const [level, seconds] of parts) {
+    const speech = level === "room" ? 0 : 1.6 * 10 ** (level / 20);
+    for (let i = 0; i < Math.round(seconds * rate); i++) {
+      const at = samples.length;
+      samples.push(speech * Math.sin(at * .05) * (1 + .3 * Math.sin(at * .0007)) + hiss * Math.sin(at * 7.3));
+    }
+  }
+  return { samples: Float32Array.from(samples), rate };
+}
+
+test("speech softer than -40 dB is speech, and a room's hiss alone never is, at any level", () => {
+  assert.equal(isSpoken(saidAt(16000, -80, ["room", 1], [-52, 2], ["room", 1])), true, "a quiet microphone in a quiet room");
+  assert.equal(isSpoken(saidAt(16000, -60, ["room", 2], [-47, .5], ["room", 1])), true, "a soft word in a room 13 dB under it");
+  for (const room of [-90, -75, -60, -50]) assert.equal(isSpoken(saidAt(16000, room, ["room", 3])), false, `a room at ${room} dB alone`);
+});
+
+test("a quiet microphone's dictation is cut at its pauses as a loud one's is", () => {
+  const phrases: [number | "room", number][] = [];
+  for (let i = 0; i < 6; i++) phrases.push([-50, 4.2], ["room", .6]);
+  const { handed } = cutUp(saidAt(48000, -80, ...phrases));
+  assert.ok(handed.length >= 5, `handed on ${handed.length} pieces for six phrases with pauses`);
+  for (const { piece } of handed) assert.ok(piece.samples.length / piece.rate <= 10, "each piece ends at the pause after a phrase or two");
+});
+
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const track = { kind: "audio" } as MediaStreamTrack;
 const SHORT = { samples: new Float32Array([0, .5, -.5, 1]), rate: 16000 };
@@ -224,6 +254,23 @@ test("room noise after the last piece, or a piece of it alone, is never sent, as
   await settle();
   assert.equal(posted.length, 1);
   assert.deepEqual(events.heard, ["open the pull request"]);
+});
+
+test("a softly spoken piece after a loud one is sent, as the words in it are speech", async () => {
+  const { Recognition, recorded, posted, answer } = engine({ sound: saidAt(16000, -80, ["room", .5]) });
+  const recognizer = new Recognition();
+  const events = listen(recognizer);
+  recognizer.start(track);
+  recorded[0].say(saidAt(16000, -80, [-20, 5], ["room", .3]));
+  recorded[0].say(saidAt(16000, -80, [-52, 5], ["room", .3]));
+  await settle();
+  answer("the loud part");
+  await settle();
+  answer("and the soft part");
+  recognizer.stop();
+  await settle();
+  assert.equal(posted.length, 2, "both pieces were sent");
+  assert.deepEqual(events.heard, ["the loud part and the soft part"]);
 });
 
 test("a dictation with nothing loud in it, as from a quiet microphone, is sent whole, as it is", async () => {
