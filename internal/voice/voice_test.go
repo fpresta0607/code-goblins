@@ -427,7 +427,7 @@ func TestRecognizeRefusesBeforeStartingTheEngineWhenTheMachineHasNoRoom(t *testi
 	for name, free := range map[string][2]uint64{
 		"memory under the mark": {Room - 1, 8 << 30},
 		"commit under the mark": {8 << 30, Room - 1},
-		// The pinned model holds about 850 MB once loaded.
+		// The pinned model holds about 800 MB once loaded.
 		"1.5 GB of memory free": {1536 << 20, 8 << 30},
 	} {
 		voice, record := engine(t, "hears", 8<<30)
