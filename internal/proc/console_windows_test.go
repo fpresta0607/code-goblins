@@ -126,6 +126,9 @@ func TestHideConsoleTakesACarelessConsoleOffTheDesktop(t *testing.T) {
 			t.Fatalf("with %s as the default terminal, a new console never showed a window: the premise of this test does not hold", terminal)
 		}
 	}
+	// The supervisor asks after a process's console from its second second
+	// on, by when Windows Terminal has told the console that it shows it.
+	time.Sleep(time.Second)
 
 	// Act
 	isHidden, err := proc.HideConsole(command.Process.Pid)

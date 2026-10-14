@@ -43,11 +43,11 @@ New-Item -ItemType Directory -Force $env:CFO_HOME, $env:CFO_STATE_OVERRIDE, $env
 $watchFor = 10
 $bash = 'C:\Program Files\Git\bin\bash.exe'
 
-# Measure runs a start and watches the desktop for $watchFor seconds: the
+# Watch-Start runs a start and watches the desktop for $watchFor seconds: the
 # windows it opened, how long after the start the last one was still in
 # front, and how long the last one was there at all, minimized or not. The
 # processes it started are ended by their pids.
-function Measure([string]$Name, [string]$Build, [scriptblock]$Start) {
+function Watch-Start([string]$Name, [string]$Build, [scriptblock]$Start) {
     $before = [Desktop]::Shown()
     $existing = @{}
     foreach ($process in Get-Process) { $existing[$process.Id] = $true }
@@ -80,21 +80,21 @@ foreach ($build in @(@{ Name = 'main'; Cfo = $BaseCfo }, @{ Name = 'this branch'
     $program = $build.Cfo
     $unix = '/' + $program.Replace(':', '').Replace('\', '/')
     $turn = @('gate', 'turn', '--', 'ping', '-n', '30', '127.0.0.1')
-    $results += Measure 'Win32_Process Create with no ShowWindow' $build.Name {
+    $results += Watch-Start 'Win32_Process Create with no ShowWindow' $build.Name {
         Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "`"$program`" $($turn -join ' ')" } | Out-Null
     }
-    $results += Measure 'Start-Process at the normal window style' $build.Name {
+    $results += Watch-Start 'Start-Process at the normal window style' $build.Name {
         Start-Process -FilePath $program -ArgumentList $turn
     }
-    $results += Measure 'cmd /c start' $build.Name {
+    $results += Watch-Start 'cmd /c start' $build.Name {
         cmd /c start "`"`"" "`"$program`"" @turn
     }
-    $results += Measure 'a new console from Git Bash' $build.Name {
+    $results += Watch-Start 'a new console from Git Bash' $build.Name {
         & $bash -c "start '$unix' $($turn -join ' ')"
     }
 }
 $log = Join-Path $Work 'detached.log'
-$results += Measure 'cfo gate turn --detach' 'this branch' {
+$results += Watch-Start 'cfo gate turn --detach' 'this branch' {
     & $Cfo gate turn --detach $log -- ping -n 3 127.0.0.1 | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "cfo gate turn --detach exited $LASTEXITCODE" }
 }
