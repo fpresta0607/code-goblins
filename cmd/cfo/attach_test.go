@@ -17,11 +17,14 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -582,6 +585,111 @@ func TestTheFirstRunPageStartsTheCFOInItsHome(t *testing.T) {
 	}
 }
 
+// Closing a native terminal a test started leaves alone the process that
+// took the pid of a host that had ended (#885): the record still named that
+// pid, and the close waited 15 seconds on that process and then ended it.
+func TestClosingANativeTerminalLeavesTheProcessThatTookItsEndedHostsPid(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	standin.RemoveAtCleanup(t, bin)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, self, filepath.Join(bin, "claude.exe"))
+	t.Setenv("PATH", bin)
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+		t.Fatal(err)
+	}
+	record, err := host.ReadRecord(h.State, supervisor.NativeCFOTerminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostProcess, err := os.FindProcess(record.HostPID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = hostProcess.Kill()
+		_ = hostProcess.Release()
+	})
+	waitForFakeClaudeEnvironment(t, h.Root)
+	client, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = client.CloseTerminal()
+	_ = client.Close()
+	ended := make(chan struct{})
+	go func() {
+		_, _ = hostProcess.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+	case <-time.After(15 * time.Second):
+		_ = hostProcess.Kill()
+		t.Fatalf("the host pid %d did not end after its terminal closed", record.HostPID)
+	}
+	// The bystander stands in for the next process to start, which took the
+	// pid the record names.
+	bystander := execx.Command(self, attachTestTerminal)
+	bystanderInput, err := bystander.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bystanderOutput, bystanderWriter := io.Pipe()
+	bystander.Stdout = bystanderWriter
+	if err := bystander.Start(); err != nil {
+		t.Fatal(err)
+	}
+	bystanderLines := make(chan string, 8)
+	go func() {
+		lines := bufio.NewScanner(bystanderOutput)
+		for lines.Scan() {
+			bystanderLines <- lines.Text()
+		}
+		close(bystanderLines)
+	}()
+	bystanderEnded := make(chan struct{})
+	go func() {
+		_ = bystander.Wait()
+		close(bystanderEnded)
+	}()
+	t.Cleanup(func() {
+		_ = bystanderInput.Close()
+		<-bystanderEnded
+		_ = bystanderWriter.Close()
+	})
+	if line := <-bystanderLines; line != "ready" {
+		t.Fatalf("the bystander said %q, want ready", line)
+	}
+	record.HostPID = bystander.Process.Pid
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "hosts", supervisor.NativeCFOTerminal+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal)
+
+	// Assert: the bystander still runs, as only a running one echoes a line.
+	_, _ = io.WriteString(bystanderInput, "alive\n")
+	select {
+	case line := <-bystanderLines:
+		if line != "got alive" {
+			t.Errorf("closing native terminal %s ended pid %d, which its record named but which was not its host: it answered %q", supervisor.NativeCFOTerminal, bystander.Process.Pid, line)
+		}
+	case <-time.After(15 * time.Second):
+		t.Errorf("closing native terminal %s left pid %d, which its record named but which was not its host, unable to answer within 15s", supervisor.NativeCFOTerminal, bystander.Process.Pid)
+	}
+}
+
 // fakeClaudeArguments is the file the test binary, run as claude.exe in a
 // native terminal, writes its arguments to, one a line, in its working
 // directory.
@@ -620,6 +728,10 @@ func runFakeClaude() int {
 
 // closeNativeTerminal closes native terminal id and waits for its host to
 // end, so the host holds nothing in the test's folders when they are removed.
+// On Windows a pid names whatever process holds it when it is opened, and a
+// host that has ended gives its pid to the next process to start, so the
+// process opened is the host only when it started no later than the host
+// recorded itself. Held open, it keeps its pid while that is checked.
 func closeNativeTerminal(t *testing.T, stateDir, id string) {
 	t.Helper()
 	record, err := host.ReadRecord(stateDir, id)
@@ -632,6 +744,14 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 		return
 	}
 	defer hostProcess.Release()
+	started, known := proc.StartTime(record.HostPID)
+	if !known {
+		t.Errorf("the start of host pid %d cannot be read, so it is not known to be the host", record.HostPID)
+		return
+	}
+	if started.After(record.Started) {
+		return
+	}
 	if client, err := host.Dial(record); err == nil {
 		_ = client.CloseTerminal()
 		_ = client.Close()
