@@ -53,11 +53,16 @@ env:
   # the tests whose names match run, the other skips exactly those.
   # internal/conpty is fast but times keystrokes against bounds: beside the
   # rest job's other packages, which keep all four cores busy, one key's echo
-  # spent 429 ms waiting for a core, so it runs alone. The rest job runs
-  # every package that except does not name, so a new package is tested with
-  # no change here. TestGoWorkflowRunsEveryPackageOnce holds the list to
-  # that: except names exactly the other jobs' packages, and a package in two
-  # jobs is split by one pattern, run in one and skipped in the other.
+  # spent 429 ms waiting for a core, so it runs alone. The tests that drive a
+  # real Chrome run in the chrome job, one package at a time, so nothing
+  # competes with Chrome for the runner's disk and cores: beside other tests
+  # a fresh profile's Chrome took over a minute to start or 10 s to answer
+  # its first cookie. The rest job runs every package that except does not
+  # name, so a new package is tested with no change here.
+  # TestGoWorkflowRunsEveryPackageOnce holds the list to that: except names
+  # exactly the other jobs' packages, and the jobs that share a package split
+  # it in the table's order, each running its pattern and skipping what the
+  # jobs before it run, the last skipping what all of them run.
   JOBS: |
     {
       "frontend": {
@@ -68,14 +73,16 @@ env:
         "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"]
       },
       "go": [
+        {"shard": "chrome", "packages": "./internal/browserlogin ./internal/supervisor", "run": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone)$"},
+        {"shard": "browserlogin", "packages": "./internal/browserlogin", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone)$"},
         {"shard": "cmd-cfo-1", "packages": "./cmd/cfo", "run": "Update|Recover"},
         {"shard": "cmd-cfo-2", "packages": "./cmd/cfo", "skip": "Update|Recover"},
         {"shard": "spawn-1", "packages": "./internal/spawn", "run": "Spawn|Resume"},
         {"shard": "spawn-2", "packages": "./internal/spawn", "skip": "Spawn|Resume"},
-        {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]"},
-        {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^Test[A-M]"},
+        {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone)$"},
+        {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone)$|^Test[A-M]"},
         {"shard": "conpty", "packages": "./internal/conpty"},
-        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty"}
+        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/browserlogin"}
       ]
     }
 
@@ -381,6 +388,14 @@ jobs:
           $citest = Join-Path $env:RUNNER_TEMP citest.exe
           go build -o $citest ./tools/citest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The chrome job's packages each start real Chromes, which go test
+          # would otherwise run side by side. Its run also times five Chromes,
+          # which the step after shows.
+          if ($env:SHARD -eq 'chrome') {
+            $env:GOFLAGS = '-p=1'
+            $env:CFO_CHROME_TIMINGS = '5'
+            $env:CFO_CHROME_TIMINGS_FILE = Join-Path $env:RUNNER_TEMP chrome-timings.txt
+          }
           & $citest -job "go ($env:SHARD)" -record (Join-Path $env:RUNNER_TEMP failed-once.jsonl) "-run=$env:RUN" "-skip=$env:SKIP" -timeout 20m $packages
         env:
           SHARD: ${{ matrix.shard }}
@@ -390,6 +405,14 @@ jobs:
           SKIP: ${{ matrix.skip }}
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - name: Show Chrome's start, first cookie and exit times
+        # Chrome's own tail where nothing competes with it, as
+        # TestChromeStartCookieAndExitTimes recorded it in the step above:
+        # how long a fresh profile takes to start, to answer its first
+        # Storage.setCookies and to exit once asked.
+        if: matrix.shard == 'chrome' && !cancelled()
+        shell: pwsh
+        run: Get-Content (Join-Path $env:RUNNER_TEMP chrome-timings.txt) -ErrorAction Continue
       - name: Keep the record of each test that failed once
         if: always()
         uses: actions/upload-artifact@v4
