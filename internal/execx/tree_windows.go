@@ -23,6 +23,9 @@ type Tree struct {
 	isDone  bool
 	ended   []EndedProcess
 	doneErr error
+	// peak is the highest peak commitment read of the job, under which no
+	// later read may fall.
+	peak uint64
 }
 
 // StartTree starts cmd, made with Command or CommandContext, in a job of its

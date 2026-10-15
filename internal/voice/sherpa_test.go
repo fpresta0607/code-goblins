@@ -263,7 +263,8 @@ func TestTheShippedSettingsAreWhatTheWorkerTakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(options.Library) != "sherpa-onnx-c-api.dll" || options.MoonshineEncoder != voice.folder(settings.Model)+"/encoder_model.ort" || options.MoonshineMergedDecoder != voice.folder(settings.Model)+"/decoder_model_merged.ort" {
+	model := voice.folder(settings.Model)
+	if filepath.Base(options.Library) != "sherpa-onnx-c-api.dll" || options.ModelType != "nemo_transducer" || options.Encoder != model+"/encoder.int8.onnx" || options.Decoder != model+"/decoder.int8.onnx" || options.Joiner != model+"/joiner.int8.onnx" || options.Tokens != model+"/tokens.txt" || options.MoonshineEncoder != "" {
 		t.Fatalf("the shipped settings load %+v", options)
 	}
 }

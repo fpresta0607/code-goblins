@@ -63,6 +63,14 @@ func BriefProcesses() string {
 	return "Browsers run headless and terminals hidden in tests, unless a picture needs a window. A heavy run starts in the background as cfo gate turn --detach <log-file> -- <command>, which starts it hidden with its pid file and log, never with a process start of the goblin's own, which opens a window on the Overlord's desktop. Every process the task starts is tracked by its pid and ended by that pid, never by its name. No retry or polling loop runs without a cap."
 }
 
+// BriefRootIssues is what the Constraints section of every brief says of a
+// root issue its goblin finds outside the brief, as the Overlord asked on
+// 2026-10-14: it is filed on its project's repository, where the fleet picks
+// it up, and named in the report, never only mentioned.
+func BriefRootIssues() string {
+	return "A root issue you find outside this brief, a cause this task does not change, is filed with cfo issue file --project <project> --title <title> --body-file <file> and named by the address it prints in your report, never only mentioned. It comments on the open issue of the same root when there is one."
+}
+
 // WriteQueuedBrief writes data/<id>/brief.md from a queued row and every
 // detail line under it, and never replaces a brief that already exists.
 func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
@@ -94,7 +102,40 @@ func QueuedBriefText(queued QueuedTask) string {
 	if kind == "" {
 		kind = "ship"
 	}
-	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefVerification(row.ID), kind, mode, row.Harness, row.Model, row.Effort)
+	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), kind, mode, row.Harness, row.Model, row.Effort)
+}
+
+// AppendQueuedTask adds row, the backlog row of task id, at the bottom of the
+// Queued section under the backlog's lock, starting backlog.md with that
+// section when there is none, and adds nothing when the backlog already lists
+// id in any section.
+func AppendQueuedTask(h home.Home, id, row string) (err error) {
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, ".backlog.lock")) }()
+	backlog, err := ReadBacklog(h)
+	if err != nil || backlog.Lists(id) {
+		return err
+	}
+	path := filepath.Join(h.Data, "backlog.md")
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		data, err = []byte("## Queued\n"), nil
+	}
+	if err != nil {
+		return err
+	}
+	blocks, _ := queuedBlocks(strings.Split(string(data), "\n"), nil)
+	order := make([]string, 0, len(blocks)+1)
+	for _, block := range blocks {
+		order = append(order, block.id)
+	}
+	next, err := reorderedBacklog(string(data), append(order, id), map[string]string{id: row}, nil)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, []byte(next))
 }
 
 func RemoveQueuedTask(h home.Home, id, revision string) error {

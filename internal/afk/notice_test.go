@@ -63,7 +63,7 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"no question":                    "never publish anything as a cfo question or a cfo run-request",
 		"no question once back":          "nothing you log becomes a Command Center question",
 		"his step: what it is":           "A step you cannot take, such as his own sign-in or a step a tool refuses",
-		"his step: one plain line":       "one plain line at the end of his recap",
+		"his step: one card":             "becomes one card in his Command Center once he is back",
 		"his step: a backlog row":        "give it a backlog row in data/backlog.md",
 		"his step: logged as his":        "cfo afk log --kind his",
 		"his step: worked around":        "work around it",

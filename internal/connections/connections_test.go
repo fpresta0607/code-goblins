@@ -146,17 +146,21 @@ func TestCacheRefreshPreservesEvidenceAndTimeoutIsVisible(t *testing.T) {
 
 func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 	var calls atomic.Int32
-	cache := NewCache(50*time.Millisecond, time.Second, func(context.Context, string) Snapshot {
+	cache := NewCache(time.Minute, time.Second, func(context.Context, string) Snapshot {
 		calls.Add(1)
 		return Snapshot{Entries: []Entry{}}
 	})
 	defer cache.Close()
+	// The cache's clock moves only when the test moves it, so a result is
+	// fresh until then however long a busy machine takes between reads.
+	var ahead atomic.Int64
+	cache.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) }
 	cache.Get("one", false)
 	waitChecked(t, cache, "one")
 	if cache.Get("one", false).Checking || calls.Load() != 1 {
 		t.Fatal("a fresh result started another check")
 	}
-	time.Sleep(60 * time.Millisecond)
+	ahead.Store(int64(time.Minute))
 	if !cache.Get("one", false).Checking {
 		t.Fatal("a stale result did not start a check")
 	}

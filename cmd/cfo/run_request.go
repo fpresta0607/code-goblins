@@ -28,7 +28,7 @@ func runRunRequest(args []string, stdout, stderr io.Writer, runtime commandRunti
 	f.StringVar(&req.CommandFile, "command-file", "", "the file holding the exact command; read once")
 	withdraw := f.String("withdraw", "", "take the item with this ID, which nobody ran yet, off the Command Center")
 	reason := f.String("reason", "", "why the item is withdrawn; kept on the item and in state/runs.audit")
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	switch {

@@ -103,14 +103,17 @@ func TestAStepTheCFOSettledNoLongerNeedsHim(t *testing.T) {
 			under[section.Title] = append(under[section.Title], entry.What+" / "+entry.Settled)
 		}
 	}
-	if want := []string{steps[0].What + " / "}; !slices.Equal(under["Needs you"], want) {
-		t.Errorf("Needs you = %q, want only the step still open %q", under["Needs you"], want)
+	if len(under["Needs you"]) != 0 {
+		t.Errorf("Needs you = %q, want no line: the step still open is a card", under["Needs you"])
+	}
+	if len(report.Held) != 1 || report.Held[0].Item != afk.HisCardItem(steps[0]) || !report.Held[0].Waiting {
+		t.Errorf("held = %+v, want the step still open held as its card", report.Held)
 	}
 	if want := []string{steps[1].What + " / the run finished on its own"}; !slices.Equal(under["Settled by the CFO"], want) {
 		t.Errorf("Settled by the CFO = %q, want the settled step with what became of it %q", under["Settled by the CFO"], want)
 	}
-	for _, q := range s.Store.Snapshot().Questions {
-		t.Errorf("the board holds question %+v, want none: a step only he can take is never asked", q)
+	if questions, runs := cardsOf(s); len(questions) != 1 || len(runs) != 0 || questions[0].ID != afk.HisCardID(steps[0]) {
+		t.Errorf("the board holds %d questions and %d runs, want one card, for the step still open and none for the settled one", len(questions), len(runs))
 	}
 }
 

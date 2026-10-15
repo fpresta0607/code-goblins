@@ -150,6 +150,23 @@ func TestCollectWithNoSourcesStillReportsItIsBlind(t *testing.T) {
 	}
 }
 
+// The collector measures the verification store it is given beside the home.
+func TestCollectMeasuresTheVerificationStoreItIsGiven(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	if err := os.WriteFile(filepath.Join(store, "record.json"), []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	inv, err := Collector{Home: collectorHome(t), VerificationStore: store}.Collect(context.Background())
+
+	// Assert
+	if err != nil || inv.Storage.Verification != 10 || inv.Storage.VerificationStore != store {
+		t.Errorf("Collect = %v, the store %d bytes at %q; want 10 at %q", err, inv.Storage.Verification, inv.Storage.VerificationStore, store)
+	}
+}
+
 // A task record the collector could not read must be named like every other
 // degraded source. Dropped silently it is indistinguishable from a task that
 // never existed, and a live goblin's worktree then reads as one nothing holds.

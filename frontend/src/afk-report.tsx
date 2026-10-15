@@ -10,9 +10,10 @@ import "./afk.css";
 // The recap of the last stretch of AFK mode, one page over the board laid out
 // as a Scrawl page is: a headline in plain words, how long he was away, how
 // many things need him and what the CFO did, then, first and only when there
-// are any, the few lines that need him: a step only he could take, and an item
-// that still waits on him in the Command Center, which Go through them steps
-// through and Open opens alone, then Done, each heading with what was done
+// are any, what needs him: how many cards wait in the Command Center, one for
+// each step only he can take and each item that still waits on him, with Open
+// Command Center, which opens only them, and a line for any step that has no
+// card, then Done, each heading with what was done
 // under it in plain words and its link, and last Decided for you, each
 // question the CFO answered for him and for the goblins with its answer and
 // Change, which opens it in History. What each line stood on is one tap away

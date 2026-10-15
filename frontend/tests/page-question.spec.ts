@@ -1,4 +1,4 @@
-import { expect, test } from "./site";
+import { expect, test, ORIGIN } from "./site";
 
 // A goblin's open review page is one card in the Command Center, which shows
 // the page's own words and the page itself and opens it from one button. The
@@ -8,6 +8,7 @@ import { expect, test } from "./site";
 // page card was taken for the page, and answering it closed the page.
 test("a goblin's open review page is one card with the page's own words, never its goblin's question", async ({ page }) => {
   // Arrange
+  await page.route(ORIGIN + "/api/reviews/waiting-cg-board-polish-3584/preview", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Mockup</title>" }));
   await page.goto("/tests/fixtures/page-question.html");
 
   // Act

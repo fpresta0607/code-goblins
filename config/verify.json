@@ -52,6 +52,11 @@
       "why": "the workflow tests read the workflows, and the test of the CI plan reads the go workflow's table of jobs"
     },
     {
+      "paths": ["tools/release-on-main.ps1"],
+      "packages": ["internal/installscript"],
+      "why": "a test runs the release's guard of its tag and commit"
+    },
+    {
       "paths": [".github/workflows/release.yml"],
       "packages": ["internal/installscript"],
       "why": "an install test reads the release's signing step"

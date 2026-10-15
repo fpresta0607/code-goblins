@@ -1529,11 +1529,16 @@ func (s Service) staleEscalateAfter() time.Duration {
 	return 4 * time.Minute
 }
 
+// DefaultBusyTurnMax is the busy budget of a Service that sets none: how long
+// a turn, or work a goblin waits on, may show nothing new before it no longer
+// holds the goblin's wake back.
+const DefaultBusyTurnMax = time.Hour
+
 func (s Service) busyTurnMax() time.Duration {
 	if s.BusyTurnMax > 0 {
 		return s.BusyTurnMax
 	}
-	return time.Hour
+	return DefaultBusyTurnMax
 }
 
 func (s Service) pauseResurfaceAfter() time.Duration {

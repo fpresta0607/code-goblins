@@ -711,6 +711,13 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 			if !slices.EqualFunc(got, tc.want, ProjectPeople.equal) {
 				t.Fatalf("people = %+v, want %+v", got, tc.want)
 			}
+			remembered, err := tickets.Teammates(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wantRemembered := len(tc.want) > 0; slices.Contains(remembered, teammate.Login) != wantRemembered {
+				t.Fatalf("teammates remembered = %v, want %s remembered: %v", remembered, teammate.Login, wantRemembered)
+			}
 			wantReads := 1
 			if tc.task.Archived {
 				wantReads = 0

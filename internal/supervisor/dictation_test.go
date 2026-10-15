@@ -322,7 +322,7 @@ func TestDictationSaysSoWhenTheMachineHasNoRoom(t *testing.T) {
 	speech := &fakeSpeech{err: voice.NoRoom{Available: 700 << 20, Commit: 3 << 30}}
 	response := dictate(dictationBoard(t, speech), []byte("RIFF-sound"), nil)
 	_, _, problem := answer(t, response)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "1 GB of free memory") || !strings.Contains(problem, "0.7 GB") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "2 GB of free memory") || !strings.Contains(problem, "0.7 GB") {
 		t.Fatalf("with no room it answered %d %s", response.Code, response.Body)
 	}
 }

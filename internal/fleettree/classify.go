@@ -74,6 +74,19 @@ func classify(j job, facts jobFacts) (Group, string, string) {
 	return GroupOther, label, detail
 }
 
+// heavyLineRun is a run in the machine's heavy line, which waits there for
+// its turn, holds it while its command runs, and tells its goblin how it
+// ended.
+var heavyLineRun = regexp.MustCompile(`(?i)\b(cfo|goblins)(\.exe)?"?\s+gate\s+turn\b`)
+
+// isHeavyRun says a job is or runs a run in the machine's heavy line, by its
+// processes' command lines.
+func (j job) isHeavyRun(facts jobFacts) bool {
+	return slices.ContainsFunc(j.members, func(member Process) bool {
+		return heavyLineRun.MatchString(facts.commands[member.PID])
+	})
+}
+
 // isService says a job is or runs a machine service (proc.ServiceOf), by
 // its programs and their command lines.
 func (j job) isService(facts jobFacts) bool {
@@ -186,20 +199,6 @@ func commandTask(commandLine string) string {
 	return task(command)
 }
 
-// jobLines are a job's own output on the board: the command it runs, then
-// each of its processes with its memory and what it runs.
-func jobLines(j job, commands map[int]string) []string {
-	lines := typed(commandTask(commands[j.root.PID]))
-	for _, member := range j.members {
-		line := fmt.Sprintf("%s (pid %d), %s", member.Exe, member.PID, memoryText(member.Memory))
-		if command := commandTask(commands[member.PID]); command != "" {
-			line += ": " + command
-		}
-		lines = append(lines, bounded(line, agentLineLimit))
-	}
-	return lines
-}
-
 // typed is a command as a terminal shows it was typed, after >, and nothing
 // for no command.
 func typed(command string) []string {
@@ -207,14 +206,6 @@ func typed(command string) []string {
 		return nil
 	}
 	return []string{bounded("> "+command, agentLineLimit)}
-}
-
-// memoryText says an amount of memory as the board does.
-func memoryText(bytes uint64) string {
-	if bytes >= 1<<30 {
-		return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
-	}
-	return fmt.Sprintf("%d MB", (bytes+1<<19)>>20)
 }
 
 // commandLabel is a short label for what a job's first process runs.

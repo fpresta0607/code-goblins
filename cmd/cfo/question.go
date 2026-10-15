@@ -19,7 +19,7 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	recommended := f.String("recommend", "", "exact supplied choice to recommend; omit when there is no recommendation")
 	var options []string
 	f.Func("option", "one real choice; repeat for each choice; omit for written answers", func(value string) error { options = append(options, value); return nil })
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	if err := choicesAreAnswers(options); err != nil {

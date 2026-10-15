@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -149,6 +150,21 @@ func (s *said) atLeast(t *testing.T, count int) []string {
 	}
 }
 
+// saying waits until the run has said a line holding text, for at most 10
+// seconds.
+func (s *said) saying(t *testing.T, text string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		s.mu.Lock()
+		isSaid := slices.ContainsFunc(s.lines, func(line string) bool { return strings.Contains(line, text) })
+		s.mu.Unlock()
+		if isSaid {
+			return
+		}
+	}
+	t.Fatalf("the run did not say %q within 10 seconds", text)
+}
+
 // waits blocks until the run that delivers its turn on taken says that it
 // waits, and returns what it said. A run that takes a turn instead fails the
 // test.
@@ -283,6 +299,124 @@ func TestRunsTakeTheirTurnsInTheOrderTheyAsked(t *testing.T) {
 	within(t, later, "the run that asked second").Release()
 	if !strings.HasSuffix(earlyLine, "; this run is next in line") || !strings.HasSuffix(lateLine, "; 1 run is ahead of this one in line") {
 		t.Errorf("the first said %q and the second %q; want the first next in line and the second with 1 run ahead", earlyLine, lateLine)
+	}
+}
+
+// A run at the lowest priority takes its turn only while no other run waits:
+// a run that asked after it still goes first, and the later run is told it is
+// next in line.
+func TestALowPriorityRunLetsALaterRunGoFirst(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	holder := within(t, take(t, a), "the holder")
+	var lowSaid, laterSaid said
+	low := a
+	low.IsLowPriority, low.Waiting = true, lowSaid.waiting
+	lowTaken := take(t, low)
+	lowSaid.waits(t, lowTaken, "the low-priority run, while the holder had the turn,")
+	a.Waiting = laterSaid.waiting
+	later := take(t, a)
+	laterLine := laterSaid.waits(t, later, "the run that asked after it, while the holder had the turn,")
+
+	// Act
+	holder.Release()
+
+	// Assert
+	turn := within(t, later, "the run that asked after the low-priority one")
+	notYet(t, lowTaken, "the low-priority run, while the later run held the turn,")
+	turn.Release()
+	within(t, lowTaken, "the low-priority run, once no other run waited").Release()
+	if !strings.HasSuffix(laterLine, "; this run is next in line") {
+		t.Errorf("the later run said %q; want it next in line, ahead of the low-priority run", laterLine)
+	}
+}
+
+// Runs at the lowest priority keep the order they asked in among themselves.
+func TestLowPriorityRunsTakeTheirTurnsInTheOrderTheyAsked(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	holder := within(t, take(t, a), "the holder")
+	a.IsLowPriority = true
+	var early, late said
+	a.Waiting = early.waiting
+	earlier := take(t, a)
+	early.waits(t, earlier, "the low-priority run that asked first,")
+	a.Waiting = late.waiting
+	later := take(t, a)
+	late.waits(t, later, "the low-priority run that asked second,")
+
+	// Act
+	holder.Release()
+
+	// Assert
+	turn := within(t, earlier, "the low-priority run that asked first")
+	notYet(t, later, "the low-priority run that asked second, while the first held the turn,")
+	turn.Release()
+	within(t, later, "the low-priority run that asked second").Release()
+}
+
+// Line lists the runs at the lowest priority after every other waiting run,
+// whenever they joined, and marks them, as any build that reads the line by
+// the names of its places orders them.
+func TestLineListsLowPriorityRunsAfterAllOthers(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	line := filepath.Join(dir, "line")
+	if err := os.MkdirAll(line, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, place := range []string{lowPriorityPlace + "00000000000000000001-10-1", "00000000000000000002-11-1"} {
+		record, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Start: now.Add(-3 * time.Hour), Acquired: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string][]byte{place: record, place + ".run": []byte(`{"who":"the run at ` + place + `"}`)} {
+			if err := os.WriteFile(filepath.Join(line, name), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Act
+	_, waiting, err := Line(dir)
+
+	// Assert
+	if err != nil || len(waiting) != 2 || waiting[0].IsLowPriority || !waiting[1].IsLowPriority || !strings.HasPrefix(waiting[1].Who, "the run at "+lowPriorityPlace) {
+		t.Errorf("Line waiting = %+v, %v; want the ordinary run that joined later first, then the low-priority run, marked", waiting, err)
+	}
+}
+
+// A low-priority waiter whose process is gone leaves the line as any waiter
+// does, so it holds back no run behind it.
+func TestAGoneLowPriorityWaiterLeavesTheLine(t *testing.T) {
+	// Arrange
+	line := filepath.Join(t.TempDir(), "line")
+	if err := os.MkdirAll(line, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := lowPriorityPlace + "00000000000000000001-10-1"
+	record, err := json.Marshal(lock.Info{PID: 4194300, OwnerPID: 4194300, Hostname: hostname, Start: time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC), Acquired: time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(line, gone), record, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	ahead, err := inFront(line, lowPriorityPlace+"00000000000000000002-11-1")
+
+	// Assert
+	if err != nil || ahead != 0 {
+		t.Errorf("inFront = %d, %v; want no run ahead of it, the gone waiter taken out", ahead, err)
+	}
+	if _, err := os.Stat(filepath.Join(line, gone)); !os.IsNotExist(err) {
+		t.Errorf("the gone waiter's place %s: %v; want it removed", gone, err)
 	}
 }
 
@@ -958,12 +1092,62 @@ func TestAdmissionSaysTheTighterShortOfMemoryAndCommit(t *testing.T) {
 }
 
 // shortCustodyBudget gives each custody change a tenth of a second, so a test
-// holds the line's lock busy past it in a moment.
-func shortCustodyBudget(t *testing.T) {
+// holds the line's lock busy past it in a moment, and returns what gives the
+// changes their whole budget again. A test shortens it only while it holds
+// the lock: a change the lock does not hold up, such as taking or releasing a
+// turn, can take longer than a tenth of a second on a busy machine.
+func shortCustodyBudget(t *testing.T) (restore func()) {
 	t.Helper()
-	previous := custodyMutationBudget
-	custodyMutationBudget = 100 * time.Millisecond
-	t.Cleanup(func() { custodyMutationBudget = previous })
+	previous := custodyMutationBudget.Load()
+	custodyMutationBudget.Store(int64(100 * time.Millisecond))
+	restore = func() { custodyMutationBudget.Store(previous) }
+	t.Cleanup(restore)
+	return restore
+}
+
+// A turn's release, and the completion of an execution's custody in it, wait
+// out a busy moment of the line's lock as taking the turn does, rather than
+// failing on the first custody change that finds it busy.
+func TestATurnsChangesWaitOutABusyMomentOfTheLinesLock(t *testing.T) {
+	for _, hold := range []string{"in this process", "by its lock file"} {
+		// Each prepares its change while the lock is free, and returns it.
+		for name, prepare := range map[string]func(t *testing.T, turn Turn) func() error{
+			"releasing its turn": func(t *testing.T, turn Turn) func() error { return turn.Release },
+			"completing its custody": func(t *testing.T, turn Turn) func() error {
+				guard, err := turn.ProtectContext(context.Background(), "protected-run", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return guard.Complete
+			},
+		} {
+			t.Run(hold+", "+name, func(t *testing.T) {
+				// Arrange
+				a := admission(t)
+				turn := within(t, take(t, a), "the run")
+				t.Cleanup(func() { _ = turn.Release() })
+				change := prepare(t, turn)
+				shortCustodyBudget(t)
+				errs := make(chan error, 1)
+				release := holdLineLock(t, a.Dir, hold)
+
+				// Act
+				go func() { errs <- change() }()
+				time.Sleep(400 * time.Millisecond)
+				release()
+
+				// Assert
+				select {
+				case err := <-errs:
+					if err != nil {
+						t.Errorf("the change ended with %v; want it to wait out the lock's busy moment", err)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("the change never ended")
+				}
+			})
+		}
+	}
 }
 
 // holdLineLock holds the line's lock in dir as hold says, and returns what
@@ -999,7 +1183,6 @@ func TestAWaitingRunKeepsItsPlaceWhileTheLinesLockIsBusy(t *testing.T) {
 	for _, hold := range []string{"in this process", "by its lock file"} {
 		t.Run(hold, func(t *testing.T) {
 			// Arrange
-			shortCustodyBudget(t)
 			a := admission(t)
 			var isShort atomic.Bool
 			isShort.Store(true)
@@ -1015,9 +1198,11 @@ func TestAWaitingRunKeepsItsPlaceWhileTheLinesLockIsBusy(t *testing.T) {
 			if lines := says.atLeast(t, 1); len(lines) == 0 {
 				t.Fatal("the run never said it waited")
 			}
+			restore := shortCustodyBudget(t)
 			release := holdLineLock(t, a.Dir, hold)
 			isShort.Store(false)
-			time.Sleep(600 * time.Millisecond)
+			says.saying(t, "the line's lock is busy")
+			restore()
 			release()
 
 			// Act
@@ -1038,7 +1223,6 @@ func TestAWaitingRunKeepsItsPlaceWhileTheLinesLockIsBusy(t *testing.T) {
 // busy past that limit with why, rather than waiting on it for good.
 func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 	// Arrange
-	shortCustodyBudget(t)
 	a := admission(t)
 	a.Limit = 300 * time.Millisecond
 	var isShort atomic.Bool
@@ -1060,6 +1244,7 @@ func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 		ended <- err
 	}()
 	says.atLeast(t, 1)
+	shortCustodyBudget(t)
 	holdLineLock(t, a.Dir, "in this process")
 	isShort.Store(false)
 
@@ -1083,6 +1268,7 @@ func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 func TestARunGivesUpALockBusyPastItsLimitAtEachChange(t *testing.T) {
 	for name, change := range map[string]func(t *testing.T, a Admission) error{
 		"joining the line": func(t *testing.T, a Admission) error {
+			shortCustodyBudget(t)
 			holdLineLock(t, a.Dir, "in this process")
 			turn, err := a.Wait(context.Background())
 			if err == nil {
@@ -1093,14 +1279,32 @@ func TestARunGivesUpALockBusyPastItsLimitAtEachChange(t *testing.T) {
 		"protecting its turn": func(t *testing.T, a Admission) error {
 			turn := within(t, take(t, a), "the run")
 			t.Cleanup(func() { _ = turn.Release() })
+			shortCustodyBudget(t)
 			holdLineLock(t, a.Dir, "in this process")
 			_, err := turn.ProtectContext(context.Background(), "protected-run", "")
 			return err
 		},
+		"releasing its turn": func(t *testing.T, a Admission) error {
+			turn := within(t, take(t, a), "the run")
+			t.Cleanup(func() { _ = turn.Release() })
+			shortCustodyBudget(t)
+			holdLineLock(t, a.Dir, "in this process")
+			return turn.Release()
+		},
+		"completing its custody": func(t *testing.T, a Admission) error {
+			turn := within(t, take(t, a), "the run")
+			t.Cleanup(func() { _ = turn.Release() })
+			guard, err := turn.ProtectContext(context.Background(), "protected-run", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			shortCustodyBudget(t)
+			holdLineLock(t, a.Dir, "in this process")
+			return guard.Complete()
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			shortCustodyBudget(t)
 			a := admission(t)
 			a.Limit = 300 * time.Millisecond
 			ended := make(chan error, 1)
@@ -1126,7 +1330,6 @@ func TestARunGivesUpALockBusyPastItsLimitAtEachChange(t *testing.T) {
 // slot longer than its limit still waits out a brief busy moment of the lock.
 func TestARunThatWaitedForASlotStillWaitsOutABriefBusyLock(t *testing.T) {
 	// Arrange
-	shortCustodyBudget(t)
 	holder := within(t, take(t, admission(t)), "the run that holds the slot")
 	a := admission(t)
 	a.Dir = holder.dir
@@ -1143,8 +1346,10 @@ func TestARunThatWaitedForASlotStillWaitsOutABriefBusyLock(t *testing.T) {
 	if err := holder.Release(); err != nil {
 		t.Fatal(err)
 	}
+	restore := shortCustodyBudget(t)
 	release := holdLineLock(t, a.Dir, "in this process")
-	time.Sleep(300 * time.Millisecond)
+	says.saying(t, "the line's lock is busy")
+	restore()
 
 	// Act
 	release()
@@ -1163,11 +1368,12 @@ func TestARunThatWaitedForASlotStillWaitsOutABriefBusyLock(t *testing.T) {
 // lock out, rather than taking no turn before it even joins the line.
 func TestARunWaitsOutABusyLockBeforeItJoinsTheLine(t *testing.T) {
 	// Arrange
-	shortCustodyBudget(t)
+	restore := shortCustodyBudget(t)
 	a := admission(t)
 	release := holdLineLock(t, a.Dir, "in this process")
 	taken := take(t, a)
 	time.Sleep(600 * time.Millisecond)
+	restore()
 
 	// Act
 	release()
@@ -1190,10 +1396,10 @@ func TestProtectWaitsOutABusyLock(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			shortCustodyBudget(t)
 			a := admission(t)
 			turn := within(t, take(t, a), "the run")
 			t.Cleanup(func() { _ = turn.Release() })
+			restore := shortCustodyBudget(t)
 			release := holdLineLock(t, a.Dir, "in this process")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -1202,6 +1408,7 @@ func TestProtectWaitsOutABusyLock(t *testing.T) {
 					cancel()
 					return
 				}
+				restore()
 				release()
 			})
 

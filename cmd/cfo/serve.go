@@ -31,6 +31,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -89,7 +90,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	f.SetOutput(stderr)
 	address := f.String("listen", boardAddress(), "loopback address for the native board")
 	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	if !loopbackAddress(*address) {
@@ -156,8 +157,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	// The example board shows made-up tasks, which must never reach GitHub.
 	var ticketKeeping *supervisor.Tickets
+	var rootIssues *supervisor.RootIssues
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
+		github := tickets.GitHub{Commands: execx.OSRunner{}}
+		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
 	// looks only at a release source it is pointed at.
@@ -225,10 +229,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
+		RootIssues:       rootIssues,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
 		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
 		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
+		FileRoot:         fileRootFrom(runtime, *example),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
 		VerifyReports:    verify.Reports,
