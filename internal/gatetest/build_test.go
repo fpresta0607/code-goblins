@@ -220,3 +220,35 @@ func TestBuildLevelsKeepTheTransitiveClosure(t *testing.T) {
 		})
 	}
 }
+
+// The packages the policy runs alone leave the plan's tests for a run of
+// their own, at the level that tests them and at the full one, where ./...
+// becomes every other package by name so none is tested twice.
+func TestBuildRunsThePolicysAlonePackagesApart(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		policy string
+		level  Level
+		tests  []string
+		alone  []string
+	}{
+		{name: "affected", policy: `{"version": 1, "alone_packages": ["b"]}`, level: Affected, tests: []string{"example.com/repo/a", "example.com/repo/c"}, alone: []string{"example.com/repo/b"}},
+		{name: "full", policy: `{"version": 1, "alone_packages": ["b"]}`, level: Full, tests: []string{"example.com/repo/a", "example.com/repo/c"}, alone: []string{"example.com/repo/b"}},
+		{name: "a policy with no alone packages", policy: `{"version": 1}`, level: Full, tests: []string{"./..."}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			found := branch("a/a.go")
+			found.packages = []Package{pkg("a"), pkg("b", "example.com/repo/a"), pkg("c", "example.com/repo/b")}
+			found.policy, found.hasPolicy = test.policy, true
+
+			// Act
+			plan := build(found, test.level)
+
+			// Assert
+			if !slices.Equal(plan.Tests, test.tests) || !slices.Equal(plan.Alone, test.alone) {
+				t.Errorf("build = tests %q, alone %q; want %q and %q", plan.Tests, plan.Alone, test.tests, test.alone)
+			}
+		})
+	}
+}

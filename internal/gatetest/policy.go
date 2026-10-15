@@ -19,6 +19,11 @@ type Policy struct {
 	// slashes and . for the root, of the packages whose tests take minutes:
 	// the fast level vets them and leaves their tests to the affected level.
 	SlowPackages []string `json:"slow_packages"`
+	// AlonePackages are directories, as SlowPackages names them, whose tests
+	// run after the others' in a turn of their own, one package at a time,
+	// as the packages whose tests drive a real Chrome do, so nothing competes
+	// with it for the disk and cores.
+	AlonePackages []string `json:"alone_packages"`
 	// Contracts name the packages whose tests read a file the import graph
 	// cannot see, and Outside the files no Go check reads. A policy that has
 	// either says what every changed file is, and a file it does not account
