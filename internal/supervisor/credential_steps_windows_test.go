@@ -72,6 +72,51 @@ func TestTheAskerOrTheCFOClosesACardOverThePipe(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-15: a card he closed can be brought back. The CFO or
+// the goblin that asked reopens it, under a new generation so the card he
+// closed never saves into it, and only a card he closed comes back.
+func TestACardHeClosedComesBackOnReopen(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	t.Setenv(auth.StoreDirEnv, t.TempDir())
+	_, _, _, cfo := primaryFixture(t, store)
+	service := &Service{Store: store, Options: Options{CFO: cfo, Credentials: auth.OpenStore}}
+	runPipe(t, service)
+	meta, _, _, _ := goblinFixture(t, store)
+	filed, err := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"FLEET_GITHUB_TOKEN"}, Why: "Push the fleet's branches"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ingestCredentialRequests(); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := store.credential(filed.ID)
+	openErr := StepCredential(h, CredentialStep{ID: filed.ID, Action: "reopen"})
+	if _, err := service.closeCredential(open.ID, open.Generation, "dismissed", "overlord", ""); err != nil {
+		t.Fatal(err)
+	}
+	service.credentialWork.Wait()
+
+	// Act
+	reopenErr := StepCredential(h, CredentialStep{ID: filed.ID, Action: "reopen"})
+	reopened, _ := store.credential(filed.ID)
+	againErr := StepCredential(h, CredentialStep{ID: filed.ID, Task: meta.ID, Action: "reopen"})
+
+	// Assert
+	if openErr == nil {
+		t.Fatal("a card still open was reopened")
+	}
+	if reopenErr != nil {
+		t.Fatalf("reopen = %v", reopenErr)
+	}
+	if reopened.State != "open" || reopened.ClosedAt != nil || reopened.Generation == open.Generation || reopened.Generation == "" {
+		t.Fatalf("reopened = %+v, want it open again under a new generation", reopened)
+	}
+	if againErr == nil {
+		t.Fatal("an open card was reopened again")
+	}
+}
+
 // A card that brings the goblin's own browser window to him goes from
 // requested to open when the goblin's wait shows the window, and back to
 // offered, saying why, when it could not.

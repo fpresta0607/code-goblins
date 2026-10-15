@@ -149,6 +149,7 @@ func TestAuthRequestSendsTheAskersStepOnItsCard(t *testing.T) {
 	}{
 		{[]string{"--done", "cred-0123456789abcdef", "--task", "task-1"}, supervisor.CredentialStep{ID: "cred-0123456789abcdef", Task: "task-1", Action: "done"}, "is done"},
 		{[]string{"--withdraw", "cred-0123456789abcdef", "--task", "task-1", "--reason", "The account already existed"}, supervisor.CredentialStep{ID: "cred-0123456789abcdef", Task: "task-1", Action: "withdraw", Reason: "The account already existed"}, "is withdrawn"},
+		{[]string{"--reopen", "cred-0123456789abcdef"}, supervisor.CredentialStep{ID: "cred-0123456789abcdef", Action: "reopen"}, "is back in the Command Center"},
 	} {
 		t.Run(test.args[0], func(t *testing.T) {
 			// Arrange

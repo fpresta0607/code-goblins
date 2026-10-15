@@ -164,6 +164,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   return <article className="question-card credential-card" data-credential-request={request.id} aria-labelledby={"credential-" + request.id}>
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span>
+      {open && <button type="button" className="card-close" disabled={!connected || !!pressing} aria-label="Close this card" data-tip={request.task ? asker + " goes on without it" : "No longer needed"} onClick={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")}><Icon name="close" />Close</button>}
     </p>
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{credentialHeading(request)}</h3>
@@ -247,10 +248,9 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
         {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" data-tip="Run in a terminal on this PC" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
       </div>
     </div>}
-    {(pager || feedback || open) && <div className="card-actions">
+    {(pager || feedback || canPressDone(request)) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {open && <button type="button" className="icon-button raised" disabled={!connected || !!pressing} aria-label="Dismiss this card" data-tip={"Dismiss: " + (request.task ? asker + " goes on without it" : "no longer needed")} onClick={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")}><Icon name="close" /></button>}
       {canPressDone(request) && <button type="button" className="primary step-done" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "done" }, "done")}><Icon name={pressing === "done" ? "clock" : "check"} />Done</button>}
     </div>}
     {confirm && <CredentialReplaceDialog names={confirm.names} project={request.project} action={confirm.action} onCancel={() => setConfirm(null)}

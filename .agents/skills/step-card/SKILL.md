@@ -29,7 +29,7 @@ Run the command in the background, so you go on the moment the card closes.
 When it ends it prints what came of the card:
 
 - exit 0 once the step is done or every input arrived, with each plain value as `NAME=value` and each secret by its name alone,
-- exit 3 when he dismissed the card: go on without it,
+- exit 3 when he closed the card: go on without it,
 - exit 1 when the card was withdrawn or expired, with why.
 
 ## A step inside your own browser session

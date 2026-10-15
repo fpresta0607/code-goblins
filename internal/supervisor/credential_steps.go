@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -29,8 +30,9 @@ const credentialWaitTick = 200 * time.Millisecond
 
 // CredentialStep is what a card's asker, or the CFO, does to it from outside
 // the board: done, once the asker saw the step done; withdraw, once nobody
-// needs it; and, from the goblin's wait, window-open or window-failed once
-// it showed its browser's window or could not.
+// needs it; reopen, to bring back a card he closed; and, from the goblin's
+// wait, window-open or window-failed once it showed its browser's window or
+// could not.
 type CredentialStep struct {
 	ID     string `json:"id"`
 	Task   string `json:"task,omitempty"`
@@ -95,13 +97,53 @@ func (s *Service) stepCredential(pid int, connected time.Time, step CredentialSt
 		}
 		_, err := s.closeCredential(step.ID, "", "withdrawn", by, step.Reason)
 		return err
+	case "reopen":
+		return s.reopenCredential(step.ID)
 	case "window-open", "window-failed":
 		if by != "goblin" {
 			return errors.New("only the goblin whose browser it is reports its window")
 		}
 		return s.reportCredentialWindow(step.ID, step.Action == "window-open", step.Reason)
 	}
-	return fmt.Errorf("a card takes done, withdraw, window-open or window-failed, not %q", step.Action)
+	return fmt.Errorf("a card takes done, withdraw, reopen, window-open or window-failed, not %q", step.Action)
+}
+
+// reopenCredential brings back a card he closed, under a new generation so
+// the card he closed never saves into it, for the rest of its day, and tells
+// the goblin that asked to wait on it again.
+func (s *Service) reopenCredential(id string) error {
+	s.credentialSaves.Lock()
+	defer s.credentialSaves.Unlock()
+	request, found := s.Store.credential(id)
+	switch {
+	case !found:
+		return fmt.Errorf("card %s is not on the board", id)
+	case request.State != "dismissed":
+		return fmt.Errorf("only a card he closed comes back, and card %s is %s", id, request.State)
+	case !time.Now().Before(request.ExpiresAt):
+		return fmt.Errorf("card %s expired; file a new one", id)
+	}
+	var generation [16]byte
+	if _, err := rand.Read(generation[:]); err != nil {
+		return err
+	}
+	reopened, err := s.Store.updateCredential(id, func(r *CredentialRequest) {
+		r.State, r.ClosedAt, r.Reason, r.WindowState, r.Generation = "open", nil, "", "", hex.EncodeToString(generation[:])
+	})
+	if err != nil {
+		return err
+	}
+	s.notify()
+	if reopened.By == "goblin" && s.Options.CFO != nil {
+		s.credentialWork.Add(1)
+		go func() {
+			defer s.credentialWork.Done()
+			if _, err := s.Options.CFO.SendGoblin(context.Background(), reopened.Task, reopened.Identity, "Your card "+reopened.ID+" ("+reopened.Why+") is back in the Command Center. Wait on it again with cfo auth request --wait-on "+reopened.ID+" --task "+reopened.Task+"."); err != nil {
+				s.credentialNotice(reopened, "card "+reopened.ID+" is back in the Command Center, but "+reopened.Task+" could not be told: "+bounded(err.Error(), 300))
+			}
+		}()
+	}
+	return nil
 }
 
 // oneLineReason refuses a reason that is not one line of prose of at most

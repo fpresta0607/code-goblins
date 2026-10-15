@@ -1027,7 +1027,7 @@ func TestNotifyInstructionSendsOneCardForABrowserStepOnlyHeCanTake(t *testing.T)
 		"--window",
 		"auth request --done <card> --task task-7",
 		"--withdraw <card>",
-		"Exit 3 means he dismissed it",
+		"Exit 3 means he closed it",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)

@@ -10,7 +10,7 @@ export function credentialSettled(request: CredentialRequest): string {
   if (request.state === "saved" && request.saved.length) return "Saved " + listNames(request.saved) + " for " + request.project + (sent ? " and " + sent : "");
   if (request.state === "saved") return sent.charAt(0).toUpperCase() + sent.slice(1);
   if (request.state === "done") return "Done";
-  if (request.state === "dismissed") return "You dismissed it";
+  if (request.state === "dismissed") return "Closed. " + closedLine(request);
   if (request.state === "withdrawn") return "Withdrawn: " + request.reason;
   return request.reason;
 }
@@ -21,8 +21,17 @@ export function credentialSettled(request: CredentialRequest): string {
 export function credentialFinish(request: CredentialRequest): { heading: string; label: string } | null {
   if (request.state === "saved") return { heading: request.saved.length ? "Stored" : "Sent", label: credentialSettled(request) };
   if (request.state === "done") return { heading: "Done", label: request.task ? "Its goblin goes on now." : "" };
-  if (request.state === "dismissed") return { heading: "Dismissed", label: request.task ? "Its goblin goes on without it." : "" };
+  if (request.state === "dismissed") return { heading: "Closed", label: (request.task ? "Its goblin goes on without it. " : "") + closedLine(request) };
   return null;
+}
+
+// The one line a card he closed leaves: the command to give its secrets
+// later, or, for a card with none, to bring it back.
+export function closedLine(request: CredentialRequest): string {
+  const needed = stillNeeded(request);
+  if (!needed.length) return "Bring it back: cfo auth request --reopen " + request.id;
+  const first = storeCommand(request.project, needed[0]);
+  return needed.length === 1 ? "Give it later: " + first : "Give them later: " + first + ", then the same for " + listNames(needed.slice(1));
 }
 
 // The secrets a request still asks for: those not saved yet, by the card or

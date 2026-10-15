@@ -34,6 +34,7 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth request --wait-on <card> [--task <id>]   wait on a card you filed, again
        cfo auth request --done <card> [--task <id>]   close your card once you see the step done
        cfo auth request --withdraw <card> [--task <id>] --reason "<why>"   take back a card nobody needs
+       cfo auth request --reopen <card> [--task <id>]   bring back a card he closed
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
@@ -437,17 +438,18 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	waitOn := flags.String("wait-on", "", "wait on a card you filed before")
 	done := flags.String("done", "", "close a card you filed once you see the step done")
 	withdraw := flags.String("withdraw", "", "take back a card nobody needs")
+	reopen := flags.String("reopen", "", "bring back a card he closed")
 	reason := flags.String("reason", "", "why the card is withdrawn")
 	names, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
 	}
-	if card := cmp.Or(*waitOn, *done, *withdraw); card != "" {
+	if card := cmp.Or(*waitOn, *done, *withdraw, *reopen); card != "" {
 		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
-		modes := len(slices.DeleteFunc([]string{*waitOn, *done, *withdraw}, func(id string) bool { return id == "" }))
+		modes := len(slices.DeleteFunc([]string{*waitOn, *done, *withdraw, *reopen}, func(id string) bool { return id == "" }))
 		switch {
 		case isFiling || modes > 1:
-			fmt.Fprintln(stderr, "cfo auth request: --wait-on, --done and --withdraw each take one card's ID, with only --task and, for --withdraw, --reason")
+			fmt.Fprintln(stderr, "cfo auth request: --wait-on, --done, --withdraw and --reopen each take one card's ID, with only --task and, for --withdraw, --reason")
 			return 2
 		case (*withdraw != "") != (strings.TrimSpace(*reason) != ""):
 			fmt.Fprintln(stderr, "cfo auth request: --withdraw needs --reason, and --reason goes with --withdraw")
@@ -462,14 +464,17 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 			return waitForCard(context.Background(), h, *waitOn, *task, runtime, stdout, stderr)
 		}
 		step := supervisor.CredentialStep{ID: card, Task: *task, Action: "done"}
-		if *withdraw != "" {
+		switch {
+		case *withdraw != "":
 			step.Action, step.Reason = "withdraw", *reason
+		case *reopen != "":
+			step.Action = "reopen"
 		}
 		if err := runtime.sendCardStep(h, step); err != nil {
 			fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "card %s is %s\n", card, map[string]string{"done": "done", "withdraw": "withdrawn"}[step.Action])
+		fmt.Fprintf(stdout, "card %s is %s\n", card, map[string]string{"done": "done", "withdraw": "withdrawn", "reopen": "back in the Command Center"}[step.Action])
 		return 0
 	}
 	if *reason != "" {
