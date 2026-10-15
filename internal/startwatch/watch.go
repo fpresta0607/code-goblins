@@ -19,12 +19,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// loopStarts new processes of one owner's same command line, seen within
-// loopSpan, are a loop. Read every 5 seconds for 10 minutes on 2026-10-11,
-// with nine terminals at work, no command line but a carrier's was seen as
-// a new process more than 5 times in any 2 minutes, while a process started
-// again and again that lives 5 seconds or more is seen at every reading,
-// 24 times in 2 minutes.
+// New processes of one owner's same command line seen at loopStarts
+// readings within loopSpan are a loop. Read every 5 seconds for 10 minutes
+// on 2026-10-11, with nine terminals at work, no command line but a
+// carrier's was seen as a new process more than 5 times in any 2 minutes,
+// while a process started again and again that lives 5 seconds or more is
+// seen at every reading, 24 times in 2 minutes. Readings are counted, not
+// processes: one tool call can have a dozen short git commands running at
+// one reading and none at the next, a burst that ended, not a loop (#926).
 const (
 	loopStarts = 10
 	loopSpan   = 2 * time.Minute
@@ -209,7 +211,7 @@ func (w *Watch) loops(reading Reading) []Finding {
 			continue
 		}
 		identity := "loop/" + key
-		if len(started.at) < loopStarts || w.told[identity] {
+		if len(slices.Compact(slices.Clone(started.at))) < loopStarts || w.told[identity] {
 			continue
 		}
 		w.told[identity] = true
