@@ -865,3 +865,53 @@ func TestSnapshotRefreshesProgressAndDurationsWhenTheCycleReadsTheirRecord(t *te
 		}
 	}
 }
+
+// On 2026-10-14 the CFO drew progress_stalled wakes for goblins waiting by
+// design: a run of theirs waiting 50 minutes in the machine's heavy line, and
+// monitors of theirs armed on their pull requests' CI and trains. A goblin
+// waiting on what resumes it when it ends (fleettree.Tree.Waits) is stalled
+// only once that wait has shown nothing new for the busy budget, and its wake
+// then names the wait. A goblin with no such wait stalls as before.
+func TestAGoblinWaitingByDesignStallsOnlyPastTheBusyBudget(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		stalled time.Duration
+		names   string
+	}{
+		{"a run in the heavy line", `bash -c "goblins.exe gate turn -- npm run test:browser"`, monitor.DefaultBusyTurnMax, `heavy run "`},
+		{"a tool call waiting on nothing", `bash -c "npm run test:browser"`, PROGRESS_THRESHOLD, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			now := time.Date(2026, 10, 14, 15, 0, 0, 0, time.UTC)
+			goblin := newToolCallGoblin(t, now)
+			goblin.service.Options.Tree.CommandLine = func(pid int) (string, error) {
+				return map[int]string{102: test.command, 103: "node --test"}[pid], nil
+			}
+
+			// Act: a reading each minute, nothing moving, until a minute
+			// before the bound and then at it.
+			minutes := int(test.stalled / time.Minute)
+			for minute := 0; minute < minutes; minute++ {
+				goblin.read(t, now.Add(time.Duration(minute)*time.Minute))
+			}
+			before := progressWakeCount(t, goblin.service)
+			goblin.read(t, now.Add(test.stalled))
+
+			// Assert
+			if before != 0 {
+				t.Fatalf("%d progress_stalled wakes before %s of nothing new, want none", before, test.stalled)
+			}
+			var details []string
+			for _, record := range fleetWakeRecords(t, goblin.service.Store.Home, "check") {
+				if record.Key == "slow-task" && strings.HasPrefix(record.Detail, "progress_stalled:") {
+					details = append(details, record.Detail)
+				}
+			}
+			if len(details) != 1 || !strings.Contains(details[0], test.names) {
+				t.Fatalf("progress_stalled wakes after %s of nothing new = %q, want one naming %q", test.stalled, details, test.names)
+			}
+		})
+	}
+}

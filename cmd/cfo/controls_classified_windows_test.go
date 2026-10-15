@@ -51,6 +51,7 @@ var staysAtNormal = map[string]string{
 	"services":          "starts a project's services, which are work",
 	"runtime":           "runs the container engine's own listings",
 	"tickets":           "reads a repository from GitHub",
+	"issue":             "reads and files issues on GitHub",
 	"brief":             "writes a brief's scaffold",
 	"pr":                "reads and merges on GitHub",
 	"merge-local":       "runs git merges",

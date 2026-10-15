@@ -115,12 +115,16 @@ type Node struct {
 	cpu         time.Duration
 	process     string
 	outsideWork bool
+	// heavyRun says the job is a run in the machine's heavy line, cfo gate
+	// turn's, which tells its goblin how it ended.
+	heavyRun bool
 	// gate is a gate run's step at work or parked, which the supervisor
 	// judges the goblin's wait on it by.
 	gate GateStep
 	// lines are the child's own output when the read itself holds it: what
 	// a job's processes run, or a gate run's steps.
-	lines []string
+	lines  []string
+	output string
 	// isUnread says the command line of a job's first process could not be
 	// read, so whose job it is cannot be told.
 	isUnread bool
@@ -236,12 +240,17 @@ func (t Tree) Jobs() ([]string, time.Duration) {
 	return names, used
 }
 
-// Waits names the agents, shells and monitors still open under the goblin,
-// working or silent: work its harness records it is waiting on.
+// Waits names what the goblin waits on by design, which resumes it when it
+// ends: the agents, shells and monitors its harness records still open,
+// working or silent, whatever processes they run, and its runs in the
+// machine's heavy line, each of which tells it how it ended.
 func (t Tree) Waits() []string {
 	var names []string
 	for _, child := range t.Children {
-		if child.process == "" && child.Kind != KindProcess && child.Kind != KindGate && (child.State == Working || child.State == Silent) {
+		switch {
+		case child.heavyRun:
+			names = append(names, "heavy run "+quote(child.Label))
+		case child.Kind != KindProcess && child.Kind != KindGate && (child.State == Working || child.State == Silent):
 			names = append(names, string(child.Kind)+" "+quote(child.Label))
 		}
 	}

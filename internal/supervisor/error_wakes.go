@@ -22,8 +22,10 @@ const (
 // minutes filled it with a box the Overlord could do nothing about. A wake
 // the queue does not take keeps its lines for the next publish to tell, and
 // its own failure stays off the board: the queue lives in the state folder,
-// whose lasting failure the store's own storage failure reports.
+// whose lasting failure the store's own storage failure reports. A line met
+// again an hour after it was first met is also a root issue to file.
 func (s *Service) wakeForNewErrors(err error, now time.Time) {
+	s.fileRepeatedErrors(err, now)
 	s.mu.Lock()
 	if s.errorLines == nil {
 		s.errorLines = map[string]time.Time{}

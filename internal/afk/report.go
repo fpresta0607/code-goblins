@@ -480,11 +480,16 @@ func (r Report) Sections() []Section {
 	lines(GroupDone, "Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged })
 	lines(GroupDone, "Other", kind(KindOther))
 	add(GroupDone, "Paused at a floor", r.Paused)
-	lines(GroupDone, "Settled by the CFO", func(entry Entry) bool { return entry.Settled != "" })
+	// A step only he can take that became a card in his Command Center is told
+	// by that card, held for him, and by no line of its own.
+	carded := func(entry Entry) bool {
+		return entry.Kind == KindHis && slices.ContainsFunc(r.Held, func(held Held) bool { return held.Item == HisCardItem(entry) })
+	}
+	lines(GroupDone, "Settled by the CFO", func(entry Entry) bool { return entry.Settled != "" && !carded(entry) })
 	add(GroupDone, "Struck by the CFO", slices.Concat(slices.DeleteFunc(slices.Clone(r.Decisions), func(entry Entry) bool { return entry.Struck == "" }), r.Struck))
 	lines(GroupDecided, "For you", AnsweredForHim)
 	lines(GroupDecided, "For the goblins", kind(KindAnswer))
-	lines(GroupNeeds, "Needs you", NeedsHim)
+	lines(GroupNeeds, "Needs you", func(entry Entry) bool { return NeedsHim(entry) && !carded(entry) })
 	return sections
 }
 

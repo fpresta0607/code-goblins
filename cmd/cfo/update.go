@@ -115,7 +115,7 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	to := f.String("to", "", "the release to update to, refused unless it is still the newest one published")
 	pressed := f.String("run", "", "the Update item the Overlord pressed in the Command Center, whose grant this run takes in place of his terminal")
 	work := f.Bool("work", false, "do the update's work, as the update that bounds it runs it")
-	if err := f.Parse(args); err != nil || f.NArg() != 0 {
+	if !parseFlags(f, args) {
 		return 2
 	}
 	h, err := runtime.resolveHome()

@@ -412,10 +412,30 @@ func renderStorage(out *writer, report Report) {
 	out.row("state", Bytes(storage.State))
 	out.row("data", Bytes(storage.Data))
 	out.row("the home in all", Bytes(storage.Total()))
+	// The verification store is outside the home, so the home in all leaves
+	// it out, and one whose folder could not be named measured nothing.
+	if storage.VerificationStore == "" {
+		out.row("the verification store", "not measured, as its folder could not be named")
+	} else {
+		out.row("the verification store at "+storage.VerificationStore, Bytes(storage.Verification))
+	}
 	out.row("Docker's share", Bytes(report.Headroom.DockerTotal()))
 	out.line("")
-	if len(storage.Incomplete) > 0 {
-		out.line("Some entries could not be read, so these buckets, and the home in all, hold at least the size shown: " + text(strings.Join(storage.Incomplete, ", ")) + ".")
+	var partial []string
+	isStorePartial := false
+	for _, bucket := range storage.Incomplete {
+		if bucket == "verification" {
+			isStorePartial = storage.VerificationStore != ""
+		} else {
+			partial = append(partial, bucket)
+		}
+	}
+	if len(partial) > 0 {
+		out.line("Some entries could not be read, so these buckets, and the home in all, hold at least the size shown: " + text(strings.Join(partial, ", ")) + ".")
+		out.line("")
+	}
+	if isStorePartial {
+		out.line("Some of the verification store could not be read, so it holds at least the size shown.")
 		out.line("")
 	}
 	if report.Janitor == nil {

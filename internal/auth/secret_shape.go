@@ -48,6 +48,16 @@ func SecretShape(text string) string {
 	return ""
 }
 
+// IsKeyValue says a word of prose is a credential value by its shape alone:
+// it starts the way a known kind of key does, is long enough to be one and
+// holds a digit, or it has an AWS access key ID's shape. Unlike SecretShape it
+// passes the commit hashes, run ids and assignments that text about code
+// carries, so it can screen a whole issue word by word.
+func IsKeyValue(token string) bool {
+	token = strings.Trim(token, "\"'`()[]{}<>,;:!?.")
+	return hasValuePrefix(token) && len(token) >= 20 && strings.ContainsAny(token, "0123456789") || keyShaped[0].MatchString(token)
+}
+
 func hasValuePrefix(token string) bool {
 	for _, prefix := range valuePrefixes {
 		if strings.HasPrefix(token, prefix) {

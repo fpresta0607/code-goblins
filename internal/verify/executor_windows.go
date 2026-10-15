@@ -45,6 +45,12 @@ type Executor struct {
 	// Took, when set, is told how long the run waited for its turn, once it
 	// has taken it and before its command starts.
 	Took func(waited time.Duration)
+	// Ready, when set, is asked once the turn is taken and before the command
+	// starts whether its run still needs the command, as when a run ahead in
+	// the line already did the same work. An error gives the turn back and
+	// ends the run with the command never started (ErrNotStarted), the error
+	// recorded as why.
+	Ready func(ctx context.Context) error
 	// Source, when set, reads the source the command runs on (ReadSource)
 	// once its turn is taken and before it starts, and again once it has
 	// ended. The record keeps both reads, so it says what was tested and
@@ -209,6 +215,11 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err := execution.Admit(turn.Waited); err != nil {
 		return refuseStart(err)
 	}
+	if executor.Ready != nil {
+		if err := executor.Ready(ctx); err != nil {
+			return refuseStart(err)
+		}
+	}
 	guard, err := turn.ProtectContext(ctx, execution.ID(), execution.Path())
 	if guard.RunID != "" {
 		pending.guard = guard
@@ -289,6 +300,9 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	observe := monitor.Observe
 	monitor.Observe = func(measurement Measurement) error {
 		if measurement.State == Running {
+			// A run that would take the other slot weighs what this one may
+			// still use by what its job commits now.
+			turn.Measure(measurement.Usage.CommitBytes)
 			if isLogged {
 				written, err := writtenTo(stdout, stderr)
 				if err != nil {

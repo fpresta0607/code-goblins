@@ -97,7 +97,7 @@ It says which level a change requires: `affected`, the Go packages the change re
 It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
-Any other heavy command stands in the same line behind `cfo gate turn -- <command>`, which waits while another run holds the turn or free memory is under 4 GiB, says which run it waits for, and then runs the command with its output and exit code untouched.
+Any other heavy command stands in the same line behind `cfo gate turn -- <command>`, which waits while another run holds the turn or free memory is under the line's floor, 4 GiB on a line of one slot, says which run it waits for, and then runs the command with its output and exit code untouched.
 Before each push a goblin runs `cfo gate prepush`, which picks what the change can break and runs it one check at a time, so CI is not the first to run a test the change broke.
 It runs what the fast level runs and more: the tests that read the whole tree whatever changed, the slow packages without their slowest tests, the board's checks for a change under `frontend`, and the packages that import what changed, nearest first.
 It stops at the first failure with one plain line, starts no check after its time limit, and names what it left to CI.
@@ -161,7 +161,7 @@ Each also merges a few permission rules into your Claude Code settings, `~/.clau
 The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](AGENTS.md#the-cfos-own-session)).
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
-Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 51 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
+Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 483 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
 If that download fails, the install still ends well and says that dictation finishes setting itself up the first time you dictate.
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
@@ -369,8 +369,9 @@ It opens at your first press and stays open while the window has the focus, so f
 At the first press after the window takes the focus it may still be opening, for up to about half a second, so start a beat after the bars appear.
 A note says **Nothing was heard** only of a hold it recorded with no words in it.
 A speech model the supervisor runs on this PC hears it, so your voice never leaves the PC, and dictation costs nothing and needs no account.
-The install sets the model up, Moonshine tiny, so the first dictation works at once.
-If the install could not, as offline, the first dictation downloads it, 28 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
+The install sets the model up, Parakeet TDT 0.6B, so the first dictation works at once.
+Parakeet TDT 0.6B v2 is by NVIDIA ([nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and converted to ONNX and quantized to int8 by the [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, whose release the install downloads unchanged.
+If the install could not, as offline, the first dictation downloads it, 460 MB, and the note under the terminal says how far it is as it arrives, then **Dictation is ready**; what you said that first time is not kept, so say it again once it is ready.
 Without the internet the note says which file to download and where to save it, and the next dictation uses it; a download that fails stays shown under the terminal until you dictate again.
 If Windows blocks the microphone, the note says so and where to turn it back on: Settings > Privacy & security > Microphone, with Microphone access and Let desktop apps access your microphone on.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a moment; then it gives its memory back.
@@ -547,6 +548,7 @@ Under the 5 GB mark, Start and Resume say what they need on the card instead of 
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
 Any of them resets it, and intentional pauses do not raise it.
+A goblin waiting by design, on a background shell, monitor or sub-agent of its own or on its run in the machine's heavy line, is raised only once that wait has shown nothing new for an hour, and the wake names the wait.
 A goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and the clock a harness redraws by itself on its screen is not output.
 So is a goblin whose test run, started by a script in the background, runs cut off from its harness, as everything Git Bash starts in the background is: such a run is the goblin's by its terminal's mark or by the task's folders it works in or runs a program from, while a server, a browser or a machine service it left running never counts as its work.
 Every five seconds the supervisor also reads what each goblin and the CFO's own terminal started, and wakes the CFO once when one of those processes shows a window on the screen, when the same command starts again and again, or when a goblin rests after reporting done with something it started still running, which its done report names too.
@@ -654,7 +656,7 @@ A long message is heard in pieces while you speak, so it comes back as fast as a
 The bubble shows its waveform the moment the keys go down.
 The microphone opens at the first press and stays open while the board has the focus, closing when it loses the focus, when the page is hidden or after 30 minutes without dictating, so every later press keeps every word from the press, and only the first press after the board takes the focus loses what is said while the microphone opens.
 **Nothing was heard** is said only of a hold it recorded with no words in it.
-What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 28 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
+What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the install sets the model up, so the first dictation works at once, and where it could not, the first dictation downloads it, 460 MB, shows how far it is under the terminal and says when dictation is ready, and the words of that first dictation are not kept.
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
@@ -817,7 +819,7 @@ While it is on:
 - Out of AFK mode these stay yours: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   While you are away only what a tool refuses or needs your own sign-in stays yours, as you chose on 12 October: a teammate's pull request, an update of Code Goblins, spend your account refuses, and your sign-ins and identity checks.
   The CFO decides the rest, and deletes data only after a backup it can restore.
-  It asks you nothing: each step only you can take gets a backlog row and one plain line at the end of your recap, never a question, and the work goes around it.
+  It asks you nothing: each step only you can take gets a backlog row and, once you are back, one card in your Command Center, and the work goes around it.
 - Every decision you would have been asked, the CFO answers itself with its recommendation and acts on.
   When you turn AFK mode off, each is settled: it is in the Command Center's **History** with the CFO's answer, marked as given while you were away, never in your queue.
   **Change** on the recap, or **Change answer** in History, sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
@@ -838,11 +840,13 @@ It leads with a merge that did not land, the recap's one warning, which says in 
 Then come what went live, migrations applied and builds installed, in the CFO's own words with their run or pull request, then what merged, one line to a repository with each pull request a link, anything else the CFO did, the goblins paused at a floor, what goblins finished that did not merge, and **Spent**.
 What waited on you in the Command Center and no longer does folds under **Settled**, and a line the CFO logged by mistake folds under **Struck by the CFO** with its reason.
 **Decided for you** follows: each question the CFO answered with its recommendation, yours under **For you** and the goblins' under **For the goblins**, each with its answer and **Change**, which opens it in History.
-**Needs you** comes last, and only when something does, in the lantern box of what waits on you: each step only you can take, such as your own sign-in or a step a tool refused, as one plain line, then each item that still waits on you in the Command Center, with **Answer**.
+**Needs you** comes last, and only when something does: it says how many things wait for you in the Command Center, one card each, with **Open Command Center**.
+Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
+A step whose card could not be made stays a plain line.
 **Done** and **Decided for you** open and close behind the board's one thin caret, the same one History and the task panel use, and start open.
 Every heading inside them, **Deployed**, **Merged**, **Spent**, **For the goblins** and the rest, does the same and starts closed, showing only its name and its count, so the whole recap reads in one screen and you open only what you want to read.
 What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
-**Go through them** at the top opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
+**Open Command Center** at the top of Needs you opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
 **Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
 The Command Center's list offers **Go through them** too whenever two or more things wait on you.
 Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
@@ -886,13 +890,11 @@ For you (1)
 
 NEEDS YOU
 
-Needs you (1)
-- Sign in to Vercel for pd-auth
-  Evidence: Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in
-
-Waiting on you in the Command Center (1), each as it stands now
+Waiting on you in the Command Center (2), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   The CFO recommends: Keep it held.
+  Now: still waiting on you.
+- question:afk-his-20261002T031200.000000000Z, the CFO's: Sign in to Vercel for pd-auth
   Now: still waiting on you.
 ```
 
@@ -944,6 +946,7 @@ cfo runtime [--json]
 cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>
 cfo defender [--since <time|day|length>] [--json]
 cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
+cfo issue file --project <name|path> --title <title> [--body-file <file>] [--evidence <text>]... [--root <key>]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent-file <file>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
@@ -951,7 +954,7 @@ cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
 cfo gate prepush [--plan] [--limit <duration>]
-cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
 cfo gate turns
 cfo ci-runner job | status
 cfo pr check <id> <url>
@@ -995,6 +998,16 @@ Pausing or stopping a goblin pauses or stops its helper with it, and a helper pa
 <p align="center">
   <img src="docs/images/family-tree.webp" alt="The family tree on the Orchestration view: under the goblin streaming the billing export, its sub-agents, its helper goblin, a dev server, a test run and a silent background shell as baby goblins with their state, age and memory, and beside it the goblin's panel listing the same under What's working" width="900" />
 </p>
+
+### Root issues
+
+A cause the fleet meets while it works, outside the task at hand, becomes a GitHub issue on the repository it belongs to instead of a note someone has to carry.
+`cfo issue file --project <name|path> --title <title> --body-file <file>` files it with the `ops-root` label, and the CFO and every goblin name the address it prints in their report.
+When an open `ops-root` issue already has the same root, matched by `--root <key>` such as a test's package and name, or else by its title, the command adds a dated comment with the new `--evidence` instead of a second issue.
+Every brief `cfo brief` writes says so in its Constraints.
+The fleet also files what its own signals name: each test a merge train saw fail once and pass on its second try, and an error the supervisor meets again an hour after it first met it.
+The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds as a task of its own with a brief built from the issue and `Fixes #<number>` in its pull request, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
+On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
 
 ### Working beside teammates
 

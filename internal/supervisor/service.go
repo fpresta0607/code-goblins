@@ -60,9 +60,16 @@ type Options struct {
 	// or MERGED; without it a finished task whose merge no fleet history
 	// shows reads Finished.
 	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
+	// FileRoot files a root issue on the repository of a project, a name or
+	// a path, through the screen cfo issue file uses, or comments on the
+	// open issue of the same root; without it the supervisor files none.
+	FileRoot func(ctx context.Context, project string, root tickets.Root) (tickets.FiledRoot, error)
 	// Tickets keeps a GitHub issue for each task in a repository other
 	// people work in; without it no ticket is kept.
 	Tickets *Tickets
+	// RootIssues picks up the open ops-root issues of each project's
+	// repository as queued work; without it none is.
+	RootIssues *RootIssues
 	// VerifyReports reads a project's cfo gate test reports, the newest
 	// first, which put each task's newest run on its card; without it no
 	// card shows one.
@@ -188,6 +195,11 @@ type Service struct {
 	errorLines   map[string]time.Time
 	errorsUntold []string
 	errorsWoke   time.Time
+	// errorClassesMet holds when the supervisor first met each class of its
+	// errors, and errorClassesFiled the classes this run filed as root
+	// issues for meeting them again.
+	errorClassesMet   map[string]time.Time
+	errorClassesFiled map[string]bool
 	// answersDue wakes the worker as the answers held for the Overlord's next
 	// one come due. Only the worker touches it.
 	answersDue   *time.Timer
@@ -285,6 +297,9 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
+	// hisSettled are the cards of steps only he can take whose steps the log
+	// holds settled, which afkChange guards.
+	hisSettled map[string]bool
 	// inspectCaller reads the ancestry and environment of the process a
 	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
@@ -510,6 +525,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-ticketsDone }()
+	rootsDone := make(chan struct{})
+	go func() {
+		defer close(rootsDone)
+		if s.Options.RootIssues != nil {
+			s.keepPickingUpRoots(ctx, rootPickupEvery)
+		}
+	}()
+	defer func() { s.cancel(); <-rootsDone }()
 	updatesDone := make(chan struct{})
 	go func() {
 		defer close(updatesDone)
@@ -701,6 +724,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
+	reconcileErr = errors.Join(reconcileErr, s.settleHisCards(time.Now().UTC()))
 	s.reconcilePresentations()
 	s.watchPages(ctx)
 	s.sweepPages(ctx)

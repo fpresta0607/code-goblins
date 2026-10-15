@@ -230,7 +230,7 @@ func (l *claudeLog) call(block claudeBlock, at time.Time) {
 }
 
 // outputFile is where Claude Code says a background command writes.
-var outputFile = regexp.MustCompile(`Output is being written to: (\S+?\.output)`)
+var outputFile = regexp.MustCompile(`Output is being written to: ([^\r\n]+?\.output)`)
 
 // result records what a call's result says of the child it started.
 func (l *claudeLog) result(block claudeBlock, raw json.RawMessage, at time.Time) {

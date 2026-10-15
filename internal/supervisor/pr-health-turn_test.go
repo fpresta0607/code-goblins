@@ -15,12 +15,10 @@ import (
 // PrecisionDocs about $27 a month of runs on heads replaced by bringing main
 // in, at 3.3 runs per merge (data/ci-actions-spend/report.md). A merge train
 // tests its riders on the main they land on, so a goblin's own pull request
-// that is only behind asks for nothing until it is next to land with no
-// train to test it: then the CFO is told to land it alone with a train of
-// its own, which tests it on current main without a new head, or to have
-// its goblin bring main in. A conflict is told at once, since no train can
-// take it. Failed checks are ci_finished's to tell, never a reason to merge
-// main.
+// that is only behind asks for nothing, alone too, since one alone rides a
+// train of its own once it waited loneRiderWait (#852). A conflict is told at
+// once, since no train can take it. Failed checks are ci_finished's to tell,
+// never a reason to merge main.
 func TestPRHealthAsksForMainOnlyWhenItConflictsOrIsNextToLandAlone(t *testing.T) {
 	const failed = `[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]`
 	const mine = "tell cg-health to merge"
@@ -40,7 +38,7 @@ func TestPRHealthAsksForMainOnlyWhenItConflictsOrIsNextToLandAlone(t *testing.T)
 		{name: "green and not yet reported done", mergeable: "MERGEABLE", checks: passedCheck, labels: "[]"},
 		{name: "green, reported done and held", mergeable: "MERGEABLE", checks: passedCheck, labels: held, isReportedDone: true},
 		{name: "green, reported done, with another to ride a train beside it", mergeable: "MERGEABLE", checks: passedCheck, labels: "[]", isReportedDone: true, other: "head-two"},
-		{name: "green, reported done and alone, so next to land", mergeable: "MERGEABLE", checks: passedCheck, labels: "[]", isReportedDone: true, want: []string{"2 commits behind", "next to land", "cfo pr train", mine}},
+		{name: "green, reported done and alone, which a train of its own takes", mergeable: "MERGEABLE", checks: passedCheck, labels: "[]", isReportedDone: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

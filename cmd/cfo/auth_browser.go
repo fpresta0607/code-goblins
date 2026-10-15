@@ -40,7 +40,7 @@ func runAuthBrowser(args []string, stdout, stderr io.Writer, runtime commandRunt
 	task := flags.String("task", "", "your task's ID")
 	release := flags.Bool("release", false, "give the login's browser back, which closes it")
 	isSignIn := flags.Bool("sign-in", false, "ask for a sign-in on the Command Center")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
 	if state.ValidTaskID(*task) != nil {

@@ -202,6 +202,61 @@ func TestRenderMarkdownSaysASharedStackIsNotCFOsToStop(t *testing.T) {
 	}
 }
 
+// The verification store, which is outside the home, has its own row after
+// the home in all, naming its folder, so its size is never taken for the
+// home's: a store whose folder could not be named reads as not measured,
+// never as nothing, and one read in part says so apart from the home.
+func TestRenderMarkdownShowsTheVerificationStoreApartFromTheHome(t *testing.T) {
+	const store = `C:\Users\o\AppData\Local\cfo\verify`
+	for name, row := range map[string]struct {
+		folder      string
+		incomplete  []string
+		wantRow     string
+		wantNote    string
+		notWantNote string
+	}{
+		"a store read whole": {
+			folder:      store,
+			wantRow:     "| the verification store at " + store + " | 3.0 GB |",
+			notWantNote: "could not be read",
+		},
+		"a store whose folder could not be named": {
+			incomplete:  []string{"verification"},
+			wantRow:     "| the verification store | not measured, as its folder could not be named |",
+			notWantNote: "could not be read",
+		},
+		"a store read in part": {
+			folder:      store,
+			incomplete:  []string{"verification"},
+			wantRow:     "| the verification store at " + store + " | 3.0 GB |",
+			wantNote:    "Some of the verification store could not be read, so it holds at least the size shown.",
+			notWantNote: "and the home in all, hold at least",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report.Storage.Verification = 3 << 30
+			report.Storage.VerificationStore = row.folder
+			report.Storage.Incomplete = row.incomplete
+
+			// Act
+			out := render(t, report)
+
+			// Assert
+			if home, at := strings.Index(out, "| the home in all |"), strings.Index(out, row.wantRow); home < 0 || at < home {
+				t.Errorf("output is missing %q after the home in all\n%s", row.wantRow, out)
+			}
+			if row.wantNote != "" && !strings.Contains(out, row.wantNote) {
+				t.Errorf("output is missing %q\n%s", row.wantNote, out)
+			}
+			if strings.Contains(out, row.notWantNote) {
+				t.Errorf("output says %q, which this store does not call for\n%s", row.notWantNote, out)
+			}
+		})
+	}
+}
+
 // A bucket the janitor could not read whole is named under the table, so its
 // size reads as at least what is shown, and a home read whole says nothing.
 func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {

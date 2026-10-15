@@ -106,6 +106,9 @@ type startPlan struct {
 	missingBrief                                     *fleet.QueuedTask
 	isOverlord                                       bool
 	isProductionDefect                               bool
+	// isRoot is a root issue the supervisor picked up, which starts behind
+	// every other queued task.
+	isRoot bool
 }
 
 func (p startPlan) args() []string {
@@ -358,7 +361,7 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	if waits := rowWaits(h, backlog, row, reading); len(waits) > 0 {
 		return startPlan{}, waitRefusal(id, row, waits)
 	}
-	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
+	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect", isRoot: row.Priority == RootPriority}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}

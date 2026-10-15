@@ -33,9 +33,10 @@ type WaitingWork struct {
 
 // schedule takes one free slot, in the fleet's order: a reported production
 // defect, then the oldest paused goblin whose pause cleared, then the top of
-// the queue, unless a goblin paused for memory comes back first. It says what
-// it did, and what could run and did not, with why; a board that cannot start
-// goblins schedules nothing and says nothing.
+// the queue, with a picked-up root issue after every other queued task,
+// unless a goblin paused for memory comes back first. It says what it did,
+// and what could run and did not, with why; a board that cannot start goblins
+// schedules nothing and says nothing.
 func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
@@ -55,7 +56,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	asked := slices.Clone(s.asked)
 	s.starts.Unlock()
 	finished := s.finishedWork()
-	var queued []string
+	var queued, roots []string
 	defect := ""
 	for _, id := range queuedCandidates(s.Store.Home) {
 		plan, err := planStart(s.Store.Home, id, finished, reading)
@@ -76,11 +77,18 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		if startHeldByAllowance(s.Store.Home, plan, watched, now) {
 			continue
 		}
+		if plan.isRoot {
+			roots = append(roots, id)
+			continue
+		}
 		queued = append(queued, id)
 		if plan.isProductionDefect && defect == "" {
 			defect = id
 		}
 	}
+	// A root issue the supervisor picked up waits behind every task the
+	// Overlord or the CFO queued.
+	queued = append(queued, roots...)
 	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
 	memoryPending := ""

@@ -151,13 +151,14 @@ func taskManifest(runtime commandRuntime, id string) (state.TaskMeta, projectcfg
 }
 
 func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo verify <task-id> [--tier fast|full|deep]")
 		return 2
 	}
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	tier := fs.String("tier", "fast", "fast, full, or deep")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	meta, m, e := taskManifest(runtime, args[0])
@@ -216,7 +217,50 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			key, isKeyed = read, true
 		}
 	}
-	res, e := runMeasuredTier("cfo verify", cmds, *tier, meta, time.Duration(seconds)*time.Second, p, stderr, runtime)
+	// A keyed tier reads its key again once its first command holds its turn,
+	// since the worktree can change while it waits, and takes a pass kept for
+	// that key by then, as one a run ahead of it in the line kept, instead of
+	// running. Only the first command asks: a later command's read would key
+	// the pass by what the commands before it may have changed.
+	var ready func(context.Context) error
+	var taken verifyrun.Pass
+	if isKeyed {
+		isAsked := false
+		ready = func(ctx context.Context) error {
+			if isAsked {
+				return nil
+			}
+			isAsked = true
+			atTurn, err := verifyrun.ReadReuseKey(ctx, execx.OSRunner{}, meta.Worktree, key, *m.Verification.Reuse)
+			if err != nil {
+				isKeyed = false
+				fmt.Fprintf(stderr, "cfo verify: the %s tier's pass is not kept to be taken again, as its key could not be read at its turn: %v\n", *tier, err)
+				return nil
+			}
+			key = atTurn
+			pass, err := verifyrun.FindPass(atTurn, time.Now(), m.Verification.Reuse.MaxAge(), meta.ID)
+			if errors.Is(err, verifyrun.ErrNoPass) {
+				return nil
+			}
+			if err != nil {
+				isKeyed = false
+				fmt.Fprintf(stderr, "cfo verify: the %s tier runs and keeps no pass, as its pass could not be read at its turn: %v\n", *tier, err)
+				return nil
+			}
+			taken = pass
+			return errPassTaken
+		}
+	}
+	res, e := runMeasuredTier("cfo verify", cmds, *tier, meta, time.Duration(seconds)*time.Second, p, stderr, runtime, ready)
+	if len(taken.Results) > 0 && e == nil {
+		if err := verifyrun.Save(p, taken.Results); err != nil {
+			fmt.Fprintf(stderr, "cfo verify: what the tier took could not be saved to %s: %v\n", p, err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "cfo verify: the %s tier found at its turn a pass kept at %s for what it holds then, so it takes that pass instead of running: %s\n", *tier, taken.Kept.Format(time.RFC3339), taken.Results[0].Reused)
+		fmt.Fprintln(stdout, p)
+		return 0
+	}
 	// A pass is kept for its key only if its key read the same once the tier
 	// had run.
 	if e == nil && isKeyed {
@@ -233,6 +277,13 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		if err := verifyrun.PrunePasses(time.Now()); err != nil {
 			fmt.Fprintf(stderr, "cfo verify: old passes could not all be removed: %v\n", err)
 		}
+	}
+	// The store keeps the newest records within its budget, and the records
+	// a pass rests on, so it prunes once the tier's own pass is kept. One it
+	// cannot remove now is tried again after the next tier, so the tier
+	// keeps its own result.
+	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
+		fmt.Fprintf(stderr, "cfo verify: old execution records could not all be removed: %v\n", err)
 	}
 	if e != nil {
 		// A check ends with the line that names what failed, so the tier
@@ -251,14 +302,23 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	return 0
 }
 
+// errPassTaken is why a keyed tier's first command never started: the tier
+// found a pass kept for the key it read at its turn.
+var errPassTaken = errors.New("cfo verify: the tier found a pass kept for the key it read at its turn, so it takes that pass instead")
+
 // runMeasuredTier runs a tier's commands as measured executions in the
 // machine's one line for heavy runs, each limited from when it starts, and
 // saves what became of each to path. Before it waits it saves that the tier
 // is running, so a tier ended in its wait never leaves an earlier pass
 // standing, and a tier that ran nothing saves why with status not_run. A
 // result that cannot be saved fails the tier, since nothing else would show
-// what it did.
-func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime) ([]verifyrun.Result, error) {
+// what it did. ready, when set, is asked before each command starts whether
+// the tier still needs it (verify.Executor.Ready). A tier it ends with
+// errPassTaken, whose first command's record says it never started and
+// whose cleanup is confirmed, saves nothing and returns no result and no
+// error, so that its caller saves the pass it took. Anything else that went
+// wrong on the way fails the tier as it would otherwise.
+func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta state.TaskMeta, limit time.Duration, path string, stderr io.Writer, runtime commandRuntime, ready func(context.Context) error) ([]verifyrun.Result, error) {
 	running := verifyrun.Result{Scope: scope, Task: meta.ID, Start: time.Now(), ExitCode: -1, Status: "running"}
 	if err := verifyrun.Save(path, []verifyrun.Result{running}); err != nil {
 		return nil, fmt.Errorf("%s: what the tier does could not be saved to %s: %w", name, path, err)
@@ -274,6 +334,7 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	executor.Source = func(ctx context.Context, dir string) (verifyrun.Source, error) {
 		return verifyrun.ReadSource(ctx, execx.OSRunner{}, dir)
 	}
+	executor.Ready = ready
 	res, runError := verifyrun.Runner{Commands: executor}.Run(context.Background(), cmds, scope, meta.ID, "", meta.Worktree, limit)
 	if len(res) == 0 && runError != nil {
 		res = notRun(runError)
@@ -282,7 +343,13 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	failure := errors.Join(runError, executor.RetryCleanup(cleanup))
+	cleanupError := executor.RetryCleanup(cleanup)
+	if errors.Is(runError, errPassTaken) && cleanupError == nil && len(res) == 1 {
+		if record, err := verifyrun.LoadExecution(res[0].Execution); err == nil && record.Status == "not_started" {
+			return nil, nil
+		}
+	}
+	failure := errors.Join(runError, cleanupError)
 	for index, result := range res {
 		if result.Execution == "" {
 			continue
@@ -306,12 +373,6 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 	if err := verifyrun.Save(path, res); err != nil {
 		failure = errors.Join(failure, fmt.Errorf("%s: what the tier did could not be saved to %s: %w", name, path, err))
 	}
-	// The store keeps the newest records within its budget. One it cannot
-	// remove now is tried again after the next tier, so the tier keeps its
-	// own result.
-	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
-		fmt.Fprintf(stderr, "%s: old execution records could not all be removed: %v\n", name, err)
-	}
 	return res, failure
 }
 
@@ -325,13 +386,14 @@ func processNames(processes []verifyrun.Leftover) string {
 }
 
 func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo security <task-id> [--deep]")
 		return 2
 	}
 	fs := flag.NewFlagSet("security", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	deep := fs.Bool("deep", false, "run deep security commands")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	meta, m, e := taskManifest(runtime, args[0])
@@ -370,7 +432,10 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stdout, p)
 		return 0
 	}
-	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime)
+	_, e = runMeasuredTier("cfo security", cmds, "security", meta, 10*time.Minute, p, stderr, runtime, nil)
+	if err := verifyrun.PruneExecutions(time.Now()); err != nil {
+		fmt.Fprintf(stderr, "cfo security: old execution records could not all be removed: %v\n", err)
+	}
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
@@ -380,13 +445,14 @@ func runSecurity(args []string, stdout, stderr io.Writer, runtime commandRuntime
 }
 
 func runDeploy(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo deploy <task-id> [--target <name>]")
 		return 2
 	}
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	target := fs.String("target", "", "target name")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	meta, m, e := taskManifest(runtime, args[0])
@@ -406,7 +472,8 @@ func runDeploy(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 }
 
 func runEvidence(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) != 1 {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo evidence <task-id>")
 		return 2
 	}
 	h, e := runtime.resolveHome()
@@ -430,13 +497,14 @@ func runEvidence(args []string, stdout, stderr io.Writer, runtime commandRuntime
 }
 
 func runSupersede(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo supersede <task-id> --reason <text>")
 		return 2
 	}
 	fs := flag.NewFlagSet("supersede", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	reason := fs.String("reason", "", "reason")
-	if e := fs.Parse(args[1:]); e != nil {
+	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
 	h, e := runtime.resolveHome()
@@ -469,7 +537,8 @@ func runSupersede(args []string, stdout, stderr io.Writer, runtime commandRuntim
 }
 
 func runHygiene(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) < 1 {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: cfo hygiene <task-id>")
 		return 2
 	}
 	meta, _, e := taskManifest(runtime, args[0])

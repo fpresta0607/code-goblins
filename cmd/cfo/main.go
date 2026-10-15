@@ -43,6 +43,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -96,7 +97,7 @@ commands:
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed, the packages that import them and the packages config/verify.json names for a changed file their tests read, without the fleet's home; it lists the changed files no Go check reads, and a changed file the policy does not account for requires every package; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
   cfo gate prepush [--plan] [--limit <duration>]   what a goblin runs before it pushes: picks what the branch's change can break and runs it one check at a time, stopping with one plain line at the first failure: go vet of the packages the change reaches, the tests that read the whole tree, the changed packages and the packages that import them, nearest first, and for a change under frontend the type check, the lint, the unit tests and the browser specs the change touched or names. A slow package runs without the tests this machine timed at 2 seconds or longer, unless the change touched their file. It takes its turn on the machine, starts no check under the memory floor or after its time limit, 15 minutes unless --limit says otherwise, and names what it left to CI. --plan prints the pick and runs nothing
-  cfo gate turn [--as <name>] [--wait <duration>] [--detach <log-file>] -- <program> [<argument>...]   run any heavy command in the line cfo gate test and cfo gate prepush take their turns in, one run at a time on the machine whoever started it: it waits while another run holds the turn and while free memory or commit is under 4 GiB, with no limit of its own unless --wait bounds the wait for the turn, says on standard error which run it waits for, and then runs the command with its output, its input and its exit code untouched; exit 125 means it took no turn and ran nothing. --detach starts the run in the background, hidden in a console with no window, appends its output to <log-file> with a last line that says how it ended, writes its pid to <log-file>.pid and returns at once: the one way a goblin starts a heavy run in the background
+  cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]   run any heavy command in the line cfo gate test and cfo gate prepush take their turns in, one run at a time on the machine whoever started it: it waits while another run holds the turn and while free memory or commit is under the line's floor, 4 GiB on a line of one slot, with no limit of its own unless --wait bounds the wait for the turn, at the lowest priority behind every ordinary waiting run with --low-priority, says on standard error which run it waits for, and then runs the command with its output, its input and its exit code untouched; exit 125 means it took no turn and ran nothing. --memory is the most memory the run is expected to use, which a line of two slots weighs. --detach starts the run in the background, hidden in a console with no window, appends its output to <log-file> with a last line that says how it ended, writes its pid to <log-file>.pid and returns at once: the one way a goblin starts a heavy run in the background
   cfo gate turns        show which cfo gate test, cfo gate prepush and cfo gate turn runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo ci-runner job     run one CI job in this machine's desktop CI runner, as the watcher starts it in a turn at the lowest priority. It says the job's progress on standard error and its outcome on standard output, exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise, and ending it ends the job
   cfo ci-runner status  say whether this machine's desktop CI runner runs a job, and how its last one ended
@@ -113,6 +114,7 @@ commands:
   cfo services up <project> --task <id> [--wait <duration>] | down <project> --task <id>   start the local services a project declares for a task's full-stack check, or share them with the tasks that hold them, only while memory and commit stay above the floor with their cost added, waiting up to --wait and saying why. down releases the hold, and the last release stops what cfo started and the engine when cfo started it
   cfo tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
   cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
+  cfo issue file --project <project> --title <title> [--body-file <file>] [--evidence <text>]... [--root <key>]   file a root issue found outside your brief on the project's repository with the ops-root label, or comment on the open issue of the same root. On a public repository it refuses text naming a private project, a teammate, a local path or a secret
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   where the base requires a merge queue it adds the pull request to the queue instead, never with --admin; while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip unless a merge queue tests the merge, and no --delete-branch, and it is logged with its evidence before it merges
@@ -246,6 +248,8 @@ type commandRuntime struct {
 	// repositoryOf names the GitHub repository a checkout's origin is, for
 	// cfo tickets --allow-public-tickets.
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
+	// github runs gh for cfo issue file; nil runs the machine's.
+	github execx.Runner
 	// requestHelper asks the supervisor for a goblin's helper.
 	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)
 	// requestBrowser asks the supervisor to lend or take back a login's
@@ -432,10 +436,13 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		localRuntime: func(ctx context.Context, h home.Home) (runtime.Inventory, error) {
 			commands := execx.OSRunner{}
+			// A store whose folder cannot be named is measured as not named.
+			verificationStore, _ := verify.StoreDir()
 			return runtime.Collector{
-				Home:   h,
-				Docker: runtime.Docker{Commands: commands},
-				System: runtime.System{Commands: commands},
+				Home:              h,
+				Docker:            runtime.Docker{Commands: commands},
+				System:            runtime.System{Commands: commands},
+				VerificationStore: verificationStore,
 			}.Collect(ctx)
 		},
 		cleanup:       defaultCleanup,
@@ -651,10 +658,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runBacklog(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
-	case "pause", "resume":
+	case "pause", "resume", "kill":
 		return runLifecycle(args[0], args[1:], stdout, stderr, runtime)
-	case "kill":
-		return runLifecycle("stop", args[1:], stdout, stderr, runtime)
 	case "send":
 		return runSend(args[1:], stdout, stderr, runtime)
 	case "peek":
@@ -667,6 +672,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runRuntime(args[1:], stdout, stderr, runtime)
 	case "tickets":
 		return runTickets(args[1:], stdout, stderr, runtime)
+	case "issue":
+		return runIssue(args[1:], stdout, stderr, runtime)
 	case "brief":
 		return runBrief(args[1:], stdout, stderr, runtime)
 	case "pr":

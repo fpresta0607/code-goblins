@@ -53,6 +53,7 @@ func (w *standInWindows) system() windowSystem {
 			}
 			return hisDesktop, nil
 		},
+		ownOwner: func() (proc.Owner, error) { return hisDesktop, nil },
 		end: func(pid int, start time.Time, image string) error {
 			w.mu.Lock()
 			defer w.mu.Unlock()

@@ -43,11 +43,18 @@ type Reader struct {
 	Processes   func() ([]Process, error)
 	Listeners   func() (map[int][]int, error)
 	CommandLine func(pid int) (string, error)
+	// OutputFile reads an owned process's stdout capture, never its pipes.
+	OutputFile func(pid int, started time.Time) (string, error)
 	// Owner names the task whose terminal's mark a process carries, empty
 	// when it carries none of this home's. Nil reads none, and no detached
 	// job is shown. It is asked once for each process that reaches no
 	// harness, since a mark never changes.
 	Owner func(pid int) string
+	// InTurn says a process runs inside a turn of the machine's heavy line,
+	// which its environment names to everything the run starts, a process
+	// left without its parent too. Nil reads none. It is asked once for each
+	// process Placed places, since its environment's turn never changes.
+	InTurn func(pid int) bool
 	// Console reads the process id of the host of the console a process is
 	// attached to; nil reads it through Windows.
 	Console func(pid int) (int, error)
@@ -56,6 +63,7 @@ type Reader struct {
 
 	mu           sync.Mutex
 	owners       map[processKey]string
+	turns        map[processKey]bool
 	logs         map[string]*claudeLog
 	records      map[string]childRecords
 	rolloutMetas map[string]rolloutMeta
@@ -254,8 +262,18 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		settle(child, now)
 		child.FetchedAt = now
 		tree.SourceUpdatedAt = later(tree.SourceUpdatedAt, child.SourceUpdatedAt)
-		if _, isKept := records.children[child.ID]; !isKept && child.lines != nil {
-			records.children[child.ID] = childRecord{lines: child.lines}
+		record, isKept := records.children[child.ID]
+		if !isKept && child.lines != nil {
+			record, isKept = childRecord{lines: child.lines}, true
+		}
+		if isKept {
+			if record.output == "" {
+				record.output = child.output
+			}
+			if record.output == "" && (child.Kind == KindShell || child.Kind == KindProcess) {
+				record.lines = append(slices.Clone(record.lines), "This process has no readable output capture. Open the goblin's terminal to follow it.")
+			}
+			records.children[child.ID] = record
 		}
 	}
 	if r.records == nil {
@@ -429,6 +447,10 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 	if listeners == nil {
 		listeners = Listeners
 	}
+	readOutput := r.OutputFile
+	if readOutput == nil {
+		readOutput = proc.OutputFile
+	}
 	facts := jobFacts{commands: map[int]string{}}
 	listens, err := listeners()
 	facts.listens = listens
@@ -469,7 +491,7 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if reading.isWorking {
 			state = Working
 		}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name()}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts)}
 		// A machine service a goblin started works for every goblin, as the
 		// no-mistakes daemon runs every gate's agents: it is shown at work,
 		// and its processor use is no goblin's work.
@@ -479,7 +501,13 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if shell := shellOf(job, facts.commands[job.root.PID], commands, children); shell != "" {
 			node.Parent = shell
 		}
-		node.lines = jobLines(job, facts.commands)
+		for _, member := range job.members {
+			if path, err := readOutput(member.PID, member.Started); err == nil && path != "" {
+				node.output = path
+				break
+			}
+		}
+		node.lines = typed(node.Task)
 		node.isUnread = !isRootRead
 		nodes = append(nodes, node)
 	}
@@ -607,6 +635,11 @@ func (r *Reader) forgetEnded(processes []Process) {
 			delete(r.owners, key)
 		}
 	}
+	for key := range r.turns {
+		if !running[key] {
+			delete(r.turns, key)
+		}
+	}
 	for key := range r.commands {
 		if !running[key] {
 			delete(r.commands, key)
@@ -710,11 +743,15 @@ func mergeShells(children []Node) []Node {
 			continue
 		}
 		for _, job := range jobs[child.ID] {
+			if child.output == "" {
+				child.output = job.output
+			}
 			child.Memory += job.Memory
 			child.cpu += job.cpu
 			if child.process == "" {
 				child.process = job.process
 			}
+			child.heavyRun = child.heavyRun || job.heavyRun
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}
