@@ -740,7 +740,9 @@ Each item is announced once, by its own id and when it was published, through re
 Your browser remembers the last 100 alerts it showed.
 
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
-A goblin's item closes by itself once nobody waits on it: a wait when the goblin finishes, fails or waits on you again, or the CFO answers it, but never while the goblin works on beside it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
+A goblin's item stays until you answer or clear it, the goblin withdraws it, or the goblin is cleaned up, since you may not have seen it yet.
+Nothing the goblin reports closes it, done included.
+A wait also closes when the CFO answers it, a delivered document stays even after its goblin is cleaned up, and the CFO can clear a stale item with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
 Closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.

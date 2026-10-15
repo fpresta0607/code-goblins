@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -404,42 +405,76 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 }
 
 // A wait on the Overlord reaches the Command Center as an item that stays
-// while the goblin works on and goes once it finishes.
-func TestWaitOnTheOverlordIsTheItemItsFinishWithdraws(t *testing.T) {
-	store, h := testStore(t)
-	meta, _, _, _ := goblinFixture(t, store)
-	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
-		t.Fatal(err)
-	}
-	if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ingestReviews(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.retireItems(); err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Snapshot().Reviews; len(got) != 1 || got[0].ID != "waiting-task-1-7" || got[0].Title != "Waiting on you: log in to Stripe" || got[0].Task != meta.ID || got[0].State != "open" {
-		t.Fatalf("reviews = %+v, want the open item waiting-task-1-7 for the current wait", got)
-	}
-	if err := state.AppendStatus(h.State, meta.ID, "working: charging the card"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.retireItems(); err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Snapshot().Reviews[0]; got.State != "open" {
-		t.Fatalf("the wait while the goblin works on = %+v, want it open", got)
-	}
-	if err := state.AppendStatus(h.State, meta.ID, "done: PR https://github.com/acme/api/pull/12"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.retireItems(); err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-		t.Fatalf("the wait after the goblin finished = %+v, want it withdrawn", got)
+// whatever its goblin reports after it, finished included, and closes only on
+// his answer, his dismiss or the goblin's own withdraw. On 2026-10-15 two
+// goblins' done reports withdrew their unanswered review cards before he
+// saw either, and on 2026-10-08 a goblin's own working report withdrew its
+// picks, asked again fourteen hours later.
+func TestAWaitStaysOpenUntilHisAnswerHisDismissOrItsWithdraw(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		close  func(t *testing.T, store *Store, h home.Home, meta state.TaskMeta, r Review)
+		state  string
+		reason string
+	}{
+		{"his answer", func(t *testing.T, store *Store, _ home.Home, _ state.TaskMeta, r Review) {
+			if _, err := store.Queue(Action{ID: "answer-wait", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Signed in"}); err != nil {
+				t.Fatal(err)
+			}
+		}, "answered", ""},
+		{"his dismiss", func(t *testing.T, store *Store, _ home.Home, meta state.TaskMeta, r Review) {
+			if _, err := store.Queue(Action{ID: "clear-wait", Kind: "review_clear", ReviewID: r.ID, Generation: goblinIdentity(meta)}); err != nil {
+				t.Fatal(err)
+			}
+		}, "cleared", clearedFromTheCommandCenter},
+		{"its withdraw", func(t *testing.T, store *Store, h home.Home, meta state.TaskMeta, r Review) {
+			if err := WithdrawReview(h, meta.ID, r.ID, "Signed in another way"); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+		}, "withdrawn", "Signed in another way"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Reviews; len(got) != 1 || got[0].ID != "waiting-task-1-7" || got[0].Title != "Waiting on you: log in to Stripe" || got[0].Task != meta.ID || got[0].State != "open" {
+				t.Fatalf("reviews = %+v, want the open item waiting-task-1-7 for the current wait", got)
+			}
+			// A status line keeps whole seconds, so each report must read later
+			// than the item for the retire pass to weigh it at all.
+			nextSecond()
+			for _, report := range []string{"working: charging the card", "waiting on ci: checks on PR 12", "done: PR https://github.com/acme/api/pull/12", "failed: the card was declined", "waiting on overlord: look at the receipt"} {
+				if err := state.AppendStatus(h.State, meta.ID, report); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.retireItems(); err != nil {
+					t.Fatal(err)
+				}
+				if got := store.Snapshot().Reviews[0]; got.State != "open" {
+					t.Fatalf("the wait after %q = %+v, want it open", report, got)
+				}
+			}
+
+			// Act
+			tc.close(t, store, h, meta, store.Snapshot().Reviews[0])
+
+			// Assert
+			if got := store.Snapshot().Reviews[0]; got.State != tc.state || got.Reason != tc.reason {
+				t.Fatalf("the wait after %s = %+v, want %s with reason %q", tc.name, got, tc.state, tc.reason)
+			}
+		})
 	}
 }
 

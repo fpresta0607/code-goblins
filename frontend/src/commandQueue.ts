@@ -70,8 +70,9 @@ export function closedElsewhere(item: Item, actions: Action[]): "" | "Answered" 
 }
 
 // A goblin's wait on the Overlord himself, raised by notify --waiting-on
-// overlord: a status to see and dismiss, not a question to answer. It closes
-// by itself once the goblin reports again or the CFO answers it.
+// overlord: a status to see and dismiss, not a question to answer. It stays
+// until he dismisses it, the goblin withdraws it, its task is gone or the CFO
+// answers it, whatever the goblin reports meanwhile.
 export const waitsOnOverlord = (review: Review) => !!review.task && review.id.startsWith("waiting-" + review.task + "-");
 
 // The goblin's reason for a wait as it wrote it: the queue prefixes it with
