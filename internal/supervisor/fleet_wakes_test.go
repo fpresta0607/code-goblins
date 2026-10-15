@@ -588,7 +588,7 @@ func TestARedRunOfMainWakesOnceAcrossCheckoutsOfOneRepository(t *testing.T) {
 	// Act
 	for _, checkout := range []string{t.TempDir(), t.TempDir()} {
 		forge := &fakeForge{repo: checkout, runs: runs, jobs: `{"jobs":[{"name":"test","conclusion":"failure"}]}`}
-		if _, err := pollMain(context.Background(), forge, h.State, &watched, checkout, now); err != nil {
+		if _, err := pollMain(context.Background(), forge, h.State, &watched, checkout, now, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

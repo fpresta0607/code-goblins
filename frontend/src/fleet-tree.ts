@@ -182,9 +182,8 @@ export function formatMemory(bytes: number): string {
   return (bytes / 2 ** 30).toFixed(1) + " GB";
 }
 
-// running are the children still at work or alive, and finished those that
-// ended, newest first.
-export const running = (tree?: FleetTree) => (tree?.children || []).filter((node) => !isFinished(node));
+// A gate awaiting a decision still needs attention.
+export const running = (tree?: FleetTree) => (tree?.children || []).filter((node) => node.state === "working" || node.kind === "gate" && node.state === "waiting")
 export const finished = (tree?: FleetTree) => (tree?.children || []).filter(isFinished)
   .sort((one, other) => (known(other.finished) || "").localeCompare(known(one.finished) || ""));
 
@@ -208,7 +207,7 @@ export function summarize(tree?: FleetTree): TreeSummary {
 // finished children included.
 export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 0;
 
-// hasRunningChildren says the goblin has a child still running or idle,
+// hasRunningChildren says the goblin has a child working or awaiting a decision,
 // which is all the canvas and the lineage list draw under it; its panel lists
 // the finished ones too.
 export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;

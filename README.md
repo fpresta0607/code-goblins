@@ -954,8 +954,9 @@ cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
 cfo gate prepush [--plan] [--limit <duration>]
-cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--detach <log-file>] -- <program> [<argument>...]
-cfo gate turns
+cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turns [--json]
+cfo ci-runner job | status
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
 cfo pr train <project>
@@ -1004,6 +1005,7 @@ A cause the fleet meets while it works, outside the task at hand, becomes a GitH
 `cfo issue file --project <name|path> --title <title> --body-file <file>` files it with the `ops-root` label, and the CFO and every goblin name the address it prints in their report.
 When an open `ops-root` issue already has the same root, matched by `--root <key>` such as a test's package and name, or else by its title, the command adds a dated comment with the new `--evidence` instead of a second issue.
 Every brief `cfo brief` writes says so in its Constraints.
+The fleet also files what its own signals name: each test a merge train saw fail once and pass on its second try, each red push run of a default branch by its workflow and failed jobs, and an error the supervisor meets again an hour after it first met it.
 The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds as a task of its own with a brief built from the issue and `Fixes #<number>` in its pull request, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
 On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
 
@@ -1106,6 +1108,7 @@ The update is yours alone: it refuses to run under the CFO, a goblin or any agen
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 The board is away for under a minute: an update that runs past a minute is stopped where it is and the previous build put back, and one that runs past a minute before it changed anything is stopped with nothing changed.
+It reads each staged copy of the new build once before it stops the supervisor, because the first read of a program just written waits for the virus scanner, so a scanner that hangs ends the update with nothing changed and the board still up.
 It holds the supervisor's lock from the supervisor it stopped to the one it starts, so a Code Goblins opened meanwhile waits for the board instead of starting a supervisor of its own.
 It waits up to 15 seconds for a goblin's start, pause, resume or clean-up in flight before it stops the supervisor, and a new one started while it installs is refused with one sentence and can be run again a minute later.
 It ends on the time each step took.

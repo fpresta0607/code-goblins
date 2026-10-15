@@ -559,7 +559,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	}
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
 	change := a.Kind == "answer_change"
-	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run" || a.Kind == "run_stop"
+	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run" || a.Kind == "run_stop" || a.Kind == "run_skip" || a.Kind == "run_answer"
 	message := a.Kind == "message"
 	if !item && a.RunID != "" {
 		return Action{}, errors.New("only a run action names a run item")
@@ -706,8 +706,9 @@ func (s *Store) queue(a Action) (Action, error) {
 // store lock, so every board shows it closed at once; the action that runs
 // later only delivers the answer or tells the asker of the clear.
 func (s *Store) queueItemAction(a Action) (Action, error) {
-	answer := a.Kind == "review_answer"
-	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run" || a.Kind == "run_stop") != (a.RunID != "") {
+	answer := a.Kind == "review_answer" || a.Kind == "run_answer"
+	runAction := a.Kind == "run" || a.Kind == "run_stop" || a.Kind == "run_skip" || a.Kind == "run_answer"
+	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || runAction != (a.RunID != "") {
 		return Action{}, errors.New("an item action names only its item, that item's identity and, for an answer, its text")
 	}
 	review := -1
@@ -750,6 +751,21 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CFO")
 		}
 	}
+	// Skip and Other close a ready command nobody ran, here under the store
+	// lock, in place of running it; the action that runs later tells its
+	// asker.
+	declined := -1
+	if a.Kind == "run_skip" || a.Kind == "run_answer" {
+		declined = slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == a.RunID && r.Identity == a.Generation })
+		switch {
+		case declined < 0:
+			return Action{}, errors.New("that run item is not on the board; refresh the board")
+		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "":
+			return Action{}, errors.New("that item is the board's own, not a command someone asked you to run")
+		case s.db.Runs[declined].State != "ready" || !time.Now().Before(s.db.Runs[declined].ExpiresAt):
+			return Action{}, errors.New("that run item is no longer waiting on you; refresh the board")
+		}
+	}
 	if len(s.db.Actions) >= maxActions {
 		remove := slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" })
 		if remove < 0 {
@@ -767,9 +783,17 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		s.clearReview(review, clearedFromTheCommandCenter, a.CreatedAt)
 	}
 	s.db.Actions = append(s.db.Actions, a)
-	if answer {
+	if a.Kind == "review_answer" {
 		r := &s.db.Reviews[review]
 		r.State, r.Answer, r.AnswerID, r.Delivered, r.UpdatedAt = "answered", a.Text, a.ID, false, a.CreatedAt
+	}
+	if declined >= 0 {
+		closed := a.CreatedAt
+		r := &s.db.Runs[declined]
+		r.State, r.Reason, r.RunAction, r.FinishedAt = "withdrawn", "The Overlord skipped it from the Command Center.", a.ID, &closed
+		if a.Kind == "run_answer" {
+			r.Reason = "The Overlord answered instead: " + bounded(a.Text, 1800)
+		}
 	}
 	if run >= 0 {
 		ran := a.CreatedAt

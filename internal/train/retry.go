@@ -139,7 +139,11 @@ func (e Engine) noteFailedOnce(ctx context.Context, t *Train) error {
 	if run.OnceTests = tests; len(tests) == 0 && err == nil {
 		return nil
 	}
-	return e.save(t)
+	if err := e.save(t); err != nil || len(tests) == 0 || e.FailedOnce == nil {
+		return err
+	}
+	e.FailedOnce(ctx, *t, tests)
+	return nil
 }
 
 // testsThatFailedOnce names the tests that failed once and passed on their

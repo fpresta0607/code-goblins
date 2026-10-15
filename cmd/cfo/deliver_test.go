@@ -506,4 +506,8 @@ func TestBriefScaffoldSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	if at := strings.Index(brief, fleet.BriefRootIssues()); at < constraints || at > verification {
 		t.Errorf("the scaffold's Constraints do not say %q:\n%s", fleet.BriefRootIssues(), brief)
 	}
+	authentication, commits := strings.Index(brief, "## Authentication"), strings.Index(brief, "## Commits")
+	if at := strings.Index(brief, fleet.BriefStepCards()); at < authentication || at > commits {
+		t.Errorf("the scaffold's Authentication does not say %q:\n%s", fleet.BriefStepCards(), brief)
+	}
 }

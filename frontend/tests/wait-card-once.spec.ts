@@ -1,4 +1,4 @@
-import { expect, test } from "./site";
+import { expect, test, ORIGIN } from "./site";
 
 // The Overlord, 2026-10-02, on a goblin's wait card whose sentence headed the
 // card and filled its page tile, with Open review in the tile and again in
@@ -9,6 +9,7 @@ const SAYS = "Audit of what travels to his agent is ready on Scrawl, read-only, 
 
 test("a goblin's wait with a page says its words once and opens the page from one button", async ({ page }) => {
   // Arrange
+  await page.route(ORIGIN + "/api/reviews/waiting-pd-agent-context-7/preview", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Audit</title>" }));
   await page.goto("/tests/fixtures/wait-card-once.html");
 
   // Act
@@ -20,7 +21,7 @@ test("a goblin's wait with a page says its words once and opens the page from on
   await expect(card.locator('a[href="http://127.0.0.1:4387/session/f26e"]')).toHaveCount(1);
   await expect(card.getByRole("link", { name: "Open review" })).toHaveCount(1);
   await expect(card.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/waiting-pd-agent-context-7/preview");
-  await expect(card.getByRole("button", { name: "Dismiss" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Skip or answer in your own words" })).toBeVisible();
 });
 
 test("another review with a page opens it from one button and never names it Scrawl page", async ({ page }) => {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,13 +36,20 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	if len(args) > 0 && args[0] == "turn" {
 		return runGateTurn(args[1:], stdout, stderr, runtime)
 	}
-	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "prepush")
-	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns")
+	if len(args) > 0 && args[0] == "turns" {
+		switch {
+		case len(args) == 1:
+			return runGateTurns(stdout, stderr, runtime.availableMemory)
+		case len(args) == 2 && args[1] == "--json":
+			return runGateTurnsJSON(stdout, stderr, runtime.availableMemory)
+		}
+		fmt.Fprintln(stderr, "usage: cfo gate turns [--json]")
 		return 2
 	}
-	if args[0] == "turns" {
-		return runGateTurns(stdout, stderr, runtime.availableMemory)
+	takesFlags := len(args) > 0 && (args[0] == "test" || args[0] == "prepush")
+	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "prepush", "turns"}, args[0]) || (!takesFlags && len(args) != 1) {
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan], prepush [--plan] [--limit <duration>], turn [--as <name>] -- <program> [<argument>...] and turns [--json]")
+		return 2
 	}
 	dir, err := os.Getwd()
 	if err != nil {
@@ -447,76 +455,156 @@ func gateBudget(level gatetest.Level) time.Duration {
 // the step has ended, so this is where a run's wait can be read while it
 // lasts.
 func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory, error)) int {
-	store, err := verify.AdmissionDir()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	capacity, _, err := verify.AdmissionLimits(store)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	holding, waiting, err := verify.Line(store)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	// A line of two slots weighs each run's memory, so it shows what each
-	// is expected to use, and what each holder uses now.
-	isWeighed := capacity == 2
-	var headEstimate uint64
-	if len(waiting) > 0 {
-		headEstimate = waiting[0].Estimate
-	}
-	floor, err := verify.HeadFloor(store, headEstimate, 0)
+	report, err := readTurns(available)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	now := time.Now()
 	switch {
-	case len(holding) == 0 && len(waiting) == 0:
+	case len(report.Holding) == 0 && len(report.Waiting) == 0:
 		fmt.Fprintln(stdout, "no run holds the turn and none waits")
-	case len(holding) == 0:
+	case len(report.Holding) == 0:
 		fmt.Fprintln(stdout, "turn: free")
 	}
-	for _, run := range holding {
+	for _, run := range report.Holding {
 		line := fmt.Sprintf("turn: %s (pid %d), for %s", run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
-		if run.Budget > 0 {
-			line += fmt.Sprintf(" of its %s budget", run.Budget)
+		if run.BudgetSeconds > 0 {
+			line += fmt.Sprintf(" of its %s budget", time.Duration(run.BudgetSeconds*float64(time.Second)))
 		}
-		if isWeighed && run.Estimate > 0 {
-			line += fmt.Sprintf(", using %.1f GB of the %.1f GB it is expected to use", verify.Gigabytes(run.Used), verify.Gigabytes(run.Estimate))
+		if report.IsWeighed && run.EstimateBytes > 0 {
+			line += fmt.Sprintf(", using %.1f GB of the %.1f GB it is expected to use", verify.Gigabytes(run.UsedBytes), verify.Gigabytes(run.EstimateBytes))
 		}
 		fmt.Fprintln(stdout, line)
 		if run.Now != "" {
 			fmt.Fprintln(stdout, "  now: "+run.Now)
 		}
 	}
-	if len(waiting) > 0 {
+	if len(report.Waiting) > 0 {
 		fmt.Fprintln(stdout, "waiting:")
 	}
-	for place, run := range waiting {
+	for place, run := range report.Waiting {
 		line := fmt.Sprintf("%d. %s (pid %d), for %s", place+1, run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
-		if isWeighed && run.Estimate > 0 {
-			line += fmt.Sprintf(", expected to use %.1f GB", verify.Gigabytes(run.Estimate))
+		if report.IsWeighed && run.EstimateBytes > 0 {
+			line += fmt.Sprintf(", expected to use %.1f GB", verify.Gigabytes(run.EstimateBytes))
+		}
+		if run.IsLowPriority {
+			line += ", at the lowest priority"
 		}
 		fmt.Fprintln(stdout, line)
 	}
-	if available == nil {
-		fmt.Fprintln(stderr, "available memory cannot be read")
+	if report.Memory.IsShort {
+		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(report.Memory.AvailableBytes), verify.Gigabytes(report.Memory.CommitAvailableBytes), verify.Gigabytes(report.Memory.FloorBytes))
+	}
+	return 0
+}
+
+// runGateTurnsJSON runs cfo gate turns --json: the line runGateTurns shows,
+// as turnsReport, the shape the board reads.
+func runGateTurnsJSON(stdout, stderr io.Writer, available func() (supervisor.Memory, error)) int {
+	report, err := readTurns(available)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	fmt.Fprintln(stdout, string(data))
+	return 0
+}
+
+// turnsReport is the machine's line as cfo gate turns --json gives it, a
+// shape whose keys stay as they are, for the board: each run that holds a
+// turn, each that waits in the order it takes its turn, and the machine's
+// memory against the floor the line's head waits for. Every key is always
+// there, and an empty line is empty lists.
+type turnsReport struct {
+	// Capacity is how many runs may hold a turn at once, and IsWeighed whether
+	// the line weighs each run's expected memory, which a line of two does.
+	Capacity  int         `json:"capacity"`
+	IsWeighed bool        `json:"is_weighed"`
+	Holding   []turnsRun  `json:"holding"`
+	Waiting   []turnsRun  `json:"waiting"`
+	Memory    turnsMemory `json:"memory"`
+}
+
+// turnsRun is one run in the line: who it is, since when it holds its turn
+// or waits, the budget and what it is doing that a holder said, the memory
+// it is expected to use and, for a holder, uses now, and whether it waits
+// at the lowest priority.
+type turnsRun struct {
+	Who           string    `json:"who"`
+	PID           int       `json:"pid"`
+	Since         time.Time `json:"since"`
+	BudgetSeconds float64   `json:"budget_seconds"`
+	Now           string    `json:"now"`
+	EstimateBytes uint64    `json:"estimate_bytes"`
+	UsedBytes     uint64    `json:"used_bytes"`
+	IsLowPriority bool      `json:"is_low_priority"`
+}
+
+// turnsMemory is the machine's physical and commit memory available now,
+// the floor the line's head waits for, and whether either is under it.
+type turnsMemory struct {
+	AvailableBytes       uint64 `json:"available_bytes"`
+	CommitAvailableBytes uint64 `json:"commit_available_bytes"`
+	FloorBytes           uint64 `json:"floor_bytes"`
+	IsShort              bool   `json:"is_short"`
+}
+
+// readTurns reads the machine's line and its memory with available.
+func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error) {
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		return turnsReport{}, err
+	}
+	capacity, _, err := verify.AdmissionLimits(store)
+	if err != nil {
+		return turnsReport{}, err
+	}
+	holding, waiting, err := verify.Line(store)
+	if err != nil {
+		return turnsReport{}, err
+	}
+	var headEstimate uint64
+	if len(waiting) > 0 {
+		headEstimate = waiting[0].Estimate
+	}
+	floor, err := verify.HeadFloor(store, headEstimate, 0)
+	if err != nil {
+		return turnsReport{}, err
+	}
+	if available == nil {
+		return turnsReport{}, errors.New("available memory cannot be read")
 	}
 	memory, err := available()
 	if err != nil {
-		fmt.Fprintf(stderr, "available memory cannot be read: %v\n", err)
-		return 2
+		return turnsReport{}, fmt.Errorf("available memory cannot be read: %w", err)
 	}
-	if min(memory.Available, memory.CommitAvailable) < floor {
-		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(memory.Available), verify.Gigabytes(memory.CommitAvailable), verify.Gigabytes(floor))
+	report := turnsReport{
+		Capacity:  capacity,
+		IsWeighed: capacity == 2,
+		Holding:   turnsRuns(holding),
+		Waiting:   turnsRuns(waiting),
+		Memory: turnsMemory{
+			AvailableBytes:       memory.Available,
+			CommitAvailableBytes: memory.CommitAvailable,
+			FloorBytes:           floor,
+			IsShort:              min(memory.Available, memory.CommitAvailable) < floor,
+		},
 	}
-	return 0
+	return report, nil
+}
+
+func turnsRuns(standing []verify.Standing) []turnsRun {
+	runs := []turnsRun{}
+	for _, run := range standing {
+		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority})
+	}
+	return runs
 }
 
 // unknownShown is how many of the files the policy does not account for a

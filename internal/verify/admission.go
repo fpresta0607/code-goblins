@@ -20,7 +20,8 @@ import (
 
 // Admission is how verification runs take turns on one machine. A run holds
 // one of a fixed number of slots while its heavy checks run, runs take the
-// slots in the order they asked, and a run starts only once the machine has
+// slots in the order they asked, low-priority runs after every other, and a
+// run starts only once the machine has
 // memory to spare. Each run looking at the machine by itself is what let
 // four test steps start together on memory each had seen free: a slot is
 // taken or it is not.
@@ -53,6 +54,12 @@ type Admission struct {
 	// its place in line changes, and once a minute: how long so far, and what
 	// for.
 	Waiting func(waited time.Duration, why string)
+	// IsLowPriority has the run wait at the lowest priority: it takes its turn
+	// only while no ordinary run waits, and an ordinary run that joins the line
+	// after it still goes first. Low-priority runs keep the order they asked in
+	// among themselves. A turn it has taken, or is in the moment of taking, is
+	// its own until it gives it back.
+	IsLowPriority bool
 }
 
 // NoLimit is the Limit of a run that waits for memory for as long as the
@@ -242,8 +249,16 @@ func holdersRemaining(dir string) (uint64, error) {
 // apart.
 var arrivals atomic.Int64
 
+// lowPriorityPlace begins the place of a run that waits at the lowest
+// priority. Every other place begins with a digit, which sorts before it, so
+// every other run counts a low-priority run as behind it whenever either
+// joined, and low-priority runs keep the order they asked in among
+// themselves. Any build compares places by name, so an older one orders a
+// low-priority run the same way.
+const lowPriorityPlace = "z-"
+
 // Wait joins the line and returns once the run has its turn: no run that
-// asked earlier still waits, the machine has the memory, and a slot is free,
+// stands ahead of it in the line still waits, the machine has the memory, and a slot is free,
 // or was left by a process whose recorded identity is verifiably gone. A
 // run whose wait fails gets the time it had waited with the error, so the
 // wait is on record even though no turn came of it.
@@ -290,6 +305,9 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 	place := fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
+	if a.IsLowPriority {
+		place = lowPriorityPlace + place
+	}
 	owner, err := lock.AcquireExclusiveNamedStrict(line, place)
 	if err != nil {
 		return Turn{}, err
@@ -788,6 +806,8 @@ type Standing struct {
 	// said so, and Now what such a run says it is doing.
 	Budget time.Duration
 	Now    string
+	// IsLowPriority says a waiting run waits at the lowest priority.
+	IsLowPriority bool
 	// Estimate is the most memory it is expected to use, and Used what it
 	// commits now, as a run that holds a turn last measured it.
 	Estimate uint64
@@ -822,7 +842,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 			}
 			if record.Alive() {
 				says := readCard(filepath.Join(dir, name))
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, Estimate: says.EstimateBytes, Used: says.UsedBytes})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), Estimate: says.EstimateBytes, Used: says.UsedBytes})
 			}
 		}
 		return runs, nil

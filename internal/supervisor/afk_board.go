@@ -114,11 +114,7 @@ func homesWindow(started proc.Entry, image, bin string) bool {
 // The board answers every session of this PC at one address, so only this
 // tells the Overlord's desktop from another user's or another sign-in's.
 func otherOwner(machine windowSystem, started proc.Entry) (string, error) {
-	own, ok := proc.StartTime(os.Getpid())
-	if !ok {
-		return "", errors.New("the supervisor could not read its own start time")
-	}
-	mine, err := machine.owner(os.Getpid(), own)
+	mine, err := machine.ownOwner()
 	if err != nil {
 		return "", err
 	}

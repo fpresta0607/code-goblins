@@ -199,20 +199,6 @@ func commandTask(commandLine string) string {
 	return task(command)
 }
 
-// jobLines are a job's own output on the board: the command it runs, then
-// each of its processes with its memory and what it runs.
-func jobLines(j job, commands map[int]string) []string {
-	lines := typed(commandTask(commands[j.root.PID]))
-	for _, member := range j.members {
-		line := fmt.Sprintf("%s (pid %d), %s", member.Exe, member.PID, memoryText(member.Memory))
-		if command := commandTask(commands[member.PID]); command != "" {
-			line += ": " + command
-		}
-		lines = append(lines, bounded(line, agentLineLimit))
-	}
-	return lines
-}
-
 // typed is a command as a terminal shows it was typed, after >, and nothing
 // for no command.
 func typed(command string) []string {
@@ -220,14 +206,6 @@ func typed(command string) []string {
 		return nil
 	}
 	return []string{bounded("> "+command, agentLineLimit)}
-}
-
-// memoryText says an amount of memory as the board does.
-func memoryText(bytes uint64) string {
-	if bytes >= 1<<30 {
-		return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
-	}
-	return fmt.Sprintf("%d MB", (bytes+1<<19)>>20)
 }
 
 // commandLabel is a short label for what a job's first process runs.
