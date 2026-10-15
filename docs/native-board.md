@@ -866,7 +866,9 @@ While it listens the bubble's tip names the model, and the foot of its list says
 A browser with a speech recognition of its own offers **Use this browser's speech recognition instead** there, off until it is ticked and kept in that browser: Edge and Chrome recognise speech in their vendors' online services, so with it the audio leaves the machine while the keys are held, and the tip and the list say that this is what listens. The desktop window has no such recognition and offers no choice.
 The browser's recognition ends by itself after about eight seconds of silence and after a long stretch of listening, so while the keys are held the board starts it again and joins what each part heard: a pause in a hold shows no note and types nothing early, and the whole hold is typed at the release.
 One that ends within a second of starting cannot listen and is not started again, and a failure that is real, a blocked or missing microphone or no network, is still said once and ends the hold.
-Clicking the bubble lists the pane's five most recent dictations, newest first, for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own; the board reads no other dictation app.
+Clicking the bubble lists the board's five most recent dictations, newest first, from every box that dictates, a terminal, the message box under a goblin and an answer box in the Command Center, in every window, the desktop window and a browser tab alike; the board reads no other dictation app.
+The supervisor keeps that one list, the newest ten, in `state/dictations.json` in the home, so it outlasts a restart and never leaves this PC: `GET /api/dictations` reads it and `POST /api/dictations` adds one, both only from the board's own page at 127.0.0.1, as dictation itself, and nothing about the words is logged.
+An open list reads it again when its window takes the focus, with what another window added meanwhile.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
 
@@ -1288,6 +1290,7 @@ cfo question --id layout-choice-001 --text "Which layout should I use?" --option
 Omit `--option` when the question needs a written answer.
 `--recommend` must exactly match a supplied option, which the modal shows first with its real recommendation; omit the flag when no option is recommended.
 The Supreme Overlord Command Center labels supplied choices A/B/C and always offers Other for a written answer.
+The box for a written answer has a microphone at its bottom right corner, and Ctrl+Shift+Space held anywhere in its card, as on the Other just chosen, dictates into the box and puts the caret there: until 15 October 2026 only the box itself heard the keys, and choosing Other leaves the keyboard on the choice, so a dictation held there was never typed.
 A question, the CFO's or a goblin's, is shown as body text at a readable line length rather than as a heading: a blank line starts a paragraph, a line that starts with `- ` is a bullet, text between `**two asterisks**` is bold, and everything else, markup included, is shown exactly as written; no HTML is ever interpreted.
 So a question leads with one short sentence that is the actual question, puts its details on `- ` lines and bolds only the verdict or the blocking item.
 The inbox and history list each question on at most two lines, with the marks dropped.

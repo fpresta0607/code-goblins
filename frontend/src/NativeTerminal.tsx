@@ -11,7 +11,6 @@ import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { useDictation } from "./useDictation";
-import { useVoice } from "./useVoice";
 import { VoiceBubble } from "./VoiceBubble";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { terminalOf } from "./task-words";
@@ -83,8 +82,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const pasteText = useRef<((text: string) => void) | null>(null);
-  const voice = useVoice(task?.id || "cfo");
-  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); }, instance);
+  const dictation = useDictation((text) => pasteText.current?.(text), instance);
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
@@ -650,7 +648,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       </span>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
-    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
+    <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
     {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

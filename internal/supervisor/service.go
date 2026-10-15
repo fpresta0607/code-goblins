@@ -312,8 +312,11 @@ type Service struct {
 	// boardGrants takes one read or change of the grants the home gave its
 	// boards at a time.
 	boardGrants sync.Mutex
-	done        chan struct{}
-	work        chan struct{}
+	// dictations takes one read or change of the recent dictations at a
+	// time.
+	dictations sync.Mutex
+	done       chan struct{}
+	work       chan struct{}
 	// looks takes each request to look at the fleet now, which the loop
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
