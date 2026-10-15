@@ -195,6 +195,60 @@ func TestDismissTakesAnyCardBack(t *testing.T) {
 	}
 }
 
+// Other on a card is his free answer in place of the step: the card closes
+// with his words for the goblin's wait to read, the CFO hears them, and words
+// shaped like a key are refused without being kept or repeated.
+func TestOtherOnACardClosesItWithHisWord(t *testing.T) {
+	answerBody := func(b *credentialBoard, text string) string {
+		data, _ := json.Marshal(map[string]string{"id": b.request.ID, "generation": b.request.Generation, "action": "answer", "text": text})
+		return string(data)
+	}
+	t.Run("his word", func(t *testing.T) {
+		// Arrange
+		b := stepCard(t, func(r *CredentialRequest) { r.Names = []string{"FLEET_GITHUB_TOKEN"} })
+		word := "Use the fleet bot's token, it is already in the vault"
+
+		// Act
+		response := b.send(b.handler, "/api/credentials/close", answerBody(b, word), nil)
+		b.service.credentialWork.Wait()
+
+		// Assert
+		if response.Code != http.StatusOK {
+			t.Fatalf("answer = %d %s", response.Code, response.Body)
+		}
+		if request := b.stored(); request.State != "answered" || request.Reason != word || request.ClosedAt == nil {
+			t.Fatalf("request = %+v, want it answered with his word", request)
+		}
+		pending, err := wake.Pending(b.home.State)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pending) != 1 || !strings.Contains(pending[0].Detail, word) {
+			t.Fatalf("wakes = %+v, want the CFO told his word", pending)
+		}
+	})
+	t.Run("a key in his word", func(t *testing.T) {
+		// Arrange
+		b := stepCard(t, nil)
+		canary := newCanary(t)
+
+		// Act
+		response := b.send(b.handler, "/api/credentials/close", answerBody(b, "here it is "+canary), nil)
+		empty := b.send(b.handler, "/api/credentials/close", answerBody(b, " "), nil)
+
+		// Assert
+		if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), canary) || empty.Code != http.StatusBadRequest {
+			t.Fatalf("answers = %d %s, %d; want both refused without the key", response.Code, response.Body, empty.Code)
+		}
+		if request := b.stored(); request.State != "open" {
+			t.Fatalf("request = %+v, want it open", request)
+		}
+		if found := filesHolding(t, b.home.Root, canary); len(found) != 0 {
+			t.Fatalf("the key is in %v", found)
+		}
+	})
+}
+
 // The window button asks the goblin's own browser session to show itself,
 // only from the board on this PC, and only on a card that offers it.
 func TestStepCardAsksForTheGoblinsWindowOnlyFromThisPC(t *testing.T) {

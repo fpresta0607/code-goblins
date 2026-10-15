@@ -983,7 +983,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" && a.Kind != "message" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" && a.Kind != "run_stop" && a.Kind != "run_skip" && a.Kind != "run_answer" && a.Kind != "message" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "message" {
@@ -991,6 +991,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	if a.Kind == "run" {
 		return s.startRun(ctx, a)
+	}
+	if a.Kind == "run_skip" || a.Kind == "run_answer" {
+		return s.declineRun(ctx, a)
 	}
 	if a.Kind == "run_stop" {
 		return s.stopRun(ctx, a)
@@ -1007,6 +1010,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			evaluation.Reason = "Dismissed from the Command Center."
 		}
 		var notices []string
+		var goblins []Question
 		for _, question := range s.Store.Snapshot().Questions {
 			if !slices.Contains(a.Dismissed, question.ID) {
 				continue
@@ -1014,6 +1018,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			whose := "your question " + question.ID
 			if question.Task != "" {
 				whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", question.Task, question.ID, question.Seq)
+				goblins = append(goblins, question)
 			}
 			notices = append(notices, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+question.Text)
 		}
@@ -1023,6 +1028,14 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 					return Evaluation{Reason: "Dismissed. The CFO will be told when its input is ready."}, err
 				}
 				evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
+			}
+		}
+		// The goblin that asked hears it too, once, and goes on without it.
+		for _, question := range goblins {
+			if s.Options.CFO == nil {
+				evaluation.Reason += " " + question.Task + " could not be told: message transport is unavailable."
+			} else if _, err := s.Options.CFO.SendGoblin(ctx, question.Task, question.Identity, "The Overlord skipped your question "+question.ID+" from the Command Center. Go on without it."); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				evaluation.Reason += " " + question.Task + " could not be told: " + bounded(err.Error(), 300)
 			}
 		}
 		if a.Kind == "review_clear" {

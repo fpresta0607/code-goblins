@@ -217,13 +217,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setChanging(""); setScope(null);
   };
   const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
-  // Back and Skip with the card's place in the stack lead the card's own
-  // action row, whose right end holds its answer. Skip leaves the item as it
-  // is and shows the next, and closing keeps every item.
+  // Back and Next with the card's place in the stack lead the card's own
+  // action row, whose right end holds its answer. Next leaves the item as it
+  // is and shows the next, and closing keeps every item. Skip, which clears
+  // an item, is the card's own, at its top.
   const pager: ReactNode = stack.length > 1 ? <div className="stack-pager" role="group" aria-label="Move between items">
     <button type="button" disabled={index === 0} onClick={() => move(-1)}>Back</button>
     <span className="stack-count">{index + 1} of {stack.length}</span>
-    <button type="button" disabled={index === stack.length - 1} onClick={() => move(1)}>Skip</button>
+    <button type="button" disabled={index === stack.length - 1} onClick={() => move(1)}>Next</button>
   </div> : null;
   const update = (key: string, changes: Partial<Draft>) => setDrafts((prior) => ({ ...prior, [key]: { ...(prior[key] || EMPTY_DRAFT), ...changes } }));
   // An unchanged payload keeps its request ID, so a retry after an ambiguous
@@ -258,6 +259,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   // Run names the stored item; the browser never sends command text.
   const run = (target: Run) => { if (target.state === "ready") void post("run:" + target.id, { kind: "run", run_id: target.id, generation: target.identity }); };
+  // Skip and Other close a command nobody ran in place of running it.
+  const skipRun = (target: Run) => { if (target.state === "ready") void post("run:" + target.id, { kind: "run_skip", run_id: target.id, generation: target.identity }); };
+  const answerRun = (target: Run, text: string) => { if (target.state === "ready" && text) void post("run:" + target.id, { kind: "run_answer", run_id: target.id, generation: target.identity, text }); };
   const openSignIn = async (signin: BrowserSignIn) => {
     if (!connected || !onThisMachine(window.location.hostname) || signin.state !== "ready" || activeSignInAttempts.current[signin.id]?.isPending) return;
     const attempt: SignInAttempt = { signin, instance: snapshot.instance, isPending: true, error: "" };
@@ -449,9 +453,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : item.kind === "run" && item.run.update
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"
-              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
+              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onSkip={() => skipRun(item.run)} onAnswer={(text) => answerRun(item.run, text)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
-                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
+                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)}
+                onAnswer={(text) => void post(item.key, { kind: "review_answer", review_id: item.review.id, generation: item.review.identity, text })} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
       </>}
     </dialog>

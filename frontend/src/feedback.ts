@@ -61,7 +61,10 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
     case "stopped": return { icon: "stop-circle", label: "Stopped", trouble: false };
     case "expired": return { icon: "close", label: "Expired", trouble: false };
     // A goblin's own command is withdrawn when the goblin moves past it.
-    case "withdrawn": return { icon: "close", label: run.task ? "Withdrawn" : "Withdrawn by the CFO", trouble: false };
+    // One he skipped or answered in words from its card reads as his.
+  case "withdrawn": return run.reason.startsWith("The Overlord skipped") ? { icon: "close", label: "Skipped", trouble: false }
+    : run.reason.startsWith("The Overlord answered instead") ? { icon: "check-double", label: "Answered", trouble: false }
+    : { icon: "close", label: run.task ? "Withdrawn" : "Withdrawn by the CFO", trouble: false };
     default: return { icon: "clock", label: "Waiting", trouble: false };
   }
 }
