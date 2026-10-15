@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/cdp"
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -167,10 +168,24 @@ func TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent(t *testing.T
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	command := execx.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf("$ErrorActionPreference = 'Stop'; @(Get-NetTCPConnection -State Listen | Where-Object OwningProcess -eq %d).Count", process.PID))
-	output, err := command.Output()
-	if err != nil || strings.TrimSpace(string(output)) != "0" {
-		t.Fatalf("Chrome's TCP listener check failed: %v, count %q", err, output)
+	// Windows' own table of listening sockets, read in this process: a
+	// PowerShell query of it took over the 30 s above to start and answer on
+	// a busy CI runner and was ended with no count. A listener of this test's
+	// own shows the table is read at all.
+	own, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer own.Close()
+	listens, err := fleettree.Listeners()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(listens[os.Getpid()], own.Addr().(*net.TCPAddr).Port) {
+		t.Fatalf("the listening table holds %v for this test, want its own port %s", listens[os.Getpid()], own.Addr())
+	}
+	if ports := listens[process.PID]; len(ports) != 0 {
+		t.Fatalf("Chrome %d listens on TCP ports %v, want none", process.PID, ports)
 	}
 	socket, err := browserSocket(ctx, process.URL)
 	if err != nil {
