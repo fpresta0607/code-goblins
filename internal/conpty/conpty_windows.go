@@ -32,9 +32,10 @@ type Spec struct {
 	// process's.
 	Env        []string
 	Cols, Rows int
-	// Unread, when set, is told when key presses have sat unread in the
+	// Unread, when set, is told when a key press has sat unread in the
 	// console's input for unreadAfter, with true, and with false once the
-	// program has read them. It is called from one goroutine, in order.
+	// program has read them, no sooner than unreadShownFor after. It is
+	// called from one goroutine, in order.
 	Unread func(isUnread bool)
 	// Processors is the mask of the processor threads the process and
 	// everything it starts may run on; 0 leaves them where whatever started
