@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/netip"
 	"os"
@@ -84,6 +85,12 @@ type Options struct {
 	// both nothing sweeps the pages no poller watches.
 	PageSessions func() ([]axi.PageSession, error)
 	EndPage      func(ctx context.Context, file string) error
+	// OpenPage opens a page in Scrawl without a browser and returns its
+	// link, and BoardAssets are the board's own files, whose goblin faces
+	// the page AFK mode ends with wears; without OpenPage that page is made
+	// and never shown.
+	OpenPage    func(ctx context.Context, file string) (string, error)
+	BoardAssets fs.FS
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun

@@ -253,7 +253,7 @@ func TestARequestFromAGoblinsOwnProcessIsRefusedOverARealConnection(t *testing.T
 
 // His switch on the board turns AFK mode on with who and when, the CFO is told
 // through its wake queue, and the snapshot every board gets says it is on. Off
-// keeps the report, which the board's page then reads.
+// keeps the report, which his page of the stretch is made from.
 func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -264,7 +264,6 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unfound, none := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
 
 	// Act
 	onCode, onBody := askTheBoard(t, s, "POST", "/api/afk", `{"on":true}`, nil)
@@ -283,14 +282,10 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	offAgainCode, offAgainBody := askTheBoard(t, s, "POST", "/api/afk", `{"on":false}`, nil)
-	reportCode, reportBody := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
 
 	// Assert
-	if before.AFK.State != "off" || before.AFK.Held == nil || before.AFK.Report != "" {
-		t.Errorf("the snapshot before = %+v, want off with nothing held and no report", before.AFK)
-	}
-	if unfound != 200 || strings.TrimSpace(none) != `{"found":false}` {
-		t.Errorf("the report before any stretch = %d %s, want that there is none", unfound, none)
+	if before.AFK.State != "off" || before.AFK.Held == nil || before.AFK.Page != "" {
+		t.Errorf("the snapshot before = %+v, want off with nothing held and no page", before.AFK)
 	}
 	if onCode != 200 || strings.TrimSpace(onBody) != `{"state":"on"}` || againCode != 200 {
 		t.Fatalf("POST on = %d %s, then %d again, want it turned on and a second on to change nothing", onCode, onBody, againCode)
@@ -305,42 +300,25 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	if err != nil || switched.On || switched.EndedFrom != "his own board (goblins-window.exe pid 4242)" || len(switched.Allowance) != 1 {
 		t.Errorf("the switch = %+v, %v, want off from his own board with the allowance read when it turned on", switched, err)
 	}
-	if off.AFK.State != "off" || off.AFK.Report != switched.Session {
-		t.Errorf("the snapshot after = %+v, want off with the report of stretch %s named", off.AFK, switched.Session)
+	if off.AFK.State != "off" {
+		t.Errorf("the snapshot after = %+v, want off", off.AFK)
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 2 || !strings.Contains(pending[0].Detail, "turned AFK mode on from his own board") || !strings.Contains(pending[1].Detail, "turned AFK mode off from his own board") {
 		t.Errorf("the CFO's queue = %+v, %v, want it told of the on and the off, each from his board", pending, err)
 	}
-	var page struct {
-		Found    bool   `json:"found"`
-		Session  string `json:"session"`
-		Lasted   string `json:"lasted"`
-		From     string `json:"from"`
-		Sections []struct {
-			Title   string      `json:"title"`
-			Entries []afk.Entry `json:"entries"`
-		} `json:"sections"`
-		Finished []afk.Finish `json:"finished"`
-		Held     []afk.Held   `json:"held"`
-		Spent    []afk.Used   `json:"spent"`
-		Notes    []string     `json:"notes"`
+	report, found, err := ReadAFKReport(h)
+	if err != nil || !found {
+		t.Fatalf("ReadAFKReport = %v, %v, want the report of the stretch", found, err)
 	}
-	if err := json.Unmarshal([]byte(reportBody), &page); reportCode != 200 || err != nil {
-		t.Fatalf("GET /api/afk/report = %d %s (%v)", reportCode, reportBody, err)
+	if report.Session != switched.Session || report.Lasted() != "under a minute" || report.From != "his own board (goblins-window.exe pid 4242)" {
+		t.Errorf("the report = %+v, want the stretch that just ended", report)
 	}
-	if !page.Found || page.Session != switched.Session || page.Lasted != "under a minute" || page.From != "his own board (goblins-window.exe pid 4242)" {
-		t.Errorf("the report page = %+v, want the stretch that just ended", page)
+	if sections := report.Sections(); len(sections) != 1 || sections[0].Title != "Merged" || len(sections[0].Entries) != 1 || sections[0].Entries[0].What != pr || sections[0].Entries[0].Evidence != "gate run 41 passed" {
+		t.Errorf("the report's sections = %+v, want only the merge under Merged with its evidence", sections)
 	}
-	if len(page.Sections) != 1 || page.Sections[0].Title != "Merged" || len(page.Sections[0].Entries) != 1 || page.Sections[0].Entries[0].What != pr || page.Sections[0].Entries[0].Evidence != "gate run 41 passed" {
-		t.Errorf("the report's sections = %+v, want only the merge under Merged with its evidence", page.Sections)
-	}
-	// The page reads every list, so one with nothing in it is still a list.
-	if page.Finished == nil || page.Held == nil || page.Notes == nil {
-		t.Errorf("the report page leaves out a list with nothing in it, want each one there and empty: %s", reportBody)
-	}
-	if len(page.Spent) != 1 || page.Spent[0].Window != "week" || page.Spent[0].On == nil || *page.Spent[0].On != 40 || page.Spent[0].Off == nil || *page.Spent[0].Off != 40 {
-		t.Errorf("spent = %+v, want the reading when it turned on beside the one when it turned off", page.Spent)
+	if spent := afk.Spent(report.Before, report.After); len(spent) != 1 || spent[0].Window != "week" || spent[0].On == nil || *spent[0].On != 40 || spent[0].Off == nil || *spent[0].Off != 40 {
+		t.Errorf("spent = %+v, want the reading when it turned on beside the one when it turned off", spent)
 	}
 }
 
@@ -478,7 +456,7 @@ func TestTheSnapshotShowsWhatWasDecidedAndWhatIsHeldWhileAFKModeIsOn(t *testing.
 		t.Fatal(err)
 	}
 	view := snapshot.AFK
-	if view.State != "on" || view.Decided != 2 || view.From != "his own board (goblins-window.exe pid 4242)" || view.Report != "" {
+	if view.State != "on" || view.Decided != 2 || view.From != "his own board (goblins-window.exe pid 4242)" || view.Page != "" {
 		t.Errorf("the snapshot = %+v, want on from his board with two decisions", view)
 	}
 	held := map[string]afk.Held{}
@@ -599,22 +577,12 @@ func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 	}
 	held := func() map[string]afk.Held {
 		t.Helper()
-		code, body := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
-		var page struct {
-			Held []afk.Held `json:"held"`
-		}
-		if err := json.Unmarshal([]byte(body), &page); code != 200 || err != nil {
-			t.Fatalf("GET /api/afk/report = %d %s (%v)", code, body, err)
-		}
 		report, found, err := ReadAFKReport(h)
 		if err != nil || !found {
 			t.Fatalf("ReadAFKReport = %v, %v, want the report", found, err)
 		}
 		byItem := map[string]afk.Held{}
-		for i, one := range page.Held {
-			if report.Held[i] != one {
-				t.Errorf("cfo afk report reads %+v where the board's page reads %+v", report.Held[i], one)
-			}
+		for _, one := range report.Held {
 			byItem[one.Item] = one
 		}
 		return byItem
@@ -660,11 +628,10 @@ func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 // rules, where no decision can be logged. The report read later says so only
 // of an answer recorded after the stretch ended: one inside the stretch, at
 // its end or with no time recorded keeps the word that no decision was logged
-// for it, on the board's page and to cfo afk report alike.
+// for it, to cfo afk report and on his page of the stretch alike.
 func TestTheReportReadLaterSaysWhichHeldQuestionsTheCFOAnsweredAfterAFKModeEnded(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	s := boardService(store)
 	ended := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	at := func(after time.Duration) *time.Time {
 		answered := ended.Add(after)
@@ -705,28 +672,19 @@ func TestTheReportReadLaterSaysWhichHeldQuestionsTheCFOAnsweredAfterAFKModeEnded
 	}
 
 	// Act
-	code, body := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
 	report, found, err := ReadAFKReport(h)
 
 	// Assert
-	var page struct {
-		Held []afk.Held `json:"held"`
-	}
-	if err := json.Unmarshal([]byte(body), &page); code != 200 || err != nil {
-		t.Fatalf("GET /api/afk/report = %d %s (%v)", code, body, err)
-	}
-	if err != nil || !found || len(report.Held) != len(cases) || len(page.Held) != len(cases) {
-		t.Fatalf("ReadAFKReport = %+v, %v, %v beside the page's %+v, want each held question in both", report.Held, found, err, page.Held)
+	if err != nil || !found || len(report.Held) != len(cases) {
+		t.Fatalf("ReadAFKReport = %+v, %v, %v, want each held question", report.Held, found, err)
 	}
 	byItem := func(held []afk.Held, item string) afk.Held {
 		return held[slices.IndexFunc(held, func(one afk.Held) bool { return one.Item == item })]
 	}
 	for _, c := range cases {
 		t.Run(c.id, func(t *testing.T) {
-			for reader, held := range map[string]afk.Held{"the board's page": byItem(page.Held, "question:"+c.id), "cfo afk report": byItem(report.Held, "question:"+c.id)} {
-				if held.Item != "question:"+c.id || held.Waiting != c.waiting || held.Now != c.now {
-					t.Errorf("%s reads %+v, want waiting %v and %q", reader, held, c.waiting, c.now)
-				}
+			if held := byItem(report.Held, "question:"+c.id); held.Item != "question:"+c.id || held.Waiting != c.waiting || held.Now != c.now {
+				t.Errorf("cfo afk report reads %+v, want waiting %v and %q", held, c.waiting, c.now)
 			}
 		})
 	}

@@ -21,8 +21,6 @@ import (
 // The board's AFK switch. POST /api/afk turns AFK mode on or off for the
 // program that shows the board, once the supervisor has proven that program
 // the Overlord's own, of the process at the other end of the connection.
-// GET /api/afk/report is the report of the last stretch as the board's page
-// reads it.
 //
 // A board is his when nothing marks its program an agent's or one another
 // program can drive, it runs as the supervisor's own Windows user in the
@@ -321,53 +319,4 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, struct {
 		State string `json:"state"`
 	}{state})
-}
-
-// afkReportPage is the report of a stretch as the board's page reads it: the
-// decisions under their headings, how long it lasted, each allowance used
-// with its percent at either end for the board to draw, and no list left out.
-// Asked and EndedAsked are the Overlord's words for a switch the CFO made at
-// his ask, and empty for one he made himself. Disk is free disk at either end
-// of the stretch, and absent unless it was read at both.
-type afkReportPage struct {
-	Found      bool          `json:"found"`
-	Session    string        `json:"session"`
-	Since      time.Time     `json:"since"`
-	Ended      time.Time     `json:"ended"`
-	Lasted     string        `json:"lasted"`
-	From       string        `json:"from"`
-	Asked      string        `json:"asked"`
-	EndedFrom  string        `json:"ended_from"`
-	EndedAsked string        `json:"ended_asked"`
-	Sections   []afk.Section `json:"sections"`
-	Finished   []afk.Finish  `json:"finished"`
-	Held       []afk.Held    `json:"held"`
-	Spent      []afk.Used    `json:"spent"`
-	Disk       *afk.DiskUse  `json:"disk,omitempty"`
-	Notes      []string      `json:"notes"`
-}
-
-// afkReport serves GET /api/afk/report: the report of the last stretch of AFK
-// mode that ended, with each item it held as it stands now, or that none has.
-func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
-	report, found, err := afk.ReadReport(h.Service.Store.Home.State)
-	if err != nil {
-		apiError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !found {
-		respond(w, http.StatusOK, struct {
-			Found bool `json:"found"`
-		}{})
-		return
-	}
-	respond(w, http.StatusOK, afkReportPage{
-		Found: true, Session: report.Session, Since: report.Since, Ended: report.Ended, Lasted: report.Lasted(), From: report.From, EndedFrom: report.EndedFrom, Asked: report.Asked, EndedAsked: report.EndedAsked,
-		Sections: report.Sections(),
-		Finished: append([]afk.Finish{}, report.Finished...),
-		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held, report.Ended),
-		Spent:    append([]afk.Used{}, afk.Spent(report.Before, report.After)...),
-		Disk:     afk.DiskUsed(report.DiskBefore, report.DiskAfter),
-		Notes:    append([]string{}, report.Notes...),
-	})
 }

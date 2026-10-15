@@ -325,7 +325,7 @@ func TestTheBoardIsToldTheCFOSwitchedAFKModeAtHisAskWithHisWords(t *testing.T) {
 	// Act
 	on, onErr := s.afkView(s.Store.Snapshot())
 	offErr := SwitchAFKAtHisAsk(h, false, hisAskOff)
-	reportCode, reportBody := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
+	report, found, reportErr := ReadAFKReport(h)
 
 	// Assert
 	if onErr != nil || on.State != "on" || on.From != theCFO || on.Asked != hisAskOn {
@@ -335,17 +335,10 @@ func TestTheBoardIsToldTheCFOSwitchedAFKModeAtHisAskWithHisWords(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), `"asked":"I'm stepping away, turn AFK on"`) {
 		t.Errorf("the view's JSON = %s (%v), want the asked field the board reads", data, err)
 	}
-	var page struct {
-		Found      bool   `json:"found"`
-		From       string `json:"from"`
-		Asked      string `json:"asked"`
-		EndedFrom  string `json:"ended_from"`
-		EndedAsked string `json:"ended_asked"`
+	if offErr != nil || reportErr != nil || !found {
+		t.Fatalf("off = %v, the report = %v, %v", offErr, found, reportErr)
 	}
-	if err := json.Unmarshal([]byte(reportBody), &page); offErr != nil || reportCode != 200 || err != nil {
-		t.Fatalf("off = %v, GET /api/afk/report = %d %s (%v)", offErr, reportCode, reportBody, err)
-	}
-	if !page.Found || page.From != theCFO || page.Asked != hisAskOn || page.EndedFrom != theCFO || page.EndedAsked != hisAskOff {
-		t.Errorf("the report page = %+v, want who switched it and his words both times", page)
+	if report.From != theCFO || report.Asked != hisAskOn || report.EndedFrom != theCFO || report.EndedAsked != hisAskOff {
+		t.Errorf("the report = %+v, want who switched it and his words both times", report)
 	}
 }

@@ -23,9 +23,9 @@ const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in or a step a tool refuses: one plain line at the end of his recap, never a question
+  log     the registered CFO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in or a step a tool refuses: one card in his Command Center when he is back
   strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason. The line stays, and the report shows it struck
-  settle  the registered CFO settles a his line it saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it. The line stays, and his recap shows what became of it`
+  settle  the registered CFO settles a his line it saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it. The line stays, and his page of the stretch shows what became of it`
 
 // runAFK is cfo afk: the Overlord's switch for running the fleet while he is
 // away, what was decided and held under it, and the report it ends with. The
@@ -82,7 +82,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 			fmt.Fprintln(stdout, "His own switch, on the board or in a terminal of his own, turns it off at any time. cfo afk status shows what was decided and held.")
 			return 0
 		}
-		fmt.Fprintln(stdout, "The CFO answers every decision with its recommendation and logs it. Nothing is asked of you: a step only you can take is one line at the end of your recap.")
+		fmt.Fprintln(stdout, "The CFO answers every decision with its recommendation and logs it. Nothing is asked of you: a step only you can take is one card in your Command Center when you are back.")
 		fmt.Fprintln(stdout, "cfo afk status shows both. cfo afk off turns it off and prints the report.")
 		return 0
 	case "off":

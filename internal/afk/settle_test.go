@@ -71,7 +71,7 @@ func TestSettleRefusesALineItCannotName(t *testing.T) {
 			if _, err := TurnOff(dir, "his own terminal", night.Add(90*time.Minute)); err != nil {
 				t.Fatal(err)
 			}
-		}, want: "a line in his recap"},
+		}, want: "a card in his Command Center"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
