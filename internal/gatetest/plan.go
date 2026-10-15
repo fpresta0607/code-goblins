@@ -52,6 +52,9 @@ type Plan struct {
 	// a broader level, with why.
 	Vet, Tests []string
 	Left       []Deferred
+	// Alone are the packages Level tests that the policy runs after Tests,
+	// in a turn of their own and one at a time, as import paths.
+	Alone []string
 }
 
 // listFields are the fields of a package the plan reads. Asking go list for
@@ -188,7 +191,7 @@ func build(found findings, asked Level) Plan {
 	}
 	policy, says, err := policyOf(found)
 	plan.Policy = says
-	slow := slowPaths(found.root, found.packages, policy)
+	slow := pathsIn(found.root, found.packages, policy.SlowPackages)
 	if err != nil {
 		plan.Required, plan.Why = Full, strings.TrimPrefix(err.Error(), "gatetest: ")
 	}
@@ -209,6 +212,7 @@ func build(found findings, asked Level) Plan {
 		plan.Level = plan.Required
 	}
 	plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
+	plan.Tests, plan.Alone = apart(plan.Tests, found.packages, pathsIn(found.root, found.packages, policy.AlonePackages))
 	return plan
 }
 
@@ -257,21 +261,45 @@ func policyAt(ctx context.Context, runner execx.Runner, dir, base string) (text 
 	return text, err == nil, err
 }
 
-// slowPaths are the import paths of the packages whose directory, from root,
-// the policy lists as slow.
-func slowPaths(root string, packages []Package, policy Policy) map[string]bool {
-	slow := map[string]bool{}
+// pathsIn are the import paths of the packages whose directory, from root,
+// dirs lists, as the policy lists its slow and its alone packages.
+func pathsIn(root string, packages []Package, dirs []string) map[string]bool {
+	paths := map[string]bool{}
 	for _, p := range packages {
 		dir, err := filepath.Rel(root, p.Dir)
 		if err != nil {
 			continue
 		}
 		dir = filepath.ToSlash(dir)
-		if slices.ContainsFunc(policy.SlowPackages, func(listed string) bool { return strings.EqualFold(listed, dir) }) {
-			slow[p.ImportPath] = true
+		if slices.ContainsFunc(dirs, func(listed string) bool { return strings.EqualFold(listed, dir) }) {
+			paths[p.ImportPath] = true
 		}
 	}
-	return slow
+	return paths
+}
+
+// apart takes the alone packages out of tests, ./... standing for every
+// package, and returns the others and those, each sorted.
+func apart(tests []string, packages []Package, alone map[string]bool) (others, own []string) {
+	if len(alone) == 0 || len(tests) == 0 {
+		return tests, nil
+	}
+	if slices.Equal(tests, []string{"./..."}) {
+		tests = nil
+		for _, p := range packages {
+			tests = append(tests, p.ImportPath)
+		}
+	}
+	for _, test := range tests {
+		if alone[test] {
+			own = append(own, test)
+		} else {
+			others = append(others, test)
+		}
+	}
+	slices.Sort(others)
+	slices.Sort(own)
+	return others, own
 }
 
 // mergeBase finds where the branch left the default branch.

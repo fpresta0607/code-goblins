@@ -124,7 +124,7 @@ func push(found findings, times Times) Push {
 	policy, says, policyErr := policyOf(found)
 	pick.Policy = says
 	reach := Classify(found.root, found.module, found.changed, found.packages, policy)
-	slow := slowPaths(found.root, found.packages, policy)
+	slow := pathsIn(found.root, found.packages, policy.SlowPackages)
 	dirs := map[string]string{}
 	for _, p := range found.packages {
 		if dir, err := filepath.Rel(found.root, p.Dir); err == nil {
