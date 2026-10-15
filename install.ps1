@@ -820,14 +820,16 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
     $skillsBefore = @($skillFolders | Where-Object { Test-Path -LiteralPath $_ })
+    # A missing npm is no failed fetch, so it is never tried again.
     $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+    $npm = if ($npx) { Join-Path (Split-Path -Parent $npx.Source) "npm.cmd" } else { "" }
+    $hasNode = $npx -and (Test-Path -LiteralPath $npm)
     $skillsCli = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-skills-" + [Guid]::NewGuid().ToString("N"))
     $hasSkillsCli = $false
-    if ($npx) {
+    if ($hasNode) {
         # The CLI comes from npm's registry, and a fetch that fails once is
         # tried once more before every skill is left out.
         New-Item -ItemType Directory -Path $skillsCli | Out-Null
-        $npm = Join-Path (Split-Path -Parent $npx.Source) "npm.cmd"
         $cliArgs = @("install", "--prefix", $skillsCli, "--no-save", "--no-audit", "--no-fund", "skills@$skillsCliVersion")
         Write-Detail ("skill    {0,-20} npm {1}" -f "skills CLI", ($cliArgs -join " "))
         $code = Invoke-Logged $npm $cliArgs
@@ -842,7 +844,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         $hasSkillsCli = $code -eq 0
     }
     foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
-        if (-not $npx) {
+        if (-not $hasNode) {
             Write-Detail ("PREREQ   {0,-20} skill needs Node.js: winget install OpenJS.NodeJS.LTS" -f $skill)
             $failedInstalls += "$skill skill"
             continue
@@ -874,7 +876,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             $failedInstalls += "$skill skill"
         }
     }
-    if ($npx) {
+    if ($hasNode) {
         Remove-Temporary $skillsCli
     }
     foreach ($folder in $skillFolders) {
