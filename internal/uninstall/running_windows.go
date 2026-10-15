@@ -31,7 +31,7 @@ func (m Machine) running(ctx context.Context) ([]Item, error) {
 	if err != nil {
 		return nil, fmt.Errorf("uninstall: read what runs: %w", err)
 	}
-	owners, _ := janitor.Owners(m.Home)
+	owners, _ := janitor.Owners(ctx, m.Home, nil)
 	terminals := make([]Terminal, 0, len(owners))
 	for _, owner := range owners {
 		terminals = append(terminals, Terminal{ID: owner.ID, HostPID: owner.HostPID, Marks: owner.Marks, Directories: owner.Directories})

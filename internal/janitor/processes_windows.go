@@ -81,7 +81,7 @@ func Sightings(h home.Home) func(context.Context) ([]reap.Sighting, []string, er
 		if err != nil {
 			return nil, nil, err
 		}
-		owners, notes := Owners(h)
+		owners, notes := Owners(ctx, h, nil)
 		return sightings(running, processes, owners), notes, nil
 	}
 }
@@ -95,12 +95,12 @@ func changeLocks(id string) []string {
 // ReadOwners is Owners once the proofs from before the machine started, which
 // no process carries any more, are forgotten. It is the sweep's reader, and
 // the one of the two that writes into the home.
-func ReadOwners(h home.Home) ([]Owner, []string) {
+func ReadOwners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, []string) {
 	var notes []string
 	if err := host.ForgetProofs(h.State, time.Now().Add(-windows.DurationSinceBoot())); err != nil {
 		notes = append(notes, "proofs from before the machine started could not be forgotten: "+err.Error())
 	}
-	owners, read := Owners(h)
+	owners, read := Owners(ctx, h, tree)
 	return owners, append(notes, read...)
 }
 
@@ -109,7 +109,7 @@ func ReadOwners(h home.Home) ([]Owner, []string) {
 // folders of the task it is, and whether a command is changing it. A
 // terminal that cannot be read is named in the notes and left out, so
 // nothing is ended on its account. It only reads.
-func Owners(h home.Home) ([]Owner, []string) {
+func Owners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, []string) {
 	var notes []string
 	ids, err := host.Terminals(h.State)
 	if err != nil {
