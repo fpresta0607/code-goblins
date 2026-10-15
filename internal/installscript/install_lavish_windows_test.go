@@ -94,7 +94,7 @@ func TestOneLineInstallRefusesALavishDownloadThatDoesNotMatchItsPin(t *testing.T
 		t.Fatalf("npx was never called: %v\n%s", err, output)
 	}
 	for _, skill := range []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"} {
-		want := fmt.Sprintf("-y skills@%s add kunchenguid/%s --skill %s -g -y -a claude-code -a codex -a pi --copy", skillsCliPin(t), skill, skill)
+		want := fmt.Sprintf("--no skills@%s add kunchenguid/%s --skill %s -g -y -a claude-code -a codex -a pi --copy", skillsCliPin(t), skill, skill)
 		if strings.Count(string(skills), want) != 1 {
 			t.Errorf("npx calls %q, want %q once", skills, want)
 		}
