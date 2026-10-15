@@ -89,14 +89,15 @@ test("each goblin's running children hang on branches under its card as baby gob
 
 test("the chevron folds a goblin's branches to their count, the same rounded rectangle as the baby goblins, and the count opens them again", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html");
+  const corner = (selector: string) => page.locator(selector).first().evaluate((node) => getComputedStyle(node).borderTopLeftRadius);
+  const babyCorner = await corner(".tree-child");
   await page.getByRole("button", { name: "Collapse descendants of Build the fleet tree" }).click();
   await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" })).toHaveCount(0);
   const count = page.getByRole("button", { name: /under Build the fleet tree/ });
   await expect(count).toHaveAttribute("aria-label", "Show what runs under Build the fleet tree: 1 working");
   await expect(count.getByRole("img", { name: "Sub-agent" })).toHaveCount(1);
   await expect(count.getByRole("img", { name: "Dev server" })).toHaveCount(0);
-  const corner = (selector: string) => page.locator(selector).first().evaluate((node) => getComputedStyle(node).borderTopLeftRadius);
-  expect(await corner(".tree-count"), "the count is the same rounded rectangle as the baby goblins").toBe(await corner(".tree-child"));
+  expect(await corner(".tree-count"), "the count is the same rounded rectangle as the baby goblins").toBe(babyCorner);
   await expect.poll(() => covered(page)).toEqual([]);
   await count.click();
   await expect(page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child")).toHaveCount(1);
