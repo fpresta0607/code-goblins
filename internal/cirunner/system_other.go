@@ -8,3 +8,9 @@ import "errors"
 func systemFolder() (string, error) {
 	return "", errors.New("cirunner: Hyper-V runs only on Windows")
 }
+
+// programFilesFolder has no Program Files to give where the service never
+// runs.
+func programFilesFolder() (string, error) {
+	return "", errors.New("cirunner: the service runs only on Windows")
+}
