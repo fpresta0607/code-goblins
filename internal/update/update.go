@@ -26,6 +26,12 @@ import (
 // Aliases are the names the home's one program is installed under.
 var Aliases = []string{"cfo.exe", "goblins.exe"}
 
+// readStaged reads a staged copy of the candidate the first time anything
+// opens it. A virus scanner holds the first open of a program just written
+// until it has read the program whole, so this read is where an update
+// waits for the scanner.
+var readStaged = fsx.ReadFile
+
 // Phase is how far an update has gone.
 type Phase string
 
@@ -288,6 +294,22 @@ func Prepare(root, stateDir, candidate string) (*Journal, error) {
 			return nil, fmt.Errorf("update: stage the candidate as %s: %w", name, err)
 		}
 		journal.Aliases = append(journal.Aliases, Alias{Name: name, Previous: previous, Backup: backup})
+	}
+	// The swap opens each staged copy, after the supervisor stopped, and the
+	// first open of a program just written waits for the virus scanner to
+	// read it whole: a scanner that hangs there holds the board down until
+	// the update's bound puts the previous build back (#922). Each copy is
+	// read once here instead, while the board still serves, and checked to
+	// be the candidate, so that wait ends before anything live changes.
+	for _, name := range Aliases {
+		path := staged(root, name)
+		data, err := readStaged(path)
+		if err != nil {
+			return nil, fmt.Errorf("update: read back the staged %s: %w", path, err)
+		}
+		if got := hashBytes(data); got != hash {
+			return nil, fmt.Errorf("update: the staged %s hashes to %s, not the candidate's %s", path, got, hash)
+		}
 	}
 	if err := Record(stateDir, journal, Prepared, ""); err != nil {
 		return nil, err
