@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -183,5 +184,50 @@ func TestTheReturnPageReadsWithoutSemicolonsOrDashes(t *testing.T) {
 	_, words := returnPage(t, recordedReturn(t))
 	if i := slices.IndexFunc([]rune(words), func(r rune) bool { return r == ';' || r == '—' }); i >= 0 {
 		t.Errorf("the page reads %q, with a semicolon or an em dash", words)
+	}
+}
+
+// CFO under AFK, 2026-10-15, approving the page's look: "the phone layout
+// keeps every row on one or two lines without wrapping PR numbers". A change
+// shows at most two pull request numbers, then how many more, which its card
+// lists in full, and its row holds its title to one line beside its status
+// and its numbers to one line.
+func TestAChangeKeepsItsPullRequestNumbersOnOneLine(t *testing.T) {
+	// Arrange
+	r := recordedReturn(t)
+	for n := 20; n < 22; n++ {
+		r.Report.Finished = append(r.Report.Finished, Finish{Task: "garden-photos", PR: "https://github.com/example/garden-app/pull/" + strconv.Itoa(n), Title: "The garden gallery shows every photo"})
+	}
+
+	// Act
+	page, words := returnPage(t, r)
+
+	// Assert
+	if !strings.Contains(words, "#12 #13 +2") {
+		t.Errorf("the page reads %q, want the change's first two numbers and +2", words)
+	}
+	if !strings.Contains(page, "https://github.com/example/garden-app/pull/21") {
+		t.Errorf("the page lacks the last pull request behind its card")
+	}
+	for _, rule := range []string{".pulls { display: flex; flex-wrap: nowrap;", ".inbox-text:has(small) strong { -webkit-line-clamp: 1; }", ".inbox-text small { display: flex; flex-wrap: nowrap;"} {
+		if !strings.Contains(page, rule) {
+			t.Errorf("the page lacks the rule %q that keeps a row to two lines", rule)
+		}
+	}
+}
+
+// A change shows only the pictures its goblin made, and a change without any
+// shows no picture strip at all.
+func TestAChangeShowsOnlyThePicturesItsGoblinMade(t *testing.T) {
+	// Arrange
+	r := recordedReturn(t)
+	r.Pictures = nil
+
+	// Act
+	page, words := returnPage(t, r)
+
+	// Assert
+	if strings.Contains(page, `class="question-thumbs"`) || strings.Contains(words, "Before and after") {
+		t.Errorf("the page shows a picture strip with no pictures made")
 	}
 }

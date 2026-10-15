@@ -107,10 +107,16 @@ type projectRow struct {
 	Changes []changeRow
 }
 
+// shownPulls is how many pull request numbers a change's row shows, so they
+// stay on one line on a phone: the rest are counted, and listed on its card.
+const shownPulls = 2
+
 type changeRow struct {
 	Change
 	Persona string
 	Body    []string
+	Shown   []Pull
+	More    int
 }
 
 type decisionRow struct {
@@ -194,7 +200,8 @@ func (r Return) view() pageView {
 			if change.Task != "" {
 				face = persona(change.Task)
 			}
-			row.Changes = append(row.Changes, changeRow{Change: change, Persona: face, Body: body})
+			shown := change.Pulls[:min(len(change.Pulls), shownPulls)]
+			row.Changes = append(row.Changes, changeRow{Change: change, Persona: face, Body: body, Shown: shown, More: len(change.Pulls) - len(shown)})
 		}
 		v.Projects = append(v.Projects, row)
 	}

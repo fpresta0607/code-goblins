@@ -48,8 +48,11 @@
   .inbox-list li.struck strong { text-decoration: line-through; color: var(--muted); }
   .inbox-text { display: grid; gap: 2px; min-width: 0; }
   .inbox-text strong { font-weight: 800; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-  .inbox-text small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: .9375rem; font-weight: 600; min-width: 0; }
-  .inbox-text small .plain-status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A row is two lines at most: its title, held to one line beside its
+     status, and its status on one line, so it scans on a phone. */
+  .inbox-text:has(small) strong { -webkit-line-clamp: 1; }
+  .inbox-text small { display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; overflow: hidden; color: var(--muted); font-size: .9375rem; font-weight: 600; min-width: 0; }
+  .inbox-text small .plain-status { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
   .answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
   .answer-mark .away-badge .icon { width: 13px; height: 13px; }
@@ -114,7 +117,8 @@
   .part > h2 .icon { color: var(--mint); }
   .project { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; color: #dfe9ef; font-weight: 800; }
   .project .icon { width: 18px; height: 18px; color: var(--muted); }
-  .pulls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 6px; align-items: center; max-width: 9rem; color: var(--merged); font: 600 .8125rem var(--font-mono); }
+  .pulls { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; white-space: nowrap; color: var(--merged); font: 600 .8125rem var(--font-mono); }
+  .inbox-text small .pulls { flex: none; margin-left: auto; }
   .pulls .icon { width: 15px; height: 15px; }
   .pulls a { text-decoration: none; }
   .pulls.open { color: #9ccdff; }
@@ -157,8 +161,8 @@
     <ul class="inbox-list">
       {{range .Changes}}<li data-title="{{.Title}}" data-who="{{who .Goblin}}" data-persona="{{.Persona}}" data-body="{{lines .Body}}" data-pictures="{{pictures .Pictures}}">
         <span class="goblin-avatar persona-{{.Persona}}"></span>
-        <span class="inbox-text"><strong>{{.Title}}</strong>{{if or .Deploys .NotLanded .Pictures}}<small>{{if .NotLanded}}<span class="plain-status phase-failed">{{icon "warning"}}Not merged</span>{{end}}{{range .Deploys}}<span class="plain-status">{{icon "external"}}{{.}}</span>{{end}}{{if .Pictures}}<span class="plain-status">{{icon "images"}}Before and after</span>{{end}}</small>{{end}}</span>
-        <span class="pulls">{{if .Pulls}}{{icon "merge"}}{{range .Pulls}}<a href="{{.URL}}" target="_blank" rel="noreferrer">{{.Number}}</a>{{end}}{{end}}</span>
+        <span class="inbox-text"><strong>{{.Title}}</strong>{{if or .Deploys .NotLanded .Pictures .Pulls}}<small>{{if .NotLanded}}<span class="plain-status phase-failed">{{icon "warning"}}Not merged</span>{{end}}{{range .Deploys}}<span class="plain-status">{{icon "external"}}{{.}}</span>{{end}}{{if .Pictures}}<span class="plain-status">{{icon "images"}}Before and after</span>{{end}}{{if .Pulls}}<span class="pulls">{{icon "merge"}}{{range .Shown}}<a href="{{.URL}}" target="_blank" rel="noreferrer">{{.Number}}</a>{{end}}{{if .More}}<span>+{{.More}}</span>{{end}}</span>{{end}}</small>{{end}}</span>
+        <span></span>
         {{if .Pictures}}<span class="question-thumbs">{{range .Pictures}}<span><img src="{{.File}}" alt="{{.Caption}}"><b>{{.Caption}}</b></span>{{end}}</span>{{end}}
       </li>
       {{end}}
