@@ -1,50 +1,120 @@
 import { useEffect, useRef, useState } from "react"
 import { Terminal } from "@xterm/xterm"
+import { WebglAddon } from "@xterm/addon-webgl"
 import "@xterm/xterm/css/xterm.css"
 import { reportToCfo } from "./api"
 import { object, strings, type Task, type TreeNode } from "./types"
 import { babyName } from "./fleet-tree"
 import { terminalDocument } from "./terminalDocument"
+import { FALLBACK_FONT, LINE_HEIGHT, PADDING, THEME } from "./terminalView"
+import { followFontSize, panelFit, storedFontSize } from "./terminalStream"
+import { type AgentEntry, elapsed, parseAgentEntries, redraw, SPINNER_STEP_MS, transcriptRows, workingRow } from "./claude-transcript"
 import "./agent-terminal.css"
 
+// A baby goblin's terminal: its own output in the terminal surface a goblin's
+// live terminal uses, at the same font, size, colours and padding, and
+// following the size chosen in any terminal. A sub-agent's transcript is drawn
+// as Claude Code draws a conversation (claude-transcript.ts), with Claude
+// Code's working line under it while the baby goblin works; any other child's
+// lines are written as they came. It follows new output while it shows the
+// last lines, and keeps its place while he reads further up.
 export function AgentTerminal({ task, child, visible }: { task: Task; child: TreeNode; visible: boolean }) {
   const surface = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState("Connecting to the terminal")
   const [isClosed, setClosed] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const work = useRef({ isWorking: child.state === "working", started: child.started })
+  useEffect(() => { work.current = { isWorking: child.state === "working", started: child.started } }, [child.state, child.started])
   useEffect(() => {
     const container = surface.current
     if (!visible || !container) return
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || ""
     const terminal = new Terminal({
       documentOverride: terminalDocument(nonce), disableStdin: true, convertEol: true,
-      fontFamily: '"Cascadia Mono", Consolas, monospace', fontSize: 14, lineHeight: 1.55,
-      cursorBlink: false, scrollback: 5000, screenReaderMode: true,
-      theme: { background: "#071015", foreground: "#d8e9e2", selectionBackground: "#286856" },
+      fontFamily: FALLBACK_FONT, fontSize: storedFontSize(), lineHeight: LINE_HEIGHT,
+      cursorBlink: false, scrollback: 5000, screenReaderMode: true, theme: THEME,
       linkHandler: { activate: () => {} },
     })
     terminal.open(container)
+    try {
+      const gpu = new WebglAddon()
+      gpu.onContextLoss(() => gpu.dispose())
+      terminal.loadAddon(gpu)
+    } catch {
+      // No WebGL here: xterm keeps drawing with its DOM renderer.
+    }
     terminal.write("\x1b[?25l")
-    const measure = document.createElement("canvas").getContext("2d")!
-    measure.font = '14px "Cascadia Mono", Consolas, monospace'
-    const fit = () => terminal.resize(Math.max(2, Math.floor(container.clientWidth / measure.measureText("M").width)), Math.max(1, Math.floor(container.clientHeight / 22)))
+    // fit sizes the grid to the panel as a goblin's terminal does (panelFit),
+    // once xterm has measured its cells at the current font.
+    let isMeasuring = true, isDisposed = false
+    const fit = () => {
+      const screen = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect()
+      if (!screen || !terminal.element) return
+      const size = panelFit(container.clientWidth, container.clientHeight, { width: screen.width / terminal.cols, height: screen.height / terminal.rows }, PADDING)
+      if (!size) return
+      terminal.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`
+      if (size.cols !== terminal.cols || size.rows !== terminal.rows) terminal.resize(size.cols, size.rows)
+    }
+    const remeasure = () => { isMeasuring = true; terminal.refresh(0, terminal.rows - 1) }
+    const rendered = terminal.onRender(() => { if (isMeasuring) { isMeasuring = false; fit() } })
     const resize = new ResizeObserver(fit)
     resize.observe(container)
-    fit()
+    const stopFollowing = followFontSize((size) => { terminal.options.fontSize = size; remeasure() })
+    void document.fonts.load(terminal.options.fontSize + 'px "JetBrains Mono"').then(() => {
+      if (isDisposed || !document.fonts.check(terminal.options.fontSize + 'px "JetBrains Mono"')) return
+      terminal.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT
+      remeasure()
+    }, () => {})
+
+    // write puts output on the terminal, at the bottom while he follows it
+    // and where he was while he reads further up.
+    const write = (data: string, isWhole: boolean) => {
+      const buffer = terminal.buffer.active
+      const wasFollowing = buffer.viewportY >= buffer.baseY, position = buffer.viewportY
+      if (isWhole) { terminal.reset(); terminal.write("\x1b[?25l") }
+      terminal.write(data, () => {
+        if (wasFollowing) terminal.scrollToBottom()
+        else terminal.scrollToLine(position)
+      })
+    }
+    // A transcript's rows, laid out for the terminal's width, and the rows on
+    // its screen now, the working line under them while the baby goblin works.
+    let entries: AgentEntry[] | null = null, body: string[] = [], shown: string[] = [], frame = 0, laidOutFor = 0
+    const layOut = (next: AgentEntry[]) => {
+      entries = next
+      laidOutFor = terminal.cols
+      body = transcriptRows(next, laidOutFor)
+    }
+    const draw = (isWhole: boolean) => {
+      if (!entries) return
+      const next = work.current.isWorking ? [...body, "", workingRow(frame, elapsed(work.current.started, Date.now()))] : body
+      const change = isWhole ? null : redraw(shown, next, terminal.rows)
+      if (change !== "") write(change ?? next.join("\r\n"), change === null)
+      shown = next
+    }
+    const resized = terminal.onResize(({ cols }) => {
+      if (!entries || cols === laidOutFor) return
+      layOut(entries)
+      draw(true)
+    })
+    const spinner = setInterval(() => {
+      if (work.current.isWorking) frame++
+      draw(false)
+    }, SPINNER_STEP_MS)
     let previous = "", failures = 0
     const stream = new EventSource("/api/tasks/" + encodeURIComponent(task.id) + "/agent?node=" + encodeURIComponent(child.id) + "&stream=1")
     stream.addEventListener("output", (event: MessageEvent<string>) => {
       try {
-        const text = strings(object(JSON.parse(event.data)).lines).join("\n")
-        const wasFollowing = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY
-        const position = terminal.buffer.active.viewportY
-        const isAppend = text.startsWith(previous)
-        if (!isAppend) { terminal.reset(); terminal.write("\x1b[?25l") }
-        terminal.write(isAppend ? text.slice(previous.length) : text, () => {
-          if (wasFollowing) terminal.scrollToBottom()
-          else terminal.scrollToLine(position)
-        })
-        previous = text
+        const output = object(JSON.parse(event.data))
+        if (output.entries !== undefined) {
+          layOut(parseAgentEntries(output.entries))
+          draw(false)
+        } else {
+          const text = strings(output.lines).join("\n")
+          const isAppend = text.startsWith(previous)
+          write(isAppend ? text.slice(previous.length) : text, !isAppend)
+          previous = text
+        }
         failures = 0
         setStatus("")
         setClosed(false)
@@ -67,7 +137,11 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
         setStatus("The output connection closed")
       } else setStatus("Reconnecting to the terminal")
     }
-    return () => { stream.close(); resize.disconnect(); terminal.dispose() }
+    return () => {
+      isDisposed = true
+      stream.close(); clearInterval(spinner); resize.disconnect(); stopFollowing()
+      rendered.dispose(); resized.dispose(); terminal.dispose()
+    }
   }, [task.id, child.id, visible, attempt])
   return <section className="agent-terminal" role="log" aria-label={"Terminal of " + babyName(task, child)}>
     <div ref={surface} className="agent-output" />
