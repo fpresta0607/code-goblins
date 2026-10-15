@@ -15,10 +15,10 @@ import (
 // The memory floor keeps the machine working whether or not the Overlord is
 // away (the Overlord, 2026-10-08: "it should work regardless of afk thats a
 // critical core feature"). When two readings in a row find memory or commit
-// under the floor, the supervisor pauses the newest live goblin that is not
-// pushing or merging, through the pause the allowance floor uses, one goblin
-// at a time, and the scheduler resumes it once memory is back at the
-// next-start mark. While AFK mode is on, its log keeps each pause for the
+// under the floor, the supervisor pauses the live goblin lowest in the
+// Overlord's In progress order that is not pushing or merging, through the
+// pause the allowance floor uses, one goblin at a time, and the scheduler
+// resumes it once memory is back at the next-start mark. While AFK mode is on, its log keeps each pause for the
 // report of the stretch.
 
 // gitPushOrMerge are the git commands that push or merge, which a goblin is
@@ -27,7 +27,7 @@ var gitPushOrMerge = []string{"push", "merge", "pull", "rebase", "cherry-pick", 
 
 // pauseAtMemoryFloor takes a reading under the floor, the w.MemoryBelow-th in
 // a row, of memory: from the second on, while nothing else starts or
-// changes, it pauses the newest goblin it may. A change under way frees what
+// changes, it pauses the lowest goblin it may. A change under way frees what
 // it frees only once it ends, so the count starts again after it.
 func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory) error {
 	if w.MemoryBelow < 2 {
@@ -40,11 +40,11 @@ func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory) error {
 		w.MemoryBelow = 0
 		return nil
 	}
-	meta, record, found, problems := s.newestToPause()
+	meta, record, found, problems := s.lowestToPause()
 	if !found {
 		return problems
 	}
-	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %.0f GB floor; %s was the newest goblin not pushing or merging",
+	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %.0f GB floor; %s was the lowest goblin in the In progress order not pushing or merging",
 		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(memoryFloor), meta.ID)
 	began, err := s.pauseAtFloor(meta, record, "memory", "", evidence)
 	if began {
@@ -53,12 +53,12 @@ func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory) error {
 	return errors.Join(problems, err)
 }
 
-// newestToPause is the goblin the memory floor pauses: of the native goblins
+// lowestToPause is the goblin the memory floor pauses: of the native goblins
 // whose terminal host runs, that are not paused or changing and whose last
-// pause at the memory floor did not fail, the newest by when its host
-// started that is not pushing or merging. Processes that cannot be listed
-// tell nothing of either, so the newest is paused then.
-func (s *Service) newestToPause() (state.TaskMeta, state.Lifecycle, bool, error) {
+// pause at the memory floor did not fail, the lowest in the Overlord's In
+// progress order that is not pushing or merging. Processes that cannot be
+// listed tell nothing of either, so the lowest is paused then.
+func (s *Service) lowestToPause() (state.TaskMeta, state.Lifecycle, bool, error) {
 	stateDir := s.Store.Home.State
 	type candidate struct {
 		meta   state.TaskMeta
@@ -66,8 +66,9 @@ func (s *Service) newestToPause() (state.TaskMeta, state.Lifecycle, bool, error)
 		host   host.Record
 	}
 	var candidates []candidate
-	var problems error
-	for _, meta := range liveTasks(stateDir) {
+	tasks, problems := inProgressOrder(s.Store.Home)
+	slices.Reverse(tasks)
+	for _, meta := range tasks {
 		if meta.Backend != "native" {
 			continue
 		}
@@ -93,7 +94,6 @@ func (s *Service) newestToPause() (state.TaskMeta, state.Lifecycle, bool, error)
 		}
 		candidates = append(candidates, candidate{meta, record, hostRecord})
 	}
-	slices.SortFunc(candidates, func(a, b candidate) int { return b.host.Started.Compare(a.host.Started) })
 	processes, unlisted := proc.Processes()
 	for _, one := range candidates {
 		if unlisted == nil && pushingOrMerging(one.host.HostPID, processes, proc.Arguments) {

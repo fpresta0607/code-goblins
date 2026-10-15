@@ -189,7 +189,12 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 	if !isFloorKnown || s.Options.Dispatch == nil || s.Options.Dispatch.Spawn == nil {
 		return problems
 	}
-	for _, meta := range liveTasks(s.Store.Home.State) {
+	// The goblins at the floor pause one at a time, the lowest in the
+	// Overlord's In progress order first.
+	tasks, err := inProgressOrder(s.Store.Home)
+	problems = errors.Join(problems, err)
+	slices.Reverse(tasks)
+	for _, meta := range tasks {
 		floor := settings.WeeklyFloor(meta.Harness)
 		reset, isLow := AllowanceReset(report, meta.Harness, meta.Model, floor, now)
 		if !isLow {

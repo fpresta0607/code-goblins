@@ -32,11 +32,11 @@ type WaitingWork struct {
 }
 
 // schedule takes one free slot, in the fleet's order: a reported production
-// defect, then the oldest paused goblin whose pause cleared, then the top of
-// the queue, with a picked-up root issue after every other queued task,
-// unless a goblin paused for memory comes back first. It says what it did,
-// and what could run and did not, with why; a board that cannot start goblins
-// schedules nothing and says nothing.
+// defect, then the paused goblin highest in the Overlord's In progress order
+// whose pause cleared, then the top of the queue, with a picked-up root issue
+// after every other queued task, unless a goblin paused for memory comes back
+// first. It says what it did, and what could run and did not, with why; a
+// board that cannot start goblins schedules nothing and says nothing.
 func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
@@ -96,7 +96,15 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	// read at this reading. It is read again at the next, and is a problem
 	// once it went unread failingPasses readings in a row.
 	unreadPauses := map[string]bool{}
-	for _, meta := range liveTasks(s.Store.Home.State) {
+	// The paused goblins are read in the Overlord's In progress order, so
+	// the highest whose pause cleared resumes first, and the highest paused
+	// for memory comes back before any queued task starts. An order that
+	// cannot be read is said on the board and leaves them in name order.
+	tasks, err := inProgressOrder(s.Store.Home)
+	if err != nil {
+		s.publish(err)
+	}
+	for _, meta := range tasks {
 		record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -146,12 +154,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		}
 	}
 	watched.stillFailing("pause:", unreadPauses)
-	slices.SortFunc(ready, func(left, right state.Lifecycle) int {
-		if order := left.Pause.At.Compare(right.Pause.At); order != 0 {
-			return order
-		}
-		return strings.Compare(left.ID, right.ID)
-	})
 	// A paused goblin whose last resume was refused for what no later reading
 	// clears waits for a Resume, so it neither holds the slot nor is refused
 	// again every reading.

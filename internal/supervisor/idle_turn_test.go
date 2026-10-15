@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -48,6 +49,18 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 				pausedGoblin(t, h, "paused-task", "dependency", "date:2000-01-01T00:00:00Z", time.Now().UTC().Add(-time.Hour))
 			},
 			want: []string{"next: resume paused-task"},
+		},
+		{
+			name:   "the cleared pause highest in his order comes back first",
+			memory: plenty,
+			arrange: func(t *testing.T, h home.Home) {
+				pausedGoblin(t, h, "a-older-task", "dependency", "date:2000-01-01T00:00:00Z", time.Now().UTC().Add(-2*time.Hour))
+				pausedGoblin(t, h, "z-newer-task", "dependency", "date:2000-01-01T00:00:00Z", time.Now().UTC().Add(-time.Hour))
+				if err := fleet.WriteAttention(h, []string{"z-newer-task", "a-older-task"}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: []string{"next: resume z-newer-task", "also waiting: a-older-task"},
 		},
 		{
 			name:   "a goblin at work",

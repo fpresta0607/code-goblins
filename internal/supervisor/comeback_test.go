@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -241,7 +242,7 @@ func TestAComebackPlanningErrorStillPausesAtTheMemoryFloor(t *testing.T) {
 
 	calls := awaitDispatch(t, service, spawner, 1)
 	if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID {
-		t.Fatalf("dispatches %v, want the newest goblin paused despite the planning error", calls)
+		t.Fatalf("dispatches %v, want the lowest goblin paused despite the planning error", calls)
 	}
 }
 
@@ -325,6 +326,30 @@ func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing
 	// come back.
 	if calls := spawner.recorded(); len(calls) != 1 || calls[0][0] != "resume" || calls[0][1] != "paused" {
 		t.Errorf("dispatches %v, want the paused goblin resumed after the comeback", calls)
+	}
+}
+
+// The goblins a restart ended come back one at a time in the Overlord's In
+// progress order, the highest first, and those he has not placed after them.
+func TestARestartBringsTheGoblinsBackInHisInProgressOrder(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	for _, id := range []string{"alpha", "bravo", "charlie"} {
+		workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
+	}
+	if err := fleet.WriteAttention(h, []string{"charlie", "alpha"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	for minute := 0; minute <= 5; minute++ {
+		reading(t, service, minute)
+	}
+
+	// Assert
+	if came := recorder.came(); !slices.Equal(came, []string{"charlie", "alpha", "bravo"}) {
+		t.Fatalf("came back in order %v, want charlie, alpha, then bravo", came)
 	}
 }
 

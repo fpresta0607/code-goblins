@@ -206,6 +206,10 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 		return StartRefusal{Reason: "This task is being changed", Passing: true}
 	}
 	s.starting = id
+	s.overlordStart = ""
+	if isOverlord {
+		s.overlordStart = id
+	}
 	s.starts.Unlock()
 	isStarting := false
 	defer func() {
@@ -286,12 +290,28 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	h := s.Store.Home
 	detail := "start failed: " + failure
 	if err == nil {
-		// Started now, it goes to the top of In progress, under the lock an
-		// order the Overlord saves meanwhile takes.
+		// Started now from the board, it goes to the top of In progress. One
+		// the supervisor started by itself joins the bottom, under every
+		// goblin the board lists, so his order above it stands. Either way it
+		// is under the lock an order the Overlord saves meanwhile takes.
 		s.ordering.Lock()
-		order, readErr := fleet.ReadAttention(h)
+		var order []string
+		var readErr error
+		if plan.isOverlord {
+			order, readErr = fleet.ReadAttention(h)
+			order = append([]string{plan.id}, slices.DeleteFunc(order, func(id string) bool { return id == plan.id })...)
+		} else {
+			var tasks []state.TaskMeta
+			tasks, readErr = inProgressOrder(h)
+			for _, meta := range tasks {
+				if meta.ID != plan.id {
+					order = append(order, meta.ID)
+				}
+			}
+			order = append(order, plan.id)
+		}
 		if readErr == nil {
-			readErr = fleet.WriteAttention(h, append([]string{plan.id}, slices.DeleteFunc(order, func(id string) bool { return id == plan.id })...))
+			readErr = fleet.WriteAttention(h, order)
 		}
 		s.ordering.Unlock()
 		if readErr != nil {
@@ -299,7 +319,7 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 		}
 		detail = "started: the Overlord started this from the board, at the top of In progress; its row is still in backlog.md's Queued section"
 		if !plan.isOverlord {
-			detail = "started: the supervisor started the next queued task after checking cleared pauses; its row is still in backlog.md's Queued section"
+			detail = "started: the supervisor started the next queued task after checking cleared pauses, at the bottom of In progress; its row is still in backlog.md's Queued section"
 		}
 		if plan.isProductionDefect {
 			detail += "; production defect jumped the order"

@@ -440,7 +440,8 @@ The CFO's bar carries the mark of the harness the CFO runs, and its tip names th
 On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
-**Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
+**Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first by when the work finished.
+A goblin that reported done moves to Completed as soon as its pull request merged and its deploy, where one runs, succeeded, before its cleanup.
 In progress shows every goblin's card at once, however many there are, and the board scrolls when they run past the screen.
 Tasks, the Paused group and Completed show up to ten cards whole; past ten, each shows a page, as many cards as fit the visible board and never fewer than five, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
 A Completed card shows what its pull request really did, the way GitHub does: **Merged** with GitHub's purple merge icon when it merged into its base, **Closed** with the closed icon when it was closed without merging, and **Finished** with the pull request icon while it is still open.
@@ -469,7 +470,7 @@ Beside the meter, a ring around the Claude or OpenAI mark shows that subscriptio
 A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time, the reading's age and the reserve.
 Under a floor of 0 the reserve reads **No reserve, runs to 0%**.
 The first eligible task is marked **Next up**.
-The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
+The supervisor uses each free slot for the paused goblin highest in your In progress order whose condition has cleared, then for the queue in the Overlord's order.
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The supervisor does this by itself, one start or resume a minute while memory allows, until nothing that could run is left: the fleet never idles while work waits, and nothing waits for the CFO to notice.
@@ -489,7 +490,7 @@ A blocked task has no Start button or Next up mark, and its status says what it 
 The why after it stays on the row, and the board does not show it.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
-A task the supervisor starts, by your Start or by itself, leaves Tasks at once for the top of In progress and reads **Starting** until its goblin is at work.
+A task the supervisor starts leaves Tasks at once and reads **Starting** until its goblin is at work: your Start puts it at the top of In progress, and one the supervisor starts by itself, a production defect included, joins the bottom, so your order above it stands.
 A start that fails reads **Start failed** in red and waits in Tasks for its next Start, with why behind its panel's Details, and the CFO is told.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and one task starts or resumes at a time.
@@ -538,13 +539,13 @@ An older build's `max_live_goblins` in `config/fleet.json` is taken out by `cfo 
 At the weekly floor, the percent of a measured weekly allowance window the home keeps back, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
 Each provider has its own floor, 5 percent unless `cfo allowance-floor <claude|codex> <percent>` sets another in `config/fleet.json`, and `cfo allowance-floor` alone says each one.
 At a floor of 0 goblins run on the week until the provider itself refuses.
-It pauses at the memory floor too, whether or not [AFK mode](#afk-mode) is on: after two readings in a row under 4 GB of free memory or commit, the newest goblin that is not pushing or merging is paused with the reason `memory`, one at a time.
+It pauses at the memory floor too, whether or not [AFK mode](#afk-mode) is on: after two readings in a row under 4 GB of free memory or commit, the goblin lowest in your In progress order that is not pushing or merging is paused with the reason `memory`, one at a time.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A used-up session window, or a week used up under a floor of 0, is waited out rather than paused: nothing starts or resumes on its harness until it renews, and then the CFO is woken once with the goblins it stopped, to send on any that sits idle.
 The CFO also hears once when a window a running goblin draws on passes 85 percent used.
 On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
 Under the 5 GB mark, Start and Resume say what they need on the card instead of being refused after the click; the memory meter shows no count of goblins or cap.
-**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
+**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, the highest in your In progress order first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
 Any of them resets it, and intentional pauses do not raise it.
@@ -901,7 +902,7 @@ Waiting on you in the Command Center (2), each as it stands now
 ```
 
 AFK mode shares the supervisor's allowance pause at each provider's weekly floor and its automatic resume at the reset.
-The fleet also pauses cleanly at the memory floor, whether or not it is on: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the newest goblin that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
+The fleet also pauses cleanly at the memory floor, whether or not it is on: when two readings in a row find free memory or commit under 4 GB, the supervisor pauses the goblin lowest in your In progress order that is not pushing or merging, keeping its handoff, one goblin at a time, and resumes it once memory and commit are back at 5 GB.
 Each pause at either floor while it is on is in the report under **Paused at a floor**, with the readings it stood on and how it went.
 
 ### Open in VS Code

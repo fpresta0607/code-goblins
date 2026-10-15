@@ -106,12 +106,17 @@ for (const state of STATES) {
   });
 }
 
-for (const [when, task] of [["before", zane({ phase: "queued", starting: true })], ["once", zane({ phase: "unknown", starting: true, generation: "s1", backend: "native" })]] as const) {
-  test(`a task the supervisor starts heads In progress ${when} its session is recorded`, async ({ page }) => {
-    await open(page, task);
-    const progress = board(page).getByRole("region", { name: "In progress", exact: true });
-    await expect(progress.locator(".card-title")).toHaveText([ZANE, "Ned - Docs Scribe"]);
-  });
+// The Overlord's own Start heads In progress, and a start the supervisor
+// makes by itself joins its bottom, where the supervisor puts each once its
+// start ends.
+for (const [when, fields] of [["before", { phase: "queued", starting: true }], ["once", { phase: "unknown", starting: true, generation: "s1", backend: "native" }]] as const) {
+  for (const [whose, isOverlordStart, want] of [["the Overlord's Start", true, [ZANE, "Ned - Docs Scribe"]], ["the supervisor's own start", false, ["Ned - Docs Scribe", ZANE]]] as const) {
+    test(`a task ${whose} starts sits in its place in In progress ${when} its session is recorded`, async ({ page }) => {
+      await open(page, zane({ ...fields, overlord_start: isOverlordStart }));
+      const progress = board(page).getByRole("region", { name: "In progress", exact: true });
+      await expect(progress.locator(".card-title")).toHaveText([...want]);
+    });
+  }
 }
 
 test("a queued task's panel has the same Start as its card, and it starts the task the same way", async ({ page }) => {
