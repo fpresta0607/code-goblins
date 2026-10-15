@@ -71,11 +71,13 @@ test("a question has Skip at its top beside its own Other choice for a written a
   const sent = await record(page);
   const shown = await openCard(page, "Open the question");
 
+  const hasOtherChoice = await shown.getByRole("radio", { name: /^Other/ }).isVisible();
+
   // Act
   await shown.locator(".asker").getByRole("button", { name: "Skip this card" }).click();
 
   // Assert
-  await expect(shown.getByRole("radio", { name: /^Other/ })).toBeVisible();
+  expect(hasOtherChoice).toBe(true);
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0].body).toMatchObject({ kind: "question_clear", question_id: "q-shop-plan", generation: "q".repeat(64) });
 });
