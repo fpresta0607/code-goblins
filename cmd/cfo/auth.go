@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -27,7 +28,13 @@ import (
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin, hidden when typed at a console)
-       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--env-file <file>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
+       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--env-file <file>] [--plain NAME]... [--label NAME="<few words>"]... [--window] [--wait] [NAME...]
+           (one Command Center card for a step only the Overlord can take: the page to open, its steps, and only
+           the inputs he enters, each NAME a secret for the vault and each --plain NAME a value back to you)
+       cfo auth request --wait-on <card> [--task <id>]   wait on a card you filed, again
+       cfo auth request --done <card> [--task <id>]   close your card once you see the step done
+       cfo auth request --withdraw <card> [--task <id>] --reason "<why>"   take back a card nobody needs
+       cfo auth request --reopen <card> [--task <id>]   bring back a card he closed
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
@@ -393,33 +400,106 @@ func sayIfUndeclared(runtime commandRuntime, key auth.Key, stdout io.Writer) {
 	fmt.Fprintf(stdout, "no service in %s declares %s, so it reaches no task yet. Declare a service for it there, then name that service in a brief or grant it with cfo auth grant\n", auth.ManifestPath("data", key.Project), key.Name)
 }
 
-// runAuthRequest files a request for credential values by name: the Overlord
-// pastes each value on the request's card on the board, which stores it the
-// way cfo auth store does. Nothing shaped like a value is taken, and nothing
+// runAuthRequest files a card for a step only the Overlord can take: the
+// page to open, the steps to take there, and the inputs he enters, each a
+// secret the board stores the way cfo auth store does or a plain value that
+// goes back to the asker. Nothing shaped like a value is taken, and nothing
 // refused is repeated. The registered CFO files over the supervisor's pipe; a
-// goblin files for its own task from its own terminal.
+// goblin files for its own task from its own terminal. With --wait it waits
+// on the card and prints what came of it the moment it closes.
 func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("auth request", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	project := flags.String("project", "", "the project whose scope the values are stored in")
 	task := flags.String("task", "", "the goblin that needs the values; a goblin names its own task")
-	why := flags.String("why", "", "what the values are for, in one line")
-	link := flags.String("link", "", "the https page the Overlord gets the values from")
-	var steps []string
-	flags.Func("step", "one step of getting the values on that page, shown as a numbered step in the card's header; repeat it for each, in order", func(value string) error {
+	why := flags.String("why", "", "what the card is for, in one line")
+	link := flags.String("link", "", "the https page he opens: the exact screen he must act on")
+	var steps, plain []string
+	flags.Func("step", "one step he takes on that page, shown as a numbered step in the card's header; repeat it for each, in order", func(value string) error {
 		steps = append(steps, value)
 		return nil
 	})
+	flags.Func("plain", "a value he enters that comes back to you, such as an account's email, never a secret; repeat it for each", func(value string) error {
+		plain = append(plain, value)
+		return nil
+	})
+	labels := map[string]string{}
+	flags.Func("label", `what an input is in a few words, as NAME="<words>"; repeat it for each`, func(value string) error {
+		name, label, found := strings.Cut(value, "=")
+		if !found || name == "" {
+			return errors.New(`a label is NAME="<a few words>"`)
+		}
+		labels[name] = label
+		return nil
+	})
 	envFile := flags.String("env-file", "", "a gitignored env file at the root of the project's checkout, such as .env.docker.local, where each value is also set")
+	isWindow := flags.Bool("window", false, "the step happens in your own browser session: the card's button shows its window to him, at --link")
+	isWait := flags.Bool("wait", false, "wait on the card and print what came of it the moment it closes")
+	waitOn := flags.String("wait-on", "", "wait on a card you filed before")
+	done := flags.String("done", "", "close a card you filed once you see the step done")
+	withdraw := flags.String("withdraw", "", "take back a card nobody needs")
+	reopen := flags.String("reopen", "", "bring back a card he closed")
+	reason := flags.String("reason", "", "why the card is withdrawn")
 	names, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
 	}
-	if *project == "" || strings.TrimSpace(*why) == "" || len(names) == 0 {
+	if card := cmp.Or(*waitOn, *done, *withdraw, *reopen); card != "" {
+		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
+		modes := len(slices.DeleteFunc([]string{*waitOn, *done, *withdraw, *reopen}, func(id string) bool { return id == "" }))
+		switch {
+		case isFiling || modes > 1:
+			fmt.Fprintln(stderr, "cfo auth request: --wait-on, --done, --withdraw and --reopen each take one card's ID, with only --task and, for --withdraw, --reason")
+			return 2
+		case (*withdraw != "") != (strings.TrimSpace(*reason) != ""):
+			fmt.Fprintln(stderr, "cfo auth request: --withdraw needs --reason, and --reason goes with --withdraw")
+			return 2
+		}
+		h, err := home.Resolve()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if *waitOn != "" {
+			return waitForCard(context.Background(), h, *waitOn, *task, runtime, stdout, stderr)
+		}
+		step := supervisor.CredentialStep{ID: card, Task: *task, Action: "done"}
+		switch {
+		case *withdraw != "":
+			step.Action, step.Reason = "withdraw", *reason
+		case *reopen != "":
+			step.Action = "reopen"
+		}
+		if err := runtime.sendCardStep(h, step); err != nil {
+			fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "card %s is %s\n", card, map[string]string{"done": "done", "withdraw": "withdrawn", "reopen": "back in the Command Center"}[step.Action])
+		return 0
+	}
+	if *reason != "" {
+		fmt.Fprintln(stderr, "cfo auth request: --reason goes with --withdraw")
+		return 2
+	}
+	if *project == "" || strings.TrimSpace(*why) == "" {
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	request, err := credentialRequest(runtime, *project, *task, *why, *link, steps, *envFile, names)
+	if *isWindow && !*isWait {
+		fmt.Fprintln(stderr, "cfo auth request: --window needs --wait, since your wait shows the window when he asks for it")
+		return 2
+	}
+	// The window is this terminal's own browser session, which spawn names
+	// after its task.
+	if session := os.Getenv(spawn.BrowserSessionVariable); *isWindow && (*task == "" || session != *task) {
+		fmt.Fprintf(stderr, "cfo auth request: --window shows your own browser session, and this terminal's is %q, not that of --task %q\n", session, *task)
+		return 2
+	}
+	card := supervisor.CredentialRequest{Task: *task, Names: names, Plain: plain, Why: *why, Link: *link, Steps: steps, EnvFile: *envFile, Window: *isWindow}
+	if len(labels) > 0 {
+		card.Labels = labels
+	}
+	request, err := credentialRequest(runtime, *project, card)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 2
@@ -445,22 +525,29 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "filed credential request %s for %s: %s\n", filed.ID, scope, strings.Join(names, ", "))
-	fmt.Fprintln(stdout, "the Overlord pastes the values on its card in the board's Command Center; the CFO hears when they are stored, and running goblins of the project are told to re-source their credentials")
+	if len(names)+len(plain) == 0 {
+		fmt.Fprintf(stdout, "filed card %s for %s: he takes the step and presses Done on its card in the Command Center\n", filed.ID, scope)
+	} else {
+		fmt.Fprintf(stdout, "filed credential request %s for %s: %s\n", filed.ID, scope, strings.Join(slices.Concat(names, plain), ", "))
+		fmt.Fprintln(stdout, "the Overlord enters the values on its card in the board's Command Center; the CFO hears when they are in, and running goblins of the project are told to re-source their credentials")
+	}
 	if request.EnvFile != "" {
 		fmt.Fprintf(stdout, "each value is also set in %s\n", filepath.Join(request.Repository, request.EnvFile))
 	}
 	for _, name := range names {
 		fmt.Fprintf(stdout, "his terminal fallback on this machine: %s\n", auth.StoreCommand(scope, name))
 	}
+	if *isWait {
+		return waitForCard(context.Background(), h, filed.ID, *task, runtime, stdout, stderr)
+	}
 	return 0
 }
 
-// credentialRequest builds a request from cfo auth request's arguments: the
-// scope cfo auth store would write, and the checkout that scope is named for
-// when it is on this machine. It refuses anything shaped like a value without
-// repeating it.
-func credentialRequest(runtime commandRuntime, project, task, why, link string, steps []string, envFile string, names []string) (supervisor.CredentialRequest, error) {
+// credentialRequest completes card from cfo auth request's arguments with
+// the scope cfo auth store would write, and the checkout that scope is named
+// for when it is on this machine. It refuses anything shaped like a value
+// without repeating it.
+func credentialRequest(runtime commandRuntime, project string, card supervisor.CredentialRequest) (supervisor.CredentialRequest, error) {
 	// A path is judged by the scope it names: a checkout's parent folders
 	// are no part of the request.
 	shaped := func(text string) error {
@@ -481,7 +568,8 @@ func credentialRequest(runtime commandRuntime, project, task, why, link string, 
 	if err := shaped(scope); err != nil {
 		return supervisor.CredentialRequest{}, err
 	}
-	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link, Steps: steps, EnvFile: envFile}
+	request := card
+	request.Project, request.Why = scope, strings.TrimSpace(card.Why)
 	if resolved, err := runtime.resolveProject(project); err == nil {
 		if checkout, err := filepath.Abs(resolved); err == nil && auth.ProjectName(checkout) == scope {
 			if _, err := os.Stat(filepath.Join(checkout, ".git")); err == nil {

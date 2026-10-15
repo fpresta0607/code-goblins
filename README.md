@@ -1108,6 +1108,7 @@ The update is yours alone: it refuses to run under the CFO, a goblin or any agen
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` where the home keeps them, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 The board is away for under a minute: an update that runs past a minute is stopped where it is and the previous build put back, and one that runs past a minute before it changed anything is stopped with nothing changed.
+It reads each staged copy of the new build once before it stops the supervisor, because the first read of a program just written waits for the virus scanner, so a scanner that hangs ends the update with nothing changed and the board still up.
 It holds the supervisor's lock from the supervisor it stopped to the one it starts, so a Code Goblins opened meanwhile waits for the board instead of starting a supervisor of its own.
 It waits up to 15 seconds for a goblin's start, pause, resume or clean-up in flight before it stops the supervisor, and a new one started while it installs is refused with one sentence and can be run again a minute later.
 It ends on the time each step took.

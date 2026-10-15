@@ -24,6 +24,12 @@ const (
 	// ciRunnerSayEvery is how often the same trouble is said in the watch's
 	// log, rather than at every look.
 	ciRunnerSayEvery = time.Hour
+	// ciRunnerJobMemory is the most memory a job's turn is expected to use,
+	// which the line weighs before it starts the turn beside another: the
+	// VM's 6 GB at most, its Hyper-V worker, and the job's own process. The
+	// VM's memory is the worker's, outside the turn's own processes, so the
+	// line could not see it otherwise.
+	ciRunnerJobMemory = "7GiB"
 )
 
 // ciRunnerWatch starts each desktop CI job that waits as a turn of its own in
@@ -79,7 +85,7 @@ func (w *ciRunnerWatch) look(ctx context.Context) {
 	starting, cancelStart := context.WithTimeout(ctx, ciRunnerStartLimit)
 	defer cancelStart()
 	result, err := w.commands.Run(starting, execx.Request{Name: w.executable, Args: []string{
-		"gate", "turn", "--low-priority",
+		"gate", "turn", "--low-priority", "--memory", ciRunnerJobMemory,
 		"--as", fmt.Sprintf("desktop CI: %s of run %d", pending.Job, pending.RunID),
 		"--detach", log,
 		"--", w.executable, "ci-runner", "job",

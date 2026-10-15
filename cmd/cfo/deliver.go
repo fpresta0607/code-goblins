@@ -155,7 +155,8 @@ func briefAuthentication(dataDir, project string) string {
 		"The task's terminal carries those services' credentials and no other, and none while the line says " + auth.NoServices + ". A brief names a service, never a value.\n" +
 		"Add a service the task needs that the manifest does not list yet, then run `cfo auth " + project + " --fix` before dispatch.\n" +
 		"On the mcp line, name the MCP servers this task needs among those whose entry in the project's .mcp.json holds a value, separated by commas. " + held + "\n" +
-		"A server whose entry holds no value reaches the task without being named."
+		"A server whose entry holds no value reaches the task without being named.\n\n" +
+		fleet.BriefStepCards()
 }
 
 // runPR handles "cfo pr check <id> <url>", "cfo pr merge <url>" and

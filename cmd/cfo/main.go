@@ -257,6 +257,11 @@ type commandRuntime struct {
 	// one, or with no address lets go of it.
 	requestBrowser func(home.Home, supervisor.BrowserRequest) (supervisor.BrowserLease, error)
 	handBrowser    func(context.Context, string) error
+	// stepCard sends a card's asker's step to the supervisor, and showBrowser
+	// restarts this terminal's browser session on a profile, with a window at
+	// a page or headless; nil is the supervisor's pipe and chrome-devtools-axi.
+	stepCard    func(home.Home, supervisor.CredentialStep) error
+	showBrowser func(ctx context.Context, profile, page string, isHeaded bool) error
 	// projectServices builds the local services of a home, writing what a
 	// start says while it waits to progress.
 	projectServices func(home.Home, io.Writer) services.Service

@@ -486,6 +486,9 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	case marked:
 		fmt.Fprintf(stdout, "Marked %s as a CFO home with %s, which this build's commands and hooks look for.\n", h.Root, home.InstalledMarker)
 	}
+	// Prepare is where an update waits for the virus scanner to read the
+	// staged build, so an update its bound ends here says what it waited on.
+	fmt.Fprintln(stdout, "Preparing: the previous build is backed up and this one is staged beside it and read back once, which waits for the virus scanner to read it. The board serves meanwhile.")
 	journal, err := update.Prepare(programs, h.State, candidate)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
