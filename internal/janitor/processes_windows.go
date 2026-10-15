@@ -106,9 +106,12 @@ func ReadOwners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Own
 
 // Owners lists the terminals of home h that were given a proof since the
 // machine started: each with its proofs, the host that runs it now, the
-// folders of the task it is, and whether a command is changing it. A
-// terminal that cannot be read is named in the notes and left out, so
-// nothing is ended on its account. It only reads.
+// folders of the task it is, whether its goblin rests, and whether a command
+// is changing it. A goblin rests by its report and the monitor's reading
+// (AtRestSince) only while tree reads it waiting on no work of its own
+// (IsWaiting); a nil tree reads no goblin at rest. A terminal that cannot be
+// read is named in the notes and left out, so nothing is ended on its
+// account. It only reads.
 func Owners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, []string) {
 	var notes []string
 	ids, err := host.Terminals(h.State)
@@ -143,7 +146,14 @@ func Owners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, 
 			// A record that names folders that are not the task's own names
 			// none, and the terminal's mark still says what is its own.
 			owner.Directories, _ = lifecycle.TaskDirectories(h, meta)
-			owner.AtRestSince = AtRestSince(h.State, id)
+			if since := AtRestSince(h.State, id); !since.IsZero() && tree != nil {
+				read, err := tree.Read(ctx, fleettree.Goblin{Meta: meta, HarnessPID: record.ChildPID, HarnessStarted: record.ChildStart})
+				// A goblin whose tree cannot be read whole may wait on what
+				// was not read.
+				if err == nil && len(read.Unread) == 0 && !IsWaiting(read, read.FetchedAt) {
+					owner.AtRestSince = later(since, workedAt(read))
+				}
+			}
 		}
 		owner.IsChanging = slices.ContainsFunc(changeLocks(id), func(name string) bool {
 			held, err := lock.ReadNamed(h.State, name)
@@ -159,14 +169,16 @@ func Owners(ctx context.Context, h home.Home, tree *fleettree.Reader) ([]Owner, 
 const statusTail = 50
 
 // AtRestSince is when task id's goblin was last seen at work, once it has
-// delivered and rests, and zero while it works or waits. A goblin rests when
-// both hold: the last outcome it reported is done or failed, and the monitor
-// reads it at its prompt with no turn in progress and nothing asked. The
-// time is the monitor's own, when it last saw the goblin make progress.
-// Anything else is a goblin at work, and so is whatever cannot be read: a
-// goblin that reported working, blocked or waiting-on, one in a turn however
-// long, one whose harness is refused or still starting, and one that asks
-// the CFO something in prose.
+// delivered and rests by what the home records, and zero while it works or
+// waits. A goblin rests when both hold: the last outcome it reported is done
+// or failed, and the monitor reads it at its prompt with no turn in progress
+// and nothing asked. The time is the monitor's own, when it last saw the
+// goblin make progress. Anything else is a goblin at work, and so is
+// whatever cannot be read: a goblin that reported working, blocked or
+// waiting-on, one in a turn however long, one whose harness is refused or
+// still starting, and one that asks the CFO something in prose. A done
+// report is one pull request's, and the home records none of the waits of a
+// goblin that went on to the next, which its tree shows (IsWaiting).
 func AtRestSince(stateDir, id string) time.Time {
 	lines, err := state.TailStatus(stateDir, id, statusTail)
 	if err != nil {
@@ -186,6 +198,22 @@ func AtRestSince(stateDir, id string) time.Time {
 		return time.Time{}
 	}
 	return observation.LastProgress
+}
+
+// IsWaiting says tree shows its goblin waiting by design on work of its own
+// at now: a sub-agent, background shell, monitor or run in the machine's
+// heavy line it started (fleettree.Tree.Waits), with something new under it
+// within the busy budget the monitor gives such a wait. A task can ship
+// several pull requests under one id, so a goblin that reported one done and
+// waits so on the next is at work.
+func IsWaiting(tree fleettree.Tree, now time.Time) bool {
+	return len(tree.Waits()) > 0 && now.Sub(workedAt(tree)) < monitor.DefaultBusyTurnMax
+}
+
+// workedAt is the latest sign of work tree shows: its own records' activity
+// or the processor use of the jobs that are its goblin's work.
+func workedAt(tree fleettree.Tree) time.Time {
+	return later(tree.ActivityAt(), tree.Busy())
 }
 
 // EndProcess ends the one process item names, proven by its start time on

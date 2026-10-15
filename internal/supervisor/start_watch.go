@@ -11,7 +11,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
-	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/startwatch"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -222,7 +221,7 @@ func startWatchOwners(stateDir string) ([]fleettree.Goblin, map[string]string) {
 // resting is the goblin's report, when it reported done or failed and rests
 // since, by the rule the janitor's sweep reads a goblin at rest by. A done
 // report is one pull request's, and a goblin that goes on with its task
-// waits on its own watchers and runs (fleettree.Tree.Waits): it rests only
+// waits on its own watchers and runs (janitor.IsWaiting): it rests only
 // once its board tree shows such a wait has shown nothing new for the busy
 // budget the monitor gives the same wait.
 func (s *Service) resting(meta state.TaskMeta, now time.Time) (startwatch.Rest, bool) {
@@ -232,14 +231,8 @@ func (s *Service) resting(meta state.TaskMeta, now time.Time) (startwatch.Rest, 
 	s.mu.Lock()
 	tree, isRead := s.trees[meta.ID]
 	s.mu.Unlock()
-	if isRead && tree.Generation == meta.SpawnGen && now.Sub(tree.FetchedAt) <= evidenceFresh && len(tree.Waits()) > 0 {
-		latest := tree.ActivityAt()
-		if busy := tree.Busy(); busy.After(latest) {
-			latest = busy
-		}
-		if now.Sub(latest) < monitor.DefaultBusyTurnMax {
-			return startwatch.Rest{}, false
-		}
+	if isRead && tree.Generation == meta.SpawnGen && now.Sub(tree.FetchedAt) <= evidenceFresh && janitor.IsWaiting(tree, now) {
+		return startwatch.Rest{}, false
 	}
 	lines, err := s.statusTail(meta.ID)
 	if err != nil {

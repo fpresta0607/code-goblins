@@ -139,7 +139,9 @@ func TestTheSweepsReaderGivesRestOnlyToATaskThatRests(t *testing.T) {
 // own work, as on a run it started in the machine's heavy line with cfo gate
 // turn --detach, which uses no processor while it waits in line (#876). The
 // sweep keeps what such a goblin left detached, and still ends what a goblin
-// whose work is finished left: an idle detached dev server past the hour.
+// whose work is finished left: an idle detached dev server past the hour. A
+// goblin whose tree cannot be read may wait on what was not read, and keeps
+// what it left.
 func TestTheSweepKeepsTheHeavyRunOfAGoblinThatShippedOneOfSeveralPullRequests(t *testing.T) {
 	now := time.Now().UTC()
 	launched := now.Add(-3 * time.Hour)
@@ -151,12 +153,14 @@ func TestTheSweepKeepsTheHeavyRunOfAGoblinThatShippedOneOfSeveralPullRequests(t 
 		310: `node node_modules/vite/bin/vite.js --port 5173`,
 	}
 	for _, test := range []struct {
-		name string
-		left fleettree.Process
-		want planned
+		name         string
+		left         fleettree.Process
+		isUnreadable bool
+		want         planned
 	}{
 		{name: "it waits on its run in the heavy line", left: heavyRun, want: planned{Watching: []int{300}}},
 		{name: "its work is finished and its dev server sits idle", left: devServer, want: planned{Ending: []int{310}}},
+		{name: "its processes cannot be read", left: devServer, isUnreadable: true, want: planned{Watching: []int{310}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -187,8 +191,13 @@ func TestTheSweepKeepsTheHeavyRunOfAGoblinThatShippedOneOfSeveralPullRequests(t 
 			}
 			observed(t, h.State, "g1", monitor.HealthIdle, monitor.None, launched.Add(time.Hour))
 			tree := &fleettree.Reader{
-				Home:        t.TempDir(),
-				Processes:   func() ([]fleettree.Process, error) { return []fleettree.Process{{PID: 100, ParentPID: 1, Exe: "pi.exe", Created: 1, Started: launched}, test.left}, nil },
+				Home: t.TempDir(),
+				Processes: func() ([]fleettree.Process, error) {
+					if test.isUnreadable {
+						return nil, errors.New("access denied")
+					}
+					return []fleettree.Process{{PID: 100, ParentPID: 1, Exe: "pi.exe", Created: 1, Started: launched}, test.left}, nil
+				},
 				Listeners:   func() (map[int][]int, error) { return map[int][]int{310: {5173}}, nil },
 				CommandLine: func(pid int) (string, error) { return commands[pid], nil },
 				OutputFile:  func(int, time.Time) (string, error) { return "", os.ErrNotExist },
