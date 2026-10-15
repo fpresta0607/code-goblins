@@ -940,7 +940,7 @@ func (s *Service) tellOfAClearedWait(ctx context.Context, id string) string {
 	told := "and the goblin was told"
 	if s.Options.CFO == nil {
 		told = "but the goblin could not be told: message transport is unavailable"
-	} else if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord cleared your wait %s (%s) from the Command Center, so it no longer shows there. If you still need him for it, ask again with cfo notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	} else if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord skipped your wait %s (%s) from the Command Center. Go on without it. If you still need him for it, ask again with cfo notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		told = "but the goblin could not be told: " + bounded(err.Error(), 300)
 	}
 	detail := fmt.Sprintf("the Overlord cleared %s's wait %s (%s) from the Command Center, %s", r.Task, r.ID, r.Title, told)

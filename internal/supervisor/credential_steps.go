@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -27,6 +28,10 @@ import (
 // record, so the asker goes on within a fraction of a second of the card
 // closing.
 const credentialWaitTick = 200 * time.Millisecond
+
+// maxCredentialAnswer is the longest answer he writes on a card instead of
+// its step.
+const maxCredentialAnswer = 4000
 
 // CredentialStep is what a card's asker, or the CFO, does to it from outside
 // the board: done, once the asker saw the step done; withdraw, once nobody
@@ -183,7 +188,7 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 	updated, err := s.Store.updateCredential(id, func(r *CredentialRequest) {
 		r.State, r.ClosedAt = closed, &now
 		if reason != "" {
-			r.Reason = bounded(reason, 300)
+			r.Reason = bounded(reason, maxCredentialAnswer)
 		}
 	})
 	if err != nil {
@@ -222,6 +227,17 @@ func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 			goesOn = request.Task + " goes on without it"
 		}
 		s.credentialNotice(request, "the Overlord dismissed "+whose+" from the Command Center, so "+goesOn+told)
+	case request.State == "answered":
+		told := ""
+		if request.By == "goblin" {
+			told = "; the goblin was told"
+			if s.Options.CFO == nil {
+				told = "; the goblin could not be told: message transport is unavailable"
+			} else if _, err := s.Options.CFO.SendGoblin(context.Background(), request.Task, request.Identity, "The Overlord answered your card "+request.ID+" ("+request.Why+") instead of taking its step: "+request.Reason); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				told = "; the goblin could not be told: " + bounded(err.Error(), 300)
+			}
+		}
+		s.credentialNotice(request, "the Overlord answered "+whose+" instead of taking its step: "+request.Reason+told)
 	case request.State == "done" && by == "overlord":
 		s.credentialNotice(request, "the Overlord pressed Done on "+whose)
 	case request.State == "done":
@@ -282,17 +298,26 @@ func (h *HTTP) closeCredentialCard(w http.ResponseWriter, r *http.Request) {
 		ID         string `json:"id"`
 		Generation string `json:"generation"`
 		Action     string `json:"action"`
+		Text       string `json:"text"`
 	}
-	if err := decodeBody(w, r, &input, 4096); err != nil {
+	if err := decodeBody(w, r, &input, 16<<10); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	closed := map[string]string{"done": "done", "dismiss": "dismissed"}[input.Action]
-	if closed == "" || input.Generation == "" {
-		apiError(w, http.StatusBadRequest, "Send the card's ID, its generation, and done or dismiss.")
+	closed := map[string]string{"done": "done", "dismiss": "dismissed", "answer": "answered"}[input.Action]
+	if closed == "" || input.Generation == "" || (closed == "answered") != (input.Text != "") {
+		apiError(w, http.StatusBadRequest, "Send the card's ID, its generation, and done, dismiss, or answer with its text.")
 		return
 	}
-	request, err := h.Service.closeCredential(input.ID, input.Generation, closed, "overlord", "")
+	// His word reaches the goblin's conversation, so words shaped like a key
+	// are refused and never repeated.
+	if text := strings.TrimSpace(input.Text); closed == "answered" && (text == "" || len(text) > maxCredentialAnswer || slices.ContainsFunc(strings.Fields(text), func(word string) bool {
+		return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
+	})) {
+		apiError(w, http.StatusBadRequest, "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent.")
+		return
+	}
+	request, err := h.Service.closeCredential(input.ID, input.Generation, closed, "overlord", strings.TrimSpace(input.Text))
 	respondCredential(w, struct {
 		ID    string `json:"id"`
 		State string `json:"state"`

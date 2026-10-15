@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { canPressDone, closedLine, credentialAsk, credentialFinish, credentialHeading, credentialSettled, inputLabel, stillAsked } from "./credentials.ts";
 import { settledIcon } from "./commandQueue.ts";
-import type { CredentialRequest } from "./types.ts";
+import { runMark } from "./feedback.ts";
+import type { CredentialRequest, Run } from "./types.ts";
 
 // A goblin's card for a step only he can take: a page, its steps, and the
 // inputs he enters.
@@ -70,6 +71,20 @@ test("a closed card's place says how to give its secret later, or to bring it ba
   assert.equal(closedLine(card({ plain: ["ACCOUNT_EMAIL"] })), "Bring it back: cfo auth request --reopen cred-0123456789abcdef");
   assert.equal(closedLine(card()), "Bring it back: cfo auth request --reopen cred-0123456789abcdef");
   assert.equal(credentialFinish(card({ state: "dismissed", task: "", names: ["FLEET_GITHUB_TOKEN"] }))?.label, "Give it later: cfo auth store --project acme-shop FLEET_GITHUB_TOKEN");
+});
+
+// The Overlord, 2026-10-15: Other is his free answer on any card.
+test("a card he answered in words says so, and shows his answer in his history", () => {
+  assert.deepEqual(credentialFinish(card({ state: "answered", reason: "Use the bot token" })), { heading: "Answered", label: "Its goblin has your answer." });
+  assert.equal(credentialSettled(card({ state: "answered", reason: "Use the bot token" })), "You answered: Use the bot token");
+  assert.equal(settledIcon({ kind: "credential", key: "credential:x", request: card({ state: "answered" }) }, []).icon, "check-double");
+});
+
+test("a command he skipped or answered in words reads Skipped or Answered, never Withdrawn", () => {
+  const run = (reason: string) => ({ state: "withdrawn", task: "olive-task", reason } as Run);
+  assert.equal(runMark(run("The Overlord skipped it from the Command Center.")).label, "Skipped");
+  assert.equal(runMark(run("The Overlord answered instead: use the deploy key")).label, "Answered");
+  assert.equal(runMark(run("olive-task is gone")).label, "Withdrawn");
 });
 
 test("a card closed as done shows the check of a finished item, and a dismissed one the close mark", () => {

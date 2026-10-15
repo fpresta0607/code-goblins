@@ -68,21 +68,21 @@ test("the card of clicks shows its heading, link and steps and no value table be
 });
 
 // The Overlord, 2026-10-15: "there should be an exit or close button and an
-// other enter command or text about a command when exited". Close sits at
-// the top of every card, and the card it leaves names the command to give the
-// value later, or to bring the card back.
-test("Close sits at the top of every card, from any board, and leaves the command to give the value later", async ({ page }) => {
+// other enter command or text about a command when exited", and later that
+// day that it belongs at the bottom, beside the decision buttons. The card it
+// leaves names the command to give the value later, or to bring it back.
+test("the pencil beside the decision buttons skips a card from any board and leaves the command to give the value later", async ({ page }) => {
   // Arrange: a board opened from another machine.
   const elsewhere = "https://board.test";
   await servePages(page.context(), elsewhere);
   const sent = await answer(page);
   const card = await openCard(page, INPUTS, elsewhere);
   await recordDoneCards(page);
-  const close = card.locator(".asker").getByRole("button", { name: "Close this card" });
+  const pencil = card.locator(".card-actions").getByRole("button", { name: "Skip or answer in your own words" });
 
   // Act
-  await expect(close).toBeInViewport();
-  await close.click();
+  await pencil.click();
+  await page.getByRole("dialog", { name: "Skip this card?" }).getByRole("button", { name: "Skip", exact: true }).click();
   await expect.poll(() => sent.length).toBe(1);
   await setCard(page, INPUTS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
@@ -98,7 +98,8 @@ test("a closed card with nothing secret to give later says how to bring it back"
   await recordDoneCards(page);
 
   // Act
-  await card.getByRole("button", { name: "Close this card" }).click();
+  await card.getByRole("button", { name: "Skip or answer in your own words" }).click();
+  await page.getByRole("dialog", { name: "Skip this card?" }).getByRole("button", { name: "Skip", exact: true }).click();
   await setCard(page, CLICKS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
   // Assert
@@ -136,12 +137,11 @@ test("the window button asks for the goblin's own browser, then the card says it
   await card.getByRole("button", { name: "Open the browser window" }).click();
   await expect.poll(() => sent.length).toBe(1);
   await setCard(page, WINDOW, { window_state: "requested" });
-  const opening = await card.locator(".step-window").innerText();
+  await expect(card.locator(".step-window")).toContainText("Opening the browser window on your PC.");
   await setCard(page, WINDOW, { window_state: "open" });
 
   // Assert
   expect(sent[0]).toEqual({ path: "/api/credentials/window", token: "fixture-token", body: { id: WINDOW, generation: "c".repeat(32) } });
-  expect(opening).toContain("browser window on your PC");
   await expect(card.locator(".step-window")).toContainText("The browser window is open on your screen. Take the step there, then press Done.");
   await expect(card.locator(".step-window .primary")).toBeDisabled();
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("link")).toHaveCount(0);
@@ -160,9 +160,9 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
       // Assert
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}.png`) });
-      await expect(card.getByRole("button", { name: "Close this card" })).toBeInViewport();
       await card.locator(".credential-heading").hover();
       await page.mouse.wheel(0, 4000);
+      await expect(card.getByRole("button", { name: "Skip or answer in your own words" })).toBeInViewport();
       expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}-end.png`) });
     }

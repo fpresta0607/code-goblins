@@ -11,6 +11,7 @@ export function credentialSettled(request: CredentialRequest): string {
   if (request.state === "saved") return sent.charAt(0).toUpperCase() + sent.slice(1);
   if (request.state === "done") return "Done";
   if (request.state === "dismissed") return "Closed. " + closedLine(request);
+  if (request.state === "answered") return "You answered: " + request.reason;
   if (request.state === "withdrawn") return "Withdrawn: " + request.reason;
   return request.reason;
 }
@@ -22,6 +23,7 @@ export function credentialFinish(request: CredentialRequest): { heading: string;
   if (request.state === "saved") return { heading: request.saved.length ? "Stored" : "Sent", label: credentialSettled(request) };
   if (request.state === "done") return { heading: "Done", label: request.task ? "Its goblin goes on now." : "" };
   if (request.state === "dismissed") return { heading: "Closed", label: (request.task ? "Its goblin goes on without it. " : "") + closedLine(request) };
+  if (request.state === "answered") return { heading: "Answered", label: (request.task ? "Its goblin" : "The CFO") + " has your answer." };
   return null;
 }
 

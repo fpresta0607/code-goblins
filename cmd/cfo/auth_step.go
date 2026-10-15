@@ -14,9 +14,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-// cardDismissed is the exit code of a wait on a card he dismissed: the asker
-// goes on without it.
-const cardDismissed = 3
+// cardDismissed is the exit code of a wait on a card he closed: the asker
+// goes on without it. cardAnswered is that of a card he answered in words
+// instead of taking its step.
+const (
+	cardDismissed = 3
+	cardAnswered  = 4
+)
 
 // sendCardStep sends step to the supervisor.
 func (r commandRuntime) sendCardStep(h home.Home, step supervisor.CredentialStep) error {
@@ -88,8 +92,11 @@ func waitForCard(ctx context.Context, h home.Home, card, task string, runtime co
 	case "done":
 		fmt.Fprintf(stdout, "card %s is done: the step is taken\n", card)
 	case "dismissed":
-		fmt.Fprintf(stdout, "he closed card %s: go on without it\n", card)
+		fmt.Fprintf(stdout, "he skipped card %s: go on without it\n", card)
 		return cardDismissed
+	case "answered":
+		fmt.Fprintf(stdout, "he answered instead: %s\n", request.Reason)
+		return cardAnswered
 	default:
 		fmt.Fprintf(stdout, "card %s was %s: %s\n", card, request.State, request.Reason)
 		return 1

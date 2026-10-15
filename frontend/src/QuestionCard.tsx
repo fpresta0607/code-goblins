@@ -20,8 +20,9 @@ export interface Draft { selection: string; written: string; submission: Submiss
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
 
 // One question: who asks and how long they have waited, the choices with the
-// recommendation first, Other for a written answer, its own Send, and Dismiss
-// for one he answered elsewhere or no longer needs.
+// recommendation first, Other for a written answer, its own Send, and Skip
+// beside it for one he answered elsewhere or no longer needs, which tells a
+// goblin that asked to go on without it.
 export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
@@ -71,7 +72,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Dismiss this question" data-tip="Dismiss: answered elsewhere or no longer needed" onClick={onDismiss}><Icon name="close" /></button>}
+      {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip={question.task ? "Skip: " + asker + " goes on without it" : "Skip: answered elsewhere or no longer needed"} onClick={onDismiss}><Icon name="close" /></button>}
       {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
     </div>
   </form>;

@@ -61,13 +61,18 @@ func TestWaitingOnACardThatClosedWithoutTheStep(t *testing.T) {
 		code        int
 	}{
 		{"dismissed", "go on without it", cardDismissed},
+		{"answered", "he answered instead: use the fleet bot", cardAnswered},
 		{"withdrawn", "was withdrawn", 1},
 		{"expired", "was expired", 1},
 	} {
 		t.Run(test.state, func(t *testing.T) {
 			// Arrange
 			h := home.Home{State: t.TempDir()}
-			writeCards(t, h.State, supervisor.CredentialRequest{ID: "cred-0123456789abcdef", Project: "throwaway", State: test.state, Link: "https://example.com/signup"})
+			reason := ""
+			if test.state == "answered" {
+				reason = "use the fleet bot's token"
+			}
+			writeCards(t, h.State, supervisor.CredentialRequest{ID: "cred-0123456789abcdef", Project: "throwaway", State: test.state, Reason: reason, Link: "https://example.com/signup"})
 			var stdout, stderr strings.Builder
 
 			// Act
