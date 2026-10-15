@@ -272,10 +272,15 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Found while it runs, so the end below reaches it and no later process
+	// that took its pid.
+	hostProcess, err := os.FindProcess(record.HostPID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
-		if process, err := os.FindProcess(record.HostPID); err == nil {
-			_ = process.Kill()
-		}
+		_ = hostProcess.Kill()
+		_ = hostProcess.Release()
 	})
 	return p.settle(t, record)
 }
