@@ -60,7 +60,7 @@ type pageAnswer struct {
 // watchPages keeps one poller for each page the supervisor watches: the
 // Lavish page of any item, open or closed, until the review on it settles,
 // while the item is the CFO's own or its goblin's task stands. What becomes
-// of the item, such as a later report that withdraws its card, never ends the
+// of the item, such as the goblin's withdraw of its card, never ends the
 // watch, so nothing the Overlord sends on the page goes unread. lavish-axi
 // hands a page's feedback to whichever poll takes it, so a page has one
 // poller, named by its file, and the supervisor is the only one that polls.
