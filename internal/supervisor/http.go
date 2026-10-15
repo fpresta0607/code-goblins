@@ -470,7 +470,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if parts[1] == "agent" {
-		h.agentLines(w, meta, r.URL.Query().Get("node"))
+		h.agentLines(w, r, meta, r.URL.Query().Get("node"))
 		return
 	}
 	if parts[1] == "activity" {

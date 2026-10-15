@@ -1,52 +1,76 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { message, reportToCfo, request } from "./api";
-import { object, strings, type Task, type TreeNode } from "./types";
-import { babyName } from "./fleet-tree";
-import "./agent-terminal.css";
+import { useEffect, useRef, useState } from "react"
+import { Terminal } from "@xterm/xterm"
+import "@xterm/xterm/css/xterm.css"
+import { reportToCfo } from "./api"
+import { object, strings, type Task, type TreeNode } from "./types"
+import { babyName } from "./fleet-tree"
+import { terminalDocument } from "./terminalDocument"
+import "./agent-terminal.css"
 
-// How often a baby goblin's terminal reads its output again while it shows.
-const READ_EVERY_MS = 2000;
-
-// A line that says what came back to the sub-agent, which is drawn quieter
-// than what it was asked, said and did.
-const isResult = (line: string) => /^\s+[⎿…]/.test(line);
-
-// A baby goblin's terminal: the newest lines of its own output, read again
-// every two seconds while it shows and following its end unless the
-// Overlord scrolls back. A sub-agent's is the transcript its goblin's
-// harness keeps of it, a background shell's what it wrote, a monitor's its
-// events, a job's what its programs run and a gate run's its steps. None
-// has a terminal of its own to type into, so this one only reads. A read
-// that fails goes to the CFO, and the terminal keeps what it last showed.
 export function AgentTerminal({ task, child, visible }: { task: Task; child: TreeNode; visible: boolean }) {
-  const [lines, setLines] = useState<string[] | null>(null);
-  const screen = useRef<HTMLElement>(null);
-  const isFollowing = useRef(true);
+  const surface = useRef<HTMLDivElement>(null)
+  const [status, setStatus] = useState("Connecting to the terminal")
+  const [isClosed, setClosed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
-    if (!visible) return;
-    const controller = new AbortController();
-    let reported = "";
-    const read = async () => {
+    const container = surface.current
+    if (!visible || !container) return
+    const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || ""
+    const terminal = new Terminal({
+      documentOverride: terminalDocument(nonce), disableStdin: true, convertEol: true,
+      fontFamily: '"Cascadia Mono", Consolas, monospace', fontSize: 14, lineHeight: 1.55,
+      cursorBlink: false, scrollback: 5000, screenReaderMode: true,
+      theme: { background: "#071015", foreground: "#d8e9e2", selectionBackground: "#286856" },
+      linkHandler: { activate: () => {} },
+    })
+    terminal.open(container)
+    terminal.write("\x1b[?25l")
+    const measure = document.createElement("canvas").getContext("2d")!
+    measure.font = '14px "Cascadia Mono", Consolas, monospace'
+    const fit = () => terminal.resize(Math.max(2, Math.floor(container.clientWidth / measure.measureText("M").width)), Math.max(1, Math.floor(container.clientHeight / 22)))
+    const resize = new ResizeObserver(fit)
+    resize.observe(container)
+    fit()
+    let previous = "", failures = 0
+    const stream = new EventSource("/api/tasks/" + encodeURIComponent(task.id) + "/agent?node=" + encodeURIComponent(child.id) + "&stream=1")
+    stream.addEventListener("output", (event: MessageEvent<string>) => {
       try {
-        const answer = await request("/api/tasks/" + encodeURIComponent(task.id) + "/agent?node=" + encodeURIComponent(child.id), controller.signal);
-        setLines(strings(object(answer).lines));
-      } catch (error: unknown) {
-        if (controller.signal.aborted || message(error) === reported) return;
-        reported = message(error);
-        reportToCfo("reading the terminal of " + child.label, reported);
+        const text = strings(object(JSON.parse(event.data)).lines).join("\n")
+        const wasFollowing = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY
+        const position = terminal.buffer.active.viewportY
+        const isAppend = text.startsWith(previous)
+        if (!isAppend) { terminal.reset(); terminal.write("\x1b[?25l") }
+        terminal.write(isAppend ? text.slice(previous.length) : text, () => {
+          if (wasFollowing) terminal.scrollToBottom()
+          else terminal.scrollToLine(position)
+        })
+        previous = text
+        failures = 0
+        setStatus("")
+        setClosed(false)
+      } catch {
+        stream.close()
+        setStatus("The child's output could not be read")
+        setClosed(true)
+        reportToCfo("reading a child's terminal", "Invalid output stream")
       }
-    };
-    void read();
-    const timer = setInterval(() => void read(), READ_EVERY_MS);
-    return () => { controller.abort(); clearInterval(timer); };
-  }, [task.id, child.id, child.label, visible]);
-  useLayoutEffect(() => {
-    if (screen.current && isFollowing.current) screen.current.scrollTop = screen.current.scrollHeight;
-  }, [lines]);
-  return <section ref={screen} className="agent-terminal" role="log" aria-label={"Terminal of " + babyName(task, child)} tabIndex={0}
-    onScroll={(event) => { const element = event.currentTarget; isFollowing.current = element.scrollHeight - element.scrollTop - element.clientHeight < 8; }}>
-    {lines === null
-      ? <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>
-      : lines.map((line, i) => <div key={i} className={isResult(line) ? "agent-result" : undefined}>{line}</div>)}
-  </section>;
+    })
+    stream.addEventListener("unavailable", () => {
+      stream.close()
+      setStatus("The child's output is no longer available")
+      setClosed(true)
+    })
+    stream.onerror = () => {
+      if (++failures >= 5) {
+        stream.close()
+        setClosed(true)
+        setStatus("The output connection closed")
+      } else setStatus("Reconnecting to the terminal")
+    }
+    return () => { stream.close(); resize.disconnect(); terminal.dispose() }
+  }, [task.id, child.id, visible, attempt])
+  return <section className="agent-terminal" role="log" aria-label={"Terminal of " + babyName(task, child)}>
+    <div ref={surface} className="agent-output" />
+    {status && <div className="agent-status" role="status">{status}{isClosed && <button type="button" onClick={() => { setClosed(false); setStatus("Connecting to the terminal"); setAttempt(value => value + 1) }}>Reconnect</button>}</div>}
+  </section>
 }

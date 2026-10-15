@@ -954,7 +954,7 @@ cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
 cfo gate prepush [--plan] [--limit <duration>]
-cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
 cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
@@ -1004,6 +1004,7 @@ A cause the fleet meets while it works, outside the task at hand, becomes a GitH
 `cfo issue file --project <name|path> --title <title> --body-file <file>` files it with the `ops-root` label, and the CFO and every goblin name the address it prints in their report.
 When an open `ops-root` issue already has the same root, matched by `--root <key>` such as a test's package and name, or else by its title, the command adds a dated comment with the new `--evidence` instead of a second issue.
 Every brief `cfo brief` writes says so in its Constraints.
+The fleet also files what its own signals name: each test a merge train saw fail once and pass on its second try, and an error the supervisor meets again an hour after it first met it.
 The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds as a task of its own with a brief built from the issue and `Fixes #<number>` in its pull request, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
 On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
 

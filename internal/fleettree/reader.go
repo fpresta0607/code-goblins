@@ -43,6 +43,8 @@ type Reader struct {
 	Processes   func() ([]Process, error)
 	Listeners   func() (map[int][]int, error)
 	CommandLine func(pid int) (string, error)
+	// OutputFile reads an owned process's stdout capture, never its pipes.
+	OutputFile func(pid int, started time.Time) (string, error)
 	// Owner names the task whose terminal's mark a process carries, empty
 	// when it carries none of this home's. Nil reads none, and no detached
 	// job is shown. It is asked once for each process that reaches no
@@ -260,8 +262,18 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		settle(child, now)
 		child.FetchedAt = now
 		tree.SourceUpdatedAt = later(tree.SourceUpdatedAt, child.SourceUpdatedAt)
-		if _, isKept := records.children[child.ID]; !isKept && child.lines != nil {
-			records.children[child.ID] = childRecord{lines: child.lines}
+		record, isKept := records.children[child.ID]
+		if !isKept && child.lines != nil {
+			record, isKept = childRecord{lines: child.lines}, true
+		}
+		if isKept {
+			if record.output == "" {
+				record.output = child.output
+			}
+			if record.output == "" && (child.Kind == KindShell || child.Kind == KindProcess) {
+				record.lines = append(slices.Clone(record.lines), "This process has no readable output capture. Open the goblin's terminal to follow it.")
+			}
+			records.children[child.ID] = record
 		}
 	}
 	if r.records == nil {
@@ -435,6 +447,10 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 	if listeners == nil {
 		listeners = Listeners
 	}
+	readOutput := r.OutputFile
+	if readOutput == nil {
+		readOutput = proc.OutputFile
+	}
 	facts := jobFacts{commands: map[int]string{}}
 	listens, err := listeners()
 	facts.listens = listens
@@ -485,7 +501,13 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if shell := shellOf(job, facts.commands[job.root.PID], commands, children); shell != "" {
 			node.Parent = shell
 		}
-		node.lines = jobLines(job, facts.commands)
+		for _, member := range job.members {
+			if path, err := readOutput(member.PID, member.Started); err == nil && path != "" {
+				node.output = path
+				break
+			}
+		}
+		node.lines = typed(node.Task)
 		node.isUnread = !isRootRead
 		nodes = append(nodes, node)
 	}
@@ -721,6 +743,9 @@ func mergeShells(children []Node) []Node {
 			continue
 		}
 		for _, job := range jobs[child.ID] {
+			if child.output == "" {
+				child.output = job.output
+			}
 			child.Memory += job.Memory
 			child.cpu += job.cpu
 			if child.process == "" {
