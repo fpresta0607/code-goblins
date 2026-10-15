@@ -668,6 +668,22 @@ commands:
 
 What the test command leaves running is ended ten seconds after it exits, and after a baseline that passed the test agent still gathers live evidence, outside the line.
 
+### A desktop CI job in the line
+
+A machine with the desktop CI runner installed (`cg-ci-runner`, a Windows service the Supreme Overlord installs from a signed release) runs one GitHub Actions job at a time for one repository, in a Hyper-V VM put back to a clean checkpoint before every job.
+The service holds the repository's GitHub App key and drives the VM, and it runs a job only when the fleet asks, on its named pipe, which only the fleet's Windows user, SYSTEM and Administrators may open.
+Every 30 seconds the watcher asks it whether a job of its labels waits, and starts one turn for it, at the lowest priority, so it never goes ahead of a run that waits, and expected to use 7 GiB, the VM's 6 GB at most with its Hyper-V worker and the job's own process, which the line weighs since the VM's memory is the worker's, outside the turn:
+
+```
+cfo gate turn --low-priority --memory 7GiB --as "desktop CI: <job> of run <id>" --detach <state>\ci-runner\job-<run>-<time>.log -- <this cfo> ci-runner job
+```
+
+No other job's turn starts while that run lives.
+`cfo ci-runner job` holds the pipe open for the length of the job, so the turn's end, however it comes, ends the job, and the service then turns the VM off, puts it back to clean and deletes the job's runner.
+It exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise.
+A machine with no runner installed is asked, finds no pipe, and says nothing, and trouble with a runner that is installed is said once an hour in `<state>\ci-runner\watch.log`.
+`cfo ci-runner status` says whether a job runs and how the last one ended.
+
 ## Before a push
 
 `cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.

@@ -75,19 +75,25 @@ func (h HyperV) IsRunning(ctx context.Context) (bool, error) {
 	return state != "Off", nil
 }
 
-// run runs script in Windows PowerShell, stopping at its first error, with
-// extra added to the environment, and returns what it wrote, trimmed. Windows
-// PowerShell is named by its full path in Windows' own folder, as Windows
-// gives it, and runs with powerShellEnvironment alone. A script that runs past hyperVLimit is ended with
-// all it started, so a Hyper-V call that hangs never outlasts a job's limits.
+// run runs script as powerShell does, within hyperVLimit, so a Hyper-V call
+// that hangs never outlasts a job's limits.
 func (h HyperV) run(ctx context.Context, doing, script string, extra ...string) (string, error) {
+	return powerShell(ctx, h.Commands, hyperVLimit, doing, script, extra...)
+}
+
+// powerShell runs script in Windows PowerShell with commands, stopping at its
+// first error, with extra added to the environment, and returns what it
+// wrote, trimmed. Windows PowerShell is named by its full path in Windows'
+// own folder, as Windows gives it, and runs with powerShellEnvironment
+// alone. A script that runs past limit is ended with all it started.
+func powerShell(ctx context.Context, commands execx.Runner, limit time.Duration, doing, script string, extra ...string) (string, error) {
 	windowsFolder, err := systemFolder()
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, hyperVLimit)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	result, err := h.Commands.Run(ctx, execx.Request{
+	result, err := commands.Run(ctx, execx.Request{
 		Name:     filepath.Join(windowsFolder, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
 		Args:     []string{"-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; " + script},
 		Env:      append(powerShellEnvironment(windowsFolder), extra...),

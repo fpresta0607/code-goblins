@@ -50,9 +50,10 @@ func candidateBuild(t *testing.T, content string) string {
 // had just written, to stage it, and the backups the last update wrote and
 // nothing had opened since, to see whether they could be kept. A 31 MB build
 // took 45 to 57 s to prepare, against a bound of one minute. Now it opens
-// three, the candidate and each installed program, which have run and so were
-// scanned long before.
-func TestPrepareOpensOnlyTheCandidateAndTheInstalledPrograms(t *testing.T) {
+// the candidate and each installed program, which have run and so were
+// scanned long before, and each staged copy once: the swap opens those
+// anyway, and that wait belongs before the supervisor stops (#922).
+func TestPrepareOpensOnlyTheCandidateTheInstalledProgramsAndEachStagedCopy(t *testing.T) {
 	// Arrange
 	root, stateDir := updatedOnce(t, "the build before", "the build installed now")
 	candidate := candidateBuild(t, "the candidate of this update")
@@ -65,8 +66,8 @@ func TestPrepareOpensOnlyTheCandidateAndTheInstalledPrograms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fsx.Opens() - opened; got != int64(1+len(Aliases)) {
-		t.Errorf("prepare opened %d files, want %d: the candidate and each installed program", got, 1+len(Aliases))
+	if got := fsx.Opens() - opened; got != int64(1+2*len(Aliases)) {
+		t.Errorf("prepare opened %d files, want %d: the candidate, each installed program and each staged copy", got, 1+2*len(Aliases))
 	}
 	holds(t, journal.Copy, "the candidate of this update")
 	for _, alias := range journal.Aliases {
