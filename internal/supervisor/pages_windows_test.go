@@ -810,8 +810,8 @@ func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
 	s.pageWork.Wait()
 
 	// Assert
-	if len(replies) != 3 || replies[0] != "" || replies[1] != "Received." || replies[2] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
-		t.Fatalf("replies = %q, want receipt while his answer could go on, then that the revision was received and what happens next", replies)
+	if len(replies) != 3 || replies[0] != "" || replies[1] != "" || replies[2] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
+		t.Fatalf("replies = %q, want one receipt for his send: none while his answer could go on, then that the revision was received and what happens next", replies)
 	}
 	if timeouts[1] != pageAnswerSettle {
 		t.Errorf("the poll after his revision waited %s for more, want %s", timeouts[1], pageAnswerSettle)
@@ -824,6 +824,49 @@ func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
 	}
 	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "asked for a revision on the page "+page+", and "+meta.ID+" has it") {
 		t.Fatalf("review wakes = %+v, want the CFO told the goblin has the revision", wakes)
+	}
+}
+
+// One send, one receipt. A note he sends on a page whose item has closed is
+// passed on to its goblin, and the page tells him once that it was received:
+// nothing while his answer could go on, then one receipt once it settled.
+// Both polls used to carry one, so each note showed Received. twice.
+func TestANoteOnAPageGetsOneReceipt(t *testing.T) {
+	// Arrange
+	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
+	pagePollPause = time.Millisecond
+	store, _ := testStore(t)
+	_, _, connection, _ := pageOfAGoblin(t, store)
+	if err := store.closePage(store.Snapshot().Reviews[0], Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived}); err != nil {
+		t.Fatal(err)
+	}
+	note := "session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  \"\",Make the header bigger,\"\",message,Freeform message\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var replies []string
+	polled := make(chan struct{})
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, _, reply string, _ time.Duration) (axi.PagePoll, error) {
+		replies = append(replies, reply)
+		switch len(replies) {
+		case 1:
+			return axi.PagePoll{Status: "feedback", Prompts: []string{"Make the header bigger"}, Output: note}, nil
+		case 2, 3:
+			return axi.PagePoll{Status: "waiting"}, nil
+		}
+		close(polled)
+		<-ctx.Done()
+		return axi.PagePoll{}, ctx.Err()
+	}}}
+
+	// Act
+	s.watchPages(ctx)
+	<-polled
+	cancel()
+	s.pageWork.Wait()
+
+	// Assert
+	if want := []string{"", "", "Received.", ""}; !slices.Equal(replies, want) {
+		t.Fatalf("replies on the page = %q, want %q: one receipt for his one note", replies, want)
 	}
 }
 
