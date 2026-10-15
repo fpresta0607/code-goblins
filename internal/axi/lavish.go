@@ -46,7 +46,11 @@ type PagePoll struct {
 // Open opens or resumes the page's review session without opening a browser,
 // and returns the page's address.
 func (l Lavish) Open(ctx context.Context, file string) (string, error) {
-	result, err := command(ctx, l.Commands, "lavish-axi "+file+" --no-open", "lavish-axi", file, "--no-open")
+	req, err := l.request(file, "--no-open")
+	if err != nil {
+		return "", err
+	}
+	result, err := run(ctx, l.Commands, "lavish-axi "+file+" --no-open", req)
 	if err != nil {
 		return "", err
 	}
@@ -67,11 +71,12 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 	if reply != "" {
 		args = append(args, "--agent-reply", reply)
 	}
-	result, err := run(ctx, l.Commands, "lavish-axi poll "+file, execx.Request{
-		Name:     "lavish-axi",
-		Args:     append(args, "--timeout-ms", strconv.FormatInt(timeout.Milliseconds(), 10)),
-		KillTree: true,
-	})
+	req, err := l.request(append(args, "--timeout-ms", strconv.FormatInt(timeout.Milliseconds(), 10))...)
+	if err != nil {
+		return PagePoll{}, err
+	}
+	req.KillTree = true
+	result, err := run(ctx, l.Commands, "lavish-axi poll "+file, req)
 	if err != nil {
 		return PagePoll{}, err
 	}
@@ -87,8 +92,24 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 // review has ended and takes nothing more. Feedback queued before the end
 // stays for the next poll to deliver.
 func (l Lavish) End(ctx context.Context, file string) error {
-	_, err := command(ctx, l.Commands, "lavish-axi end "+file, "lavish-axi", "end", file)
+	req, err := l.request("end", file)
+	if err != nil {
+		return err
+	}
+	_, err = run(ctx, l.Commands, "lavish-axi end "+file, req)
 	return err
+}
+
+// request runs lavish-axi in the user's profile, never in the caller's
+// folder. The first call starts lavish-axi's page server, which outlives it
+// in the folder that call ran in, and a goblin's worktree the server sat in
+// could not be removed while it ran (#915).
+func (l Lavish) request(args ...string) (execx.Request, error) {
+	profile, err := os.UserHomeDir()
+	if err != nil {
+		return execx.Request{}, fmt.Errorf("axi: lavish-axi has no folder to run in: %w", err)
+	}
+	return execx.Request{Dir: profile, Name: "lavish-axi", Args: args}, nil
 }
 
 // PageSession is one review session lavish-axi keeps: its page, its status
