@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
@@ -305,7 +306,7 @@ func TestAllowancePauseResumesAtItsResetAndTaskPauseRequiresDelivery(t *testing.
 func TestPausedGoblinResumesByTheAllowanceOfItsResumeChoice(t *testing.T) {
 	for _, testCase := range []struct {
 		name, reason, until, harness, chosen, chosenModel, choiceGeneration, lowProvider string
-		shouldResume                                                                   bool
+		shouldResume                                                                     bool
 	}{
 		{name: "chosen harness at its floor", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "claude", chosen: "codex", lowProvider: "codex"},
 		{name: "paused harness at its floor", reason: "dependency", until: "date:2000-01-01T00:00:00Z", harness: "codex", chosen: "claude", lowProvider: "codex", shouldResume: true},
@@ -382,20 +383,29 @@ func TestOverlordsStartWinsOverClearedPause(t *testing.T) {
 	waitStarted(t, handler, "next-task")
 }
 
-func TestOldestClearedPauseResumesFirst(t *testing.T) {
+// Of the paused goblins whose pauses cleared, the one highest in the
+// Overlord's In progress order resumes first, however long each was paused
+// and whatever its name.
+func TestTheHighestClearedPauseInHisOrderResumesFirst(t *testing.T) {
+	// Arrange
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	now := time.Now().UTC()
-	pausedGoblin(t, h, "a-newer-task", "dependency", "date:2000-01-01T00:00:00Z", now.Add(-time.Hour))
-	pausedGoblin(t, h, "z-older-task", "dependency", "date:2000-01-01T00:00:00Z", now.Add(-2*time.Hour))
+	pausedGoblin(t, h, "a-older-task", "dependency", "date:2000-01-01T00:00:00Z", now.Add(-2*time.Hour))
+	pausedGoblin(t, h, "z-newer-task", "dependency", "date:2000-01-01T00:00:00Z", now.Add(-time.Hour))
+	if err := fleet.WriteAttention(h, []string{"z-newer-task", "a-older-task"}); err != nil {
+		t.Fatal(err)
+	}
 
+	// Act
 	if err := handler.Service.checkFleet(t.Context(), now); err != nil {
 		t.Fatal(err)
 	}
 
+	// Assert
 	calls := awaitDispatch(t, handler.Service, spawner, 1)
-	if calls[0][1] != "z-older-task" || strings.Contains(strings.Join(calls[0], " "), "spawn") {
-		t.Fatalf("oldest pause lost: %v", calls)
+	if calls[0][0] != "resume" || calls[0][1] != "z-newer-task" {
+		t.Fatalf("dispatches = %v, want the goblin highest in his order resumed", calls)
 	}
 }
 
@@ -443,6 +453,75 @@ func TestReportedProductionDefectJumpsClearedPausesAndQueue(t *testing.T) {
 		}
 	}
 	t.Fatal("board report did not explain the ordering exception")
+}
+
+// The Overlord, 2026-10-15: "shouldnt new goblins come in at lowest priority
+// from queue". A task the supervisor starts by itself, a production defect
+// that jumped the queue included, joins the bottom of In progress, under the
+// goblins he placed and those he did not, which keep their order.
+func TestAnAutomaticStartJoinsTheBottomOfHisInProgressOrder(t *testing.T) {
+	for name, row := range map[string]string{
+		"the next queued task":         "- **next-task** - Ship it",
+		"a reported production defect": "- **next-task** - Repair production (priority: production-defect)",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			now := time.Now().UTC()
+			for _, id := range []string{"his-first", "his-second", "unplaced-task"} {
+				pausedGoblin(t, h, id, "overlord", "", now.Add(-time.Hour))
+			}
+			if err := fleet.WriteAttention(h, []string{"his-second", "his-first"}); err != nil {
+				t.Fatal(err)
+			}
+			queueBriefedTask(t, h, row, plainBrief)
+
+			// Act
+			if err := handler.Service.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+			calls := awaitDispatch(t, handler.Service, spawner, 1)
+			waitStarted(t, handler, "next-task")
+
+			// Assert
+			if calls[0][0] != "spawn" || calls[0][1] != "next-task" {
+				t.Fatalf("dispatches = %v, want next-task started", calls)
+			}
+			if order, err := fleet.ReadAttention(h); err != nil || !slices.Equal(order, []string{"his-second", "his-first", "task-1", "unplaced-task", "next-task"}) {
+				t.Fatalf("attention order = %v, %v; want his order kept and next-task at the bottom", order, err)
+			}
+		})
+	}
+}
+
+// While a start is under way the snapshot says whether it is the Overlord's,
+// so the board shows his at the top of In progress and the supervisor's own
+// at the bottom, where each lands once it ends.
+func TestTheSnapshotSaysWhoseStartIsUnderWay(t *testing.T) {
+	for name, isOverlord := range map[string]bool{"his Start": true, "the supervisor's own": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{release: make(chan struct{})}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+
+			// Act
+			err := handler.Service.startQueued("next-task", isOverlord)
+			awaitRecorded(t, spawner, 1)
+			card := cardOf(t, handler, "next-task")
+			close(spawner.release)
+			waitStarted(t, handler, "next-task")
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !card.Starting || card.OverlordStart != isOverlord {
+				t.Fatalf("starting %v, overlord start %v; want starting and overlord start %v", card.Starting, card.OverlordStart, isOverlord)
+			}
+		})
+	}
 }
 
 func TestSnapshotMarksTheQueuedProductionDefectForTheBoard(t *testing.T) {

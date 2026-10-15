@@ -80,9 +80,12 @@ export interface Task extends Evaluation {
   // Start failed, and finished why it never starts again by itself: what
   // says it already finished. asked says a Start or Resume the Overlord
   // clicked waits its turn behind another start or resume, or for memory or
-  // disk.
+  // disk. overlord_start says the start under way is the Overlord's own,
+  // which puts the task at the top of In progress, where one the supervisor
+  // makes by itself joins the bottom.
   brief: boolean;
   starting: boolean;
+  overlord_start: boolean;
   asked: boolean;
   start_error: string;
   finished: string;
@@ -884,6 +887,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         since: string(t.since),
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
+        overlord_start: t.overlord_start === undefined ? false : boolean(t.overlord_start),
         asked: t.asked === undefined ? false : boolean(t.asked),
         start_error: string(t.start_error),
         finished: t.finished === undefined ? "" : string(t.finished),

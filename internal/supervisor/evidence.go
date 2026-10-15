@@ -538,7 +538,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			continue
 		}
 		_, pr := statusActivity(lines, time.Time{})
-		report, _, retired := taskSessionSummary(lines, time.Time{})
+		report, reportedAt, retired := taskSessionSummary(lines, time.Time{})
 		phase, reason := "stopped", "Stopped without recorded delivery"
 		if pr != "" {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
@@ -569,7 +569,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 		if project != "" {
 			project = filepath.Base(project)
 		}
-		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Archived: true, LastReport: report, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
+		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Archived: true, LastReport: report, ReportedAt: reportedAt, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
 	}
 	for _, directory := range []string{"outcomes", "lifecycle"} {
 		entries, _ := os.ReadDir(filepath.Join(stateDir, directory))
@@ -615,7 +615,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			}
 			if status, ok := found[id]; ok && generation != "queued" {
 				if lines, err := fsx.ReadLines(status.path); err == nil {
-					task.LastReport, _, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
+					task.LastReport, task.ReportedAt, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
 				}
 			}
 			tasks = slices.DeleteFunc(tasks, func(existing Task) bool { return existing.ID == task.ID })

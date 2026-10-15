@@ -53,6 +53,27 @@ export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Co
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
 
+// inProgressCards orders the In progress column, given its tasks in the
+// snapshot's order: a goblin the Overlord is starting heads it, and one the
+// supervisor starts by itself is at its bottom, where the supervisor puts
+// each once its start ends, so neither moves on the way.
+export function inProgressCards(tasks: Task[]): Task[] {
+  const isAutomatic = (task: Task) => task.starting && !task.overlord_start;
+  return [...tasks.filter((task) => task.overlord_start), ...tasks.filter((task) => !task.overlord_start && !isAutomatic(task)), ...tasks.filter(isAutomatic)];
+}
+
+// completedCards orders the Completed column newest first by when each piece
+// of work finished: a stop when it stopped, other work when its goblin last
+// reported, which for delivered work is its done, and work with no report,
+// such as a merged pull request no goblin reported, at its own time.
+export function completedCards(tasks: Task[]): Task[] {
+  const finishedAt = (task: Task) => {
+    const reported = Date.parse(task.reported_at ?? "");
+    return task.phase !== "stopped" && reported > 0 ? reported : Date.parse(task.at) || 0;
+  };
+  return [...tasks].sort((left, right) => finishedAt(right) - finishedAt(left));
+}
+
 // Every queued task, in the order the supervisor ranks them: the Tasks column
 // and the CFO's Task tab list the same queue.
 export function queuedTasks(snapshot: Snapshot): Task[] {

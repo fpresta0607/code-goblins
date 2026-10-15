@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -42,8 +41,9 @@ func WorkWaits(h home.Home) bool {
 
 // IdleTurnWake wakes a CFO whose turn ends with no goblin at work while work
 // that could run waits and memory and commit are free, and returns the wake's
-// text, which names the next work: a paused goblin whose pause cleared, oldest
-// pause first, then the top of the queue. It returns "" when the turn may
+// text, which names the next work: a paused goblin whose pause cleared, the
+// highest in the Overlord's In progress order first, then the top of the
+// queue. It returns "" when the turn may
 // end: a goblin works, memory is short, nothing could run, or this same next
 // work woke an idle turn less than idleWakeAfter ago. The CFO's turn end is
 // the one moment the supervisor's scheduler cannot see, so the hook that sees
@@ -53,7 +53,11 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 		return "", nil
 	}
 	var paused []state.Lifecycle
-	for _, meta := range liveTasks(h.State) {
+	tasks, err := inProgressOrder(h)
+	if err != nil {
+		return "", err
+	}
+	for _, meta := range tasks {
 		record, err := state.ReadLifecycle(h.State, meta.ID)
 		if err != nil || record.Generation != meta.SpawnGen || record.Phase != "paused" && record.Phase != "stopped" {
 			return "", nil
@@ -65,12 +69,6 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 			paused = append(paused, record)
 		}
 	}
-	slices.SortFunc(paused, func(left, right state.Lifecycle) int {
-		if order := left.Pause.At.Compare(right.Pause.At); order != 0 {
-			return order
-		}
-		return strings.Compare(left.ID, right.ID)
-	})
 	finished := readFinishedWork(h, nil)
 	reading := rowReading{now: now, memory: &memory}
 	queued := startableQueued(h, finished, reading)

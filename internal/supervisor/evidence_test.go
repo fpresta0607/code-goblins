@@ -1135,15 +1135,17 @@ func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
 	}
 }
 
-func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
+// A live goblin that reported its pull request done carries that pull
+// request's merge, whatever its gate says, so no merged card stands beside
+// its own, and the merge completes it.
+func TestALiveGoblinThatReportedDoneCarriesItsMerge(t *testing.T) {
 	for _, c := range []struct {
-		phase    string
-		isListed bool
+		phase string
 	}{
-		{"merged", false},
-		{"done", false},
-		{"ready", true},
-		{"blocked", true},
+		{"merged"},
+		{"done"},
+		{"ready"},
+		{"blocked"},
 	} {
 		t.Run(c.phase, func(t *testing.T) {
 			store, h := testStore(t)
@@ -1161,12 +1163,11 @@ func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := view.Tasks[0]; got.ID != "task-1" || got.Phase != c.phase || got.Merged {
-				t.Fatalf("live task = %s phase %q merged %v, want its own phase %q untouched", got.ID, got.Phase, got.Merged, c.phase)
+			if got := view.Tasks[0]; got.ID != "task-1" || got.Phase != "done" || !got.Verified || !got.Merged {
+				t.Fatalf("live task = %s phase %q verified %v merged %v, want it done with its merge", got.ID, got.Phase, got.Verified, got.Merged)
 			}
-			isListed := slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/31" })
-			if isListed != c.isListed {
-				t.Fatalf("merged card listed = %v, want %v for a live task in phase %q", isListed, c.isListed, c.phase)
+			if slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/31" }) {
+				t.Fatalf("tasks = %+v, want no merged card beside the live goblin's for phase %q", view.Tasks, c.phase)
 			}
 		})
 	}
@@ -1200,6 +1201,67 @@ func TestCompletedLiveTaskUsesItsPullRequestTitleAndRepository(t *testing.T) {
 	}
 	if before == service.historyMark() {
 		t.Fatal("stopping an undispatched task did not invalidate Completed")
+	}
+}
+
+// The Overlord, 2026-10-15: "make sure you dont have retired landed deployed
+// goblins still a part of in progress, that should be completed". A live
+// goblin that reported done is done and verified, which the board shows in
+// Completed, once its pull request merged and its deploy, where one ran,
+// succeeded, before its cleanup. Until then it stays where it was.
+func TestALandedGoblinIsCompletedBeforeItsCleanup(t *testing.T) {
+	const pr = "https://github.com/owner/repository/pull/7"
+	for _, test := range []struct {
+		name, report, state, deploy string
+		isCompleted                 bool
+	}{
+		{"merged where nothing deploys", "done: PR " + pr + " CI green", "MERGED", "", true},
+		{"merged and deployed", "done: PR " + pr + " CI green", "MERGED", "deployed", true},
+		{"merged and still deploying", "done: PR " + pr + " CI green", "MERGED", "deploying", false},
+		{"merged and its deploy failed", "done: PR " + pr + " CI green", "MERGED", "failed", false},
+		{"not merged yet", "done: PR " + pr + " CI green", "OPEN", "", false},
+		{"merged while its goblin works on", "working: a follow-up", "MERGED", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			store.mu.Lock()
+			store.db.Tasks["task-1"] = Evaluation{Phase: "review", Generation: "g1", At: time.Now()}
+			err := store.save()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range []string{"done: PR " + pr + " CI green", test.report} {
+				if err := state.AppendStatus(h.State, "task-1", line); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+				return PullRequestInfo{State: test.state, Title: "Ship the export"}, nil
+			}}}
+			if test.deploy != "" {
+				service.deploys = map[string]Deployment{pr: {Commit: "aaa111", State: test.deploy}}
+			}
+
+			// Act
+			if err := service.refreshHistory(t.Context(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			view, err := service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(view.Tasks) != 1 || view.Tasks[0].ID != "task-1" {
+				t.Fatalf("tasks = %+v, want the live goblin's card alone", view.Tasks)
+			}
+			got := view.Tasks[0]
+			if isCompleted := got.Phase == "done" && got.Verified; isCompleted != test.isCompleted {
+				t.Fatalf("phase %q verified %v merged %v, want completed %v", got.Phase, got.Verified, got.Merged, test.isCompleted)
+			}
+		})
 	}
 }
 

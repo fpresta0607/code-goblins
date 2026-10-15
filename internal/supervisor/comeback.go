@@ -180,9 +180,16 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	// whatever its host's record says, except one whose record names a
 	// terminal of this sign-in, which the restart did not end. On 2026-10-14
 	// Ursula's host had removed its record at the restart, and a comeback
-	// that planned only goblins with a record left her behind.
+	// that planned only goblins with a record left her behind. They come
+	// back in the Overlord's In progress order, the highest first, and an
+	// order that cannot be read is said on the board and leaves them in name
+	// order.
 	evaluations := s.Store.Snapshot().Tasks
-	for _, meta := range liveTasks(directory) {
+	tasks, err := inProgressOrder(s.Store.Home)
+	if err != nil {
+		s.publish(err)
+	}
+	for _, meta := range tasks {
 		if meta.Backend != "native" || meta.SpawnGen == "" {
 			continue
 		}
