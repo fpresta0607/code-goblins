@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/cirunner"
 	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/digest"
@@ -98,6 +99,8 @@ commands:
   cfo gate prepush [--plan] [--limit <duration>]   what a goblin runs before it pushes: picks what the branch's change can break and runs it one check at a time, stopping with one plain line at the first failure: go vet of the packages the change reaches, the tests that read the whole tree, the changed packages and the packages that import them, nearest first, and for a change under frontend the type check, the lint, the unit tests and the browser specs the change touched or names. A slow package runs without the tests this machine timed at 2 seconds or longer, unless the change touched their file. It takes its turn on the machine, starts no check under the memory floor or after its time limit, 15 minutes unless --limit says otherwise, and names what it left to CI. --plan prints the pick and runs nothing
   cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]   run any heavy command in the line cfo gate test and cfo gate prepush take their turns in, one run at a time on the machine whoever started it: it waits while another run holds the turn and while free memory or commit is under the line's floor, 4 GiB on a line of one slot, with no limit of its own unless --wait bounds the wait for the turn, at the lowest priority behind every ordinary waiting run with --low-priority, says on standard error which run it waits for, and then runs the command with its output, its input and its exit code untouched; exit 125 means it took no turn and ran nothing. --memory is the most memory the run is expected to use, which a line of two slots weighs. --detach starts the run in the background, hidden in a console with no window, appends its output to <log-file> with a last line that says how it ended, writes its pid to <log-file>.pid and returns at once: the one way a goblin starts a heavy run in the background
   cfo gate turns [--json]  show which cfo gate test, cfo gate prepush and cfo gate turn runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait, or with --json the same as one JSON object of fixed keys, for the board
+  cfo ci-runner job     run one CI job in this machine's desktop CI runner, as the watcher starts it in a turn at the lowest priority. It says the job's progress on standard error and its outcome on standard output, exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise, and ending it ends the job
+  cfo ci-runner status  say whether this machine's desktop CI runner runs a job, and how its last one ended
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -310,6 +313,9 @@ type commandRuntime struct {
 	// trainEvery is how often cfo pr train looks at its train's CI. Zero, in
 	// every runtime but a test's, is the trainEvery constant.
 	trainEvery time.Duration
+	// askCIRunner asks this machine's desktop CI runner service, as cfo
+	// ci-runner does.
+	askCIRunner func(ctx context.Context, request cirunner.Request, reply func(cirunner.Reply)) error
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -492,6 +498,9 @@ func defaultCommandRuntime() commandRuntime {
 		pushRun:         runPushCommand,
 		pushMemoryPoll:  2 * time.Second,
 		pushAgain:       5 * time.Minute,
+		askCIRunner: func(ctx context.Context, request cirunner.Request, reply func(cirunner.Reply)) error {
+			return cirunner.Ask(ctx, cirunner.PipeName, request, reply)
+		},
 		interrupts: func() (<-chan os.Signal, func()) {
 			signals := make(chan os.Signal, 1)
 			signal.Notify(signals, os.Interrupt)
@@ -633,6 +642,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runHygiene(args[1:], stdout, stderr, runtime)
 	case "gate":
 		return runGate(args[1:], stdout, stderr, runtime)
+	case "ci-runner":
+		return runCIRunner(args[1:], stdout, stderr, runtime)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":

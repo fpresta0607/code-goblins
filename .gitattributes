@@ -4,3 +4,6 @@ internal/boardweb/dist/index.html text eol=lf
 *.cmd text eol=crlf
 # go run ./tools/notices -check compares this file byte for byte.
 THIRD_PARTY_NOTICES text eol=lf
+# The VM's first boot runs these as Linux shell scripts, which a carriage
+# return breaks, and cg-ci-runner embeds them as checked out.
+internal/cirunner/image/* text eol=lf

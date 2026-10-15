@@ -40,6 +40,7 @@ func readDVD(image []byte) (label string, files map[string][]byte, err error) {
 	}
 	files = map[string][]byte{}
 	directory := image[extent : extent+size]
+	previous := ""
 	for at := 0; at < len(directory) && directory[at] != 0; at += int(directory[at]) {
 		if directory[at]%2 != 0 {
 			return "", nil, fmt.Errorf("a directory record is %d bytes long; ISO 9660 records are even", directory[at])
@@ -49,6 +50,11 @@ func readDVD(image []byte) (label string, files map[string][]byte, err error) {
 		if record[25]&2 != 0 {
 			continue
 		}
+		// ISO 9660 keeps a directory's records in the order of their names.
+		if name <= previous {
+			return "", nil, fmt.Errorf("the record %q follows %q, out of order", name, previous)
+		}
+		previous = name
 		start, length := recordExtent(record)
 		files[name] = image[start : start+length]
 	}
@@ -103,20 +109,58 @@ func TestBuildDVDHoldsTheConfigurationAsItsOneFile(t *testing.T) {
 	}
 }
 
-// A DVD is never built into a file that is already there, which another
-// process could have made, and the file there is left as it was.
-func TestBuildDVDRefusesAPathThatHoldsAFile(t *testing.T) {
+// The first boot's seed is an ISO 9660 volume labelled CIDATA, as
+// cloud-init's NoCloud finds it, holding the VM's user-data and meta-data
+// alone.
+func TestBuildSeedHoldsTheFirstBootsSettings(t *testing.T) {
 	// Arrange
-	path := filepath.Join(t.TempDir(), "job.iso")
-	if err := os.WriteFile(path, []byte("made by another"), 0o600); err != nil {
+	path := filepath.Join(t.TempDir(), "seed.iso")
+	userData, err := UserData()
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	err := BuildDVD(path, "the next job")
+	err = BuildSeed(path)
 
 	// Assert
-	if image, readErr := os.ReadFile(path); err == nil || readErr != nil || string(image) != "made by another" {
-		t.Errorf("BuildDVD = %v, and the file holds %q (%v); want it refused and the file untouched", err, image, readErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	label, files, err := readDVD(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if label != "CIDATA" || len(files) != 2 || string(files[seedUserData]) != userData || string(files[seedMetaData]) != MetaData {
+		t.Errorf("read label %q and %d file(s); want CIDATA, and the user-data and meta-data the VM is made with alone", label, len(files))
+	}
+}
+
+// Neither DVD is ever built into a file that is already there, which another
+// process could have made, and the file there is left as it was.
+func TestBuildingADVDRefusesAPathThatHoldsAFile(t *testing.T) {
+	for name, build := range map[string]func(path string) error{
+		"a job's":          func(path string) error { return BuildDVD(path, "the next job") },
+		"the first boot's": BuildSeed,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			path := filepath.Join(t.TempDir(), "dvd.iso")
+			if err := os.WriteFile(path, []byte("made by another"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := build(path)
+
+			// Assert
+			if image, readErr := os.ReadFile(path); err == nil || readErr != nil || string(image) != "made by another" {
+				t.Errorf("building = %v, and the file holds %q (%v); want it refused and the file untouched", err, image, readErr)
+			}
+		})
 	}
 }
