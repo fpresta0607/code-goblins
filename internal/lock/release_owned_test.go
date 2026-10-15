@@ -41,7 +41,7 @@ func TestOwnedReleaseRefusesReplacedRecord(t *testing.T) {
 	}
 	changed := *owner
 	changed.Acquired = changed.Acquired.Add(time.Second)
-	if err := writeInfo(path, &changed); err != nil {
+	if err := writeInfo(context.Background(), path, &changed); err != nil {
 		t.Fatal(err)
 	}
 	if err := ReleaseExclusiveOwned(context.Background(), dir, name, *owner); err == nil {
@@ -54,7 +54,7 @@ func TestOwnedReleaseRefusesReplacedRecord(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeInfo(path, owner); err != nil {
+	if err := writeInfo(context.Background(), path, owner); err != nil {
 		t.Fatal(err)
 	}
 	if err := ReleaseExclusiveOwned(context.Background(), dir, name, *owner); err != nil {
@@ -90,7 +90,7 @@ func TestContextAcquisitionKeepsLiveOrUncertainCustody(t *testing.T) {
 		if uncertain {
 			self.Hostname = "another-machine"
 		}
-		if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+		if err := writeInfo(context.Background(), filepath.Join(dir, name), self); err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)

@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -17,7 +18,7 @@ func TestStrictExclusiveAcquisitionPreservesAnUnreleasedSameProcessLease(t *test
 	dir, name := t.TempDir(), "slot-1"
 	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
 	self.Acquired = time.Now().Add(-24 * time.Hour).UTC()
-	if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, name), self); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(filepath.Join(dir, name))
@@ -61,7 +62,7 @@ func TestAcquireFailsWhileForeignHolderLives(t *testing.T) {
 	self, _ := ownerInfo(os.Getpid(), "")
 	foreign := &Info{PID: self.PID, Start: self.Start, Hostname: "some-other-host", Acquired: time.Now()}
 	lockPath := filepath.Join(dir, ".lock")
-	if err := writeInfo(lockPath, foreign); err != nil {
+	if err := writeInfo(context.Background(), lockPath, foreign); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Acquire(dir)
@@ -102,7 +103,7 @@ func TestAcquireStealsFromDeadHolder(t *testing.T) {
 	deadPID := cmd.ProcessState.Pid()
 	localHostname, _ := os.Hostname()
 	stale := &Info{PID: deadPID, Start: time.Now().Add(-time.Hour), Hostname: localHostname, Acquired: time.Now().Add(-time.Hour)}
-	if err := writeInfo(filepath.Join(dir, ".lock"), stale); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, ".lock"), stale); err != nil {
 		t.Fatal(err)
 	}
 	info, err := Acquire(dir)
@@ -158,7 +159,7 @@ func TestReleaseAuthorizationWithWrongStart(t *testing.T) {
 	localHostname, _ := os.Hostname()
 	wrongStart := &Info{PID: os.Getpid(), Start: time.Now().Add(-time.Hour), Hostname: localHostname, Acquired: time.Now()}
 	lockPath := filepath.Join(dir, ".lock")
-	if err := writeInfo(lockPath, wrongStart); err != nil {
+	if err := writeInfo(context.Background(), lockPath, wrongStart); err != nil {
 		t.Fatal(err)
 	}
 	if err := Release(dir); err == nil {
@@ -181,7 +182,7 @@ func TestReleaseAuthorizationWithDeadPID(t *testing.T) {
 	localHostname, _ := os.Hostname()
 	dead := &Info{PID: deadPID, Start: time.Now().Add(-time.Hour), Hostname: localHostname, Acquired: time.Now().Add(-time.Hour)}
 	lockPath := filepath.Join(dir, ".lock")
-	if err := writeInfo(lockPath, dead); err != nil {
+	if err := writeInfo(context.Background(), lockPath, dead); err != nil {
 		t.Fatal(err)
 	}
 	if err := Release(dir); err == nil {
@@ -198,7 +199,7 @@ func TestReleaseAuthorizationWithForeignHostname(t *testing.T) {
 	dir := t.TempDir()
 	foreign := &Info{PID: os.Getpid(), Start: time.Now(), Hostname: "foreign-host", Acquired: time.Now()}
 	lockPath := filepath.Join(dir, ".lock")
-	if err := writeInfo(lockPath, foreign); err != nil {
+	if err := writeInfo(context.Background(), lockPath, foreign); err != nil {
 		t.Fatal(err)
 	}
 	if err := Release(dir); err == nil {
@@ -217,7 +218,7 @@ func TestAcquireIdempotentWhenHolderIsSelf(t *testing.T) {
 	// return ErrHeld against itself.
 	dir := t.TempDir()
 	self, _ := ownerInfo(os.Getpid(), "")
-	if err := writeInfo(filepath.Join(dir, ".lock"), self); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, ".lock"), self); err != nil {
 		t.Fatal(err)
 	}
 	info, err := Acquire(dir)
@@ -341,7 +342,7 @@ func TestAcquireOwnerStealsFromDeadOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := &Info{PID: cmd.ProcessState.Pid(), OwnerPID: cmd.ProcessState.Pid(), Start: time.Now().Add(-time.Hour), Hostname: localHostnameForTest(t), Session: "dead"}
-	if err := writeInfo(filepath.Join(dir, ".lock"), stale); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, ".lock"), stale); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := AcquireOwner(dir, os.Getpid(), "new"); err != nil {
@@ -355,7 +356,7 @@ func TestHeldByRejectsForeignHostname(t *testing.T) {
 	dir := t.TempDir()
 	start, _ := processStart(os.Getpid())
 	foreign := &Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Start: start, Hostname: "some-other-host", Acquired: time.Now()}
-	if err := writeInfo(filepath.Join(dir, ".lock"), foreign); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, ".lock"), foreign); err != nil {
 		t.Fatal(err)
 	}
 	if HeldBy(dir, os.Getpid()) {
@@ -371,7 +372,7 @@ func TestHeldByRejectsDeadOwner(t *testing.T) {
 	}
 	deadPID := cmd.ProcessState.Pid()
 	dead := &Info{PID: deadPID, OwnerPID: deadPID, Start: time.Now().Add(-time.Hour), Hostname: localHostnameForTest(t), Acquired: time.Now().Add(-time.Hour)}
-	if err := writeInfo(filepath.Join(dir, ".lock"), dead); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, ".lock"), dead); err != nil {
 		t.Fatal(err)
 	}
 	if HeldBy(dir, deadPID) {
@@ -451,10 +452,10 @@ func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.
 	if status == statusDead {
 		t.Fatal("current process unexpectedly dead")
 	}
-	if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, name), self); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := acquire(dir, name, self, false, false); err != nil {
+	if _, err := acquire(context.Background(), dir, name, self, false, false); err != nil {
 		t.Fatalf("exclusive acquire did not retain its own verified record: %v", err)
 	}
 }
@@ -475,7 +476,7 @@ func TestAcquireExclusiveNamedForNamesWhatHoldsTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorded.Hostname = "some-other-host"
-	if err := writeInfo(filepath.Join(dir, name), recorded); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, name), recorded); err != nil {
 		t.Fatal(err)
 	}
 
@@ -574,7 +575,7 @@ func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) 
 		if status == statusDead {
 			t.Fatal("current process unexpectedly dead")
 		}
-		if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+		if err := writeInfo(context.Background(), filepath.Join(dir, name), self); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
@@ -594,7 +595,7 @@ func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) 
 		if status == statusDead {
 			t.Fatal("child process unexpectedly dead")
 		}
-		if err := writeInfo(filepath.Join(dir, name), foreign); err != nil {
+		if err := writeInfo(context.Background(), filepath.Join(dir, name), foreign); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
@@ -620,11 +621,11 @@ func TestAcquireExclusiveNamedTakesALockReleasedBetweenRefusalAndReclaim(t *test
 	if status == statusDead {
 		t.Fatal("child process unexpectedly dead")
 	}
-	if err := writeInfo(filepath.Join(dir, name), holder); err != nil {
+	if err := writeInfo(context.Background(), filepath.Join(dir, name), holder); err != nil {
 		t.Fatal(err)
 	}
 	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
-	if _, err := acquire(dir, name, self, false, false); !errors.Is(err, ErrHeld) {
+	if _, err := acquire(context.Background(), dir, name, self, false, false); !errors.Is(err, ErrHeld) {
 		t.Fatalf("acquire over a live holder error = %v, want ErrHeld", err)
 	}
 	if err := os.Remove(filepath.Join(dir, name)); err != nil {
@@ -713,7 +714,7 @@ func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
 	pid := ended.ProcessState.Pid()
 	gone := &Info{PID: pid, OwnerPID: pid, Start: time.Now().Add(-time.Hour), Hostname: hostname, Acquired: time.Now().Add(-time.Hour)}
 	path := filepath.Join(dir, name)
-	if err := writeInfo(path, gone); err != nil {
+	if err := writeInfo(context.Background(), path, gone); err != nil {
 		t.Fatal(err)
 	}
 	self, status := ownerInfo(os.Getpid(), "")
@@ -732,7 +733,7 @@ func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
 	}
 
 	// Act
-	info, err := acquireReading(dir, name, self, false, true, read)
+	info, err := acquireReading(context.Background(), dir, name, self, false, true, func(_ context.Context, dir, name string) (*Info, error) { return read(dir, name) })
 
 	// Assert
 	if reads < 2 {
@@ -756,7 +757,7 @@ func deadHoldersRecord(t *testing.T, dir, name string) string {
 	hostname, _ := os.Hostname()
 	path := filepath.Join(dir, name)
 	stale := &Info{PID: cmd.ProcessState.Pid(), Start: time.Now().Add(-time.Hour), Hostname: hostname, Session: "watch", Acquired: time.Now().Add(-time.Hour)}
-	if err := writeInfo(path, stale); err != nil {
+	if err := writeInfo(context.Background(), path, stale); err != nil {
 		t.Fatal(err)
 	}
 	return path

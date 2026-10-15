@@ -127,9 +127,27 @@ func openTab(ctx context.Context, address string) (string, *cdp.Conn, error) {
 	return created.ID, connection, nil
 }
 
-// closeTab closes tab id in the browser at address.
+// closeTab closes tab id in the browser at address and returns once the
+// browser no longer lists it. Chrome answers the close before the tab is
+// gone, and lists it for a moment after, where it answers nothing.
 func closeTab(ctx context.Context, address, id string) error {
-	return callBrowser(ctx, address, "Target.closeTarget", map[string]string{"targetId": id}, nil)
+	if err := callBrowser(ctx, address, "Target.closeTarget", map[string]string{"targetId": id}, nil); err != nil {
+		return err
+	}
+	for {
+		tabs, err := pages(ctx, address)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(tabs, func(tab page) bool { return tab.ID == id }) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 }
 
 // callBrowser runs one command on the browser's own DevTools connection.

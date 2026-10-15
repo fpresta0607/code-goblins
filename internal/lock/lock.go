@@ -98,12 +98,12 @@ func ownerInfo(pid int, session string) (*Info, processStatus) {
 	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}, status
 }
 
-func writeInfo(path string, info *Info) error {
+func writeInfo(ctx context.Context, path string, info *Info) error {
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
 	}
-	f, err := fsx.CreateNew(path, 0o644)
+	f, err := fsx.CreateNewContext(ctx, path, 0o644)
 	if err != nil {
 		return err
 	}
@@ -119,11 +119,17 @@ func writeInfo(path string, info *Info) error {
 // wake queue) can coexist in the same directory. See AcquireOwner for the
 // full acquisition semantics.
 func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, error) {
+	return acquireNamedOwnerContext(context.Background(), dir, name, ownerPID, session)
+}
+
+// acquireNamedOwnerContext is AcquireNamedOwner waiting out another process
+// holding the record only while ctx lasts.
+func acquireNamedOwnerContext(ctx context.Context, dir, name string, ownerPID int, session string) (*Info, error) {
 	self, status := ownerInfo(ownerPID, session)
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
 	}
-	return acquire(dir, name, self, true, false)
+	return acquire(ctx, dir, name, self, true, false)
 }
 
 // AcquireNamedOwnerWithin is AcquireNamedOwner waiting out a live holder for
@@ -150,9 +156,14 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 	if err != nil {
 		return nil, err
 	}
+	// Each look waits out another process holding the record only until
+	// the deadline, as a scan of a record just written can hold it for
+	// seconds.
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
 	pause := 10 * time.Millisecond
 	for {
-		info, err := AcquireNamedOwner(dir, name, ownerPID, session)
+		info, err := acquireNamedOwnerContext(ctx, dir, name, ownerPID, session)
 		if err == nil {
 			keepPlace(exclusiveLeaseKey(dir, name), place)
 			return info, nil
@@ -225,12 +236,12 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 	} else if isStrict && readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		return nil, readErr
 	}
-	info, err := acquire(dir, name, self, false, isStrict)
+	info, err := acquire(context.Background(), dir, name, self, false, isStrict)
 	if errors.Is(err, ErrHeld) && !isStrict {
 		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
 			return nil, reclaimErr
 		}
-		info, err = acquire(dir, name, self, false, false)
+		info, err = acquire(context.Background(), dir, name, self, false, false)
 	}
 	if err != nil {
 		return nil, err
@@ -267,25 +278,25 @@ func Acquire(dir string) (*Info, error) {
 // the new holder of dir/name if the lock is free or its dead holder can be
 // stolen. allowReacquire preserves the session-lock custody contract while
 // task-spawn locks require a same-process concurrent caller to contend.
-func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info, error) {
-	read := ReadNamed
+func acquire(ctx context.Context, dir, name string, self *Info, allowReacquire, isStrict bool) (*Info, error) {
+	read := readNamedContext
 	if isStrict {
-		read = ReadNamedStrict
+		read = ReadNamedStrictContext
 	}
-	return acquireReading(dir, name, self, allowReacquire, isStrict, read)
+	return acquireReading(ctx, dir, name, self, allowReacquire, isStrict, read)
 }
 
 // acquireReading is acquire, reading each holder's record with read.
-func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool, read func(dir, name string) (*Info, error)) (*Info, error) {
+func acquireReading(ctx context.Context, dir, name string, self *Info, allowReacquire, isStrict bool, read func(ctx context.Context, dir, name string) (*Info, error)) (*Info, error) {
 	path := filepath.Join(dir, name)
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
 	for attempt := 0; attempt < acquireAttempts; attempt++ {
-		err := writeInfo(path, self)
+		err := writeInfo(ctx, path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := read(dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
+			if verified, verr := read(ctx, dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
 				return self, nil
 			}
 			// Either we lost the race (another acquirer wrote after us) or the
@@ -303,7 +314,7 @@ func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool,
 		}
 
 		// File exists; read the holder.
-		holder, herr := read(dir, name)
+		holder, herr := read(ctx, dir, name)
 		if herr != nil {
 			if isStrict {
 				if errors.Is(herr, os.ErrNotExist) {
@@ -349,7 +360,7 @@ func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool,
 
 		// Holder is dead. Re-read immediately to check if it changed
 		// (another acquirer might have won the race and written a new holder).
-		holder2, herr2 := read(dir, name)
+		holder2, herr2 := read(ctx, dir, name)
 		if herr2 != nil {
 			if isStrict {
 				if errors.Is(herr2, os.ErrNotExist) {
@@ -378,7 +389,7 @@ func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool,
 		}
 
 		// The claim holds the exact checked file against writes and replacement.
-		claimContext, cancelClaim := context.WithTimeout(context.Background(), time.Duration(acquireAttempts-1)*50*time.Millisecond)
+		claimContext, cancelClaim := context.WithTimeout(ctx, time.Duration(acquireAttempts-1)*50*time.Millisecond)
 		_, rerr := removeMatchingRecord(claimContext, path, *holder2)
 		cancelClaim()
 		if rerr != nil {
@@ -421,7 +432,13 @@ func removeStale(path string, attempt int) error {
 
 // ReadNamed returns the current holder recorded in dir/name.
 func ReadNamed(dir, name string) (*Info, error) {
-	data, err := fsx.ReadFile(filepath.Join(dir, name))
+	return readNamedContext(context.Background(), dir, name)
+}
+
+// readNamedContext is ReadNamed waiting out another process holding the
+// record only while ctx lasts.
+func readNamedContext(ctx context.Context, dir, name string) (*Info, error) {
+	data, err := fsx.ReadFileContext(ctx, filepath.Join(dir, name))
 	if err != nil {
 		return nil, err
 	}
