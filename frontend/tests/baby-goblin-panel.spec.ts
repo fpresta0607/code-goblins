@@ -33,8 +33,8 @@ const OUTPUTS: Record<string, string[]> = {
   "process:5120:1": ["> npm run dev", "VITE ready on port 5173"],
 };
 
-async function open(page: Page, width = 1600) {
-  await page.setViewportSize({ width, height: 1000 });
+async function open(page: Page, width = 1600, height = 1000) {
+  await page.setViewportSize({ width, height });
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   // No WebGL, so xterm draws with its DOM renderer on every machine, the cells
   // it draws readable with their colours, as a browser without a GPU draws them.
@@ -243,7 +243,8 @@ const row = (page: Page, start: string) => page.locator(".agent-terminal .xterm-
 const colourOf = (page: Page, start: string, text: string) => row(page, start).locator("span").filter({ hasText: text }).evaluateAll((spans) => spans.filter((span) => span.isConnected).map((span) => ({ color: getComputedStyle(span).color, weight: getComputedStyle(span).fontWeight }))[0] ?? { color: "", weight: "" })
 
 test("a sub-agent's transcript is drawn in the goblin terminal's surface with Claude Code's marks and colours", async ({ page }) => {
-  await open(page)
+  // Tall enough to show the whole transcript.
+  await open(page, 1600, 1500)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
   await baby(page, "Grub Jr. - Plumbing Mapper").click()
   const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })
@@ -252,7 +253,7 @@ test("a sub-agent's transcript is drawn in the goblin terminal's surface with Cl
   expect(look, "a goblin terminal's font, size and background").toEqual({ size: "20px", family: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', background: "rgb(7, 16, 21)" })
   await expect.poll(() => colourOf(page, "● Search", "●"), "a done call's dot is green").toEqual({ color: "rgb(78, 186, 101)", weight: "400" })
   await expect.poll(async () => (await colourOf(page, "● Search", "Search")).weight, "the tool in bold").toBe("700")
-  await expect.poll(async () => (await colourOf(page, "● Read", "●")).color, "a failed call's dot is red").toBe("rgb(255, 107, 128)")
+  await expect.poll(async () => (await colourOf(page, "● Read(", "●")).color, "a failed call's dot is red").toBe("rgb(255, 107, 128)")
   await expect.poll(async () => (await colourOf(page, "⎿  Error", "Error")).color, "its error is red").toBe("rgb(255, 107, 128)")
   await expect.poll(async () => (await colourOf(page, "⎿  Found", "Found")).color, "what came back is grey").toBe("rgb(153, 153, 153)")
   await expect.poll(async () => (await colourOf(page, "> Find", "Find")).color, "the prompt in the terminal's own colour").toBe("rgb(216, 233, 226)")
