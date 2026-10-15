@@ -148,7 +148,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		// A folder with nothing in it is no Git worktree and holds no work,
 		// so the task retires the plain way and the folder goes with it.
 		if entries, readErr := os.ReadDir(worktreePath); readErr == nil && len(entries) == 0 && len(meta.Extras) == 0 {
-			return s.retireEmptyFolder(ctx, meta, id, worktreePath)
+			return s.retireEmptyFolder(ctx, meta, id, project, worktreePath)
 		}
 		return Result{}, fmt.Errorf("cleanup: validate worktree: %w", err)
 	}
@@ -183,29 +183,39 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 	left := s.endLeft(ctx, meta)
 
+	// A worktree another process holds a file of is left for the janitor,
+	// which returns a worktree no task owns once nothing holds it: its work
+	// is proven clean and kept as a tag before it is returned, and its
+	// removal puts its tracked files back when it stops, so the task retires
+	// with nothing lost.
 	outcome := s.outcome(ctx, meta, "Worktree returned by cleanup")
-	var archived []string
-	for _, path := range extras {
-		tag, err := s.returnWorktree(ctx, git, project, path)
-		if err != nil {
+	var archived, heldLeft []string
+	var holds []error
+	for _, path := range append(extras, worktreePath) {
+		tag, hold, err := s.returnWorktree(ctx, git, project, path)
+		switch {
+		case err != nil && path == worktreePath:
+			return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
+		case err != nil:
 			return Result{}, fmt.Errorf("cleanup: return extra worktree: %w", err)
 		}
 		if tag != "" {
 			archived = append(archived, tag)
 		}
+		if hold != nil {
+			heldLeft = append(heldLeft, path)
+			holds = append(holds, hold)
+		}
 	}
-	tag, err := s.returnWorktree(ctx, git, project, worktreePath)
-	if err != nil {
-		return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
-	}
-	if tag != "" {
-		archived = append(archived, tag)
+	returned := "returned worktree " + worktreePath
+	if len(heldLeft) > 0 {
+		returned = "left " + strings.Join(heldLeft, " and ") + ", which another process holds, for the janitor"
 	}
 
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
-	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": returned worktree "+worktreePath+" via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+returned+" via cfo cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record returned worktree: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
@@ -224,6 +234,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 	for _, tag := range archived {
 		result.Output += "\nkept unlanded work as the local tag " + tag
+	}
+	for i, path := range heldLeft {
+		result.Output += fmt.Sprintf("\nleft the worktree %s for the janitor, which returns it once nothing holds it: %v", path, holds[i])
 	}
 	if archiveErr != nil {
 		// The task is genuinely cleaned; only the id is still taken. Say so
@@ -363,24 +376,31 @@ func (s Service) recordedExtras(ctx context.Context, git worktree.Git, project s
 }
 
 // returnWorktree keeps a clean worktree's unlanded work as a local archive
-// tag, then returns the worktree, and names the tag it made, if any.
-func (s Service) returnWorktree(ctx context.Context, git worktree.Git, project, path string) (string, error) {
+// tag, then returns the worktree, and names the tag it made, if any. A
+// removal another process's hold stops comes back as hold, not as a failure:
+// the work is kept by then, so only the files are left.
+func (s Service) returnWorktree(ctx context.Context, git worktree.Git, project, path string) (tag string, hold error, err error) {
 	landing, err := git.Landing(ctx, path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	tag := ""
 	if !landing.Landed {
 		if tag, err = git.ArchiveTag(ctx, path, landing, filepath.Base(path)); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		// The record is what lets an uninstall keep this work and remove
 		// the tag, and no tag of the person's own.
 		if err := state.RecordArchiveTag(s.StateDir, state.ArchiveTag{Checkout: project, Tag: tag}); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
-	return tag, s.Worktrees.Return(ctx, project, path)
+	if err := s.Worktrees.Return(ctx, project, path); err != nil {
+		if isHeld(err) {
+			return tag, err, nil
+		}
+		return tag, nil, err
+	}
+	return tag, nil, nil
 }
 
 // forceArchive retires a task record without touching its worktree. It is the
@@ -447,7 +467,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 // agent runs in its terminal, the terminal closes, the folder is removed,
 // which os.Remove does only while it is still empty, and the task is
 // archived. No branch or worktree is touched, since the folder has none.
-func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id, folder string) (Result, error) {
+func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id, project, folder string) (Result, error) {
 	idle, err := s.requireInactive(ctx, meta)
 	if err != nil {
 		return Result{}, err
@@ -463,14 +483,33 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 		}
 	}
 	left := s.endLeft(ctx, meta)
+	// A folder another process holds, as its working directory, is left for
+	// the janitor, which removes an empty folder no task owns once nothing
+	// holds it. It holds no work, so the task retires all the same.
+	reason, removed, warning := "Empty worktree folder removed by cleanup", "removed the empty folder "+folder+", which held no Git worktree", ""
 	if err := os.Remove(folder); err != nil {
-		return Result{}, fmt.Errorf("cleanup: remove the empty folder %s: %w", folder, err)
+		if !isHeld(err) {
+			return Result{}, fmt.Errorf("cleanup: remove the empty folder %s: %w", folder, err)
+		}
+		reason = "Retired by cleanup, empty folder left for the janitor"
+		removed = fmt.Sprintf("left the empty folder %s for the janitor, which removes it once nothing holds it (%v)", folder, err)
+		// Git may still list the folder as the worktree it was, and the
+		// janitor keeps a listed worktree it cannot prove. A prune drops the
+		// record of a worktree whose .git link is gone, so the janitor finds
+		// an empty folder no project registers, which it removes.
+		pruned, err := s.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"worktree", "prune"}})
+		if err == nil && pruned.ExitCode != 0 {
+			err = fmt.Errorf("exit code %d: %s", pruned.ExitCode, strings.TrimSpace(string(pruned.Stderr)))
+		}
+		if err != nil {
+			warning = fmt.Sprintf("\nwarning: git may still list %s as a worktree, which the janitor keeps until git worktree prune drops that record, and the prune failed here: %v", folder, err)
+		}
 	}
-	outcome := s.outcome(ctx, meta, "Empty worktree folder removed by cleanup")
+	outcome := s.outcome(ctx, meta, reason)
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
-	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": removed the empty folder "+folder+", which held no Git worktree, via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+removed+" via cfo cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record the removed folder: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
@@ -478,10 +517,11 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	}
 	archive, archiveErr := s.archive(id)
 	scratchNote := s.removeScratch(ctx, meta)
-	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: removed the empty folder %s, which held no Git worktree", id, folder)}
+	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: %s", id, removed)}
 	if archive != "" {
 		result.Output += " archive=" + archive
 	}
+	result.Output += warning
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
