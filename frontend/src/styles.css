@@ -1092,9 +1092,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .history-detail[hidden] { display: none; }
 .history-actions { display: flex; align-items: center; gap: 4px; }
 .inbox-history .history-actions .icon-button { width: 36px; height: 36px; min-height: 36px; }
-.history-open .icon { width: 16px; height: 16px; color: var(--muted); transition: transform .16s ease; }
-.history-open[aria-expanded="true"] .icon { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) { .history-open .icon { transition: none; } }
+.history-open svg { width: 16px; height: 16px; color: var(--muted); }
 .inbox-text small.answer-reason { color: var(--muted); font-weight: 500; }
 /* Who answered: the crown for him, the CFO's face for the CFO, with a moon
    while he was away. */

@@ -3,6 +3,7 @@ import { message, request } from "./api";
 import { object, parseAction, string, type BoardActivity, type BrowserSignIn, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
+import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
@@ -405,7 +406,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               </span>
               <time>{age(closedAt(candidate))}</time>
               <span className="history-actions">
-                <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} data-tip={isUnfolded ? "Fold" : "Open"} onClick={unfold}><Icon name="chevron" /></button>
+                <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} data-tip={isUnfolded ? "Fold" : "Open"} onClick={unfold}><Chevron collapsed={!isUnfolded} /></button>
                 {candidate.kind === "question" && canChange(candidate.question) && <button className="icon-button raised" aria-label={"Change the answer to " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Change answer" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
               </span>
             </li>;
