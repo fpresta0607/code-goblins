@@ -420,11 +420,12 @@ export interface AfkHeld {
 // While on it says since when and from where, how many decisions the CFO
 // logged and what is held for him; asked holds his words when the CFO turned
 // it on at his ask, and is empty when he turned it on himself. While off,
-// report names the last stretch that ended, once its report is kept.
+// page is the link of his page of the last stretch that ended, once it is in
+// his Command Center.
 export interface Afk {
   state: "off" | "on" | "unreadable";
   since: string; from: string; asked: string; decided: number; held: AfkHeld[];
-  report: string;
+  page: string;
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
@@ -704,7 +705,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     fetch: c.fetch == null ? null : (() => { const f = object(c.fetch); return { provider: string(f.provider), login: string(f.login), names: strings(f.names), state: string(f.state), reason: string(f.reason) }; })(),
   };
 }
-export function parseAfkHeld(value: unknown): AfkHeld {
+function parseAfkHeld(value: unknown): AfkHeld {
   const h = object(value);
   return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile), recommendation: string(h.recommendation), settled: string(h.settled) };
 }
@@ -713,7 +714,7 @@ function parseAfk(value: unknown): Afk {
   const a = value == null ? {} : object(value);
   const state = a.state == null ? "off" : string(a.state);
   if (state !== "off" && state !== "on" && state !== "unreadable") throw new Error("Invalid AFK state");
-  return { state, since: string(a.since), from: string(a.from), asked: string(a.asked), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), report: string(a.report) };
+  return { state, since: string(a.since), from: string(a.from), asked: string(a.asked), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), page: string(a.page) };
 }
 // The Command Center's items as the supervisor's stream sends them between
 // snapshots: its questions, review items, runs, credential requests and

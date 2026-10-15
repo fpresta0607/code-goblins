@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -12,7 +11,7 @@ import (
 
 // AFK mode records free disk, as the board's disk meter reads it, when it
 // turns on and when it turns off, and the report of the stretch sets the two
-// beside each other for the board's page. A disk that cannot be read at
+// beside each other for his page of the stretch. A disk that cannot be read at
 // either end stops no switch and leaves the report without it.
 func TestAFKModeRecordsFreeDiskWhenItTurnsOnAndWhenItTurnsOff(t *testing.T) {
 	unreadable := errors.New("disk cannot be read")
@@ -27,9 +26,9 @@ func TestAFKModeRecordsFreeDiskWhenItTurnsOnAndWhenItTurnsOff(t *testing.T) {
 		name          string
 		on, off       func() (Disk, error)
 		before, after *disk.Reading
-		page          *afk.DiskUse
+		used          *afk.DiskUse
 	}{
-		{name: "read at both ends", on: read(340), off: read(337), before: reading(340), after: reading(337), page: &afk.DiskUse{Drive: "C:", Total: 500 * gigabyte, On: 340 * gigabyte, Off: 337 * gigabyte}},
+		{name: "read at both ends", on: read(340), off: read(337), before: reading(340), after: reading(337), used: &afk.DiskUse{Drive: "C:", Total: 500 * gigabyte, On: 340 * gigabyte, Off: 337 * gigabyte}},
 		{name: "not read when it turned on", on: failed, off: read(337), after: reading(337)},
 		{name: "not read when it turned off", on: read(340), off: failed, before: reading(340)},
 	}
@@ -46,7 +45,6 @@ func TestAFKModeRecordsFreeDiskWhenItTurnsOnAndWhenItTurnsOff(t *testing.T) {
 			switched, readErr := afk.Read(h.State)
 			s.Options.Dispatch.Disk = test.off
 			offCode, offBody := askTheBoard(t, s, "POST", "/api/afk", `{"on":false}`, nil)
-			reportCode, reportBody := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
 
 			// Assert
 			if onCode != 200 || offCode != 200 || readErr != nil {
@@ -62,19 +60,8 @@ func TestAFKModeRecordsFreeDiskWhenItTurnsOnAndWhenItTurnsOff(t *testing.T) {
 			if !reflect.DeepEqual(report.DiskBefore, test.before) || !reflect.DeepEqual(report.DiskAfter, test.after) {
 				t.Errorf("the report's free disk = %+v then %+v, want %+v then %+v", report.DiskBefore, report.DiskAfter, test.before, test.after)
 			}
-			var page struct {
-				Found bool                       `json:"found"`
-				Disk  *afk.DiskUse               `json:"disk"`
-				Keys  map[string]json.RawMessage `json:"-"`
-			}
-			if err := errors.Join(json.Unmarshal([]byte(reportBody), &page), json.Unmarshal([]byte(reportBody), &page.Keys)); reportCode != 200 || err != nil || !page.Found {
-				t.Fatalf("GET /api/afk/report = %d %s (%v)", reportCode, reportBody, err)
-			}
-			if !reflect.DeepEqual(page.Disk, test.page) {
-				t.Errorf("the report page's disk = %+v, want %+v: %s", page.Disk, test.page, reportBody)
-			}
-			if _, said := page.Keys["disk"]; said != (test.page != nil) {
-				t.Errorf("the report page says disk = %v, want it only when free disk was read at both ends: %s", said, reportBody)
+			if got := afk.DiskUsed(report.DiskBefore, report.DiskAfter); !reflect.DeepEqual(got, test.used) {
+				t.Errorf("the report's free disk used = %+v, want %+v", got, test.used)
 			}
 		})
 	}

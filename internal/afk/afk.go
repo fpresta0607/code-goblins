@@ -446,8 +446,8 @@ func Strike(stateDir string, at time.Time, reason string, now time.Time) (Entry,
 // backlog row done, its task finished, or a later decision of the CFO's. The
 // line stays in the log as it was written, and the settle is a line of its
 // own after it, which names the line by when it was logged. A settled line no
-// longer needs him: his recap shows what became of it. Once AFK mode turns
-// off his recap is written, so a line is settled only while its stretch is
+// longer needs him: the report shows what became of it. Once AFK mode turns
+// off the report is written, so a line is settled only while its stretch is
 // on, once, and never once struck.
 func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, error) {
 	how = strings.TrimSpace(how)
@@ -459,7 +459,7 @@ func Settle(stateDir string, at time.Time, how string, now time.Time) (Entry, er
 		return Entry{}, err
 	}
 	if !state.On {
-		return Entry{}, fmt.Errorf("%w: once it turns off, each step only he can take that is still open is a line in his recap", ErrNotOn)
+		return Entry{}, fmt.Errorf("%w: once it turns off, each step only he can take that is still open is a card in his Command Center", ErrNotOn)
 	}
 	entries, _, err := Entries(stateDir, state.Session)
 	if err != nil {

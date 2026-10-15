@@ -247,3 +247,37 @@ func TestLavishSessionsRefusesAnUnreadableStateFile(t *testing.T) {
 		t.Fatalf("Sessions = %+v, want an error for a half-written state file", sessions)
 	}
 }
+
+// A return page's Change sends its question and the new answer tagged
+// answer_change: the prompt is the answer, the text the question's ID. The
+// poll reads each change once, in order, and what else he wrote is no change.
+func TestLavishPollReadsEachAnswerChangeThePageSent(t *testing.T) {
+	for name, test := range map[string]struct {
+		output string
+		want   []PageChange
+	}{
+		"two changes and a note": {"session:\n" +
+			"  status: feedback\n" +
+			"prompts[3]{uid,prompt,selector,tag,text}:\n" +
+			"  \"1\",Delete now,form,answer_change,afk-left-20261015T051200.000000000Z\n" +
+			"  \"2\",\"Wait, then delete it\\nafter a backup\",form,answer_change,notify-a-goblin-7\n" +
+			"  \"3\",Looks good,\"\",message,Freeform message\n" +
+			"next_step: \"Apply the feedback.\"\n", []PageChange{{Question: "afk-left-20261015T051200.000000000Z", Answer: "Delete now"}, {Question: "notify-a-goblin-7", Answer: "Wait, then delete it\nafter a backup"}}},
+		"a declared choice":  {lavishChoice, nil},
+		"a message and note": {lavishTwoPrompts, nil},
+		"no prompts":         {lavishWaiting, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
+
+			// Act
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", time.Second)
+
+			// Assert
+			if err != nil || !slices.Equal(poll.Changes, test.want) {
+				t.Fatalf("Poll = %+v, %v; want changes %q", poll.Changes, err, test.want)
+			}
+		})
+	}
+}

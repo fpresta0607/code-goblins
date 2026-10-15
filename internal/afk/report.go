@@ -53,6 +53,10 @@ type Report struct {
 	Struck   []Entry  `json:"struck,omitempty"`
 	Finished []Finish `json:"finished"`
 	Held     []Held   `json:"held"`
+	// UnderWay is each goblin's work still under way when AFK mode turned
+	// off, and Next each task queued to start after it.
+	UnderWay []Ongoing `json:"under_way,omitempty"`
+	Next     []Ongoing `json:"next,omitempty"`
 	// Before and After are the allowance read when AFK mode turned on and
 	// when it turned off.
 	Before []Allowance `json:"before"`
@@ -65,11 +69,16 @@ type Report struct {
 	Notes []string `json:"notes,omitempty"`
 }
 
-// Finish is a pull request a goblin reported done during the stretch.
+// Finish is a pull request a goblin reported done during the stretch, with
+// its task's title, the CFO's one line for the work, the goblin's name and
+// the goblin's own last note on the work before it reported it done.
 type Finish struct {
-	Task string    `json:"task"`
-	PR   string    `json:"pr"`
-	At   time.Time `json:"at"`
+	Task   string    `json:"task"`
+	PR     string    `json:"pr"`
+	At     time.Time `json:"at"`
+	Title  string    `json:"title,omitempty"`
+	Goblin string    `json:"goblin,omitempty"`
+	Note   string    `json:"note,omitempty"`
 }
 
 // Held is an item that waited on the Overlord in the Command Center during

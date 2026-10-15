@@ -34,13 +34,24 @@ type PagePoll struct {
 	// page, agent for an agent that ran lavish-axi end.
 	EndedBy string
 	// Prompts is what the Overlord wrote on the page, one entry per prompt,
-	// when lavish-axi printed its prompts as a table.
+	// when lavish-axi printed its prompts as a table, his changes of an
+	// answer aside.
 	Prompts []string
 	// Picked says a prompt picks an option the page declared in its
 	// data-lavish-choices block, which answers the page.
 	Picked bool
+	// Changes are the answers he changed with a return page's Change, in the
+	// order he sent them.
+	Changes []PageChange
 	// Output is the poll's whole output, which the CFO reads.
 	Output string
+}
+
+// PageChange is one answer he changed on a page: the question in his History
+// and the answer it takes now.
+type PageChange struct {
+	Question string
+	Answer   string
 }
 
 // Open opens or resumes the page's review session without opening a browser,
@@ -85,8 +96,23 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 	if status == "" {
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
-	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: promptColumn(output, "prompt"), Picked: slices.Contains(promptColumn(output, "tag"), "choice"), Output: output}, nil
+	prompts, tags, texts := promptColumn(output, "prompt"), promptColumn(output, "tag"), promptColumn(output, "text")
+	// A change is no prompt of his for anyone to read: it goes to the
+	// question it changes.
+	var changes []PageChange
+	var written []string
+	for i, prompt := range prompts {
+		if i < len(tags) && tags[i] == pageChangeTag && i < len(texts) {
+			changes = append(changes, PageChange{Question: texts[i], Answer: prompt})
+			continue
+		}
+		written = append(written, prompt)
+	}
+	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: written, Picked: slices.Contains(tags, "choice"), Changes: changes, Output: output}, nil
 }
+
+// pageChangeTag is the tag a return page's Change sends its answer under.
+const pageChangeTag = "answer_change"
 
 // End ends the page's review session as an agent, so the page says the
 // review has ended and takes nothing more. Feedback queued before the end
