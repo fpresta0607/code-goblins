@@ -238,10 +238,14 @@ func (s *Service) processBrowserSignIns(ctx context.Context) error {
 			} else {
 				check, cancel := context.WithTimeout(ctx, 5*time.Second)
 				isSignedIn, account, err := s.browsers.signedIn(check, process.URL, provider)
+				// A look that only ran out of its own time, as a busy machine
+				// makes one, says nothing of the page: the window stays open
+				// and the next pass looks again.
+				isOutOfTime := errors.Is(check.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 				cancel()
-				if err != nil {
+				if err != nil && !isOutOfTime {
 					newState, reason = "ready", "The page could not be checked. Open the sign-in window again."
-				} else if isSignedIn {
+				} else if err == nil && isSignedIn {
 					if err := s.browsers.recordSignIn(card.Login, account); err != nil {
 						failed = append(failed, err)
 						continue
