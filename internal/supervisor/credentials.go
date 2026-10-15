@@ -693,7 +693,9 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, fmt.Sprintf("%s is longer than %d KiB.", name, maxCredentialValue>>10))
 		case strings.ContainsFunc(value, unicode.IsControl):
 			return refuse(http.StatusBadRequest, name+" holds a line break or a tab. Type it as one line. Nothing was sent.")
-		case slices.ContainsFunc(strings.Fields(value), func(word string) bool { return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=") }):
+		case slices.ContainsFunc(strings.Fields(value), func(word string) bool {
+			return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
+		}):
 			return refuse(http.StatusBadRequest, name+" looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field.")
 		}
 	}

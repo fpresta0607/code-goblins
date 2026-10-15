@@ -1006,6 +1006,35 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-14: a browser step only he can take reaches him as one
+// Command Center card with the link, only his inputs and Done, and the goblin
+// picks up the moment it closes. So every goblin's instruction says to send
+// that card and wait on it, never a chat message or a Scrawl walkthrough,
+// and never to take such a step itself.
+func TestNotifyInstructionSendsOneCardForABrowserStepOnlyHeCanTake(t *testing.T) {
+	// Act
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
+
+	// Assert
+	for _, want := range []string{
+		"browser or computer-use work reaches a step only the Overlord can take",
+		"never take it yourself",
+		"auth request --project <project> --task task-7",
+		"--link <the exact https page>",
+		"--plain NAME --label NAME=",
+		"--wait",
+		"in the background",
+		"--window",
+		"auth request --done <card> --task task-7",
+		"--withdraw <card>",
+		"Exit 3 means he dismissed it",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q", instruction, want)
+		}
+	}
+}
+
 // The Overlord named the review page Scrawl (2026-10-01), so a goblin calls
 // it that; the lavish-axi command and the --lavish flag keep their names.
 func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {

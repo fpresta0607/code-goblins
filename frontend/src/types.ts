@@ -506,8 +506,9 @@ export interface BrowserSignIn {
   state: "ready" | "opening" | "open" | "signed_in" | "expired";
   reason: string; created_at: string; expires_at: string; closed_at: string;
 }
-// A request for credential values by name: the Overlord pastes each value on
-// its card, and the board stores it in the project's credential scope. It
+// The card for a step only the Overlord can take: the page to open, its
+// steps, and the inputs he enters. Each secret he pastes goes into the
+// project's credential scope, and each plain value back to the goblin. It
 // never carries a value.
 export interface CredentialRequest {
   id: string; generation: string; identity: string;
@@ -517,15 +518,23 @@ export interface CredentialRequest {
   // env_file is a local env file at the root of the project's checkout where each
   // saved value is also set; written are the names set there.
   env_file: string;
-  names: string[]; why: string; link: string;
+  // names are the secrets, plain the values that go back to the goblin, and
+  // labels say what each input is in a few words.
+  names: string[]; plain: string[]; labels: Record<string, string>; why: string; link: string;
   // steps say how to get the values, in order, for the card's header.
   steps: string[];
+  // window says the step happens in the goblin's own browser, which the
+  // card's button brings to him; window_state is "" while the button is
+  // offered, "requested" once pressed and "open" once the window shows.
+  window: boolean; window_state: string;
+  // received are the plain values that reached the goblin.
+  received: string[];
   // existing are the names the scope already held when the board last looked.
   existing: string[];
   hints: CredentialHint[];
   // services are the auth.json services that read each name.
   services: Record<string, string[]>;
-  // state is open, saved or expired; typed are the saved names typed in its terminal, and fetched those a fetch read from its key page.
+  // state is open, saved once every input is in, done, dismissed, withdrawn or expired; typed are the saved names typed in its terminal, and fetched those a fetch read from its key page.
   state: string; saved: string[]; replaced: string[]; typed: string[]; fetched: string[]; written: string[]; reason: string;
   created_at: string; expires_at: string; closed_at: string;
   // fetch is what the card offers to fetch from a reviewed key page, null for none.
@@ -676,9 +685,12 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
   const c = object(value);
   const services: Record<string, string[]> = {};
   for (const [name, users] of Object.entries(c.services == null ? {} : object(c.services))) services[name] = strings(users);
+  const labels: Record<string, string> = {};
+  for (const [name, label] of Object.entries(c.labels == null ? {} : object(c.labels))) labels[name] = string(label);
   return {
     id: string(c.id), generation: string(c.generation), identity: string(c.identity), by: string(c.by), task: string(c.task),
-    project: string(c.project), env_file: string(c.env_file), names: strings(c.names), why: string(c.why), link: string(c.link), steps: strings(c.steps),
+    project: string(c.project), env_file: string(c.env_file), names: strings(c.names), plain: strings(c.plain), labels, why: string(c.why), link: string(c.link), steps: strings(c.steps),
+    window: c.window === undefined ? false : boolean(c.window), window_state: string(c.window_state), received: strings(c.received),
     existing: strings(c.existing), services,
     hints: array(c.hints).map((hint) => {
       const h = object(hint);

@@ -1669,7 +1669,7 @@ A request takes names only, at most ten, each an environment variable name, with
 It may also give up to eight steps for getting the values on that page, each one line of at most 200 characters, one `--step` each, in order.
 Anything shaped like a value is refused before anything is filed: a known key prefix (such as `sk_`, `rk_`, `ghp_`, `xox`, `AKIA` or `eyJ`), an equals sign, or long random text, in a name, the reason, a step or the link, and no refusal repeats what it refused.
 The registered CFO files over the supervisor's pipe, proven the way run items prove it; a goblin files for its own task with `--task <its id>`, from its own terminal, proven the way its questions are, through `state/credential-requests-inbox`, and a request in that inbox that claims to be the CFO's is refused and named among the board's issues.
-The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason, link and steps, the names the scope already holds, each name's format hint, and its state, open, saved or expired.
+The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason, link and steps, the names the scope already holds, each name's format hint, and its state, open, saved, done, dismissed, withdrawn or expired.
 It also says where each value goes: the repository, which is the checkout the scope is named for when it is on this machine, the credential scope, and every service of the project's `auth.json` that reads the name, beside the project's goblins, whose `auth.ps1` carries the whole scope.
 It never holds a value.
 A project's `auth.json` may declare format hints, which the request carries for the card to warn with and never to refuse a value:
@@ -1740,7 +1740,7 @@ A value that does not start the way its format hint expects, or starts the way a
 Below the table the exact `cfo auth store` lines have **Copy** and **Run**: Run opens the terminal for the names the scope does not hold, and asks the same question before a terminal that would type a stored one; while that terminal is open it runs on the card, where he types each value, and Save and Run wait for it to end.
 A board opened from anywhere but 127.0.0.1, localhost or ::1, such as through `tailscale serve`, shows the card read-only: no field, no Save and no Run, only the commands to copy, which a page without the clipboard selects for Ctrl+C.
 A request that closes as saved while its card is open finishes as every other Command Center item does, whether its values were pasted on the card or typed in its terminal: the card gives way to **Stored** with the names saved, and the next item follows by itself, so no card is left whose only way on is Skip.
-History lists it as saved or expired.
+History lists it as saved or expired, or as a [step card](#step-cards) closed another way.
 
 `tests/acceptance/credential_canary_windows.ps1 -Binary <cfo.exe>` proves the path end to end on a scratch home, with a random canary under a throwaway credential scope it deletes at its end.
 A stand-in goblin files the request from its own terminal, a browser on a throwaway profile enters the canary on the real card, and the proof counts the files that hold it: none in the browser's profile, `state/`, `data/`, the logs, the snapshot, the event stream or the agent transcripts it is given, and one, the goblin's owner-only `auth.ps1`, which `cfo cleanup` then removes.
@@ -1748,6 +1748,28 @@ A fresh browser profile is not isolation: Edge signs a new profile in to the Win
 So the proof starts the browser with sync and automatic sign-in switched off on a profile that disallows sign-in, reads the browser's own sign-in state before it opens the board, and fails with nothing typed if an account shows or the state cannot be read; at the end it checks that the profile stayed signed out and holds no saved form entry it did not type.
 It also fills a plain sign-in form with values it makes up, which a browser does keep and does offer to save, so a clean result cannot come from a search or a probe that sees nothing.
 `-Visible` runs it in a window, where a browser shows its offer to save a password, and checks that none follows the card's save; `-Browser` names another browser, such as Chrome.
+
+### Step cards
+
+A credential request is also the one card for any step a goblin's browser or computer-use work reaches that only the Overlord can take, such as creating an account, a sign-in, a CAPTCHA, accepting terms or a token to copy:
+
+```powershell
+cfo auth request --project acme-shop --task shop-signup --why "Create the shop's test account" --link https://shop.example.com/signup --step "Prove you are a human" --step "Accept the terms" --wait
+cfo auth request --project acme-shop --task shop-signup --why "Connect the tests to the new account" --link https://shop.example.com/settings/api --plain ACCOUNT_EMAIL --label ACCOUNT_EMAIL="The account's email" --label SHOP_API_TOKEN="The API token from Settings" SHOP_API_TOKEN --wait
+cfo auth request --project acme-shop --task shop-signup --why "Sign in to the shop in my browser" --link https://shop.example.com/login --window --wait
+```
+
+- A secret NAME goes into the vault as above, and a `--plain` NAME is a value that goes back to the asker: the card gives it a plain field, refuses anything shaped like a key in it, keeps it in the board's record for the asker's wait and never in the snapshot, which names it under `received` once it arrived.
+- Each input may carry a label of a few words, at most 60 characters, which the card shows above its name and its heading uses.
+- A card that asks for no input has a Done button, `POST /api/credentials/close` with `"action": "done"`, and its heading is what it is for.
+- `--window`, which needs `--wait` and the asker's own browser session, gives the card **Open the browser window**, `POST /api/credentials/window`, taken only on this PC. The asker's wait sees the press and restarts the goblin's chrome-devtools-axi session with a window on a profile in its task folder at the link, then reports it open or why it could not open, and the card says so. Once the card closes the wait restarts the session headless on the same profile, so the session keeps the sign-in.
+- Every open card has Dismiss, `POST /api/credentials/close` with `"action": "dismiss"`, from any board: the card closes as dismissed, the goblin that asked is told in its terminal to go on without it, and the CFO gets a `review` wake.
+
+`--wait` waits on the card by looking at the board's record five times a second, reading it whenever it changed, and ends the moment the card closes: exit 0 once every input arrived or the step is done, printing each plain value as `NAME=value` and each secret by its name alone, exit 3 when he dismissed it, and 1 when it was withdrawn or expired.
+A card the board refused, neither on the board nor in its inbox, ends the wait at once.
+The asker closes its own card with `--done <card>` once it sees the step done and takes it back with `--withdraw <card> --reason "<why>"`, both over the supervisor's pipe from its own terminal, and the CFO may withdraw any card.
+A goblin's open card is withdrawn once its goblin is gone or was replaced, or reported done or failed after it asked.
+A card closed as done, dismissed or withdrawn takes no value, and History lists it so.
 
 ## Browser key fetching
 

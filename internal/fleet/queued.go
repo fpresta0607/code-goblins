@@ -71,6 +71,14 @@ func BriefRootIssues() string {
 	return "A root issue you find outside this brief, a cause this task does not change, is filed with cfo issue file --project <project> --title <title> --body-file <file> and named by the address it prints in your report, never only mentioned. It comments on the open issue of the same root when there is one."
 }
 
+// BriefStepCards is what the Authentication section of every brief says of a
+// browser step only the Overlord can take, as he asked on 2026-10-14: it
+// reaches him as one Command Center card with the page and only his inputs,
+// and the goblin goes on the moment the card closes.
+func BriefStepCards() string {
+	return "A browser or computer-use step only the Overlord can take, such as creating an account, a sign-in, a CAPTCHA, accepting terms or a token to copy, reaches him as one card: cfo auth request --project <project> --task <id> --why \"<what it is for>\" --link <the exact page> with only the inputs he enters and --wait, as your first instruction says, never a chat message or a Scrawl walkthrough."
+}
+
 // WriteQueuedBrief writes data/<id>/brief.md from a queued row and every
 // detail line under it, and never replaces a brief that already exists.
 func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
@@ -102,7 +110,7 @@ func QueuedBriefText(queued QueuedTask) string {
 	if kind == "" {
 		kind = "ship"
 	}
-	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), kind, mode, row.Harness, row.Model, row.Effort)
+	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
 }
 
 // AppendQueuedTask adds row, the backlog row of task id, at the bottom of the
