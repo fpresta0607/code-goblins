@@ -59,7 +59,9 @@ function caretsIn(name: string): string[] {
 // or closes what it stands before, so this names every caret the source
 // draws: the Disclosure's, a tree's fold on a button that says whether it is
 // open, a menu's trigger with aria-expanded and aria-haspopup, and the pager's
-// two arrows, which turn its pages.
+// two arrows, which turn its pages. A History row's open icon is a fold too:
+// its button says whether the row is open, and a Disclosure would put the
+// row's Change answer button inside its summary.
 test("every caret opens or closes, but for the pager's arrows", () => {
   // Arrange
   const files = readdirSync(SOURCE).filter((name) => name.endsWith(".tsx")).sort();
@@ -68,7 +70,7 @@ test("every caret opens or closes, but for the pager's arrows", () => {
   const drawn = files.flatMap((name) => caretsIn(name).map((kind) => name + ": " + kind));
 
   // Assert
-  assert.deepEqual(drawn, ["Disclosure.tsx: icon", "Lineage.tsx: fold", "Orchestration.tsx: fold", "Pager.tsx: icon", "Pager.tsx: icon", "TreeCount.tsx: fold", "cfo-harness-selector.tsx: menu"]);
+  assert.deepEqual(drawn, ["CommandCenter.tsx: fold", "Disclosure.tsx: icon", "Lineage.tsx: fold", "Orchestration.tsx: fold", "Pager.tsx: icon", "Pager.tsx: icon", "TreeCount.tsx: fold", "cfo-harness-selector.tsx: menu"]);
 });
 
 test("whatever opens and closes on the board is the Disclosure, which draws the one caret", () => {
