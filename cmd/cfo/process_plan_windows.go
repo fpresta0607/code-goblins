@@ -8,11 +8,13 @@ import (
 	"slices"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // defaultProcessPlan reads what the fleet's process sweeps would do in home h
@@ -26,14 +28,22 @@ func defaultProcessPlan(ctx context.Context, h home.Home) (processPlan, error) {
 	plan := processPlan{At: now, Flags: map[int]string{}}
 	previous, _ := janitor.ReadRecord(h.State)
 	browserSessions := ""
-	if profile, err := os.UserHomeDir(); err == nil {
+	profile, err := os.UserHomeDir()
+	if err == nil {
 		browserSessions = filepath.Join(profile, ".chrome-devtools-axi", "sessions")
 	}
+	// The goblins' trees are read as the watcher's sweep reads them, so the
+	// plan reads a goblin that waits on its own work at work as the sweep
+	// does.
+	tree := &fleettree.Reader{Home: profile, Recorded: func(meta state.TaskMeta) string {
+		session, _ := fleettree.OwnedSession(h.State, meta)
+		return session
+	}, Owner: lifecycle.OwnerOf(h), InTurn: verify.RunsInTurn}
 	cfg := janitor.Config{
 		Home:            h,
 		Now:             now,
 		Processes:       janitor.ReadAllProcesses,
-		Owners:          func() ([]janitor.Owner, []string) { return janitor.Owners(h) },
+		Owners:          func() ([]janitor.Owner, []string) { return janitor.Owners(ctx, h, tree) },
 		Watched:         previous.Processes.Watched,
 		BrowserSessions: browserSessions,
 	}
