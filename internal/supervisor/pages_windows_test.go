@@ -394,8 +394,6 @@ func TestADisconnectedWindowLeavesItsItemOpenSayingWhenItClosed(t *testing.T) {
 // withdrawn its page's watch the same way.
 func TestAnAnswerOnAPageReachesTheGoblinWhateverItReportedSince(t *testing.T) {
 	for name, since := range map[string]func(t *testing.T, store *Store, meta state.TaskMeta, asked wake.Record, connection *CFOConnection){
-		// A working report keeps the page's item open, so a later failure is
-		// the status that closes it.
 		"a later status": func(t *testing.T, store *Store, meta state.TaskMeta, _ wake.Record, _ *CFOConnection) {
 			if err := state.AppendStatus(store.Home.State, meta.ID, "failed: the backend build broke, trying another way meanwhile"); err != nil {
 				t.Fatal(err)
@@ -417,8 +415,8 @@ func TestAnAnswerOnAPageReachesTheGoblinWhateverItReportedSince(t *testing.T) {
 			if err := store.retireItems(); err != nil {
 				t.Fatal(err)
 			}
-			if r := store.Snapshot().Reviews[0]; r.State == "open" {
-				t.Fatalf("premise: the page's item after %s = %+v, want it closed", name, r)
+			if r := store.Snapshot().Reviews[0]; r.State != "open" {
+				t.Fatalf("premise: the page's item after %s = %+v, want it open", name, r)
 			}
 			var replies []string
 			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(_ context.Context, file, reply string, _ time.Duration) (axi.PagePoll, error) {
@@ -439,14 +437,14 @@ func TestAnAnswerOnAPageReachesTheGoblinWhateverItReportedSince(t *testing.T) {
 			if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "on your review page "+page+": I prefer goblin heads for each type, not icons") {
 				t.Fatalf("the goblin got %q, want his answer on its page", told)
 			}
-			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, page) || !strings.Contains(wakes[0].Detail, meta.ID+" has it: I prefer goblin heads") {
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, page) || !strings.Contains(wakes[0].Detail, "the goblin has it: I prefer goblin heads") {
 				t.Fatalf("review wakes = %+v, want the CFO told once that the goblin has his answer", wakes)
 			}
-			if len(replies) != 2 || replies[1] != "Received." {
-				t.Errorf("replies on the page = %q, want a prompt receipt without claiming terminal delivery", replies)
+			if len(replies) != 1 {
+				t.Errorf("replies on the page = %q, want the one poll his Send & End answered", replies)
 			}
-			if r := store.Snapshot().Reviews[0]; r.PageSettled == nil {
-				t.Errorf("the page's item = %+v, want its page settled once he ended the review", r)
+			if r := store.Snapshot().Reviews[0]; r.State != "answered" || r.AnsweredIn != "page" || r.PageSettled == nil {
+				t.Errorf("the page's item = %+v, want it answered on its page and settled once he ended the review", r)
 			}
 		})
 	}
@@ -483,8 +481,7 @@ func nextSecond() {
 }
 
 // A goblin that presents a second page while its first is unanswered has
-// both watched: the later wait withdraws the first page's card, never its
-// watch, and each page has one poller.
+// both cards open and both watched, each page by one poller.
 func TestALaterPageIsWatchedBesideTheFirst(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -528,8 +525,8 @@ func TestALaterPageIsWatchedBesideTheFirst(t *testing.T) {
 	if !slices.Equal(got, want) || len(polled) != 0 {
 		t.Fatalf("polled %q and %d more, want each page once: %q", got, len(polled), want)
 	}
-	if reviews := store.Snapshot().Reviews; reviews[0].State != "withdrawn" || reviews[1].State != "open" {
-		t.Errorf("reviews = %+v, want the first page's card withdrawn by the later wait and the second open", reviews)
+	if reviews := store.Snapshot().Reviews; reviews[0].State != "open" || reviews[1].State != "open" {
+		t.Errorf("reviews = %+v, want both pages' cards open", reviews)
 	}
 }
 
