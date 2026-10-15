@@ -682,6 +682,9 @@ The latency regression uses one native console event per read, as libuv does, an
 The fleet's own controls run one priority class above normal, and never higher.
 They are the supervisor, each terminal's host, and the commands that are a short conversation with one of them or with the home's own records: `status`, `stop`, `attach`, `send`, `answer`, `peek`, `fleet-view`, `drain`, `watch`, `notify`, `question`, `register`, `pause`, `resume`, `kill`, `update`, `process-plan`, `session-start`, `hook` and `native-hook`.
 Each raises itself as its first act (`priority.AboveTheWork`) and gives the class back when its work ends.
+A terminal's host and its input waker are started at that class too (`priority.StartAboveTheWork`), since a host's launch waits 15 seconds for the host's record and the host waits on its waker, and a process that raises itself does so only once its code runs.
+Coming to exist was most of each start: on 2026-10-15, beside ten busy threads on the goblins' cores, a host took 0.5 to 0.8 seconds to reach its own code and its waker as long again to say it was ready, at normal priority, and the waker started raised was ready in 0.15 to 0.35 seconds.
+The rest of a host's start, its console and its program's start among it, took milliseconds either way, so those two starts at normal priority are what grew until a host missed the bound on a busier machine (issue #891).
 A process that is not at normal priority is left as it is: one that runs lower was put there on purpose and hands its class to what it starts.
 At the priority of the builds and tests it supervises, a control waited its turn behind them after each of its system calls.
 Measured on 2026-10-10, each control at normal priority and then raised, beside sixteen busy threads on every core, and beside ten kept to the cores goblin work keeps since it leaves half of the performance cores to the Overlord's apps:
@@ -700,12 +703,12 @@ Measured on 2026-10-10, each control at normal priority and then raised, beside 
 
 Windows keeps a hidden process that asks for nothing on the efficiency cores, which goblin work may fill, so a control that makes no such request gains most from the raise once goblin work keeps to its own cores.
 A goblin's harness and everything started in its terminal run at normal, a `cfo` command a goblin runs there included, and so does what a gate agent starts.
-Windows gives the child of a raised process the normal class as long as its start names none, and no start in the fleet names one.
-`TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal`, `TestWhatARaisedProcessStartsThroughExecxRunsAtNormal`, `TestWhatARaisedHostStartsForItsConsoleRunsAtNormal` and `TestARunItemARaisedSupervisorStartsRunsAtNormal` hold that for each way the fleet starts a process, and `TestEveryProcessStartGoesThroughCommand` reports a priority class named anywhere but `internal/priority`.
+Windows gives the child of a raised process the normal class as long as its start names none, and no start in the fleet names one but a host's and its waker's.
+`TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal`, `TestWhatARaisedProcessStartsThroughExecxRunsAtNormal`, `TestWhatARaisedHostStartsForItsConsoleRunsAtNormalButItsWaker` and `TestARunItemARaisedSupervisorStartsRunsAtNormal` hold that for each way the fleet starts a process, `TestALaunchedHostIsStartedOneClassAboveTheWork` that a host is raised from its start, and `TestEveryProcessStartGoesThroughCommand` reports a priority class named anywhere but `internal/priority`, and a start above the work anywhere but a host's launch and its waker's start.
 `TestEveryCommandIsAControlOrStaysAtNormalOnPurpose` makes a command added to `cfo` one or the other on purpose.
 The last three rows are what the raise cannot reach where goblin work has every core, as on a machine with a single performance core.
 A command or a hook is started at its caller's priority and raises itself only once it runs.
-For a peek, and for the monitor's reading of a screen, the terminal's input waker asks the console for each row, and both answer at normal priority.
+For a peek, and for the monitor's reading of a screen, the terminal's input waker asks the console for each row, and the console answers at normal priority.
 Each progress reading starts git twice in a goblin's worktree, and a process the fleet starts runs at normal.
 One slow key in a run is a hosted runner's scheduling noise (504 ms seen with the test's job to itself); two slow keys fail, and a failure names the slow keys by number.
 Apart from that policy, a goblin's terminal keeps off the performance cores the fleet's work leaves to the Overlord's own apps: half of the machine's performance cores, rounded up to whole cores, the last of them as Windows numbers them.
