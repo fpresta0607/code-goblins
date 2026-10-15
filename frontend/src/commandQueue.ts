@@ -358,7 +358,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
 
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
   if (item.kind === "browser-signin") return item.signin.state === "signed_in" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.signin.state };
-  if (item.kind === "credential") return item.request.state === "saved" || item.request.state === "done" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.request.state };
+  if (item.kind === "credential") return item.request.state === "saved" || item.request.state === "done" || item.request.state === "answered" ?{ icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.request.state };
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
     // One check while a board answer is on its way, two once it is delivered.

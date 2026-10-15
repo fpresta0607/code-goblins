@@ -92,7 +92,7 @@ func waitForCard(ctx context.Context, h home.Home, card, task string, runtime co
 	case "done":
 		fmt.Fprintf(stdout, "card %s is done: the step is taken\n", card)
 	case "dismissed":
-		fmt.Fprintf(stdout, "he closed card %s: go on without it\n", card)
+		fmt.Fprintf(stdout, "he skipped card %s: go on without it\n", card)
 		return cardDismissed
 	case "answered":
 		fmt.Fprintf(stdout, "he answered instead: %s\n", request.Reason)

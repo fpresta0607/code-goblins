@@ -13,6 +13,8 @@ import "./credential-card.css";
 import "./browser-signin-card.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
+import { WayOut } from "./way-out";
+import { DictatedAnswer } from "./dictated-answer";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
@@ -62,8 +64,12 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const [isFetching, setIsFetching] = useState(false);
   // The plain values he types, by name, until each is sent.
   const [plainValues, setPlainValues] = useState<Record<string, string>>({});
-  // His click on Done, Dismiss or the window button, until the board answers.
+  // His click on Done, Skip, Send answer or the window button, until the
+  // board answers.
   const [pressing, setPressing] = useState("");
+  // Other's box, open or shut, and what he wrote or said in it.
+  const [isOtherOpen, setIsOtherOpen] = useState(false);
+  const [otherText, setOtherText] = useState("");
   const commandBox = useRef<HTMLPreElement>(null);
   const local = onThisMachine(window.location.hostname);
   const open = request.state === "open";
@@ -164,8 +170,13 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   return <article className="question-card credential-card" data-credential-request={request.id} aria-labelledby={"credential-" + request.id}>
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span>
-      {open && <button type="button" className="card-close" disabled={!connected || !!pressing} aria-label="Close this card" data-tip={request.task ? asker + " goes on without it" : "No longer needed"} onClick={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")}><Icon name="close" />Close</button>}
+      {open && <WayOut skipTip={request.task ? asker + " goes on without it" : "No longer needed"} isOtherOpen={isOtherOpen} disabled={!connected || !!pressing}
+        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onOther={() => setIsOtherOpen((prior) => !prior)} />}
     </p>
+    {open && isOtherOpen && <div className="card-other-answer">
+      <DictatedAnswer label="Your answer" placeholder={"Tell " + (request.task ? asker : "the CFO") + " what to do instead..."} value={otherText} instance={snapshot.instance} disabled={!!pressing} onText={setOtherText} />
+      <button type="button" className="primary send-decision" disabled={!connected || !otherText.trim() || !!pressing} onClick={() => void press("/api/credentials/close", { action: "answer", text: otherText.trim() }, "answer")}><Icon name={pressing === "answer" ? "clock" : "send"} />Send answer</button>
+    </div>}
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{credentialHeading(request)}</h3>
       {request.why && inputs.length > 0 && <p className="credential-why">{request.why}</p>}

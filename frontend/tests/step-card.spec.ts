@@ -78,7 +78,7 @@ test("Close sits at the top of every card, from any board, and leaves the comman
   const sent = await answer(page);
   const card = await openCard(page, INPUTS, elsewhere);
   await recordDoneCards(page);
-  const close = card.locator(".asker").getByRole("button", { name: "Close this card" });
+  const close = card.locator(".asker").getByRole("button", { name: "Skip this card" });
 
   // Act
   await expect(close).toBeInViewport();
@@ -98,7 +98,7 @@ test("a closed card with nothing secret to give later says how to bring it back"
   await recordDoneCards(page);
 
   // Act
-  await card.getByRole("button", { name: "Close this card" }).click();
+  await card.getByRole("button", { name: "Skip this card" }).click();
   await setCard(page, CLICKS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
   // Assert
@@ -136,12 +136,11 @@ test("the window button asks for the goblin's own browser, then the card says it
   await card.getByRole("button", { name: "Open the browser window" }).click();
   await expect.poll(() => sent.length).toBe(1);
   await setCard(page, WINDOW, { window_state: "requested" });
-  const opening = await card.locator(".step-window").innerText();
+  await expect(card.locator(".step-window")).toContainText("Opening the browser window on your PC.");
   await setCard(page, WINDOW, { window_state: "open" });
 
   // Assert
   expect(sent[0]).toEqual({ path: "/api/credentials/window", token: "fixture-token", body: { id: WINDOW, generation: "c".repeat(32) } });
-  expect(opening).toContain("browser window on your PC");
   await expect(card.locator(".step-window")).toContainText("The browser window is open on your screen. Take the step there, then press Done.");
   await expect(card.locator(".step-window .primary")).toBeDisabled();
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("link")).toHaveCount(0);
@@ -160,7 +159,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
       // Assert
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}.png`) });
-      await expect(card.getByRole("button", { name: "Close this card" })).toBeInViewport();
+      await expect(card.getByRole("button", { name: "Skip this card" })).toBeInViewport();
       await card.locator(".credential-heading").hover();
       await page.mouse.wheel(0, 4000);
       expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);

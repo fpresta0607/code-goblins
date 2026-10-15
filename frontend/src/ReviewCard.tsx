@@ -13,17 +13,19 @@ import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { DictatedAnswer } from "./dictated-answer";
+import { WayOut } from "./way-out";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
 // One review item, saying each thing once: who asks by the goblin's name and
-// title, what to look at, its images and its page, then Clear to close it. A
-// page the supervisor watches shows itself, live and scaled down, and is
-// answered on the page, so the card has one button that opens it, no text box
-// and no line that explains. A goblin waiting on the Overlord is a status with
-// no text box that opens what it waits on (its page, question, file or link)
-// from its one action button, with Dismiss beside it. Anything else takes a
-// written answer that goes to the asker once.
+// title, what to look at, its images and its page, with Skip and Other at its
+// top. A page the supervisor watches shows itself, live and scaled down, and
+// is answered on the page, so the card has one button that opens it and no
+// text box until he presses Other. A goblin waiting on the Overlord is a
+// status that opens what it waits on (its page, question, file or link) from
+// its one action button. Skip clears either, telling a waiting goblin to go on
+// without it, and Other opens a box whose answer goes to the asker once.
+// Anything else always takes a written answer that goes to the asker once.
 export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onOpen, onImage, pager }: {
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onOpen: (key: string) => void; onImage: (index: number) => void; pager?: ReactNode;
@@ -40,14 +42,21 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const item: Item = { kind: "review", key: "review:" + review.id, review };
   const settled = settledIcon(item, snapshot.actions);
   const status = waitsOnOverlord(review);
-  const answersHere = pending && !review.watched && !status;
+  // Other opens a box on a card that has none of its own: a wait, or a page
+  // answered on its page.
+  const [isOtherOpen, setIsOtherOpen] = useState(false);
+  const hasBox = !review.watched && !status;
+  const answersHere = pending && (hasBox || isOtherOpen);
   const target = status ? waitTarget(review, snapshot) : null;
   // The goblin's own words, formatted: its lead line heads the card, and the
   // details, a table of values to enter, or a closing line follow it. Words
   // that open with a table have no lead line and are all body.
   const { lead, rest } = leadAndRest(status ? waitReason(review) : review.title);
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
-    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span>
+      {pending && <WayOut skipTip={status ? asker + " goes on without it" : "Clear it without answering"} isOtherOpen={isOtherOpen} disabled={!connected || draft.sending}
+        onSkip={onClear} onOther={hasBox ? undefined : () => setIsOtherOpen((prior) => !prior)} />}
+    </p>
     {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
     {lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
@@ -63,8 +72,6 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {pending && !status && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Clear this item without answering" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
-      {pending && status && <button type="button" className={target ? "status-dismiss" : "primary status-dismiss"} disabled={!connected || draft.sending} onClick={onClear}><Icon name="check" />Dismiss</button>}
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
       {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={target.url} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
       {review.lavish && !status && <a className="primary button-link open-page" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}

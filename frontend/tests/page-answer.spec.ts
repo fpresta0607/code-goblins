@@ -40,7 +40,7 @@ test("a clear refused because he just answered on the page shows the check, not 
   await recordDoneCards(page);
 
   // Act
-  await dialog.getByRole("button", { name: "Dismiss" }).click();
+  await dialog.getByRole("button", { name: "Skip this card" }).click();
   await expect.poll(() => refused).toBe(true);
   await page.evaluate(() => window.answerOnPage?.());
 

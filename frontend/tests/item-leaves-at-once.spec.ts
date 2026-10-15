@@ -118,9 +118,9 @@ async function expectGone(page: Page, says: string) {
 
 const WAYS = [
   { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
-  { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", press: 'dialog.question-modal [aria-label="Dismiss this question"]', kind: "question_clear", heading: "Dismissed" },
-  { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", press: "dialog.question-modal .status-dismiss", kind: "review_clear", heading: "Cleared" },
-  { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", press: 'dialog.question-modal [aria-label="Clear this item without answering"]', kind: "review_clear", heading: "Cleared" },
+  { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "question_clear", heading: "Dismissed" },
+  { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
+  { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
 ];
 
 test("an answer waiting for the Codex composer reads Queued with its reason", async ({ page, context }) => {
