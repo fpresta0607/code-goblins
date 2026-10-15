@@ -140,7 +140,7 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
   const seen = await baby(page, "Jules IX").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Jules IX - Process Wrangler", "runs: Node running watch-queue.mjs", "state: Working 30m", "memory: 4 MB"]);
+  expect(describe(seen)).toEqual(["title: Jules IX - Watcher Reviewer", "runs: Review the queue watcher", "state: Working 30m", "memory: 4 MB"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);
@@ -222,7 +222,7 @@ for (const name of ["Bartholomew Jr.", "Bartholomew II", "Reconcile the nightly"
 
 // The Overlord's screenshot of Mabel's baby goblins cut "Detached, working 5"
 // short. The longest state a baby goblin has shows whole on one line.
-test("a detached baby goblin's longest state shows whole", async ({ page }) => {
+test("a long-running subagent's state shows whole", async ({ page }) => {
   // Arrange
   await open(page);
 
@@ -231,7 +231,7 @@ test("a detached baby goblin's longest state shows whole", async ({ page }) => {
 
   // Assert
   const state = seen.parts.find((part) => part.part === "state")!;
-  expect(state.text).toBe("Detached, working 12h 59m");
+  expect(state.text).toBe("Working 12h 59m");
   expect(state.whole).toBe(state.lines);
   expect(seen.truncated.filter((element) => element.includes("state-chip"))).toEqual([]);
 });

@@ -36,7 +36,7 @@ test("a baby goblin new to its goblin's branches was born, and one gone or finis
 
 test("a baby goblin reports when its activity, last line or state changes, and not otherwise", () => {
   for (const [fields, isReport] of [
-    [{ last_activity: "2026-10-12T12:02:00Z" }, true], [{ last_line: "ok internal/monitor" }, true], [{ state: "waiting" }, false],
+    [{ last_activity: "2026-10-12T12:02:00Z" }, true], [{ last_line: "ok internal/monitor" }, true], [{ state: "waiting" }, true],
     [{ memory: 4 * 2 ** 20 }, false], [{}, false],
   ] as [Partial<TreeNode>, boolean][]) {
     // Arrange
