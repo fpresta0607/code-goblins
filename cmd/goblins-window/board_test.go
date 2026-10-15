@@ -117,7 +117,8 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","task":"shop","created_at":"2026-10-01T12:01:00Z"},{"id":"r2","title":"done","state":"answered","created_at":"2026-10-01T12:00:00Z"}],
 		"runs":[{"id":"u1","title":"Install the tool","state":"ready","created_at":"2026-10-01T12:02:00Z"},{"id":"u2","title":"ran","state":"finished","created_at":"2026-10-01T12:00:00Z"},
 			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1","created_at":"2026-10-01T12:00:00Z"}],
-		"credentials":[{"id":"c1","project":"shop","state":"open","task":"shop","names":["API_KEY"],"created_at":"2026-10-01T12:06:00Z"},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"],"created_at":"2026-10-01T12:00:00Z"}]}`
+		"credentials":[{"id":"c1","project":"shop","state":"open","task":"shop","names":["API_KEY"],"created_at":"2026-10-01T12:06:00Z"},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"],"created_at":"2026-10-01T12:00:00Z"},
+			{"id":"c3","project":"shop","state":"open","task":"shop","names":[],"why":"Create the shop's test account","created_at":"2026-10-01T12:07:00Z"}]}`
 
 	instance, items, err := waiting([]byte(snapshot))
 
@@ -129,6 +130,7 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 		{"review:r1@2026-10-01T12:01:00Z", "Open the shop", "Open the shop wants your review: Pick a layout"},
 		{"run:u1@2026-10-01T12:02:00Z", "CFO", "A command waits for you to run it: Install the tool"},
 		{"credential:c1@2026-10-01T12:06:00Z", "Open the shop", "Open the shop asks for credentials for shop"},
+		{"credential:c3@2026-10-01T12:07:00Z", "Open the shop", "Open the shop needs you for a step: Create the shop's test account"},
 	}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)

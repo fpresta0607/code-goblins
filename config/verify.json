@@ -42,6 +42,11 @@
       "why": "tests run or read these scripts"
     },
     {
+      "paths": ["ci-runner-install.ps1", "tools/release-on-main.ps1"],
+      "packages": ["internal/installscript"],
+      "why": "the desktop CI runner's install tests run these scripts"
+    },
+    {
       "paths": [".github/workflows/*.yml"],
       "packages": [".", "internal/gatetest"],
       "why": "the workflow tests read the workflows, and the test of the CI plan reads the go workflow's table of jobs"

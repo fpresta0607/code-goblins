@@ -131,6 +131,39 @@ func TestBrowserSignInPageFailureClosesItsWindowWithoutPublishingPageText(t *tes
 	}
 }
 
+// A look at the page that only runs out of its own time, as on a busy
+// machine, leaves the sign-in open for the next look rather than telling the
+// Overlord to open the window again.
+func TestBrowserSignInLookThatRunsOutOfTimeLeavesTheWindowOpen(t *testing.T) {
+	// Arrange
+	service, chrome, _ := signInBoard(t)
+	if _, err := service.requestBrowserSignIn(BrowserRequest{Task: "pd-keys", Provider: "stripe"}); err != nil {
+		t.Fatal(err)
+	}
+	card := service.Store.Snapshot().BrowserSignIns[0]
+	if err := service.openBrowserSignIn(card.ID, card.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	service.browsers.signedIn = func(ctx context.Context, _ string, _ keypages.Provider) (bool, string, error) {
+		<-ctx.Done()
+		return false, "", ctx.Err()
+	}
+
+	// Act
+	if err := service.processBrowserSignIns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	card = service.Store.Snapshot().BrowserSignIns[0]
+	if card.State != "open" || card.Reason != "" || len(chrome.endedPIDs(service.browsers)) != 0 {
+		t.Fatalf("card = %+v with %d windows ended, want it open for the next look", card, len(chrome.endedPIDs(service.browsers)))
+	}
+}
+
 func TestBrowserSignInWindowEndsWhenItsTaskIsReplaced(t *testing.T) {
 	service, chrome, _ := signInBoard(t)
 	if _, err := service.requestBrowserSignIn(BrowserRequest{Task: "pd-keys", Provider: "stripe"}); err != nil {

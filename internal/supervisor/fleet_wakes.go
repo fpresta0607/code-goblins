@@ -24,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -604,7 +605,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		}
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
-		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
+		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
 		trainErr := s.runTrain(ctx, pollRunner, w, repo, listed)
 		if ctx.Err() != nil {
@@ -1267,8 +1268,9 @@ func defaultBranch(ctx context.Context, runner execx.Runner, repo string) (strin
 // which GitHub gives out in order, and a listing whose newest run is older
 // than one a poll already read is passed over until the next poll. It
 // returns why the runs could not be read, apart from what went wrong raising
-// a wake.
-func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time) (unreadable, err error) {
+// a wake. Each red run it wakes for whose failed jobs it read is also a root
+// issue, handed to found, when set, with the repository's checkout.
+func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time, found func(project string, root tickets.Root)) (unreadable, err error) {
 	branch, err := defaultBranch(ctx, runner, repo)
 	if err != nil {
 		return err, nil
@@ -1323,6 +1325,9 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		if err := raiseFleetWake(stateDir, "ci", "main:"+filepath.Base(repo), detail); err != nil {
 			errs = errors.Join(errs, err)
 			continue
+		}
+		if found != nil && jobsErr == nil {
+			found(repo, tickets.RedMainRoot(run.Workflow, jobs, run.URL))
 		}
 		if w.RedRuns == nil {
 			w.RedRuns = map[string][]int64{}

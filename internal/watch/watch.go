@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/cirunner"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -86,6 +87,13 @@ type Config struct {
 	// JanitorEvery bounds how often the orphan sweep starts the janitor's
 	// pass over the home (see internal/janitor). Zero leaves the home alone.
 	JanitorEvery time.Duration
+
+	// CIRunnerEvery is how often the watcher asks this machine's desktop CI
+	// runner, on the pipe CIRunnerPipe names, whether a job waits, and starts
+	// a turn at the lowest priority for one that does (see
+	// internal/cirunner). Zero never asks.
+	CIRunnerEvery time.Duration
+	CIRunnerPipe  string
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
 	// plain Sleep(ctx, Poll) wait between checks. Its bool return has two
@@ -202,6 +210,8 @@ func ConfigFromEnv(h home.Home) Config {
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
 	cfg.JanitorEvery = time.Hour
+	cfg.CIRunnerEvery = 30 * time.Second
+	cfg.CIRunnerPipe = cirunner.PipeName
 	cfg.Reap = &reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
@@ -402,6 +412,11 @@ func Run(cfg Config) (string, error) {
 	defer lock.ReleaseNamed(cfg.Home.State, watchLockName)
 	if cfg.Cleanup != nil {
 		defer cfg.Cleanup()
+	}
+	if cfg.CIRunnerEvery > 0 {
+		if runner, err := newCIRunnerWatch(cfg.Home.State, cfg.CIRunnerPipe); err == nil {
+			go runner.watch(ctx, cfg.Sleep, cfg.CIRunnerEvery)
+		}
 	}
 
 	var lastFiled time.Time

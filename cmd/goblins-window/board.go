@@ -256,8 +256,9 @@ func waiting(snapshot []byte) (string, []Item, error) {
 			} `json:"update"`
 		} `json:"runs"`
 		Credentials []struct {
-			ID, Project, State, Task string
-			CreatedAt                string `json:"created_at"`
+			ID, Project, State, Task, Why string
+			Names, Plain                  []string
+			CreatedAt                     string `json:"created_at"`
 		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(snapshot, &view); err != nil {
@@ -325,8 +326,13 @@ func waiting(snapshot []byte) (string, []Item, error) {
 			items = append(items, item("run:"+r.ID, r.CreatedAt, "", "A command waits for you to run it: "+r.Title))
 		}
 	}
+	// A card that asks for no value is a step he takes, by what it is for.
 	for _, c := range view.Credentials {
-		if c.State == "open" {
+		switch {
+		case c.State != "open":
+		case len(c.Names)+len(c.Plain) == 0:
+			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" needs you for a step: "+plain(c.Why)))
+		default:
 			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" asks for credentials for "+c.Project))
 		}
 	}
