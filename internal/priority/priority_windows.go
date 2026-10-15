@@ -54,3 +54,24 @@ func AboveTheWork() (restore func()) {
 		}
 	}
 }
+
+// StartAboveTheWork is the creation flag that starts a control of the fleet
+// one priority class above normal, for a control whose start something
+// waits on under a bound. A process that raises itself does so only once
+// its code runs, and coming to exist is most of a Go program's start: on
+// 2026-10-15, beside ten busy threads on the goblins' cores, a terminal's
+// host took 0.5 to 0.8 seconds to reach its own code and its input waker as
+// long again to say it was ready, so a host's record waited on two starts
+// at the priority of the work, which grow with the work beside them
+// (issue #891). Started raised, the waker was ready in 0.15 to 0.35
+// seconds. Only a host and its waker are started so: what they start in
+// turn names no class, and Windows starts it at normal. It is 0 where this
+// process runs below normal, whose class what it starts takes and keeps, as
+// AboveTheWork leaves such a process as it is.
+func StartAboveTheWork() uint32 {
+	class, err := windows.GetPriorityClass(windows.CurrentProcess())
+	if err != nil || class == windows.BELOW_NORMAL_PRIORITY_CLASS || class == windows.IDLE_PRIORITY_CLASS {
+		return 0
+	}
+	return windows.ABOVE_NORMAL_PRIORITY_CLASS
+}

@@ -32,6 +32,10 @@ import (
 // it is the host itself, or a launcher that starts a host and exits.
 const hostRole = "HOST_TEST_ROLE"
 
+// hostClassAtStart names the file a host of this test binary writes the
+// priority class it was started at to, before any of its own code runs.
+const hostClassAtStart = "HOST_TEST_CLASS_AT_START"
+
 func TestMain(m *testing.M) {
 	switch {
 	case len(os.Args) > 1 && os.Args[1] == "echo-child":
@@ -45,6 +49,12 @@ func TestMain(m *testing.M) {
 	case len(os.Args) > 3 && os.Args[1] == "launch-when-told":
 		launchWhenTold(os.Args[2], os.Args[3])
 	case os.Getenv(hostRole) == "host":
+		if report := os.Getenv(hostClassAtStart); report != "" {
+			class, err := windows.GetPriorityClass(windows.CurrentProcess())
+			if err != nil || os.WriteFile(report, fmt.Appendf(nil, "%#x", class), 0o600) != nil {
+				os.Exit(1)
+			}
+		}
 		if err := RunArgs(os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -1219,5 +1229,58 @@ func TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal(t *testing.T) {
 	}
 	if program != windows.NORMAL_PRIORITY_CLASS {
 		t.Errorf("the terminal's program runs at priority class %#x, want normal, %#x", program, uint32(windows.NORMAL_PRIORITY_CLASS))
+	}
+}
+
+// A launch waits on its host's start, and a host raised only once its own
+// code ran came to exist at the priority of the work beside it: on a busy
+// machine that start, and its input waker's, outlasted the launch's 15 s
+// bound for a host that was on its way (issue #891). A host is started one
+// class above the work, so it runs raised before its first instruction.
+func TestALaunchedHostIsStartedOneClassAboveTheWork(t *testing.T) {
+	// Arrange
+	prioritytest.FromNormal(t)
+	report := filepath.Join(t.TempDir(), "class")
+	t.Setenv(hostClassAtStart, report)
+
+	// Act
+	launch(t)
+
+	// Assert
+	got, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("%#x", uint32(windows.ABOVE_NORMAL_PRIORITY_CLASS)); string(got) != want {
+		t.Errorf("the host was started at priority class %s, want above normal, %s", got, want)
+	}
+}
+
+// A host that does not record itself within the bound is one that did not
+// answer in time, and the launch says so with the host's pid and log, and
+// ends it, where a host that answers in time is served.
+func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
+	// Arrange
+	usual := launchTimeout
+	launchTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { launchTimeout = usual })
+	stateDir := t.TempDir()
+
+	// Act
+	// The test binary as "sleep-child" waits and never records itself.
+	_, err := Launch(stateDir, []string{os.Args[0], "sleep-child"}, hostEnvironment(), Spec{ID: "g1", Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 25})
+
+	// Assert
+	match := regexp.MustCompile(`^host: host pid (\d+) did not record itself within 500ms; see (.+)$`).FindStringSubmatch(fmt.Sprint(err))
+	if match == nil {
+		t.Fatalf("err = %v, want that the host did not record itself within 500ms, with its pid and log", err)
+	}
+	if want := filepath.Join(stateDir, "hosts", "g1.log"); match[2] != want {
+		t.Errorf("the error names the log %s, want %s", match[2], want)
+	}
+	pid, _ := strconv.Atoi(match[1])
+	if !exited(pid) {
+		end(pid)
+		t.Errorf("the host pid %d that did not answer in time still runs", pid)
 	}
 }

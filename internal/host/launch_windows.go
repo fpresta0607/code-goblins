@@ -13,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -62,8 +63,10 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		cmd.SysProcAttr.CreationFlags |= flags
 		return cmd, cmd.Start()
 	}
-	// A hidden console of its own, so nothing the host runs opens a window.
-	flags := uint32(windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP)
+	// A hidden console of its own, so nothing the host runs opens a window,
+	// and one class above the work from its start, which this launch waits
+	// on.
+	flags := uint32(windows.CREATE_NO_WINDOW|windows.CREATE_NEW_PROCESS_GROUP) | priority.StartAboveTheWork()
 	cmd, err := start(flags | windows.CREATE_BREAKAWAY_FROM_JOB)
 	contained := errors.Is(err, windows.ERROR_ACCESS_DENIED)
 	if contained {

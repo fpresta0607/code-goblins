@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -139,5 +140,57 @@ func TestWhatARaisedProcessStartsRunsAtNormal(t *testing.T) {
 	}
 	if want := fmt.Sprintf("%#x", uint32(windows.NORMAL_PRIORITY_CLASS)); string(got) != want {
 		t.Errorf("the child of a raised process ran at priority class %s, want normal, %s", got, want)
+	}
+}
+
+// A control something waits on starts one class above the work from its
+// creation, from a process at normal or already raised, and a process below
+// normal starts it where that process runs, as it starts everything.
+func TestStartAboveTheWorkStartsAControlOneClassAboveNormal(t *testing.T) {
+	tests := []struct {
+		name        string
+		parent      uint32
+		shouldRaise bool
+		want        uint32
+	}{
+		{name: "from normal", parent: windows.NORMAL_PRIORITY_CLASS, want: windows.ABOVE_NORMAL_PRIORITY_CLASS},
+		{name: "from a raised control", parent: windows.NORMAL_PRIORITY_CLASS, shouldRaise: true, want: windows.ABOVE_NORMAL_PRIORITY_CLASS},
+		{name: "from below normal", parent: windows.BELOW_NORMAL_PRIORITY_CLASS, want: windows.BELOW_NORMAL_PRIORITY_CLASS},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			prioritytest.FromNormal(t)
+			if err := windows.SetPriorityClass(windows.CurrentProcess(), test.parent); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := windows.SetPriorityClass(windows.CurrentProcess(), windows.NORMAL_PRIORITY_CLASS); err != nil {
+					t.Error(err)
+				}
+			})
+			if test.shouldRaise {
+				defer AboveTheWork()()
+			}
+			report := filepath.Join(t.TempDir(), "class")
+			child := exec.Command(os.Args[0])
+			child.Env = append(os.Environ(), classReport+"="+report)
+			child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: StartAboveTheWork()}
+
+			// Act
+			output, err := child.CombinedOutput()
+
+			// Assert
+			if err != nil {
+				t.Fatalf("the child failed: %v: %s", err, output)
+			}
+			got, err := os.ReadFile(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := fmt.Sprintf("%#x", test.want); string(got) != want {
+				t.Errorf("the child ran at priority class %s, want %s", got, want)
+			}
+		})
 	}
 }

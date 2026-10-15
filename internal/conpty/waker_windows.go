@@ -14,6 +14,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/priority"
 )
 
 // Windows' inbox conhost (10.0.26100, as Windows 11 and Windows Server 2025
@@ -157,7 +159,9 @@ func startWaker(pc, job windows.Handle) (*waker, error) {
 	startup.Flags = windows.STARTF_USESTDHANDLES
 	startup.StdInput, startup.StdOutput, startup.StdErr = typedRead, reportWrite, reportWrite
 	var info windows.ProcessInformation
-	if err := windows.CreateProcess(program, commandLine, nil, nil, true, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_SUSPENDED, nil, nil, &startup.StartupInfo, &info); err != nil {
+	// The host waits on the waker's start, and a host's launch on the host,
+	// so the waker starts one class above the work.
+	if err := windows.CreateProcess(program, commandLine, nil, nil, true, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_SUSPENDED|priority.StartAboveTheWork(), nil, nil, &startup.StartupInfo, &info); err != nil {
 		return fail(fmt.Errorf("conpty: start the input waker: %w", err))
 	}
 	defer windows.CloseHandle(info.Process)
