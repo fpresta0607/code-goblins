@@ -310,6 +310,10 @@ func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	if at := strings.Index(brief, BriefRootIssues()); at < constraints || at > verification {
 		t.Errorf("the queued brief's Constraints do not say %q:\n%s", BriefRootIssues(), brief)
 	}
+	authentication, commits := strings.Index(brief, "## Authentication"), strings.Index(brief, "## Commits")
+	if at := strings.Index(brief, BriefStepCards()); at < authentication || at > commits {
+		t.Errorf("the queued brief's Authentication does not say %q:\n%s", BriefStepCards(), brief)
+	}
 	// A heavy run started by a process start of the goblin's own shows a
 	// window on the Overlord's desktop: the brief names the one way to start
 	// it hidden.

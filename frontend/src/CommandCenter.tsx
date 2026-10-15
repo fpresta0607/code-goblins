@@ -11,7 +11,7 @@ import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CfoUnwokenCard } from "./cfo-unwoken-card";
 import { CredentialCard } from "./credential-card";
-import { credentialAsk, credentialSettled, onThisMachine } from "./credentials";
+import { credentialAsk, credentialFinish, onThisMachine } from "./credentials";
 import { BrowserSignInCard } from "./browser-signin-card";
 import { signInHeading, signInOutcome } from "./browser-signins";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
@@ -118,7 +118,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
   const ranClean = item?.kind === "run" && !item.run.update && !isOpen(item) && !runMark(item.run).trouble;
-  const stored = item?.kind === "credential" && item.request.state === "saved";
+  const credentialEnd = item?.kind === "credential" ? credentialFinish(item.request) : null;
+  const stored = !!credentialEnd;
   const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : item.kind === "browser-signin" ? !isOpen(item) : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // A question he answered and moved past opens again, when he goes back to
@@ -429,8 +430,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : ranClean
               ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
-              : item.kind === "credential" && stored
-              ? <DoneCard key={shownKey} heading="Stored" label={credentialSettled(item.request)} pager={pager} />
+              : item.kind === "credential" && credentialEnd
+              ? <DoneCard key={shownKey} heading={credentialEnd.heading} label={credentialEnd.label} pager={pager} />
               : item.kind === "browser-signin" && item.signin.state === "signed_in"
               ? <DoneCard key={shownKey} heading="Signed in" label={signInOutcome(item.signin)} pager={pager} />
               : finishing && sending

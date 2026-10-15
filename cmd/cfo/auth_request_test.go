@@ -13,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // useScratchHome points cfo at a home of the test's own, so a request it
@@ -85,7 +86,7 @@ func TestAuthRequestNamesTheRepositoryItsScopeIsFor(t *testing.T) {
 	runtime := commandRuntime{projectsRoot: func() (string, error) { return root, nil }}
 	request := func(project string) (string, string) {
 		t.Helper()
-		filed, err := credentialRequest(runtime, project, "", "Charge test cards", "", nil, "", []string{"STRIPE_SECRET_KEY"})
+		filed, err := credentialRequest(runtime, project, supervisor.CredentialRequest{Why: "Charge test cards", Names: []string{"STRIPE_SECRET_KEY"}})
 		if err != nil {
 			t.Fatalf("credentialRequest(%q) = %v", project, err)
 		}
