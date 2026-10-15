@@ -90,6 +90,16 @@ func noise() []rule {
 		{kind: kindRegistryKey, change: changeLeft, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run$`), why: "the key where Windows keeps what starts at login, which every profile comes to have, while each entry in it is compared"},
 		{kind: kindRegistryKey, change: changeLeft, pattern: regexp.MustCompile(`(?i)^HKCU\\(Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall|Software\\Classes\\AppUserModelId|Software\\Classes\\CLSID|Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings|Control Panel\\NotifyIconSettings)$`), why: "a key where Windows lists installed apps, notification senders, classes or tray icons, which every profile comes to have and which the uninstall leaves, since a profile may have held it empty before, while each entry in it is compared"},
 		{kind: kindRegistryKey, change: changeLeft, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Dsh$`), why: "the empty key Windows' widgets host creates for a profile at a time of its own, which some runners hold before the install and others come to hold during the run"},
+		// The Azure guest agent every hosted runner's VM carries starts its
+		// log collector, CollectGuestLogs.exe, on its own schedule to gather
+		// the machine's logs and registry. In run 38523676119 it ran during
+		// the job, on the one runner of 32 sampled whose agent had run for
+		// nearly an hour, and that runner alone came to hold these empty keys
+		// in the profile; the same steps on the other 31, the same commit's
+		// among them, never made them, and Code Goblins writes nothing under
+		// Wow6432Node. Every entry under them is compared.
+		{kind: kindProcess, change: changeLeft, pattern: regexp.MustCompile(`(?i)^` + regexp.QuoteMeta(os.Getenv("SystemDrive")) + `\\WindowsAzure\\GuestAgent_[^\\]+\\CollectGuestLogs\.exe$`), why: "the log collector of the runner's Azure guest agent, which the agent starts on its own schedule"},
+		{kind: kindRegistryKey, change: changeLeft, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Wow6432Node\\Microsoft\\Windows(\\CurrentVersion(\\Uninstall)?)?$`), why: "the empty keys above a 32-bit list of installed apps, which the runner's Azure guest agent made while its log collector ran, while each entry in them is compared"},
 		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\Windows.Defender.MpUxDlp`, "Microsoft Defender's own notification registration, which the runner's Windows writes during a run"),
 		keys(`HKCU\Software\Microsoft\input`, "Windows' typing records"),
 		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense`, "Windows' Storage Sense, which measures the drives by itself"),

@@ -372,6 +372,55 @@ func TestNoisePassesOverTheKeyWindowsCreatesForItsWidgetsHost(t *testing.T) {
 	}
 }
 
+// What the runner's Azure guest agent left in run 38523676119, its log
+// collector running and the empty keys above a 32-bit list of installed apps
+// in the profile, is passed over, and a planted Code Goblins leftover beside
+// it, or under it, is still named.
+func TestNoisePassesOverWhatTheRunnersGuestAgentLeavesButNotOurs(t *testing.T) {
+	t.Setenv("SystemDrive", `C:`)
+	t.Setenv("SystemRoot", `C:\Windows`)
+	guestAgent := []difference{
+		{Change: changeLeft, Kind: kindProcess, Identity: `C:\WindowsAzure\GuestAgent_2.7.41491.1243_2026-10-14_054847\CollectGuestLogs.exe`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows\CurrentVersion`},
+		{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall`},
+	}
+	cases := []struct {
+		name    string
+		planted []difference
+	}{
+		{"nothing of ours", nil},
+		{"our program under the guest agent's folder", []difference{{Change: changeLeft, Kind: kindProcess, Identity: `C:\WindowsAzure\GuestAgent_2.7.41491.1243_2026-10-14_054847\goblins.exe`}}},
+		{"another program of the guest agent's", []difference{{Change: changeLeft, Kind: kindProcess, Identity: `C:\WindowsAzure\GuestAgent_2.7.41491.1243_2026-10-14_054847\Other.exe`}}},
+		{"a log collector outside the guest agent's folder", []difference{{Change: changeLeft, Kind: kindProcess, Identity: `C:\Users\a\AppData\Local\CodeGoblins\bin\CollectGuestLogs.exe`}}},
+		{"our entry in the 32-bit list", []difference{{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\CodeGoblins`}}},
+		{"any entry in the 32-bit list", []difference{{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{0123}`}}},
+		{"a key beside the 32-bit list", []difference{{Change: changeLeft, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Run`}}},
+		{"an entry of the 32-bit list gone", []difference{{Change: changeGone, Kind: kindRegistryKey, Identity: `HKCU\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Old`}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			before, after := newSnapshot(time.Unix(0, 0)), newSnapshot(time.Unix(0, 0))
+			for _, difference := range append(slices.Clone(guestAgent), tc.planted...) {
+				if difference.Change == changeGone {
+					before.add(difference.Kind, difference.Identity, "")
+					continue
+				}
+				after.add(difference.Kind, difference.Identity, "")
+			}
+
+			// Act
+			remaining, _ := compare(before, after, nil, noise())
+
+			// Assert
+			if len(remaining) != len(tc.planted) || len(tc.planted) == 1 && remaining[0].Identity != tc.planted[0].Identity {
+				t.Errorf("named %v, want %v named", remaining, tc.planted)
+			}
+		})
+	}
+}
+
 // The rule for HKCU\Software\Classes, and why. Windows registers each of
 // its own packaged apps' file types, links and classes there as it
 // provisions the app for a profile, at times of its own, under names of the
