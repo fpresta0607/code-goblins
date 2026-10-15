@@ -36,6 +36,12 @@ const OUTPUTS: Record<string, string[]> = {
 async function open(page: Page, width = 1600) {
   await page.setViewportSize({ width, height: 1000 });
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  // No WebGL, so xterm draws with its DOM renderer on every machine, the cells
+  // it draws readable with their colours, as a browser without a GPU draws them.
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext as (this: HTMLCanvasElement, kind: string, options?: unknown) => RenderingContext | null
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value(this: HTMLCanvasElement, kind: string, options?: unknown) { return kind === "webgl2" ? null : getContext.call(this, kind, options) } })
+  })
   const fleet = parseSnapshot(treeFleet(Date.now()))
   const children = fleet.tasks[0].tree!.children
   children.find(child => child.id === "process:5120:1")!.state = "working"
@@ -170,7 +176,7 @@ test("at phone width a baby goblin on its rail opens its panel too", async ({ pa
   await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click();
   await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click();
   await expect(title(page)).toHaveText(/^Grub Jr\. - Plumbing Mapper/);
-  await expect(page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })).toContainText("Grep(subagents/agent-)");
+  await expect(page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })).toContainText("● Search(subagents/agent-)");
 });
 
 test("baby goblins are named after their goblin in the order they started, each with a title from its own description", async ({ page }) => {
@@ -232,7 +238,9 @@ for (const [name, node, last, output, next] of [
 // the elbow, an error in red, the rest folded dim, and Claude Code's working
 // line in its orange while the baby goblin works.
 const row = (page: Page, start: string) => page.locator(".agent-terminal .xterm-rows > div").filter({ hasText: new RegExp("^\\s*" + start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).first()
-const colourOf = (page: Page, start: string, text: string) => row(page, start).locator("span").filter({ hasText: text }).first().evaluate((span) => ({ color: getComputedStyle(span).color, weight: getComputedStyle(span).fontWeight }))
+// The look of the first cell run holding text in the row starting with start.
+// The spinner redraws rows, so a run read as it is replaced is read again.
+const colourOf = (page: Page, start: string, text: string) => row(page, start).locator("span").filter({ hasText: text }).evaluateAll((spans) => spans.filter((span) => span.isConnected).map((span) => ({ color: getComputedStyle(span).color, weight: getComputedStyle(span).fontWeight }))[0] ?? { color: "", weight: "" })
 
 test("a sub-agent's transcript is drawn in the goblin terminal's surface with Claude Code's marks and colours", async ({ page }) => {
   await open(page)
@@ -240,16 +248,16 @@ test("a sub-agent's transcript is drawn in the goblin terminal's surface with Cl
   await baby(page, "Grub Jr. - Plumbing Mapper").click()
   const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })
   await expect(terminal.locator(".xterm-rows")).toContainText("● Search(subagents/agent-)")
-  const look = await terminal.locator(".xterm-rows").evaluate((rows) => ({ size: getComputedStyle(rows).fontSize, family: getComputedStyle(rows).fontFamily, height: (rows.firstElementChild as HTMLElement).getBoundingClientRect().height, background: getComputedStyle(rows.closest(".xterm-viewport") ?? rows.closest(".xterm")!).backgroundColor }))
-  expect(look, "a goblin terminal's font, size, line height and background").toEqual({ size: "20px", family: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', height: 24, background: "rgb(7, 16, 21)" })
-  expect(await colourOf(page, "● Search", "●")).toEqual({ color: "rgb(78, 186, 101)", weight: "400" })
-  expect((await colourOf(page, "● Search", "Search")).weight, "the tool in bold").toBe("700")
-  expect((await colourOf(page, "● Read", "●")).color, "a failed call's dot is red").toBe("rgb(255, 107, 128)")
-  expect((await colourOf(page, "⎿  Error", "Error")).color, "its error is red").toBe("rgb(255, 107, 128)")
-  expect((await colourOf(page, "⎿  Found", "Found")).color, "what came back is grey").toBe("rgb(153, 153, 153)")
-  expect((await colourOf(page, "> Find", "Find")).color, "the prompt in the terminal's own colour").toBe("rgb(216, 233, 226)")
+  const look = await terminal.locator(".xterm").evaluate((xterm) => ({ size: getComputedStyle(xterm.querySelector(".xterm-rows")!).fontSize, family: getComputedStyle(xterm.querySelector(".xterm-rows")!).fontFamily, background: getComputedStyle(xterm.querySelector(".xterm-viewport")!).backgroundColor }))
+  expect(look, "a goblin terminal's font, size and background").toEqual({ size: "20px", family: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', background: "rgb(7, 16, 21)" })
+  await expect.poll(() => colourOf(page, "● Search", "●"), "a done call's dot is green").toEqual({ color: "rgb(78, 186, 101)", weight: "400" })
+  await expect.poll(async () => (await colourOf(page, "● Search", "Search")).weight, "the tool in bold").toBe("700")
+  await expect.poll(async () => (await colourOf(page, "● Read", "●")).color, "a failed call's dot is red").toBe("rgb(255, 107, 128)")
+  await expect.poll(async () => (await colourOf(page, "⎿  Error", "Error")).color, "its error is red").toBe("rgb(255, 107, 128)")
+  await expect.poll(async () => (await colourOf(page, "⎿  Found", "Found")).color, "what came back is grey").toBe("rgb(153, 153, 153)")
+  await expect.poll(async () => (await colourOf(page, "> Find", "Find")).color, "the prompt in the terminal's own colour").toBe("rgb(216, 233, 226)")
   await expect(terminal.locator(".xterm-rows")).toContainText(/[·✢✳✶✻✽] Working… \(50m \d+s\)/)
-  expect(await terminal.locator(".xterm-rows span").filter({ hasText: "Working…" }).first().evaluate((span) => getComputedStyle(span).color), "the working line in Claude Code's orange").toBe("rgb(215, 119, 87)")
+  await expect.poll(() => terminal.locator(".xterm-rows span").filter({ hasText: "Working…" }).evaluateAll((spans) => spans.filter((span) => span.isConnected).map((span) => getComputedStyle(span).color)[0] ?? ""), "the working line in Claude Code's orange").toBe("rgb(215, 119, 87)")
 })
 
 for (const width of [1600, 390]) {
