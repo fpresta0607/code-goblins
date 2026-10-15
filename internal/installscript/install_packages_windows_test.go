@@ -79,53 +79,104 @@ func TestTheInstallPinsEveryPackageItFetchesFromNpm(t *testing.T) {
 	}
 }
 
-// npx fetches the skills CLI into npm's shared cache, and a fetch that breaks
-// there, as npm's "Lock compromised" did on a CI runner on 2026-10-07, leaves
-// an entry every later npx of that CLI fails on. So a skill install that
-// fails is tried again with a fresh npm cache of the install's own, the rest
-// go straight to it, and it is removed once the skills are in. The stand-in
-// npx fails whenever it runs on the shared cache.
-func TestOneLineInstallTriesASkillAgainWithAFreshNpmCache(t *testing.T) {
+// An npx that installs a package holds a lock on its cache folder, which npm
+// before 11.6.3 reports compromised (ECOMPROMISED) when the file system
+// answers slowly, as it did on a CI runner on 2026-10-07 and again on
+// 2026-10-14 with a fresh npm cache (issue #888). So the npm beside the npx
+// installs the skills CLI into a folder of the install's own, npx runs it from
+// that folder with --no, never installing a package itself, and the folder is
+// removed once the skills are in. The stand-in npx fails with ECOMPROMISED
+// whenever it would install the CLI itself.
+func TestOneLineInstallAddsSkillsWithoutNpxInstallingAPackage(t *testing.T) {
 	// Arrange
 	folder := t.TempDir()
 	calls := filepath.Join(folder, installtest.NpxCalls)
-	npx := "@if \"%npm_config_cache%\"==\"\" (echo shared %6>>\"" + calls + "\"& exit /b 1)\r\n" +
-		"@echo fresh %6 %npm_config_cache%>>\"" + calls + "\"\r\n" +
-		"@if not exist \"%npm_config_cache%\" exit /b 2\r\n" +
+	cli := filepath.Join(folder, "npm-calls.txt")
+	npm := "@echo %*>>\"" + cli + "\"\r\n" +
+		"@if not \"%1 %2\"==\"install --prefix\" exit /b 0\r\n" +
+		"@mkdir \"%~3\\node_modules\\.bin\"\r\n" +
+		"@echo.>\"%~3\\node_modules\\.bin\\skills.cmd\"\r\n" +
+		"@exit /b 0\r\n"
+	npx := "@if not \"%1\"==\"--no\" (echo npm error code ECOMPROMISED& echo installs %6>>\"" + calls + "\"& exit /b 1)\r\n" +
+		"@if not exist \"%CD%\\node_modules\\.bin\\skills.cmd\" (echo installs %6>>\"" + calls + "\"& exit /b 1)\r\n" +
+		"@echo local %6 %CD%>>\"" + calls + "\"\r\n" +
 		"@exit /b 0\r\n"
 
 	// Act
-	output, _, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npx": npx})
+	output, _, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npm": npm, "npx": npx})
 
 	// Assert
+	fetched, err := os.ReadFile(cli)
+	if err != nil {
+		t.Fatalf("npm was never called: %v\n%s", err, output)
+	}
+	fetch := regexp.MustCompile(`(?m)^install --prefix (\S+) --no-save --no-audit --no-fund skills@` + regexp.QuoteMeta(skillsCliPin(t)) + `\s*$`).FindStringSubmatch(strings.ReplaceAll(string(fetched), "\r\n", "\n"))
+	if fetch == nil {
+		t.Fatalf("npm was called as %q, want it to install the pinned skills CLI into a folder of its own", fetched)
+	}
 	recorded, err := os.ReadFile(calls)
 	if err != nil {
 		t.Fatalf("npx was never called: %v\n%s", err, output)
 	}
 	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(recorded), "\r\n", "\n")), "\n")
-	if len(lines) != 4 || lines[0] != "shared gh-axi" {
-		t.Fatalf("npx was called as %q, want gh-axi on the shared cache, then each skill once on a fresh one", lines)
+	want := []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"}
+	if len(lines) != len(want) {
+		t.Fatalf("npx was called as %q, want each skill once from the skills CLI's folder", lines)
 	}
-	var cache string
-	for index, skill := range []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"} {
-		fields := strings.SplitN(lines[index+1], " ", 3)
-		if len(fields) != 3 || fields[0] != "fresh" || fields[1] != skill {
-			t.Fatalf("call %d was %q, want %s on the fresh cache", index+2, lines[index+1], skill)
-		}
-		if cache == "" {
-			cache = fields[2]
-		}
+	for index, skill := range want {
+		fields := strings.SplitN(lines[index], " ", 3)
 		// A runner's temporary folder can be spelt with 8.3 short names on
 		// one side and long ones on the other.
-		if fields[2] != cache || !strings.HasPrefix(strings.ToLower(fsx.LongPath(cache)), strings.ToLower(fsx.LongPath(temp))) {
-			t.Errorf("%s ran with the npm cache %q, want the one fresh cache in the temporary folder", skill, fields[2])
+		if len(fields) != 3 || fields[0] != "local" || fields[1] != skill || !strings.EqualFold(fsx.LongPath(fields[2]), fsx.LongPath(fetch[1])) {
+			t.Errorf("call %d was %q, want %s run in %s", index+1, lines[index], skill, fetch[1])
 		}
 	}
-	if _, err := os.Stat(cache); !os.IsNotExist(err) {
-		t.Errorf("the fresh npm cache %s outlived the install: %v", cache, err)
+	if !strings.HasPrefix(strings.ToLower(fsx.LongPath(fetch[1])), strings.ToLower(fsx.LongPath(temp))) {
+		t.Errorf("the skills CLI went into %s, want a folder in the temporary folder %s", fetch[1], temp)
+	}
+	if _, err := os.Stat(fetch[1]); !os.IsNotExist(err) {
+		t.Errorf("the skills CLI's folder %s outlived the install: %v", fetch[1], err)
 	}
 	if note := installNote.FindString(output); strings.Contains(note, "skill") {
 		t.Errorf("the install's Note is %q, want every skill installed:\n%s", note, output)
+	}
+}
+
+// The skills CLI comes from npm's registry, so a fetch of it that fails is
+// tried once more, and one that fails again leaves every skill out, each
+// named in the install's one Note line, with npx never run.
+func TestOneLineInstallNamesEverySkillWhenTheSkillsCliCannotBeFetched(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	calls := filepath.Join(folder, installtest.NpxCalls)
+	cli := filepath.Join(folder, "npm-calls.txt")
+	npm := "@echo %*>>\"" + cli + "\"\r\n" +
+		"@if \"%1 %2\"==\"install --prefix\" exit /b 1\r\n" +
+		"@exit /b 0\r\n"
+	npx := "@echo %*>>\"" + calls + "\"\r\n@exit /b 0\r\n"
+
+	// Act
+	output, _, _ := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npm": npm, "npx": npx})
+
+	// Assert
+	fetched, err := os.ReadFile(cli)
+	if err != nil {
+		t.Fatalf("npm was never called: %v\n%s", err, output)
+	}
+	if got := strings.Count(string(fetched), "skills@"+skillsCliPin(t)); got != 2 {
+		t.Errorf("npm fetched the skills CLI %d times, want 2:\n%s", got, fetched)
+	}
+	if recorded, err := os.ReadFile(calls); err == nil {
+		t.Errorf("npx was called as %q, want it never run without the skills CLI", recorded)
+	}
+	note := installNote.FindString(output)
+	for _, skill := range []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"} {
+		if !strings.Contains(note, skill+" skill") {
+			t.Errorf("the install's Note is %q, want it to name the %s skill:\n%s", note, skill, output)
+		}
+	}
+	if !strings.Contains(output, "skills CLI") || !strings.Contains(output, "npm install exited with code 1, so no skill is added") {
+		t.Errorf("the install's log does not say the skills CLI could not be fetched:\n%s", output)
 	}
 }
 
@@ -154,7 +205,7 @@ func TestOneLineInstallTriesASkillAgainAndNamesOneThatStillFails(t *testing.T) {
 		t.Fatalf("npx was never called: %v\n%s", err, output)
 	}
 	for skill, want := range map[string]int{"gh-axi": 2, "chrome-devtools-axi": 2, "no-mistakes": 1} {
-		call := "-y skills@" + skillsCliPin(t) + " add kunchenguid/" + skill + " --skill " + skill + " -g -y -a claude-code -a codex -a pi --copy"
+		call := "--no skills@" + skillsCliPin(t) + " add kunchenguid/" + skill + " --skill " + skill + " -g -y -a claude-code -a codex -a pi --copy"
 		if got := strings.Count(string(recorded), call); got != want {
 			t.Errorf("npx was called %d times as %q, want %d:\n%s", got, call, want, recorded)
 		}

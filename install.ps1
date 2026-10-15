@@ -801,15 +801,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
 
     # The tools the fleet drives publish their own skills, installed once at
-    # user scope so every harness and every project sees them. npx fetches the
-    # skills CLI into npm's shared cache, and a fetch that breaks there leaves
-    # an entry every later npx of it fails on, as npm's "Lock compromised" did
-    # on a CI runner on 2026-10-07; so a failed skill install is tried again
-    # with a fresh npm cache of the install's own, which the skills after it
-    # use too, and which is removed once they are in.
+    # user scope so every harness and every project sees them, by the skills
+    # CLI. npm installs that CLI into a folder of the install's own, removed
+    # once the skills are in, and npx runs it from that folder with --no, so
+    # npx never installs a package itself. An npx that installs one holds a
+    # lock on its cache folder, which npm before 11.6.3, the npm Node.js 24.13
+    # ships, reports compromised (npm error code ECOMPROMISED) whenever the
+    # file system answers slowly, as a busy CI runner's did on 2026-10-07 and
+    # again on 2026-10-14 with a fresh npm cache (npm/cli#8710). npm's install
+    # takes no such lock. The npm is the one beside the npx, so the CLI is laid
+    # out the way that npx reads, and npx finds it by the folder it runs in.
     Write-Detail ""
-    $sharedNpmCache = $env:npm_config_cache
-    $freshNpmCache = ""
     # Where the skills CLI may put each skill, read before it runs, so the
     # record names only the folders this install added.
     $skillFolders = foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
@@ -818,9 +820,34 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
     $skillsBefore = @($skillFolders | Where-Object { Test-Path -LiteralPath $_ })
+    $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+    $skillsCli = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-skills-" + [Guid]::NewGuid().ToString("N"))
+    $hasSkillsCli = $false
+    if ($npx) {
+        # The CLI comes from npm's registry, and a fetch that fails once is
+        # tried once more before every skill is left out.
+        New-Item -ItemType Directory -Path $skillsCli | Out-Null
+        $npm = Join-Path (Split-Path -Parent $npx.Source) "npm.cmd"
+        $cliArgs = @("install", "--prefix", $skillsCli, "--no-save", "--no-audit", "--no-fund", "skills@$skillsCliVersion")
+        Write-Detail ("skill    {0,-20} npm {1}" -f "skills CLI", ($cliArgs -join " "))
+        $code = Invoke-Logged $npm $cliArgs
+        if ($code -ne 0) {
+            Write-Detail ("RETRY    {0,-20} npm install exited with code {1}; trying once more" -f "skills CLI", $code)
+            Start-Sleep -Seconds 2
+            $code = Invoke-Logged $npm $cliArgs
+        }
+        if ($code -ne 0) {
+            Write-Detail ("WARN     {0,-20} npm install exited with code {1}, so no skill is added" -f "skills CLI", $code)
+        }
+        $hasSkillsCli = $code -eq 0
+    }
     foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
-        if (-not (Get-Command npx.cmd -ErrorAction SilentlyContinue)) {
+        if (-not $npx) {
             Write-Detail ("PREREQ   {0,-20} skill needs Node.js: winget install OpenJS.NodeJS.LTS" -f $skill)
+            $failedInstalls += "$skill skill"
+            continue
+        }
+        if (-not $hasSkillsCli) {
             $failedInstalls += "$skill skill"
             continue
         }
@@ -828,29 +855,27 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         # ordinary Windows user may not have. The skill comes from GitHub, and
         # a fetch that fails once, as one did on a hosted runner on
         # 2026-10-06, is tried once more before the skill is left out.
-        $skillArgs = @("-y", "skills@$skillsCliVersion", "add", "kunchenguid/$skill", "--skill", $skill, "-g", "-y", "-a", "claude-code", "-a", "codex", "-a", "pi", "--copy")
-        Write-Detail ("skill    {0,-20} npx {1}" -f $skill, ($skillArgs[1..($skillArgs.Count - 1)] -join " "))
-        $code = Invoke-Logged "npx.cmd" $skillArgs
-        if ($code -ne 0 -and -not $freshNpmCache) {
-            $freshNpmCache = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-npm-" + [Guid]::NewGuid().ToString("N"))
-            New-Item -ItemType Directory -Path $freshNpmCache | Out-Null
-            $env:npm_config_cache = $freshNpmCache
-            Write-Detail ("RETRY    {0,-20} skill install exited with code {1}; trying once more with a fresh npm cache, {2}" -f $skill, $code, $freshNpmCache)
+        $skillArgs = @("--no", "skills@$skillsCliVersion", "add", "kunchenguid/$skill", "--skill", $skill, "-g", "-y", "-a", "claude-code", "-a", "codex", "-a", "pi", "--copy")
+        Write-Detail ("skill    {0,-20} npx {1}" -f $skill, ($skillArgs -join " "))
+        Push-Location -LiteralPath $skillsCli
+        try {
             $code = Invoke-Logged "npx.cmd" $skillArgs
+            if ($code -ne 0) {
+                Write-Detail ("RETRY    {0,-20} skill install exited with code {1}; trying once more" -f $skill, $code)
+                Start-Sleep -Seconds 2
+                $code = Invoke-Logged "npx.cmd" $skillArgs
+            }
         }
-        elseif ($code -ne 0) {
-            Write-Detail ("RETRY    {0,-20} skill install exited with code {1}; trying once more" -f $skill, $code)
-            Start-Sleep -Seconds 2
-            $code = Invoke-Logged "npx.cmd" $skillArgs
+        finally {
+            Pop-Location
         }
         if ($code -ne 0) {
             Write-Detail ("WARN     {0,-20} skill install exited with code {1}" -f $skill, $code)
             $failedInstalls += "$skill skill"
         }
     }
-    if ($freshNpmCache) {
-        $env:npm_config_cache = $sharedNpmCache
-        Remove-Temporary $freshNpmCache
+    if ($npx) {
+        Remove-Temporary $skillsCli
     }
     foreach ($folder in $skillFolders) {
         if ((Test-Path -LiteralPath $folder) -and -not ($skillsBefore -contains $folder)) {
