@@ -452,12 +452,25 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		if err := afk.SaveReport(stateDir, report); err != nil {
 			failed = append(failed, "the report could not name the cards ("+err.Error()+")")
 		}
-		says = strconv.Itoa(len(carded)) + " step(s) only he can take are cards in his Command Center, and his recap points to them. "
+		says = strconv.Itoa(len(carded)) + " step(s) only he can take are cards in his Command Center, and his page of the stretch points to them. "
 	}
 	if len(failed) > 0 {
-		says += "These could not become cards and stay as lines of his recap: " + strings.Join(failed, ", ") + ". "
+		says += "These could not become cards and stay as lines of the report: " + strings.Join(failed, ", ") + ". "
 	}
-	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + s.settleInHistory(current.Session) + says + "Write the report of the stretch into your terminal: cfo afk report")
+	// His page of the stretch shows each decision with the question in his
+	// History it changes, so it is made once they are settled there.
+	settled := s.settleInHistory(current.Session)
+	if page, err := s.makeReturnPage(report); err != nil {
+		says += "His page of the stretch could not be made (" + bounded(err.Error(), 300) + "), so tell him what the report holds in your reply. "
+	} else {
+		s.pageWork.Add(1)
+		go func() {
+			defer s.pageWork.Done()
+			s.presentReturnPage(current.Session, page)
+		}()
+		says += "His page of the stretch opens from one card in his Command Center. "
+	}
+	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + settled + says + "Write the report of the stretch into your terminal: cfo afk report")
 }
 
 // hisCardChoices are the choices of the card a step only he can take is when
@@ -586,7 +599,7 @@ func (s *Service) keepAFKDisk() error {
 // place in a stretch and did not strike: it goes to his History as the CFO's
 // own question, answered by the CFO while he was away, when it was logged,
 // where he can change it. Nothing is asked of him: a step only he can take is
-// a line in his recap, never a question. A goblin's page the CFO answered in
+// a card in his Command Center, never a question. A goblin's page the CFO answered in
 // his place is in History already, as the goblin's own question. It says what
 // it settled, or what it could not, for the CFO's notice.
 func (s *Service) settleInHistory(session string) string {
@@ -808,8 +821,9 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance) afk.Report {
 	if err != nil {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
 	}
-	report.Finished = finished
+	report.Finished = s.namedFinishes(finished)
 	report.Held = s.heldOf(s.Store.Snapshot(), entries, report.Decisions)
+	report.UnderWay, report.Next = s.afkUnderWay()
 	return report
 }
 
@@ -903,8 +917,9 @@ type AFKView struct {
 	// for the Overlord in it, each with what became of it.
 	Decided int        `json:"decided"`
 	Held    []afk.Held `json:"held"`
-	// Report names the last stretch that ended with its report kept.
-	Report string `json:"report,omitempty"`
+	// Page is the link of the page the last stretch that ended was made
+	// into, once it is in his Command Center.
+	Page string `json:"page,omitempty"`
 }
 
 // afkLogKind, with a stretch's session, names what the board's view keeps of
@@ -932,9 +947,9 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 		decisions := afk.Noted(afk.Decisions(entries))
 		view.Decided, view.Held = len(slices.DeleteFunc(slices.Clone(decisions), func(entry afk.Entry) bool { return entry.Kind == afk.KindHis })), s.heldOf(d, entries, decisions)
 	case switched.Session != "" && !switched.Ended.IsZero():
-		// A stretch never ends without its report kept, so the stretch the
-		// switch last ended is the one whose report there is.
-		view.Report = switched.Session
+		if i := slices.IndexFunc(d.Reviews, func(item Review) bool { return item.ID == returnPageID(switched.Session) }); i >= 0 {
+			view.Page = d.Reviews[i].Lavish
+		}
 	}
 	return view, nil
 }
@@ -1058,8 +1073,11 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 	return false, "no longer listed on the board"
 }
 
+// afkNoteLength bounds a goblin's note the report keeps for its page.
+const afkNoteLength = 600
+
 // doneBetween are the pull requests goblins reported done from since to
-// ended, read from the status logs the state directory and its archive still
+// ended, each with the goblin's last working note before it, read from the status logs the state directory and its archive still
 // hold, oldest first. A log last written before the stretch began, or
 // archived before it, holds nothing of it and is not opened: the home holds
 // hundreds of logs, opening a file costs this machine up to 80 ms, and
@@ -1111,15 +1129,23 @@ func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) 
 			unread = errors.Join(unread, err)
 			continue
 		}
+		// The goblin's own words on the work are its last working note
+		// before it reported it done.
+		note := ""
 		for _, line := range lines {
 			// A status line is stamped to the second.
 			at, event := state.SplitStatus(line)
-			rest, done := strings.CutPrefix(strings.TrimSpace(event), "done: PR ")
+			event = strings.TrimSpace(event)
+			if said, working := strings.CutPrefix(event, "working: "); working {
+				note = bounded(said, afkNoteLength)
+				continue
+			}
+			rest, done := strings.CutPrefix(event, "done: PR ")
 			if !done || at.Before(since.Truncate(time.Second)) || at.After(ended) {
 				continue
 			}
 			if fields := strings.Fields(rest); len(fields) > 0 && strings.HasPrefix(fields[0], "https://") {
-				finished = append(finished, afk.Finish{Task: id, PR: fields[0], At: at})
+				finished = append(finished, afk.Finish{Task: id, PR: fields[0], At: at, Note: note})
 			}
 		}
 	}

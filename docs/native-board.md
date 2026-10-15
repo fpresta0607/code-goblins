@@ -406,17 +406,14 @@ His next click waits five minutes as usual.
 The offer after he was away says who turned it on, with his words when the CFO did at his ask, and how many decisions the CFO made once it made any.
 Either one takes the focus itself, so keys he was typing press neither button, and Escape stays.
 A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
-When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`.
-See [AFK mode in the README](../README.md#afk-mode) for its recap: its headline, Done, Decided for you and Needs you, each line's Evidence, Spent display and Open Command Center.
-Each decision row links to what it names only when that is an https link and folds its evidence to two lines with Show more.
-His own off from the board's toggle or offer shows the report as soon as the supervisor answers, since the supervisor keeps the report before it answers, and the snapshot after it brings no second one.
-An answer is named by its goblin, since the log keeps a question's id.
+When AFK mode turns off nothing opens over the board: the stretch becomes his page of it, one card in his Command Center ([AFK mode](#afk-mode)).
+See [AFK mode in the README](../README.md#afk-mode) for what the page shows.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first.
 The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
 The turn-on question focuses Cancel, and a switch that cannot be read shows off with a tip saying that a press resets it.
 The [README](../README.md#afk-mode) describes the switch's loading and refusal displays.
 The header that carries it wraps, so on a panel at its narrowest the toggle drops under the status rather than cover it, and it is there at every width.
-While AFK mode is off and a report is kept, an icon button beside the toggle opens that report again.
+While AFK mode is off and his page of the last stretch is in his Command Center, an icon link beside the toggle opens that page again, from the snapshot's `afk.page`.
 The header's status is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
 A resume or stop whose lifecycle record failed reads Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
 A pause whose lifecycle record failed shows what the goblin is doing, with no state of its own, and one whose native terminal no longer runs is served as paused, in the Paused section, and resumes (the Overlord, 2026-10-08, of a yellow Pause did not finish on Shirley's card).
@@ -1985,16 +1982,20 @@ An agent that drives the Overlord's own running browser or window through his de
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.
 While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it, its goblin's latest report since and `recommendation`, the choice a held question's asker recommended, empty for none.
-While it is off it carries `report`, the last stretch that ended, whose report is kept.
+While it is off it carries `page`, the Scrawl link of his page of the last stretch that ended, once its card is in his Command Center.
 The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
-`GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its lines under the headings `cfo afk report` prints, each heading's `group` the part of the recap it is in (`done`, `decided` or `needs`, in that order), what each goblin finished, what waited on him in the Command Center with what became of each item as it stands now, open ones first and each in the order it came to him, how long it lasted and what was spent, with every list present.
+`state/afk-report.json` is that report: who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its lines under the headings `cfo afk report` prints, each heading's `group` (`done`, `decided` or `needs`, in that order), what each goblin finished with its task's `title`, its goblin's name and the goblin's last working `note` before it reported done, what waited on him in the Command Center with what became of each item as it stands now, what was still `under_way` with each goblin's latest note, what is `next` in the backlog's queue, and what was spent.
+When AFK mode turns off the supervisor makes his page of the stretch from it, once each decision the CFO answered in his place is settled in History: `state/afk-return/<session>/index.html`, beside the board's goblin faces and a copy of each picture a goblin's review item showed in the stretch.
+It opens the page with `lavish-axi --no-open` beside the switch, which waits on no program, and puts one item in his Command Center for it, the CFO's own, `afk-return-<when it turned on>`, which the supervisor watches like any page; a page that cannot be opened is no item, and the CFO's `afk` wake says so.
+Each decision on the page carries the question in his History it changes, and its Change sends his new answer back through Scrawl tagged `answer_change`, with the question's ID: the supervisor takes that only from a page in its own `afk-return` folder and queues the same `answer_change` History's Change answer queues, an answer the question offers as `option` and his own words as `other`, and tells him on the page that it changed.
+A change is no answer to the page, which stays open for the rest of what he sends there.
 A decision under `decided` carries `item`, the question in his History where he changes its answer: `question:afk-left-<when it was logged>` for one the CFO answered in his place, and `question:<its ID>` for a goblin's question.
 A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`.
 A `his` line still open when AFK mode turns off becomes one card in the Command Center, and the report holds that card among its held items: a line with a card is told by the card and is in no section, so Needs you lists only a step whose card could not be made, as a report kept before cards were made lists them all.
 A report kept before nothing was left for him can hold a line the CFO left him unanswered: when it has a held question, it appears only through that question's current state, under Needs you while waiting or Done once handled.
-`spent` holds each allowance used: `provider` and `window`, the percent used when it turned on and when it turned off as `on` and `off`, each absent for a reading not taken, and `reset` when the window reset in between, or for a credit balance `credits` with what was `spent` of it in `unit`.
-A window at 0% wherever it was read is left out, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
-`disk` holds free disk on the drive the disk meter reads: its `drive` and `total`, and the bytes free when it turned on and when it turned off as `on` and `off`.
+Spent holds each allowance used: its provider and window, the percent used when it turned on and when it turned off, either left out for a reading not taken, and whether the window reset in between, or for a credit balance what was spent of it.
+A window at 0% wherever it was read is left out of Spent, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
+Its free disk is the drive the disk meter reads, with the bytes free when it turned on and when it turned off, of the drive's total.
 It is absent unless free disk was read at both ends on one drive, since the meter reads whichever of the home's drive and its Dev Drive has less free.
 The board's filtering and presentation are documented in [the README](../README.md#afk-mode).
 
@@ -2036,9 +2037,9 @@ Nothing is asked of him, while he is away or when he is back, as the Overlord ru
 A step only he can take is a `his` line.
 When AFK mode turns off each open one becomes a card, made by the supervisor under the registered CFO's identity: a run item when the line carries a `command` and its `shell`, from `cfo afk log --kind his --run <file>`, and otherwise a question titled with the step and its link in backticks, whose choices are Done and Later.
 The card's id is `afk-his-` and the line's `at`, so a line is one card however often it is made, and a card that cannot be made leaves its line under Needs you.
-When he closes the card, in whichever way, the supervisor appends a settle line to the log for it, once, with how the card ended, and the recap folds the step under Settled.
+When he closes the card, in whichever way, the supervisor appends a settle line to the log for it, once, with how the card ended, and the report counts the step as Settled.
 When the stretch ends, each decision the CFO answered in his place is settled: its question goes straight to History as the CFO's own, `afk-left-<when it was logged>`, closed as `succeeded` with the CFO's answer as `answered_option`, `answered_by: cfo`, `answered_away` and `answered_at` when the line was logged, so it never waits on him, his recap lists it under Decided for you, For you, and the CFO is told which it settled and which it could not.
-An answer to a goblin's page needs nothing more: the goblin's question is in History already, closed as the CFO's answer while he was away, and the recap lists it under Decided for you, For the goblins.
+An answer to a goblin's page needs nothing more: the goblin's question is in History already, closed as the CFO's answer while he was away, and his page of the stretch lists it under Decided for you.
 His change to either from History is an `answer_change` like any other: it reaches the CFO once for the CFO's own question, and the goblin, or the CFO when that goblin has ended, for a goblin's.
 A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
 Whether or not it is on, a memory reading under the floor counts toward the memory floor: after two in a row with free memory or commit under 4 GB, and with no start or other change under way, the supervisor pauses the newest live native goblin, by when its terminal host started, that is not pausing, paused or failed at the memory floor before, and has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host.
@@ -2125,7 +2126,7 @@ Both Windows CI and the release workflow install from the lockfile, check the fr
 The runtime executable embeds those assets and requires no Node process.
 The board names the build it serves, a hash of its `index.html`, which names every hashed file of the bundle, in the page (`<meta name="cfo-build">`) and in every snapshot, on `/api/snapshot` and on the event stream.
 A tab whose loaded build differs from the one served, such as one left open across an install, reloads itself while it is hidden, the event stream is live and the Overlord is not mid-answer (the Command Center closed, no card in it and no comment on a diff keeping an answer not yet sent, no terminal listening to dictation, and no text field holding text), and otherwise shows one line, The board was updated, with Reload; a page loaded without a build, such as from the dev server, never acts.
-The AFK report and the terminals are pages the board fetches the first time they are shown, and a tab loaded before an install asks for its own build's page, which the new supervisor no longer serves.
+The terminals are a page the board fetches the first time one opens, and a tab loaded before an install asks for its own build's page, which the new supervisor no longer serves.
 Such a page draws nothing in its place, so the rest of the board stays drawn, and the board tells the CFO why.
 With the event stream live and the Overlord not mid-answer, the tab then reloads onto the served build once for the build it loaded, and otherwise, or when the page is still missing after that reload, it shows The board was updated with Reload.
 For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies API calls to a supervisor on `127.0.0.1:4310`, translating only that explicit local development origin.

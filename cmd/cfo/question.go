@@ -33,7 +33,7 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	// AFK mode is complete autopilot: while it is on nothing is asked of the
 	// Overlord. The CFO answers it, and a step only he can take is a line of
-	// his recap with a backlog row.
+	// his Command Center with a backlog row.
 	if switched, err := afk.Read(h.State); err == nil && switched.On {
 		fmt.Fprintln(stderr, "cfo question: AFK mode is on, so nothing is asked of the Overlord. Answer it yourself with your recommendation, act on it and log it with cfo afk log --kind left ... --answer \"<your choice>\". If it is a step only he can take, such as his own sign-in or a step a tool refuses, give it a backlog row in data/backlog.md, log it with cfo afk log --kind his --what \"<the step he must take>\" --evidence \"<why you cannot take it, and its backlog row>\", and work around it.")
 		return 2

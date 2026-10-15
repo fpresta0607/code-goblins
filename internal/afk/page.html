@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome back</title>
+<link rel="stylesheet" href="/design/board-tokens.css">
+<style>
+  /* The board's own rules, from frontend/src/styles.css, lantern.css and afk.css. */
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; color: var(--bone); font-family: var(--font-body); }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 400; letter-spacing: .01em; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--ghost-bg); min-height: 44px; padding: 10px 14px; }
+  .icon { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .goblin-avatar { display: block; width: 40px; height: 40px; flex: none; background-image: url('goblin-personas.png'); background-size: 300% 200%; background-repeat: no-repeat; }
+  .persona-general { background-image: url('goblin-app.png'); background-size: contain; background-position: center; }
+  .persona-cfo, .persona-debugger, .persona-researcher { background-position: 0 0; }
+  .persona-builder, .persona-security, .persona-performance { background-position: 50% 0; }
+  .persona-reviewer, .persona-database, .persona-integrations { background-position: 100% 0; }
+  .persona-tester, .persona-designer, .persona-git { background-position: 0 100%; }
+  .persona-planner, .persona-documentation, .persona-accessibility { background-position: 50% 100%; }
+  .persona-finisher, .persona-operations, .persona-releases { background-position: 100% 100%; }
+  .persona-debugger, .persona-security, .persona-database, .persona-designer, .persona-documentation, .persona-operations { background-image: url('goblin-specialists.png'); }
+  .persona-researcher, .persona-performance, .persona-integrations, .persona-git, .persona-accessibility, .persona-releases { background-image: url('goblin-specialists-2.png'); }
+  .icon-button { display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; background: transparent; border-color: transparent; border-radius: 50%; color: var(--muted); }
+  .icon-button:hover { background: #ffffff0f; color: var(--bone); }
+  .icon-button .icon { width: 18px; height: 18px; }
+  .command-center-heading { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--glass-border); padding: 0 0 18px; }
+  .command-center-heading .goblin-avatar { width: 64px; height: 64px; }
+  .command-center-heading h1 { flex: 1; min-width: 0; font-size: clamp(1.5rem, 3vw, 1.875rem); line-height: 1.2; background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .command-center-heading h1 span { display: block; color: #b9c5cd; margin-top: 5px; font-family: var(--font-body); font-size: 1rem; font-weight: 600; }
+  .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); flex: none; }
+  .plain-status { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; font-size: .9375rem; color: var(--mint); }
+  .plain-status .icon { width: 16px; height: 16px; }
+  .phase-waiting .status-dot { background: #d9b76a; }
+  .phase-waiting.plain-status { color: #f6d79e; }
+  .phase-working .status-dot { background: var(--blue); box-shadow: 0 0 0 3px #4aa3ff33; }
+  .phase-working.plain-status { color: #9ccdff; }
+  .phase-queued .status-dot { background: #a6beda; }
+  .phase-queued.plain-status { color: #c4d4df; }
+  .phase-failed.plain-status { color: #f5b1a8; }
+  .count-badge { display: inline-grid; place-items: center; min-width: 26px; height: 24px; padding: 0 7px; background: var(--lantern); color: var(--soot); clip-path: var(--pixel-corners); font-weight: 800; font-size: .875rem; }
+  .inbox-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .inbox-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); cursor: pointer; }
+  .inbox-list li:hover { border-color: var(--glass-border-hover); background: var(--glass-bg-hover); }
+  .inbox-list li.struck strong { text-decoration: line-through; color: var(--muted); }
+  .inbox-text { display: grid; gap: 2px; min-width: 0; }
+  .inbox-text strong { font-weight: 800; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .inbox-text small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: .9375rem; font-weight: 600; min-width: 0; }
+  .inbox-text small .plain-status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
+  .answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
+  .answer-mark .away-badge .icon { width: 13px; height: 13px; }
+  .afk-spent { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+  .afk-spent li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 8px; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--ghost-bg); }
+  .afk-spent-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--field-bg); color: #e8eef2; }
+  .afk-spent-mark .icon { width: 18px; height: 18px; }
+  .afk-spent-name { color: #dfe9ef; }
+  .afk-spent-graph { grid-column: 1 / -1; position: relative; height: 8px; border-radius: 999px; background: rgba(163, 179, 194, 0.16); }
+  .afk-spent-before { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: rgba(163, 179, 194, 0.45); }
+  .afk-spent-used { position: absolute; top: 0; bottom: 0; min-width: 4px; border-radius: 999px; background: var(--accent-green); box-shadow: 0 0 10px #00e59b40; }
+  .afk-spent-value { display: inline-flex; align-items: center; gap: 8px; font: 700 1.0625rem/1.3 var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .afk-spent-change { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font: 600 .875rem/1.3 var(--font-body); }
+  .afk-spent-change.used { border-color: #00e59b66; background: #00e59b1a; color: var(--accent-green); }
+  .afk-spent-change .icon { width: 14px; height: 14px; }
+  .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding: 2px 0 4px; grid-column: 2 / -1; }
+  .question-thumbs span { position: relative; flex: none; width: 132px; height: 84px; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
+  .question-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .question-thumbs b { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; border-radius: 999px; background: rgba(3, 5, 10, 0.85); font-size: .8125rem; }
+  .check-anim { width: 52px; height: 52px; fill: none; stroke: var(--mint); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .check-anim path { stroke-dasharray: 70; stroke-dashoffset: 70; animation: check-draw .5s .2s ease-out forwards; }
+  @keyframes check-draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { .check-anim path { animation: none; stroke-dashoffset: 0; } }
+  .question-modal { color: #eef3f1; background: var(--glass-bg), var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); padding: 24px 20px; width: min(560px, calc(100vw - 28px)); max-height: 92dvh; box-shadow: var(--glass-shadow-hover); }
+  .question-modal::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+  .question-modal h2 { font-family: var(--font-body); font-weight: 800; font-size: 1.25rem; line-height: 1.35; margin: 12px 0; overflow-wrap: anywhere; }
+  .question-choice { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--glass-border); border-radius: var(--radius); cursor: pointer; background: var(--field-bg); font-size: 1.0625rem; font-weight: 550; }
+  .question-choice:has(:checked) { border-color: var(--accent-green); background: rgba(0, 229, 155, 0.08); }
+  .question-choice input { accent-color: var(--mint); width: 22px; height: 22px; margin: 0; flex: none; }
+  .question-choice textarea { flex: 1; min-height: 44px; background: var(--field-bg); color: inherit; border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 8px 10px; font: inherit; }
+  .question-modal fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .card-actions .sent { margin-right: auto; color: var(--mint); font-weight: 700; }
+  .lantern { position: relative; isolation: isolate; border: 0; border-radius: 0; background: transparent; color: var(--soot); font: 400 1rem/1.2 var(--font-display); display: inline-flex; align-items: center; gap: 8px; padding: 0 22px; }
+  .lantern::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); background: var(--lantern-fill); box-shadow: inset -2px -2px 0 var(--lantern-shade), inset 2px 2px 0 var(--lantern-light); }
+  .lantern .icon { width: 18px; height: 18px; }
+  .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
+  .asker strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
+  .asker .goblin-avatar { width: 48px; height: 48px; }
+  .card-body { display: grid; gap: 8px; margin-bottom: 12px; color: #c4d4df; font-size: .9375rem; overflow-wrap: anywhere; }
+  .card-body img { width: 100%; border-radius: var(--radius); border: 1px solid var(--glass-border); }
+  .card-body a { color: var(--mint); }
+
+  /* The page. */
+  .back { padding: 20px 14px 28px; max-width: 920px; margin: 0 auto; display: grid; gap: 22px; }
+  .verdict { display: flex; align-items: center; gap: 14px; padding: 14px 16px; position: relative; isolation: isolate; filter: drop-shadow(3px 3px 0 var(--soot)); }
+  .verdict::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
+  .verdict strong { font: 400 1.375rem/1.2 var(--font-display); color: var(--lantern); }
+  .verdict.needs strong { color: var(--amber); }
+  .verdict.needs .icon { width: 40px; height: 40px; color: var(--amber); }
+  .tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .tally div { display: grid; justify-items: center; gap: 4px; padding: 12px 6px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); text-align: center; }
+  .tally b { font: 400 1.75rem/1 var(--font-display); }
+  .tally span { color: var(--muted); font-size: .875rem; font-weight: 700; }
+  .tally .icon { color: var(--mint); }
+  .tally .merged .icon { color: var(--merged); }
+  .tally .faces { display: flex; min-height: 22px; }
+  .tally .faces .goblin-avatar { width: 26px; height: 26px; margin-left: -8px; border-radius: 50%; }
+  .tally .faces .goblin-avatar:first-child { margin-left: 0; }
+  .part { display: grid; gap: 10px; align-content: start; }
+  .part > h2 { display: flex; align-items: center; gap: 10px; font-size: 1.375rem; margin-top: 6px; }
+  .part > h2 .icon { color: var(--mint); }
+  .project { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; color: #dfe9ef; font-weight: 800; }
+  .project .icon { width: 18px; height: 18px; color: var(--muted); }
+  .pulls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 6px; align-items: center; max-width: 9rem; color: var(--merged); font: 600 .8125rem var(--font-mono); }
+  .pulls .icon { width: 15px; height: 15px; }
+  .pulls a { text-decoration: none; }
+  .pulls.open { color: #9ccdff; }
+  .columns { display: grid; gap: 22px; }
+  @media (min-width: 760px) {
+    .back { padding: 30px 28px 36px; }
+    .command-center-heading .goblin-avatar { width: 88px; height: 88px; }
+    .columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  }
+</style>
+</head>
+<body>
+<article class="back">
+  <header class="command-center-heading">
+    <span class="goblin-avatar persona-cfo"></span>
+    <h1>Welcome back<span>Away {{.Away}}</span></h1>
+  </header>
+
+  {{if .Needs}}
+  <div class="verdict needs">{{icon "warning"}}<strong>{{len .Needs}} {{if eq (len .Needs) 1}}thing needs{{else}}things need{{end}} you</strong></div>
+  <ul class="inbox-list">
+    {{range .Needs}}<li data-title="{{.Title}}" data-who="The CFO" data-persona="cfo" data-body="{{lines .Body}}"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-waiting">{{icon "command-center"}}{{.Where}}</span></small></span><span></span></li>
+    {{end}}
+  </ul>
+  {{else}}
+  <div class="verdict"><svg class="check-anim" viewBox="0 0 88 88" aria-hidden="true"><path d="M22 46 38 62 68 28"/></svg><strong>Nothing needs you</strong></div>
+  {{end}}
+
+  <div class="tally">
+    <div class="merged">{{icon "merge"}}<b>{{.Merged}}</b><span>merged</span></div>
+    <div>{{icon "moon"}}<b>{{.Decided}}</b><span>decided</span></div>
+    <div><span class="faces">{{range .Faces}}<span class="goblin-avatar persona-{{.}}"></span>{{else}}{{icon "play"}}{{end}}</span><b>{{len .UnderWay}}</b><span>working</span></div>
+  </div>
+
+  {{if .Projects}}
+  <section class="part">
+    <h2>{{icon "sparkle"}}What changed</h2>
+    {{range .Projects}}
+    <p class="project">{{icon "folder"}}{{.Name}} <span class="count-badge">{{len .Changes}}</span></p>
+    <ul class="inbox-list">
+      {{range .Changes}}<li data-title="{{.Title}}" data-who="{{who .Goblin}}" data-persona="{{.Persona}}" data-body="{{lines .Body}}" data-pictures="{{pictures .Pictures}}">
+        <span class="goblin-avatar persona-{{.Persona}}"></span>
+        <span class="inbox-text"><strong>{{.Title}}</strong>{{if or .Deploys .NotLanded .Pictures}}<small>{{if .NotLanded}}<span class="plain-status phase-failed">{{icon "warning"}}Not merged</span>{{end}}{{range .Deploys}}<span class="plain-status">{{icon "external"}}{{.}}</span>{{end}}{{if .Pictures}}<span class="plain-status">{{icon "images"}}Before and after</span>{{end}}</small>{{end}}</span>
+        <span class="pulls">{{if .Pulls}}{{icon "merge"}}{{range .Pulls}}<a href="{{.URL}}" target="_blank" rel="noreferrer">{{.Number}}</a>{{end}}{{end}}</span>
+        {{if .Pictures}}<span class="question-thumbs">{{range .Pictures}}<span><img src="{{.File}}" alt="{{.Caption}}"><b>{{.Caption}}</b></span>{{end}}</span>{{end}}
+      </li>
+      {{end}}
+    </ul>
+    {{end}}
+  </section>
+  {{end}}
+
+  <div class="columns">
+  {{if or .His .Goblins}}
+  <section class="part">
+    <h2>{{icon "moon"}}Decided for you</h2>
+    <ul class="inbox-list">
+      {{range .His}}{{template "decision" .}}{{end}}
+      {{range .Goblins}}{{template "decision" .}}{{end}}
+    </ul>
+  </section>
+  {{end}}
+
+  <section class="part">
+    {{if .UnderWay}}
+    <h2>{{icon "play"}}Still at work</h2>
+    <ul class="inbox-list">
+      {{range .UnderWay}}<li data-title="{{.Title}}" data-who="{{who .Goblin}}" data-persona="{{.Persona}}" data-body="{{lines .Body}}"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-working"><span class="status-dot"></span>{{who .Goblin}}</span></small></span><span></span></li>
+      {{end}}
+    </ul>
+    {{end}}
+    {{if .Next}}
+    <h2>{{icon "next"}}Next</h2>
+    <ul class="inbox-list">
+      {{range .Next}}<li data-title="{{.Title}}" data-who="Queued" data-persona="{{.Persona}}" data-body="{{lines .Body}}"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-queued"><span class="status-dot"></span>Queued</span></small></span><span></span></li>
+      {{end}}
+    </ul>
+    {{end}}
+    {{if .Spent}}
+    <h2>{{icon "drive"}}Spent</h2>
+    <ul class="afk-spent">
+      {{range .Spent}}<li title="{{.Says}}"><span class="afk-spent-mark">{{icon .Mark}}</span><span class="afk-spent-name">{{.Name}}</span><span class="afk-spent-value">{{.Value}}{{if .Change}}<small class="afk-spent-change{{if .Used}} used{{end}}">{{if .Reset}}{{icon "refresh"}}{{end}}{{.Change}}</small>{{end}}</span>{{if .Bar}}<span class="afk-spent-graph"><span class="afk-spent-before" style="width:{{.Before}}%"></span>{{if .Used}}<span class="afk-spent-used" style="left:{{.From}}%;width:{{.Width}}%"></span>{{end}}</span>{{end}}</li>
+      {{end}}
+    </ul>
+    {{end}}
+    <h2>{{icon "book"}}Record</h2>
+    <ul class="inbox-list">
+      {{range .Record}}<li class="{{if .Struck}}struck{{end}}" data-title="{{.Title}}" data-who="The CFO" data-persona="cfo" data-body="{{lines .Body}}"><span class="goblin-avatar persona-cfo"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-queued">{{icon .Mark}}{{.Kind}}</span></small></span><span></span></li>
+      {{end}}
+    </ul>
+  </section>
+  </div>
+</article>
+
+<dialog class="question-modal" id="card" aria-labelledby="card-title">
+  <div class="asker"><span class="goblin-avatar" id="card-face"></span><strong id="card-who"></strong></div>
+  <h2 id="card-title"></h2>
+  <div class="card-body" id="card-body"></div>
+  <form id="card-form">
+    <fieldset id="card-options"></fieldset>
+    <div class="card-actions"><span class="sent" id="card-sent" role="status"></span><button type="button" id="card-close">Close</button><button type="submit" class="lantern" id="card-send">{{icon "send"}}Change answer</button></div>
+  </form>
+</dialog>
+
+<script>
+  const dialog = document.getElementById("card");
+  const form = document.getElementById("card-form");
+  const options = document.getElementById("card-options");
+  const send = document.getElementById("card-send");
+  const sent = document.getElementById("card-sent");
+  let row = null;
+  const parsed = (value) => { try { return JSON.parse(value || "[]"); } catch { return []; } };
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("a")) return;
+    row = event.target.closest("li[data-title]");
+    if (!row) return;
+    document.getElementById("card-face").className = "goblin-avatar persona-" + row.dataset.persona;
+    document.getElementById("card-who").textContent = row.dataset.who;
+    document.getElementById("card-title").textContent = row.dataset.title;
+    const body = document.getElementById("card-body");
+    body.replaceChildren();
+    for (const text of parsed(row.dataset.body)) {
+      const line = document.createElement("p");
+      line.textContent = text;
+      body.append(line);
+    }
+    for (const picture of parsed(row.dataset.pictures)) {
+      const image = document.createElement("img");
+      image.src = picture.file;
+      image.alt = picture.caption;
+      const caption = document.createElement("p");
+      caption.textContent = picture.caption;
+      body.append(caption, image);
+    }
+    options.replaceChildren();
+    sent.textContent = "";
+    const choices = parsed(row.dataset.options);
+    send.hidden = !row.dataset.question;
+    if (row.dataset.question) {
+      for (const choice of choices) {
+        const label = document.createElement("label");
+        label.className = "question-choice";
+        const input = Object.assign(document.createElement("input"), { type: "radio", name: "answer", value: choice, checked: choice === row.dataset.answer });
+        const text = document.createElement("span");
+        text.textContent = choice;
+        label.append(input, text);
+        options.append(label);
+      }
+      const other = document.createElement("label");
+      other.className = "question-choice";
+      const input = Object.assign(document.createElement("input"), { type: "radio", name: "answer", value: "", checked: !choices.includes(row.dataset.answer) });
+      const written = Object.assign(document.createElement("textarea"), { name: "written", placeholder: "Your own answer", value: choices.includes(row.dataset.answer) ? "" : row.dataset.answer });
+      written.addEventListener("focus", () => { input.checked = true; });
+      other.append(input, written);
+      options.append(other);
+    }
+    dialog.showModal();
+  });
+  document.getElementById("card-close").addEventListener("click", () => dialog.close());
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const answer = (data.get("answer") || String(data.get("written") || "")).trim();
+    if (!row || !answer) return;
+    if (answer === row.dataset.answer) { sent.textContent = "That is its answer already."; return; }
+    if (!window.lavish) { sent.textContent = "Open this page in Scrawl to change it."; return; }
+    window.lavish.queuePrompt(answer, { tag: "answer_change", text: row.dataset.question, element: row, queueKey: "change:" + row.dataset.question });
+    window.lavish.sendQueuedPrompts();
+    row.dataset.answer = answer;
+    row.querySelector(".answer-now").textContent = answer;
+    sent.textContent = "Changed. It reaches whoever acted on it once.";
+  });
+</script>
+</body>
+</html>
+{{define "decision"}}<li data-title="{{.Question}}" data-who="{{.Who}}" data-persona="{{.Persona}}" data-body="{{lines .Body}}"{{if .Change}} data-question="{{.Change.ID}}" data-options="{{options .Change.Options}}"{{end}} data-answer="{{.Answer}}"><span class="answer-mark"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="away-badge">{{icon "moon"}}</span></span><span class="inbox-text"><strong>{{.Question}}</strong><small><span class="plain-status">{{icon "check"}}<span class="answer-now">{{.Answer}}</span></span></small></span>{{if .Change}}<button type="button" class="icon-button" aria-label="Change answer">{{icon "edit"}}</button>{{else}}<span></span>{{end}}</li>
+{{end}}

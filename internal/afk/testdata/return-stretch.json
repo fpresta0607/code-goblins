@@ -1,0 +1,45 @@
+{
+  "session": "afk-20261015T043416.901Z",
+  "since": "2026-10-15T04:34:16Z",
+  "ended": "2026-10-15T06:39:16Z",
+  "from": "his own board (goblins-window.exe pid 4100)",
+  "ended_from": "his own board (goblins-window.exe pid 4100)",
+  "decisions": [
+    {"at": "2026-10-15T04:40:00Z", "session": "afk-20261015T043416.901Z", "kind": "merge", "what": "https://github.com/example/garden-app/pull/12", "link": "https://github.com/example/garden-app/pull/12", "evidence": "merge train garden-app-1: CI passed on https://github.com/example/garden-app/pull/14 at abc1234, built on main at def5678", "outcome": "merged"},
+    {"at": "2026-10-15T04:41:00Z", "session": "afk-20261015T043416.901Z", "kind": "merge", "what": "https://github.com/example/garden-app/pull/13", "link": "https://github.com/example/garden-app/pull/13", "evidence": "merge train garden-app-1: CI passed on https://github.com/example/garden-app/pull/14 at abc1234, built on main at def5678", "outcome": "merged"},
+    {"at": "2026-10-15T04:50:00Z", "session": "afk-20261015T043416.901Z", "kind": "deploy", "what": "Live on both servers", "link": "https://github.com/example/garden-app/pull/13", "evidence": "health check green on both servers at 04:49"},
+    {"at": "2026-10-15T05:00:00Z", "session": "afk-20261015T043416.901Z", "kind": "left", "what": "Delete the idle cache database?", "evidence": "No reads since 04:00, about 40 dollars a month", "diagnosis": "It bills while it exists and nothing reads it", "tried": "Watched its reads for an hour", "options": ["Delete in a week", "Delete now", "Keep it longer"], "answer": "Delete in a week"},
+    {"at": "2026-10-15T05:10:00Z", "session": "afk-20261015T043416.901Z", "kind": "answer", "task": "garden-photos", "what": "notify-garden-photos-7", "evidence": "asked: Should the gallery show photos from shared albums? - Albums are opt in. answered: Show them. CFO under AFK: shared albums are opt in per person, so showing them is safe. Add a test that a private album never shows."},
+    {"at": "2026-10-15T05:20:00Z", "session": "afk-20261015T043416.901Z", "kind": "merge", "what": "https://github.com/example/weather-api/pull/5", "link": "https://github.com/example/weather-api/pull/5", "evidence": "verified: CI green at 9a8b7c6 holding main's tip", "outcome": "merged"},
+    {"at": "2026-10-15T05:30:00Z", "session": "afk-20261015T043416.901Z", "kind": "other", "what": "Restarted the stuck queue worker", "evidence": "queue length fell from 40 to 0", "struck": "logged twice by mistake"},
+    {"at": "2026-10-15T05:40:00Z", "session": "afk-20261015T043416.901Z", "kind": "his", "what": "Turn on two-factor sign-in for the shop account", "evidence": "only his account can turn it on, backlog row shop-2fa", "settled": "He turned it on at 06:00"}
+  ],
+  "paused": [
+    {"at": "2026-10-15T05:45:00Z", "session": "afk-20261015T043416.901Z", "kind": "pause", "task": "weather-cache", "what": "at the memory floor", "evidence": "3.9 GB free", "outcome": "resumed at 5.2 GB free"}
+  ],
+  "finished": [
+    {"task": "garden-photos", "pr": "https://github.com/example/garden-app/pull/12", "at": "2026-10-15T04:39:00Z", "title": "The garden gallery shows every photo", "goblin": "Fern", "note": "Gallery loads all 300 photos in under a second"},
+    {"task": "garden-photos", "pr": "https://github.com/example/garden-app/pull/13", "at": "2026-10-15T04:40:30Z", "title": "The garden gallery shows every photo", "goblin": "Fern", "note": "Thumbnails cached on both servers, live"},
+    {"task": "weather-cache", "pr": "https://github.com/example/weather-api/pull/5", "at": "2026-10-15T05:15:00Z", "title": "Forecasts answer from the cache", "goblin": "Moss", "note": "Forecast reads take 20 ms instead of 900"}
+  ],
+  "held": [
+    {"item": "question:shop-plan-1", "what": "Which shop plan next month?", "at": "2026-10-15T04:00:00Z", "waiting": false, "now": "answered by him at 06:20"}
+  ],
+  "under_way": [
+    {"task": "garden-share", "title": "Share a garden with a friend", "goblin": "Ivy", "note": "Invite link works, the accept screen is next", "at": "2026-10-15T06:30:00Z"}
+  ],
+  "next": [
+    {"task": "weather-alerts", "title": "Frost alerts for the garden", "note": "waits on weather-cache"}
+  ],
+  "before": [
+    {"provider": "claude", "window": "week", "percent_used": 35, "resets_at": "2026-10-21T09:00:00Z"},
+    {"provider": "codex", "window": "week", "percent_used": 21, "resets_at": "2026-10-15T05:00:00Z"}
+  ],
+  "after": [
+    {"provider": "claude", "window": "week", "percent_used": 51, "resets_at": "2026-10-21T09:00:00Z"},
+    {"provider": "codex", "window": "week", "percent_used": 4, "resets_at": "2026-10-22T05:00:00Z"}
+  ],
+  "disk_before": {"drive": "D:", "free": 170000000000, "total": 214000000000},
+  "disk_after": {"drive": "D:", "free": 170200000000, "total": 214000000000},
+  "notes": ["GitHub did not say whether these pull requests merged, so they read as not merged: https://github.com/example/weather-api/pull/9"]
+}

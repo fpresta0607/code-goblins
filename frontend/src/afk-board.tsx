@@ -1,37 +1,22 @@
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AfkActionsContext } from "./afk-actions";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AfkOffer } from "./afk-offer";
-import { boardPage } from "./board-page";
-import { AFK_OFF, offerFor, turnedOff, type Occasion } from "./afk";
+import { AFK_OFF, offerFor, type Occasion } from "./afk";
 import { useAfkSwitch } from "./useAfkSwitch";
-import type { Afk, Snapshot } from "./types";
+import type { Snapshot } from "./types";
 
-// The report is opened seldom, so its page arrives the first time it is shown.
-const AfkReportPage = boardPage(() => import("./afk-report").then((module) => module.AfkReportPage), "AFK report");
-
-// AFK mode over the whole board, whatever view it shows: the report, which
-// opens when AFK mode turns off and again when the CFO's bar asks, and the
-// offer to turn it off at the Overlord's first click or key after he has been
-// gone, or after the CFO turned it on at his ask. Nothing here opens by itself
-// while he is away: the report follows his own off, and the offer his own
-// click or key. His own off from this board shows the report as soon as the
-// supervisor answers, which keeps the report before it does, and the snapshot
-// after it brings no second one. Until the first snapshot comes
-// the board knows of no switch, which is off. onGoThrough opens the Command
-// Center on the items the report names, with only them in its stack, and
-// onChange opens the answer at an item key on its change card.
-export function AfkBoard({ snapshot, now, onGoThrough, onChange, children }: { snapshot: Snapshot | null; now: number; onGoThrough: (keys: string[]) => void; onChange: (key: string) => void; children: ReactNode }) {
+// AFK mode over the whole board, whatever view it shows: the offer to turn it
+// off at the Overlord's first click or key after he has been gone, or after
+// the CFO turned it on at his ask. Nothing here opens by itself while he is
+// away: the offer follows his own click or key. What the stretch came to is
+// his page of it, one card in his Command Center once AFK mode turns off.
+// Until the first snapshot comes the board knows of no switch, which is off.
+export function AfkBoard({ snapshot, now, children }: { snapshot: Snapshot | null; now: number; children: ReactNode }) {
   const afk = snapshot?.afk ?? AFK_OFF;
-  const [prior, setPrior] = useState<Afk>(afk);
-  const [reporting, setReporting] = useState(false);
-  // shown says the report of the off this board just made is already shown.
-  const [shown, setShown] = useState(false);
+  const [priorState, setPriorState] = useState(afk.state);
   const [offering, setOffering] = useState<Occasion>("");
   const { pending, problem, turn, clear } = useAfkSwitch(snapshot?.instance ?? "");
-  if (prior.state !== afk.state || prior.report !== afk.report) {
-    setPrior(afk);
-    if (turnedOff(prior, afk) && !shown) setReporting(true);
-    if (shown) setShown(false);
+  if (priorState !== afk.state) {
+    setPriorState(afk.state);
     if (afk.state !== "on") setOffering("");
   }
   // The newest AFK state and the last click or key, for the listener below.
@@ -57,11 +42,9 @@ export function AfkBoard({ snapshot, now, onGoThrough, onChange, children }: { s
     window.addEventListener("keydown", touched, true);
     return () => { window.removeEventListener("click", touched, true); window.removeEventListener("keydown", touched, true); };
   }, [away]);
-  const actions = useMemo(() => ({ openReport: () => setReporting(true), turnedOff: () => { setShown(true); setReporting(true); } }), []);
-  const turnOff = async () => { if (await turn(false)) { setOffering(""); actions.turnedOff(); } };
-  return <AfkActionsContext.Provider value={actions}>
+  const turnOff = async () => { if (await turn(false)) setOffering(""); };
+  return <>
     {children}
     {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turnOff()} onStay={() => { setOffering(""); clear(); }} />}
-    {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onGoThrough={(keys) => { setReporting(false); onGoThrough(keys); }} onChange={(key) => { setReporting(false); onChange(key); }} /></Suspense>}
-  </AfkActionsContext.Provider>;
+  </>;
 }
