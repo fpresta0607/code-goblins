@@ -141,7 +141,7 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 		Home:       h,
 		Now:        time.Now(),
 		Processes:  ReadProcesses,
-		Owners:     func() ([]Owner, []string) { return ReadOwners(h) },
+		Owners:     func() ([]Owner, []string) { return ReadOwners(t.Context(), h, nil) },
 		EndProcess: EndProcess,
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)

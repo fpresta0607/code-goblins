@@ -486,7 +486,7 @@ func TestTheSweepAndTheProcessPlanGiveAGoblinsStandInToItsTerminal(t *testing.T)
 		Home:      fleet.home,
 		Now:       time.Now(),
 		Processes: janitor.ReadAllProcesses,
-		Owners:    func() ([]janitor.Owner, []string) { return janitor.Owners(fleet.home) },
+		Owners:    func() ([]janitor.Owner, []string) { return janitor.Owners(ctx, fleet.home, nil) },
 	}.PlanProcesses(ctx)
 	if err != nil {
 		t.Fatal(err)

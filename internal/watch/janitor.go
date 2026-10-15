@@ -144,7 +144,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 			Now:      time.Now,
 		}.Sweep,
 		Processes:  janitor.ReadProcesses,
-		Owners:     func() ([]janitor.Owner, []string) { return janitor.ReadOwners(cfg.Home) },
+		Owners:     func() ([]janitor.Owner, []string) { return janitor.ReadOwners(ctx, cfg.Home, cfg.Tree) },
 		EndProcess: janitor.EndProcess,
 		Watched:    previous.Processes.Watched,
 

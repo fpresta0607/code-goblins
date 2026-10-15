@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -713,58 +712,6 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 	}
 }
 
-// A wait on the Overlord stays in the Command Center while the goblin works
-// on beside it, as a goblin does that never waits on a choice it can undo:
-// pd-whats-new's mockup picks were withdrawn at 12:33Z on 2026-10-08 by its
-// own "working: Mockup is with the Overlord on Scrawl", and were asked again
-// fourteen hours later. The wait is withdrawn once the goblin finishes or
-// fails, or waits on him again, which a newer item stands for.
-func TestAWaitOnTheOverlordStaysWhileTheGoblinWorksOnBesideIt(t *testing.T) {
-	for _, tc := range []struct {
-		report string
-		open   bool
-	}{
-		{"working: Mockup is with the Overlord on Scrawl. Meanwhile building the parts his picks do not change", true},
-		{"waiting on ci: checks on PR 12", true},
-		{"done: PR https://github.com/acme/api/pull/12", false},
-		{"failed: the card was declined", false},
-	} {
-		t.Run(tc.report, func(t *testing.T) {
-			// Arrange
-			store, h := testStore(t)
-			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: log in to Stripe"); err != nil {
-				t.Fatal(err)
-			}
-			wait := openReview("waiting-task-1-7", "task-1")
-			wait.Title = "Waiting on you: log in to Stripe"
-			if err := store.acceptReview(wait); err != nil {
-				t.Fatal(err)
-			}
-			if err := store.retireItems(); err != nil {
-				t.Fatal(err)
-			}
-			if got := store.Snapshot().Reviews[0]; got.State != "open" {
-				t.Fatalf("a current wait = %+v, want it open", got)
-			}
-			if err := state.AppendStatus(h.State, "task-1", tc.report); err != nil {
-				t.Fatal(err)
-			}
-
-			// Act
-			err := store.retireItems()
-
-			// Assert
-			got := store.Snapshot().Reviews[0]
-			if err != nil || (got.State == "open") != tc.open {
-				t.Fatalf("the wait after %q = %+v (%v), want open %v", tc.report, got, err, tc.open)
-			}
-			if !tc.open && got.Reason != "task-1 reported again: "+tc.report {
-				t.Errorf("reason = %q, want the report that ended the wait", got.Reason)
-			}
-		})
-	}
-}
-
 // A goblin waiting on the Overlord that asks the CFO a question waits on both
 // at once: the question replaces nothing, so the wait's item stays in the
 // Command Center while the question is open, and once the CFO answers, the
@@ -824,10 +771,11 @@ func TestAWaitOnTheOverlordOutlastsAQuestionToTheCFO(t *testing.T) {
 	}
 }
 
-// A goblin's own item, such as a page or images to look at, stays while the
-// goblin keeps working, asks or waits, and closes once its task finishes after
-// publishing it or is gone: nobody will act on an answer then.
-func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
+// A goblin's own item, such as a page or images to look at, stays whatever
+// its goblin reports, finished included, since he may not have seen it yet:
+// a task with a second pull request still to build lost its open review to
+// the first one's done report on 2026-10-12. It closes once its task is gone.
+func TestAGoblinsOwnItemStaysUntilItsTaskIsGone(t *testing.T) {
 	store, h := testStore(t)
 	earlier := time.Now().UTC().Add(-2*time.Hour).Format(time.RFC3339) + " done: PR https://github.com/o/r/pull/6\n"
 	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(earlier), 0o644); err != nil {
@@ -848,19 +796,13 @@ func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
 	if got := retire(); got.State != "open" {
 		t.Fatalf("an item published after its task's last done report = %+v, want it open", got)
 	}
-	for _, report := range []string{"working: drawing the second pass", "blocked: which palette?", "waiting on overlord: the palette"} {
+	for _, report := range []string{"working: drawing the second pass", "blocked: which palette?", "waiting on overlord: the palette", "failed: the build broke", "done: PR https://github.com/o/r/pull/7"} {
 		if err := state.AppendStatus(h.State, "task-1", report); err != nil {
 			t.Fatal(err)
 		}
 		if got := retire(); got.State != "open" {
 			t.Fatalf("after %q the item = %+v, want it open", report, got)
 		}
-	}
-	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/7"); err != nil {
-		t.Fatal(err)
-	}
-	if got := retire(); got.State != "withdrawn" || got.Reason != "task-1 finished: done: PR https://github.com/o/r/pull/7" {
-		t.Fatalf("after its task finished the item = %+v, want it withdrawn with the report", got)
 	}
 
 	if err := store.acceptReview(openReview("task-9-plan", "task-9")); err != nil {
@@ -989,45 +931,5 @@ func TestCFOAuditLinesNeverCountAsTheGoblinsReport(t *testing.T) {
 				t.Fatalf("a wait under an audit line = %+v, want it open", got)
 			}
 		})
-	}
-}
-
-// A wait whose revision its goblin is making stands while the goblin works on
-// the next version, which replaces the page in the same item; it retires once
-// the goblin finishes or fails.
-func TestARevisingWaitStandsWhileItsGoblinWorksOnTheNextVersion(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
-	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: look at the plan"); err != nil {
-		t.Fatal(err)
-	}
-	wait := openReview("waiting-task-1-7", "task-1")
-	if err := store.acceptReview(wait); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.reviseReview(wait, time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.AppendStatus(h.State, "task-1", "working: making the cards bigger"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	working := store.retireItems()
-	stood := store.Snapshot().Reviews[0]
-	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/9"); err != nil {
-		t.Fatal(err)
-	}
-	finished := store.retireItems()
-
-	// Assert
-	if working != nil || finished != nil {
-		t.Fatal(errors.Join(working, finished))
-	}
-	if stood.State != "open" {
-		t.Errorf("the revising wait while its goblin works = %+v, want it open", stood)
-	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-		t.Errorf("the revising wait once its goblin finished = %+v, want it withdrawn", got)
 	}
 }

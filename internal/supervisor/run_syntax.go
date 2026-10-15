@@ -26,6 +26,10 @@ const powershellParse = `$errors = $null; [void][System.Management.Automation.La
 // command runs nothing at his click and fails, as repair-home-v0.5.3 did on
 // 2026-10-07. The shell parses the command and runs none of it.
 func CheckRunCommand(shell, command string) error {
+	return checkRunCommand(shell, command, runSyntaxWait)
+}
+
+func checkRunCommand(shell, command string, wait time.Duration) error {
 	exists := func(path string) bool {
 		info, err := os.Stat(path)
 		return err == nil && !info.IsDir()
@@ -44,7 +48,7 @@ func CheckRunCommand(shell, command string) error {
 	if err := fsx.AtomicWriteFile(path, script); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), runSyntaxWait)
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	var check *exec.Cmd
 	if shell == "bash" {
@@ -58,7 +62,12 @@ func CheckRunCommand(shell, command string) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.As(err, &exit) && ctx.Err() == nil:
+	case ctx.Err() != nil:
+		// The context's end of the shell reads as exit status 1, the exit
+		// of a command that does not parse, so a shell cut off is named as
+		// one that did not answer.
+		return fmt.Errorf("%s did not answer within %s, so the command was not checked: try again", shell, wait)
+	case errors.As(err, &exit):
 		said := strings.Join(strings.Fields(strings.ReplaceAll(string(output), path, name)), " ")
 		return fmt.Errorf("the command does not parse in %s, so it would run nothing: %s", shell, bounded(said, 1000))
 	}
