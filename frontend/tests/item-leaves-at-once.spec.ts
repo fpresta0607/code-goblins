@@ -117,10 +117,10 @@ async function expectGone(page: Page, says: string) {
 }
 
 const WAYS = [
-  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
-  { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "question_clear", heading: "Dismissed" },
-  { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
-  { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
+  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", open: "", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
+  { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "question_clear", heading: "Dismissed" },
+  { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", open: 'dialog.question-modal [aria-label="Skip or answer in your own words"]', press: "dialog.skip-note .credential-replace-confirm", kind: "review_clear", heading: "Cleared" },
+  { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
 ];
 
 test("an answer waiting for the Codex composer reads Queued with its reason", async ({ page, context }) => {
@@ -154,6 +154,7 @@ for (const way of WAYS) {
     await boardAsked(page, way.item, way.says);
     await openCard(page, way.says);
     if (way.pick) await card(page).getByText(way.pick, { exact: true }).click();
+    if (way.open) await page.locator(way.open).click();
 
     // Act: no snapshot follows, and the request is still on its way.
     const shown = await clickAndLook(page, way.press);

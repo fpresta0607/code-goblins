@@ -35,7 +35,7 @@ test("he dismisses a question he no longer needs from its card", async ({ page }
   const dialog = page.getByRole("dialog");
   await openItem(page, "May I stop the 4 stray Herdr panes left from yesterday?");
   const dismiss = dialog.getByRole("button", { name: "Skip this card" });
-  await expect(dismiss).toHaveAttribute("data-tip", "Answered elsewhere or no longer needed");
+  await expect(dismiss).toHaveAttribute("data-tip", "Skip: answered elsewhere or no longer needed");
   await recordDoneCards(page);
 
   // Act

@@ -13,8 +13,7 @@ import "./credential-card.css";
 import "./browser-signin-card.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
-import { WayOut } from "./way-out";
-import { DictatedAnswer } from "./dictated-answer";
+import { SkipWithNote } from "./skip-with-note";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
@@ -64,12 +63,9 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const [isFetching, setIsFetching] = useState(false);
   // The plain values he types, by name, until each is sent.
   const [plainValues, setPlainValues] = useState<Record<string, string>>({});
-  // His click on Done, Skip, Send answer or the window button, until the
-  // board answers.
+  // His click on Done, Skip, his note or the window button, until the board
+  // answers.
   const [pressing, setPressing] = useState("");
-  // Other's box, open or shut, and what he wrote or said in it.
-  const [isOtherOpen, setIsOtherOpen] = useState(false);
-  const [otherText, setOtherText] = useState("");
   const commandBox = useRef<HTMLPreElement>(null);
   const local = onThisMachine(window.location.hostname);
   const open = request.state === "open";
@@ -169,14 +165,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   const several = commands.length > 1;
   return <article className="question-card credential-card" data-credential-request={request.id} aria-labelledby={"credential-" + request.id}>
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
-      <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span>
-      {open && <WayOut skipTip={request.task ? asker + " goes on without it" : "No longer needed"} isOtherOpen={isOtherOpen} disabled={!connected || !!pressing}
-        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onOther={() => setIsOtherOpen((prior) => !prior)} />}
-    </p>
-    {open && isOtherOpen && <div className="card-other-answer">
-      <DictatedAnswer label="Your answer" placeholder={"Tell " + (request.task ? asker : "the CFO") + " what to do instead..."} value={otherText} instance={snapshot.instance} disabled={!!pressing} onText={setOtherText} />
-      <button type="button" className="primary send-decision" disabled={!connected || !otherText.trim() || !!pressing} onClick={() => void press("/api/credentials/close", { action: "answer", text: otherText.trim() }, "answer")}><Icon name={pressing === "answer" ? "clock" : "send"} />Send answer</button>
-    </div>}
+      <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span></p>
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{credentialHeading(request)}</h3>
       {request.why && inputs.length > 0 && <p className="credential-why">{request.why}</p>}
@@ -259,9 +248,11 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
         {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" data-tip="Run in a terminal on this PC" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
       </div>
     </div>}
-    {(pager || feedback || canPressDone(request)) && <div className="card-actions">
+    {(pager || feedback || open) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
+      {open && <SkipWithNote asker={request.task ? asker : "the CFO"} instance={snapshot.instance} disabled={!connected || !!pressing}
+        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={(text) => void press("/api/credentials/close", { action: "answer", text }, "answer")} />}
       {canPressDone(request) && <button type="button" className="primary step-done" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "done" }, "done")}><Icon name={pressing === "done" ? "clock" : "check"} />Done</button>}
     </div>}
     {confirm && <CredentialReplaceDialog names={confirm.names} project={request.project} action={confirm.action} onCancel={() => setConfirm(null)}

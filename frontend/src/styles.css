@@ -1002,13 +1002,7 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .card-stage { position: relative; }
 .question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
-.question-card .asker, .run-card .asker { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; color: #c4d4df; }
-.way-out { display: inline-flex; gap: 8px; margin-left: auto; flex: none; }
-.way-out button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; }
-.way-out .icon { width: 16px; height: 16px; }
-.way-out .card-other.chosen { border-color: var(--mint); color: var(--mint); }
-.card-other-answer { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-.card-other-answer .written-answer { align-self: stretch; }
+.question-card .asker, .run-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
 .question-card .asker .goblin-avatar, .run-card .asker .goblin-avatar { width: 48px; height: 48px; }
 .question-card h3, .run-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }

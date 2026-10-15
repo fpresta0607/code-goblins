@@ -455,7 +455,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : item.kind === "run"
               ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} instance={snapshot.instance} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onSkip={() => skipRun(item.run)} onAnswer={(text) => answerRun(item.run, text)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
-                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
+                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)}
+                onAnswer={(text) => void post(item.key, { kind: "review_answer", review_id: item.review.id, generation: item.review.identity, text })} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
       </>}
     </dialog>

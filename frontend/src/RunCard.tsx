@@ -11,13 +11,13 @@ import { personaFor } from "./workflow";
 import { RunTerminal } from "./run-terminal";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
-import { WayOut } from "./way-out";
-import { DictatedAnswer } from "./dictated-answer";
+import { SkipWithNote } from "./skip-with-note";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, and
-// one Run button that says where it runs, with Skip and Other at its top for
-// a command he will not run. Run turns the card into the
+// one Run button that says where it runs, with the pencil beside it for a
+// command he will not run: Skip, or his answer in words instead. Run turns
+// the card into the
 // command's own terminal, in place of the notice it once showed: he types
 // there and it completes by itself, Complete, or Failed with one line saying
 // why and who takes the next step, keeping the end of what its terminal
@@ -30,22 +30,13 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
   const [feedback, showFeedback] = useClickFeedback();
   useEffect(() => { if (error) showFeedback(error); }, [error, showFeedback]);
   const [copied, setCopied] = useState(false);
-  const [isOtherOpen, setIsOtherOpen] = useState(false);
-  const [otherText, setOtherText] = useState("");
   const running = run.state === "running";
-  const ready = run.state === "ready";
   const mark = runMark(run);
   const failure = runFailure(run);
-  const asker = run.task ? goblin ? goblinName(goblin) : run.task : "The CFO";
+  const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CFO";
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
-    {(run.task || ready) && <p className="asker"><Avatar persona={run.task ? personaFor(goblin) : "cfo"} small /><span><strong>{asker}</strong> asks you to run this · {ready ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span>
-      {ready && <WayOut skipTip={asker + " goes on without it"} isOtherOpen={isOtherOpen} disabled={!connected || sending} onSkip={onSkip} onOther={() => setIsOtherOpen((prior) => !prior)} />}
-    </p>}
-    {ready && isOtherOpen && <div className="card-other-answer">
-      <DictatedAnswer label="Your answer" placeholder={"Tell " + asker + " what to do instead of running it..."} value={otherText} instance={instance} disabled={sending} onText={setOtherText} />
-      <button type="button" className="primary send-decision" disabled={!connected || !otherText.trim() || sending} onClick={() => onAnswer(otherText.trim())}><Icon name={sending ? "clock" : "send"} />Send answer</button>
-    </div>}
+    {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{asker}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
     <header className="run-head">
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />
       <span className="chip">{shellLabel(run.shell)}</span>
@@ -72,6 +63,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       {pager}
       {run.state === "ready" && <>
         {run.admin && <small className="muted">Windows will ask to confirm.</small>}
+        <SkipWithNote asker={asker} instance={instance} disabled={!connected || sending} onSkip={onSkip} onAnswer={onAnswer} />
         <button className="primary run-button" type="button" disabled={!connected || sending} onClick={onRun}><Icon name="play" />{runLabel(run.shell, run.admin)}</button>
       </>}
     </div>}
