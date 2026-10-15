@@ -405,6 +405,38 @@ func (s *Store) withdrawRun(id, reason string) error {
 	return nil
 }
 
+// declineRun tells the asker of a command he skipped, or answered in words
+// instead of running it, which the board closed as it took his press: a
+// goblin in its own terminal, the CFO as a message. The close is recorded in
+// state/runs.audit as a withdrawal is.
+func (s *Service) declineRun(ctx context.Context, a Action) (Evaluation, error) {
+	i := slices.IndexFunc(s.Store.Snapshot().Runs, func(r Run) bool { return r.ID == a.RunID && r.RunAction == a.ID })
+	if i < 0 {
+		return Evaluation{}, fmt.Errorf("%w: the run item is gone", ErrRejected)
+	}
+	r := s.Store.Snapshot().Runs[i]
+	if err := appendRunAudit(s.Store.Home.State, r, "withdrawn "+r.Reason, time.Now().UTC()); err != nil {
+		s.publish(err)
+	}
+	text := "The Overlord skipped your command " + r.ID + " (" + r.Title + ") from the Command Center. Go on without it."
+	if a.Kind == "run_answer" {
+		text = "The Overlord answered your command " + r.ID + " (" + r.Title + ") instead of running it: " + a.Text
+	}
+	if r.Task == "" {
+		if err := s.tellCFO(ctx, text); err != nil {
+			return Evaluation{Reason: "Closed. The CFO could not be told: " + bounded(err.Error(), 300)}, nil
+		}
+		return Evaluation{Reason: "Closed, and the CFO was told."}, nil
+	}
+	if s.Options.CFO == nil {
+		return Evaluation{Reason: "Closed. " + r.Task + " could not be told: message transport is unavailable."}, nil
+	}
+	if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		return Evaluation{Reason: "Closed. " + r.Task + " could not be told: " + bounded(err.Error(), 300)}, nil
+	}
+	return Evaluation{Reason: "Closed, and " + r.Task + " was told."}, nil
+}
+
 // withdrawCFOUnwoken takes back the item that offers the Overlord the CFO's
 // restart, while nobody ran it, once the CFO was told of its wakes.
 func (s *Store) withdrawCFOUnwoken(reason string) error {
