@@ -718,7 +718,7 @@ While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a 
 
 ### What CI runs
 
-A pull request's checks come from `.github/workflows/go.yml`, whose jobs run at once: the frontend's checks, the board's browser tests in four jobs, each slow Go package in two jobs, and every other package in one.
+A pull request's checks come from [.github/workflows/go.yml](.github/workflows/go.yml), which defines the parallel jobs and their test groups.
 A merge train's run and a run on the default branch start every one of them, so nothing reaches the default branch that the full set did not test.
 A push to the default branch starts none of them again when a pull request run of the same workflow that started every job passed on the push's exact tree and first parent, which is what a merge train's run is for the tree the train lands: that run leaves a record named for the pair, kept a week, and the push's plan job finds it with `tools/pushreuse`, takes it only from a green pull request run whose head is in this repository, and names it in the push's `test` check.
 Any other push, one whose records cannot be read, and one whose pull request was tested on an older main start every job as before, and `install.yml` reuses its own records the same way. From 2026-09-14 to 2026-10-14, 482 of 623 pushes to main ran a tree their pull request had just passed on the same main.
