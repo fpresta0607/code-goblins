@@ -1,6 +1,7 @@
 package execx
 
 import (
+	"cmp"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -23,9 +24,17 @@ var starters = map[string][]string{
 // priorityNames are the names that give a process a priority class, by
 // import path. Only internal/priority and the test helper under it use them:
 // it raises this process one class for the fleet's own small work, and no
-// start names a class, so Windows starts every child at normal.
+// other start names a class, so Windows starts every child at normal.
 var priorityNames = map[string][]string{
 	"golang.org/x/sys/windows": {"SetPriorityClass", "ABOVE_NORMAL_PRIORITY_CLASS", "HIGH_PRIORITY_CLASS", "REALTIME_PRIORITY_CLASS", "NORMAL_PRIORITY_CLASS", "BELOW_NORMAL_PRIORITY_CLASS", "IDLE_PRIORITY_CLASS", "JOB_OBJECT_LIMIT_PRIORITY_CLASS"},
+}
+
+// startsAboveTheWork are the files whose start takes the class
+// priority.StartAboveTheWork gives, each with why: a start something waits
+// on under a bound, of a control that starts no goblin work at that class.
+var startsAboveTheWork = map[string]string{
+	"internal/host/launch_windows.go":  "a launch waits on its host's record, and what the host starts runs at normal",
+	"internal/conpty/waker_windows.go": "a host waits on its input waker's ready, and the waker starts nothing",
 }
 
 // startsElsewhere are the process starts that do not go through this
@@ -181,10 +190,12 @@ func TestBypassesReportsEveryStartAroundCommand(t *testing.T) {
 
 // A fleet file that names a priority class, the call that sets one, or the
 // job limit that would give one to everything in a job, is reported, however
-// it reaches the name.
+// it reaches the name, and so is a start above the work outside the controls
+// startsAboveTheWork names.
 func TestPrioritisedReportsEveryPriorityClassNamed(t *testing.T) {
 	tests := []struct {
 		name       string
+		path       string
 		body       string
 		isReported bool
 	}{
@@ -193,18 +204,21 @@ func TestPrioritisedReportsEveryPriorityClassNamed(t *testing.T) {
 		{name: "priority class limit of a job", body: `flags |= windows.JOB_OBJECT_LIMIT_PRIORITY_CLASS`, isReported: true},
 		{name: "the call looked up by name", body: `_ = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetPriorityClass")`, isReported: true},
 		{name: "a start that names no class", body: `cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW`},
+		{name: "a start above the work outside its controls", body: `cmd.SysProcAttr.CreationFlags |= priority.StartAboveTheWork()`, isReported: true},
+		{name: "a host started above the work", path: "internal/host/launch_windows.go", body: `cmd.SysProcAttr.CreationFlags |= priority.StartAboveTheWork()`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			source := "package example\n\nimport (\"os/exec\"; \"golang.org/x/sys/windows\")\n\nfunc example(cmd *exec.Cmd, flags uint32) {\n" + test.body + "\n}\n"
+			source := "package example\n\nimport (\"os/exec\"; \"golang.org/x/sys/windows\"; \"github.com/fpresta0607/code-goblins/internal/priority\")\n\nfunc example(cmd *exec.Cmd, flags uint32) {\n" + test.body + "\n}\n"
+			path := cmp.Or(test.path, "internal/example/example.go")
 			want := 0
 			if test.isReported {
 				want = 1
 			}
 
 			// Act
-			violations, err := prioritised("internal/example/example.go", []byte(source))
+			violations, err := prioritised(path, []byte(source))
 
 			// Assert
 			if err != nil {
@@ -220,7 +234,8 @@ func TestPrioritisedReportsEveryPriorityClassNamed(t *testing.T) {
 // prioritised parses a fleet file's source and reports, as path:line: what,
 // each place it names a priority class, the call that sets one or the job
 // limit that gives one, by the names of priorityNames or as the name a
-// procedure is looked up by.
+// procedure is looked up by, and a start above the work in a file
+// startsAboveTheWork does not name.
 func prioritised(relative string, source []byte) ([]string, error) {
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, relative, source, parser.SkipObjectResolution)
@@ -230,13 +245,17 @@ func prioritised(relative string, source []byte) ([]string, error) {
 	imported := importNames(file)
 	var violations []string
 	report := func(node ast.Node, what string) {
-		violations = append(violations, relative+":"+strconv.Itoa(fileSet.Position(node.Pos()).Line)+": "+what+": only internal/priority sets a priority class, and no process is started at one of its own")
+		violations = append(violations, relative+":"+strconv.Itoa(fileSet.Position(node.Pos()).Line)+": "+what+": only internal/priority sets a priority class, and no process is started at one of its own but the controls startsAboveTheWork names")
 	}
 	ast.Inspect(file, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.SelectorExpr:
-			if name, ok := qualified(node, imported); ok && named(priorityNames, name) {
+			name, ok := qualified(node, imported)
+			if ok && named(priorityNames, name) {
 				report(node, "names "+imported.local(name))
+			}
+			if _, isControl := startsAboveTheWork[relative]; ok && name == "github.com/fpresta0607/code-goblins/internal/priority.StartAboveTheWork" && !isControl {
+				report(node, "starts a process above the work with "+imported.local(name))
 			}
 		case *ast.BasicLit:
 			if text, err := strconv.Unquote(node.Value); node.Kind == token.STRING && err == nil && text == "SetPriorityClass" {

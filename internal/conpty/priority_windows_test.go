@@ -10,13 +10,15 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
 )
 
-// A terminal's host runs one priority class above normal, and everything it
-// starts for its console must not: the console's program is a goblin's
-// harness, and neither start here goes through execx. Windows gives the
-// child of a raised process the normal class as long as its start names no
-// class, so the program, the input waker beside it in the console's job and
-// the console server all run at normal.
-func TestWhatARaisedHostStartsForItsConsoleRunsAtNormal(t *testing.T) {
+// A terminal's host runs one priority class above normal, and what it
+// starts for its console's work must not: the console's program is a
+// goblin's harness, and neither start here goes through execx. Windows gives
+// the child of a raised process the normal class as long as its start names
+// no class, so the program and the console server run at normal. The input
+// waker beside the program in the console's job is the host's own control,
+// whose start the host's record waits on (issue #891), and is started one
+// class above the work.
+func TestWhatARaisedHostStartsForItsConsoleRunsAtNormalButItsWaker(t *testing.T) {
 	// Arrange
 	prioritytest.FromNormal(t)
 	defer priority.AboveTheWork()()
@@ -52,12 +54,12 @@ func TestWhatARaisedHostStartsForItsConsoleRunsAtNormal(t *testing.T) {
 	classes["the console server"] = class
 
 	// Assert
-	for _, name := range []string{"the console's program", "the console's input waker", "the console server"} {
+	for name, want := range map[string]uint32{"the console's program": windows.NORMAL_PRIORITY_CLASS, "the console's input waker": windows.ABOVE_NORMAL_PRIORITY_CLASS, "the console server": windows.NORMAL_PRIORITY_CLASS} {
 		class, isRead := classes[name]
 		if !isRead {
 			t.Errorf("%s was not found among what the raised process started", name)
-		} else if class != windows.NORMAL_PRIORITY_CLASS {
-			t.Errorf("%s runs at priority class %#x, want normal, %#x", name, class, uint32(windows.NORMAL_PRIORITY_CLASS))
+		} else if class != want {
+			t.Errorf("%s runs at priority class %#x, want %#x", name, class, want)
 		}
 	}
 }
