@@ -94,7 +94,7 @@ func TestTheWatcherStartsOneLowPriorityTurnForAWaitingJob(t *testing.T) {
 
 	// Assert
 	log := filepath.Join(r.watch.logs, "job-7-20261014-120000.log")
-	want := []string{`C:\fleet\cfo.exe`, "gate", "turn", "--low-priority", "--as", "desktop CI: desktop-backend-shard (1) of run 7", "--detach", log, "--", `C:\fleet\cfo.exe`, "ci-runner", "job"}
+	want := []string{`C:\fleet\cfo.exe`, "gate", "turn", "--low-priority", "--memory", "7GiB", "--as", "desktop CI: desktop-backend-shard (1) of run 7", "--detach", log, "--", `C:\fleet\cfo.exe`, "ci-runner", "job"}
 	if len(r.line.ran) != 1 || !slices.Equal(r.line.ran[0], want) {
 		t.Errorf("started %q; want one run, %q", r.line.ran, want)
 	}
