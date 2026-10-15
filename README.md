@@ -440,7 +440,8 @@ The CFO's bar carries the mark of the harness the CFO runs, and its tip names th
 On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
-**Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
+**Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first by when the work finished.
+A goblin that reported done moves to Completed as soon as its pull request merged and its deploy, where one runs, succeeded, before its cleanup.
 In progress shows every goblin's card at once, however many there are, and the board scrolls when they run past the screen.
 Tasks, the Paused group and Completed show up to ten cards whole; past ten, each shows a page, as many cards as fit the visible board and never fewer than five, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
 A Completed card shows what its pull request really did, the way GitHub does: **Merged** with GitHub's purple merge icon when it merged into its base, **Closed** with the closed icon when it was closed without merging, and **Finished** with the pull request icon while it is still open.

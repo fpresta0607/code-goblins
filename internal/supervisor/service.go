@@ -792,8 +792,8 @@ func (s *Service) keepHistory(ctx context.Context, every, watch time.Duration) {
 }
 
 // historyMark names what changes when Completed gains a card: the live task
-// records, which cleanup removes as a task finishes, and the tasks whose gate
-// saw their pull request merge.
+// records, which cleanup removes as a task finishes, the tasks whose gate saw
+// their pull request merge, and the goblins whose latest report is done.
 func (s *Service) historyMark() string {
 	var mark strings.Builder
 	if entries, err := os.ReadDir(s.Store.Home.State); err == nil {
@@ -814,7 +814,7 @@ func (s *Service) historyMark() string {
 	}
 	var merged []string
 	for id, evaluation := range s.Store.Snapshot().Tasks {
-		if evaluation.Phase == "merged" || evaluation.Phase == "done" {
+		if evaluation.Phase == "merged" || evaluation.Phase == "done" || s.reportedDone(id) != "" {
 			merged = append(merged, id+"@"+evaluation.Generation)
 		}
 	}
@@ -823,18 +823,39 @@ func (s *Service) historyMark() string {
 	return mark.String()
 }
 
+// reportedDone is the pull request a live goblin's latest report says it
+// delivered, which its merge then completes, or "" when its latest report is
+// not done or names none.
+func (s *Service) reportedDone(id string) string {
+	meta, err := s.taskMeta(id)
+	if err != nil {
+		return ""
+	}
+	lines, _ := s.statusTail(id)
+	spawned := spawnTime(meta.SpawnGen)
+	if _, report := latestReport(lines, spawned); reportKind(report) != "done" {
+		return ""
+	}
+	_, pr := statusActivity(lines, spawned)
+	return pr
+}
+
 // refreshHistory rebuilds the Completed column: finished tasks, the pull
 // requests merged into fleet repositories, and what GitHub says of the
 // finished tasks' other pull requests.
 func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 	history := finishedTasks(s.Store.Home, now)
 	for id, evaluation := range s.Store.Snapshot().Tasks {
-		if evaluation.Phase != "done" && evaluation.Phase != "merged" {
+		reported := s.reportedDone(id)
+		if evaluation.Phase != "done" && evaluation.Phase != "merged" && reported == "" {
 			continue
 		}
 		meta, err := state.ReadTaskMeta(s.Store.Home.State, id)
 		if err != nil || evaluation.Generation != meta.SpawnGen {
 			continue
+		}
+		if evaluation.PR == "" {
+			evaluation.PR = reported
 		}
 		if evaluation.PR == "" {
 			lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
@@ -1779,21 +1800,33 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 	}
+	// A live goblin that reported its pull request done carries that pull
+	// request's merge, as one its gate saw merge does, and no merged card
+	// stands for it beside its own.
+	carriesMerge := func(task Task) bool {
+		return !task.Archived && task.PR != "" && (task.Phase == "done" || task.Phase == "merged" || task.Report == "done")
+	}
 	for _, done := range history {
 		if !done.Archived {
 			for i := range out.Tasks {
 				task := &out.Tasks[i]
-				if task.ID == done.ID && task.PR == done.PR && (task.Phase == "done" || task.Phase == "merged") {
+				if task.ID == done.ID && task.PR == done.PR && carriesMerge(*task) {
 					task.Title, task.Project, task.Branch = done.Title, done.Project, done.Branch
 					task.Merged, task.Closed = done.Merged, done.Closed
 				}
 			}
 			continue
 		}
-		if strings.HasPrefix(done.ID, "merged:") && slices.ContainsFunc(out.Tasks, func(t Task) bool {
-			return t.PR == done.PR && (t.Phase == "merged" || t.Phase == "done")
-		}) {
-			continue
+		if strings.HasPrefix(done.ID, "merged:") {
+			isCarried := false
+			for i := range out.Tasks {
+				if task := &out.Tasks[i]; task.PR == done.PR && carriesMerge(*task) {
+					task.Merged, isCarried = true, true
+				}
+			}
+			if isCarried {
+				continue
+			}
 		}
 		out.Tasks = append(out.Tasks, done)
 	}
@@ -1809,6 +1842,19 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if deployment, exists := deploys[task.PR]; exists && task.PR != "" {
 			task.Deployment = &deployment
+		}
+		// The Overlord, 2026-10-15: "make sure you dont have retired landed
+		// deployed goblins still a part of in progress, that should be
+		// completed". A goblin that reported done, whose pull request merged
+		// and whose deploy, where one ran, succeeded, is Completed at once,
+		// before its cleanup. One still deploying, or whose deploy failed or
+		// was cancelled, stays In progress.
+		isDeployed := task.Deployment == nil || task.Deployment.State == "deployed"
+		if !task.Archived && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
+			task.Phase, task.Verified, task.Reason = "done", true, "Pull request merged"
+			if task.Deployment != nil {
+				task.Reason = "Pull request merged and deployed"
+			}
 		}
 	}
 	if len(out.Decisions) > 100 {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseSnapshot } from "./types.ts";
-import { inProgressCards, nodeStatus, taskColumn } from "./workflow.ts";
+import { completedCards, inProgressCards, nodeStatus, taskColumn } from "./workflow.ts";
 import { startBlock } from "./start.ts";
 
 test("paused and stopped tasks have explicit columns and status even without a live session", () => {
@@ -20,6 +20,18 @@ test("a start the Overlord made heads In progress and one the supervisor made by
     { id: "his-start", phase: "queued", verified: false, starting: true, overlord_start: true },
   ] }).tasks;
   assert.deepEqual(inProgressCards(tasks).map((task) => task.id), ["his-start", "his-first", "his-second", "automatic"]);
+});
+
+// The Overlord, 2026-10-15: "top of completed is always most recently
+// completed work".
+test("Completed lists the most recently finished work first", () => {
+  const tasks = parseSnapshot({ healthy: true, tasks: [
+    { id: "landed-live", phase: "done", verified: true, at: "2026-10-15T12:40:00Z", reported_at: "2026-10-15T11:00:00Z" },
+    { id: "finished:cleaned-late", phase: "done", verified: false, archived: true, at: "2026-10-15T12:50:00Z", reported_at: "2026-10-15T09:00:00Z" },
+    { id: "finished:stopped", phase: "stopped", verified: false, archived: true, at: "2026-10-15T10:00:00Z", reported_at: "2026-10-15T12:55:00Z" },
+    { id: "merged:https://github.com/o/r/pull/9", phase: "done", verified: false, archived: true, at: "2026-10-15T12:00:00Z", reported_at: "0001-01-01T00:00:00Z" },
+  ] }).tasks;
+  assert.deepEqual(completedCards(tasks).map((task) => task.id), ["merged:https://github.com/o/r/pull/9", "landed-live", "finished:stopped", "finished:cleaned-late"]);
 });
 
 test("Start creates a missing brief but refuses a dependency block", () => {
