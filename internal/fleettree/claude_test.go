@@ -81,6 +81,41 @@ func TestReadTiesASubagentToItsTranscriptThroughItsMetaFile(t *testing.T) {
 	}
 }
 
+func TestReadKeepsRunningSubagentsWhenAPIRequestBlobsRepeatTheirCalls(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	start := at.Add(-34 * time.Minute)
+	var entries []any
+	for _, id := range []string{"one", "two", "three"} {
+		launch := call(id, "Agent", object{"description": "Review " + id, "prompt": "Check the implementation", "subagent_type": "general-purpose"}, start)
+		blob := call(id, "Agent", object{"description": "Review " + id}, time.Time{})
+		blob["type"] = "api-request-blob"
+		delete(blob, "timestamp")
+		entries = append(entries, launch, result(id, "launched", object{"status": "async_launched", "agentId": id}, start.Add(time.Second)), blob)
+	}
+	goblin, session := claudeGoblin(t, home, entries...)
+	goblin.HarnessPID = 100
+	for _, id := range []string{"one", "two", "three"} {
+		writeLines(t, filepath.Join(session, "subagents", "agent-"+id+".jsonl"), at, said("Reviewing "+id, at))
+	}
+	reader := Reader{Home: home, Now: func() time.Time { return at }, Processes: func() ([]Process, error) {
+		return []Process{{PID: 100, Exe: "claude.exe", Started: start.Add(-time.Hour)}}, nil
+	}, Listeners: func() (map[int][]int, error) { return nil, nil }}
+
+	// Act
+	tree, err := reader.Read(context.Background(), goblin)
+
+	// Assert
+	if err != nil || len(tree.Children) != 3 {
+		t.Fatalf("tree = %+v, %v, want three subagents", tree, err)
+	}
+	for _, node := range tree.Children {
+		if node.State != Working || !node.Started.Equal(start) || node.Task != "Check the implementation" || node.LastLine != "Reviewing "+node.ID[len("subagent:"):] {
+			t.Errorf("subagent = %+v, want its original launch and live transcript", node)
+		}
+	}
+}
+
 func TestReadFindsClaudeBackgroundShellsAndMonitors(t *testing.T) {
 	// Arrange
 	home := t.TempDir()

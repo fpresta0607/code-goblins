@@ -1,4 +1,57 @@
-import { expect, test, type Page } from "./site";
+import { expect, holdStream, test, type Page } from "./site";
+import { parseSnapshot } from "../src/types";
+import { treeFleet } from "./fixtures/tree-branches-fleet";
+
+test("Arrange keeps a mixed fleet and its subagents visible beside the CFO panel", async ({ page }, testInfo) => {
+  // Arrange
+  const snapshot = parseSnapshot(treeFleet(Date.now()));
+  snapshot.sessions = [];
+  snapshot.tasks[3].parent = "fleet";
+  for (let index = 0; index < 13; index++) snapshot.tasks.push({ ...snapshot.tasks[3], id: "extra-" + index, title: "Review task " + (index + 1), parent: "", tree: undefined });
+  snapshot.tasks[0].tree!.children.push({ ...snapshot.tasks[0].tree!.children[0], id: "shell:wait", kind: "shell", label: "Wait for checks", task: "sleep 2400" });
+  await page.setViewportSize({ width: 1707, height: 1067 });
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await holdStream(page, snapshot);
+  await page.route("**/api/**", route => route.fulfill({ status: 404, json: { error: "Fixture resource" } }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await page.evaluate(() => document.fonts.ready);
+  await page.mouse.move(2, 2);
+  await page.screenshot({ path: testInfo.outputPath("tree.png") });
+
+  // Act
+  await page.getByRole("button", { name: "Arrange", exact: true }).click();
+  await page.mouse.move(2, 2);
+  await page.screenshot({ path: testInfo.outputPath("grid.png") });
+
+  // Assert
+  await expect(page.locator(".flow-node")).toHaveCount(18);
+  await expect(page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).locator(".tree-child")).toHaveCount(3);
+  await expect(page.locator(".tree-child").filter({ hasText: "Wait for checks" })).toHaveCount(0);
+  expect(Number((await page.getByRole("status", { name: "Zoom" }).textContent())!.replace("%", ""))).toBeGreaterThan(25);
+  for (const element of await page.locator(".flow-node, .tree-child").all()) await expect(element).toBeInViewport();
+});
+
+test("the tree and Arrange grid show three subagents and never a background shell baby", async ({ page }, testInfo) => {
+  // Arrange
+  await page.setViewportSize({ width: 836, height: 956 });
+  await page.goto("/tests/fixtures/fleet-tree.html?view=regression");
+  await page.screenshot({ path: testInfo.outputPath("tree.png") });
+  const children = page.getByRole("list", { name: "What runs under Build the fleet tree" }).locator(".tree-child");
+
+  // Act
+  await page.getByRole("button", { name: "Arrange", exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath("grid.png") });
+
+  // Assert
+  await expect(page.locator(".flow-node")).toHaveCount(4);
+  await expect(children).toHaveCount(3);
+  await expect(children.filter({ hasText: "Wait for checks" })).toHaveCount(0);
+  await expect(children.filter({ hasText: "Review layout" })).toContainText("Silent 12m");
+  await expect(page.getByRole("list", { name: "What runs under Stream the billing CSV export" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "What runs under Fix the flaky checkout test" })).toHaveCount(0);
+  for (const element of await page.locator(".flow-node, .tree-child").all()) await expect(element).toBeInViewport();
+});
 
 // Every card, every baby goblin and every folded count on the canvas, as
 // boxes.
@@ -25,7 +78,7 @@ test("each goblin's running children hang on branches under its card as baby gob
   await expect(children.filter({ hasText: "OAuth Researcher" })).toHaveCount(0);
   expect(await children.getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent"]);
   await expect(branches.locator(".branch-lines path"), "a branch to each child").toHaveCount(1);
-  await expect(page.getByRole("list", { name: "What runs under Stream the billing CSV export" }).locator(".tree-child")).toHaveCount(1);
+  await expect(page.getByRole("list", { name: "What runs under Stream the billing CSV export" })).toHaveCount(0);
   await expect(page.getByRole("list", { name: "What runs under Fix the flaky checkout test" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /descendants of Fix the flaky checkout test/ })).toHaveCount(0);
   await expect(page.locator(".tree-count")).toHaveCount(0);
@@ -76,7 +129,7 @@ test("the goblin panel lists working children and folds finished children away",
 test("a goblin's card counts what runs under it and names no child gone silent", async ({ page }) => {
   await page.goto("/tests/fixtures/fleet-tree.html?view=cards");
   const card = page.locator(".task-card-shell").filter({ hasText: "Build the fleet tree" });
-  expect(await card.locator(".card-tree").getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent", "Test run"]);
+  expect(await card.locator(".card-tree").getByRole("img").evaluateAll((heads) => heads.map((head) => head.getAttribute("aria-label")))).toEqual(["Sub-agent"]);
   await expect(card).not.toContainText("Silent");
   await expect(card).not.toContainText("Run the affected Go tests");
   await expect(page.locator(".task-card-shell").filter({ hasText: "Fix the flaky checkout test" }).locator(".card-tree")).toHaveCount(0);

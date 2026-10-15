@@ -32,11 +32,16 @@ const busier = [
   child({ id: "monitor:m1", kind: "monitor", label: "CI checks on PR 398", detail: "monitor", state: "done", started: ago(30), finished: ago(9), last_activity: ago(9) }),
 ];
 const view = new URLSearchParams(location.search).get("view") || "canvas";
+if (view === "regression") builder.push(
+  child({ id: "subagent:two", kind: "subagent", label: "Review tests", detail: "general-purpose", state: "working", started: ago(34) }),
+  child({ id: "subagent:three", kind: "subagent", label: "Review layout", detail: "general-purpose", state: "silent", started: ago(34), last_activity: ago(12) }),
+  child({ id: "shell:wait", kind: "shell", label: "Wait for checks", task: "sleep 2400", state: "working", started: ago(34) }),
+);
 const task = (fields: Record<string, unknown>) => ({ harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, generation: "g1", since: ago(90), ...fields });
 const snapshot = parseSnapshot({
   healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude",
   tasks: [
-    task({ id: "cg-fleet-tree", title: "Build the fleet tree", project: "code-goblins", phase: "working", tree: tree("cg-fleet-tree", view === "canvas" || view === "lineage" ? builder : busier, megabytes(2662), megabytes(1024)) }),
+    task({ id: "cg-fleet-tree", title: "Build the fleet tree", project: "code-goblins", phase: "working", tree: tree("cg-fleet-tree", view === "canvas" || view === "lineage" || view === "regression" ? builder : busier, megabytes(2662), megabytes(1024)) }),
     task({ id: "acme-billing", title: "Stream the billing CSV export", project: "acme-api", phase: "review", gate_step: "test",
       tree: tree("acme-billing", [child({ id: "gate:01M3", kind: "gate", label: "Gate: test", detail: "test step running", state: "working", started: ago(6), last_line: "go test ./...", memory: megabytes(1126) })], megabytes(2000), megabytes(700)) }),
     task({ id: "acme-checkout", title: "Fix the flaky checkout test", project: "acme-web", phase: "idle", runtime: { state: "idle", reason: "at its prompt", at: ago(2) },
