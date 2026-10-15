@@ -1038,6 +1038,7 @@ A goblin whose terminal carries no GitHub credential cannot file, so its report 
 
 The fleet files what its own signals already name, through the same command path, its screen and its dedup:
 - **A test that failed by chance.** Each test a merge train's passing run saw fail once and pass on its second try is filed on the train's repository, keyed by its suite and name whatever job ran it, once a run.
+- **A red default branch.** Each red push run of a repository's default branch that wakes you as `ci_finished` is filed on that repository once its failed jobs are read, keyed by its workflow and those jobs.
 - **An error the supervisor meets again.** A line of the supervisor's errors met again an hour or more after it was first met is filed on the repository of the home's own checkout, keyed by its class: the line with its paths, quoted text, hashes and numbers taken out, once a class in each run of the supervisor.
 A filing that fails, such as one the screen refuses, reaches you as a `root_unfiled:` check wake with the reason, and you file it by hand.
 
