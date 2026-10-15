@@ -168,9 +168,11 @@ func TestClosingThePipeAbandonsTheJob(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Act
+	// Act: the pipe closes once the job runs, its VM started, which its
+	// line says. Its first line, that a job waits, comes before the VM is
+	// even put back, and a job abandoned there has no runner to delete.
 	err := Ask(ctx, s.name, Request{Kind: AskRun}, func(reply Reply) {
-		if reply.Kind == ReplyProgress {
+		if reply.Kind == ReplyProgress && strings.HasPrefix(reply.Line, "the VM started") {
 			cancel()
 		}
 	})
@@ -178,6 +180,9 @@ func TestClosingThePipeAbandonsTheJob(t *testing.T) {
 	// Assert
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Ask = %v; want it ended with its context", err)
+	}
+	if calls := f.callsMade(); !slices.Contains(calls, "start") {
+		t.Fatalf("the job had made %q when its pipe closed; want its VM started first", calls)
 	}
 	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(s.service.Status(), "ended with its turn"); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
@@ -629,12 +634,15 @@ func TestServeEndsARunningJobBeforeItReturns(t *testing.T) {
 	ctx, stop := context.WithCancel(context.Background())
 	ended := make(chan error, 1)
 	go func() { ended <- listenAndServe(ctx, s, name, thisUser(t)) }()
+	// The job runs once its VM has started, which its line says. Its first
+	// line, that a job waits, comes before the VM is even put back, and a
+	// service stopped there has no runner yet to delete.
 	running := make(chan struct{})
 	go func() {
 		var once sync.Once
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			err := Ask(context.Background(), name, Request{Kind: AskRun}, func(reply Reply) {
-				if reply.Kind == ReplyProgress {
+				if reply.Kind == ReplyProgress && strings.HasPrefix(reply.Line, "the VM started") {
 					once.Do(func() { close(running) })
 				}
 			})
@@ -644,6 +652,9 @@ func TestServeEndsARunningJobBeforeItReturns(t *testing.T) {
 		}
 	}()
 	<-running
+	if calls := f.callsMade(); !slices.Contains(calls, "start") {
+		t.Fatalf("the job had made %q when its VM was said to have started; want the VM started before the service is told to stop", calls)
+	}
 
 	// Act
 	stop()
