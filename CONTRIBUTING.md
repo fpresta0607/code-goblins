@@ -36,7 +36,7 @@ It starts no check after its time limit, 15 minutes unless `--limit` says otherw
 The tests that read the whole tree run here whatever you changed, because a pull request's own run starts only the jobs its change can alter, and a guard in a job it did not start would first fail in the merge train.
 `cfo gate test` is the gate's own test step, which runs less, and `go test ./...` still runs everything here when you want it.
 
-CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs: the frontend checks, the board's browser tests in four jobs, each slow Go package (some in two jobs), and every other package together.
+CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs defined in [.github/workflows/go.yml](.github/workflows/go.yml).
 A pull request's own run starts only the jobs its change can alter, which the `plan` job chooses with `tools/ciplan`, and a merge train's run and a run on `main` start every job.
 A pull request must keep green every job its run starts: the one required check, `test`, passes only when the plan and every job it started passed.
 A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwright's own retry for the browser tests): one that passes then is named as a Failed once warning on the `test` check, and one that fails twice fails the job, so fix a test named there rather than leaning on its second try.
