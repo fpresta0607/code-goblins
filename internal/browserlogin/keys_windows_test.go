@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -258,5 +259,36 @@ func TestIsWaitOverOnlyWhenTheWaitsOwnBoundRanOut(t *testing.T) {
 				t.Fatalf("over = %t, want %t", isOver, test.isOver)
 			}
 		})
+	}
+}
+
+// A tab closeTab closed is gone from the browser's list when it returns.
+// Chrome answers a close before the tab is gone and lists it for a moment
+// after, where it answers nothing, so a reader of the pages that came next
+// waited on it until its bound ran out.
+func TestAClosedTabIsNoLongerListedOnceCloseTabReturns(t *testing.T) {
+	// Arrange
+	process, _ := startChrome(t, []string{"localhost"})
+	for range 5 {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		id, connection, err := openTab(ctx, process.URL)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		connection.Close()
+
+		// Act
+		err = closeTab(ctx, process.URL, id)
+
+		// Assert
+		tabs, listErr := pages(ctx, process.URL)
+		cancel()
+		if err != nil || listErr != nil {
+			t.Fatal(err, listErr)
+		}
+		if slices.ContainsFunc(tabs, func(tab page) bool { return tab.ID == id }) {
+			t.Fatalf("tab %s is still listed after closeTab returned", id)
+		}
 	}
 }
