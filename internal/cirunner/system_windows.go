@@ -7,3 +7,9 @@ import "golang.org/x/sys/windows"
 func systemFolder() (string, error) {
 	return windows.GetSystemWindowsDirectory()
 }
+
+// programFilesFolder is Program Files, as Windows gives it, which only
+// Administrators may change.
+func programFilesFolder() (string, error) {
+	return windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
+}

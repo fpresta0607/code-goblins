@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { reportToCfo } from "./api";
 import { Dictation, dictationKey } from "./dictation";
 import { dictationStatus, modelName, openMicrophone, prepareDictation, recognizerFor } from "./dictationEngine";
+import { rememberDictation } from "./useVoice";
 
 // A note about dictation stays this long over the terminal.
 const NOTE_MS = 6000;
@@ -29,7 +30,8 @@ export function appendDictation(prior: string, heard: string): string {
 // hands every key to key first: false means the terminal must not see the
 // key, true that it may, and null that the key is not dictation's. start and
 // stop listen for as long as a microphone button is held, from at, when it
-// went down. What was heard is typed with type.
+// went down. What was heard is typed with type, and joins the board's recent
+// dictations, which every window lists.
 // level reads the microphone while listening, for the voice bubble's waveform.
 // instance is the board's token, which the supervisor's speech model is asked
 // with, and model is that model's name once the supervisor has said it.
@@ -107,6 +109,7 @@ export function useDictation(type: (text: string) => void, instance: string) {
     const heard = (text: string) => {
       typeText.current(followsDictation.current ? " " + text : text);
       followsDictation.current = true;
+      rememberDictation(text, token.current);
     };
     const problem = (text: string) => {
       setNote({ text, lasting: false });

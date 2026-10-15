@@ -331,7 +331,7 @@ Change only what this root needs. %s %s
 
 ## Authentication
 
-This brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant.
+This brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s
 
 ## Commits
 
@@ -340,7 +340,7 @@ Never name an AI product, company, model, agent or assistant identity as a commi
 ## Delivery
 
 kind: ship
-`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id))
+`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), fleet.BriefStepCards())
 }
 
 func readRootPickups(stateDir string) ([]rootPickup, error) {

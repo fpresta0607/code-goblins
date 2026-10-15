@@ -312,8 +312,11 @@ type Service struct {
 	// boardGrants takes one read or change of the grants the home gave its
 	// boards at a time.
 	boardGrants sync.Mutex
-	done        chan struct{}
-	work        chan struct{}
+	// dictations takes one read or change of the recent dictations at a
+	// time.
+	dictations sync.Mutex
+	done       chan struct{}
+	work       chan struct{}
 	// looks takes each request to look at the fleet now, which the loop
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
@@ -716,6 +719,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinCredentials())
 	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}

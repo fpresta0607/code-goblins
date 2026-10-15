@@ -866,7 +866,9 @@ While it listens the bubble's tip names the model, and the foot of its list says
 A browser with a speech recognition of its own offers **Use this browser's speech recognition instead** there, off until it is ticked and kept in that browser: Edge and Chrome recognise speech in their vendors' online services, so with it the audio leaves the machine while the keys are held, and the tip and the list say that this is what listens. The desktop window has no such recognition and offers no choice.
 The browser's recognition ends by itself after about eight seconds of silence and after a long stretch of listening, so while the keys are held the board starts it again and joins what each part heard: a pause in a hold shows no note and types nothing early, and the whole hold is typed at the release.
 One that ends within a second of starting cannot listen and is not started again, and a failure that is real, a blocked or missing microphone or no network, is still said once and ends the hold.
-Clicking the bubble lists the pane's five most recent dictations, newest first, for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own; the board reads no other dictation app.
+Clicking the bubble lists the board's five most recent dictations, newest first, from every box that dictates, a terminal, the message box under a goblin and an answer box in the Command Center, in every window, the desktop window and a browser tab alike; the board reads no other dictation app.
+The supervisor keeps that one list, the newest ten, in `state/dictations.json` in the home, so it outlasts a restart and never leaves this PC: `GET /api/dictations` reads it and `POST /api/dictations` adds one, both only from the board's own page at 127.0.0.1, as dictation itself, and nothing about the words is logged.
+An open list reads it again when its window takes the focus, with what another window added meanwhile.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
 
@@ -1288,6 +1290,7 @@ cfo question --id layout-choice-001 --text "Which layout should I use?" --option
 Omit `--option` when the question needs a written answer.
 `--recommend` must exactly match a supplied option, which the modal shows first with its real recommendation; omit the flag when no option is recommended.
 The Supreme Overlord Command Center labels supplied choices A/B/C and always offers Other for a written answer.
+The box for a written answer has a microphone at its bottom right corner, and Ctrl+Shift+Space held anywhere in its card, as on the Other just chosen, dictates into the box and puts the caret there: until 15 October 2026 only the box itself heard the keys, and choosing Other leaves the keyboard on the choice, so a dictation held there was never typed.
 A question, the CFO's or a goblin's, is shown as body text at a readable line length rather than as a heading: a blank line starts a paragraph, a line that starts with `- ` is a bullet, text between `**two asterisks**` is bold, and everything else, markup included, is shown exactly as written; no HTML is ever interpreted.
 So a question leads with one short sentence that is the actual question, puts its details on `- ` lines and bolds only the verdict or the blocking item.
 The inbox and history list each question on at most two lines, with the marks dropped.
@@ -1669,7 +1672,7 @@ A request takes names only, at most ten, each an environment variable name, with
 It may also give up to eight steps for getting the values on that page, each one line of at most 200 characters, one `--step` each, in order.
 Anything shaped like a value is refused before anything is filed: a known key prefix (such as `sk_`, `rk_`, `ghp_`, `xox`, `AKIA` or `eyJ`), an equals sign, or long random text, in a name, the reason, a step or the link, and no refusal repeats what it refused.
 The registered CFO files over the supervisor's pipe, proven the way run items prove it; a goblin files for its own task with `--task <its id>`, from its own terminal, proven the way its questions are, through `state/credential-requests-inbox`, and a request in that inbox that claims to be the CFO's is refused and named among the board's issues.
-The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason, link and steps, the names the scope already holds, each name's format hint, and its state, open, saved or expired.
+The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason, link and steps, the names the scope already holds, each name's format hint, and its state, open, saved, done, dismissed, withdrawn or expired.
 It also says where each value goes: the repository, which is the checkout the scope is named for when it is on this machine, the credential scope, and every service of the project's `auth.json` that reads the name, beside the project's goblins, whose `auth.ps1` carries the whole scope.
 It never holds a value.
 A project's `auth.json` may declare format hints, which the request carries for the card to warn with and never to refuse a value:
@@ -1740,7 +1743,7 @@ A value that does not start the way its format hint expects, or starts the way a
 Below the table the exact `cfo auth store` lines have **Copy** and **Run**: Run opens the terminal for the names the scope does not hold, and asks the same question before a terminal that would type a stored one; while that terminal is open it runs on the card, where he types each value, and Save and Run wait for it to end.
 A board opened from anywhere but 127.0.0.1, localhost or ::1, such as through `tailscale serve`, shows the card read-only: no field, no Save and no Run, only the commands to copy, which a page without the clipboard selects for Ctrl+C.
 A request that closes as saved while its card is open finishes as every other Command Center item does, whether its values were pasted on the card or typed in its terminal: the card gives way to **Stored** with the names saved, and the next item follows by itself, so no card is left whose only way on is Skip.
-History lists it as saved or expired.
+History lists it as saved or expired, or as a [step card](#step-cards) closed another way.
 
 `tests/acceptance/credential_canary_windows.ps1 -Binary <cfo.exe>` proves the path end to end on a scratch home, with a random canary under a throwaway credential scope it deletes at its end.
 A stand-in goblin files the request from its own terminal, a browser on a throwaway profile enters the canary on the real card, and the proof counts the files that hold it: none in the browser's profile, `state/`, `data/`, the logs, the snapshot, the event stream or the agent transcripts it is given, and one, the goblin's owner-only `auth.ps1`, which `cfo cleanup` then removes.
@@ -1748,6 +1751,29 @@ A fresh browser profile is not isolation: Edge signs a new profile in to the Win
 So the proof starts the browser with sync and automatic sign-in switched off on a profile that disallows sign-in, reads the browser's own sign-in state before it opens the board, and fails with nothing typed if an account shows or the state cannot be read; at the end it checks that the profile stayed signed out and holds no saved form entry it did not type.
 It also fills a plain sign-in form with values it makes up, which a browser does keep and does offer to save, so a clean result cannot come from a search or a probe that sees nothing.
 `-Visible` runs it in a window, where a browser shows its offer to save a password, and checks that none follows the card's save; `-Browser` names another browser, such as Chrome.
+
+### Step cards
+
+A credential request is also the one card for any step a goblin's browser or computer-use work reaches that only the Overlord can take, such as creating an account, a sign-in, a CAPTCHA, accepting terms or a token to copy:
+
+```powershell
+cfo auth request --project acme-shop --task shop-signup --why "Create the shop's test account" --link https://shop.example.com/signup --step "Prove you are a human" --step "Accept the terms" --wait
+cfo auth request --project acme-shop --task shop-signup --why "Connect the tests to the new account" --link https://shop.example.com/settings/api --plain ACCOUNT_EMAIL --label ACCOUNT_EMAIL="The account's email" --label SHOP_API_TOKEN="The API token from Settings" SHOP_API_TOKEN --wait
+cfo auth request --project acme-shop --task shop-signup --why "Sign in to the shop in my browser" --link https://shop.example.com/login --window --wait
+```
+
+- A secret NAME goes into the vault as above, and a `--plain` NAME is a value that goes back to the asker: the card gives it a plain field, refuses anything shaped like a key in it, keeps it in the board's record for the asker's wait and never in the snapshot, which names it under `received` once it arrived.
+- Each input may carry a label of a few words, at most 60 characters, which the card shows above its name and its heading uses.
+- A card that asks for no input has a Done button, `POST /api/credentials/close` with `"action": "done"`, and its heading is what it is for.
+- `--window`, which needs `--wait` and the asker's own browser session, gives the card **Open the browser window**, `POST /api/credentials/window`, taken only on this PC. The asker's wait sees the press and restarts the goblin's chrome-devtools-axi session with a window on a profile in its task folder at the link, then reports it open or why it could not open, and the card says so. Once the card closes the wait restarts the session headless on the same profile, so the session keeps the sign-in.
+- Every open credential and step card has **Close** at its top, beside who asks, so he reaches it without scrolling: `POST /api/credentials/close` with `"action": "dismiss"`, from any board. The card closes as dismissed, the goblin that asked is told in its terminal to go on without it, and the CFO gets a `review` wake.
+- The card's place, and its History row, then show one line: the `cfo auth store` command to give a secret it still asks for later, or, for a card with none, `cfo auth request --reopen <card>`. That command, run by the CFO or the asking goblin, brings the card back open under a new generation for the rest of its day, and the goblin is told to wait on it again.
+
+`--wait` waits on the card by looking at the board's record five times a second, reading it whenever it changed, and ends the moment the card closes: exit 0 once every input arrived or the step is done, printing each plain value as `NAME=value` and each secret by its name alone, exit 3 when he closed it, and 1 when it was withdrawn or expired.
+A card the board refused, neither on the board nor in its inbox, ends the wait at once.
+The asker closes its own card with `--done <card>` once it sees the step done and takes it back with `--withdraw <card> --reason "<why>"`, both over the supervisor's pipe from its own terminal, and the CFO may withdraw any card.
+A goblin's open card is withdrawn once its goblin is gone or was replaced, or reported done or failed after it asked.
+A card closed as done, dismissed or withdrawn takes no value, and History lists it so.
 
 ## Browser key fetching
 

@@ -4,7 +4,7 @@ import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
 import { VOICE_HINT_KEY } from "./voice";
 import { VoiceBars } from "./voice-bars";
-import type { Voice } from "./useVoice";
+import { refreshDictations, useVoice } from "./useVoice";
 
 function hintDismissed(): boolean {
   try { return localStorage.getItem(VOICE_HINT_KEY) === "dismissed"; } catch { return false; }
@@ -13,15 +13,16 @@ function hintDismissed(): boolean {
 const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
 // A terminal's voice bubble, always in the pane's bottom-right corner: idle,
-// a small microphone that opens the pane's recent dictations, each with Copy
-// and Paste into this terminal; recording, a waveform that moves with the
+// a small microphone that opens the board's recent dictations, from every box
+// in every window, each with Copy and Paste into this terminal; recording, a waveform that moves with the
 // voice, which is a flat dotted line while the keys are held in silence. The
 // first visit explains the shortcut once. model is the speech model
 // the supervisor runs on this PC, which the bubble names as what listens; the
 // list's foot says so too and offers the browser's own speech recognition
 // where the browser has one.
-export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice: Voice; listening: boolean; level: () => number; model: string; onPaste: (text: string) => void }) {
+export function VoiceBubble({ listening, level, model, onPaste }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void }) {
   const [open, setOpen] = useState(false);
+  const messages = useVoice();
   // Read on every render, as the hint is, so a choice made in one pane shows
   // in the others.
   const [, chosen] = useState(0);
@@ -33,6 +34,13 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
   const hint = !dismissed && !hintDismissed();
   const [copied, setCopied] = useState("");
   const bubble = useRef<HTMLButtonElement>(null);
+  // The open list reads again as its window takes the focus, with what was
+  // dictated in another window meanwhile.
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("focus", refreshDictations);
+    return () => window.removeEventListener("focus", refreshDictations);
+  }, [open]);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(""), 1400);
@@ -46,6 +54,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
   const toggle = () => {
     if (open) { setOpen(false); return; }
     dismiss();
+    refreshDictations();
     setOpen(true);
   };
   const tip = listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
@@ -61,7 +70,7 @@ export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
       <p className="voice-card-title">Recent messages</p>
       <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" onClick={close}><Icon name="close" /></button>
-      {voice.messages.length ? <ul>{voice.messages.map((message, index) => {
+      {messages.length ? <ul>{messages.map((message, index) => {
         const key = message.at + ":" + index;
         return <li key={key}>
           {message.at > 0 && <span className="voice-meta">{clock(message.at)}</span>}

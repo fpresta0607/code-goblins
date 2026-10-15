@@ -8,7 +8,8 @@ import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 
 const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
-  project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], why: "Charge test cards", link: "", steps: [],
+  project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], plain: [], labels: {}, why: "Charge test cards", link: "", steps: [],
+  window: false, window_state: "", received: [],
   env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",
   created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", fetch: null, ...changes,
 });

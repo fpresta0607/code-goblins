@@ -32,6 +32,41 @@ func checkFolder(dir string) error {
 	return nil
 }
 
+// checkInstalledFolder refuses the install's service folder, dir, unless it
+// and its parent are held as the install makes them: no link, owned by
+// SYSTEM or Administrators, the parent open to those two alone and dir to
+// them and the service, and neither taking entries from its own parent. The
+// account the install runs as is never trusted here, as checkFolder trusts
+// the service's, since an agent runs as that account: a parent an agent
+// made while the install ran, or a folder swapped in since, is refused
+// before the App's key goes in.
+func checkInstalledFolder(dir string) error {
+	administrators := []string{"S-1-5-18", "S-1-5-32-544"}
+	for _, folder := range []struct {
+		path    string
+		trusted []string
+	}{
+		{filepath.Dir(dir), administrators},
+		{dir, append(slices.Clone(administrators), ServiceSID(ServiceName))},
+	} {
+		name, err := windows.UTF16PtrFromString(folder.path)
+		if err != nil {
+			return err
+		}
+		attributes, err := windows.GetFileAttributes(name)
+		if err != nil {
+			return fmt.Errorf("cirunner: read %s: %w", folder.path, err)
+		}
+		if attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+			return fmt.Errorf("cirunner: %s is a link, so the install keeps no key in it", folder.path)
+		}
+		if err := checkHeldBy(folder.path, folder.trusted, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // checkHeldBy refuses path unless its owner is one of trusted, every entry
 // of its access list names one of them, and, when isProtected is asked for,
 // its list takes nothing from its parent.

@@ -1590,6 +1590,99 @@ func TestGateTurnAtTheLowestPriorityLetsALaterRunGoFirst(t *testing.T) {
 	low.exit(t, "the low-priority run")
 }
 
+// cfo gate turns --json gives the line in a shape the board reads, its keys
+// fixed: each run that holds a turn, each that waits, in the order it takes
+// its turn, with its low priority, and the machine's memory against the
+// floor the line's head waits for.
+func TestGateTurnsJSONGivesTheLine(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	holder, err := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "a suite that holds the line", Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	waiter := verify.Admission{Dir: slots, Available: func() (uint64, error) { return 16 << 30, nil }, Who: "PrecisionDocs CI: backend-shard (1)", Limit: time.Minute, Poll: 10 * time.Millisecond, IsLowPriority: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = waiter.Wait(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-ended
+	}()
+	eventually(t, "the low-priority run joins the line", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 1 && waiting[0].Who == waiter.Who
+	})
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runGateTurnsJSON(&stdout, &stderr, plenty)
+
+	// Assert
+	var report struct {
+		Capacity  *int             `json:"capacity"`
+		IsWeighed *bool            `json:"is_weighed"`
+		Holding   []map[string]any `json:"holding"`
+		Waiting   []map[string]any `json:"waiting"`
+		Memory    map[string]any   `json:"memory"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); exit != 0 || err != nil {
+		t.Fatalf("cfo gate turns --json exited %d, printing %q (%v), and said %q; want the line as JSON", exit, stdout.String(), err, stderr.String())
+	}
+	if report.Capacity == nil || report.IsWeighed == nil || len(report.Holding) != 1 || report.Holding[0]["who"] != "a suite that holds the line" || len(report.Waiting) != 1 || report.Waiting[0]["who"] != waiter.Who || report.Waiting[0]["is_low_priority"] != true {
+		t.Errorf("the report is %s; want the holder, then the waiter at the lowest priority", stdout.String())
+	}
+	for _, run := range append(report.Holding, report.Waiting...) {
+		for _, key := range []string{"who", "pid", "since", "budget_seconds", "now", "estimate_bytes", "used_bytes", "is_low_priority"} {
+			if _, has := run[key]; !has {
+				t.Errorf("a run %v lacks %q; want every run to carry every key", run, key)
+			}
+		}
+	}
+	if report.Memory["available_bytes"] != float64(64<<30) || report.Memory["commit_available_bytes"] != float64(64<<30) || report.Memory["is_short"] != false {
+		t.Errorf("the memory is %v; want the machine's 64 GiB of each, not short", report.Memory)
+	}
+	if floor, isNumber := report.Memory["floor_bytes"].(float64); !isNumber || floor <= 0 {
+		t.Errorf("the floor is %v; want the bytes the line's head waits for", report.Memory["floor_bytes"])
+	}
+}
+
+// A line nobody holds or waits in is empty lists, never null, so the board
+// reads one shape whatever the line holds.
+func TestGateTurnsJSONGivesAnEmptyLineAsEmptyLists(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runGateTurnsJSON(&stdout, &stderr, plenty)
+
+	// Assert
+	if exit != 0 || !strings.Contains(stdout.String(), `"holding":[]`) || !strings.Contains(stdout.String(), `"waiting":[]`) {
+		t.Errorf("cfo gate turns --json exited %d and printed %q; want empty lists", exit, stdout.String())
+	}
+}
+
+// cfo gate turns takes --json and nothing else.
+func TestGateTurnsRefusesWhatItDoesNotTake(t *testing.T) {
+	for _, args := range [][]string{{"turns", "--yaml"}, {"turns", "--json", "--json"}, {"turns", "json"}} {
+		// Arrange
+		var stdout, stderr bytes.Buffer
+
+		// Act
+		exit := runGate(args, &stdout, &stderr, commandRuntime{availableMemory: plenty})
+
+		// Assert
+		if exit != 2 || !strings.Contains(stderr.String(), "usage: cfo gate turns [--json]") || stdout.Len() != 0 {
+			t.Errorf("cfo gate %q = %d, %q; want 2 and its usage", args, exit, stderr.String())
+		}
+	}
+}
+
 // cfo gate turns says which waiting run waits at the lowest priority.
 func TestGateTurnsMarksALowPriorityRun(t *testing.T) {
 	// Arrange
