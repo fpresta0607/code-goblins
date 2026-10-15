@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // TestLavishPollChild is the process a stand-in lavish-axi poll starts under
@@ -23,6 +25,39 @@ func TestLavishPollChild(t *testing.T) {
 	}
 	time.Sleep(time.Minute)
 	os.Exit(0)
+}
+
+// #915, 2026-10-14: lavish-axi's page server, which the first lavish-axi call
+// starts and which outlives it, ran in a goblin's worktree, where the goblin's
+// notify had run that call, and held the folder as its working directory, so
+// cfo cleanup could not remove it. Every call runs in the user's profile.
+func TestLavishRunsInTheProfileNotTheCallersFolder(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	ranIn := filepath.Join(bin, "ran-in.txt")
+	script := "@echo off\r\ncd > \"" + ranIn + "\"\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/c42fd9a0de5ec55d\"\r\n"
+	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	profile := t.TempDir()
+	t.Setenv("USERPROFILE", profile)
+	t.Chdir(t.TempDir())
+
+	// Act
+	_, err := (Lavish{Commands: execx.OSRunner{}}).Open(context.Background(), filepath.Join(bin, "plan.html"))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(ranIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(data)); !fsx.SamePath(got, profile) {
+		t.Errorf("lavish-axi ran in %q; want the profile %q", got, profile)
+	}
 }
 
 // A cancelled poll ends lavish-axi's whole process tree, not only its .cmd

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,6 +30,11 @@ type cleanupRunner struct {
 
 func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.requests = append(r.requests, req)
+	// The fixture's project is no repository, so a prune in it fails, as git
+	// fails one there.
+	if req.Name == "git" && slices.Equal(req.Args, []string{"worktree", "prune"}) {
+		return execx.Result{ExitCode: 128, Stderr: []byte("fatal: not a git repository")}, nil
+	}
 	if req.Name == "git" {
 		if len(req.Args) != 3 || req.Args[0] != "status" || req.Args[1] != "--porcelain=v1" || req.Args[2] != "--untracked-files=all" {
 			return execx.Result{}, fmt.Errorf("unexpected git request: %#v", req)
@@ -65,8 +71,9 @@ type cleanupGit struct {
 	returned  [][2]string
 	// unlanded names the worktrees whose HEAD is not on the default branch,
 	// and tagged the archive tags made for them.
-	unlanded map[string]bool
-	tagged   []string
+	unlanded   map[string]bool
+	tagged     []string
+	archiveErr error
 }
 
 func (g *cleanupGit) Acquire(context.Context, string, string, string) (string, error) {
@@ -78,6 +85,9 @@ func (g *cleanupGit) Landing(_ context.Context, dir string) (worktree.Landing, e
 }
 
 func (g *cleanupGit) ArchiveTag(_ context.Context, dir string, _ worktree.Landing, name string) (string, error) {
+	if g.archiveErr != nil {
+		return "", g.archiveErr
+	}
 	tag := "archive/" + name
 	g.tagged = append(g.tagged, tag)
 	return tag, nil
