@@ -122,8 +122,9 @@ func goWorkflowTable(t *testing.T) gatetest.JobTable {
 // nowhere, and so would the tests of a package whose job runs only some of
 // them, and the workflow would still pass. So except names exactly the
 // packages the other jobs run, each a package with tests, and a job runs all
-// of its package's tests unless one other job runs the rest: one runs the
-// tests a pattern matches, and the other skips exactly those.
+// of its package's tests unless the jobs that share the package split its
+// tests in table order: each runs the tests its pattern matches and skips
+// what the jobs before it run, and the last skips what all of them run.
 func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	// Arrange
 	shards := goWorkflowTable(t).Go
@@ -164,21 +165,14 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 		if tests, err := filepath.Glob(filepath.Join(filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 			t.Errorf("%s has a job of its own and no tests (%v)", dir, err)
 		}
-		switch in := jobs[dir]; len(in) {
-		case 1:
-			if in[0].Run != "" || in[0].Skip != "" {
-				t.Errorf("job %q runs %q and skips %q of %s, and no other job runs its other tests", in[0].Shard, in[0].Run, in[0].Skip, dir)
+		in := jobs[dir]
+		var before []string
+		for index, shard := range in {
+			isLast := index == len(in)-1
+			if want := strings.Join(before, "|"); shard.Skip != want || (shard.Run == "") != isLast {
+				t.Errorf("job %q runs %q and skips %q of %s, want it to skip %q, what the jobs before it run, and to run a pattern of its own unless it is the package's last job", shard.Shard, shard.Run, shard.Skip, dir, want)
 			}
-		case 2:
-			runs, skips := in[0], in[1]
-			if runs.Run == "" {
-				runs, skips = skips, runs
-			}
-			if runs.Run == "" || runs.Skip != "" || skips.Run != "" || skips.Skip != runs.Run {
-				t.Errorf("jobs %q (run %q, skip %q) and %q (run %q, skip %q) share %s: want one to run a pattern and the other to skip the same one", runs.Shard, runs.Run, runs.Skip, skips.Shard, skips.Run, skips.Skip, dir)
-			}
-		default:
-			t.Errorf("%d jobs test %s, want one, or two that split its tests by one pattern", len(in), dir)
+			before = append(before, shard.Run)
 		}
 	}
 }

@@ -9,6 +9,7 @@
     "internal/supervisor",
     "internal/testguard"
   ],
+  "alone_packages": ["internal/browserlogin", "internal/supervisor"],
   "guards": [
     {
       "package": ".",
