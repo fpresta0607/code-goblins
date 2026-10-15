@@ -507,6 +507,17 @@ func liveTasks(stateDir string) []state.TaskMeta {
 	return tasks
 }
 
+// inProgressOrder reads every live task record in h in the board's In
+// progress order, top first: the Overlord's attention order, then the
+// goblins he has not placed, in name order. An attention order that cannot
+// be read leaves them in name order and is returned beside them.
+func inProgressOrder(h home.Home) ([]state.TaskMeta, error) {
+	tasks := liveTasks(h.State)
+	attention, err := fleet.ReadAttention(h)
+	fleet.SortByAttention(tasks, attention, func(meta state.TaskMeta) string { return meta.ID })
+	return tasks, err
+}
+
 // memoryReadyDetail is the memory_ready wake, which says what to do next.
 func memoryReadyDetail(memory Memory, queued, waiting []string) string {
 	var next []string

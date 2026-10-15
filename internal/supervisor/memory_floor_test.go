@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -34,13 +35,17 @@ func hostedGoblin(t *testing.T, h home.Home, id string, started time.Time) state
 }
 
 // floorBoard is a board in AFK mode, or not, with an older and a newer live
-// goblin, whose memory meter reads readings in turn.
+// goblin, the newer under the older In progress as an automatic start leaves
+// it, whose memory meter reads readings in turn.
 func floorBoard(t *testing.T, isAFKOn bool, spawner *spawnRecorder, readings ...[2]float64) (*Service, home.Home, state.TaskMeta, state.TaskMeta, time.Time) {
 	t.Helper()
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	now := time.Now().UTC().Truncate(time.Second)
 	older := hostedGoblin(t, h, "older-task", now.Add(time.Second))
 	newer := hostedGoblin(t, h, "newer-task", now.Add(2*time.Second))
+	if err := fleet.WriteAttention(h, []string{older.ID, newer.ID}); err != nil {
+		t.Fatal(err)
+	}
 	handler.Service.Options.Dispatch.Memory = (&memoryReadings{readings: readings}).read
 	if isAFKOn {
 		if _, _, err := afk.TurnOn(h.State, "his own board (goblins-window.exe pid 4242)", nil, now); err != nil {
@@ -86,7 +91,7 @@ func pausedFor(t *testing.T, h home.Home, meta state.TaskMeta, reason, phase str
 // The Overlord, 2026-10-08: "nothing pauses automatically by default?? it
 // should work regardless of afk thats a critical core feature". Free memory
 // fell to 1.9 GB that day with AFK mode off and nothing paused.
-func TestTheNewestGoblinPausesAtTheMemoryFloorWhetherAFKModeIsOnOrOff(t *testing.T) {
+func TestTheLowestGoblinPausesAtTheMemoryFloorWhetherAFKModeIsOnOrOff(t *testing.T) {
 	for name, test := range map[string]struct {
 		low     [2]float64
 		isAFKOn bool
@@ -113,15 +118,35 @@ func TestTheNewestGoblinPausesAtTheMemoryFloorWhetherAFKModeIsOnOrOff(t *testing
 			calls := awaitDispatch(t, s, spawner, 1)
 			args := strings.Join(calls[0], " ")
 			if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID || !strings.Contains(args, "--generation "+newer.SpawnGen) || !strings.HasSuffix(args, "--reason memory") {
-				t.Fatalf("dispatches = %v, want one pause of the newest goblin for memory, with no --until", calls)
+				t.Fatalf("dispatches = %v, want one pause of the lowest goblin for memory, with no --until", calls)
 			}
 		})
 	}
 }
 
+// The memory floor pauses the goblin lowest in the Overlord's In progress
+// order, the one he ranks last, not the one that started last.
+func TestTheMemoryFloorPausesTheGoblinLowestInHisOrder(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	low := [2]float64{3, 8}
+	s, h, older, newer, now := floorBoard(t, false, spawner, low, low)
+	if err := fleet.WriteAttention(h, []string{newer.ID, older.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	readFleet(t, s, now, 0, 1)
+
+	// Assert
+	if calls := awaitDispatch(t, s, spawner, 1); len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != older.ID {
+		t.Fatalf("dispatches = %v, want the goblin lowest in his order paused", calls)
+	}
+}
+
 // One goblin is paused at a time: while a pause or any other change is under
 // way nothing more is paused, and once it is done two fresh readings under
-// the floor are needed before the next newest is paused, so a pause has the
+// the floor are needed before the next lowest is paused, so a pause has the
 // time to free what it frees.
 func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 	// Arrange
@@ -143,7 +168,7 @@ func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 
 	// Assert
 	if len(inFlight) != 1 || inFlight[0][1] != newer.ID {
-		t.Fatalf("first dispatches = %v, want the newest goblin paused", inFlight)
+		t.Fatalf("first dispatches = %v, want the lowest goblin paused", inFlight)
 	}
 	if len(whileInFlight) != 1 {
 		t.Fatalf("dispatches while the first pause ran = %v, want no second", whileInFlight)
@@ -158,7 +183,7 @@ func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 }
 
 // A goblin whose last pause at the memory floor failed is not asked again
-// at every reading; the next newest is paused instead.
+// at every reading; the next lowest is paused instead.
 func TestAGoblinWhoseMemoryPauseFailedIsNotPausedAgain(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
@@ -205,7 +230,7 @@ func TestAPauseAtTheMemoryFloorIsLoggedWithItsReadingsAndOutcome(t *testing.T) {
 			}
 			pauses := afk.Pauses(entries)
 			if len(pauses) != 1 || pauses[0].Task != newer.ID || pauses[0].What != "at the memory floor" || !strings.Contains(pauses[0].Evidence, "3.1 GB of memory") || !strings.Contains(pauses[0].Evidence, "4 GB floor") || pauses[0].Outcome != test.outcome {
-				t.Fatalf("logged pauses = %+v, want the newest goblin's pause with its readings and outcome %q", pauses, test.outcome)
+				t.Fatalf("logged pauses = %+v, want the lowest goblin's pause with its readings and outcome %q", pauses, test.outcome)
 			}
 			if report := s.afkReport(switched, nil); len(report.Paused) != 1 || !reflect.DeepEqual(report.Paused[0], pauses[0]) {
 				t.Errorf("the report's pauses = %+v, want the logged pause", report.Paused)
@@ -316,7 +341,7 @@ func TestAPauseTheLogCannotTakeStillPausesAndSaysSo(t *testing.T) {
 		t.Errorf("the reading = %v, want it to say the log did not take the pause", err)
 	}
 	if len(calls) != 1 || calls[0][1] != newer.ID {
-		t.Fatalf("dispatches = %v, want the newest goblin paused all the same", calls)
+		t.Fatalf("dispatches = %v, want the lowest goblin paused all the same", calls)
 	}
 	s.starts.Lock()
 	problem := s.changeErrors[newer.ID].Message
