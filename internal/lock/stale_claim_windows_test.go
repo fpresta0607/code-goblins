@@ -45,7 +45,7 @@ func TestStaleClaimPreservesCrossProcessReplacement(t *testing.T) {
 			if dead.Alive() {
 				t.Fatal("fixture identity is not dead")
 			}
-			if err := writeInfo(filepath.Join(dir, name), &dead); err != nil {
+			if err := writeInfo(context.Background(), filepath.Join(dir, name), &dead); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -91,7 +91,7 @@ func TestStaleClaimPreservesCrossProcessReplacement(t *testing.T) {
 			if isContext {
 				_, err = acquireExclusiveStrictReading(ctx, dir, name, func(_ context.Context, dir, name string) (*Info, error) { return read(dir, name) })
 			} else {
-				_, err = acquireReading(dir, name, self, false, true, read)
+				_, err = acquireReading(context.Background(), dir, name, self, false, true, func(_ context.Context, dir, name string) (*Info, error) { return read(dir, name) })
 			}
 
 			// Assert: the child's lease survives and the parent is refused.
@@ -122,7 +122,7 @@ func TestContextAcquisitionVerifiesCreatedIdentity(t *testing.T) {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil {
 			t.Fatal(err)
 		}
-		if err := writeInfo(filepath.Join(dir, name), &replacement); err != nil {
+		if err := writeInfo(context.Background(), filepath.Join(dir, name), &replacement); err != nil {
 			t.Fatal(err)
 		}
 		return &replacement, nil
