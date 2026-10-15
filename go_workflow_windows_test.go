@@ -228,6 +228,28 @@ func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
 	}
 }
 
+// cmd/cfo's tests wait on real processes, which no faster runner shortens.
+// Split in two, its second job's tests took 14 to 17 minutes of go test's
+// 20-minute limit, and a slow runner took that job past it. Three jobs, the
+// last two near halves of that time, leave each well under the limit.
+func TestGoWorkflowSplitsCmdCfoIntoThreeJobs(t *testing.T) {
+	// Arrange
+	shards := goWorkflowTable(t).Go
+
+	// Act
+	var jobs []string
+	for _, shard := range shards {
+		if slices.Contains(strings.Fields(shard.Packages), "./cmd/cfo") {
+			jobs = append(jobs, shard.Shard)
+		}
+	}
+
+	// Assert
+	if len(jobs) != 3 {
+		t.Errorf("cmd/cfo is tested by jobs %v, want three", jobs)
+	}
+}
+
 // A newer commit on a pull request supersedes the run validating the older
 // one, so that run is cancelled. A run on main or started by hand is never
 // cancelled or held: in a shared group it would wait behind another, and a
