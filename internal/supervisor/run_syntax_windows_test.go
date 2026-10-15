@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -53,6 +54,20 @@ func TestARunCommandItsShellParsesIsTaken(t *testing.T) {
 				t.Errorf("CheckRunCommand(%s) = %v, want it taken", shell, err)
 			}
 		})
+	}
+}
+
+// A shell that does not answer in time has checked nothing, and says so: on
+// PR 846's CI run 38617095871 powershell.exe sat past the wait, its context
+// ended it, and the check said "exit status 1", the exit of a command that
+// does not parse.
+func TestARunCommandItsShellDoesNotAnswerInTimeIsRefusedAsUnchecked(t *testing.T) {
+	// Act
+	err := checkRunCommand("powershell", repairHome, time.Millisecond)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "powershell did not answer within 1ms") || strings.Contains(err.Error(), "exit status") {
+		t.Fatalf("checkRunCommand(a shell given 1ms) = %v, want it refused because the shell did not answer in time", err)
 	}
 }
 
