@@ -45,18 +45,27 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
     }
     terminal.write("\x1b[?25l")
     // fit sizes the grid to the panel as a goblin's terminal does (panelFit),
-    // once xterm has measured its cells at the current font.
-    let isMeasuring = true, isDisposed = false
-    const fit = () => {
+    // by its cells as xterm draws them, again whenever a font that loads or a
+    // size chosen changes them.
+    let isDisposed = false, fitted = ""
+    const cell = () => {
       const screen = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect()
-      if (!screen || !terminal.element) return
-      const size = panelFit(container.clientWidth, container.clientHeight, { width: screen.width / terminal.cols, height: screen.height / terminal.rows }, PADDING)
+      return screen ? { width: screen.width / terminal.cols, height: screen.height / terminal.rows } : null
+    }
+    const fit = () => {
+      const measured = cell()
+      if (!measured || !terminal.element) return
+      const size = panelFit(container.clientWidth, container.clientHeight, measured, PADDING)
       if (!size) return
+      fitted = measured.width + " " + measured.height
       terminal.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`
       if (size.cols !== terminal.cols || size.rows !== terminal.rows) terminal.resize(size.cols, size.rows)
     }
-    const remeasure = () => { isMeasuring = true; terminal.refresh(0, terminal.rows - 1) }
-    const rendered = terminal.onRender(() => { if (isMeasuring) { isMeasuring = false; fit() } })
+    const remeasure = () => terminal.refresh(0, terminal.rows - 1)
+    const rendered = terminal.onRender(() => {
+      const measured = cell()
+      if (measured && measured.width + " " + measured.height !== fitted) fit()
+    })
     const resize = new ResizeObserver(fit)
     resize.observe(container)
     const stopFollowing = followFontSize((size) => { terminal.options.fontSize = size; remeasure() })
