@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseSnapshot } from "./types.ts";
-import { nodeStatus, taskColumn } from "./workflow.ts";
+import { inProgressCards, nodeStatus, taskColumn } from "./workflow.ts";
 import { startBlock } from "./start.ts";
 
 test("paused and stopped tasks have explicit columns and status even without a live session", () => {
@@ -10,6 +10,16 @@ test("paused and stopped tasks have explicit columns and status even without a l
     assert.equal(taskColumn(task), column);
     assert.equal(nodeStatus({ id: task.id, title: "Work", task, relation: "" }), label);
   }
+});
+
+test("a start the Overlord made heads In progress and one the supervisor made by itself joins its bottom", () => {
+  const tasks = parseSnapshot({ healthy: true, tasks: [
+    { id: "his-first", phase: "working", verified: false },
+    { id: "automatic", phase: "queued", verified: false, starting: true },
+    { id: "his-second", phase: "working", verified: false },
+    { id: "his-start", phase: "queued", verified: false, starting: true, overlord_start: true },
+  ] }).tasks;
+  assert.deepEqual(inProgressCards(tasks).map((task) => task.id), ["his-start", "his-first", "his-second", "automatic"]);
 });
 
 test("Start creates a missing brief but refuses a dependency block", () => {

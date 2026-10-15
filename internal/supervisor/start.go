@@ -206,6 +206,10 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 		return StartRefusal{Reason: "This task is being changed", Passing: true}
 	}
 	s.starting = id
+	s.overlordStart = ""
+	if isOverlord {
+		s.overlordStart = id
+	}
 	s.starts.Unlock()
 	isStarting := false
 	defer func() {

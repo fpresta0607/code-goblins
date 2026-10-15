@@ -248,15 +248,17 @@ type Service struct {
 	runRequests sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
-	// starts guards starting, the task a Start is running cfo spawn for, and
-	// startErrors, why each task's last Start failed.
-	starts       sync.Mutex
-	starting     string
-	startErrors  map[string]string
-	changing     map[string]string
-	engineFrom   map[string]state.TaskMeta
-	engineIdle   map[string]engineIdleReading
-	changeErrors map[string]taskChangeError
+	// starts guards starting, the task a Start is running cfo spawn for,
+	// overlordStart, the last task the Overlord's own Start ran cfo spawn
+	// for, and startErrors, why each task's last Start failed.
+	starts        sync.Mutex
+	starting      string
+	overlordStart string
+	startErrors   map[string]string
+	changing      map[string]string
+	engineFrom    map[string]state.TaskMeta
+	engineIdle    map[string]engineIdleReading
+	changeErrors  map[string]taskChangeError
 	// asked are the Starts and Resumes the Overlord clicked that wait their
 	// turn, oldest first; starts guards it. isAskedRunning says a runAsked
 	// loop runs them now, and isAskedAgain that it was called again
@@ -1242,9 +1244,12 @@ type Task struct {
 	// last Start failed, and Finished why it never starts again by itself:
 	// what says it already finished. Asked says a Start or Resume the
 	// Overlord clicked waits its turn behind another start or resume, or for
-	// memory or disk.
+	// memory or disk. OverlordStart says the start under way is the
+	// Overlord's own, which puts the task at the top of In progress, where
+	// one the supervisor makes by itself joins the bottom.
 	Brief         bool                `json:"brief"`
 	Starting      bool                `json:"starting"`
+	OverlordStart bool                `json:"overlord_start,omitempty"`
 	Asked         bool                `json:"asked,omitempty"`
 	StartError    string              `json:"start_error"`
 	Finished      string              `json:"finished,omitempty"`
@@ -1616,7 +1621,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Issues = append(slices.Clone(out.Issues), "Queued goblins are not named: "+err.Error())
 	}
 	s.starts.Lock()
-	starting := s.starting
+	starting, overlordStart := s.starting, s.overlordStart
 	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
 	engineFrom := maps.Clone(s.engineFrom)
 	asked := map[string]string{}
@@ -1631,6 +1636,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == starting || asked[task.ID] == "start"
+		task.OverlordStart = task.ID == starting && task.ID == overlordStart
 		task.Asked = asked[task.ID] != ""
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {

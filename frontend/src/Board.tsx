@@ -10,7 +10,7 @@ import { RenderBoundary } from "./render-boundary";
 import { nextInOrder } from "./start";
 import { TaskCard } from "./TaskCard";
 import type { CardStarter } from "./useStart";
-import { taskColumn } from "./workflow";
+import { inProgressCards, taskColumn } from "./workflow";
 
 const COLUMNS = [
   { name: "Tasks", list: "queued" },
@@ -47,9 +47,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
     <CfoPin snapshot={snapshot} now={now} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
       const listed = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
-      // A goblin starting heads In progress, where the supervisor puts it
-      // once its start ends, so it never moves on the way.
-      const tasks = column.name === "In progress" ? [...listed.filter((task) => task.starting), ...listed.filter((task) => !task.starting)] : listed;
+      const tasks = column.name === "In progress" ? inProgressCards(listed) : listed;
       const trains = trainsIn(column.name);
       const empty = column.list === "queued" || trains.length > 0 ? null : <p className="column-empty">{column.empty}</p>;
       return <section key={column.name} className="board-column" aria-label={column.name}>

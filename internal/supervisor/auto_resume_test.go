@@ -495,6 +495,35 @@ func TestAnAutomaticStartJoinsTheBottomOfHisInProgressOrder(t *testing.T) {
 	}
 }
 
+// While a start is under way the snapshot says whether it is the Overlord's,
+// so the board shows his at the top of In progress and the supervisor's own
+// at the bottom, where each lands once it ends.
+func TestTheSnapshotSaysWhoseStartIsUnderWay(t *testing.T) {
+	for name, isOverlord := range map[string]bool{"his Start": true, "the supervisor's own": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{release: make(chan struct{})}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+
+			// Act
+			err := handler.Service.startQueued("next-task", isOverlord)
+			awaitRecorded(t, spawner, 1)
+			card := cardOf(t, handler, "next-task")
+			close(spawner.release)
+			waitStarted(t, handler, "next-task")
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !card.Starting || card.OverlordStart != isOverlord {
+				t.Fatalf("starting %v, overlord start %v; want starting and overlord start %v", card.Starting, card.OverlordStart, isOverlord)
+			}
+		})
+	}
+}
+
 func TestSnapshotMarksTheQueuedProductionDefectForTheBoard(t *testing.T) {
 	// Arrange
 	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})

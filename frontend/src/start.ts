@@ -216,8 +216,9 @@ export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
     const parent = pausedWithParent(task, snapshot.tasks);
     return !!parent && (!parent.lifecycle || parent.lifecycle.phase === "running");
   };
-  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && (isClearing(task.lifecycle.pause, now) || isBackWithParent(task)))
-    .sort((left, right) => Date.parse(left.lifecycle!.pause!.at) - Date.parse(right.lifecycle!.pause!.at) || left.id.localeCompare(right.id));
+  // The snapshot lists the goblins in the Overlord's In progress order, the
+  // order the supervisor resumes them in.
+  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && (isClearing(task.lifecycle.pause, now) || isBackWithParent(task)));
   if (resumable.length) return { id: resumable[0].id, text: "Next up", tone };
   return queued.length ? { id: queued[0].id, text: nextChip(snapshot.memory), tone } : null;
 }
