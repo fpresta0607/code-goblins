@@ -51,10 +51,12 @@ type Owner struct {
 	// way, whose own teardown decides what ends.
 	IsChanging bool
 	// AtRestSince is when the terminal's goblin was last seen at work, for a
-	// goblin that has delivered and rests: its last report is done or failed
-	// and no turn of its is in progress. It is zero for a goblin that works
-	// or waits on something or somebody, for the CFO's terminal and a run
-	// item's, and whenever it cannot be read: nothing of theirs is idle.
+	// goblin that has delivered and rests: its last report is done or failed,
+	// no turn of its is in progress, and it waits on no work of its own that
+	// has shown something new within the busy budget. It is zero for a goblin
+	// that works or waits on something or somebody, for the CFO's terminal
+	// and a run item's, and whenever it cannot be read: nothing of theirs is
+	// idle.
 	AtRestSince time.Time
 }
 
