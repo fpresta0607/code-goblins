@@ -64,6 +64,13 @@ function posted(body: Buffer, headers: Record<string, string>): Posted {
 // for how many came before it.
 async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "", replies = null as Route[] | null, status = null as (() => { state: string; note?: string }) | null, words = null as ((count: number) => string) | null } = {}) {
   const asked: string[] = [], posts: Posted[] = [];
+  // The supervisor's one list of recent dictations, newest first.
+  const kept = [...dictations];
+  await page.route("**/api/dictations", (route) => {
+    const request = route.request();
+    if (request.method() === "POST") kept.unshift({ text: (request.postDataJSON() as { text: string }).text, at: Date.now() });
+    return route.fulfill({ json: { messages: kept.slice(0, 10) } });
+  });
   await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
   // The supervisor accepts the warming a dictation begins with and answers at once.
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
@@ -74,10 +81,9 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
     if (replies) { replies.push(route); return; }
     return refusal ? route.fulfill({ status: 503, json: { error: refusal } }) : route.fulfill({ json: { text: words ? words(posts.length - 1) : "ship the voice bubble", engine: "test-model" } });
   });
-  await page.addInitScript(({ hint, dictations, app, browser, is_held }) => {
+  await page.addInitScript(({ hint, app, browser, is_held }) => {
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
     if (browser) localStorage.setItem("cfo-dictation-browser-v1", "on");
-    if (dictations.length) localStorage.setItem("cfo-dictations-v1", JSON.stringify({ "task:voice": dictations }));
     const probe = { captures: [] as MediaStreamTrack[], started: [] as unknown[], frames: 0, replies: 0, recognitions: [] as { hear: (words: string) => void; silence: () => void }[] };
     window.voiceProbe = probe;
     if (is_held) {
@@ -118,9 +124,9 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
     const host = window as unknown as { chrome?: object };
     host.chrome = { ...host.chrome, webview: { postMessage: () => {} } };
     for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) Object.defineProperty(window, name, { configurable: true, writable: true, value: undefined });
-  }, { hint, dictations, app, browser, is_held: replies !== null });
+  }, { hint, app, browser, is_held: replies !== null });
   await page.goto("/tests/fixtures/voice-bubble.html" + (panes === 2 ? "?panes=2" : ""));
-  return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }), asked, posts };
+  return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }), asked, posts, kept };
 }
 
 // Everything a person can read on the page: its text, tooltips and labels.
@@ -183,7 +189,7 @@ test("overlapping dictations reach the same terminal in capture order", async ({
 
 test("a dictation typed right after another starts with a space, and one after a typed key does not", async ({ page }) => {
   const replies: Route[] = [];
-  const { bubble } = await openPane(page, { app: true, replies });
+  const { bubble, kept } = await openPane(page, { app: true, replies });
   const say = async (count: number, words: string) => {
     await dictate(page);
     await expect.poll(() => replies.length).toBe(count);
@@ -199,7 +205,7 @@ test("a dictation typed right after another starts with a space, and one after a
   await say(3, "and merge it");
   await expect.poll(typed).toBe("open the pull request\n then run the tests\nand merge it");
   // The recent dictations keep the words alone, without the separating space.
-  expect(await page.evaluate(() => (JSON.parse(localStorage.getItem("cfo-dictations-v1")!) as Record<string, { text: string }[]>)["task:voice"].map((message) => message.text)))
+  await expect.poll(() => kept.map((message) => message.text))
     .toEqual(["and merge it", "then run the tests", "open the pull request"]);
   await bubble.click();
   await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["and merge it", "then run the tests", "open the pull request"]);
@@ -305,7 +311,7 @@ test("a stalled dictation is canceled without blocking later words, and goes to 
   await expect(page.getByRole("textbox", { name: "Terminal input" })).toHaveValue("");
 });
 
-test("the bubble sits in the pane's corner and opens the pane's own recent dictations, newest first, five at most", async ({ page }) => {
+test("the bubble sits in the pane's corner and opens the board's recent dictations, newest first, five at most", async ({ page }) => {
   const dictations = ["Merge it when CI is green.", "Open the board.", "Run the tests.", "Pause the goblin.", "Show the canvas.", "Check the memory."].map((text, index) => ({ text, at: 1790000600000 - index * 60000 }));
   const { bubble, pane } = await openPane(page, { dictations });
   const corner = await bubble.boundingBox(), frame = await pane.boundingBox();
@@ -381,8 +387,10 @@ test("dictating asks nothing outside the board's own address, and the supervisor
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.filter((request) => !request.split(" ")[1].startsWith(ORIGIN + "/"))).toEqual([]);
   // Besides the words, the page asks the supervisor only which model listens,
-  // once, when the pane opens, and to load its engine as the keys are pressed.
-  expect(requests.filter((request) => request.includes("/api/") && request !== "GET " + ORIGIN + "/api/dictation")).toEqual(["POST " + ORIGIN + "/api/dictation/warm", "POST " + ORIGIN + "/api/dictation"]);
+  // once, when the pane opens, to load its engine as the keys are pressed, and
+  // to keep the words in the recent dictations every window lists.
+  await expect.poll(() => requests.filter((request) => request.includes("/api/") && request !== "GET " + ORIGIN + "/api/dictation"))
+    .toEqual(["POST " + ORIGIN + "/api/dictation/warm", "POST " + ORIGIN + "/api/dictation", "POST " + ORIGIN + "/api/dictations"]);
 });
 
 test("what the supervisor refuses with reaches the CFO as it wrote it, and nothing is typed or shown", async ({ page }) => {
