@@ -15,7 +15,7 @@ import { pullRequestTest } from "./pull-request-test";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { BabyGoblin } from "./BabyGoblin";
-import { formatMemory, summarize } from "./fleet-tree";
+import { babies, formatMemory, summarize } from "./fleet-tree";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 
@@ -68,7 +68,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   // What runs under a live goblin, as baby goblins with a count each, which
   // opens the Orchestration canvas on the goblin: its baby goblins live
   // there, never as cards of their own.
-  const kinds = column === "In progress" ? summarize(task.tree).kinds : [];
+  const kinds = column === "In progress" && task.tree ? summarize({ ...task.tree, children: babies(task.tree) }).kinds : [];
   const count = kinds.length > 0 && onCount && <button type="button" className="card-tree" aria-label={"Show what runs under " + name + " on the canvas"} data-tip="Show on the canvas" onClick={() => onCount(task)}>
     {kinds.map(([baby, number]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small hasTip={false} />{number}</span>)}{task.tree && formatMemory(task.tree.memory)}
   </button>;

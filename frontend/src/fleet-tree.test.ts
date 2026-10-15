@@ -14,6 +14,41 @@ const child = (fields: Partial<TreeNode>): TreeNode => ({
 });
 const tree = (children: TreeNode[]): FleetTree => ({ task_id: "g", generation: "s1", harness: "claude", memory: 2 ** 30, own_memory: 0, conversation_at: "", children, unread: [], source_updated_at: "", fetched_at: "" });
 
+test("Arrange wraps a fleet with a nested goblin into rows", () => {
+  for (const descendants of [1, 5, 15]) {
+    // Arrange
+    const snapshot = parseSnapshot({ healthy: true, tasks: Array.from({ length: 17 + descendants }, (_, index) => ({
+      id: "g" + index, title: "Goblin " + index, phase: "working", verified: false, parent: index >= 17 ? "g0" : "",
+    })) });
+    const nodes = workflowNodes(snapshot);
+
+    // Act
+    const positions = arrange(nodes, { width: 836, height: 956 });
+
+    // Assert
+    const siblings = nodes.filter(node => node.parent === "cfo:primary");
+    assert.ok(siblings.length > 1);
+    assert.ok(new Set(siblings.map(node => positions[node.id].y)).size > 1);
+    assert.ok(positions["task:g17"].y > positions["task:g0"].y);
+    for (const [index, node] of nodes.entries()) for (const other of nodes.slice(index + 1)) {
+      const first = positions[node.id], second = positions[other.id];
+      assert.ok(Math.abs(first.x - second.x) >= NODE_WIDTH || Math.abs(first.y - second.y) >= NODE_HEIGHT, node.id + " overlaps " + other.id);
+    }
+  }
+});
+
+test("a shell without subagents has no baby goblins to draw", () => {
+  // Arrange
+  const commands = tree([child({ id: "shell:wait", kind: "shell" }), child({ id: "gate:test", kind: "gate" })]);
+
+  // Act
+  const hasBabies = hasRunningChildren(commands);
+
+  // Assert
+  assert.equal(hasBabies, false);
+  assert.equal(running(commands).length, 2, "the activity panel still has the commands");
+});
+
 test("each child is drawn as the baby goblin of its kind, a job as what it does", () => {
   for (const [fields, baby] of [
     [{ kind: "subagent" }, "subagent"], [{ kind: "shell", group: "test" }, "shell"], [{ kind: "monitor" }, "monitor"], [{ kind: "gate" }, "gate"],
@@ -73,9 +108,9 @@ test("a goblin's children at a glance: counts by state, and how many of each kin
   assert.deepEqual(finished(tree(children)).map((node) => node.id), ["f", "b"], "newest first");
 });
 
-test("a goblin has children to draw only while one works", () => {
+test("a goblin has baby goblins while its subagents are unfinished", () => {
   for (const [states, isDrawn] of [
-    [[], false], [["done"], false], [["done", "failed"], false], [["working", "done"], true], [["waiting"], false], [["silent"], false],
+    [[], false], [["done"], false], [["done", "failed"], false], [["working", "done"], true], [["waiting"], true], [["silent"], true],
   ] as [string[], boolean][]) assert.equal(hasRunningChildren(tree(states.map((state, i) => child({ id: "c" + i, state })))), isDrawn, states.join(", "));
 });
 

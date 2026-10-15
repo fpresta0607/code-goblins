@@ -1,5 +1,5 @@
 import type { FleetTree, TreeNode } from "./types.ts";
-import { running } from "./fleet-tree.ts";
+import { babies } from "./fleet-tree.ts";
 
 // What each goblin's running baby goblins were at the last snapshot, by the
 // goblin's canvas id, in the order the canvas hangs them.
@@ -24,7 +24,7 @@ const said = (node: TreeNode) => [node.last_activity, node.last_line, node.state
 // at the last snapshot. The first snapshot has nothing to compare with, so it
 // moves nothing.
 export function treeTraffic(prior: TreeSeen | null, trees: Record<string, FleetTree>): TreeTraffic {
-  const seen: TreeSeen = new Map(Object.entries(trees).map(([goblin, tree]) => [goblin, running(tree)]));
+  const seen: TreeSeen = new Map(Object.entries(trees).map(([goblin, tree]) => [goblin, babies(tree)]));
   const traffic: TreeTraffic = { seen, born: [], left: [], reported: [] };
   if (!prior) return traffic;
   for (const [goblin, children] of seen) {

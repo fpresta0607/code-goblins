@@ -175,6 +175,9 @@ func (l *claudeLog) entry(line []byte) {
 		}
 		return
 	}
+	if entry.Type != "assistant" && entry.Type != "user" {
+		return
+	}
 	var text string
 	if json.Unmarshal(entry.Message.Content, &text) == nil {
 		l.notification(text, entry.Timestamp, false)

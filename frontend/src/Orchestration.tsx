@@ -8,7 +8,7 @@ import { ownsTaskSession } from "./lineageTree";
 import { taskName } from "./task-words";
 import { arrange, detours, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, waitingOn, workflowNodes, zoomAt, type Detour, type Extent, type Point, type View, type WorkflowNode } from "./workflow";
 import { taskStatus } from "./task-status";
-import { BABY_HEIGHT, BABY_WIDTH, babyName, branchLayout, elbows, hasRunningChildren, LINE_GAP, running } from "./fleet-tree";
+import { BABY_HEIGHT, BABY_WIDTH, babies, babyName, branchLayout, elbows, hasRunningChildren, LINE_GAP } from "./fleet-tree";
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { CardFacts } from "./card-facts";
@@ -82,7 +82,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const motion = useTreeMotion(trees, connected);
   const shownChildren = useMemo(() => {
     const goblins = new Set([...Object.keys(trees), ...motion.leaving.map((gone) => gone.goblin)]);
-    return Object.fromEntries([...goblins].map((id) => [id, withDepartures(trees[id] ? running(trees[id]) : [], motion.leaving.filter((gone) => gone.goblin === id))]));
+    return Object.fromEntries([...goblins].map((id) => [id, withDepartures(babies(trees[id]), motion.leaving.filter((gone) => gone.goblin === id))]));
   }, [trees, motion.leaving]);
   // The connectors to the goblins under a goblin's baby goblins run down
   // beside them, each on a line of its own.
