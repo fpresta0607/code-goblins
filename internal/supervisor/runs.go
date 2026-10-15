@@ -249,6 +249,8 @@ type runPipeRequest struct {
 	Asked   string          `json:"asked,omitempty"`
 	Helper  *HelperRequest  `json:"helper,omitempty"`
 	Browser *BrowserRequest `json:"browser,omitempty"`
+	// Step is a card's asker, or the CFO, acting on the card.
+	Step *CredentialStep `json:"step,omitempty"`
 	// Train is a landing a merge train asks to be logged as merged.
 	Train *trainLanding `json:"train,omitempty"`
 }

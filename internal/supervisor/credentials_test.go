@@ -766,7 +766,7 @@ func TestCredentialRequestTakesNamesNeverValues(t *testing.T) {
 		{"a name with a value assigned", func(r *CredentialRequest) { r.Names = []string{"STRIPE_SECRET_KEY=" + "x"} }},
 		{"a name of long random text", func(r *CredentialRequest) { r.Names = []string{random} }},
 		{"a name that is no variable", func(r *CredentialRequest) { r.Names = []string{"STRIPE SECRET"} }},
-		{"no names", func(r *CredentialRequest) { r.Names = nil }},
+		{"no names, link or step", func(r *CredentialRequest) { r.Names, r.Link = nil, "" }},
 		{"a name twice", func(r *CredentialRequest) { r.Names = []string{"STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"} }},
 		{"eleven names", func(r *CredentialRequest) {
 			r.Names = nil

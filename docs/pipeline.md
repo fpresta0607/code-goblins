@@ -672,10 +672,10 @@ What the test command leaves running is ended ten seconds after it exits, and af
 
 A machine with the desktop CI runner installed (`cg-ci-runner`, a Windows service the Supreme Overlord installs from a signed release) runs one GitHub Actions job at a time for one repository, in a Hyper-V VM put back to a clean checkpoint before every job.
 The service holds the repository's GitHub App key and drives the VM, and it runs a job only when the fleet asks, on its named pipe, which only the fleet's Windows user, SYSTEM and Administrators may open.
-Every 30 seconds the watcher asks it whether a job of its labels waits, and starts one turn for it, at the lowest priority, so it never goes ahead of a run that waits:
+Every 30 seconds the watcher asks it whether a job of its labels waits, and starts one turn for it, at the lowest priority, so it never goes ahead of a run that waits, and expected to use 7 GiB, the VM's 6 GB at most with its Hyper-V worker and the job's own process, which the line weighs since the VM's memory is the worker's, outside the turn:
 
 ```
-cfo gate turn --low-priority --as "desktop CI: <job> of run <id>" --detach <state>\ci-runner\job-<run>-<time>.log -- <this cfo> ci-runner job
+cfo gate turn --low-priority --memory 7GiB --as "desktop CI: <job> of run <id>" --detach <state>\ci-runner\job-<run>-<time>.log -- <this cfo> ci-runner job
 ```
 
 No other job's turn starts while that run lives.
