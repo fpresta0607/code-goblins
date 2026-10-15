@@ -1068,8 +1068,33 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .inbox-text strong { font-weight: 800; }
 .inbox-text small { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .inbox-list time { color: var(--muted); white-space: nowrap; }
-.inbox-history li { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; }
-.inbox-history li > time { padding-top: 2px; }
+/* A History row is one line that fits its width, cut short with an ellipsis,
+   until its open icon unfolds its whole text and how it ended. */
+.inbox-history li { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; padding: 6px 8px 6px 10px; }
+/* An open row keeps its mark, name, time and fold button on the header line,
+   and its whole text and how it ended run the row's full width below. */
+.inbox-history li.unfolded { grid-template-areas: "mark name time actions" "body body body body" "detail detail detail detail"; row-gap: 6px; }
+.inbox-history li.unfolded > :first-child { grid-area: mark; }
+.inbox-history li.unfolded .inbox-text, .inbox-history li.unfolded .history-head { display: contents; }
+.inbox-history li.unfolded > time { grid-area: time; }
+.inbox-history li.unfolded > .history-actions { grid-area: actions; }
+.inbox-history .goblin-avatar, .inbox-history .answer-mark, .inbox-history .delivery { width: 28px; height: 28px; }
+.inbox-history .answer-mark.you .icon { width: 16px; height: 16px; }
+.inbox-history .answer-mark .away-badge { right: -5px; bottom: -5px; width: 16px; height: 16px; }
+.inbox-history .answer-mark .away-badge .icon { width: 10px; height: 10px; }
+.history-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.5; }
+.history-head strong { flex: none; max-width: 60%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.inbox-history .history-head .inbox-summary { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); }
+.inbox-history li.unfolded .history-head strong { grid-area: name; max-width: none; }
+.inbox-history li.unfolded .history-head .inbox-summary { grid-area: body; white-space: pre-wrap; color: inherit; line-height: 1.5; }
+.inbox-history li.unfolded .history-detail { grid-area: detail; margin-top: 0; }
+.history-detail { display: grid; margin-top: 4px; }
+.history-detail[hidden] { display: none; }
+.history-actions { display: flex; align-items: center; gap: 4px; }
+.inbox-history .history-actions .icon-button { width: 36px; height: 36px; min-height: 36px; }
+.history-open .icon { width: 16px; height: 16px; color: var(--muted); transition: transform .16s ease; }
+.history-open[aria-expanded="true"] .icon { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .history-open .icon { transition: none; } }
 .inbox-text small.answer-reason { color: var(--muted); font-weight: 500; }
 /* Who answered: the crown for him, the CFO's face for the CFO, with a moon
    while he was away. */

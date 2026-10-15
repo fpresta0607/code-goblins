@@ -86,6 +86,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [allDone, setAllDone] = useState(false);
   // The answered question he opened from History, to see or change its answer.
   const [changing, setChanging] = useState("");
+  // The History rows he unfolded, by item key: each row is one line until he
+  // opens it.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   // The changes being sent now, by draft key, so a second press in the same
   // frame sends nothing more.
   const sendingChanges = useRef(new Set<string>());
@@ -383,11 +386,28 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             const mark = settledIcon(candidate, snapshot.actions);
             const who = candidate.kind === "question" ? answerMark(candidate.question) : "";
             const reason = candidate.kind === "question" ? answerReason(candidate.question) : "";
-            return <li key={candidate.key}>
+            const isUnfolded = unfolded.has(candidate.key);
+            const detail = "history-detail-" + candidate.key;
+            // A folded row names a goblin by its first name alone, which leaves
+            // the line to what it was about.
+            const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
+            const asker = !isUnfolded && !release(candidate) && goblin?.goblin_name || askerOf(candidate);
+            const unfold = () => setUnfolded((rows) => {
+              const next = new Set(rows);
+              if (!next.delete(candidate.key)) next.add(candidate.key);
+              return next;
+            });
+            return <li key={candidate.key} className={isUnfolded ? "unfolded" : undefined}>
               {who ? <AnswerMark who={who} /> : <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>}
-              <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
+              <span className="inbox-text">
+                <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
+                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
+              </span>
               <time>{age(closedAt(candidate))}</time>
-              {candidate.kind === "question" && canChange(candidate.question) && <button className="icon-button raised" aria-label={"Change the answer to " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Change answer" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
+              <span className="history-actions">
+                <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} data-tip={isUnfolded ? "Fold" : "Open"} onClick={unfold}><Icon name="chevron" /></button>
+                {candidate.kind === "question" && canChange(candidate.question) && <button className="icon-button raised" aria-label={"Change the answer to " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Change answer" onClick={() => { setInbox(false); setChanging(candidate.question.id); }}><Icon name="edit" /></button>}
+              </span>
             </li>;
           })}</ul>
         </Disclosure>}
