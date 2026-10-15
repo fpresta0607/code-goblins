@@ -22,8 +22,9 @@ import (
 
 // childMode makes the test binary the process inside the console: "echo"
 // answers typed lines, "late" reads nothing until the file lateChildFile
-// names is there and answers typed lines from then on, "sleep" just waits to
-// be ended, and "service" starts a sleeping child, writes its pid to the file
+// names is there and answers typed lines from then on, "bursts" reads its
+// input only between busy spells, "sleep" just waits to be ended, and
+// "service" starts a sleeping child, writes its pid to the file
 // serviceChildFile names, and waits to be ended.
 const childMode = "CONPTY_TEST_CHILD"
 
@@ -46,6 +47,8 @@ func TestMain(m *testing.M) {
 		echoChild()
 	case "sleep":
 		time.Sleep(time.Minute)
+	case "bursts":
+		burstsChild()
 	case "service":
 		child := exec.Command(os.Args[0])
 		child.Env = append(os.Environ(), childMode+"=sleep")

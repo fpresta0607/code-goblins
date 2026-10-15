@@ -80,6 +80,35 @@ for (const target of BOXES) {
   });
 }
 
+// The Overlord, 2026-10-15 about 00:10Z: "dictation in command center never
+// pasted". Choosing Other leaves the keyboard on the choice, not in the box
+// it opens, and the shortcut held there was heard by nothing. Held anywhere
+// in the card it dictates into the card's box, which takes the caret.
+for (const target of BOXES) {
+  test(`Ctrl+Shift+Space held anywhere in the ${target.card} card dictates into its answer box`, async ({ page }) => {
+    // Arrange
+    const { heard, textbox } = await open(page, target);
+    await expect(textbox, "the card opens with the keyboard on its question or on the Other just chosen").not.toBeFocused();
+    await expect(textbox).toBeVisible();
+    expect(await page.evaluate(() => !!document.activeElement?.closest(".question-card")), "the keyboard is in the card").toBe(true);
+
+    // Act
+    await page.keyboard.down("Control");
+    await page.keyboard.down("Shift");
+    await page.keyboard.down("Space");
+    await expect(page.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+    await page.waitForTimeout(1200);
+    await page.keyboard.up("Space");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("Control");
+
+    // Assert
+    await expect(textbox).toHaveValue("rebase onto main");
+    await expect(textbox).toBeFocused();
+    expect(heard).toEqual(["fixture"]);
+  });
+}
+
 for (const { name, viewport } of [{ name: "desktop", viewport: { width: 1440, height: 900 } }, { name: "phone", viewport: { width: 390, height: 844 } }]) {
   for (const colorScheme of ["dark", "light"] as const) {
     test(`the microphone sits inside the Other box at its bottom right corner on a ${name} in ${colorScheme}`, async ({ page }, testInfo) => {

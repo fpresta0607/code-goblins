@@ -171,8 +171,10 @@ func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 	if err != nil || !strings.Contains(string(audit), wait.ID+" "+meta.ID+" Cleared from the Command Center.") {
 		t.Errorf("reviews.audit = %q, %v; want the clear recorded", audit, err)
 	}
-	if len(told) != 1 || !strings.Contains(told[0], wait.ID) || !strings.Contains(told[0], "Command Center") {
-		t.Errorf("the goblin was told %q, want one note that its wait was cleared", told)
+	// The Overlord, 2026-10-15: Skip clears a card and tells the goblin to go
+	// on without it.
+	if len(told) != 1 || !strings.Contains(told[0], wait.ID) || !strings.Contains(told[0], "Command Center") || !strings.Contains(told[0], "Go on without it") {
+		t.Errorf("the goblin was told %q, want one note that its wait was skipped and it goes on without it", told)
 	}
 	records, err := wake.Pending(h.State)
 	if err != nil {

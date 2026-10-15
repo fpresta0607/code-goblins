@@ -9,6 +9,7 @@
     "internal/supervisor",
     "internal/testguard"
   ],
+  "alone_packages": ["internal/browserlogin", "internal/supervisor"],
   "guards": [
     {
       "package": ".",
@@ -40,6 +41,11 @@
       "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
       "packages": ["cmd/goblins-setup", "internal/doctor", "internal/installscript", "internal/installtest"],
       "why": "tests run or read these scripts"
+    },
+    {
+      "paths": ["ci-runner-install.ps1", "tools/release-on-main.ps1"],
+      "packages": ["internal/installscript"],
+      "why": "the desktop CI runner's install tests run these scripts"
     },
     {
       "paths": [".github/workflows/*.yml"],

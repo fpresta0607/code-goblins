@@ -111,6 +111,9 @@ func TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist(t *testing.T) {
 	for _, dir := range policy.SlowPackages {
 		isPackage(dir, "as a slow package")
 	}
+	for _, dir := range policy.AlonePackages {
+		isPackage(dir, "as a package tested alone")
+	}
 
 	// A pattern that names no file this repository tracks is a contract or a
 	// rule that has stopped meaning anything, and it says so here, not by

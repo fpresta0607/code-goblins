@@ -54,6 +54,16 @@ const (
 		"next_step: \"The agent ended the session.\"\n"
 )
 
+// profileDir is the folder every lavish-axi call runs in.
+func profileDir(t *testing.T) string {
+	t.Helper()
+	profile, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return profile
+}
+
 func TestLavishOpenReturnsThePageAddressWithoutABrowser(t *testing.T) {
 	runner := &fakeRunner{result: execx.Result{Stdout: []byte(lavishOpened)}}
 
@@ -62,7 +72,7 @@ func TestLavishOpenReturnsThePageAddressWithoutABrowser(t *testing.T) {
 	if err != nil || url != "http://127.0.0.1:4387/session/c42fd9a0de5ec55d" {
 		t.Fatalf("Open = %q, %v; want the session url", url, err)
 	}
-	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open"}})
+	assertRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open"}})
 }
 
 func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
@@ -84,7 +94,7 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 			if err != nil || poll.Status != test.status || poll.Ended != test.ended || poll.EndedBy != test.endedBy || poll.Output != test.output {
 				t.Fatalf("Poll = %+v, %v; want status %q, ended %v by %q and the whole output", poll, err, test.status, test.ended, test.endedBy)
 			}
-			assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}, KillTree: true})
+			assertRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}, KillTree: true})
 		})
 	}
 }
@@ -103,7 +113,7 @@ func TestLavishPollCarriesAReplyToThePage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--agent-reply", reply, "--timeout-ms", "90000"}, KillTree: true})
+	assertRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--agent-reply", reply, "--timeout-ms", "90000"}, KillTree: true})
 }
 
 // A poll's prompts are what the Overlord wrote on the page, read from the
@@ -192,7 +202,7 @@ func TestLavishEndEndsThePagesSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"end", `C:\work\.lavish\plan.html`}})
+	assertRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{"end", `C:\work\.lavish\plan.html`}})
 }
 
 // The sessions are read from lavish-axi's state file without running it, so

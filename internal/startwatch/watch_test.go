@@ -133,6 +133,38 @@ func TestACommandStartedAgainAndAgainIsALoopToldOnce(t *testing.T) {
 	}
 }
 
+// One tool call that runs short git commands, such as a status read that
+// walks refs, has a dozen of them running at one reading and none at the
+// next: on 2026-10-15 three goblins doing ordinary work each woke the CFO as
+// a git loop "12 times in the last 0s" (#926). A burst is one reading, and
+// bursts a minute apart are a few, so neither is a loop, while a command
+// new at every reading for a minute still is.
+func TestABurstOfShortCommandsIsNoLoopAndASustainedOneStillIs(t *testing.T) {
+	// Arrange
+	var watch Watch
+	var findings []Finding
+
+	// Act: a reading every 5 seconds for two minutes. At every twelfth,
+	// cg-a's tool call has a dozen git rev-parse HEAD running at once, ended
+	// by the next, while cg-b starts git status anew at every reading.
+	for reading := 0; reading < 24; reading++ {
+		pid := 5000 + 100*reading
+		var processes []Process
+		if reading%12 == 0 {
+			for burst := 0; burst < 12; burst++ {
+				processes = append(processes, started("cg-a", pid+burst, "git.exe", "git rev-parse HEAD"))
+			}
+		}
+		processes = append(processes, started("cg-b", pid+50, "git.exe", "git status --porcelain"))
+		findings = append(findings, watch.Read(Reading{At: at.Add(time.Duration(reading) * 5 * time.Second), CFO: "cfo", Generations: map[string]string{"cg-a": "s1", "cg-b": "s2"}, Processes: processes})...)
+	}
+
+	// Assert
+	if len(findings) != 1 || findings[0].Owner != "cg-b" || !strings.Contains(findings[0].Detail, "start_loop: cg-b started git.exe 10 times in the last 45s") {
+		t.Fatalf("findings = %q, want cg-b's sustained git status once and no word of cg-a's bursts", details(findings))
+	}
+}
+
 // A process started now and then is no loop: nine within two minutes, or
 // the same command a minute apart for an hour, stays untold.
 func TestACommandStartedNowAndThenIsNoLoop(t *testing.T) {

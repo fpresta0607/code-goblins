@@ -48,7 +48,13 @@ func boardItems(d Database) Items {
 		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
 		items.Runs[i] = r
 	}
-	items.Credentials = append([]CredentialRequest{}, d.Credentials...)
+	// The board sees which plain values arrived, never the values, which
+	// stay in the record for the goblin's wait.
+	items.Credentials = make([]CredentialRequest, len(d.Credentials))
+	for i, r := range d.Credentials {
+		r.Values = nil
+		items.Credentials[i] = r
+	}
 	items.BrowserSignIns = append([]BrowserSignIn{}, d.BrowserSignIns...)
 	for i := range items.BrowserSignIns {
 		items.BrowserSignIns[i].TaskGeneration = ""

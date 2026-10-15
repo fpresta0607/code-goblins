@@ -63,7 +63,7 @@ test("an accepted opening stays disabled when he skips away and comes back", asy
   const card = await openCard(page);
   await card.getByRole("button", { name: OPEN }).click();
   await expect.poll(() => count).toBe(1);
-  await card.getByRole("button", { name: "Skip", exact: true }).click();
+  await card.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review the billing page" })).toBeVisible();
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(card.getByRole("button", { name: OPEN })).toBeDisabled();

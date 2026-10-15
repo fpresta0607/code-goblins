@@ -151,6 +151,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.dictate(w, r)
 	case r.URL.Path == "/api/dictation/warm" && r.Method == "POST":
 		h.warmDictation(w, r)
+	case r.URL.Path == "/api/dictations" && r.Method == "GET":
+		h.recentDictations(w, r)
+	case r.URL.Path == "/api/dictations" && r.Method == "POST":
+		h.keepDictation(w, r)
 	case r.URL.Path == "/api/connections" && r.Method == "GET":
 		h.readConnections(w, r)
 	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
@@ -161,6 +165,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.grantConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
 		h.saveCredentials(w, r)
+	case r.URL.Path == "/api/credentials/close" && r.Method == "POST":
+		h.closeCredentialCard(w, r)
+	case r.URL.Path == "/api/credentials/window" && r.Method == "POST":
+		h.openCredentialWindow(w, r)
 	case r.URL.Path == "/api/credentials/fetch" && r.Method == "POST":
 		h.fetchFromCard(w, r)
 	case r.URL.Path == "/api/browser-signins/open" && r.Method == "POST":

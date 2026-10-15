@@ -5,6 +5,7 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
 - `lavish` - the CFO's review surface over the third-party `lavish-axi` CLI.
   It is owned here because it carries the CFO's presentation-only rules; edit it here.
 - `stow` - curates the CFO's startup memory (`data/overlord.md`, `data/memory/`, the backlog) with tiered, decaying entries and a cold archive, adapted from First Mate's stow pass.
+- `step-card` - what a goblin does when its browser or computer-use work reaches a step only the Supreme Overlord can take: one Command Center card with the exact page and only his inputs, waited on so it goes on the moment the card closes.
 - `project-check` - assesses what the home knows about one project and brings it up to date: its project record, its verification gate, its configs and its connectors.
   The checks live in `cfo project check`, so the skill is the same text for every harness and names no tool of one.
 

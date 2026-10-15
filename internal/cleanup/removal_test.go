@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // makeJunction links link at target through cmd's mklink /J, as pnpm and
@@ -106,7 +108,11 @@ func TestCleanupRemovesAWorktreeAsPnpmLaysItOutAndNothingALinkLeadsTo(t *testing
 	}
 }
 
-func TestCleanupThatCannotRemoveAFileLeavesAWorktreeTheNextCleanupFinishes(t *testing.T) {
+// #915, 2026-10-14: a removal that a program's hold stops used to fail the
+// cleanup and leave the task working until that program ended. The task
+// retires, and the worktree, whole again, is left for the janitor, whose
+// return of it finishes the removal once the program ends.
+func TestCleanupThatCannotRemoveAFileRetiresTheTaskAndLeavesAWorktreeTheJanitorFinishes(t *testing.T) {
 	// Arrange: a program still holds a build output open without sharing its
 	// deletion, as Windows holds a running program's file. It sorts after
 	// README.md, so a tracked file is gone before the removal stops.
@@ -122,15 +128,21 @@ func TestCleanupThatCannotRemoveAFileLeavesAWorktreeTheNextCleanupFinishes(t *te
 	defer holder.Close()
 
 	// Act
-	_, err = task.service.Cleanup(context.Background(), "g1")
+	result, err := task.service.Cleanup(context.Background(), "g1")
 
-	// Assert: the removal stopped, and the worktree is one git still knows,
-	// whole again.
-	if err == nil {
-		t.Fatal("Cleanup removed a worktree whose file a program holds")
+	// Assert: the task retired, the removal stopped, and the worktree is one
+	// git still knows, whole again.
+	if err != nil {
+		t.Fatalf("Cleanup = %v; want the task retired and the held worktree left for the janitor", err)
+	}
+	if !strings.Contains(result.Output, "left the worktree "+task.worktree+" for the janitor") {
+		t.Errorf("output = %q; want it to say the worktree is left for the janitor", result.Output)
+	}
+	if _, err := state.ReadTaskMeta(task.stateDir, "g1"); err == nil {
+		t.Error("task metadata still present; want the task retired")
 	}
 	if !exists(t, filepath.Join(task.worktree, ".git")) {
-		t.Fatalf("the worktree's .git link is gone after a removal that stopped: %v", err)
+		t.Fatal("the worktree's .git link is gone after a removal that stopped")
 	}
 	// The extras went first, so the project and this worktree are what git
 	// lists.
@@ -141,17 +153,18 @@ func TestCleanupThatCannotRemoveAFileLeavesAWorktreeTheNextCleanupFinishes(t *te
 		t.Errorf("the worktree is not clean after a removal that stopped:\n%s", status)
 	}
 
-	// Act: the program ends, and cleanup runs again.
+	// Act: the program ends, and the janitor returns the worktree no task
+	// owns, as it returns every one.
 	if err := holder.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := task.service.Cleanup(context.Background(), "g1"); err != nil {
-		t.Fatalf("the second Cleanup: %v", err)
+	if err := task.service.Worktrees.Return(context.Background(), task.project, task.worktree); err != nil {
+		t.Fatalf("the janitor's return: %v", err)
 	}
 
 	// Assert
 	if exists(t, task.worktree) {
-		t.Errorf("the worktree %s survived the second cleanup", task.worktree)
+		t.Errorf("the worktree %s survived the janitor's return", task.worktree)
 	}
 	if listed := realGit(t, task.project, "worktree", "list"); strings.Count(listed, "\n") != 0 {
 		t.Errorf("the project still registers worktrees:\n%s", listed)

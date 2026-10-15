@@ -62,3 +62,31 @@ func TestTheProjectCheckSkillNamesNoToolOfOneHarness(t *testing.T) {
 		}
 	}
 }
+
+// The Overlord, 2026-10-14: every browser and computer-use automation that
+// reaches a step only he can take sends him one card and picks up the moment
+// it closes. The skill a goblin loads for that work says so, in one text for
+// every harness, and is offered by a header that names when to use it.
+func TestTheBinaryCarriesTheStepCardSkillForBrowserWork(t *testing.T) {
+	// Act
+	skill := shipped(t, "step-card")
+
+	// Assert
+	header, _, isClosed := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---\n")
+	if !strings.HasPrefix(skill, "---\n") || !isClosed || !strings.Contains(header, "name: step-card\n") {
+		t.Fatalf("the step-card skill has no header naming it:\n%s", header)
+	}
+	if !regexp.MustCompile(`(?m)^description: \S.{80,}$`).MatchString(header) || !strings.Contains(header, "browser") {
+		t.Errorf("the header has no description saying when to use the skill:\n%s", header)
+	}
+	for _, want := range []string{"cfo auth request", "--wait", "--plain", "--label", "--window", "--done", "--withdraw", "never take", "in the background"} {
+		if !strings.Contains(skill, want) {
+			t.Errorf("the skill does not say %q", want)
+		}
+	}
+	for number, line := range strings.Split(skill, "\n") {
+		if found := oneHarnessOnly.FindString(line); found != "" {
+			t.Errorf("line %d names %q, which belongs to one harness: %s", number+1, found, line)
+		}
+	}
+}
