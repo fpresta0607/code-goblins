@@ -171,21 +171,23 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 // while other work filled the machine's cores, a close waited tens of
 // seconds for them: past closeWait, when the job was ended before the
 // browser had written its sign-in to the profile, and past teardownWait,
-// when its end could not be confirmed (issue #896). The closing browser's
-// processes are raised to normal priority each second it is waited for,
-// which picks up a thread it lowers after the last raise, and once more
+// when its end could not be confirmed (issue #896). The browser's processes
+// are raised to normal priority before it is asked, since answering the ask
+// waits on its threads too: beside a busy thread on a CI runner, a browser
+// raised only once it had answered was ended 7 seconds into its close, as
+// only a failed ask, such as one unanswered within its 5 seconds, ends it
+// before closeWait. They are raised again each second it is waited
+// for, which picks up a thread it lowers after the last raise, and once more
 // when its job is ended.
 func End(ctx context.Context, process Process) error {
 	if Running(process) {
+		process.job.raise()
 		asked, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := process.job.transport.pipe.call(asked, "Browser.close", nil, nil)
 		if err == nil || errors.Is(err, errPipeClosed) {
-			var raised time.Time
-			for deadline := time.Now().Add(closeWait); Running(process) && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+			for deadline, raised := time.Now().Add(closeWait), time.Now(); Running(process) && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 				if time.Since(raised) >= time.Second {
-					if ids, err := proc.JobProcessIDs(syscall.Handle(process.job.handle)); err == nil {
-						priority.Raise(ids)
-					}
+					process.job.raise()
 					raised = time.Now()
 				}
 			}
@@ -193,6 +195,14 @@ func End(ctx context.Context, process Process) error {
 		cancel()
 	}
 	return process.close()
+}
+
+// raise runs the processes j holds now at normal priority at least
+// (priority.Raise).
+func (j *job) raise() {
+	if ids, err := proc.JobProcessIDs(syscall.Handle(j.handle)); err == nil {
+		priority.Raise(ids)
+	}
 }
 
 // close ends process's job and everything in it, and waits until each of
