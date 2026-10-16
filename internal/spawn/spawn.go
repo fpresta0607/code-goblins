@@ -146,6 +146,11 @@ type Service struct {
 	// harness starts, and names them: lifecycle.EndLeft in production. Nil
 	// ends nothing.
 	EndLeft func(ctx context.Context, meta state.TaskMeta) ([]string, error)
+	// CFOSession is the registered CFO's session and its harness, which a
+	// goblin started from no session of its own records as its parent:
+	// supervisor.RegisteredCFOSession in production. Nil gives such a goblin
+	// no parent.
+	CFOSession func() (session, harness string)
 }
 
 // Spawn creates and launches exactly one local ship or scout task.
@@ -445,7 +450,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// builds against the fleet's single store. They are not secrets, so they
 	// ride the launch environment rather than the restricted credentials file.
 	mergeProvisionEnv(launch.Env, preflight.Caches)
-	nativeEnvironment(launch.Env, result.Meta)
+	s.nativeEnvironment(launch.Env, result.Meta)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from its screen.

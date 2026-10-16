@@ -505,7 +505,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// without the caches the spawned one had.
 	mergeProvisionEnv(launch.Env, redirects)
 	mergeProvisionEnv(launch.Env, preflight.Caches)
-	nativeEnvironment(launch.Env, meta)
+	s.nativeEnvironment(launch.Env, meta)
 
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""

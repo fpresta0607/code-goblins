@@ -423,6 +423,18 @@ func livePrimary(stateDir string) (primaryRegistration, bool) {
 	return primary, err == nil && primary.Process.VerifiedAlive()
 }
 
+// RegisteredCFOSession is the session and harness of the registered CFO
+// while it runs, which a goblin the supervisor starts, resumes or switches
+// records as its parent, since no session of a CFO reaches that start. It is
+// empty strings while no live CFO is registered.
+func RegisteredCFOSession(stateDir string) (session, harness string) {
+	primary, live := livePrimary(stateDir)
+	if !live {
+		return "", ""
+	}
+	return cfoSession(stateDir, primary), primary.Agent
+}
+
 // readPrimary reads primary.json once: the registration and its identity, or
 // why it names no CFO.
 func readPrimary(stateDir string) (primaryRegistration, string, error) {

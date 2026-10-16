@@ -80,3 +80,37 @@ func TestLiveCFOIsFalseWithoutARunningRegisteredProcess(t *testing.T) {
 		})
 	}
 }
+
+// A goblin the supervisor starts, resumes or switches records the registered
+// CFO's session as its parent, since no session of a CFO reaches that start:
+// the live CFO's session and harness, and none while no CFO runs.
+func TestRegisteredCFOSessionIsTheLiveCFOsSessionAndNoneWithoutOne(t *testing.T) {
+	ended := thisProcess(t)
+	ended.PID = 0x7FFFFFF0
+	for name, test := range map[string]struct {
+		process                  lock.Info
+		isRegistered             bool
+		wantSession, wantHarness string
+	}{
+		"a running CFO":   {process: thisProcess(t), isRegistered: true, wantSession: "the-cfo-session", wantHarness: "claude"},
+		"an ended CFO":    {process: ended, isRegistered: true},
+		"no registration": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			if test.isRegistered {
+				test.process.Session = "the-cfo-session"
+				writeRegistration(t, stateDir, test.process)
+			}
+
+			// Act
+			session, harness := RegisteredCFOSession(stateDir)
+
+			// Assert
+			if session != test.wantSession || harness != test.wantHarness {
+				t.Fatalf("RegisteredCFOSession = %q/%q, want %q/%q", session, harness, test.wantSession, test.wantHarness)
+			}
+		})
+	}
+}
