@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -88,7 +89,7 @@ func emptyHome(t *testing.T) {
 	}
 	t.Setenv("CFO_HOME", root)
 	for _, entry := range os.Environ() {
-		if name, value, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
+		if name, value, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) || spawn.IsCallerSessionVariable(name) {
 			t.Setenv(name, value)
 		}
 	}

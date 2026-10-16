@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
@@ -73,6 +75,11 @@ func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
 // dictationLimit bounds one dictation's sound: about four minutes of the 16
 // kHz mono sound the board records.
 const dictationLimit = 8 << 20
+
+// noWordsFile is the home's copy of the last sound with speech in it that the
+// engine answered no words for, kept on this PC so it can be played again and
+// replaced by the next.
+const noWordsFile = "dictation-no-words.wav"
 
 // dictationPatience is how long the engine's download may take before it is
 // given up, so one that stalls does not keep every later dictation waiting
@@ -210,6 +217,11 @@ func (h *HTTP) dictate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text, err := speech.Recognize(r.Context(), sound)
+	if err == nil && text == "" && voice.Spoken(sound) {
+		if keepErr := fsx.AtomicWriteFile(filepath.Join(h.Service.Store.Home.State, noWordsFile), sound); keepErr != nil {
+			err = fmt.Errorf("the engine answered no words for a sound with speech in it, and the sound could not be kept in state/%s: %w", noWordsFile, keepErr)
+		}
+	}
 	var room voice.NoRoom
 	switch {
 	case errors.As(err, &room):

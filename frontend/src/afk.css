@@ -1,5 +1,5 @@
 /* AFK mode on the board: the toggle in the CFO panel's header, the questions
-   before it turns on and when he is back, and the link to his page of the
+   before it turns on and when he is back, and the modal report of the
    last stretch. Only what the board's own classes do
    not already give; it reads the board's tokens, so a restyle carries over.
    The board's stylesheet loads after this one, so a rule here that changes
@@ -48,3 +48,16 @@
 .afk-dialog .preservation-notice { margin: 16px 0 0; text-align: left; }
 .afk-dialog .stop-task-choices:last-child { margin-bottom: 0; }
 .afk-dialog:focus-visible { outline: none; }
+
+.afk-report { padding: 0; width: min(960px, calc(100vw - 28px)); height: 92dvh; max-height: 92dvh; max-width: none; color: var(--bone); background: var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); box-shadow: var(--glass-shadow-hover); overflow: hidden; }
+.afk-report[open] { display: flex; flex-direction: column; }
+.afk-report::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+.afk-report-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--glass-border); font-weight: 700; flex: none; }
+.afk-report iframe { flex: 1; min-height: 0; width: 100%; border: 0; visibility: hidden; }
+.afk-report iframe.is-ready { visibility: visible; }
+.afk-report-message { padding: 24px; overflow-wrap: anywhere; }
+.afk-report-message button { margin-top: 12px; }
+.afk-report-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding: 14px 18px; border-top: 1px solid var(--glass-border); flex: none; }
+.afk-report-actions p { flex: 1; margin: 0; color: var(--muted); font-size: .9375rem; }
+.afk-report-actions .primary { padding: 12px 20px; max-width: 100%; }
+@media (max-width: 480px) { .afk-report-actions .primary { width: 100%; } }

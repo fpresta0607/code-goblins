@@ -30,6 +30,7 @@ func HelperNode(meta state.TaskMeta, tree Tree, standing HelperStanding, now tim
 		ID: "helper:" + meta.ID, Kind: KindHelper, Label: meta.Title, Detail: "Helper goblin " + meta.ID, State: Working,
 		Started: spawned(meta.SpawnGen), LastActivity: tree.ActivityAt(), Memory: tree.Memory,
 		SourceUpdatedAt: tree.SourceUpdatedAt, FetchedAt: tree.FetchedAt,
+		Model: meta.Model,
 	}
 	if meta.GoblinName != "" {
 		node.Label, node.Task = goblinname.Pair{Name: meta.GoblinName, Title: meta.GoblinTitle}.String(), meta.Title

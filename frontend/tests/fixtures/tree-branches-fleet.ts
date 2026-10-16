@@ -23,7 +23,7 @@ export function treeFleet(now: number) {
       task("fleet", "Build the fleet tree", { goblin_name: "Grub", goblin_title: "Tree Surgeon", tree: tree("fleet", [
         child({ id: "subagent:toolu_A", kind: "subagent", label: "Map harness plumbing", detail: "Explore", task: "Find where the harness starts sub-agents and what each one records", state: "working", started: ago(50) }),
         child({ id: "subagent:toolu_B", kind: "subagent", label: "Research MCP OAuth", detail: "general-purpose", task: "Read how MCP servers sign in", state: "working", started: ago(45) }),
-        child({ id: "shell:b1", kind: "shell", group: "test", label: "Run the affected Go tests", detail: "background bash", task: "go test ./internal/monitor/...", state: "working", started: ago(40) }),
+        child({ id: "subagent:tests", kind: "subagent", label: "Run the affected Go tests", detail: "general-purpose", task: "Review the affected Go tests", state: "working", started: ago(40) }),
         child({ id: "process:5120:1", kind: "process", group: "dev-server", label: "Dev server :5173", detail: "node, 2 processes", task: "npm run dev", state: "waiting", started: ago(38), last_activity: ago(38), memory: 412 * 2 ** 20 }),
         child({ id: "process:6100:2", kind: "process", group: "other", label: 'C:\\WINDOWS\\System32\\cmd.exe /d /s /c "python -I survey.py"', detail: "python, 1 process", task: "python -I survey.py", state: "silent", started: ago(36), last_activity: ago(34), memory: 1228 * 2 ** 20 }),
         child({ id: "subagent:toolu_C", kind: "subagent", label: "Find the flaky assertion", detail: "Explore", state: "done", started: ago(30), finished: ago(3) }),

@@ -175,6 +175,9 @@ func (l *claudeLog) entry(line []byte) {
 		}
 		return
 	}
+	if entry.Type != "assistant" && entry.Type != "user" {
+		return
+	}
 	var text string
 	if json.Unmarshal(entry.Message.Content, &text) == nil {
 		l.notification(text, entry.Timestamp, false)
@@ -400,7 +403,9 @@ func (l *claudeLog) nodes(now time.Time) []Node {
 			if sessionID.MatchString(agent) {
 				transcript := filepath.Join(session, "subagents", "agent-"+agent+".jsonl")
 				l.records[node.ID] = childRecord{transcript: transcript}
-				if written, line := claudeTail(transcript); !written.IsZero() {
+				written, line, model := claudeTail(transcript)
+				node.Model = model
+				if !written.IsZero() {
 					node.SourceUpdatedAt = written
 					node.LastActivity = later(node.LastActivity, written)
 					if line != "" {
@@ -462,8 +467,9 @@ func (l *claudeLog) agentFiles(session string) map[string]string {
 
 // claudeTail reads when a Claude Code transcript was last written and the
 // last thing it said or did: its last text, or the tool it last called.
-func claudeTail(path string) (time.Time, string) {
+func claudeTail(path string) (time.Time, string, string) {
 	written, entries := tail(path)
+	model := recordedModel(entries, "claude")
 	for i := len(entries) - 1; i >= 0; i-- {
 		var entry claudeEntry
 		if json.Unmarshal(entries[i], &entry) != nil {
@@ -487,14 +493,14 @@ func claudeTail(path string) (time.Time, string) {
 			block := blocks[j]
 			switch {
 			case block.Type == "text" && strings.TrimSpace(block.Text) != "":
-				return written, bounded(firstLine(block.Text), 200)
+				return written, bounded(firstLine(block.Text), 200), model
 			case block.Type == "tool_use":
 				what := label(block.Input.Description, label(block.Input.Pattern, label(block.Input.FilePath, firstLine(block.Input.Command))))
-				return written, bounded(strings.TrimSpace(block.Name+" "+what), 200)
+				return written, bounded(strings.TrimSpace(block.Name+" "+what), 200), model
 			}
 		}
 	}
-	return written, ""
+	return written, "", model
 }
 
 // outputTail reads when a background command's output file was last written

@@ -16,6 +16,7 @@ interface Fit {
 // The parts of the cards on the canvas, by the element each sits in, the
 // first that holds it naming it.
 const PARTS: [string, string][] = [
+  [".card-engine, .tree-child-model", "model"], [".card-route", "route"],
   [".card-status-text, .card-copy > .plain-status", "status"], [".tree-child-runs", "runs"], [".state-chip", "state"], [".tree-memory", "memory"],
   [".card-clock", "clock"], [".card-pr", "pull request"], [".subscription-dial", "dial"], ["strong", "title"], [".browser-indicator", "browser"],
   [".project-label", "project"], ["small", "relation"], [".node-role", "role"], [".node-task", "task"], [".node-status", "status"],
@@ -122,7 +123,7 @@ test("a goblin's card holds its whole title, project and status, as in the Overl
   const seen = await card(page, "Woody").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Allowance: resumes Oct 14, 4:05 AM"]);
+  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Allowance: resumes Oct 14, 4:05 AM", "model: claude-opus-5-5 · xhigh", "route: strong fallback"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);
@@ -140,7 +141,7 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
   const seen = await baby(page, "Jules IX").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Jules IX - Process Wrangler", "runs: Node running watch-queue.mjs", "state: Working 30m", "memory: 4 MB"]);
+  expect(describe(seen)).toEqual(["title: Jules IX - Watcher Reviewer", "runs: Review the queue watcher", "model: Model not recorded", "state: Working 30m", "memory: 4 MB"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);
@@ -150,9 +151,9 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
 // Text a card cannot hold may end in an ellipsis, but none of it is painted
 // beyond the card, whatever it says, and no part of it goes unseen.
 for (const [title, parts] of [
-  ["Wilhelmina", ["title", "browser", "project", "status", "relation"]],
-  ["Cornelius", ["title", "browser", "project", "status"]],
-  ["Bartholomew", ["title", "project", "status", "clock", "pull request"]],
+  ["Wilhelmina", ["title", "browser", "project", "status", "model", "route"]],
+  ["Cornelius", ["title", "browser", "project", "status", "model", "route"]],
+  ["Bartholomew", ["title", "project", "status", "model", "route", "clock", "pull request"]],
   ["CFO", ["title", "status", "dial"]],
 ] as const) {
   test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
@@ -213,7 +214,7 @@ for (const name of ["Bartholomew Jr.", "Bartholomew II", "Reconcile the nightly"
     const seen = await baby(page, name).evaluate(fit, PARTS);
 
     // Assert
-    expect(seen.parts.map((part) => part.part)).toEqual(["title", "runs", "state", "memory"].filter((part) => part !== "memory" || name !== "Bartholomew II"));
+    expect(seen.parts.map((part) => part.part)).toEqual(["title", "runs", "model", "state", "memory"].filter((part) => part !== "memory" || name !== "Bartholomew II"));
     expect(seen.spills).toEqual([]);
     expect(seen.cut).toEqual([]);
     expect(seen.parts.filter((part) => !part.shown).map((part) => part.part + " is hidden")).toEqual([]);
@@ -222,7 +223,7 @@ for (const name of ["Bartholomew Jr.", "Bartholomew II", "Reconcile the nightly"
 
 // The Overlord's screenshot of Mabel's baby goblins cut "Detached, working 5"
 // short. The longest state a baby goblin has shows whole on one line.
-test("a detached baby goblin's longest state shows whole", async ({ page }) => {
+test("a long-running subagent's state shows whole", async ({ page }) => {
   // Arrange
   await open(page);
 
@@ -231,7 +232,7 @@ test("a detached baby goblin's longest state shows whole", async ({ page }) => {
 
   // Assert
   const state = seen.parts.find((part) => part.part === "state")!;
-  expect(state.text).toBe("Detached, working 12h 59m");
+  expect(state.text).toBe("Working 12h 59m");
   expect(state.whole).toBe(state.lines);
   expect(seen.truncated.filter((element) => element.includes("state-chip"))).toEqual([]);
 });
@@ -254,11 +255,11 @@ for (const title of ["Olive - Billing Baron", "Woody - Tour Guide", "Bartholomew
     // Arrange
     await open(page, "board");
     const board = await page.locator(".task-card-shell").filter({ has: page.locator(".card-title", { hasText: title }) })
-      .evaluate(facts, { title: ".card-title", project: ".card-repo", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
+      .evaluate(facts, { title: ".card-title", project: ".card-repo", status: ".card-status-text", model: ".card-engine", route: ".card-route", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
     await open(page);
 
     // Act
-    const canvas = await card(page, title).evaluate(facts, { title: "strong", project: ".project-label", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
+    const canvas = await card(page, title).evaluate(facts, { title: "strong", project: ".project-label", status: ".card-status-text", model: ".card-engine", route: ".card-route", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
 
     // Assert
     expect(board.title).toBe(title);

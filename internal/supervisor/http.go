@@ -55,6 +55,8 @@ type HTTP struct {
 	terminalBacklog int
 	editor          execx.Starter
 	editorLookup    func(string) (string, error)
+	pickFolder      func(context.Context, string) (string, error)
+	folderPickerMu  sync.Mutex
 	// openWindow starts a Windows Terminal window running a program.
 	openWindow func(ctx context.Context, program string, args ...string) error
 	// build names the bundle in Assets: its index.html names every hashed
@@ -167,6 +169,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.saveCredentials(w, r)
 	case r.URL.Path == "/api/credentials/close" && r.Method == "POST":
 		h.closeCredentialCard(w, r)
+	case r.URL.Path == "/api/credentials/reopen" && r.Method == "POST":
+		h.reopenCredentialCard(w, r)
 	case r.URL.Path == "/api/credentials/window" && r.Method == "POST":
 		h.openCredentialWindow(w, r)
 	case r.URL.Path == "/api/credentials/fetch" && r.Method == "POST":
@@ -183,12 +187,16 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
+	case r.URL.Path == "/api/answer-images" && r.Method == "POST":
+		h.keepAnswerImage(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
 	case r.URL.Path == "/api/announce" && r.Method == "POST":
 		h.announceItems(w, r)
 	case r.URL.Path == "/api/window/move" && r.Method == "POST":
 		h.moveWindowFromBoard(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/afk/report/") && r.Method == "GET":
+		h.afkReportFile(w, r)
 	case r.URL.Path == "/api/afk" && r.Method == "POST":
 		h.switchAFKFromBoard(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
@@ -201,6 +209,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.selectTaskEngine(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
+	case r.URL.Path == "/api/setup/folder" && r.Method == "POST":
+		h.chooseProjectsFolder(w, r)
 	case r.URL.Path == "/api/engines" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
@@ -472,7 +482,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if parts[1] == "agent" {
-		h.agentLines(w, r, meta, r.URL.Query().Get("node"))
+		h.agentOutput(w, r, meta, r.URL.Query().Get("node"))
 		return
 	}
 	if parts[1] == "activity" {

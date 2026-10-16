@@ -18,18 +18,18 @@ const child = (id: string, fields: Record<string, unknown>): Child => ({ id, par
 // What a newly born baby goblin runs, in turn.
 const NEWBORNS = [
   { kind: "subagent", label: "Trace the flaky checkout test", state: "working" },
-  { kind: "process", group: "dev-server", label: "Dev server :3000", task: "npm run dev", state: "working", memory: megabytes(412) },
-  { kind: "shell", label: "Run the affected Go tests", task: "go test ./internal/...", state: "working" },
-  { kind: "process", group: "other", label: "stripe listen", task: "stripe listen --forward-to localhost:3000/api/stripe/webhook", state: "waiting", memory: megabytes(8) },
+  { kind: "subagent", label: "Review the development server", task: "Check the app server", state: "working", memory: megabytes(412) },
+  { kind: "subagent", label: "Review the affected Go tests", task: "Check the tests", state: "working" },
+  { kind: "subagent", label: "Review the webhook listener", task: "Check webhook delivery", state: "waiting", memory: megabytes(8) },
 ];
 const families: Record<string, Child[]> = {
   "cg-tests": [
     child("subagent:pip-1", { kind: "subagent", label: "Map the harness plumbing", started: minutes(14) }),
-    child("process:pip-2", { kind: "process", group: "test", label: "Test run", task: "go test ./...", started: minutes(6), memory: megabytes(1228) }),
+    child("subagent:pip-2", { kind: "subagent", label: "Review the test run", task: "Check the test results", started: minutes(6), memory: megabytes(1228) }),
   ],
   "pd-email": [
-    child("process:mabel-1", { kind: "process", group: "dev-server", label: "Dev server :2375", task: "Docker Desktop", detached: true, started: minutes(290), last_activity: minutes(0), memory: megabytes(257) }),
-    child("process:mabel-2", { kind: "process", group: "other", label: "stripe listen", task: "stripe listen --forward-to localhost:3000/api/stripe/webhook", started: minutes(30), memory: megabytes(8) }),
+    child("subagent:mabel-1", { kind: "subagent", label: "Review the development server", task: "Check the server", started: minutes(290), last_activity: minutes(0), memory: megabytes(257) }),
+    child("subagent:mabel-2", { kind: "subagent", label: "Review the webhook listener", task: "Check webhook delivery", started: minutes(30), memory: megabytes(8) }),
   ],
 };
 const activity: Record<string, number> = { "cg-tests": 0, "pd-email": 0 };

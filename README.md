@@ -425,7 +425,7 @@ The header switches between two views, one at a time, each with a contextual pan
   The CFO is pinned above the columns in a plain bar that says how many goblins it supervises, with its terminal icon. While something waits on you **Open Command Center** appears on the bar and glows, with how many items wait; the bar says none of what they are.
   While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
   A goblin's question waits on the CFO, who answers it or publishes the decision he needs from you.
-- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging a card or the canvas, zooming with the wheel where the pointer is, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence; Arrange lays the tree out to the canvas's shape, so the whole of it fits a narrow window. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message. Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) hangs on branches as baby goblins, each on a line of its own that lights end to end when you rest on it, which the chevron under its card folds to a count; the goblin's panel lists them under **What's working**, and its card names a child gone silent with its last line. None of it wakes the CFO.
+- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging a card or the canvas, zooming with the wheel where the pointer is, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence; Arrange lays the tree out to the canvas's shape, so the whole of it fits a narrow window. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message. Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) hangs on branches as baby goblins, each on a line of its own that lights end to end when you rest on it, which the chevron under its card folds to a count; the goblin's panel lists them under **What's working**, pressing one opens its own panel, where a sub-agent's work reads as a Claude Code terminal draws it, and the goblin's card names a child gone silent with its last line. None of it wakes the CFO.
 
 <p align="center">
   <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in three repositories, a count of what runs under each goblin that runs anything, and the selected goblin's live native terminal in the right panel" width="900" />
@@ -662,6 +662,7 @@ The model starts loading as you press the keys and stays loaded for 30 minutes a
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
 Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.
+When the model answers no words for something you said, the CFO is told, and the sound is kept on this PC in the home's `state\dictation-no-words.wav` until the next such sound, so it can be played back to find out why.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 Hold **Shift** while selecting if the running program has taken the mouse.
 **Ctrl+C** copies selected text; without a selection it interrupts the running program.
@@ -836,18 +837,21 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off makes your page of the stretch, a Scrawl page drawn with the board's own cards, icons and goblin faces, and puts one card for it in your Command Center.
-Nothing opens over the board, and the page reads on a phone as well as on the desktop.
+Turning it off opens your report in a modal over the board, drawn with the board's own cards, icons and goblin faces.
+Close it there, or press Escape.
+Long rows wrap in full and the report scrolls on a phone as well as on the desktop.
 It opens with how long you were away and one line on whether anything needs you: **Nothing needs you**, or how many things do, one row each, a step only you can take or an item still waiting in your Command Center.
 Under it, three tiles count what merged, what the CFO decided for you and the goblins still at work.
 **What changed** walks through the stretch by project: each goblin's work is one row in a few words, told by the CFO's title for it, with the goblin's face, what went live, a merge that did not land, before and after pictures where the goblin showed them, and its pull request numbers small beside it.
-**Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and the pencil that changes it right there, the same change **Change answer** sends from History.
+**Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and a pencil that opens History's **Change answer** card.
 **Still at work** and **Next** name what goblins are still doing and the tasks queued to start.
 **Spent** draws each allowance used and free disk as the board's bars: gray before AFK, green what AFK used.
 **Record** keeps the rest of the report: who switched AFK on and off, what waited on you and was settled, goblins paused at a floor, lines the CFO settled or struck, and anything the report could not read.
 Tap any row and it opens a card with what it stood on: the goblin's own notes, the evidence and the pull request links.
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
-The button beside the toggle opens your page of the last stretch again.
+The report links to each waiting card in your Command Center.
+Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
+The button beside the toggle opens your last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 The text report reads Done, Decided for you and Needs you in order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.

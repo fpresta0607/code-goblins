@@ -15,9 +15,10 @@ import { pullRequestTest } from "./pull-request-test";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { BabyGoblin } from "./BabyGoblin";
-import { formatMemory, summarize } from "./fleet-tree";
+import { babies, formatMemory, summarize } from "./fleet-tree";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
+import { CardRouting } from "./card-routing";
 
 // A task's card on the board: its portrait beside its title, up to three
 // lines, then across the card's whole width one muted line with the repo, the
@@ -68,7 +69,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   // What runs under a live goblin, as baby goblins with a count each, which
   // opens the Orchestration canvas on the goblin: its baby goblins live
   // there, never as cards of their own.
-  const kinds = column === "In progress" ? summarize(task.tree).kinds : [];
+  const kinds = column === "In progress" && task.tree ? summarize({ ...task.tree, children: babies(task.tree) }).kinds : [];
   const count = kinds.length > 0 && onCount && <button type="button" className="card-tree" aria-label={"Show what runs under " + name + " on the canvas"} data-tip="Show on the canvas" onClick={() => onCount(task)}>
     {kinds.map(([baby, number]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small hasTip={false} />{number}</span>)}{task.tree && formatMemory(task.tree.memory)}
   </button>;
@@ -78,6 +79,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {rank && <span className="sr-only">, {rank}</span>}
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span><CardClock task={task} now={now} /></span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
+      <CardRouting task={task} />
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
         : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}

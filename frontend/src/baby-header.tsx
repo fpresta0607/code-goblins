@@ -12,7 +12,7 @@ export function BabyHeader({ goblin, child, now }: { goblin: Task; child: TreeNo
     <BabyGoblin baby={babyFor(child)} hasTip={false} />
     <div className="panel-identity">
       <h2 id="panel-title" className="panel-child-title"><span>{babyName(goblin, child)}</span><span className="panel-child-task">{babyTask(child)}</span></h2>
-      <p className={"panel-status plain-status phase-" + phaseOf(child)}><span className="status-dot" />{stateWord(child)}{when && " " + when}{detail && " · " + detail}</p>
+      <p className={"panel-status plain-status phase-" + phaseOf(child)}><span className="status-dot" />{stateWord(child)}{when && " " + when}{detail && " · " + detail}{child.model && " · " + child.model}</p>
     </div>
   </header>;
 }

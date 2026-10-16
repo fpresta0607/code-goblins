@@ -8,10 +8,11 @@ import { ownsTaskSession } from "./lineageTree";
 import { taskName } from "./task-words";
 import { arrange, detours, expireTraffic, fitScale, fleetTraffic, makeRoom, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, waitingOn, workflowNodes, zoomAt, type Detour, type Extent, type Point, type View, type WorkflowNode } from "./workflow";
 import { taskStatus } from "./task-status";
-import { BABY_HEIGHT, BABY_WIDTH, babyName, branchLayout, elbows, hasRunningChildren, LINE_GAP, running } from "./fleet-tree";
+import { BABY_HEIGHT, BABY_WIDTH, babies, babyName, branchLayout, elbows, hasRunningChildren, LINE_GAP } from "./fleet-tree";
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { CardFacts } from "./card-facts";
+import { CardRouting } from "./card-routing";
 import { CfoCardFacts } from "./cfo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
 import { withDepartures } from "./tree-traffic";
@@ -82,7 +83,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const motion = useTreeMotion(trees, connected);
   const shownChildren = useMemo(() => {
     const goblins = new Set([...Object.keys(trees), ...motion.leaving.map((gone) => gone.goblin)]);
-    return Object.fromEntries([...goblins].map((id) => [id, withDepartures(trees[id] ? running(trees[id]) : [], motion.leaving.filter((gone) => gone.goblin === id))]));
+    return Object.fromEntries([...goblins].map((id) => [id, withDepartures(babies(trees[id]), motion.leaving.filter((gone) => gone.goblin === id))]));
   }, [trees, motion.leaving]);
   // The connectors to the goblins under a goblin's baby goblins run down
   // beside them, each on a line of its own.
@@ -413,6 +414,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
               <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
                 {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
+                {owner && node.task && <CardRouting task={node.task} />}
               </span>
             </button>
             {owner && node.task && <div className="flow-node-foot"><CardFacts task={node.task} now={now} /></div>}

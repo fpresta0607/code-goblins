@@ -235,9 +235,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if switched, err := afk.Read(h.State); page != "" && err == nil && switched.On {
 		verb, detail = "blocked", detail+supervisor.PageOptions(page)
 	}
-	parent, worktree := "", ""
+	parent := ""
 	if meta, err := state.ReadTaskMeta(h.State, id); err == nil {
-		parent, worktree = meta.Parent, meta.Worktree
+		parent = meta.Parent
 	}
 	if verb == "done" && *pr == "" {
 		if parent == "" {
@@ -303,17 +303,23 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	// A pull request's head is reported done once: a goblin asked to wrap up
 	// often reports the same finished head again, sometimes with more words
-	// after its link.
+	// after its link. The head is the pull request's own, read from GitHub,
+	// never the task worktree's HEAD: a task's worktree holds one branch, so
+	// its HEAD stays put while a pull request from another branch or worktree
+	// is pushed, and every later report of it would look like a repeat.
 	var record wake.Record
 	isNew := true
-	head := ""
-	if verb == "done" && *pr != "" && worktree != "" {
-		head, _ = gitOutput(execx.OSRunner{}, worktree, "rev-parse", "HEAD")
+	head, prLink := "", ""
+	if verb == "done" && *pr != "" {
+		prLink, _, _ = strings.Cut(strings.TrimSpace(*pr), " ")
+		var headErr error
+		if head, headErr = notifyPRHead(runtime, prLink); headErr != nil {
+			fmt.Fprintf(stderr, "cfo notify: %s's pull request head could not be read (%v), so this done is reported without deduplication\n", prLink, headErr)
+		}
 	}
 	switch {
 	case head != "":
-		link, _, _ := strings.Cut(strings.TrimSpace(*pr), " ")
-		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+link+"@"+head, "notify", id, line)
+		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+prLink+"@"+head, "notify", id, line)
 	case verb == "blocked" || verb == "failed":
 		record, isNew, err = wake.AppendDecision(h.State, id, line)
 	default:
@@ -390,6 +396,24 @@ func helperReport(id, parent, verb, line string) string {
 		return "Your helper " + id + " failed: " + said + ". Tell it what to do with: cfo send " + id + " \"<what>\", or stop it with: cfo kill " + id + " --reason \"<why>\""
 	}
 	return ""
+}
+
+// notifyHeadReadTimeout bounds reading a pull request's head from GitHub, so
+// an unreachable gh wakes the CFO without deduplication instead of holding the
+// report up.
+const notifyHeadReadTimeout = 20 * time.Second
+
+// notifyPRHead reads a pull request's own head commit with the runtime's gh
+// runner, so a done report is keyed by the head that was pushed rather than by
+// the task worktree's HEAD.
+func notifyPRHead(runtime commandRuntime, url string) (string, error) {
+	commands := runtime.github
+	if commands == nil {
+		commands = execx.OSRunner{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), notifyHeadReadTimeout)
+	defer cancel()
+	return readPRHead(ctx, commands, url)
 }
 
 // pageOpenTimeout bounds opening a Lavish page, which starts lavish-axi's
