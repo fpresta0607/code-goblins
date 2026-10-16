@@ -16,7 +16,7 @@ export function DictatedAnswer({ label, placeholder, value, instance, disabled, 
   const box = useRef<HTMLTextAreaElement>(null);
   const { key } = dictation;
   useEffect(() => {
-    const card = box.current?.closest("form, dialog");
+    const card = box.current?.closest<HTMLElement>("form, dialog");
     if (!card) return;
     const hear = (event: KeyboardEvent) => {
       if (key(event) === false && event.type === "keydown") box.current?.focus();

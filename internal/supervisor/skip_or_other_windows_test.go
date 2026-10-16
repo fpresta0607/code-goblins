@@ -128,7 +128,7 @@ func TestAPastedPictureReachesTheGoblinWithHisAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(*told) != 1 || !strings.Contains((*told)[0], word) {
+	if len(*told) != 1 || !strings.Contains((*told)[0], "Use this account") || !strings.Contains((*told)[0], "Image: "+kept.Path) {
 		t.Fatalf("the goblin was told %q, want the note and picture path", *told)
 	}
 	if data, err := os.ReadFile(kept.Path); err != nil || string(data) != string(picture) {

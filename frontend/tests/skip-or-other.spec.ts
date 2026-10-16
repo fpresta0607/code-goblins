@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "./site";
+import { expect, test, type Locator, type Page, type Route } from "./site";
 
 // The Overlord, 2026-10-15: "again theres no way for me to answer this
 // command with a skip or other", and then where: at the bottom beside the
@@ -45,8 +45,17 @@ async function openCard(page: Page, name: string) {
   return card;
 }
 
-const pencilOf = (card: ReturnType<Page["locator"]>) => card.locator(".card-actions").getByRole("button", { name: "Answer in your own words" });
-const noteWindow = (page: Page) => page.getByRole("dialog", { name: "Your answer" });
+const pencilOf = (card: ReturnType<Page["locator"]>) => card.locator(".card-actions").getByRole("button", { name: "Something else?" });
+const noteWindow = (page: Page) => page.getByRole("dialog", { name: "Something else?" });
+
+async function pastePicture(note: Locator) {
+  await note.evaluate((box) => {
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (character) => character.charCodeAt(0));
+    const clipboard = new DataTransfer();
+    clipboard.items.add(new File([bytes], "image.png", { type: "image/png" }));
+    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
+  });
+}
 
 for (const card of CARDS) {
   test(`${card.open}: Skip beside its decision button skips it`, async ({ page }) => {
@@ -122,10 +131,53 @@ test("nothing in the pencil's window says skip", async ({ page }) => {
   await noteWindow(page).getByLabel("Your note").fill("Use the shop's bot account instead");
 
   // Assert
-  await expect(noteWindow(page).getByRole("heading", { name: "Your answer" })).toBeVisible();
+  await expect(noteWindow(page).getByRole("heading", { name: "Something else?" })).toBeVisible();
   expect((await noteWindow(page).innerText()).toLowerCase()).not.toContain("skip");
   expect(await noteWindow(page).getByRole("button", { name: "Send", exact: true }).locator("svg").count()).toBe(1);
 });
+
+test("the pencil entry and its dialog say Something else? and Send uses the board green", async ({ page }) => {
+  await record(page);
+  const shown = await openCard(page, "Open the command");
+  const pencil = shown.locator(".skip-with-note");
+  const green = await shown.getByRole("button", { name: "Run in PowerShell" }).evaluate((button) => getComputedStyle(button, "::before").backgroundColor);
+  await pencil.click();
+  const dialog = page.locator("dialog.skip-note");
+  await dialog.getByLabel("Your note").fill("Use this account");
+
+  await expect.soft(pencil).toHaveAccessibleName("Something else?");
+  await expect.soft(dialog).toHaveAccessibleName("Something else?");
+  expect(green).not.toBe("rgba(0, 0, 0, 0)");
+  await expect.poll(() => dialog.getByRole("button", { name: "Send", exact: true }).evaluate((button) => getComputedStyle(button, "::before").backgroundColor)).toBe(green);
+});
+
+for (const viewport of [{ width: 1707, height: 1067 }, { width: 390, height: 844 }]) {
+  test(`dictation in the question's own answer box works at ${viewport.width}`, async ({ page }, testInfo) => {
+    const sent = await record(page);
+    await page.setViewportSize(viewport);
+    await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
+    await page.route("**/api/dictation", (route) => route.fulfill({ json: route.request().method() === "GET"
+      ? { engine: "test-model", state: "ready" } : { text: "use a trial account", engine: "test-model" } }));
+    const shown = await openCard(page, "Open the question");
+    await shown.getByRole("radio", { name: /^Other/ }).check();
+    const answer = shown.getByLabel("Your written answer");
+    await answer.focus();
+
+    await page.keyboard.down("Control");
+    await page.keyboard.down("Shift");
+    await page.keyboard.down("Space");
+    await expect(shown.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+    await page.waitForTimeout(1200);
+    await page.keyboard.up("Space");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("Control");
+
+    await expect(answer).toHaveValue("use a trial account");
+    await expect(answer).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`question-answer-${viewport.width}.png`) });
+    expect(sent).toEqual([]);
+  });
+}
 
 for (const input of ["shortcut from Cancel", "microphone"] as const) {
   test(`${input} adds dictation to the answer without submitting it`, async ({ page }) => {
@@ -173,11 +225,7 @@ test("Send waits for a pasted picture and accepts a picture without words", asyn
   });
   const shown = await openCard(page, "Open the command");
   await pencilOf(shown).click();
-  await noteWindow(page).getByLabel("Your note").evaluate((box) => {
-    const clipboard = new DataTransfer();
-    clipboard.items.add(new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" }));
-    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
-  });
+  await pastePicture(noteWindow(page).getByLabel("Your note"));
 
   const send = noteWindow(page).getByRole("button", { name: "Send", exact: true });
   await expect(send).toBeDisabled();
@@ -206,12 +254,7 @@ test("a picture pasted into the pencil's window is kept beside the task and sent
   await note.fill("Like this one");
 
   // Act
-  await note.evaluate((box) => {
-    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
-    const clipboard = new DataTransfer();
-    clipboard.items.add(new File([bytes], "image.png", { type: "image/png" }));
-    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
-  });
+  await pastePicture(note);
   await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 1" })).toBeVisible();
   await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
 
@@ -221,6 +264,28 @@ test("a picture pasted into the pencil's window is kept beside the task and sent
   expect(sent[0].body).toMatchObject({ kind: "run_answer", run_id: "run-shop-signup-7", text: "Like this one\n\nImage: " + saved });
 });
 
+for (const [description, word] of [["a full note", "word ".repeat(800)], ["an accented note", "é".repeat(1990)]] as const) {
+  test(`a picture cannot make a credential answer exceed the card's limit with ${description}`, async ({ page }) => {
+    const sent = await record(page);
+    await page.route("**/api/answer-images**", (route) => route.fulfill({ status: 201, json: { path: "C:\\fleet\\pasted-1.png" } }));
+    const shown = await openCard(page, "Open the credential");
+    await pencilOf(shown).click();
+    const note = noteWindow(page).getByLabel("Your note");
+    await note.fill(word);
+    await pastePicture(note);
+
+    await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 1" })).toBeVisible();
+    await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    await expect(noteWindow(page).getByRole("status")).toHaveText("Use a shorter answer or fewer pictures.");
+    expect(sent).toEqual([]);
+    await note.fill("Use this one");
+    await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
+
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0].body).toMatchObject({ action: "answer", text: "Use this one\n\nImage: C:\\fleet\\pasted-1.png" });
+  });
+}
+
 test("a picture can be taken back out of the pencil's window before Send", async ({ page }) => {
   // Arrange
   const sent = await record(page);
@@ -229,11 +294,7 @@ test("a picture can be taken back out of the pencil's window before Send", async
   await pencilOf(shown).click();
   const note = noteWindow(page).getByLabel("Your note");
   await note.fill("No picture after all");
-  await note.evaluate((box) => {
-    const clipboard = new DataTransfer();
-    clipboard.items.add(new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" }));
-    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
-  });
+  await pastePicture(note);
 
   // Act
   await noteWindow(page).getByRole("button", { name: "Remove picture 1" }).click();
@@ -327,17 +388,20 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
       await pencilOf(shown).click();
       const note = noteWindow(page).getByLabel("Your note");
       await note.fill("Use the shop's bot account instead");
-      await note.evaluate((box) => {
-        const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
-        const clipboard = new DataTransfer();
-        clipboard.items.add(new File([bytes], "image.png", { type: "image/png" }));
-        box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
-      });
+      await pastePicture(note);
 
       // Assert
       await expect(shown.locator(".card-actions").getByRole("button", { name: "Skip this card" })).toBeAttached();
       await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 1" })).toBeVisible();
       await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+      const picture = await noteWindow(page).getByRole("img", { name: "Pasted picture 1" }).boundingBox();
+      const noteBox = await note.boundingBox();
+      const send = await noteWindow(page).getByRole("button", { name: "Send", exact: true }).boundingBox();
+      expect(picture).not.toBeNull();
+      expect(noteBox).not.toBeNull();
+      expect(send).not.toBeNull();
+      expect(picture!.y).toBeGreaterThanOrEqual(noteBox!.y + noteBox!.height);
+      expect(picture!.y + picture!.height).toBeLessThanOrEqual(send!.y);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`skip-or-other-${name.split(" ").pop()}-${viewport.width}-note.png`) });
     }

@@ -31,6 +31,7 @@ test("a review answered on its page finishes its open card with a check and move
 test("a clear refused because he just answered on the page shows the check, not an error", async ({ page }) => {
   // Arrange: the board refuses his Clear, since the review closed a moment
   // before, and only then does the snapshot saying so arrive.
+  await page.clock.install();
   let refused = false;
   await page.route("**/api/actions", async (route) => {
     refused = true;
@@ -47,10 +48,11 @@ test("a clear refused because he just answered on the page shows the check, not 
   // Assert
   await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Answered/));
   await expect(dialog.getByText(/that review is not open/)).toHaveCount(0);
+  await page.clock.runFor(1000);
   await expect(dialog.getByRole("heading", { name: "Look at the new icons" })).toBeVisible();
   // A refused send that moved on comes back only while it can be retried; this
   // card closed by his answer, so it stays gone.
-  await page.waitForTimeout(2000);
+  await page.clock.runFor(2000);
   await expect(dialog.getByRole("heading", { name: "Look at the new icons" })).toBeVisible();
   await expect(dialog.getByText(/that review is not open/)).toHaveCount(0);
   await expect(dialog.getByRole("heading", { name: "approve the mockups" })).toHaveCount(0);

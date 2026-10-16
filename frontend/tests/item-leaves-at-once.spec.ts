@@ -28,6 +28,7 @@ const asking = (item: { questions?: object[]; reviews?: object[] }, revision = 2
 // that the test did not send.
 async function standInStream(context: BrowserContext) {
   await context.addInitScript(() => {
+    localStorage.setItem("cfo-notifications-asked", "true");
     class FixtureSource extends EventTarget {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent(event.detail.type, { data: JSON.stringify(event.detail.data) }));

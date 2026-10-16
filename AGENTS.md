@@ -368,7 +368,9 @@ The goblin runs the command in the background, so it goes on the moment the card
 Exit 3 means he skipped the card, and the goblin goes on without it. Exit 4 means he answered in his own words instead, printed as `he answered instead: <his words>`, which the goblin acts on as his word.
 A goblin takes back a card it no longer needs with `cfo auth request --withdraw <card> --task <its id> --reason "<why>"`, you take back any card with `--withdraw` and no `--task`, and a goblin's open cards are withdrawn once it is gone, replaced, or reports done or failed.
 `--wait-on <card>` waits on a card again after its wait was cut short.
-Every Command Center card has a way out beside its decision buttons. A question, or a review with an answer box, has Skip. Every other card, a command, a wait, or a credential or step card, has Skip, which tells its goblin to go on without it and wakes you, and a pencil that opens a small window whose Send gives whoever asked his written or dictated answer, with any pictures he pasted named as `Image: <path>` lines.
+Every Command Center card has a way out beside its decision buttons.
+A question, or a review with an answer box, has Skip.
+Every other card, a command, a wait, or a credential or step card, has Skip, which tells its goblin to go on without it and wakes you, and a pencil, Something else?, that opens a small window whose green Send gives whoever asked his written or dictated answer, with any pictures he pasted named as `Image: <path>` lines.
 The card's place then shows one line with the command to give its secret later, `cfo auth store --project <p> <NAME>`, or, for a card with no secret left, `cfo auth request --reopen <card>`, which you or its goblin run to bring it back: the goblin is told to wait on it again.
 
 ### Status words are earned

@@ -14,7 +14,7 @@ export function SkipWithNote({ asker, task, instance, disabled, onSkip, onAnswer
   const [isOpen, setIsOpen] = useState(false);
   return <>
     <button type="button" className="icon-button raised" disabled={disabled} aria-label="Skip this card" data-tip={"Skip: " + asker + " goes on without it"} onClick={onSkip}><Icon name="close" /></button>
-    <button type="button" className="icon-button raised skip-with-note" aria-label="Answer in your own words" data-tip={"Answer " + asker + " in your own words"} disabled={disabled} onClick={() => setIsOpen(true)}><Icon name="edit" /></button>
+    <button type="button" className="icon-button raised skip-with-note" aria-label="Something else?" data-tip="Something else?" disabled={disabled} onClick={() => setIsOpen(true)}><Icon name="edit" /></button>
     {isOpen && <AnswerWindow asker={asker} task={task} instance={instance} onCancel={() => setIsOpen(false)}
       onSend={(text) => { setIsOpen(false); onAnswer(text); }} />}
   </>;

@@ -160,7 +160,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}.png`) });
       await card.locator(".credential-heading").hover();
       await page.mouse.wheel(0, 4000);
-      await expect(card.getByRole("button", { name: "Answer in your own words" })).toBeInViewport();
+      await expect(card.getByRole("button", { name: "Something else?" })).toBeInViewport();
       expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}-end.png`) });
     }

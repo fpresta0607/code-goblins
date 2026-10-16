@@ -43,6 +43,7 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
   };
   const text = [note.trim(), pictures.map((picture) => "Image: " + picture.path).join("\n")].filter(Boolean).join("\n\n");
   const isKeeping = pictures.some((picture) => !picture.path);
+  const isTooLong = new TextEncoder().encode(text).length > 4000;
   return <dialog ref={dialog} className="credential-replace skip-note" aria-labelledby={title}
     onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onCancel(); }}
     onPaste={(event) => {
@@ -51,10 +52,10 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
       event.preventDefault();
       images.forEach((file) => void keep(file));
     }}>
-    <h2 id={title}>Your answer</h2>
+    <h2 id={title}>Something else?</h2>
     <p>It goes to {asker} as your word. Type it, say it or paste a picture.</p>
     <DictatedAnswer label="Your note" placeholder={"Tell " + asker + " what to do instead..."} value={note} instance={instance} onText={setNote} />
-    {pictures.length > 0 && <div className="question-thumbs pasted-pictures">
+    {pictures.length > 0 && <div className="pasted-pictures">
       {pictures.map((picture, index) => <span key={picture.key} className="pasted-picture">
         {picture.preview && <img src={picture.preview} alt={"Pasted picture " + (index + 1)} />}
         <button type="button" className="icon-button" aria-label={"Remove picture " + (index + 1)} onClick={() => setPictures((prior) => prior.filter((each) => each.key !== picture.key))}><Icon name="close" /></button>
@@ -62,9 +63,10 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
     </div>}
     {isKeeping && <p className="message-note" role="status">Saving picture...</p>}
     {refusal && <p className="message-note" role="status">{refusal}</p>}
+    {isTooLong && <p className="message-note" role="status">Use a shorter answer or fewer pictures.</p>}
     <div className="credential-replace-choices">
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
-      <button type="button" className="credential-replace-confirm" disabled={!text || isKeeping} onClick={() => onSend(text)}><Icon name="send" />Send</button>
+      <button type="button" className="primary" disabled={!text || isKeeping || isTooLong} onClick={() => onSend(text)}><Icon name="send" />Send</button>
     </div>
   </dialog>;
 }
