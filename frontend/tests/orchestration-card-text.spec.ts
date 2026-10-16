@@ -151,7 +151,7 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
 // Text a card cannot hold may end in an ellipsis, but none of it is painted
 // beyond the card, whatever it says, and no part of it goes unseen.
 for (const [title, parts] of [
-  ["Wilhelmina", ["title", "browser", "project", "status", "relation", "model", "route"]],
+  ["Wilhelmina", ["title", "browser", "project", "status", "model", "route"]],
   ["Cornelius", ["title", "browser", "project", "status", "model", "route"]],
   ["Bartholomew", ["title", "project", "status", "model", "route", "clock", "pull request"]],
   ["CFO", ["title", "status", "dial"]],

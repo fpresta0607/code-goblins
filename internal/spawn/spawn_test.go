@@ -286,7 +286,7 @@ func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 // id and no Herdr pane, and its harness starts there with the task's identity
 // and its brief.
 func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
-	for _, key := range []string{"CODEX_THREAD_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
+	for _, key := range []string{"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
 		t.Setenv(key, "")
 	}
 	f := newQuickFixture(t)

@@ -4,7 +4,7 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runFailure, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, lineageFamily, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW } from "./workflow.ts";
 
 // A canvas of the board's usual shape, wider than it is tall.
 const CANVAS = { width: 1400, height: 900 };
@@ -282,8 +282,146 @@ test("dispatched goblins hang under the CFO, and only live work is in the tree",
   const reported = workflowNodes(parseSnapshot({healthy:true, sessions:[{id:"cfo", role:"cfo"}, {id:"lost", role:"goblin", parent:"missing"}], tasks:[{id:"a", phase:"working", verified:false}]}));
   assert.equal(reported.find((node) => node.id === CFO_ROOT), undefined);
   assert.equal(reported.find((node) => node.id === "task:a")?.parent, "session:cfo");
-  assert.equal(reported.find((node) => node.id === "session:lost")?.parent, undefined);
+  assert.deepEqual([reported.find((node) => node.id === "session:lost")?.parent, reported.find((node) => node.id === "session:lost")?.relation], ["session:cfo", "Dispatched by the CFO"]);
   assert.equal(workflowNodes(parseSnapshot({healthy:true, tasks:history})).length, 0);
+});
+
+// A goblin of a live task hangs under the CFO on the canvas and in the
+// lineage list, whoever started or resumed it and whatever harness it and the
+// CFO run. On 2026-10-16 three live pi goblins floated on the canvas marked
+// Parent unreported: one a CFO in Claude Code spawned and two the supervisor
+// resumed after a memory pause, since only a parent a session reported was
+// kept.
+test("a live goblin session with no parent in the tree hangs under the CFO, whoever started it", () => {
+  const cases: [string, Record<string, string>[], string][] = [
+    ["a Claude Code CFO's spawn, with no CFO session reported", [{ id: "claude-spawned", native_id: "claude-spawned", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], CFO_ROOT],
+    ["a supervisor resume", [{ id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", phase: "active" }, { id: "resumed", native_id: "resumed", harness: "codex", role: "goblin", task_id: "a", generation: "g1", phase: "active" }], "cfo"],
+    ["a pi goblin under a pi CFO", [{ id: "pi-cfo", native_id: "pi-cfo", harness: "pi", role: "cfo", phase: "active" }, { id: "pi-goblin", native_id: "pi-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1" }], "pi-cfo"],
+    ["a goblin whose reported parent left the tree", [{ id: "orphan", native_id: "orphan", harness: "claude", role: "goblin", task_id: "a", generation: "g1", parent: "gone" }], CFO_ROOT],
+  ];
+  for (const [name, sessions, cfo] of cases) {
+    // Arrange
+    const goblin = sessions[sessions.length - 1];
+    const snapshot = parseSnapshot({ healthy: true, sessions, tasks: [{ id: "a", phase: "working", session: goblin.id, generation: "g1", verified: false }] });
+
+    // Act
+    const nodes = workflowNodes(snapshot);
+    const lineage = lineageFamily(snapshot, "");
+
+    // Assert
+    const card = nodes.find((node) => node.id === "session:" + goblin.id);
+    assert.deepEqual([card?.parent, card?.relation], [cfo === CFO_ROOT ? CFO_ROOT : "session:" + cfo, "Dispatched by the CFO"], name);
+    assert.equal(lineage.sessions.find((node) => node.id === goblin.id)?.parent, cfo, name);
+    assert.deepEqual(lineageRoots(lineage.sessions).map((node) => node.id), [cfo], name);
+  }
+});
+
+// A goblin with no session, such as a paused one, hangs under the CFO in the
+// lineage list as it does on the canvas, never as a root of its own, and a
+// queued task stays a root, since nothing dispatched it yet.
+test("a paused goblin hangs under the CFO in the lineage list too", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, tasks: [{ id: "paused", phase: "paused", generation: "g1", project: "p", verified: false }, { id: "brief", phase: "queued", project: "p", verified: false }] });
+
+  // Act
+  const all = lineageFamily(snapshot, "");
+  const project = lineageFamily(snapshot, "p");
+
+  // Assert
+  for (const family of [all, project]) {
+    assert.deepEqual(family.sessions.map((node) => node.id), [CFO_ROOT]);
+    assert.deepEqual([...family.underCfo], ["paused"]);
+  }
+});
+
+// A parent a session reported and the tree holds still wins: a baby goblin
+// stays under the goblin that started it on the canvas and in the lineage
+// list.
+test("a session keeps a parent it reported that the tree holds", () => {
+  // Arrange
+  const parent = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "g1" };
+  const child = { id: "baby", native_id: "baby", harness: "claude", role: "subagent", task_id: "g", generation: "g1", parent: "own", relation: "delegated" };
+  const snapshot = parseSnapshot({ healthy: true, sessions: [parent, child], tasks: [{ id: "g", phase: "working", session: "own", generation: "g1", verified: false }] });
+
+  // Act
+  const nodes = workflowNodes(snapshot);
+  const lineage = lineageFamily(snapshot, "");
+
+  // Assert
+  assert.deepEqual([nodes.find((node) => node.id === "session:baby")?.parent, nodes.find((node) => node.id === "session:baby")?.relation], ["session:own", "delegated"]);
+  assert.equal(lineage.sessions.find((node) => node.id === "baby")?.parent, "own");
+});
+
+// A helper hangs under its goblin, whose session its task record names, and
+// never under the CFO, even when it reported no parent of its own.
+test("a helper's session hangs under its goblin, never the CFO", () => {
+  // Arrange
+  const goblin = { id: "goblin-session", native_id: "goblin-session", harness: "claude", role: "goblin", task_id: "g", generation: "g1" };
+  const helper = { id: "helper-session", native_id: "helper-session", harness: "pi", role: "goblin", task_id: "h", generation: "h1" };
+  const tasks = [{ id: "g", phase: "working", session: "goblin-session", generation: "g1", verified: false }, { id: "h", phase: "working", session: "helper-session", generation: "h1", parent: "g", verified: false }];
+
+  // Act
+  const nodes = workflowNodes(parseSnapshot({ healthy: true, sessions: [goblin, helper], tasks }));
+
+  // Assert
+  const card = nodes.find((node) => node.id === "session:helper-session");
+  assert.deepEqual([card?.parent, card?.relation], ["session:goblin-session", "Helper goblin"]);
+});
+
+// A retired task's session leaves the canvas and the lineage list, and its
+// baby goblins with it: its record is in the board's archived history. On
+// 2026-10-16 a session stayed on the canvas after cfo cleanup retired its
+// task.
+test("a retired task's sessions are gone from the tree", () => {
+  // Arrange
+  const sessions = [
+    { id: "stale", native_id: "stale", harness: "pi", role: "goblin", task_id: "retired", generation: "g1", phase: "ended" },
+    { id: "stale-baby", native_id: "stale-baby", harness: "pi", role: "subagent", task_id: "retired", generation: "g1", parent: "stale", phase: "ended" },
+  ];
+  const snapshot = parseSnapshot({ healthy: true, sessions, tasks: [{ id: "finished:retired", archived: true, phase: "stopped", verified: false }] });
+
+  // Act
+  const nodes = workflowNodes(snapshot);
+  const lineage = lineageFamily(snapshot, "");
+
+  // Assert
+  assert.deepEqual(nodes.map((node) => node.id), []);
+  assert.deepEqual(lineage.sessions, []);
+});
+
+// The CFO root is the live CFO, never the ended session of one the fleet
+// replaced, and that ended CFO's ended sub-agents leave with it rather than
+// float as cards of their own.
+test("an ended CFO session is never the tree's root, and leaves with its sub-agents", () => {
+  // Arrange
+  const ended = { id: "old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended" };
+  const endedAgent = { id: "old-agent", native_id: "old-agent", harness: "pi", role: "subagent", parent: "old-cfo", relation: "delegated", phase: "ended" };
+  const live = { id: "new-cfo", native_id: "new-cfo", harness: "claude", role: "cfo", phase: "active" };
+  const goblin = { id: "a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "old-cfo" };
+  const tasks = [{ id: "a", phase: "working", session: "a-session", generation: "g1", verified: false }];
+
+  // Act
+  const onlyEnded = workflowNodes(parseSnapshot({ healthy: true, sessions: [ended, endedAgent, goblin], tasks }));
+  const both = workflowNodes(parseSnapshot({ healthy: true, sessions: [ended, endedAgent, live, goblin], tasks }));
+
+  // Assert
+  assert.deepEqual(onlyEnded.map((node) => [node.id, node.parent]), [[CFO_ROOT, undefined], ["session:a-session", CFO_ROOT]]);
+  assert.deepEqual(both.map((node) => [node.id, node.parent]), [["session:new-cfo", undefined], ["session:a-session", "session:new-cfo"]]);
+});
+
+// A goblin hung under a CFO session the board heard from after it is drawn a
+// row below that CFO, not beside it at the top of the canvas.
+test("a goblin hung under a later CFO session is drawn below it", () => {
+  // Arrange
+  const goblin = { id: "early-goblin", native_id: "early-goblin", harness: "pi", role: "goblin", task_id: "a", generation: "g1", updated_at: "2026-10-16T20:00:00Z" };
+  const cfo = { id: "late-cfo", native_id: "late-cfo", harness: "claude", role: "cfo", phase: "active", updated_at: "2026-10-16T20:05:00Z" };
+  const nodes = workflowNodes(parseSnapshot({ healthy: true, sessions: [goblin, cfo], tasks: [{ id: "a", phase: "working", session: "early-goblin", generation: "g1", verified: false }] }));
+
+  // Act
+  const positions = arrange(nodes, CANVAS);
+
+  // Assert
+  assert.equal(positions["session:early-goblin"].y, positions["session:late-cfo"].y + ROW);
 });
 
 test("a wide family of goblins wraps into rows that never overlap", () => {

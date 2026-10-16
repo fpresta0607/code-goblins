@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -385,14 +386,11 @@ func callerOwns(stateDir, hostID string, process lock.Info) bool {
 	return err == nil && same(program)
 }
 
-// The same explicit native caller convention used by spawn. A same-harness
-// session or recent directory match cannot establish a sender relationship.
+// The caller's session as spawn reads it. A same-harness session or recent
+// directory match cannot establish a sender relationship.
 func callerSession() string {
-	id, harness := os.Getenv("CFO_SESSION_ID"), os.Getenv("CFO_SESSION_HARNESS")
+	id, harness := spawn.CallerSession()
 	if id == "" {
-		id, harness = os.Getenv("CODEX_THREAD_ID"), "codex"
-	}
-	if id == "" || len(id) > 256 || strings.ContainsAny(id, "\x00\r\n") || (harness != "codex" && harness != "claude" && harness != "pi") {
 		return ""
 	}
 	return harness + "/" + id
