@@ -140,15 +140,15 @@ test("the pencil entry and its dialog say Something else? and Send uses the boar
   await record(page);
   const shown = await openCard(page, "Open the command");
   const pencil = shown.locator(".skip-with-note");
-  const green = await shown.getByRole("button", { name: "Run in PowerShell" }).evaluate((button) => getComputedStyle(button, "::before").backgroundColor);
+  const green = await shown.getByRole("button", { name: "Run in PowerShell" }).evaluate((button) => getComputedStyle(button, "::before").backgroundImage);
   await pencil.click();
   const dialog = page.locator("dialog.skip-note");
   await dialog.getByLabel("Your note").fill("Use this account");
 
   await expect.soft(pencil).toHaveAccessibleName("Something else?");
   await expect.soft(dialog).toHaveAccessibleName("Something else?");
-  expect(green).not.toBe("rgba(0, 0, 0, 0)");
-  await expect.poll(() => dialog.getByRole("button", { name: "Send", exact: true }).evaluate((button) => getComputedStyle(button, "::before").backgroundColor)).toBe(green);
+  expect(green).not.toBe("none");
+  await expect.poll(() => dialog.getByRole("button", { name: "Send", exact: true }).evaluate((button) => getComputedStyle(button, "::before").backgroundImage)).toBe(green);
 });
 
 for (const viewport of [{ width: 1707, height: 1067 }, { width: 390, height: 844 }]) {
