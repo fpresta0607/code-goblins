@@ -1538,6 +1538,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		evaluation := d.Tasks[id]
 		node, linked := d.Sessions[d.TaskSessions[id]]
+		// A session of an earlier generation is no evidence of this one: a
+		// goblin switched off Pi, the one harness whose native hooks a home
+		// may have installed alone, onto one that reports none still named
+		// its Pi session, and its card read no evidence at all.
+		if linked && node.Generation != meta.SpawnGen {
+			node, linked = Session{}, false
+		}
 		runtime := s.runtimeEvidence(meta, node, out.At)
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
@@ -1554,10 +1561,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if !linked {
 			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
-		} else if node.Generation != meta.SpawnGen {
-			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
-		if linked && node.Generation == meta.SpawnGen && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
+		if linked && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
 			if runtime.working() {
 				evaluation.Phase, evaluation.Reason, evaluation.At = "working", "Native activity and runtime evidence agree", node.UpdatedAt
 			} else {
@@ -1573,8 +1578,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// reported, or a delivery it finished, no longer describes it. Two
 		// goblins sent new work each read Waiting on the other on 2026-10-16,
 		// and a delivered goblin resumed to look for more work stayed in
-		// Completed.
-		isAtWork := linked && node.Generation == meta.SpawnGen && (node.Phase == "active" || node.Phase == "started") && node.PromptAt.Truncate(time.Second).After(reportedAt)
+		// Completed. Its native hooks prove the prompt where they are
+		// installed, and its terminal, read working since after the report,
+		// proves the turn on any harness.
+		isAtWork := linked && (node.Phase == "active" || node.Phase == "started") && node.PromptAt.Truncate(time.Second).After(reportedAt) ||
+			runtime.working() && runtime.BusySince.Truncate(time.Second).After(reportedAt)
 		if isAtWork && evaluation.Phase == "done" {
 			evaluation.Phase, evaluation.Reason = "working", "At work again after its delivery"
 		}
