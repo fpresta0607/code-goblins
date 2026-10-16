@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -278,12 +279,16 @@ const cfoSettingsFile = "cfo-claude-settings.json"
 // alone. They were in the user's settings until 2026-10, where every Claude
 // Code session on the machine ran them: each Bash call, turn end and start
 // started cfo.exe, about 0.1 s each, only for the hook to leave on its
-// environment. A Codex or pi CFO has its native hooks (cfo hooks install).
+// environment. A Codex CFO takes its native hooks as -c overrides of its own
+// session, and a pi CFO has its extension (cfo hooks install pi).
 func cfoHookArguments(h home.Home, harness string) ([]string, error) {
+	if harness == "codex" {
+		return nativehook.CodexArguments(filepath.Join(h.Root, home.BinDir, "cfo.exe"), h.Root, h.State)
+	}
 	if harness != "claude" {
 		return nil, nil
 	}
-	settings, err := install.CFOSettings(h.Root)
+	settings, err := install.CFOSettings(h.Root, h.State)
 	if err != nil {
 		return nil, err
 	}

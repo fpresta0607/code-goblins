@@ -72,11 +72,7 @@ func Install(c InstallConfig) (string, error) {
 	if isDirect {
 		command = direct
 	}
-	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
-	if c.Harness == "codex" {
-		events = append(events, "Interrupt", "PreCompact", "PostCompact")
-	}
-	for _, event := range events {
+	for _, event := range Events(c.Harness) {
 		kept, stood, err := withoutOwned(hooks[event], c.Harness, c.ConfigDir)
 		if err != nil {
 			return "", err
@@ -136,6 +132,16 @@ func Install(c InstallConfig) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// Events are the hook events of harness, Claude Code or Codex, whose native
+// hooks report a session's lifecycle.
+func Events(harness string) []string {
+	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
+	if harness == "codex" {
+		events = append(events, "Interrupt", "PreCompact", "PostCompact")
+	}
+	return events
 }
 
 func writeOwned(path, content string) error {
@@ -284,6 +290,27 @@ func directCommand(c InstallConfig) (string, bool) {
 		return "", false
 	}
 	return executable + " native-hook codex --home " + home + " --state " + state, true
+}
+
+// CodexArguments are the Codex arguments that give one session its native
+// hooks, with the hooks feature on: a -c override for each lifecycle event,
+// running cfo native-hook codex directly as Install's hooks do, in the
+// session's own configuration rather than the user's hooks.json, which every
+// Codex session on the machine loads, the Overlord's own outside the fleet
+// included. Codex keys a hook's trust by where it is defined, which for a -c
+// override is the same for every session, and by what it runs, so the
+// Overlord trusts them once, in /hooks, for every session of the home. A path
+// that would need quoting cannot be written in one.
+func CodexArguments(executable, home, state string) ([]string, error) {
+	command, ok := directCommand(InstallConfig{Harness: "codex", Executable: executable, Home: home, State: state})
+	if !ok {
+		return nil, fmt.Errorf("native hooks: Codex cannot run cfo from %s with home %s and state %s without quoting them", executable, home, state)
+	}
+	args := []string{"--enable", "hooks"}
+	for _, event := range Events("codex") {
+		args = append(args, "-c", "hooks."+event+"=[{hooks=[{type='command',command='"+command+"',timeout=3}]}]")
+	}
+	return args, nil
 }
 
 // ownsCommand reports whether a hook command is one Install wrote for harness
