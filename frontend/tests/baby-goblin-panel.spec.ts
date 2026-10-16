@@ -26,11 +26,9 @@ const TRANSCRIPT = [
   { kind: "reply", text: "Reading internal/fleettree/claude.go" },
 ];
 const DRAWN = ["> Find where the harness starts sub-agents", "● Search(subagents/agent-)", "⎿  Found 3 files", "⎿  Error: File does not exist.", "● Bash(go test ./internal/fleettree/)", "⎿  === RUN TestA", "--- PASS: TestA", "… +2 lines", "● Reading internal/fleettree/claude.go"];
-// What the supervisor reads of a background shell's and a dev server's own
-// output.
 const OUTPUTS: Record<string, string[]> = {
-  "shell:b1": ["> go test ./internal/monitor/...", "ok  internal/monitor 41.2s"],
-  "process:5120:1": ["> npm run dev", "VITE ready on port 5173"],
+  "subagent:tests": ["> Review the affected Go tests", "The affected tests pass"],
+  "subagent:server": ["> Review the development server", "The app server answers"],
 };
 
 async function open(page: Page, width = 1600, height = 1000) {
@@ -44,7 +42,7 @@ async function open(page: Page, width = 1600, height = 1000) {
   })
   const fleet = parseSnapshot(treeFleet(Date.now()))
   const children = fleet.tasks[0].tree!.children
-  children.find(child => child.id === "process:5120:1")!.state = "working"
+  Object.assign(children.find(child => child.id === "process:5120:1")!, { id: "subagent:server", kind: "subagent", label: "Review the development server", detail: "general-purpose", task: "Review the development server", state: "working" })
   children.find(child => child.id === "process:6100:2")!.state = "silent"
   await holdStream(page, fleet);
   await page.addInitScript(({ outputs, transcript }) => {
@@ -62,7 +60,7 @@ async function open(page: Page, width = 1600, height = 1000) {
         if (!String(url).includes("/agent?")) { window.addEventListener("fleet-snapshot", this.snapshot); return }
         this.node = new URL(url, location.href).searchParams.get("node") || ""
         window.addEventListener("child-output", this.receive)
-        this.timer = setTimeout(() => this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify(outputs[this.node] ? { lines: outputs[this.node] } : { entries: transcript }) })), this.node === "process:5120:1" ? 1500 : 0)
+        this.timer = setTimeout(() => this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify(outputs[this.node] ? { lines: outputs[this.node] } : { entries: transcript }) })), this.node === "subagent:server" ? 1500 : 0)
       }
       close() { super.close(); clearTimeout(this.timer); window.removeEventListener("child-output", this.receive); window.removeEventListener("fleet-snapshot", this.snapshot) }
     }
@@ -72,8 +70,7 @@ async function open(page: Page, width = 1600, height = 1000) {
     const url = new URL(route.request().url());
     const node = url.searchParams.get("node") || "";
     if (url.pathname === "/api/tasks/fleet/agent" && node === AGENT) await route.fulfill({ json: { entries: TRANSCRIPT } });
-    // The dev server's output comes slowly, so its terminal shows before it does.
-    else if (url.pathname === "/api/tasks/fleet/agent" && OUTPUTS[node]) await new Promise((done) => setTimeout(done, node === "process:5120:1" ? 1500 : 0)).then(() => route.fulfill({ json: { lines: OUTPUTS[node] } }));
+    else if (url.pathname === "/api/tasks/fleet/agent" && OUTPUTS[node]) await new Promise((done) => setTimeout(done, node === "subagent:server" ? 1500 : 0)).then(() => route.fulfill({ json: { lines: OUTPUTS[node] } }));
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -111,7 +108,7 @@ test("clicking a helper goblin opens that helper's own panel", async ({ page }) 
 test("clicking two other baby goblins shows each one's own output under its name and task, never its goblin's terminal", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  for (const [name, task, node, other] of [["Grub III - Test Runner", /go test \.\/internal\/monitor/, "shell:b1", "process:5120:1"], ["Grub IV - Server Keeper", /npm run dev/, "process:5120:1", "shell:b1"]] as const) {
+  for (const [name, task, node, other] of [["Grub III - Test Runner", /Review the affected Go tests/, "subagent:tests", "subagent:server"], ["Grub IV - Server Reviewer", /Review the development server/, "subagent:server", "subagent:tests"]] as const) {
     await baby(page, name).click();
     const terminal = page.getByRole("log", { name: "Terminal of " + name });
     await expect(terminal, "never the last child's output while its own is on its way").not.toContainText(OUTPUTS[other].at(-1)!, { timeout: 500 });
@@ -183,17 +180,17 @@ test("baby goblins are named after their goblin in the order they started, each 
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   const names = (label: string) => page.getByRole("list", { name: "What runs under " + label }).locator(".tree-child strong").allTextContents();
-  expect(await names("Grub - Tree Surgeon")).toEqual(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Keeper"]);
+  expect(await names("Grub - Tree Surgeon")).toEqual(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Reviewer"]);
   expect(await names("Kip - Echo Chaser")).toEqual(["Kip Jr. - Export Tracer"]);
   expect(await names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toEqual(["Moss Jr. - Branch Measurer", "Moss II - List Checker", "Pip - Rail Fitter"]);
 });
 
-test("working children open their panels and silent children have no card", async ({ page }) => {
+test("working subagents open their panels and processes have no baby card", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   for (const child of await page.locator(".tree-branches .tree-child").all()) expect(await child.evaluate((node) => getComputedStyle(node).opacity), await child.locator("strong").textContent() || "").toBe("1");
-  await baby(page, "Grub IV - Server Keeper").click();
-  await expect(title(page)).toHaveText(/^Grub IV - Server Keeper.*npm run dev/);
+  await baby(page, "Grub IV - Server Reviewer").click();
+  await expect(title(page)).toHaveText(/^Grub IV - Server Reviewer.*Review the development server/);
   await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
   await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
 });
@@ -204,18 +201,18 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await expect(page.locator(".tree-branches").first()).toBeVisible();
   for (const branches of await page.locator(".tree-branches").all()) await expect(branches).not.toContainText(/cmd\.exe|WINDOWS/);
-  const shell = baby(page, "Grub III - Test Runner");
-  const chip = shell.locator(".state-chip");
+  const reviewer = baby(page, "Grub III - Test Runner");
+  const chip = reviewer.locator(".state-chip");
   await expect(chip).toHaveText("Working 40m");
   const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, dot: getComputedStyle(node.querySelector(".status-dot")!).backgroundColor }));
   const working = await look(baby(page, "Grub Jr. - Plumbing Mapper").locator(".state-chip"));
   expect(await look(chip)).toEqual(working);
-  await shell.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("go test ./internal/monitor/...");
+  await reviewer.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Review the affected Go tests");
 });
 
 for (const [name, node, last, output, next] of [
-  ["Grub III - Test Runner", "shell:b1", OUTPUTS["shell:b1"].at(-1)!, { lines: [...OUTPUTS["shell:b1"], "", "--- PASS: TestLiveOutput"] }, "--- PASS: TestLiveOutput"],
+  ["Grub III - Test Runner", "subagent:tests", OUTPUTS["subagent:tests"].at(-1)!, { lines: [...OUTPUTS["subagent:tests"], "", "The new test also passes"] }, "The new test also passes"],
   ["Grub Jr. - Plumbing Mapper", AGENT, DRAWN.at(-1)!, { entries: [...TRANSCRIPT, { kind: "reply", text: "Found the output capture" }] }, "● Found the output capture"],
 ] as const) {
   test(`${name} follows new output without reopening the panel`, async ({ page }) => {
@@ -309,12 +306,12 @@ test("a transcript replaced while its previous output is queued starts on a clea
   await expect(page.locator(".agent-terminal .xterm-rows")).not.toContainText("Previous step")
 })
 
-test("a silent child has no card and returns as soon as it works again", async ({ page }) => {
+test("a process has no baby goblin card even when it starts working", async ({ page }) => {
   const fleet = await open(page)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
   await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
   fleet.tasks[0].tree!.children.find(child => child.id === "process:6100:2")!.state = "working"
   fleet.revision++
   await page.evaluate(snapshot => window.dispatchEvent(new CustomEvent("fleet-snapshot", { detail: snapshot })), fleet)
-  await expect(baby(page, "Grub V - Process Wrangler")).toBeVisible()
+  await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
 })
