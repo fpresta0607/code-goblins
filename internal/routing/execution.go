@@ -160,7 +160,7 @@ var (
 	debugAsk        = regexp.MustCompile(`\b(fix|fixes|bug|bugs|regression|regressions|crash|crashes|broken|failing|root[- ]cause)\b`)
 	deploymentAsk   = regexp.MustCompile(`\b(deploy|deploys|deployment|redeploy)\b`)
 	reviewAsk       = regexp.MustCompile(`\breview\b[^.;\n]{0,30}\b(pr|prs|pull requests?|diff|branch|changes?|code|merges?)\b`)
-	verificationAsk = regexp.MustCompile(`^\s*(?:[-*]\s+|\d+[.)]\s+)?(?:verify|validate|independent verification)\b`)
+	verificationAsk = regexp.MustCompile(`^\s*(?:[-*]\s+|\d+[.)]\s+)?(?:(?:independently\s+)?(?:verify|validate)|independent verification)\b`)
 	readAsk         = regexp.MustCompile(`^\s*(?:[-*]\s+|\d+[.)]\s+)?(search|read|summarize)\b`)
 	mechanicalAsk   = regexp.MustCompile(`(?:^|[\n.!?:]|[-*]\s)\s*rename\b[^.,;\n]{0,50}\b(to|as|into)\b|\b(mechanical|typos?)\b|\bdocs?[- ]only\b`)
 	narrowAsk       = regexp.MustCompile(`\b(narrow|single[- ]file|tightly specified|mechanical)\b`)

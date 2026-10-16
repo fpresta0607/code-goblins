@@ -52,6 +52,7 @@ func TestVerificationClassifiesTheTaskRatherThanItsChecklist(t *testing.T) {
 			{"## Task\nFix the login regression.\nVerify it in the browser.\n", Debug, false},
 			{"## Task\nVerify the security changes.\n## Acceptance criteria\nReturn evidence.\n", Security, true},
 			{"## Task - Verification\nValidate the completed changes.\n", Verification, true},
+			{"## Task\nIndependently verify the completed changes.\n", Verification, true},
 			{"## Task\n1. Verify the completed changes.\n", Verification, true},
 			{"## Task\nImplement independent verification for the export.\n", Implementation, false},
 		} {
