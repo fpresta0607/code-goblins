@@ -1578,11 +1578,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// reported, or a delivery it finished, no longer describes it. Two
 		// goblins sent new work each read Waiting on the other on 2026-10-16,
 		// and a delivered goblin resumed to look for more work stayed in
-		// Completed. Its native hooks prove the prompt where they are
-		// installed, and its terminal, read at rest after the report and
-		// working since, proves the turn on any harness.
-		isAtWork := linked && (node.Phase == "active" || node.Phase == "started") && node.PromptAt.Truncate(time.Second).After(reportedAt) ||
-			runtime.working() && !runtime.BusySince.IsZero() && runtime.RestedAt.Truncate(time.Second).After(reportedAt)
+		// Completed. Its native hooks prove the prompt.
+		isAtWork := linked && (node.Phase == "active" || node.Phase == "started") && node.PromptAt.Truncate(time.Second).After(reportedAt)
 		if isAtWork && evaluation.Phase == "done" {
 			evaluation.Phase, evaluation.Reason = "working", "At work again after its delivery"
 		}

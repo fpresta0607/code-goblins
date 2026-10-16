@@ -61,15 +61,11 @@ func harnessHook(t *testing.T, store *Store, h home.Home, harness, task, moment 
 	}
 }
 
-// seeTerminal has the monitor read task's terminal at health now, working
-// since busySince when that is set, and last at rest at restedAt.
-func seeTerminal(t *testing.T, h home.Home, task string, health monitor.Health, busySince, restedAt time.Time) {
+// seeTerminal has the monitor read task's terminal at health now.
+func seeTerminal(t *testing.T, h home.Home, task string, health monitor.Health) {
 	t.Helper()
 	now := time.Now().UTC()
-	observation := monitor.Observation{TaskID: task, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: health, Reason: monitor.None, Digest: "screen", LastSeen: now, LastProgress: now, RestedAt: &restedAt}
-	if !busySince.IsZero() {
-		observation.BusySince = &busySince
-	}
+	observation := monitor.Observation{TaskID: task, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: health, Reason: monitor.None, Digest: "screen", LastSeen: now, LastProgress: now}
 	if err := monitor.WriteObservation(h.State, observation); err != nil {
 		t.Fatal(err)
 	}
@@ -188,64 +184,6 @@ func TestADeliveredGoblinAtWorkAgainIsInProgress(t *testing.T) {
 	}
 }
 
-// A goblin whose harness reports no native hooks, as Claude Code and Codex
-// on a home that installed Pi's alone, is at work once its terminal, read at
-// rest after its latest report, reads working, and its report stands while
-// the turn that filed it goes on, even when the monitor first read that turn
-// working after the report, or once its terminal is at rest again.
-// Issues #1013 and #1014.
-func TestAGoblinWithNoHooksIsAtWorkOnceItsTerminalWorksSinceItsReport(t *testing.T) {
-	const pr = "https://github.com/o/r/pull/9"
-	for _, harness := range []string{"claude", "codex", "pi"} {
-		for _, test := range []struct {
-			name, report string
-			health       monitor.Health
-			busyFor      time.Duration
-			restedFor    time.Duration
-			wantPhase    string
-		}{
-			{"a wait, working after a rest since it", "waiting on task-2: its API contract", monitor.HealthBusy, 30 * time.Second, 40 * time.Second, "working"},
-			{"a wait, first read working after it with no rest since", "waiting on task-2: its API contract", monitor.HealthBusy, 30 * time.Second, 2 * time.Minute, "waiting"},
-			{"a wait, working since before it", "waiting on task-2: its API contract", monitor.HealthBusy, 2 * time.Minute, 3 * time.Minute, "waiting"},
-			{"a wait, at rest again", "waiting on task-2: its API contract", monitor.HealthIdle, 0, 0, "waiting"},
-			{"a delivery, working after a rest since it", "done: PR " + pr, monitor.HealthBusy, 30 * time.Second, 40 * time.Second, "working"},
-			{"a delivery, first read working after it with no rest since", "done: PR " + pr, monitor.HealthBusy, 30 * time.Second, 2 * time.Minute, "done"},
-			{"a delivery, working since before it", "done: PR " + pr, monitor.HealthBusy, 2 * time.Minute, 3 * time.Minute, "done"},
-			{"a delivery, at rest again", "done: PR " + pr, monitor.HealthIdle, 0, 0, "done"},
-		} {
-			t.Run(harness+"/"+test.name, func(t *testing.T) {
-				// Arrange
-				store, h := atWorkFixture(t, harness, "task-1")
-				now := time.Now().UTC()
-				store.mu.Lock()
-				store.db.Tasks["task-1"] = Evaluation{Phase: "review", Reason: "Task awaits independent review and delivery evidence", Generation: "g1", At: now.Add(-2 * time.Minute)}
-				if strings.HasPrefix(test.report, "done: ") {
-					store.db.Tasks["task-1"] = Evaluation{Phase: "done", Verified: true, PR: pr, Reason: "Changed file content verified on main", Generation: "g1", At: now.Add(-2 * time.Minute)}
-				}
-				err := store.save()
-				store.mu.Unlock()
-				if err != nil {
-					t.Fatal(err)
-				}
-				fileReport(t, h, "task-1", test.report, now.Add(-time.Minute))
-				busySince := time.Time{}
-				if test.busyFor > 0 {
-					busySince = now.Add(-test.busyFor)
-				}
-				seeTerminal(t, h, "task-1", test.health, busySince, now.Add(-test.restedFor))
-
-				// Act
-				got := snapshotTask(t, &Service{Store: store}, "task-1")
-
-				// Assert
-				if got.Phase != test.wantPhase {
-					t.Fatalf("phase %q waiting on %q (%s), want %q", got.Phase, got.WaitingOn, got.Reason, test.wantPhase)
-				}
-			})
-		}
-	}
-}
-
 // A goblin switched off Pi onto a harness that reports no native hooks still
 // names its Pi session, of an earlier generation, which is no evidence of
 // its current one: its card reads its gate and its terminal as any other
@@ -271,7 +209,7 @@ func TestASessionOfAnEarlierGenerationIsNoEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seeTerminal(t, h, "task-1", monitor.HealthIdle, time.Time{}, now)
+	seeTerminal(t, h, "task-1", monitor.HealthIdle)
 
 	// Act
 	got := snapshotTask(t, &Service{Store: store}, "task-1")

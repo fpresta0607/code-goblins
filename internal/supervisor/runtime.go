@@ -14,12 +14,6 @@ type RuntimeEvidence struct {
 	State  string    `json:"state"`
 	Reason string    `json:"reason"`
 	At     time.Time `json:"at"`
-	// BusySince is when the terminal began the working stretch it shows,
-	// zero while it shows none.
-	BusySince time.Time `json:"busy_since,omitzero"`
-	// RestedAt is the latest reading of the terminal at rest, zero before
-	// the first.
-	RestedAt time.Time `json:"rested_at,omitzero"`
 }
 
 func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Time) RuntimeEvidence {
@@ -49,12 +43,6 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 	}
 	if observation.Health == monitor.HealthUnknown {
 		evidence.State = "unavailable"
-	}
-	if observation.Health == monitor.HealthBusy && observation.BusySince != nil {
-		evidence.BusySince = *observation.BusySince
-	}
-	if observation.RestedAt != nil {
-		evidence.RestedAt = *observation.RestedAt
 	}
 	// Short rescans retain the last CPU judgment, but a newer terminal read
 	// cannot refresh its age or bind it to a later native session.
