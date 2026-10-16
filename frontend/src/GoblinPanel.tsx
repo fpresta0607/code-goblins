@@ -45,7 +45,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
-        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} labelled />
+        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
         <LifecycleDetails task={task} />
       </div>}
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">

@@ -113,6 +113,33 @@ func scanStatus(t *testing.T, service Service, probe *fakeProber, meta state.Tas
 	return result
 }
 
+// A turn the monitor first reads working may have begun at any time since its
+// last reading, so the latest reading at rest is kept through the working
+// stretch after it: only a moment before that rest is known to predate the
+// turn.
+func TestAWorkingStretchKeepsTheLatestReadingAtRest(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 16, 18, 0, 0, 0, time.UTC)
+	service, probe, _, meta := progressService(t, &now)
+	scanStatus(t, service, probe, meta, herdr.AgentIdle, &now, time.Minute)
+	rested := now
+
+	// Act
+	first := scanStatus(t, service, probe, meta, herdr.AgentWorking, &now, time.Minute).Observations[0]
+	second := scanStatus(t, service, probe, meta, herdr.AgentWorking, &now, time.Minute).Observations[0]
+	again := scanStatus(t, service, probe, meta, herdr.AgentIdle, &now, time.Minute).Observations[0]
+
+	// Assert
+	for _, observation := range []Observation{first, second} {
+		if observation.RestedAt == nil || !observation.RestedAt.Equal(rested) || observation.BusySince == nil || !observation.BusySince.After(rested) {
+			t.Fatalf("working reading = rested at %v, busy since %v, want rested at %v and busy since after it", observation.RestedAt, observation.BusySince, rested)
+		}
+	}
+	if again.RestedAt == nil || !again.RestedAt.Equal(now) || again.BusySince != nil {
+		t.Fatalf("reading at rest again = rested at %v, busy since %v, want rested at %v and no busy stretch", again.RestedAt, again.BusySince, now)
+	}
+}
+
 // The first noise class of 2026-09-25: goblins plainly working - a refactor, a
 // gate being fixed - woke the CFO because their turn had outlived the budget.
 // A turn whose transcript keeps being written is progressing however old it is.

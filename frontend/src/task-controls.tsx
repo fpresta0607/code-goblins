@@ -9,9 +9,8 @@ import { withoutHarness } from "./task-words";
 import { harnessName, taskColumn } from "./workflow";
 import { isOnItsWay, recordClick } from "./use-task-clicks";
 
-// A task's controls: icons on its card, where start starts a queued task and
-// onAdjust opens its panel, and labelled buttons in its panel's action row,
-// with the same Start, which leaves Adjust to the card. A queued task has not started, so it is
+// A task's controls, the labelled buttons of its panel's action row, where
+// start starts a queued task. A queued task has not started, so it is
 // removed rather than stopped. While an update of a live goblin's harness
 // waits, Update restarts it onto it, on its own conversation, at the end of
 // its turn; pressed again before then it takes the press back. Update looks
@@ -21,16 +20,14 @@ import { isOnItsWay, recordClick } from "./use-task-clicks";
 // being refused, and a click the supervisor refuses goes to the CFO, never
 // to a line on the board (the Overlord, 2026-10-08, "i hate yellow text line
 // display").
-export function TaskControls({ task, snapshot, start, labelled = false, onAdjust }: {
-  task: Task; snapshot: Snapshot; start?: CardStart; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
-}) {
+export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: Snapshot; start?: CardStart }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const attempt = useRef<{ payload: string; operation: string } | null>(null);
   if (confirmation && (confirmation.generation !== task.generation || confirmation.revision !== task.queue_revision)) setConfirmation(null);
   const isChanging = task.starting || task.switching || ["pausing", "stopping", "resuming"].includes(task.phase);
   const isQueued = task.phase === "queued";
   // A queued task the supervisor is starting has left Tasks: nothing is left
-  // to start or adjust.
+  // to start.
   const isWaiting = isQueued && taskColumn(task) === "Tasks";
   const isResumeRetry = task.lifecycle?.action === "resume" && ["failed", "resuming"].includes(task.lifecycle.phase);
   const canResume = task.phase === "paused" || isResumeRetry;
@@ -65,21 +62,19 @@ export function TaskControls({ task, snapshot, start, labelled = false, onAdjust
   const name = withoutHarness(task.title) || task.id;
   const end = isQueued ? "Remove" : "Stop";
   // A labelled button says its own name, so its tip only says why it cannot
-  // run; an icon's tip is its name until then.
+  // run.
   const face = (action: string, tone = "", block = "") => ({
-    className: (labelled ? "labelled-button" : "icon-button raised") + tone,
+    className: "labelled-button" + tone,
     "aria-label": action + " " + name,
-    ...(!labelled ? { "data-tip": block || action } : block ? { "data-tip": block } : {}),
+    ...(block ? { "data-tip": block } : {}),
   });
-  const text = (action: string) => labelled && <span>{action}</span>;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + name}>
-      {isWaiting && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={() => { if (!isChanging) start.onStart(); }}><Icon name="play" />{text("Start")}</button>}
-      {isWaiting && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
-      {canUpdate && <button className={labelled ? "labelled-button" : "icon-button raised"} aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept."} disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} />{text(isUpdatePending ? "Cancel update" : "Update")}</button>}
-      {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
-      {canResume && <button {...face("Resume")} aria-disabled={isChanging} onClick={() => { if (!isChanging) void act("resume"); }}><Icon name="play" />{text("Resume")}</button>}
-      <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
+      {isWaiting && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={() => { if (!isChanging) start.onStart(); }}><Icon name="play" /><span>Start</span></button>}
+      {canUpdate && <button className="labelled-button" aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} data-tip={isUpdatePending ? "Take the update back" : harnessName(task.harness) + " was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept."} disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} /><span>{isUpdatePending ? "Cancel update" : "Update"}</span></button>}
+      {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" /><span>Pause</span></button>}
+      {canResume && <button {...face("Resume")} aria-disabled={isChanging} onClick={() => { if (!isChanging) void act("resume"); }}><Icon name="play" /><span>Resume</span></button>}
+      <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" /><span>{end}</span></button>
     </div>
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}
   </>;

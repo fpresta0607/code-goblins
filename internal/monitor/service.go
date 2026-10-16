@@ -381,6 +381,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// reading starts a fresh clock rather than inheriting an old one.
 	if sample.Status != herdr.AgentWorking {
 		observation.BusySince = nil
+		observation.RestedAt = timePointer(now)
 	}
 
 	// agent_status is the primary supervision signal (working | idle | done),

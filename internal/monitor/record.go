@@ -156,6 +156,10 @@ type Observation struct {
 	// goblin blocked in a foreground shell reads working forever, so this is
 	// the only clock that can tell a long turn from a wedged one.
 	BusySince *time.Time `json:"busy_since,omitempty"`
+	// RestedAt is the latest reading whose status was not working, so a
+	// working stretch first read after a moment is known to have begun after
+	// it only when the agent was read at rest after that moment.
+	RestedAt *time.Time `json:"rested_at,omitempty"`
 	// EvidenceAt is the latest evidence that the goblin's work is moving: its
 	// harness's last transcript write, or a reading in which the processes
 	// the harness started were using the processor. JobCPU and JobSampledAt

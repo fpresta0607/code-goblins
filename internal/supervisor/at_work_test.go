@@ -62,11 +62,11 @@ func harnessHook(t *testing.T, store *Store, h home.Home, harness, task, moment 
 }
 
 // seeTerminal has the monitor read task's terminal at health now, working
-// since busySince when that is set.
-func seeTerminal(t *testing.T, h home.Home, task string, health monitor.Health, busySince time.Time) {
+// since busySince when that is set, and last at rest at restedAt.
+func seeTerminal(t *testing.T, h home.Home, task string, health monitor.Health, busySince, restedAt time.Time) {
 	t.Helper()
 	now := time.Now().UTC()
-	observation := monitor.Observation{TaskID: task, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: health, Reason: monitor.None, Digest: "screen", LastSeen: now, LastProgress: now}
+	observation := monitor.Observation{TaskID: task, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: health, Reason: monitor.None, Digest: "screen", LastSeen: now, LastProgress: now, RestedAt: &restedAt}
 	if !busySince.IsZero() {
 		observation.BusySince = &busySince
 	}
@@ -189,9 +189,10 @@ func TestADeliveredGoblinAtWorkAgainIsInProgress(t *testing.T) {
 }
 
 // A goblin whose harness reports no native hooks, as Claude Code and Codex
-// on a home that installed Pi's alone, is at work once its terminal reads
-// working since after its latest report, and its report stands while the
-// working stretch that filed it goes on or once its terminal is idle again.
+// on a home that installed Pi's alone, is at work once its terminal, read at
+// rest after its latest report, reads working, and its report stands while
+// the turn that filed it goes on, even when the monitor first read that turn
+// working after the report, or once its terminal is at rest again.
 // Issues #1013 and #1014.
 func TestAGoblinWithNoHooksIsAtWorkOnceItsTerminalWorksSinceItsReport(t *testing.T) {
 	const pr = "https://github.com/o/r/pull/9"
@@ -200,14 +201,17 @@ func TestAGoblinWithNoHooksIsAtWorkOnceItsTerminalWorksSinceItsReport(t *testing
 			name, report string
 			health       monitor.Health
 			busyFor      time.Duration
+			restedFor    time.Duration
 			wantPhase    string
 		}{
-			{"a wait, working since after it", "waiting on task-2: its API contract", monitor.HealthBusy, 30 * time.Second, "working"},
-			{"a wait, working since before it", "waiting on task-2: its API contract", monitor.HealthBusy, 2 * time.Minute, "waiting"},
-			{"a wait, idle again", "waiting on task-2: its API contract", monitor.HealthIdle, 0, "waiting"},
-			{"a delivery, working since after it", "done: PR " + pr, monitor.HealthBusy, 30 * time.Second, "working"},
-			{"a delivery, working since before it", "done: PR " + pr, monitor.HealthBusy, 2 * time.Minute, "done"},
-			{"a delivery, idle again", "done: PR " + pr, monitor.HealthIdle, 0, "done"},
+			{"a wait, working after a rest since it", "waiting on task-2: its API contract", monitor.HealthBusy, 30 * time.Second, 40 * time.Second, "working"},
+			{"a wait, first read working after it with no rest since", "waiting on task-2: its API contract", monitor.HealthBusy, 30 * time.Second, 2 * time.Minute, "waiting"},
+			{"a wait, working since before it", "waiting on task-2: its API contract", monitor.HealthBusy, 2 * time.Minute, 3 * time.Minute, "waiting"},
+			{"a wait, at rest again", "waiting on task-2: its API contract", monitor.HealthIdle, 0, 0, "waiting"},
+			{"a delivery, working after a rest since it", "done: PR " + pr, monitor.HealthBusy, 30 * time.Second, 40 * time.Second, "working"},
+			{"a delivery, first read working after it with no rest since", "done: PR " + pr, monitor.HealthBusy, 30 * time.Second, 2 * time.Minute, "done"},
+			{"a delivery, working since before it", "done: PR " + pr, monitor.HealthBusy, 2 * time.Minute, 3 * time.Minute, "done"},
+			{"a delivery, at rest again", "done: PR " + pr, monitor.HealthIdle, 0, 0, "done"},
 		} {
 			t.Run(harness+"/"+test.name, func(t *testing.T) {
 				// Arrange
@@ -228,7 +232,7 @@ func TestAGoblinWithNoHooksIsAtWorkOnceItsTerminalWorksSinceItsReport(t *testing
 				if test.busyFor > 0 {
 					busySince = now.Add(-test.busyFor)
 				}
-				seeTerminal(t, h, "task-1", test.health, busySince)
+				seeTerminal(t, h, "task-1", test.health, busySince, now.Add(-test.restedFor))
 
 				// Act
 				got := snapshotTask(t, &Service{Store: store}, "task-1")
@@ -267,7 +271,7 @@ func TestASessionOfAnEarlierGenerationIsNoEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seeTerminal(t, h, "task-1", monitor.HealthIdle, time.Time{})
+	seeTerminal(t, h, "task-1", monitor.HealthIdle, time.Time{}, now)
 
 	// Act
 	got := snapshotTask(t, &Service{Store: store}, "task-1")
