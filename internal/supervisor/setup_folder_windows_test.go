@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -78,8 +77,18 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					if got.err != nil {
 						t.Fatal(got.err)
 					}
-					if action == "select" && !strings.EqualFold(got.path, root) {
-						t.Fatalf("selected %q, want %q", got.path, root)
+					if action == "select" {
+						wanted, err := os.Stat(root)
+						if err != nil {
+							t.Fatal(err)
+						}
+						selected, err := os.Stat(got.path)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if !os.SameFile(wanted, selected) {
+							t.Fatalf("selected %q, want %q", got.path, root)
+						}
 					}
 					if action == "cancel" && got.path != "" {
 						t.Fatalf("cancel selected %q", got.path)
