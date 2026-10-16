@@ -23,7 +23,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Args:       []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"},
+		Args:       []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"},
 		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
 		PromptFile: `C:\briefs\task.md`,
 		Executable: "codex",
@@ -41,7 +41,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build explicit: %v", err)
 	}
-	wantArgs := []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-5.2-codex", "-c", `model_reasoning_effort=high`}
+	wantArgs := []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-5.2-codex", "-c", `model_reasoning_effort=high`}
 	if !equalStrings(explicit.Args, wantArgs) {
 		t.Errorf("Args = %#v, want %#v", explicit.Args, wantArgs)
 	}
@@ -75,7 +75,7 @@ func TestCodexMaxEffortForAstra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"}
+	want := []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"}
 	if !equalStrings(launch.Args, want) {
 		t.Fatalf("Args = %q, want %q", launch.Args, want)
 	}
@@ -114,6 +114,33 @@ func TestCodexStartsWithItsAnimationsOff(t *testing.T) {
 	}
 	if !slices.Contains(launch.Args, "tui.animations=false") {
 		t.Errorf("Args = %q, want Codex's animations off", launch.Args)
+	}
+}
+
+// A Codex CLI that joins the shared background app-server runs the commands
+// its model asks for under that detached process, so a goblin's tools and a
+// CFO's cfo commands are children of it instead of the terminal the fleet
+// started. Custody is proved by a process's ancestry under the terminal's own
+// program, or by the terminal's proof value, and a process under the shared
+// server has neither: on 2026-10-16 a CFO's registration was refused for
+// hours while every cfo command it ran descended from a shared app-server an
+// earlier session had left running. The installed Codex CLI takes --no-daemon,
+// which runs it without the shared background server even while one is
+// already running, so each launch keeps its own server under its own
+// terminal.
+func TestCodexStartsWithoutTheSharedBackgroundServer(t *testing.T) {
+	adapter, err := DefaultRegistry().Get(Codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "xhigh"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(launch.Args, "--no-daemon") {
+		t.Errorf("Args = %q, want Codex started without the shared background server", launch.Args)
 	}
 }
 

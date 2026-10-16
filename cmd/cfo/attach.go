@@ -231,11 +231,14 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 // as the ones that resume a conversation, and for a harness the supervisor
 // wakes by typing, the first prompt that registers it, last. Codex draws
 // inline, as a Codex goblin does, so its history stays in the board
-// terminal's scrollback and a drag there selects text.
+// terminal's scrollback and a drag there selects text, and it runs without the
+// shared background server, which would otherwise leave the cfo commands its
+// harness runs under a detached process an earlier session had started, where
+// no custody check can prove them (2026-10-16).
 func cfoStartArguments(harness string, args []string) []string {
 	args = slices.Clone(args)
 	if harness == "codex" {
-		args = append(args, "--no-alt-screen")
+		args = append(args, "--no-daemon", "--no-alt-screen")
 	}
 	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
 		return args

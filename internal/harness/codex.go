@@ -195,7 +195,17 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// It draws inline rather than in the alternate screen, as a claude goblin
 	// does, so its history stays in the terminal's scrollback and a drag
 	// selects text.
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
+	// Codex runs the commands its model asks for under an app-server, and
+	// with no word against it joins a shared background server any earlier
+	// Codex on the machine left running. Every process of the launch then
+	// descends from that detached server instead of the terminal the fleet
+	// started, and custody proves a goblin's and the CFO's own processes by
+	// exactly that: the terminal's program among their ancestors, or the
+	// terminal's proof value. On 2026-10-16 a CFO's registration was refused
+	// for hours because its cfo commands descended from a shared app-server
+	// an earlier session had left. --no-daemon keeps each launch on its own
+	// server, under its own terminal, even while another one runs.
+	launch.Args = []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
