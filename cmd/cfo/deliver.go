@@ -515,14 +515,29 @@ func runMergeLocal(args []string, stdout, stderr io.Writer) int {
 }
 
 func prHead(url string) string {
-	res, err := execx.OSRunner{}.Run(context.Background(), execx.Request{
+	head, _ := readPRHead(context.Background(), execx.OSRunner{}, url)
+	return head
+}
+
+// readPRHead reads a pull request's own current head commit from GitHub: the
+// commit a done report or a PR record is keyed by, never the task worktree's
+// HEAD, which stays on whatever branch that worktree holds.
+func readPRHead(ctx context.Context, commands execx.Runner, url string) (string, error) {
+	res, err := commands.Run(ctx, execx.Request{
 		Name: "gh",
 		Args: []string{"pr", "view", url, "--json", "headRefOid", "--jq", ".headRefOid"},
 	})
-	if err != nil || res.ExitCode != 0 {
-		return ""
+	if err != nil {
+		return "", err
 	}
-	return strings.TrimSpace(string(res.Stdout))
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("gh pr view exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+	}
+	head := strings.TrimSpace(string(res.Stdout))
+	if head == "" {
+		return "", errors.New("gh pr view reported no head commit")
+	}
+	return head, nil
 }
 
 func gitOutput(runner execx.Runner, dir string, args ...string) (string, error) {
