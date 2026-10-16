@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 )
 
 // Kind identifies one supported interactive harness.
@@ -61,6 +62,7 @@ type LaunchSpec struct {
 	// starts none of them, as claude's --strict-mcp-config starts none of the
 	// operator's.
 	CodexMCPServers []string
+	Subagents       map[string]routing.ExecutionLane
 }
 
 // Launch is a harness launch specification: the native terminal's host starts
@@ -71,12 +73,13 @@ type LaunchSpec struct {
 // as), which the host starts through cmd /c; empty, the harness's own .exe
 // starts.
 type Launch struct {
-	Args        []string
-	Env         map[string]string
-	PromptFile  string
-	Instruction string
-	Dir         string
-	Executable  string
+	Args                []string
+	Env                 map[string]string
+	PromptFile          string
+	Instruction         string
+	SubagentInstruction string
+	Dir                 string
+	Executable          string
 	// Resumed marks a launch that continues an existing session.
 	Resumed bool
 }

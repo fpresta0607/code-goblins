@@ -494,8 +494,11 @@ type Policy struct {
 	Lanes map[string]Lane `json:"lanes,omitempty"`
 	// DefaultLane runs ordinary work; EscalateTo runs high-risk work and
 	// retries. Both must name a defined lane.
-	DefaultLane string `json:"default_lane,omitempty"`
-	EscalateTo  string `json:"escalate_to,omitempty"`
+	DefaultLane       string                         `json:"default_lane,omitempty"`
+	EscalateTo        string                         `json:"escalate_to,omitempty"`
+	Fallbacks         map[string][]string            `json:"fallbacks,omitempty"`
+	StartFloorPercent float64                        `json:"start_floor_percent,omitempty"`
+	Subagents         map[string]map[string][]string `json:"subagents,omitempty"`
 	// Path is where it was loaded from; not serialized.
 	Path string `json:"-"`
 }
@@ -531,9 +534,11 @@ func Load(dataDir string) (Policy, error) {
 // Table is the lane table one spawn routes through: the fleet's, or a
 // project manifest's override of it.
 type Table struct {
-	Lanes       map[string]ExecutionLane
-	DefaultLane string
-	EscalateTo  string
+	Lanes             map[string]ExecutionLane
+	DefaultLane       string
+	EscalateTo        string
+	Fallbacks         map[string][]string
+	StartFloorPercent float64
 	// Source says where the table came from, for the spawn report.
 	Source string
 }
@@ -543,6 +548,19 @@ type Table struct {
 // default or escalation that names no lane. Load does not check this, so a
 // lane typo never costs the watcher its standing switch rules.
 func (p Policy) LaneTable() (Table, error) {
+	if p.StartFloorPercent < 0 || p.StartFloorPercent >= 100 {
+		return Table{}, fmt.Errorf("routing: %s: start_floor_percent must be at least 0 and below 100", p.Path)
+	}
+	for name, fallbacks := range p.Fallbacks {
+		if _, ok := p.Lanes[name]; !ok {
+			return Table{}, fmt.Errorf("routing: %s: fallback source %q is not a defined lane", p.Path, name)
+		}
+		for _, fallback := range fallbacks {
+			if _, ok := p.Lanes[fallback]; !ok || fallback == name {
+				return Table{}, fmt.Errorf("routing: %s: fallback %q for %q must name another defined lane", p.Path, fallback, name)
+			}
+		}
+	}
 	for name, lane := range p.Lanes {
 		if lane.Harness == "" {
 			return Table{}, fmt.Errorf("routing: %s: lane %q has no harness", p.Path, name)
@@ -557,7 +575,7 @@ func (p Policy) LaneTable() (Table, error) {
 	if _, ok := p.Lanes[p.EscalateTo]; p.EscalateTo != "" && !ok {
 		return Table{}, fmt.Errorf("routing: %s: escalate_to %q is not a defined lane", p.Path, p.EscalateTo)
 	}
-	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Source: "fleet table " + p.Path}
+	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Fallbacks: p.Fallbacks, StartFloorPercent: p.StartFloorPercent, Source: "fleet table " + p.Path}
 	for name, lane := range p.Lanes {
 		t.Lanes[name] = ExecutionLane{Name: name, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, Note: lane.Note}
 	}

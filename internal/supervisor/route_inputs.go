@@ -43,7 +43,7 @@ func LoadRouteInputs(dataDir, checkout string) (RouteInputs, error) {
 	}
 	in.Manifest, in.ManifestPath = m, path
 	if len(m.Routing.Lanes) > 0 {
-		in.Table = routing.Table{Lanes: map[string]routing.ExecutionLane{}, DefaultLane: m.Routing.DefaultLane, EscalateTo: m.Routing.EscalateTo, Source: "project override " + path}
+		in.Table = routing.Table{Lanes: map[string]routing.ExecutionLane{}, DefaultLane: m.Routing.DefaultLane, EscalateTo: m.Routing.EscalateTo, StartFloorPercent: table.StartFloorPercent, Source: "project override " + path}
 		for name, l := range m.Routing.Lanes {
 			in.Table.Lanes[name] = routing.ExecutionLane{Name: name, Harness: l.Harness, Model: l.Model, Effort: l.Effort}
 		}

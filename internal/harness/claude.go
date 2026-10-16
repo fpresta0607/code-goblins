@@ -58,7 +58,7 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 		}
 		launch.Args = append(launch.Args, "--effort", spec.Effort)
 	}
-	return launch, nil
+	return configureSubagents(launch, Claude, spec)
 }
 
 // Control stops Claude with its own /exit command. --continue resumes the

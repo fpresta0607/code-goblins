@@ -40,16 +40,18 @@ const (
 // Request is the complete local task creation input. Ship delivery posture is
 // explicit while scouts deliberately omit it.
 type Request struct {
-	ID        string
-	Project   string
-	BriefPath string
-	Kind      string
-	Mode      string
-	Yolo      bool
-	Harness   harness.Kind
-	Model     string
-	Effort    string
-	Class     string
+	ID          string
+	Project     string
+	BriefPath   string
+	Kind        string
+	Mode        string
+	Yolo        bool
+	Harness     harness.Kind
+	Model       string
+	Effort      string
+	Class       string
+	RouteLane   string
+	RouteReason string
 	// Title is the task's short title, given with --title or taken from its
 	// backlog row, kept on the task so the board names it once the row leaves
 	// the queue.
@@ -220,6 +222,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// credential probes can reach the network for seconds each.
 	if err := adapter.Validate(ctx, s.commands()); err != nil {
 		return Result{}, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err)
+	}
+	subagents, err := s.subagentRoutes(req.Harness, req.Model)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: %w", err)
 	}
 	// The preflight runs before anything is built, so a goblin that would
 	// start without a credential it needs costs no terminal and no worktree.
@@ -427,6 +433,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		MCPConfig:       provision.MCPConfig,
 		Settings:        settings,
 		CodexMCPServers: codexServers,
+		Subagents:       subagents,
 	})
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
@@ -451,6 +458,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		}
 	}
 	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install)
+	launch.Instruction += launch.SubagentInstruction
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
@@ -724,6 +732,8 @@ func validateRequestLineValues(req Request) error {
 		"request model", req.Model,
 		"request effort", req.Effort,
 		"request title", req.Title,
+		"request route lane", req.RouteLane,
+		"request route reason", req.RouteReason,
 	)
 }
 
@@ -768,6 +778,8 @@ func partialResult(req Request, project, taskTmp, worktree, scratch string) Resu
 		Backend:        "native",
 		Title:          req.Title,
 		Parent:         req.Parent,
+		RouteLane:      req.RouteLane,
+		RouteReason:    req.RouteReason,
 	}
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode

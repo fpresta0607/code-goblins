@@ -38,11 +38,15 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 	path := filepath.Join(root, "data", "routing.json")
 	wants := []string{
 		"routing: 1 standing switch rule(s) from " + path,
-		"routing: 4 execution lane(s) from " + path + " (default build, escalate to deep)",
-		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "claude", "fable", "xhigh", "architecture, security, migration, rescue, anything high risk"),
-		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "claude", "opus", "high", "ordinary implementation; the default lane"),
-		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "mechanical", "claude", "sonnet", "medium", "renames, config edits, docs, tightly specified changes"),
-		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "scout", "claude", "fable", "xhigh", "investigations that produce a report"),
+		"routing: 8 execution lane(s) from " + path + " (default build, escalate to deep)",
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "codex", "gpt-6-astra", "xhigh", "architecture, security, migration, rescue, anything high risk"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "codex", "gpt-6-astra", "xhigh", "ordinary implementation"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "mechanical", "codex", "gpt-6-luna", "medium", "renames, config edits, docs, tightly specified changes"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "scout", "codex", "gpt-6-luna", "medium", "search, read and summarize"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "strong-claude", "claude", "claude-opus-5-5", "xhigh", "strong cross-harness fallback"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "small-claude", "claude", "haiku", "medium", "narrow cross-harness fallback"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "verification", "codex", "gpt-6-sol", "high", "independent verification"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "verify-claude", "claude", "sonnet", "high", "independent verification"),
 	}
 	for _, want := range wants {
 		if !strings.Contains(stdout.String(), want) {

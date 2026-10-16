@@ -129,6 +129,8 @@ test("hovering a baby goblin shows its task at once", async ({ page }) => {
   await page.clock.pauseAt(Date.now() + 60_000);
   await baby(page, "Grub Jr. - Plumbing Mapper").hover();
   await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
+  await baby(page, "Grub Jr. - Plumbing Mapper").locator(".tree-child-model").hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
 });
 
 test("dragging from a baby goblin moves the canvas and opens nothing, and a key still opens it", async ({ page }) => {

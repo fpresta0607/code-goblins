@@ -106,6 +106,22 @@ func TestClassifyKeepsABugReportThatMentionsARenameOffTheMechanicalLane(t *testi
 	}
 }
 
+func TestClassifyReadsTheTaskInsteadOfItsReadingInstructions(t *testing.T) {
+	for _, test := range []struct {
+		ask   string
+		class TaskClass
+	}{
+		{"Read the routing table and summarize it.", Scout},
+		{"1. Search for the scheduler entry point.", Scout},
+		{"Fix the login regression. Read the deployment notes first.", Debug},
+		{"Implement a settings page.\nRead the style guide first.", Implementation},
+	} {
+		if got := Classify("## Task - Routing\n" + test.ask); got.Class != test.class {
+			t.Errorf("Classify(%q) = %s, want %s", test.ask, got.Class, test.class)
+		}
+	}
+}
+
 func TestClassifyDoesNotReadAPathOrACodeSpanAsAnAsk(t *testing.T) {
 	// pc-magic-link says to read docs/architecture.md first; it is a
 	// sign-in change, not architecture work.

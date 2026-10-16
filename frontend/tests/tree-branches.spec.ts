@@ -73,9 +73,10 @@ test("every branch ends at the top center of its goblin or baby goblin, at every
   expect(await wrongLines(page, true), "zoomed in").toEqual([]);
   for (let i = 0; i < 6; i++) await page.getByRole("button", { name: "Zoom out" }).click();
   expect(await wrongLines(page, true), "zoomed out").toEqual([]);
+  const zoomBeforeWheel = Number((await page.getByRole("status", { name: "Zoom" }).textContent())!.replace("%", ""));
   await page.mouse.move(700, 500);
   await page.mouse.wheel(0, -500);
-  await expect.poll(async () => Number((await page.getByRole("status", { name: "Zoom" }).textContent())!.replace("%", ""))).toBeGreaterThan(80);
+  await expect.poll(async () => Number((await page.getByRole("status", { name: "Zoom" }).textContent())!.replace("%", ""))).toBeGreaterThan(zoomBeforeWheel);
   expect(await wrongLines(page, true), "zoomed by the wheel").toEqual([]);
 });
 
