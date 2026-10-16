@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -74,6 +75,23 @@ func TestNotifyDoneRequiresPR(t *testing.T) {
 	}
 }
 
+type notifyHeadRemote struct {
+	t      *testing.T
+	remote string
+	url    string
+}
+
+func (r notifyHeadRemote) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	r.t.Helper()
+	if request.Name != "gh" || !slices.Equal(request.Args, []string{"pr", "view", r.url, "--json", "headRefOid", "--jq", ".headRefOid"}) {
+		r.t.Fatalf("unexpected PR head lookup: %+v", request)
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		r.t.Error("PR head lookup has no deadline")
+	}
+	return execx.OSRunner{}.Run(ctx, execx.Request{Name: "git", Args: []string{"-C", r.remote, "rev-parse", "refs/heads/second-pr"}})
+}
+
 // On 2026-10-07 cg-fleet-tree reported PR 416 done, and again when the CFO
 // asked it to wrap up, and cg-ci-green did the same with PR 421: two wakes
 // for one finished head each. A done wakes the CFO once per pull request
@@ -95,14 +113,23 @@ func TestNotifyDoneWakesOncePerPullRequestHead(t *testing.T) {
 	}
 	git("init", "-q")
 	git("commit", "-q", "--allow-empty", "-m", "first")
+	remote := t.TempDir()
+	gitIn(t, remote, "init", "-q", "--bare")
+	git("remote", "add", "origin", remote)
+	otherWorktree := filepath.Join(t.TempDir(), "second-pr")
+	git("worktree", "add", "-q", "-b", "second-pr", otherWorktree)
+	gitIn(t, otherWorktree, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "second PR")
+	gitIn(t, otherWorktree, "push", "-q", "origin", "second-pr")
 	if err := state.WriteTaskMeta(filepath.Join(dir, "state"), state.TaskMeta{ID: "g1", SpawnGen: "s1", Worktree: worktree}); err != nil {
 		t.Fatal(err)
 	}
 	const pr = "https://github.com/o/r/pull/416"
+	runtime := defaultCommandRuntime()
+	runtime.github = notifyHeadRemote{t: t, remote: remote, url: pr}
 	notifyDone := func(link string) string {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
-		if exit := runNotify([]string{"g1", "--done", "--pr", link}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
+		if exit := runNotify([]string{"g1", "--done", "--pr", link}, &stdout, &stderr, runtime); exit != 0 {
 			t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
 		}
 		return stdout.String()
@@ -129,10 +156,81 @@ func TestNotifyDoneWakesOncePerPullRequestHead(t *testing.T) {
 	if doneWakes() != 0 {
 		t.Fatalf("a done for a head the CFO already acknowledged woke it again: %d wakes", doneWakes())
 	}
-	git("commit", "-q", "--allow-empty", "-m", "second")
+	gitIn(t, otherWorktree, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "update second PR")
+	gitIn(t, otherWorktree, "push", "-q", "origin", "second-pr")
 	notifyDone(pr)
 	if doneWakes() != 1 {
 		t.Fatalf("a done for a new head left %d wakes, want one", doneWakes())
+	}
+	git("commit", "-q", "--allow-empty", "-m", "unrelated task branch update")
+	if again := notifyDone(pr); doneWakes() != 1 || !strings.Contains(again, "not woken again") {
+		t.Fatalf("moving the task branch left %d wakes and said %q, want the unchanged PR head suppressed", doneWakes(), again)
+	}
+}
+
+func TestNotifyDoneWakesWhenPullRequestHeadCannotBeRead(t *testing.T) {
+	for name, runner := range map[string]proofRunner{
+		"command error": {err: errors.New("gh unavailable")},
+		"timeout":       {err: context.DeadlineExceeded},
+		"failed lookup": {exit: 1, stdout: strings.Repeat("a", 40)},
+		"empty head":    {stdout: "\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if err := os.MkdirAll(h.State, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			worktree := t.TempDir()
+			gitIn(t, worktree, "init", "-q")
+			gitIn(t, worktree, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "task branch")
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g1", Worktree: worktree}); err != nil {
+				t.Fatal(err)
+			}
+			runtime := testCommandRuntimeForHome(h)
+			runtime.github = runner
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			for range 2 {
+				if exit := runNotify([]string{"g1", "--done", "--pr", "https://github.com/o/r/pull/416"}, &stdout, &stderr, runtime); exit != 0 {
+					t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+				}
+			}
+
+			// Assert
+			records, err := wake.Pending(h.State)
+			if err != nil || len(records) != 2 {
+				t.Fatalf("wakes = %+v (%v), want both reports delivered without a known PR head", records, err)
+			}
+			if !strings.Contains(stderr.String(), "without deduplication") {
+				t.Errorf("stderr = %q, want the failed head lookup explained", stderr.String())
+			}
+		})
+	}
+}
+
+func TestNotifyDoneDeduplicatesWithoutATaskWorktree(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := testCommandRuntimeForHome(h)
+	runtime.github = proofRunner{stdout: strings.Repeat("a", 40) + "\n"}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	for _, url := range []string{"https://github.com/o/r/pull/416", "https://github.com/o/r/pull/416", "https://github.com/o/r/pull/417"} {
+		if exit := runNotify([]string{"g1", "--done", "--pr", url}, &stdout, &stderr, runtime); exit != 0 {
+			t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+		}
+	}
+
+	// Assert
+	records, err := wake.Pending(h.State)
+	if err != nil || len(records) != 2 {
+		t.Fatalf("wakes = %+v (%v), want one per PR even when their heads match", records, err)
 	}
 }
 
@@ -199,8 +297,10 @@ func TestNotifyTargetsStateOverrideWithAGlobalCFOHome(t *testing.T) {
 	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
 	t.Chdir(worktree)
 
+	runtime := defaultCommandRuntime()
+	runtime.github = proofRunner{stdout: strings.Repeat("a", 40)}
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--done", "--pr", "https://example.test/pr/1"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
+	if exit := runNotify([]string{"g1", "--done", "--pr", "https://example.test/pr/1"}, &stdout, &stderr, runtime); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 
@@ -1108,6 +1208,7 @@ func TestNotifyDoneNamesWhatTheGoblinLeftRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := defaultCommandRuntime()
+	runtime.github = proofRunner{stdout: strings.Repeat("a", 40)}
 	runtime.leftRunning = func(_ home.Home, id string) ([]fleettree.Placed, error) {
 		if id != "g1" {
 			t.Errorf("read what %s left, want g1", id)
