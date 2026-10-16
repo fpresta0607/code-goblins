@@ -178,6 +178,14 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 		if err == nil {
 			reply = ""
 		}
+		// An answer he changed on the return page goes to its question, and
+		// the page says so. A send of nothing else is no answer to the page.
+		if err == nil && len(poll.Changes) > 0 && s.isReturnPage(r) {
+			reply = s.changeOnPage(poll.Changes)
+			if len(poll.Prompts) == 0 && !poll.Ended && answer == nil {
+				continue
+			}
+		}
 		if err == nil && (poll.Status == "feedback" || answer != nil && poll.Status == "ended" && poll.EndedBy != "agent") {
 			failures = 0
 			if answer == nil {

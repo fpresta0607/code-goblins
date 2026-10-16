@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, askedAndAnswered, byRepository, decisionSays, heldRecommends, heldSays, heldWho, linkLabel, offerFor, parseAfkReport, safeLink, settled, stillWaiting, switchedBy, turnedOff, allowanceGraph, allowanceSays, diskGraph, diskSays, shownUnder, afkHeadline, type AfkDecision, type AfkAllowance, type AfkDisk, type AfkGroup, type AfkReport, type Occasion } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, offerFor, switchedBy, type Occasion } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
 const held = (changes: Partial<AfkHeld> = {}): AfkHeld => ({ item: "question:drop-legacy-invoices", task: "", what: "Migration 0042 drops legacy_invoices. Apply it?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "", settled: "", ...changes });
-const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], report: "", ...changes });
+const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], page: "", ...changes });
 // AFK mode as the CFO turned it on at his ask.
 const ASKED = "I'm stepping away, turn AFK on";
 const BY_THE_CFO = { from: "the CFO at his ask (claude pid 4242)", asked: ASKED };
@@ -17,8 +17,9 @@ test("a supervisor from before AFK mode reached the board reads as off, and one 
     { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", asked: "", decided: 2, held: [
       { item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "", recommendation: "", settled: "" },
       { item: "question:drop-legacy-invoices", task: "", what: "Apply it?", at: "2026-10-02T04:01:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Keep it held", settled: "" },
-    ], report: "" });
+    ], page: "" });
   assert.equal(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", ...BY_THE_CFO } }).afk.asked, ASKED);
+  assert.equal(snapshot({ afk: { state: "off", page: "http://127.0.0.1:4387/session/afk" } }).afk.page, "http://127.0.0.1:4387/session/afk");
 });
 
 test("a state the board does not know stops the board rather than read as off", () => {
@@ -30,7 +31,7 @@ test("the bar says since when AFK mode is on, who turned it on and how much the 
   const cases: [string, Afk, string][] = [
     ["off says nothing", afk({ state: "off", since: "" }), ""],
     ["on with nothing yet", afk(), "AFK since 2:10 AM, from your board. 0 decided."],
-    ["on by the CFO at his ask, without his words, which the offer and the report quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided."],
+    ["on by the CFO at his ask, without his words, which the offer and his page of the stretch quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided."],
     ["on from his terminal, whatever waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided."],
     ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided."],
     ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "" }), ""],
@@ -43,22 +44,6 @@ test("a time is the time of day, with its day when that is not today", () => {
   assert.equal(afkTime("2026-10-01T22:05:00Z", NOW, "UTC", "en-US"), "Oct 1, 10:05 PM");
   assert.equal(afkTime("2026-10-02T02:10:00Z", NOW, "America/Chicago", "en-US"), "Oct 1, 9:10 PM");
   assert.equal(afkTime("not a time", NOW, "UTC", "en-US"), "");
-});
-
-test("a held item says whose it is, what became of it and what its goblin did meanwhile", () => {
-  assert.equal(heldWho(held()), "CFO");
-  assert.equal(heldWho(held({ task: "pd-billing-admin" })), "pd-billing-admin");
-  assert.equal(heldSays(held()), "Still waiting on you.");
-  assert.equal(heldSays(held({ waiting: false, now: "you answered it: Keep it held" })), "You answered it: Keep it held.");
-  assert.equal(heldSays(held({ task: "pd-billing-admin", meanwhile: "working: moved on to the invoice export." })), "Still waiting on you. Meanwhile: working: moved on to the invoice export.");
-  assert.equal(heldSays(held({ now: "" })), "");
-  assert.deepEqual(stillWaiting([held(), held({ item: "run:x", waiting: false })]).map((one) => one.item), ["question:drop-legacy-invoices"]);
-});
-
-test("a held item says what was recommended for it and by whom: in the present while it waits on him, in the past once it does not, and nothing when nothing was", () => {
-  assert.equal(heldRecommends(held({ recommendation: "Keep it held" })), "The CFO recommends: Keep it held.");
-  assert.equal(heldRecommends(held({ task: "pd-billing-admin", recommendation: "Hold it.", waiting: false, now: "you answered it: Do it" })), "pd-billing-admin recommended: Hold it.");
-  assert.equal(heldRecommends(held()), "");
 });
 
 test("a click or key is the Overlord coming back only after the board saw none for a while, and only while AFK mode is on", () => {
@@ -90,247 +75,10 @@ test("his first click or key after the CFO turned AFK mode on at his ask offers 
   for (const [name, value, lastTouch, now, want] of cases) assert.equal(offerFor(value, lastTouch, now), want, name);
 });
 
-const DECISION: AfkDecision = { at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "", evidence: "gate run 41 passed", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", settled: "", noted: "", answer: "", item: "" };
-
-test("a line opens only a web link, and an answer's evidence is its question and its answer", () => {
-  const decision = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ ...DECISION, ...changes });
-  assert.deepEqual(decisionSays(decision()), { href: "https://github.com/you/northwind-api/pull/412", happened: "", basis: "Evidence: gate run 41 passed" });
-  assert.deepEqual(decisionSays(decision({ kind: "deploy", what: "northwind-api to production", link: "https://northwind.example/deploys/88", outcome: "" })), { href: "https://northwind.example/deploys/88", happened: "", basis: "Evidence: gate run 41 passed" });
-  assert.deepEqual(decisionSays(decision({ kind: "answer", what: "notify-pd-billing-admin-41", task: "pd-billing-admin", evidence: "asked: Which CSV dialect? answered: RFC 4180", outcome: "" })),
-    { href: "", happened: "", basis: "Asked: Which CSV dialect? Answered: RFC 4180" });
-  for (const unsafe of ["javascript:alert(1)", "http://plain.example/x", "file:///C:/secret", "https://two words.example", "https://[", "https://example.com:bad", "https://?query", ""]) assert.equal(safeLink(unsafe), "", unsafe);
-  assert.equal(decisionSays(decision({ kind: "other", what: "note", link: "javascript:alert(1)" })).href, "");
-});
-
-// The Overlord, 2026-10-10, of a second merge group whose 36 rows had all
-// merged: "is this an error why is emrged nto one group category". A merge
-// carries what the CFO wrote of it before what proved it, and only a merge
-// that did not land warns, saying in a sentence of its own what the CFO did
-// about it, then what happened.
-test("a merge carries what the CFO wrote of it, and one that did not land says what the CFO did about it and what happened", () => {
-  const merge = (changes: Partial<AfkDecision> = {}): AfkDecision => ({ ...DECISION, at: "2026-10-10T01:47:40Z", what: "https://github.com/you/northwind-api/pull/561", link: "https://github.com/you/northwind-api/pull/561", evidence: "merge train api-20261010-012749: CI passed on https://github.com/you/northwind-api/pull/567 at a1380d3, built on main at e349d37", ...changes });
-  const cases: [string, AfkDecision, { happened: string; basis: string }][] = [
-    ["a merge the CFO wrote of", merge({ noted: "PR 561 (the export) landed on merge train 567. One CI run." }),
-      { happened: "", basis: "The CFO: PR 561 (the export) landed on merge train 567. One CI run. Evidence: merge train api-20261010-012749: CI passed on https://github.com/you/northwind-api/pull/567 at a1380d3, built on main at e349d37" }],
-    ["a merge that failed, which the CFO did nothing about", merge({ evidence: "verified: 15 checks green", outcome: "not merged: gh exited 1: Pull request is not mergeable" }),
-      { happened: "The CFO logged nothing about it.", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
-    ["a merge that failed, which the CFO sent back", merge({ evidence: "verified: 15 checks green", outcome: "not merged: gh exited 1: Pull request is not mergeable", noted: "Sent it back to nw-export to merge main in. Its head was behind main." }),
-      { happened: "The CFO: Sent it back to nw-export to merge main in. Its head was behind main.", basis: "Not merged: gh exited 1: Pull request is not mergeable. Evidence: verified: 15 checks green" }],
-    ["a merge word nothing followed", merge({ evidence: "verified: 15 checks green", outcome: "" }),
-      { happened: "The CFO logged nothing about it.", basis: "No merge was recorded. Evidence: verified: 15 checks green" }],
-    ["a merge that joined a queue", merge({ evidence: "verified: 15 checks green", outcome: "added to the merge queue" }),
-      { happened: "The CFO logged nothing about it.", basis: "Added to the merge queue. Evidence: verified: 15 checks green" }],
-    ["a line the CFO wrote of no merge", merge({ what: "PR 561 landed on merge train 567", evidence: "One CI run.", outcome: "" }),
-      { happened: "", basis: "No merge was recorded. Evidence: One CI run." }],
-    ["a merge word the CFO struck", merge({ evidence: "verified: 15 checks green", outcome: "", struck: "logged twice" }),
-      { happened: "", basis: "Struck: logged twice. Evidence: verified: 15 checks green." }],
-  ];
-  for (const [name, entry, want] of cases) {
-    const { happened, basis } = decisionSays(entry);
-    assert.deepEqual({ happened, basis }, want, name);
-  }
-  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "Not merged", group: "done", entries: [{ ...merge(), noted: "Sent it back." }] }] });
-  assert.equal(report?.sections[0].entries[0].noted, "Sent it back.");
-});
-
-// The Overlord, 2026-10-12: "Anything the CFO has already answered should not
-// appear as a [line] for you in the AFK report". A decision the CFO answered
-// in his place keeps what it stood on, what was found and what was tried
-// behind its Evidence, and a struck line says why the CFO struck it.
-test("a decision answered in his place keeps what it stood on behind its evidence, and a struck line says why the CFO struck it", () => {
-  const decided: AfkDecision = { ...DECISION, at: "2026-10-12T05:00:00Z", kind: "left", what: "Which fallback does the gate policy take?", evidence: "the machine config and the policy disagree", outcome: "", diagnosis: "two fallbacks", tried: "read both", answer: "Drop it from the machine config", item: "question:afk-left-20261012T050000.000000000Z" };
-  assert.deepEqual(decisionSays(decided), { href: "", happened: "", basis: "Evidence: the machine config and the policy disagree. Found: two fallbacks. Tried: read both." });
-  assert.equal(decisionSays({ ...decided, struck: "logged twice" }).basis, "Struck: logged twice. Evidence: the machine config and the policy disagree. Found: two fallbacks. Tried: read both.");
-  assert.equal(decisionSays({ ...DECISION, kind: "strike", what: "nothing: CFO note", evidence: "a test line the CFO wrote by mistake", outcome: "", struck: "a test line the CFO wrote by mistake" }).basis, "Struck: a test line the CFO wrote by mistake.");
-  const report = parseAfkReport({ found: true, finished: [], held: [], spent: [], notes: [], sections: [{ title: "For you", group: "decided", entries: [decided] }] });
-  assert.deepEqual([report?.sections[0].entries[0].answer, report?.sections[0].entries[0].item], ["Drop it from the machine config", "question:afk-left-20261012T050000.000000000Z"]);
-});
-
-// The recap is in plain words: a goblin's question the CFO answered says the
-// question without its details and the answer's choice, merges and finished
-// pull requests are one line to a repository, and a link says what it opens.
-test("a goblin's question reads as its question and the answer's first sentence", () => {
-  const cases: [string, string, { question: string; answer: string }][] = [
-    ["a question with details and a note", "asked: The free tier is broken in production: no free workspace can ask a single question. Shall I fix it in its own pull request now?\n- Seen in the walk on the dev stack\n- **The first question of every free workspace is held** answered: Fix it in its own pull request now. The free limit is a production defect.",
-      { question: "The free tier is broken in production: no free workspace can ask a single question. Shall I fix it in its own pull request now?", answer: "Fix it in its own pull request now." }],
-    ["a page", "asked: The canvas cards before and after (page https://sermon.example/session/fab6c0cf8ffde8b2) answered: Ship them as shown. It matches his words.",
-      { question: "The canvas cards before and after", answer: "Ship them as shown." }],
-    ["bold the asker marked", "asked: May I run the **last** walk? answered: Walk 1560's head now",
-      { question: "May I run the last walk?", answer: "Walk 1560's head now" }],
-    ["no answer said", "asked: Which store?", { question: "Which store?", answer: "" }],
-  ];
-  for (const [name, evidence, want] of cases) assert.deepEqual(askedAndAnswered(evidence), want, name);
-});
-
-test("pull requests are one line to a repository in the order each came, and a link says what it opens", () => {
-  const pull = (repository: string, number: number) => "https://github.com/fpresta0607/" + repository + "/pull/" + number;
-  assert.deepEqual(byRepository([pull("code-goblins", 707), pull("PrecisionDocs-AI", 1559), pull("code-goblins", 709), "PR 13 landed on merge train 900"]), [
-    { repository: "code-goblins", pulls: [{ url: pull("code-goblins", 707), number: "#707" }, { url: pull("code-goblins", 709), number: "#709" }] },
-    { repository: "PrecisionDocs-AI", pulls: [{ url: pull("PrecisionDocs-AI", 1559), number: "#1559" }] },
-    { repository: "PR 13 landed on merge train 900", pulls: [] },
-  ]);
-  assert.deepEqual([pull("code-goblins", 707), "https://github.com/fpresta0607/PrecisionDocs-AI/actions/runs/38270621823", "https://sermon.example:4388/session/1dbf778927dda6b4", "https://acme.example/health"].map(linkLabel),
-    ["code-goblins #707", "Run", "Scrawl page", "acme.example"]);
-});
-
 test("who made a switch is said to the Overlord: his own board or terminal without the program and its process, or the CFO at his ask with his words", () => {
   assert.equal(switchedBy("his own board (goblins-window.exe pid 4242)", ""), "from your board");
   assert.equal(switchedBy("his own terminal (powershell.exe pid 5151)", ""), "from your terminal");
   assert.equal(switchedBy("the board", ""), "from the board");
   assert.equal(switchedBy("", ""), "");
   assert.equal(switchedBy(BY_THE_CFO.from, ASKED), "by the CFO at your ask: “I'm stepping away, turn AFK on”");
-});
-
-test("the report is shown when AFK mode turns off with a report kept, and at no other change", () => {
-  const off = afk({ state: "off", since: "", report: "afk-20261002T021000.000Z" });
-  assert.equal(turnedOff(afk(), off), true);
-  assert.equal(turnedOff(AFK_OFF, off), false, "the first snapshot a page sees");
-  assert.equal(turnedOff(off, off), false);
-  assert.equal(turnedOff(afk(), afk({ state: "off", since: "" })), false, "a reset keeps no report");
-  assert.equal(turnedOff(afk({ state: "off" }), afk()), false);
-});
-
-test("the report is read with its sections in the supervisor's order and their part of the recap, and none while no stretch has ended", () => {
-  assert.equal(parseAfkReport({ found: false }), null);
-  const report = parseAfkReport({
-    found: true, session: "afk-20261002T021000.000Z", since: "2026-10-02T02:10:00Z", ended: "2026-10-02T12:31:00Z", lasted: "10h21m",
-    from: "his own board (goblins-window.exe pid 4242)", ended_from: "his own terminal (powershell.exe pid 5151)",
-    sections: [{ title: "Merged", group: "done", entries: [{ at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged" }] }, { title: "Needs you", group: "needs", entries: [] }],
-    finished: [{ task: "northwind-invoices", pr: "https://github.com/you/northwind-api/pull/412", at: "2026-10-02T03:14:00Z" }],
-    held: [held()], spent: [{ provider: "claude", window: "week", on: 40, off: 47 }], notes: [],
-  });
-  assert.deepEqual(report?.sections.map((section) => section.group + ": " + section.title + " " + section.entries.length), ["done: Merged 1", "needs: Needs you 0"]);
-  assert.deepEqual(report?.sections[0].entries[0], { at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged", task: "", diagnosis: "", tried: "", struck: "", settled: "", noted: "", answer: "", item: "" });
-  assert.equal(report?.lasted, "10h21m");
-  assert.deepEqual([report?.asked, report?.ended_asked], ["", ""], "he made both switches himself");
-  assert.deepEqual(report?.held, [held()]);
-  const asked = parseAfkReport({ found: true, ...BY_THE_CFO, ended_from: "the CFO at his ask (claude pid 4242)", ended_asked: "I'm back, turn AFK off", sections: [], finished: [], held: [], spent: [], notes: [] });
-  assert.deepEqual([asked?.asked, asked?.ended_asked], [ASKED, "I'm back, turn AFK off"]);
-  assert.throws(() => parseAfkReport({ found: true, sections: "none" }), /Invalid response list/);
-  assert.throws(() => parseAfkReport({ found: true, sections: [{ title: "Merged", group: "later", entries: [] }] }), /Invalid AFK report group/);
-});
-
-test("the report's Spent reads each allowance as the percent used at either end, a reading not taken as none, and credits as what was spent", () => {
-  const report = parseAfkReport({ found: true, sections: [], finished: [], held: [], notes: [], spent: [
-    { provider: "claude", window: "week", on: 29, off: 35 },
-    { provider: "claude", window: "session", on: 42, off: 3, reset: true },
-    { provider: "codex", window: "week", off: 4 },
-    { provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" },
-  ] });
-  assert.deepEqual(report?.spent, [
-    { provider: "claude", window: "week", on: 29, off: 35, reset: false, credits: false, spent: 0, unit: "" },
-    { provider: "claude", window: "session", on: 42, off: 3, reset: true, credits: false, spent: 0, unit: "" },
-    { provider: "codex", window: "week", on: null, off: 4, reset: false, credits: false, spent: 0, unit: "" },
-    { provider: "codex", window: "credits", on: null, off: null, reset: false, credits: true, spent: 12.5, unit: "credits" },
-  ]);
-  assert.throws(() => parseAfkReport({ found: true, spent: [{ provider: "claude", window: "week", on: "29%" }] }), /Invalid response number/);
-});
-
-const allowance = (changes: Partial<AfkAllowance>): AfkAllowance => ({ provider: "claude", window: "week", on: null, off: null, reset: false, credits: false, spent: 0, unit: "", ...changes });
-
-test("Spent shows each weekly limit and the credits spent, and no shorter window such as Claude's five hours", () => {
-  const cases: [string, AfkAllowance, boolean][] = [
-    ["Claude's week", allowance({ on: 29, off: 35 }), true],
-    ["a model's week", allowance({ window: "Fable week", on: 12.5 }), true],
-    ["Codex's week", allowance({ provider: "codex", off: 4 }), true],
-    ["Claude's five-hour session", allowance({ window: "session", on: 42, off: 3, reset: true }), false],
-    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), true],
-  ];
-  for (const [name, value, want] of cases) assert.equal(shownUnder(value), want, name);
-});
-
-test("a weekly limit under Spent says how much of it is left when AFK turned off and how much AFK used, and credits what was spent", () => {
-  const cases: [string, AfkAllowance, { name: string; value: string; change: string; label: string }][] = [
-    ["read at both ends", allowance({ on: 29, off: 35 }), { name: "Claude weekly limit", value: "65% left", change: "AFK used 6%", label: "Claude weekly limit: 65% left, from 29% to 35% used while AFK was on" }],
-    ["one percent used", allowance({ provider: "codex", on: 1, off: 2 }), { name: "Codex weekly limit", value: "98% left", change: "AFK used 1%", label: "Codex weekly limit: 98% left, from 1% to 2% used while AFK was on" }],
-    ["none used", allowance({ on: 52, off: 52 }), { name: "Claude weekly limit", value: "48% left", change: "AFK used 0%", label: "Claude weekly limit: 48% left, from 52% to 52% used while AFK was on" }],
-    ["a limit that renewed", allowance({ on: 92, off: 3, reset: true }), { name: "Claude weekly limit", value: "97% left", change: "renewed", label: "Claude weekly limit: 97% left, renewed while AFK was on" }],
-    ["read only at turn-on", allowance({ window: "Fable week", on: 12.5 }), { name: "Claude Fable weekly limit", value: "87.5% left", change: "", label: "Claude Fable weekly limit: 87.5% left at AFK on" }],
-    ["read only at turn-off", allowance({ provider: "codex", off: 4 }), { name: "Codex weekly limit", value: "96% left", change: "", label: "Codex weekly limit: 96% left at AFK off" }],
-    ["credits", allowance({ provider: "codex", window: "credits", credits: true, spent: 12.5, unit: "credits" }), { name: "Codex credits", value: "12.5 credits spent", change: "", label: "Codex credits: 12.5 credits spent" }],
-  ];
-  for (const [name, value, want] of cases) assert.deepEqual(allowanceSays(value), want, name);
-});
-
-test("an allowance's graph marks what was used before AFK and the stretch AFK used, from nothing after a reset, and there is no graph for a limit read at one end or for credits", () => {
-  const cases: [string, AfkAllowance, { before: number; from: number; to: number } | null][] = [
-    ["read at both ends", allowance({ on: 29, off: 35 }), { before: 29, from: 29, to: 35 }],
-    ["a window that reset", allowance({ on: 42, off: 3, reset: true }), { before: 0, from: 0, to: 3 }],
-    // 52% read only when AFK turned off may all have been used while it was
-    // on, so none of it is drawn as used before.
-    ["read only at turn-off", allowance({ off: 52 }), null],
-    ["read only at turn-on", allowance({ on: 12.5 }), null],
-    ["credits", allowance({ credits: true, spent: 12.5 }), null],
-  ];
-  for (const [name, value, want] of cases) assert.deepEqual(allowanceGraph(value), want, name);
-});
-
-// The Overlord, 2026-10-09: "disk free I think would be a good one to include
-// in the AFK report for usage, to see if disk increased or decreased as I was
-// gone. Just have it next to the Claude Code usage metrics in that same little
-// section." The report carries free disk only when it was read at both ends.
-const GB = 2 ** 30;
-const disk = (on: number, off: number, changes: Partial<AfkDisk> = {}): AfkDisk => ({ drive: "C:", total: 1000 * GB, on: on * GB, off: off * GB, ...changes });
-
-test("the report's free disk is read as the bytes free at either end of the drive's total, and as none when the supervisor sends none", () => {
-  const read = (disk?: unknown) => parseAfkReport({ found: true, sections: [], finished: [], held: [], spent: [], notes: [], disk })?.disk;
-  assert.deepEqual(read({ drive: "C:", total: 924 * GB, on: 340 * GB, off: 337 * GB }), { drive: "C:", total: 924 * GB, on: 340 * GB, off: 337 * GB });
-  assert.equal(read(), null, "no reading sent");
-  assert.equal(read(null), null);
-  assert.throws(() => read({ drive: "C:", total: 924 * GB, on: "340 GB", off: 337 * GB }), /Invalid response number/);
-});
-
-test("free disk under Spent says how much is free when AFK turned off and how much AFK used or freed, worded as the limits beside it", () => {
-  const cases: [string, AfkDisk, { name: string; value: string; change: string; label: string }][] = [
-    ["free disk fell", disk(340.5, 337), { name: "Disk (C:)", value: "337.0 GB free", change: "AFK used 3.5 GB", label: "Disk (C:): 337.0 GB free, from 340.5 GB to 337.0 GB free while AFK was on" }],
-    ["free disk rose", disk(325.5, 337), { name: "Disk (C:)", value: "337.0 GB free", change: "AFK freed 11.5 GB", label: "Disk (C:): 337.0 GB free, from 325.5 GB to 337.0 GB free while AFK was on" }],
-    // Free disk moves by a few megabytes every minute, which is no change
-    // at the tenth of a gigabyte the report says.
-    ["free disk stayed", disk(337.03125, 337), { name: "Disk (C:)", value: "337.0 GB free", change: "AFK used 0 GB", label: "Disk (C:): 337.0 GB free, from 337.0 GB to 337.0 GB free while AFK was on" }],
-    ["a drive with no name", disk(20, 18.5, { drive: "" }), { name: "Disk", value: "18.5 GB free", change: "AFK used 1.5 GB", label: "Disk: 18.5 GB free, from 20.0 GB to 18.5 GB free while AFK was on" }],
-  ];
-  for (const [name, value, want] of cases) assert.deepEqual(diskSays(value), want, name);
-});
-
-test("free disk's graph marks what of the drive was used all through and the stretch AFK used or freed, which its arrow spans forward or back", () => {
-  const cases: [string, AfkDisk, { before: number; from: number; to: number } | null][] = [
-    ["free disk fell", disk(340, 330), { before: 66, from: 66, to: 67 }],
-    ["free disk rose", disk(325, 337.5), { before: 66.25, from: 67.5, to: 66.25 }],
-    ["free disk stayed", disk(337.03125, 337), { before: 66.3, from: 66.3, to: 66.3 }],
-    ["a full drive that emptied", disk(0, 1000), { before: 0, from: 100, to: 0 }],
-    ["a drive of no size", disk(1, 1, { total: 0 }), null],
-  ];
-  for (const [name, value, want] of cases) assert.deepEqual(diskGraph(value), want, name);
-});
-
-// The Overlord, 2026-10-09: "at the top of the report I don't like all these
-// little grid boxes". The report opens on a few plain sentences: how long he
-// was away, how many things wait on him, and what the CFO merged, deployed,
-// migrated and installed, leaving out what it did none of.
-// The Overlord, 2026-10-12: "just tell me what you've done". The headline says
-// how long he was away, whether anything needs him, a step only he can take
-// or an item still waiting on him in the Command Center, and what the CFO
-// merged, deployed, migrated, installed and answered.
-test("the recap's headline says how long he was away, what needs him and what the CFO did", () => {
-  const report = (held: AfkHeld[], sections: { title: string; group: AfkGroup; count: number }[]): AfkReport => ({
-    session: "afk-1", since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: "", asked: "", ended_from: "", ended_asked: "",
-    sections: sections.map(({ title, group, count }) => ({ title, group, entries: Array.from({ length: count }, () => DECISION) })),
-    finished: [], held, spent: [], disk: null, notes: [],
-  });
-  const now = Date.parse("2026-10-02T13:00:00Z");
-  const cases: [string, AfkReport, { away: string; needs: string; did: string }][] = [
-    ["a busy night", report([held(), held({ item: "run:x", waiting: false })], [{ title: "Merged", group: "done", count: 5 }, { title: "Installed", group: "done", count: 2 }, { title: "For you", group: "decided", count: 2 }, { title: "For the goblins", group: "decided", count: 14 }, { title: "Needs you", group: "needs", count: 1 }]),
-      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", needs: "2 things need you.", did: "The CFO merged 5 pull requests, installed 2 builds and answered 16 questions." }],
-    ["one of each", report([held()], [{ title: "Merged", group: "done", count: 1 }, { title: "Deployed", group: "done", count: 1 }, { title: "Migrations applied", group: "done", count: 1 }, { title: "Installed", group: "done", count: 1 }, { title: "For you", group: "decided", count: 1 }]),
-      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", needs: "1 thing needs you.", did: "The CFO merged 1 pull request, made 1 deploy, applied 1 migration, installed 1 build and answered 1 question." }],
-    ["a quiet night", report([held({ waiting: false })], []),
-      { away: "You were away 8h25m, from 3:40 AM to 12:05 PM.", needs: "Nothing needs you.", did: "" }],
-  ];
-  for (const [name, value, want] of cases) assert.deepEqual(afkHeadline(value, now, "UTC", "en-US"), want, name);
-});
-
-test("what was held or left for him splits into what still waits on him and what was settled, each in the order it came", () => {
-  const all = [held({ item: "a" }), held({ item: "b", waiting: false, settled: "the run finished on its own", now: "settled by the CFO: the run finished on its own" }), held({ item: "c" })];
-  assert.deepEqual(stillWaiting(all).map((one) => one.item), ["a", "c"]);
-  assert.deepEqual(settled(all).map((one) => one.item), ["b"]);
 });

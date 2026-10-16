@@ -825,7 +825,7 @@ While it is on:
   It asks you nothing: each step only you can take gets a backlog row and, once you are back, one card in your Command Center, and the work goes around it.
 - Every decision you would have been asked, the CFO answers itself with its recommendation and acts on.
   When you turn AFK mode off, each is settled: it is in the Command Center's **History** with the CFO's answer, marked as given while you were away, never in your queue.
-  **Change** on the recap, or **Change answer** in History, sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
+  **Change** on your page of the stretch, or **Change answer** in History, sends your change to the CFO once, and the CFO undoes or redoes what its answer started.
 - A goblin's Scrawl page that asks for your answer goes to the CFO, which reads it and answers it in your place, and never waits in your Command Center.
   Each page the CFO answered is settled the same way: the goblin's question is in **History** with the CFO's answer, and a change you make there goes to the goblin.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
@@ -836,36 +836,22 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off shows the recap of the stretch on the board, one page laid out as a Scrawl page is.
-It opens on a headline in plain words: how long you were away, whether anything needs you, and what the CFO merged, deployed, migrated, installed and answered, beside who turned it on and off.
-**Done** comes first, a heading for each kind of thing done, each line in plain words with its link.
-It leads with a merge that did not land, the recap's one warning, which says in one sentence what the CFO did about it.
-Then come what went live, migrations applied and builds installed, in the CFO's own words with their run or pull request, then what merged, one line to a repository with each pull request a link, anything else the CFO did, the goblins paused at a floor, what goblins finished that did not merge, and **Spent**.
-What waited on you in the Command Center and no longer does folds under **Settled**, and a line the CFO logged by mistake folds under **Struck by the CFO** with its reason.
-**Decided for you** follows: each question the CFO answered with its recommendation, yours under **For you** and the goblins' under **For the goblins**, each with its answer and **Change**, which opens it in History.
-**Needs you** comes last, and only when something does: it says how many things wait for you in the Command Center, one card each, with **Open Command Center**.
+Turning it off makes your page of the stretch, a Scrawl page drawn with the board's own cards, icons and goblin faces, and puts one card for it in your Command Center.
+Nothing opens over the board, and the page reads on a phone as well as on the desktop.
+It opens with how long you were away and one line on whether anything needs you: **Nothing needs you**, or how many things do, one row each, a step only you can take or an item still waiting in your Command Center.
+Under it, three tiles count what merged, what the CFO decided for you and the goblins still at work.
+**What changed** walks through the stretch by project: each goblin's work is one row in a few words, told by the CFO's title for it, with the goblin's face, what went live, a merge that did not land, before and after pictures where the goblin showed them, and its pull request numbers small beside it.
+**Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and the pencil that changes it right there, the same change **Change answer** sends from History.
+**Still at work** and **Next** name what goblins are still doing and the tasks queued to start.
+**Spent** draws each allowance used and free disk as the board's bars: gray before AFK, green what AFK used.
+**Record** keeps the rest of the report: who switched AFK on and off, what waited on you and was settled, goblins paused at a floor, lines the CFO settled or struck, and anything the report could not read.
+Tap any row and it opens a card with what it stood on: the goblin's own notes, the evidence and the pull request links.
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
-A step whose card could not be made stays a plain line.
-**Done** and **Decided for you** open and close behind the board's one thin caret, the same one History and the task panel use, and start open.
-Every heading inside them, **Deployed**, **Merged**, **Spent**, **For the goblins** and the rest, does the same and starts closed, showing only its name and its count, so the whole recap reads in one screen and you open only what you want to read.
-What a line stood on, its evidence, opens under it when you tap its **Evidence** and closes at a second tap: none of it shows until you ask.
-**Open Command Center** at the top of Needs you opens the Command Center on what still waits from the stretch, one item at a time on the same card every question has, each with nothing checked.
-**Back** goes to the one before, with your answer checked if you answered it, and **Skip** leaves one as it is and shows the next.
-The Command Center's list offers **Go through them** too whenever two or more things wait on you.
-Spent shows only weekly limits and credit balances that were spent, leaving out five-hour limits.
-A weekly limit shows what is left, such as **51% left**, beside **AFK used 8%**, or **renewed** if the limit renewed during AFK.
-Equal-length bars show usage before AFK in gray, usage while AFK in green under a green arrow, and what is left as the empty rest, with the legend **Before AFK While AFK Left**.
-With a reading at only one end, the row shows only what is left, with no bar, change chip or line saying a reading was not taken.
-Credit rows show the amount spent without a percent bar.
-The last row is **Disk** with its drive, the one the **Disk free** meter reads: what is free now, such as **337.0 GB free**, beside **AFK used 3.3 GB**, or **AFK freed 11.4 GB** when free disk rose, on a bar of the whole drive.
-Its arrow points forward over disk AFK used and back over disk AFK freed, and a change under a tenth of a gigabyte shows no arrow.
-The row is there only when free disk was read on the same drive both when AFK turned on and when it turned off.
-The button beside the toggle opens the last recap again.
-Each time you open it, what waits on you in the Command Center is checked again, so an item you answered moves to Settled.
+The button beside the toggle opens your page of the last stretch again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
-The text report reads in the recap's order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.
-The board uses the presentation above.
+The text report reads Done, Decided for you and Needs you in order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.
+Your page of the stretch is made from the same report.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text

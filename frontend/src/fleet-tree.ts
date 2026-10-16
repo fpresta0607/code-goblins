@@ -114,7 +114,7 @@ export function babyName(goblin: Task, node: TreeNode): string {
   if (node.kind === "helper") return node.label;
   const title = titleFor(node);
   if (!goblin.goblin_name) return title;
-  const order = (goblin.tree?.children || []).filter((child) => child.kind !== "helper")
+  const order = (goblin.tree?.children || []).filter((child) => child.kind === "subagent")
     .sort((one, other) => one.started.localeCompare(other.started) || one.id.localeCompare(other.id));
   return goblin.goblin_name + " " + ordinal(Math.max(0, order.findIndex((child) => child.id === node.id))) + " - " + title;
 }
@@ -184,6 +184,7 @@ export function formatMemory(bytes: number): string {
 
 // A gate awaiting a decision still needs attention.
 export const running = (tree?: FleetTree) => (tree?.children || []).filter((node) => node.state === "working" || node.kind === "gate" && node.state === "waiting")
+export const babies = (tree?: FleetTree) => (tree?.children || []).filter((node) => (node.kind === "subagent" || node.kind === "helper") && !isFinished(node))
 export const finished = (tree?: FleetTree) => (tree?.children || []).filter(isFinished)
   .sort((one, other) => (known(other.finished) || "").localeCompare(known(one.finished) || ""));
 
@@ -194,7 +195,7 @@ export interface TreeSummary { working: number; silent: number; idle: number; ki
 export function summarize(tree?: FleetTree): TreeSummary {
   const children = tree?.children || [];
   const counts = new Map<Baby, number>();
-  for (const node of running(tree)) counts.set(babyFor(node), (counts.get(babyFor(node)) || 0) + 1);
+  for (const node of new Set([...running(tree), ...babies(tree)])) counts.set(babyFor(node), (counts.get(babyFor(node)) || 0) + 1);
   return {
     working: children.filter((node) => node.state === "working").length,
     silent: children.filter((node) => node.state === "silent").length,
@@ -207,10 +208,7 @@ export function summarize(tree?: FleetTree): TreeSummary {
 // finished children included.
 export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 0;
 
-// hasRunningChildren says the goblin has a child working or awaiting a decision,
-// which is all the canvas and the lineage list draw under it; its panel lists
-// the finished ones too.
-export const hasRunningChildren = (tree?: FleetTree) => running(tree).length > 0;
+export const hasRunningChildren = (tree?: FleetTree) => babies(tree).length > 0;
 
 // A baby goblin on its branch, the size its card is drawn at, wide enough for
 // the longest state, such as Detached, working 12h 52m, on one line, and tall

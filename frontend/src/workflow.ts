@@ -369,7 +369,7 @@ function nearestFree(want: Point, taken: Taken[], takes: Extent = CARD): Point {
   return { x: Math.max(want.x, ...inRow.map((other) => other.point.x + (other.takes.width + takes.width) / 2 + COLUMN - NODE_WIDTH)), y: want.y };
 }
 
-// rowsFor splits a family of goblins with no cards under them into the rows
+// rowsFor splits a family of goblins into the rows
 // that show the family largest in a canvas of this shape: one row in a wide
 // canvas, more in a tall one, each goblin taking as many grid columns as it
 // and what hangs under it need.
@@ -389,7 +389,7 @@ function rowsFor<T>(children: T[], columns: (child: T) => number, below: (child:
 
 // Positioning changes presentation only. Cycles retain a visible node but do
 // not become recursively laid-out family relationships. A family of goblins
-// with no cards under them wraps into the rows that show it largest in the
+// wraps into the rows that show it largest in the
 // canvas, each row after the first offset so its connectors drop clear of
 // the middles of the goblins above, and a goblin takes as many grid
 // columns as what hangs under its card needs (extents). A goblin waiting on
@@ -410,15 +410,27 @@ export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: 
   for (const [id] of below) visited.add(id);
   const takes = (id: string) => extents[id] || CARD;
   const columns = (node: WorkflowNode) => Math.ceil((takes(node.id).width + COLUMN - NODE_WIDTH) / COLUMN);
+  const family = (node: WorkflowNode, ancestors = new Set<string>()): { columns: number; rows: number; below: number } => {
+    const seen = new Set([...ancestors, node.id]);
+    const children = nodes.filter((child) => child.parent === node.id && !seen.has(child.id) && !visited.has(child.id)).map((child) => family(child, seen));
+    const rows = children.length > 1 ? rowsFor(children, (child) => child.columns, (child) => child.below, canvas) : [children];
+    return {
+      columns: Math.max(columns(node), Math.max(0, ...rows.map((row) => row.reduce((sum, child) => sum + child.columns, 0))) + (rows.length > 1 ? 1 : 0)),
+      rows: 1 + rows.reduce((sum, row) => sum + Math.max(0, ...row.map((child) => child.rows)), 0),
+      below: takes(node.id).below + rows.reduce((sum, row) => sum + Math.max(0, ...row.map((child) => ROW + child.below)), 0),
+    };
+  };
   const taken = () => Object.entries(positions).map(([id, point]) => ({ point, takes: takes(id) }));
   let leaf = 0;
   const place = (node: WorkflowNode, depth: number): number => {
     visited.add(node.id);
     const children = nodes.filter((child) => child.parent === node.id && !visited.has(child.id));
-    const rows = children.length > 1 && children.every((child) => !nodes.some((other) => other.parent === child.id))
-      ? rowsFor(children, columns, (child) => takes(child.id).below, canvas) : [children];
+    const families = new Map(children.map((child) => [child.id, family(child)]));
+    const span = (child: WorkflowNode) => families.get(child.id)!.columns;
+    const rows = children.length > 1
+      ? rowsFor(children, span, (child) => families.get(child.id)!.below, canvas) : [children];
     if (rows.length > 1) {
-      const widest = Math.max(...rows.map((row) => row.reduce((sum, child) => sum + columns(child), 0))), first = leaf;
+      const widest = Math.max(...rows.map((row) => row.reduce((sum, child) => sum + span(child), 0))), first = leaf;
       // Each row after the first is offset so no connector into it drops
       // down a line that runs down from a goblin above, a middle or a
       // line beside or between its branches, where it would read as that
@@ -426,17 +438,21 @@ export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: 
       // of a row of single cards, else by the eighth of a card nearest that
       // keeps clear.
       const drops: number[] = [];
+      let rowDepth = depth + 1;
       rows.forEach((row, index) => {
-        const at = (offset: number) => row.map((child, i) => first + offset + row.slice(0, i).reduce((sum, other) => sum + columns(other), 0) + (columns(child) - 1) / 2);
+        const at = (offset: number) => row.map((child, i) => first + offset + row.slice(0, i).reduce((sum, other) => sum + span(other), 0) + (span(child) - 1) / 2);
         const covered = (offset: number) => at(offset).filter((middle) => drops.some((drop) => Math.abs(middle - drop) < .1)).length;
         const offset = index ? [.5, .25, .75, 0, .375, .625, .125, .875].reduce((best, next) => covered(next) < covered(best) ? next : best) : 0;
         at(offset).forEach((middle, i) => {
-          visited.add(row[i].id);
-          positions[row[i].id] = { x: 40 + middle * COLUMN, y: 72 + (depth + 1 + index) * ROW };
+          const placedBefore = new Set(Object.keys(positions));
+          const originalX = place(row[i], rowDepth);
+          const shiftX = 40 + middle * COLUMN - originalX;
+          for (const id of Object.keys(positions)) if (!placedBefore.has(id)) positions[id].x += shiftX;
           drops.push(...takes(row[i].id).drops.map((drop) => middle + drop / COLUMN));
         });
+        rowDepth += Math.max(...row.map((child) => families.get(child.id)!.rows));
       });
-      leaf += widest + 1;
+      leaf = first + widest + 1;
       const x = 40 + (first + (widest - 1) / 2 + .25) * COLUMN;
       positions[node.id] = { x, y: 72 + depth * ROW };
       return x;
