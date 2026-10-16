@@ -58,6 +58,7 @@ func (r *Reader) Placed(owners []Goblin) ([]Placed, error) {
 			if detached {
 				jobs = r.detachedJobs(owner.Meta.ID, processes, harness)
 			}
+			jobs = r.withoutLinkBrowsers(jobs)
 			for _, job := range jobs {
 				facts := jobFacts{commands: map[int]string{}}
 				for _, member := range job.members {
