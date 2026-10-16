@@ -57,7 +57,7 @@ func TestChromeStartCookieAndExitTimes(t *testing.T) {
 			t.Fatal(err)
 		}
 		closing := time.Now()
-		if err := CloseBrowser(ctx, process.URL); err != nil {
+		if err := process.job.transport.pipe.call(ctx, "Browser.close", nil, nil); err != nil {
 			t.Logf("chrome %d did not take the close: %v", index, err)
 		}
 		for Running(process) && ctx.Err() == nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -156,18 +157,36 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 	return process, nil
 }
 
-// End closes process: it asks the browser to close, which writes its
-// session to the profile, gives it closeWait to exit, and then ends its job,
-// which ends whatever of it is left, its helpers included. A browser that
-// could not be asked is ended the same way. It returns once nothing of the
-// job runs, so the profile can be removed, and an error only when that
-// could not be made so.
+// End closes process: it asks the browser to close over its private pipe,
+// which writes its session to the profile, gives it closeWait to exit, and
+// then ends its job, which ends whatever of it is left, its helpers
+// included. A browser that closes the pipe before it answers took the ask,
+// and one that could not be asked is ended at once. It returns once nothing
+// of the job runs, so the profile can be removed, and an error only when
+// that could not be made so.
+//
+// Chrome does its saving on threads it runs at background priority, and
+// each of its processes ends only once its background threads have run, so
+// while other work filled the machine's cores, a close waited tens of
+// seconds for them: past closeWait, when the job was ended before the
+// browser had written its sign-in to the profile, and past teardownWait,
+// when its end could not be confirmed (issue #896). The closing browser's
+// processes are raised to normal priority each second it is waited for,
+// which picks up a thread it lowers after the last raise, and once more
+// when its job is ended.
 func End(ctx context.Context, process Process) error {
 	if Running(process) {
 		asked, cancel := context.WithTimeout(ctx, 5*time.Second)
-		if CloseBrowser(asked, process.URL) == nil {
-			for deadline := time.Now().Add(closeWait); Running(process) && time.Now().Before(deadline); {
-				time.Sleep(100 * time.Millisecond)
+		err := process.job.transport.pipe.call(asked, "Browser.close", nil, nil)
+		if err == nil || errors.Is(err, errPipeClosed) {
+			var raised time.Time
+			for deadline := time.Now().Add(closeWait); Running(process) && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+				if time.Since(raised) >= time.Second {
+					if ids, err := proc.JobProcessIDs(syscall.Handle(process.job.handle)); err == nil {
+						proc.Raise(ids)
+					}
+					raised = time.Now()
+				}
 			}
 		}
 		cancel()
@@ -209,6 +228,13 @@ func (j *job) end(pid int) error {
 		return fmt.Errorf("end chrome %d's job: %w", pid, err)
 	}
 	j.members, j.isEnded = members, true
+	// An ended process runs no code of its own, so none lowers a thread
+	// again, and the job no longer lists the processes it ended.
+	pids := make([]uint32, 0, len(members))
+	for _, member := range members {
+		pids = append(pids, uint32(member.PID))
+	}
+	proc.Raise(pids)
 	deadline := time.Now().Add(teardownWait)
 	for _, member := range members {
 		if err := awaitGone(member, deadline); err != nil {
