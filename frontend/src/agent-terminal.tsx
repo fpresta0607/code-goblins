@@ -80,8 +80,8 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
     const write = (data: string, isWhole: boolean) => {
       const buffer = terminal.buffer.active
       const wasFollowing = buffer.viewportY >= buffer.baseY, position = buffer.viewportY
-      if (isWhole) { terminal.reset(); terminal.write("\x1b[?25l") }
-      terminal.write(data, () => {
+      // Queue the reset with the output so pending writes cannot outlive it.
+      terminal.write((isWhole ? "\x1bc\x1b[?25l" : "") + data, () => {
         if (wasFollowing) terminal.scrollToBottom()
         else terminal.scrollToLine(position)
       })
