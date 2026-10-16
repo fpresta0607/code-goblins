@@ -167,6 +167,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.saveCredentials(w, r)
 	case r.URL.Path == "/api/credentials/close" && r.Method == "POST":
 		h.closeCredentialCard(w, r)
+	case r.URL.Path == "/api/credentials/reopen" && r.Method == "POST":
+		h.reopenCredentialCard(w, r)
 	case r.URL.Path == "/api/credentials/window" && r.Method == "POST":
 		h.openCredentialWindow(w, r)
 	case r.URL.Path == "/api/credentials/fetch" && r.Method == "POST":

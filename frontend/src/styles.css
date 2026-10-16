@@ -1077,10 +1077,13 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .inbox-history li.unfolded .inbox-text, .inbox-history li.unfolded .history-head { display: contents; }
 .inbox-history li.unfolded > time { grid-area: time; }
 .inbox-history li.unfolded > .history-actions { grid-area: actions; }
-.inbox-history .goblin-avatar, .inbox-history .answer-mark, .inbox-history .delivery { width: 28px; height: 28px; }
-.inbox-history .answer-mark.you .icon { width: 16px; height: 16px; }
-.inbox-history .answer-mark .away-badge { right: -5px; bottom: -5px; width: 16px; height: 16px; }
-.inbox-history .answer-mark .away-badge .icon { width: 10px; height: 10px; }
+.history-mark { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; }
+.inbox-history .history-mark .goblin-avatar { width: 28px; height: 28px; }
+.history-mark .mark-badge { position: absolute; right: -5px; bottom: -5px; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--muted); }
+.history-mark .mark-badge .icon { width: 10px; height: 10px; }
+.history-mark.succeeded .mark-badge { color: var(--mint); }
+.history-mark.failed .mark-badge, .history-mark.uncertain .mark-badge { color: var(--amber); }
+.history-change[aria-disabled="true"] { opacity: .4; cursor: default; }
 .history-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.5; }
 .history-head strong { flex: none; max-width: 60%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .inbox-history .history-head .inbox-summary { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); }

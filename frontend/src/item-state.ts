@@ -15,8 +15,10 @@ export interface Sent { kind: string; id: string; text: string; answer_kind: str
 // publishedAt names one publishing of an item. The supervisor takes an ID
 // again once it has dropped the record that used it, so an ID alone does not:
 // the same ID with another created_at is a new item. An item's identity is no
-// part of it, since it moves when the CFO registers again.
-export const publishedAt = (item: Item): string => (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.kind === "browser-signin" ? item.signin : item.request).created_at;
+// part of it, since it moves when the CFO registers again. A reopened step
+// card keeps its created_at but starts a new generation.
+export const publishedAt = (item: Item): string => item.kind === "credential" ? item.request.created_at + ":" + item.request.generation
+  : (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.signin).created_at;
 
 // withItems is the last snapshot with the Command Center's items the
 // supervisor sent after it. Items from another supervisor, or older than the
