@@ -346,6 +346,9 @@ func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Proces
 		metas := r.rollouts(ctx)
 		return r.codexConversation(ctx, goblin.Meta.Worktree, session, metas), metas
 	case "pi":
+		if session == "" {
+			return newestFile(PiSessions(r.Home, goblin.Meta.Worktree)), nil
+		}
 		return SessionTranscript(r.Home, "pi", session), nil
 	}
 	return "", nil
@@ -365,8 +368,8 @@ func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
 // is in, as the harness records it itself, for a switch that resumes it when
 // the board recorded none: Claude Code's record of its own process, or the
 // Codex rollout of the goblin's worktree written last, never a child
-// agent's nor a codex exec's. It is empty while the harness does not run, and for pi, whose
-// conversation no switch resumes.
+// agent's nor a codex exec's, or the pi session of the goblin's worktree
+// written last. It is empty while the harness does not run.
 func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -389,6 +392,8 @@ func (r *Reader) provedSession(ctx context.Context, goblin Goblin, harness Proce
 		return claudeProcessSession(r.Home, harness)
 	case "codex":
 		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
+	case "pi":
+		return piSessionID(newestFile(PiSessions(r.Home, goblin.Meta.Worktree)))
 	}
 	return ""
 }
@@ -853,7 +858,7 @@ type RecordedSession struct {
 // when session proves no such thing, so nothing reads another task's
 // conversation as this one's.
 func Owned(meta state.TaskMeta, session RecordedSession) string {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude" && meta.Harness != "pi") {
 		return ""
 	}
 	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
@@ -868,7 +873,7 @@ func Owned(meta state.TaskMeta, session RecordedSession) string {
 // proved, for the same generation and harness. A record that cannot be read
 // is an error, never taken as none.
 func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude" && meta.Harness != "pi") {
 		return "", nil
 	}
 	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))

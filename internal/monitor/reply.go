@@ -27,11 +27,12 @@ type ReplyReader interface {
 }
 
 // LastReply reads the reply that ended the goblin's last turn from its
-// harness's own record: Claude Code's conversation or Codex's rollout, the
-// goblin's own as the board's tree reads it, which is the session Herdr
-// names or else the one the board's record or the harness itself proves.
-// pi's is read off its screen, the one harness whose record this does not
-// read.
+// harness's own record: Claude Code's conversation, Codex's rollout or pi's
+// session, the goblin's own as the board's tree reads it, which is the
+// session Herdr names or else the one the board's record or the harness
+// itself proves. pi's was read off its screen until 2026-10-16, where a
+// reply cut off at pi's output cap showed its thinking, which read as a
+// question.
 func (h *HostProgress) LastReply(ctx context.Context, meta state.TaskMeta, sample EndpointSample) string {
 	var read func(entries [][]byte) string
 	switch strings.ToLower(sample.Harness) {
@@ -40,7 +41,7 @@ func (h *HostProgress) LastReply(ctx context.Context, meta state.TaskMeta, sampl
 	case "codex":
 		read = codexReply
 	case "pi":
-		return screenReply(sample.Capture)
+		read = piReply
 	default:
 		return ""
 	}
@@ -225,30 +226,46 @@ func codexReply(entries [][]byte) string {
 	return ""
 }
 
-// screenReply is what a screen shows above the composer pi draws between its
-// last two full-width rules, its paragraphs joined back from the rows the
-// screen wrapped them in; none when no composer shows.
-func screenReply(capture []byte) string {
-	rows := strings.Split(strings.ReplaceAll(string(capture), "\r\n", "\n"), "\n")
-	var rules []int
-	for i, row := range rows {
-		if row = strings.TrimSpace(row); len([]rune(row)) >= 8 && strings.Trim(row, "─") == "" {
-			rules = append(rules, i)
+// piReply is the text that ended the last turn of a pi session: the text of
+// its last assistant message, when pi recorded that message as stopping on
+// its own. A turn still running or ended on a tool call has none, and so has
+// one cut off at the output cap, failed, as on a provider's refusal, or
+// aborted, whose message pi records as stopping for that reason; its thinking
+// is never its reply.
+func piReply(entries [][]byte) string {
+	for i := len(entries) - 1; i >= 0; i-- {
+		var entry struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+				Content    []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
 		}
-	}
-	if len(rules) < 2 {
-		return ""
-	}
-	var paragraphs, paragraph []string
-	for _, row := range rows[:rules[len(rules)-2]] {
-		if row = strings.TrimSpace(row); row != "" {
-			paragraph = append(paragraph, row)
-		} else if len(paragraph) > 0 {
-			paragraphs, paragraph = append(paragraphs, strings.Join(paragraph, " ")), nil
+		if json.Unmarshal(entries[i], &entry) != nil || entry.Type != "message" {
+			continue
 		}
+		switch entry.Message.Role {
+		case "assistant":
+		case "custom", "compactionSummary", "branchSummary":
+			// What an extension or a compaction adds is not a turn.
+			continue
+		default:
+			return ""
+		}
+		if entry.Message.StopReason != "stop" {
+			return ""
+		}
+		var texts []string
+		for _, block := range entry.Message.Content {
+			if text := strings.TrimSpace(block.Text); block.Type == "text" && text != "" {
+				texts = append(texts, text)
+			}
+		}
+		return strings.Join(texts, "\n\n")
 	}
-	if len(paragraph) > 0 {
-		paragraphs = append(paragraphs, strings.Join(paragraph, " "))
-	}
-	return strings.Join(paragraphs, "\n\n")
+	return ""
 }

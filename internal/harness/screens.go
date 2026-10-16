@@ -37,6 +37,13 @@ type Screens struct {
 	// blank.
 	Empty         *regexp.Regexp
 	RuledComposer bool
+	// SubmitRefused matches what the harness shows when it took an Enter as
+	// no submission and put the text back in its composer, which another
+	// Enter submits: pi 0.85 draws its composer and footer before its
+	// startup ends and answers an Enter pressed meanwhile with "Startup is
+	// still in progress", so a switch's instruction stayed unsent in its
+	// composer on 2026-10-16.
+	SubmitRefused *regexp.Regexp
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -137,6 +144,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// The editor draws a full-width rule above and below its rows
 			// and nothing at their sides (pi-tui's Editor.render).
 			RuledComposer: true,
+			// pi 0.85.1's handleStartupSubmit, until its managed tools are
+			// in place.
+			SubmitRefused: regexp.MustCompile(`Startup is still in progress`),
 		}, true
 	}
 	return Screens{}, false
@@ -184,6 +194,12 @@ func (s Screens) IsIdleAtEmptyComposer(screen []string) bool {
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
+}
+
+// RefusedSubmit reports whether screen shows the harness took an Enter as no
+// submission, so another Enter is needed.
+func (s Screens) RefusedSubmit(screen []string) bool {
+	return s.SubmitRefused != nil && anyRow(screen, s.SubmitRefused)
 }
 
 // ComposerEmpty reports whether screen shows the harness's composer holding

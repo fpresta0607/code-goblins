@@ -60,10 +60,39 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case slices.Contains([]string{"codex", "claude"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
+	case slices.Contains([]string{"codex", "claude", "pi"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
 		fakeHarness()
 	default:
 		os.Exit(m.Run())
+	}
+}
+
+// fakePi shows pi 0.85.1's editor between its two rules and its footer's
+// context meter, and works on a submitted line. In mode "startup" it answers
+// its first two Enters as pi does until its startup ends: it keeps the text
+// and says "Startup is still in progress".
+func fakePi(mode string, keys <-chan string, record func(codexEvent), draw func(...string)) {
+	rule := strings.Repeat("─", 40)
+	screen := func(top, text, status string) {
+		draw("", status, top, text, rule, "~/work                                    0.0%/1.0M (auto)")
+	}
+	screen(rule, "", "")
+	refusals := 0
+	var line strings.Builder
+	for key := range keys {
+		switch {
+		case key == "\r" && mode == "startup" && refusals < 2:
+			refusals++
+			record(codexEvent{Event: "refused enter"})
+			screen(rule, line.String(), "Startup is still in progress")
+		case key == "\r":
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			screen("── ⠸ Working "+strings.Repeat("─", 27), "", "")
+			line.Reset()
+		default:
+			line.WriteString(key)
+			screen(rule, line.String(), "")
+		}
 	}
 }
 
@@ -154,6 +183,10 @@ func fakeHarness() {
 	}()
 	draw := func(rows ...string) {
 		fmt.Print("\x1b[2J\x1b[H" + strings.Join(rows, "\r\n"))
+	}
+	if strings.EqualFold(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])), "pi") {
+		fakePi(mode, keys, record, draw)
+		return
 	}
 	if mode == "silent" {
 		draw("Starting up, please wait.")
@@ -770,6 +803,28 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 				t.Errorf("screen = %q, %v; want codex working", host.ScreenTail(screen, 0), err)
 			}
 		})
+	}
+}
+
+// Pi draws its composer and footer before its startup ends and answers an
+// Enter pressed meanwhile with "Startup is still in progress", keeping the
+// text, so a switch's instruction stayed unsent on 2026-10-16. Enter is
+// pressed again while pi says so, and the instruction is submitted once.
+func TestANativeSpawnPressesEnterAgainWhilePiSaysItsStartupIsStillInProgress(t *testing.T) {
+	f := newNativeFixture(t, harness.Pi, "startup")
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	events := f.events(t)
+	if refused := named(events, "refused enter"); len(refused) != 2 {
+		t.Errorf("refused Enters = %d, want both of pi's refusals pressed through", len(refused))
+	}
+	pointer, _ := typedBrief(t, f.fixture, "task-7")
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
+		t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
 	}
 }
 

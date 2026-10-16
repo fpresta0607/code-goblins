@@ -62,8 +62,13 @@ Restarting with the same CFO home recovers durable events, evaluations, actions,
 
 ## Native hook setup
 
+Every session the fleet starts carries its native session hooks in its own launch, so a Claude Code, Codex or Pi goblin reports its session, its parent, its prompts, its turns and its end the same way, and nothing global is written.
+A Claude Code goblin's settings file, `state/goblin-claude-settings.json`, and the Claude CFO's, `state/cfo-claude-settings.json`, run `cfo native-hook claude` for SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd, SubagentStart and SubagentStop, beside their other hooks; neither `~/.claude/settings.json` nor any other file every Claude Code session on the machine loads gets them, since the Overlord's own sessions outside the fleet would run them too, as one once took the CFO's lock.
+A Codex goblin's launch, and the Codex CFO's, pass `--enable hooks` and one `-c hooks.<event>=...` override for each of those events and Interrupt, PreCompact and PostCompact, running `cfo native-hook codex` directly, rather than writing `~/.codex/hooks.json`.
+Codex keys a hook's trust by where it is defined, the same `<session-flags>/config.toml` for every launch, and by what it runs, so the Overlord trusts them once, in a Codex goblin's `/hooks`, for every Codex session of the home; until he does, each Codex start reports that it started without trusting its hooks, and its hooks do not run.
+Pi takes its hooks from its extension, `~/.pi/agent/extensions/cfo-native.ts`, which `cfo hooks install pi` writes.
 Run `cfo hooks check claude`, `cfo hooks check codex`, or `cfo hooks check pi` to inspect the installed capability contract.
-Run `cfo hooks install <harness>` to add the corresponding native lifecycle integration.
+Run `cfo hooks install <harness>` to add the corresponding native lifecycle integration for sessions the fleet did not start; for Claude Code and Codex the fleet's own launches need none.
 The verified minimum contracts are Claude Code 2.1.278, Codex 0.154.0, and Pi 0.85.1.
 The check reads the harness's version through PowerShell with the execution policy bypassed, so the script shim npm installs for Codex and Pi runs even where the policy is Restricted.
 Kimi Code is not a harness the fleet runs for now: it ran only in Herdr, and no native terminal knows its screens.
@@ -1152,7 +1157,7 @@ The CFO's press, `POST /api/cfo/update`, is kept in `state/cfo-update.json` for 
 The supervisor restarts the CFO onto the update through the Restart CFO path, on its own conversation (`claude --resume <id>`, `codex resume <id>`), once its turn has ended on two readings a second apart: its Stop hook waits on the wake queue, proved by the hook holding `state/.claude-autoarm.lock` under the registered CFO's own harness, or no turn, tool or background work runs and its composer is empty.
 Until then the header says the CFO restarts when its turn ends; a press for a CFO whose terminal was replaced since is dropped, and a restart that fails says why under the header and leaves the CFO running.
 A goblin's press is a pending engine choice with `when` `update` and its own harness, model and effort, shown on its card, which applies at the end of its turn as a deferred switch does and runs `cfo switch <id> --generation <generation> --restart`.
-`--restart` starts the goblin's own harness, model and effort again in place while it runs, which a same-values switch otherwise refuses, on its own conversation; a pi goblin, which has no resume, comes back from a handoff note, as every pi switch does.
+`--restart` starts the goblin's own harness, model and effort again in place while it runs, which a same-values switch otherwise refuses, on its own conversation, `pi --session <id>` for a pi goblin as `claude --resume <id>` and `codex resume <id>` for the others.
 
 ### The tab and the installed app
 

@@ -224,6 +224,67 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	}
 }
 
+// newPiSwitchFixture is newSwitchFixture for a pi goblin: the fake pi is on
+// PATH and the task runs pi with pi's own control.
+func newPiSwitchFixture(t *testing.T) *switchFixture {
+	t.Helper()
+	f := newSwitchFixture(t, harness.DefaultRegistry().Adapters[harness.Pi].Control())
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	copyFile(t, program, filepath.Join(bin, "pi.exe"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Pi: nativeAdapter{kind: harness.Pi, control: harness.DefaultRegistry().Adapters[harness.Pi].Control(), specs: &f.fixture.specs}}}
+	f.meta.Harness = string(harness.Pi)
+	if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// A pi goblin resumes its own conversation as Claude Code and Codex goblins
+// do: a switch that changes only its model, and the resume of a paused one,
+// start pi on the recorded session with --session, and hand it no written
+// handoff.
+func TestAPiGoblinResumesItsOwnSession(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		request func(meta state.TaskMeta) SwitchRequest
+	}{
+		{"a switch of its model", func(meta state.TaskMeta) SwitchRequest {
+			return SwitchRequest{ID: meta.ID, Model: "openrouter/deepseek/deepseek-v4.1-flash", Generation: meta.SpawnGen, ResumeSession: "01a14650-ac01-7127-9115-4f3a806b967f"}
+		}},
+		{"the resume of its pause", func(meta state.TaskMeta) SwitchRequest {
+			return SwitchRequest{ID: meta.ID, IsResume: true, ResumeSession: "01a14650-ac01-7127-9115-4f3a806b967f"}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newPiSwitchFixture(t)
+			request := test.request(f.meta)
+			if request.IsResume {
+				if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			result, err := f.service.Switch(context.Background(), request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			launches := named(f.events(t), "env")
+			if !result.Resumed || result.Handoff != "" || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "--session 01a14650-ac01-7127-9115-4f3a806b967f ") {
+				t.Fatalf("result = %+v, launches = %+v; want pi started on its own session and no handoff", result, launches)
+			}
+		})
+	}
+}
+
 func TestSwitchRefusesASessionFromTheReplacedTaskGeneration(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{ResumeArgs: []string{"resume", "--last"}})
 	replacement := f.meta

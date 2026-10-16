@@ -256,6 +256,10 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
 	}
+	codexHooks, err := s.codexHooks(target.Harness)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
+	}
 	subagents, err := s.subagentRoutes(target.Harness, target.Model)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
@@ -269,6 +273,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		MCPConfig:       mcp.Config(meta.TaskTmp),
 		Settings:        settings,
 		CodexMCPServers: codexServers,
+		CodexHooks:      codexHooks,
 		Subagents:       subagents,
 	})
 	if err != nil {
@@ -496,8 +501,10 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 // environment and the MCP servers withheld from the task.
 func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
+	// Claude Code, Codex and pi each resume a recorded conversation, so the
+	// resume of a pause does wherever its pause recorded one.
 	if request.IsResume {
-		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
+		resumed = request.ResumeSession != ""
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
@@ -510,8 +517,11 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		resumeArgs := []string{"--resume", request.ResumeSession}
-		if target.Harness == harness.Codex {
+		switch target.Harness {
+		case harness.Codex:
 			resumeArgs = []string{"resume", request.ResumeSession}
+		case harness.Pi:
+			resumeArgs = []string{"--session", request.ResumeSession}
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)

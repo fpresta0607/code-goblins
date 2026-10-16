@@ -386,11 +386,14 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			return nil
 		}
 		// A harness that takes the Enter ending a paste as part of it leaves
-		// the text in its composer: Enter is pressed again while the text
-		// still shows and no turn has started, further apart each time. An
+		// the text in its composer, as does one that says it took an Enter
+		// as no submission, for as long as it says so: Enter is pressed again
+		// while the text still shows and no turn has started, further apart
+		// each time, and the deadline bounds the presses a refusal brings. An
 		// Enter on an empty composer submits nothing, so the text is never
 		// handed over twice.
-		if !busy && screens.PasteTakesEnter && presses < submitRetries && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
+		canPress := screens.PasteTakesEnter && presses < submitRetries || screens.RefusedSubmit(screen)
+		if !busy && canPress && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
 			if err := pressNativeEnter(record); err != nil {
 				return err
 			}
