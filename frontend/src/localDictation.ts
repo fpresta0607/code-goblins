@@ -233,6 +233,9 @@ export function localRecognizer(open: (piece: (sound: Sound) => void, since: num
     private turn: Promise<unknown> = Promise.resolve();
     private isSpeech = false;
     private seconds = 0;
+    // When the keys went down, and how long they were held.
+    private since = 0;
+    private held = 0;
     // Pieces with nothing loud in them, held back: room noise, which the
     // model writes words of its own into, once anything loud is said, else
     // the whole dictation as it is, as from a quiet microphone.
@@ -272,6 +275,7 @@ export function localRecognizer(open: (piece: (sound: Sound) => void, since: num
 
     start(track?: MediaStreamTrack, since = performance.now()): void {
       if (!track) { this.end({ error: "audio-capture" }); return; }
+      this.since = since;
       let recording: Recording;
       try {
         recording = open((piece) => this.take(piece), since);
@@ -295,6 +299,7 @@ export function localRecognizer(open: (piece: (sound: Sound) => void, since: num
       const recording = this.recording;
       this.recording = null;
       if (!recording) return;
+      this.held = (performance.now() - this.since) / 1000;
       recording.stop().then((rest) => {
         if (this.ended) return [];
         this.take(rest);
@@ -307,7 +312,7 @@ export function localRecognizer(open: (piece: (sound: Sound) => void, since: num
         if (text) {
           this.onresult?.({ resultIndex: 0, results: [[{ transcript: text }]] });
           this.end();
-        } else if (this.isSpeech) this.end({ error: "unheard", message: `The engine answered no words for ${Math.round(this.seconds)} s of dictation with speech in it.` });
+        } else if (this.isSpeech) this.end({ error: "unheard", message: `The engine answered no words for ${this.seconds.toFixed(1)} s of dictation with speech in it, recorded in a ${this.held.toFixed(1)} s hold. Its last sound with speech in it is kept on this PC in state/dictation-no-words.wav until the next.` });
         else this.end({ error: "no-speech" });
       }, (error: unknown) => this.end({ error: error instanceof DictationSetUp ? "setup" : "supervisor", message: error instanceof Error ? error.message : String(error) }));
     }
