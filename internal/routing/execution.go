@@ -14,6 +14,7 @@ const (
 	Implementation TaskClass = "implementation"
 	Architecture   TaskClass = "architecture"
 	Review         TaskClass = "review"
+	Verification   TaskClass = "verification"
 	Debug          TaskClass = "debug"
 	Migration      TaskClass = "migration"
 	Deployment     TaskClass = "deployment"
@@ -24,6 +25,9 @@ const (
 type Assessment struct {
 	Class                                          TaskClass
 	Risk                                           string
+	Complexity                                     string
+	CheckedHarness, CheckedModel                   string
+	IsVerification                                 bool
 	Attempts                                       int
 	ExplicitHarness, ExplicitModel, ExplicitEffort string
 }
@@ -41,6 +45,11 @@ func ChooseExecution(a Assessment, lanes map[string]ExecutionLane, defaultLane, 
 		return ExecutionLane{Name: "explicit", Harness: a.ExplicitHarness, Model: a.ExplicitModel, Effort: a.ExplicitEffort}
 	}
 	name := defaultLane
+	if a.Complexity == "narrow" {
+		if _, ok := lanes[string(Mechanical)]; ok {
+			name = string(Mechanical)
+		}
+	}
 	if _, ok := lanes[string(a.Class)]; ok {
 		name = string(a.Class)
 	}
@@ -55,7 +64,7 @@ func ChooseExecution(a Assessment, lanes map[string]ExecutionLane, defaultLane, 
 }
 
 func escalates(a Assessment) bool {
-	return a.Risk == "high" || a.Class == Architecture || a.Class == Security || a.Class == Migration || a.Attempts >= 2
+	return a.Risk == "high" || a.Complexity == "deep" || a.Class == Architecture || a.Class == Security || a.Class == Migration || a.Attempts >= 2
 }
 
 // Choice is what a spawn runs and why.
@@ -73,21 +82,32 @@ type Choice struct {
 // evidence was either way. An empty note is not recorded.
 type Usable func(ExecutionLane) (ok bool, note string)
 
-// Choose picks the lane an assessment asks for and then, when a usable check
-// is given, tries the wanted lane, the default and the escalation. Escalated
-// work stays in its lane. No usable lane is an error naming the findings.
+// Choose checks the wanted lane and its declared fallbacks. Escalated work
+// never falls back to an undeclared lane. No usable lane is an error naming
+// the findings.
 func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
 	if a.ExplicitHarness == "" && escalates(a) && t.EscalateTo == "" {
 		return Choice{}, fmt.Errorf("no escalation lane configured for class=%s risk=%s", a.Class, a.Risk)
 	}
 	wanted := ChooseExecution(a, t.Lanes, t.DefaultLane, t.EscalateTo)
 	c := Choice{ExecutionLane: wanted, Wanted: wanted.Name}
-	if usable == nil {
+	if usable == nil && a.CheckedModel == "" {
 		return c, nil
 	}
 	for _, name := range fallbackOrder(wanted.Name, t) {
 		lane := t.Lanes[name]
-		ok, note := usable(lane)
+		if a.ExplicitModel != "" && lane.Harness != wanted.Harness {
+			c.Notes = append(c.Notes, name+": an explicit model stays on "+wanted.Harness)
+			continue
+		}
+		if a.CheckedModel != "" && a.CheckedHarness == lane.Harness && SameModel(lane.Harness, a.CheckedModel, lane.Model) {
+			c.Notes = append(c.Notes, name+": verification needs a different model")
+			continue
+		}
+		ok, note := true, ""
+		if usable != nil {
+			ok, note = usable(lane)
+		}
 		if note != "" {
 			c.Notes = append(c.Notes, name+": "+note)
 		}
@@ -103,15 +123,18 @@ func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
 // Model names and unrelated lanes provide no evidence of equivalence.
 func fallbackOrder(wanted string, t Table) []string {
 	order := []string{wanted}
-	if wanted == t.EscalateTo {
-		return order
-	}
 	seen := map[string]bool{wanted: true}
 	add := func(name string) {
 		if _, ok := t.Lanes[name]; ok && !seen[name] {
 			order = append(order, name)
 			seen[name] = true
 		}
+	}
+	for _, name := range t.Fallbacks[wanted] {
+		add(name)
+	}
+	if wanted == t.EscalateTo {
+		return order
 	}
 	add(t.DefaultLane)
 	add(t.EscalateTo)
@@ -137,7 +160,11 @@ var (
 	debugAsk        = regexp.MustCompile(`\b(fix|fixes|bug|bugs|regression|regressions|crash|crashes|broken|failing|root[- ]cause)\b`)
 	deploymentAsk   = regexp.MustCompile(`\b(deploy|deploys|deployment|redeploy)\b`)
 	reviewAsk       = regexp.MustCompile(`\breview\b[^.;\n]{0,30}\b(pr|prs|pull requests?|diff|branch|changes?|code|merges?)\b`)
+	verificationAsk = regexp.MustCompile(`(?:^|[\n.!?:]|[-*]\s)\s*(verify|validate)\b|\bindependent verification\b`)
+	readAsk         = regexp.MustCompile(`(?:^|[\n.!?:]|[-*]\s)\s*(search|read|summarize)\b`)
 	mechanicalAsk   = regexp.MustCompile(`(?:^|[\n.!?:]|[-*]\s)\s*rename\b[^.,;\n]{0,50}\b(to|as|into)\b|\b(mechanical|typos?)\b|\bdocs?[- ]only\b`)
+	narrowAsk       = regexp.MustCompile(`\b(narrow|single[- ]file|tightly specified|mechanical)\b`)
+	deepAsk         = regexp.MustCompile(`\b(complex|cross[- ]cutting|multi[- ]stage)\b`)
 
 	kindLine  = regexp.MustCompile(`(?m)^kind:\s*(\S+)`)
 	codeSpan  = regexp.MustCompile("`[^`\n]*`")
@@ -164,13 +191,19 @@ var droppedSections = []string{"constraints", "authentication", "commits", "deli
 // security scan green"); the upgrade is a small classifier model behind the
 // same Assessment, with these rules as its test set.
 func Classify(brief string) Assessment {
-	a := Assessment{Class: Implementation, Risk: "normal"}
+	a := Assessment{Class: Implementation, Risk: "normal", Complexity: "normal"}
 	kind := deliveryKind(brief)
-	if kind == "scout" {
-		a.Class = Scout
-		return a
-	}
 	ask := askText(brief)
+	taskAsk := ask
+	if _, body, found := strings.Cut(ask, "## task\n"); found {
+		taskAsk, _, _ = strings.Cut(body, "\n## ")
+	}
+	a.IsVerification = verificationAsk.MatchString(taskAsk)
+	if deepAsk.MatchString(ask) {
+		a.Complexity = "deep"
+	} else if narrowAsk.MatchString(ask) {
+		a.Complexity = "narrow"
+	}
 	switch {
 	case securityAsk.MatchString(ask):
 		a.Class, a.Risk = Security, "high"
@@ -182,14 +215,21 @@ func Classify(brief string) Assessment {
 		a.Class, a.Risk = Rescue, "high"
 	case kind == "" && scoutAsk.MatchString(ask):
 		a.Class = Scout
+	case a.IsVerification:
+		a.Class = Verification
 	case reviewAsk.MatchString(ask):
 		a.Class = Review
+	case kind == "" && readAsk.MatchString(taskAsk):
+		a.Class = Scout
 	case debugAsk.MatchString(ask):
 		a.Class = Debug
 	case deploymentAsk.MatchString(ask):
 		a.Class = Deployment
 	case mechanicalAsk.MatchString(ask):
 		a.Class = Mechanical
+	}
+	if kind == "scout" {
+		a.Class = Scout
 	}
 	return a
 }
@@ -209,7 +249,7 @@ func deliveryKind(brief string) string {
 func askText(brief string) string {
 	var kept []string
 	drop := false
-	for _, line := range strings.Split(brief, "\n") {
+	for _, line := range strings.Split(strings.ReplaceAll(brief, "\r\n", "\n"), "\n") {
 		if strings.HasPrefix(line, "## ") {
 			heading := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "## ")))
 			drop = false

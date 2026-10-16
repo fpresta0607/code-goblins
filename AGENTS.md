@@ -682,15 +682,81 @@ You orchestrate deliberately, never by reflex.
 - **Every goblin session ends in merged, verified code.** A `ship` session is not complete at a green gate, a pushed branch, or an open PR. It is complete when the work is rebased on current `main`, merged, and the merge is verified by reading `main` itself rather than trusting the goblin's report or a PR's status field. Verify content, not ancestry: a squash merge leaves the branch's original SHAs unreachable from `main`, so `git branch -r --contains` reports 0 for work that landed perfectly. Compare `git diff origin/main HEAD` instead. A goblin is retired only after that check passes; anything blocked short of merge stays open with the blocker named.
 - **Never spawn what you can answer yourself.** Informational questions ("what does this do", "is this committed") get answered directly from the repo. Spawn only for a real code change (ship) or an investigation that needs a standalone report (scout).
 - **Classify before you spawn.** `ship` produces a code change and is the default when the request implies one. `scout` produces a report and is only for a plan, audit, or diagnosis the Supreme Overlord explicitly asked for, or a question whose answer could change what gets built.
-- **Let the lane table choose harness, model, and effort.** `cfo spawn` without `--harness` classifies the brief and routes it through `data/routing.json`; `cfo doctor` prints the table. As shipped: `deep` (claude, fable, xhigh) for architecture, security, migration, rescue and anything high risk; `build` (claude, opus, high) for ordinary implementation, the default; `mechanical` (claude, sonnet, medium) for renames, config edits, docs and tightly specified changes; `scout` (claude, fable, xhigh) for investigations that produce a report. The spawn reads quota-axi first and moves to the next usable lane when the wanted one is exhausted, saying so on the `routed` line, or refuses when none is usable.
-  - Pass `--harness`, `--model`, or `--effort` only for the Supreme Overlord's stated preference; an explicit flag wins and the spawn line reports it. Never `max` without the Supreme Overlord saying so.
-  - A quota-driven lane change is never silent: the `routed` line names the wanted lane, the lane used, and the evidence.
-    Class-specific work may try its requested lane, then the default, then escalation, while ordinary work may try only the default and escalation.
-    High-risk work and retries stay in escalation and refuse when it is unavailable or not configured, even if a lighter lane has quota.
-    Unrelated lanes and model names establish no capability equivalence.
-    Never downgrade by hand to save quota.
-    Installing a build preserves a home's existing table, and tuning that private table remains the CFO's decision.
+- **Let the lane table choose harness, model, and effort.** Follow [Model routing](#model-routing).
 - **Never invent goblins.** Spawn only the goblins the request needs. Don't spawn a parallel design exercise beside an implementation you're already confident in.
+
+## Model routing
+
+`data/routing.json` is the fleet's editable policy for new starts and native helpers.
+Installing a build preserves a home's existing table, so the CFO chooses when to adopt a new default.
+`cfo doctor` prints the lanes and `cfo route` previews a brief's route.
+
+Without `--harness`, spawn classifies the brief's task, complexity and risk.
+Narrow or mechanical work uses `mechanical`, search and reading use `scout`, and ordinary implementation uses `default_lane`.
+A lane named for another class takes that class.
+High risk, architecture, migration, security, deep complexity and repeated attempts use `escalate_to`, even for a scout.
+Constraints, credentials and delivery boilerplate are excluded from the classifier.
+The shipped default and escalation use Codex `gpt-6-astra` at `xhigh`, with `gpt-6-luna` at `medium` for small work.
+Pass `--harness`, `--model` or `--effort` only for the Supreme Overlord's stated preference.
+Explicit choices are recorded as such.
+An explicit model stays on the wanted lane's harness rather than being sent to another provider.
+
+Each lane names `harness`, `model`, `effort` and a short `note` saying why it runs.
+`fallbacks` maps a wanted lane to an ordered list of other lanes the CFO considers capable of its work.
+An escalation lane tries only its declared fallbacks, never an unrelated lighter lane.
+Other lanes try their declared fallbacks, then the default and escalation.
+The shipped strong fallback is Claude Opus, and the small fallback is Haiku.
+No usable candidate means no dispatch.
+
+`start_floor_percent` is the remaining allowance reserved from new starts, 10 in the shipped policy and disabled at 0.
+A fresh session, weekly or model window at that floor makes a candidate unavailable before it is exhausted.
+Only windows that bound that model count.
+Unknown, stale or reset windows do not establish a floor.
+The existing weekly reserve still applies.
+A fallback records the wanted lane and evidence, puts a durable notice in the CFO's queue, and shows its lane reason beside the model and effort on the goblin's card.
+This changes no running goblin: the separate `rules` array remains the CFO's authority for switching one.
+
+`subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
+Search includes reading and summaries, review uses a strong model, and verification takes the first model different from the parent's recorded model.
+The shipped Codex verifier uses `gpt-6-sol` at `high`, falling back to Astra when Sol is the parent.
+Claude uses Sonnet for verification of Opus work and Opus for verification of Sonnet work.
+A configured role without a usable model refuses launch, including an unknown parent model for verification.
+A supervisor helper whose Task asks for verification also excludes the parent's model.
+
+For example, these fields refer to lanes defined in the same file:
+
+```json
+{
+  "default_lane": "build",
+  "escalate_to": "deep",
+  "start_floor_percent": 10,
+  "fallbacks": {"deep": ["strong-claude"]},
+  "subagents": {
+    "codex": {
+      "search": ["mechanical"],
+      "review": ["deep"],
+      "verify": ["verification", "deep"]
+    },
+    "claude": {
+      "search": ["small-claude"],
+      "review": ["strong-claude"],
+      "verify": ["verify-claude", "strong-claude"]
+    }
+  },
+  "lanes": {
+    "build": {"harness": "codex", "model": "gpt-6-astra", "effort": "xhigh", "note": "ordinary implementation"}
+  }
+}
+```
+
+The example omits the other lane definitions for space.
+Every referenced lane must exist in the complete policy.
+A project's `routing` block can replace its spawn lanes, while native helper roles come from the fleet policy.
+Claude receives task-local `cfo-search`, `cfo-review` and `cfo-verify` agent definitions through `--add-dir`.
+Codex receives its native default helper model and effort settings, plus instructions to use explicit `spawn_agent` model and effort arguments with `fork_turns: none` for each job.
+A full conversation fork inherits its parent's model, so routed helpers use a fresh context.
+Baby cards show the model in the child's own assistant message or turn context, never the requested model inferred from its parent.
+A missing model record is displayed as unknown.
 
 ## Secondmates
 

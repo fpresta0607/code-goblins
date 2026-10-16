@@ -18,6 +18,7 @@ import { BabyGoblin } from "./BabyGoblin";
 import { babies, formatMemory, summarize } from "./fleet-tree";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
+import { CardRouting } from "./card-routing";
 
 // A task's card on the board: its portrait beside its title, up to three
 // lines, then across the card's whole width one muted line with the repo, the
@@ -78,6 +79,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {rank && <span className="sr-only">, {rank}</span>}
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span><CardClock task={task} now={now} /></span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
+      <CardRouting task={task} />
       {task.pending_engine?.when === "update"
         ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
         : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}

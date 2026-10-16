@@ -363,6 +363,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .project-label, .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node .card-copy:has(.browser-indicator, small) strong { -webkit-line-clamp: 1; }
 .flow-node .card-copy:has(.browser-indicator):has(small) .card-status-text { -webkit-line-clamp: 1; }
+.flow-node .card-copy:has(.card-engine) strong, .flow-node .card-copy:has(.card-engine) .card-status-text { -webkit-line-clamp: 1; }
+.flow-node .card-engine, .flow-node .card-route { width: 100%; font-size: .75rem; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
 /* On the canvas a goblin's chevron folds its branches too, so it hangs low
@@ -1316,6 +1318,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
+.card-engine, .card-route { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.card-engine { color: inherit; font-weight: 600; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }

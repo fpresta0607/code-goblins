@@ -31,6 +31,8 @@ type TaskMeta struct {
 	Brief            string
 	Model            string
 	Effort           string
+	RouteLane        string
+	RouteReason      string
 	SpawnGen         string
 	ResumeOperation  string
 	PipelineClass    string
@@ -318,6 +320,8 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		TaskTmp:          kv["tasktmp"],
 		Brief:            kv["brief"],
 		Model:            kv["model"],
+		RouteLane:        kv["route_lane"],
+		RouteReason:      kv["route_reason"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
 		FirstGen:         kv["first_gen"],
@@ -415,6 +419,8 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"tasktmp":            meta.TaskTmp,
 		"brief":              meta.Brief,
 		"model":              meta.Model,
+		"route_lane":         meta.RouteLane,
+		"route_reason":       meta.RouteReason,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
 		"first_gen":          meta.FirstGen,
@@ -514,6 +520,8 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"tasktmp", meta.TaskTmp},
 		{"brief", meta.Brief},
 		{"model", meta.Model},
+		{"route_lane", meta.RouteLane},
+		{"route_reason", meta.RouteReason},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},
 		{"first_gen", meta.FirstGen},

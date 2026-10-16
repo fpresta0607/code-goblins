@@ -50,6 +50,8 @@ export interface Task extends Evaluation {
   model: string;
   effort: string;
   mode: string;
+  route_lane?: string;
+  route_reason?: string;
   generation: string;
   session: string;
   // waits is what a queued task's row still waits for before the scheduler
@@ -128,6 +130,7 @@ export interface FleetTree {
 // detached is set on a job whose processes reach the goblin's harness through
 // no parent any more, such as a server left by a command that returned.
 export interface TreeNode {
+  model?: string;
   id: string; kind: string; group: string; parent: string; label: string; detail: string; task: string; state: string;
   started: string; last_activity: string; finished: string; last_line: string; memory: number;
   source_updated_at: string; fetched_at: string; detached?: boolean;
@@ -139,7 +142,7 @@ function parseTree(value: unknown): FleetTree {
     conversation_at: string(t.conversation_at), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
     children: array(t.children).map((child) => {
       const c = object(child);
-      return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state),
+      return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state), model: string(c.model),
         started: string(c.started), last_activity: string(c.last_activity), finished: string(c.finished), last_line: string(c.last_line), memory: number(c.memory),
         source_updated_at: string(c.source_updated_at), fetched_at: string(c.fetched_at), ...(c.detached === true ? { detached: true } : {}) };
     }),
@@ -869,6 +872,8 @@ export function parseSnapshot(value: unknown): Snapshot {
         backend: string(t.backend),
         model: string(t.model),
         effort: string(t.effort),
+        route_lane: string(t.route_lane),
+        route_reason: string(t.route_reason),
         mode: string(t.mode),
         generation: string(t.generation),
         session: string(t.session),
