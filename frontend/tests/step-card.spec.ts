@@ -71,18 +71,17 @@ test("the card of clicks shows its heading, link and steps and no value table be
 // other enter command or text about a command when exited", and later that
 // day that it belongs at the bottom, beside the decision buttons. The card it
 // leaves names the command to give the value later, or to bring it back.
-test("the pencil beside the decision buttons skips a card from any board and leaves the command to give the value later", async ({ page }) => {
+test("Skip beside the decision buttons skips a card from any board and leaves the command to give the value later", async ({ page }) => {
   // Arrange: a board opened from another machine.
   const elsewhere = "https://board.test";
   await servePages(page.context(), elsewhere);
   const sent = await answer(page);
   const card = await openCard(page, INPUTS, elsewhere);
   await recordDoneCards(page);
-  const pencil = card.locator(".card-actions").getByRole("button", { name: "Skip or answer in your own words" });
+  const skip = card.locator(".card-actions").getByRole("button", { name: "Skip this card" });
 
   // Act
-  await pencil.click();
-  await page.getByRole("dialog", { name: "Skip this card?" }).getByRole("button", { name: "Skip", exact: true }).click();
+  await skip.click();
   await expect.poll(() => sent.length).toBe(1);
   await setCard(page, INPUTS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
@@ -98,8 +97,7 @@ test("a closed card with nothing secret to give later says how to bring it back"
   await recordDoneCards(page);
 
   // Act
-  await card.getByRole("button", { name: "Skip or answer in your own words" }).click();
-  await page.getByRole("dialog", { name: "Skip this card?" }).getByRole("button", { name: "Skip", exact: true }).click();
+  await card.getByRole("button", { name: "Skip this card" }).click();
   await setCard(page, CLICKS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
   // Assert
@@ -162,7 +160,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}.png`) });
       await card.locator(".credential-heading").hover();
       await page.mouse.wheel(0, 4000);
-      await expect(card.getByRole("button", { name: "Skip or answer in your own words" })).toBeInViewport();
+      await expect(card.getByRole("button", { name: "Answer in your own words" })).toBeInViewport();
       expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`step-card-${id.slice(-4)}-${viewport.width}-end.png`) });
     }

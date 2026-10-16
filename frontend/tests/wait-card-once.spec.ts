@@ -21,7 +21,7 @@ test("a goblin's wait with a page says its words once and opens the page from on
   await expect(card.locator('a[href="http://127.0.0.1:4387/session/f26e"]')).toHaveCount(1);
   await expect(card.getByRole("link", { name: "Open review" })).toHaveCount(1);
   await expect(card.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/waiting-pd-agent-context-7/preview");
-  await expect(card.getByRole("button", { name: "Skip or answer in your own words" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Answer in your own words" })).toBeVisible();
 });
 
 test("another review with a page opens it from one button and never names it Scrawl page", async ({ page }) => {

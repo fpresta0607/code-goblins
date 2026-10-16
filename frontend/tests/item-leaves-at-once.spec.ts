@@ -119,7 +119,7 @@ async function expectGone(page: Page, says: string) {
 const WAYS = [
   { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", open: "", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
   { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "question_clear", heading: "Dismissed" },
-  { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", open: 'dialog.question-modal [aria-label="Skip or answer in your own words"]', press: "dialog.skip-note .credential-replace-confirm", kind: "review_clear", heading: "Cleared" },
+  { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
   { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", open: "", press: 'dialog.question-modal [aria-label="Skip this card"]', kind: "review_clear", heading: "Cleared" },
 ];
 

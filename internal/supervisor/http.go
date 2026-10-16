@@ -183,6 +183,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
+	case r.URL.Path == "/api/answer-images" && r.Method == "POST":
+		h.keepAnswerImage(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
 	case r.URL.Path == "/api/announce" && r.Method == "POST":
