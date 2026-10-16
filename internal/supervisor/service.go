@@ -1227,17 +1227,19 @@ func (s *Service) previewGit(meta state.TaskMeta) Git {
 }
 
 type Task struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Branch     string `json:"branch,omitempty"`
-	Project    string `json:"project"`
-	Harness    string `json:"harness"`
-	Backend    string `json:"backend"` // the terminal it runs in: native or herdr
-	Model      string `json:"model"`
-	Effort     string `json:"effort"`
-	Mode       string `json:"mode"`
-	Generation string `json:"generation"`
-	Session    string `json:"session"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Branch      string `json:"branch,omitempty"`
+	Project     string `json:"project"`
+	Harness     string `json:"harness"`
+	Backend     string `json:"backend"` // the terminal it runs in: native or herdr
+	Model       string `json:"model"`
+	RouteLane   string `json:"route_lane,omitempty"`
+	RouteReason string `json:"route_reason,omitempty"`
+	Effort      string `json:"effort"`
+	Mode        string `json:"mode"`
+	Generation  string `json:"generation"`
+	Session     string `json:"session"`
 	// Waits is what a queued task's row still waits for before the
 	// scheduler starts it, for its card's words.
 	Waits   []fleet.Blocker `json:"waits,omitempty"`
@@ -1595,7 +1597,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

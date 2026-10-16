@@ -256,6 +256,10 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
 	}
+	subagents, err := s.subagentRoutes(target.Harness, target.Model)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w", err)
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
@@ -265,6 +269,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		MCPConfig:       mcp.Config(meta.TaskTmp),
 		Settings:        settings,
 		CodexMCPServers: codexServers,
+		Subagents:       subagents,
 	})
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: build harness launch: %w; task %s was left running as it was", err, req.ID)
@@ -522,6 +527,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// What the task carries is said before any note the relaunch is given,
 	// so the note stays the instruction's last word.
 	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld)
+	launch.Instruction += launch.SubagentInstruction
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
@@ -581,6 +587,9 @@ func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 }
 
 func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error {
+	if !target.same(*meta) {
+		meta.RouteLane, meta.RouteReason = "explicit", "engine changed by the CFO"
+	}
 	meta.Harness = string(target.Harness)
 	meta.Model = valueOrDefault(target.Model)
 	meta.Effort = valueOrDefault(target.Effort)

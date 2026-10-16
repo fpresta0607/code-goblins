@@ -92,8 +92,7 @@ func TestLoadKeepsAcceptingARulesOnlyPolicy(t *testing.T) {
 	}
 }
 
-// The table that ships in data/routing.json is the Overlord's direction of
-// 2026-09-17; this pins it, with the fault rule beside it.
+// The shipped table pins the standing default and its independent helpers.
 func TestShippedRoutingTableMatchesTheDirection(t *testing.T) {
 	policy, err := Load(filepath.Join("..", "..", "data"))
 	if err != nil {
@@ -103,10 +102,14 @@ func TestShippedRoutingTableMatchesTheDirection(t *testing.T) {
 		t.Errorf("default %q escalate %q, want build and deep", policy.DefaultLane, policy.EscalateTo)
 	}
 	want := map[string]Lane{
-		"deep":       {Harness: "claude", Model: "fable", Effort: "xhigh"},
-		"build":      {Harness: "claude", Model: "opus", Effort: "high"},
-		"mechanical": {Harness: "claude", Model: "sonnet", Effort: "medium"},
-		"scout":      {Harness: "claude", Model: "fable", Effort: "xhigh"},
+		"deep":          {Harness: "codex", Model: "gpt-6-astra", Effort: "xhigh"},
+		"build":         {Harness: "codex", Model: "gpt-6-astra", Effort: "xhigh"},
+		"mechanical":    {Harness: "codex", Model: "gpt-6-luna", Effort: "medium"},
+		"scout":         {Harness: "codex", Model: "gpt-6-luna", Effort: "medium"},
+		"strong-claude": {Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"},
+		"small-claude":  {Harness: "claude", Model: "haiku", Effort: "medium"},
+		"verification":  {Harness: "codex", Model: "gpt-6-sol", Effort: "high"},
+		"verify-claude": {Harness: "claude", Model: "sonnet", Effort: "high"},
 	}
 	if len(policy.Lanes) != len(want) {
 		t.Fatalf("lanes = %v, want exactly %d", policy.Lanes, len(want))

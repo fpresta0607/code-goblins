@@ -216,7 +216,7 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 		// Avoid embedded quotes on PowerShell 5.1's native argument path.
 		launch.Args = append(launch.Args, "-c", "model_reasoning_effort="+spec.Effort)
 	}
-	return launch, nil
+	return configureSubagents(launch, Codex, spec)
 }
 
 // Control resumes Codex through its resume subcommand, which is why

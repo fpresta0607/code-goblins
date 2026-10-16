@@ -21,8 +21,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // quotaTimeout bounds the quota-axi call a spawn makes before picking a
@@ -144,6 +146,15 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return nil
 	}
 	assessment := routing.Classify(string(briefText))
+	assessment.ExplicitModel = *model
+	if *parent != "" && assessment.IsVerification {
+		parentMeta, err := state.ReadTaskMeta(h.State, *parent)
+		if err != nil || parentMeta.Model == "" || parentMeta.Model == "default" {
+			fmt.Fprintln(stderr, "cfo spawn: verification requires its parent's recorded model")
+			return 1
+		}
+		assessment.CheckedHarness, assessment.CheckedModel = parentMeta.Harness, parentMeta.Model
+	}
 	routed := *harnessName == ""
 	var inputs supervisor.RouteInputs
 	if routed || *auto {
@@ -161,7 +172,8 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 
 	taskClass, routeLane, repairRounds := *class, "explicit", 0
-	var route string
+	var route, routeNotice string
+	routeReason := "explicit choice"
 	if routed {
 		if len(inputs.Table.Lanes) == 0 {
 			fmt.Fprintf(stderr, "cfo spawn: no execution lanes: define lanes in %s (cfo doctor prints the table) or pass --harness\n", filepath.Join(h.Data, routing.FileName))
@@ -183,7 +195,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 			inputs.Table.Lanes[name] = lane
 		}
-		choice, err := routing.Choose(assessment, inputs.Table, usableLane(report, skipped, settings, now))
+		choice, err := routing.Choose(assessment, inputs.Table, usableLane(report, skipped, settings, now, inputs.Table.StartFloorPercent))
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
 			return 1
@@ -194,11 +206,23 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 		*harnessName, *model, *effort = choice.Harness, choice.Model, choice.Effort
 		routeLane = choice.Name
+		routeReason = choice.Note
+		if routeReason == "" {
+			routeReason = string(assessment.Class) + " work"
+		}
+		if choice.Wanted != choice.Name {
+			routeReason += " (fallback from " + choice.Wanted + ")"
+			routeNotice = "Started " + args[0] + " on " + choice.Harness + " " + choice.Model + " in lane " + choice.Name + " instead of " + choice.Wanted + ": " + strings.Join(choice.Notes, ", ")
+		}
 		route = routeLine(choice, assessment, inputs.Table.Source, skipped)
 		if len(overrides) > 0 {
 			route += " overrides=" + strings.Join(overrides, " ")
 		}
 	} else {
+		if assessment.CheckedModel != "" && (*model == "" || *model == "default" || assessment.CheckedHarness == *harnessName && routing.SameModel(*harnessName, assessment.CheckedModel, *model)) {
+			fmt.Fprintln(stderr, "cfo spawn: verification requires a known different model from its parent")
+			return 1
+		}
 		route = fmt.Sprintf("routed lane=explicit class=%s risk=%s source=--harness flag", assessment.Class, assessment.Risk)
 		if skipped == "" {
 			if headroom := report.Headroom(*harnessName, *model); headroom.Exhausted {
@@ -272,19 +296,21 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 	}
 	result, err := runtime.spawn(context.Background(), h, spawn.Request{
-		ID:        args[0],
-		Project:   *project,
-		BriefPath: *brief,
-		Kind:      "ship",
-		Mode:      *mode,
-		Yolo:      *yolo,
-		Harness:   harness.Kind(*harnessName),
-		Model:     *model,
-		Effort:    *effort,
-		Class:     *class,
-		Title:     title,
-		Parent:    *parent,
-		Capsule:   writeCapsule,
+		ID:          args[0],
+		Project:     *project,
+		BriefPath:   *brief,
+		Kind:        "ship",
+		Mode:        *mode,
+		Yolo:        *yolo,
+		Harness:     harness.Kind(*harnessName),
+		Model:       *model,
+		Effort:      *effort,
+		Class:       *class,
+		Title:       title,
+		Parent:      *parent,
+		RouteLane:   routeLane,
+		RouteReason: routeReason,
+		Capsule:     writeCapsule,
 		// The read of teammates' work answers before the terminal launches.
 		BeforeLaunch: checkTeammates,
 	})
@@ -304,6 +330,13 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	fmt.Fprintln(stdout, result.Output)
 	fmt.Fprintln(stdout, route)
+	if routeNotice != "" {
+		if _, err := wake.Append(h.State, "notify", args[0], routeNotice); err != nil {
+			fmt.Fprintf(stderr, "cfo spawn: the task started, but its routing notice could not reach the CFO: %v\n", err)
+		} else if _, err := wake.PublishEpisode(h.State); err != nil {
+			fmt.Fprintf(stderr, "cfo spawn: the routing notice was queued, but its recovery episode could not be published: %v\n", err)
+		}
+	}
 	if runtime.speedHint != nil {
 		if hint := runtime.speedHint(context.Background(), *harnessName); hint != "" {
 			fmt.Fprintln(stdout, hint)
@@ -336,7 +369,7 @@ func quotaClock(runtime commandRuntime) time.Time {
 // whose provider or model scope is exhausted now, or at the weekly floor
 // settings keep for its provider, is unusable; no evidence is usable. A
 // skipped check means no check at all.
-func usableLane(report quota.Report, skipped string, settings fleetconfig.Settings, now time.Time) routing.Usable {
+func usableLane(report quota.Report, skipped string, settings fleetconfig.Settings, now time.Time, startFloor float64) routing.Usable {
 	if skipped != "" {
 		return nil
 	}
@@ -348,6 +381,9 @@ func usableLane(report quota.Report, skipped string, settings fleetconfig.Settin
 			if !reset.IsZero() {
 				note += ", resets " + reset.UTC().Format(time.RFC3339)
 			}
+			return false, note
+		}
+		if isLow, note := report.StartFloor(lane.Harness, lane.Model, startFloor, now); isLow {
 			return false, note
 		}
 		return !headroom.Exhausted, headroom.String()

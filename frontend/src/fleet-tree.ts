@@ -219,7 +219,7 @@ export const hasRunningChildren = (tree?: FleetTree) => babies(tree).length > 0;
 // clear of the card's chevron, how far a line drops into a baby goblin after
 // its last turn, the drop to the first row when no line turns, the room the
 // card's bottom keeps from its corners, and the bend of a joint.
-export const BABY_WIDTH = 228, BABY_HEIGHT = 160, LINE_GAP = 8;
+export const BABY_WIDTH = 228, BABY_HEIGHT = 180, LINE_GAP = 8;
 const CLEAR = 12, COLUMN_GAP = 32, ROW_GAP = 28, FIRST = 32, TAIL = 18, DROP = 44, CORNERS = 32, BEND = 8;
 
 interface Point { x: number; y: number }
