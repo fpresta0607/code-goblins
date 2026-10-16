@@ -35,6 +35,16 @@ export function tasksWithoutSession(tasks: Task[], sessions: Session[]): Task[] 
   return tasks.filter((task) => !sessions.some((node) => ownsTaskSession(node, task)));
 }
 
+// isRetiredSession says a session belongs to a retired task, a goblin's own
+// or one of its baby goblins: the board holds no live task of that id, and
+// the task's record is in the board's archived history, so the session has
+// nothing left to show. Retirement takes that positive evidence, so a session
+// whose task the board has not read yet stays in the family tree.
+export function isRetiredSession(tasks: Task[], session: Session): boolean {
+  if (!session.task_id || tasks.some((task) => !task.archived && task.id === session.task_id)) return false;
+  return tasks.some((task) => task.archived && task.id === "finished:" + session.task_id);
+}
+
 // Project filtering retains reported relatives, never inferred directory/time links.
 export function projectSessions(sessions: Session[], tasks: Task[], project: string): Session[] {
   if (!project) return sessions;
