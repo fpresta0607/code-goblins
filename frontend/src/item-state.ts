@@ -15,10 +15,11 @@ export interface Sent { kind: string; id: string; text: string; answer_kind: str
 // publishedAt names one publishing of an item. The supervisor takes an ID
 // again once it has dropped the record that used it, so an ID alone does not:
 // the same ID with another created_at is a new item. An item's identity is no
-// part of it, since it moves when the CFO registers again. A reopened step
-// card keeps its created_at but starts a new generation.
-export const publishedAt = (item: Item): string => item.kind === "credential" ? item.request.created_at + ":" + item.request.generation
-  : (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.signin).created_at;
+// part of it, since it moves when the CFO registers again.
+export const publishedAt = (item: Item): string => (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.kind === "browser-signin" ? item.signin : item.request).created_at;
+
+// A reopened step card keeps its filing date but starts a fresh generation.
+export const publicationKey = (item: Item): string => publishedAt(item) + (item.kind === "credential" ? ":" + item.request.generation : "");
 
 // withItems is the last snapshot with the Command Center's items the
 // supervisor sent after it. Items from another supervisor, or older than the
@@ -73,7 +74,7 @@ export function holdClosed(snapshot: Snapshot, closed: ReadonlyMap<string, Item>
     const at = publishedAt(item);
     const seen = closed.get(item.key);
     const acted = sent.get(item.key);
-    const was = seen && publishedAt(seen) === at ? seen : acted && acted.created_at === at ? afterSending(item, acted) : undefined;
+    const was = seen && publicationKey(seen) === publicationKey(item) ? seen : acted && acted.created_at === at ? afterSending(item, acted) : undefined;
     if (was) held = true;
     return was || item;
   };

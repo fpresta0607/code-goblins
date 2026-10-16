@@ -7,7 +7,7 @@ import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
-import { publishedAt, type Sent } from "./item-state";
+import { publicationKey, publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CfoUnwokenCard } from "./cfo-unwoken-card";
@@ -25,6 +25,7 @@ import { Disclosure } from "./Disclosure";
 import { countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
 import { HistoryMark } from "./history-mark";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
 import { goblinName } from "./task-words";
@@ -40,7 +41,7 @@ const RESEND_MS = 1000;
 // the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 interface SignInAttempt { signin: BrowserSignIn; instance: string; isPending: boolean; error: string }
-interface ReopenAttempt { request: CredentialRequest; instance: string; isPending: boolean; error: string }
+interface ReopenAttempt { request: CredentialRequest; instance: string; isPending: boolean }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
@@ -71,9 +72,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const activeSignInAttempts = useRef(signInAttempts);
   useLayoutEffect(() => { activeSignInAttempts.current = signInAttempts; }, [signInAttempts]);
   const [reopenAttempt, setReopenAttempt] = useState<ReopenAttempt | null>(null);
+  const [reopenFeedback, showReopenFeedback] = useClickFeedback();
   const activeReopenAttempt = useRef(reopenAttempt);
   useLayoutEffect(() => { activeReopenAttempt.current = reopenAttempt; }, [reopenAttempt]);
-  const [publications, setPublications] = useState(() => new Map(asItems(snapshot).map((item) => [item.key, publishedAt(item)])));
+  const [publications, setPublications] = useState(() => new Map(asItems(snapshot).map((item) => [item.key, publicationKey(item)])));
   const latestPublications = useRef(publications);
   useLayoutEffect(() => { latestPublications.current = publications; }, [publications]);
   const [open, setOpen] = useState(false);
@@ -175,7 +177,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item || !!changeQuestion;
-  const shownKey = item ? item.key + ":" + publishedAt(item) : "";
+  const shownKey = item ? item.key + ":" + publicationKey(item) : "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -272,13 +274,17 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   const bringBack = async (target: CredentialRequest) => {
     if (!connected || activeReopenAttempt.current?.isPending) return;
-    const attempt: ReopenAttempt = { request: target, instance: snapshot.instance, isPending: true, error: "" };
+    const attempt: ReopenAttempt = { request: target, instance: snapshot.instance, isPending: true };
     activeReopenAttempt.current = attempt;
     setReopenAttempt(attempt);
+    showReopenFeedback("");
     try {
       await request("/api/credentials/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: target.id, generation: target.generation }) });
     } catch (error: unknown) {
-      setReopenAttempt((prior) => prior === attempt ? { ...attempt, isPending: false, error: message(error) } : prior);
+      if (activeReopenAttempt.current === attempt) {
+        setReopenAttempt({ ...attempt, isPending: false });
+        showReopenFeedback(message(error));
+      }
     }
   };
   // Open only the new generation, once the supervisor publishes it.
@@ -365,10 +371,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   // Reset before committing this render, including IDs absent between publications.
   // Registration changes identity but keeps created_at, so unfinished answers survive.
-  const changed = asItems(snapshot).filter((candidate) => publications.get(candidate.key) !== publishedAt(candidate));
+  const changed = asItems(snapshot).filter((candidate) => publications.get(candidate.key) !== publicationKey(candidate));
   if (changed.length) {
     const replaced = new Set(changed.filter((candidate) => publications.has(candidate.key)).map((candidate) => candidate.key));
-    setPublications(new Map([...publications, ...changed.map((candidate): [string, string] => [candidate.key, publishedAt(candidate)])]));
+    setPublications(new Map([...publications, ...changed.map((candidate): [string, string] => [candidate.key, publicationKey(candidate)])]));
     if (replaced.size) {
       setDrafts((prior) => Object.fromEntries(Object.entries(prior).filter(([key]) => !replaced.has(key))));
       setSent((prior) => new Set([...prior].filter((key) => !replaced.has(key))));
@@ -406,10 +412,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : candidate.kind === "credential" ? candidate.request.state === "saved" ? "Its values are stored"
                 : candidate.request.state === "withdrawn" ? "Its asker took it back"
                 : Date.parse(candidate.request.expires_at) <= Date.now() || candidate.request.state === "expired" ? "It expired"
-                : ["done", "answered", "dismissed"].includes(candidate.request.state) ? "" : "This card cannot come back"
+                : ""
               : candidate.kind === "run" ? "A command that ran stays as it ran"
               : candidate.kind === "browser-signin" ? "This sign-in has finished" : "A page or a wait stays as it closed";
-            const reopenError = candidate.kind === "credential" && reopenAttempt?.request.id === candidate.request.id ? reopenAttempt.error : "";
+            const reopenError = candidate.kind === "credential" && reopenAttempt?.request.id === candidate.request.id ? reopenFeedback : "";
             const isUnfolded = unfolded.has(candidate.key);
             const detail = "history-detail-" + candidate.key;
             // A folded row names a goblin by its first name alone, which leaves
@@ -426,7 +432,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               <span className="inbox-text">
                 <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
                 <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
-                {reopenError && <small className="click-feedback" role="alert">{reopenError}</small>}
+                <ClickFeedback text={reopenError} />
               </span>
               <time>{age(closedAt(candidate))}</time>
               <span className="history-actions">
