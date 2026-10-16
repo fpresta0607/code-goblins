@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { object, type Snapshot, type Task } from "./types";
-import type { CardStart } from "./TaskCard";
+import type { CardStart } from "./useStart";
 import { message, reportToCfo, request } from "./api";
 import { queueBlock } from "./start";
 import { Icon } from "./Icon";

@@ -87,7 +87,11 @@ for (const width of [1440, 390]) {
       await expect(meter.locator(".memory-line")).toHaveText("Commit free (memory plus page file)2.5 GB");
       await expect(meter.locator(".memory-bar")).toHaveAttribute("data-tip", /Most commit: ChatGPT 11\.2 GB, claude 5\.7 GB, cfo 4\.3 GB$/);
       await expect(column.locator(".next-chip")).toHaveText("Next at 5 GB");
-      await expect(column.getByRole("button", { name: "Start Polish settings", exact: true })).not.toHaveAttribute("aria-disabled", "true");
+      // Start is in the task's panel, never on its card.
+      await column.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("Polish settings", { exact: true }) }).locator(".task-card").click();
+      const start = page.locator(".goblin-panel").getByRole("button", { name: "Start Polish settings", exact: true });
+      await expect(start).toBeVisible();
+      await expect(start).not.toHaveAttribute("aria-disabled", "true");
     });
 
     // The Overlord, 2026-10-09, on the line the scheduler wrote under the

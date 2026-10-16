@@ -1,9 +1,10 @@
 import { expect, test, type Locator, type Page } from "./site";
 
-// A task's panel has one action row under its header: the card's Start and
-// Remove for a task that has not started, and Pause or Resume and Stop for
-// one that has. A queued task is removed, never stopped, on its card as in
-// its panel, and is edited in place on its task line in the header.
+// A task's panel has one action row under its header: Start and Remove for a
+// task that has not started, Pause or Resume and Stop for one that has, and
+// nothing for one in Completed. A card carries none of them (the Overlord,
+// 2026-10-16). A queued task is removed, never stopped, and is edited in
+// place on its task line in the header.
 const since = "2026-10-02T09:00:00Z";
 const memory = { next: 5368709120, floor: 4294967296, total: 34359738368, available: 9442450944, commit_limit: 51539607552, commit_available: 21474836480, paged_pool: 536870912, nonpaged_pool: 322122547 };
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
@@ -12,6 +13,8 @@ const BLOCKED = task("queued-blocked", "queued", { generation: "", brief: true, 
 const WORKING = task("working-one", "working", { harness: "codex" });
 const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree", "session"], stopped: [], problems: [], handoff_saved: true, validation_restarts: false } });
 const REMOVED = task("finished:queued-one", "stopped", { title: "queued-one", generation: "", archived: true, at: since, lifecycle: { phase: "stopped", action: "stop", at: since, kept: ["task brief"], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } });
+// A delivered goblin whose session is still up, in Completed.
+const DELIVERED = task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" });
 const BOARD = [QUEUED, BLOCKED, WORKING, PAUSED];
 
 const events = (revision: number, tasks: Record<string, unknown>[]) => `event: snapshot\ndata: ${JSON.stringify({ healthy: true, instance: "fixture", cfo_runs: true, revision, attention: [], memory, tasks })}\n\n`;
@@ -84,8 +87,8 @@ async function clearance(page: Page) {
 
 // The Overlord, 2026-10-08, of a queued panel with Remove alone: "why no run
 // button when it says play in panel". A task held by what it waits on has no
-// Start, on its card as in its panel.
-test("a queued task's panel has the card's Start and Remove, and one held by what it waits on has Remove alone", async ({ page }) => {
+// Start.
+test("a queued task's panel has Start and Remove, and one held by what it waits on has Remove alone", async ({ page }) => {
   const posted: Posted[] = [];
   await open(page, posted);
   for (const [id, shown] of [["queued-one", ["Start", "Remove"]], ["queued-blocked", ["Remove"]]] as const) {
@@ -98,19 +101,41 @@ test("a queued task's panel has the card's Start and Remove, and one held by wha
     await inOneRow(row);
     expect(await clearance(page), id).toBeGreaterThanOrEqual(16);
   }
-  const controls = card(page, "queued-one").getByRole("group", { name: "Controls for queued-one" }).getByRole("button");
-  expect(await controls.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")))).toEqual(["Start queued-one", "Adjust queued-one", "Remove queued-one"]);
-  await controls.first().click();
+  await select(page, "queued-one");
+  await panel(page).getByRole("button", { name: "Start queued-one", exact: true }).click();
   await expect.poll(() => posted).toEqual([{ path: "/api/tasks/start", body: { task: "queued-one" } }]);
 });
 
-test("a queued card has Remove, with its tip, and no Stop", async ({ page }) => {
-  await open(page);
-  const remove = card(page, "queued-one").getByRole("button", { name: "Remove queued-one" });
-  await expect(remove).toHaveAttribute("data-tip", "Remove");
-  await expect(card(page, "queued-one").getByRole("button", { name: /^Stop / })).toHaveCount(0);
-  await expect(card(page, "working-one").getByRole("button", { name: "Stop working-one" })).toHaveAttribute("data-tip", "Stop");
-  await expect(card(page, "paused-one").getByRole("button", { name: "Stop paused-one" })).toBeVisible();
+// The Overlord, 2026-10-16: "remove all pause, stop. buttons as well as edit
+// and stop buttons from the Goblin Board cards". A queued, a running, a
+// paused and a delivered card carry no controls; their panels do.
+test("no card has Start, Adjust, Remove, Pause, Resume or Stop, whatever its column", async ({ page }) => {
+  // Arrange
+  await open(page, [], [...BOARD, DELIVERED]);
+  const board = page.locator(".task-board");
+
+  // Assert
+  for (const id of ["queued-one", "queued-blocked", "working-one", "paused-one", "delivered-one"]) {
+    await expect(card(page, id), id).toBeVisible();
+    await expect(card(page, id).getByRole("button"), id).toHaveCount(1);
+  }
+  await expect(board.locator(".task-controls")).toHaveCount(0);
+  await expect(board.getByRole("button", { name: /^(Start|Adjust|Remove|Pause|Resume|Stop|Update|Cancel the update of) / })).toHaveCount(0);
+});
+
+// A delivered goblin's card sits in Completed, so its panel has nothing to
+// pause, resume or stop, whatever session it left before cleanup retires it.
+test("a completed goblin's panel has no Pause, Resume or Stop", async ({ page }) => {
+  // Arrange
+  await open(page, [], [WORKING, DELIVERED]);
+  await expect(page.getByRole("region", { name: "Completed", exact: true }).locator(".card-title").getByText("delivered-one", { exact: true })).toBeVisible();
+
+  // Act
+  await select(page, "delivered-one");
+
+  // Assert
+  await expect(panel(page).getByRole("group", { name: /^Controls for / })).toHaveCount(0);
+  await expect(panel(page).getByRole("button", { name: /^(Pause|Resume|Stop|Remove|Start) delivered-one$/ })).toHaveCount(0);
 });
 
 test("Remove asks first, then takes the task out of the queue and keeps its brief", async ({ page }) => {
@@ -283,8 +308,8 @@ test("the task's edit control is a small pencil at its text, named by its tip, f
   const text = taskLine(page).getByText("Fix the billing sync");
 
   // Assert: a pencil, not a caret, small, on the text's line and right after it.
-  const pencilShape = await page.locator(".task-board").getByRole("button", { name: "Adjust Fix the billing sync" }).locator("svg").innerHTML();
-  expect(await pencil(page).locator("svg").innerHTML(), "the card's Adjust pencil").toBe(pencilShape);
+  // The board's edit icon, the pencil drawn on its 24 px grid.
+  expect(await pencil(page).locator("svg path").getAttribute("d"), "the board's edit pencil").toBe("m4 16-1 5 5-1L20 8l-4-4ZM14 6l4 4");
   const button = (await pencil(page).boundingBox())!, words = (await text.boundingBox())!;
   expect(button.width, "small").toBeLessThanOrEqual(32);
   expect(button.height, "small").toBeLessThanOrEqual(32);

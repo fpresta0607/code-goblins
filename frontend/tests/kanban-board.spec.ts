@@ -39,27 +39,23 @@ test.describe("on a wide screen", () => {
     expect(new Set(tops).size).toBe(1);
     const paused = inProgress(page).getByRole("region", { name: "Paused", exact: true });
     await expect(paused.getByRole("heading", { name: /^Paused/ })).toHaveText("Paused1");
-    await expect(paused.getByRole("button", { name: "Resume paused-one" })).toBeVisible();
-    await expect(paused.getByRole("button", { name: "Stop paused-one" })).toBeVisible();
+    await expect(paused.getByText("paused-one")).toBeVisible();
+    await expect(paused.getByRole("button", { name: "Stop paused-one" })).toHaveCount(0);
     const lastWorking = (await inProgress(page).locator(".task-card-shell").filter({ hasText: "working-two" }).boundingBox())!;
     expect((await paused.boundingBox())!.y).toBeGreaterThan(lastWorking.y + lastWorking.height);
   });
 
-  // Issue #1014: a delivered goblin whose session is still up stood in
-  // Completed with Pause and Stop. One column, one set of controls: a card in
-  // Completed has none, and the same goblin at work again is In progress
-  // with both.
-  test("a card in Completed has no Pause or Stop, though its goblin's session is still up", async ({ page }) => {
-    await open(page, [
-      task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" }),
-      task("delivered-two", "working", { verified: true, merged: true, pr: "https://github.com/o/r/pull/10" }),
-    ]);
-    const completed = page.getByRole("region", { name: "Completed", exact: true });
-    await expect(completed.locator(".task-card-shell").filter({ hasText: "delivered-one" })).toBeVisible();
-    await expect(completed.getByRole("button", { name: "Pause delivered-one" })).toHaveCount(0);
-    await expect(completed.getByRole("button", { name: "Stop delivered-one" })).toHaveCount(0);
-    await expect(inProgress(page).getByRole("button", { name: "Pause delivered-two" })).toBeVisible();
-    await expect(inProgress(page).getByRole("button", { name: "Stop delivered-two" })).toBeVisible();
+  // The Overlord, 2026-10-16: "remove all pause, stop. buttons as well as
+  // edit and stop buttons from the Goblin Board cards". A card shows its
+  // goblin, project, status and pull request, and a click opens its panel;
+  // the actions live there alone.
+  test("no goblin card carries an action button, in any column", async ({ page }) => {
+    await open(page, [...BOARD, task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" })]);
+    for (const name of ["Tasks", "In progress", "Paused", "Completed"]) {
+      const column = page.getByRole("region", { name, exact: true });
+      await expect(column.locator(".task-card-shell").first()).toBeVisible();
+      await expect(column.getByRole("button", { name: /^(Start|Adjust|Remove|Pause|Resume|Stop|Update|Cancel the update of) / })).toHaveCount(0);
+    }
   });
 
   test("with nothing paused there is no divider", async ({ page }) => {

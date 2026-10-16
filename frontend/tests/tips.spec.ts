@@ -6,8 +6,7 @@ import { expect, holdStream, openItem, test, type Locator, type Page } from "./s
 // Command Center or the Orchestration canvas, on a wide window and on a phone.
 const GB = 2 ** 30;
 const since = "2026-10-02T09:00:00Z";
-// Commit is the tighter of memory and commit, so Start and Resume carry the
-// longest tips they have.
+// Commit is the tighter of memory and commit.
 const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB, available: 3.4 * GB, commit_available: 2.5 * GB };
 const LONG = "Paused goblins resume by themselves when the reason for the pause clears, and the board says which goblin each one was waiting on and for how long it has waited";
 // The longest title the queue held on 2026-10-02.
@@ -301,9 +300,9 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
   await page.setViewportSize({ width: 2400, height: 900 });
   await open(page);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
-  await shell.getByRole("button", { name: /^Pause / }).hover();
+  await shell.locator(".card-harness [role=img]").hover();
   const tip = page.getByRole("tooltip");
-  await expect(tip).toHaveText("Pause");
+  await expect(tip).toHaveText("Codex · gpt-6-astra · xhigh");
   const look = await tip.evaluate((node) => {
     const style = getComputedStyle(node);
     const channels = (color: string) => (color.match(/[\d.]+/g) || []).map(Number);
@@ -322,10 +321,13 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
 // taken in the first frame after the event, so a wait or a fade of any length
 // is seen.
 test("a tip shows, swaps and goes on the frame the pointer or focus moves, with no fade", async ({ page }) => {
-  // Arrange: Pause and Stop sit side by side on a card.
+  // Arrange: a card's model and its harness mark each carry a tip, and a
+  // finished card's pull request carries its branch in a tip of its own.
   await open(page);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
-  const pause = shell.getByRole("button", { name: /^Pause / }), stop = shell.getByRole("button", { name: /^Stop / });
+  const model = shell.locator(".card-engine"), mark = shell.locator(".card-harness [role=img]");
+  const finished = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/198']") });
+  const chip = finished.locator(".card-pr");
   await page.evaluate(() => {
     const looks: { event: string; part: string; tips: string[] }[] = [];
     Object.assign(window, { tipLooks: looks });
@@ -337,31 +339,34 @@ test("a tip shows, swaps and goes on the frame the pointer or focus moves, with 
       }) }));
     }, true);
   });
-  const center = async (part: typeof pause) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
-  const [pauseX, pauseY] = await center(pause), [stopX, stopY] = await center(stop);
+  const center = async (part: typeof model) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
+  const [modelX, modelY] = await center(model), [markX, markY] = await center(mark);
   const lookAfter = (event: string, part: string) => page.evaluate(([event, part]) => (window as unknown as { tipLooks: { event: string; part: string; tips: string[] }[] }).tipLooks.filter((look) => look.event === event && look.part === part).at(-1)?.tips, [event, part]);
+  const MODEL = "gpt-6-astra", MARK = "Codex · gpt-6-astra · xhigh", BRANCH = "fix/done-one";
 
-  // Act: the pointer comes to Pause, moves straight on to Stop, and leaves.
-  await page.mouse.move(pauseX, pauseY);
-  await expect.poll(() => lookAfter("pointerover", "Pause")).toBeDefined();
-  await page.mouse.move(stopX, stopY);
-  await expect.poll(() => lookAfter("pointerover", "Stop")).toBeDefined();
+  // Act: the pointer comes to the model, moves straight on to the mark, and
+  // leaves.
+  await page.mouse.move(modelX, modelY);
+  await expect.poll(() => lookAfter("pointerover", MODEL)).toBeDefined();
+  await page.mouse.move(markX, markY);
+  await expect.poll(() => lookAfter("pointerover", MARK)).toBeDefined();
   await page.mouse.move(1, 1);
-  await expect.poll(() => lookAfter("pointerout", "Stop")).toBeDefined();
+  await expect.poll(() => lookAfter("pointerout", MARK)).toBeDefined();
 
   // Assert
-  expect([await lookAfter("pointerover", "Pause"), await lookAfter("pointerover", "Stop"), await lookAfter("pointerout", "Stop")]).toEqual([["Pause"], ["Stop"], []]);
+  expect([await lookAfter("pointerover", MODEL), await lookAfter("pointerover", MARK), await lookAfter("pointerout", MARK)]).toEqual([[MODEL], [MARK], []]);
 
-  // Act: the keyboard's focus comes to Stop, and leaves.
-  await pause.focus();
+  // Act: the keyboard's focus comes from the finished card to its pull
+  // request, and leaves.
+  await finished.locator(".task-card").focus();
   await page.keyboard.press("Tab");
-  await expect(stop).toBeFocused();
-  await expect.poll(() => lookAfter("focusin", "Stop")).toBeDefined();
-  await stop.evaluate((button) => (button as HTMLElement).blur());
-  await expect.poll(() => lookAfter("focusout", "Stop")).toBeDefined();
+  await expect(chip).toBeFocused();
+  await expect.poll(() => lookAfter("focusin", BRANCH)).toBeDefined();
+  await chip.evaluate((link) => (link as HTMLElement).blur());
+  await expect.poll(() => lookAfter("focusout", BRANCH)).toBeDefined();
 
   // Assert
-  expect([await lookAfter("focusin", "Stop"), await lookAfter("focusout", "Stop")]).toEqual([["Stop"], []]);
+  expect([await lookAfter("focusin", BRANCH), await lookAfter("focusout", BRANCH)]).toEqual([[BRANCH], []]);
 });
 
 // The Overlord, 2026-10-08: no tip is left open after a scroll. A scroll
@@ -442,7 +447,7 @@ test("a press takes a tip away, even on a part that keeps the press to itself", 
 // asks for one when a snapshot arrives, so a few in half a second is still,
 // and a tip drawn again on every frame asks for thirty.
 for (const [name, find, shows] of [
-  ["a part with a tip", (shell: Locator) => shell.getByRole("button", { name: /^Pause / }), { shown: 1, faults: [], side: "above" }],
+  ["a part with a tip", (shell: Locator) => shell.locator(".card-harness [role=img]"), { shown: 1, faults: [], side: "above" }],
   ["a card with no tip", (shell: Locator) => shell.locator(".task-card"), { shown: 0, faults: [] }],
 ] as const) {
   test(`a pointer at rest on ${name} asks for no frames`, async ({ page }) => {

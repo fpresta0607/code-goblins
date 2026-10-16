@@ -34,8 +34,8 @@ test("a paused card names the goblin it waits on or resumes with by its goblin n
   const otis = task({ id: "b", title: "B work", goblin_name: "Otis", goblin_title: "Bug Hunter" });
   const dependency: PauseCondition = { reason: "dependency", until: "task:b", at: "2026-10-05T16:30:06Z" };
   const overlord: PauseCondition = { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" };
-  assert.equal(pauseStatus(dependency, [otis], []), "Waiting on Otis - Bug Hunter");
-  assert.equal(pauseStatus(overlord, [otis], [], otis), "Resumes with Otis - Bug Hunter");
+  assert.equal(pauseStatus(dependency, [otis], []), "Paused until Otis - Bug Hunter delivers");
+  assert.equal(pauseStatus(overlord, [otis], [], otis), "Paused with Otis - Bug Hunter");
 });
 
 test("a report loses the state word the status already says", () => {
@@ -219,33 +219,35 @@ test("a paused goblin's panel adds no line under its status, and its Details say
   }
 });
 
-test("a goblin paused for its own pull request says what it did, and nothing of a pause the board does not show", () => {
+test("a goblin paused for its own pull request says what it did and what resumes it, as any paused goblin does", () => {
   const pr = "https://github.com/o/r/pull/12";
   const paused = (report: string) => task({ phase: "paused", pr, last_report: report, lifecycle: lifecycle({ pause: { reason: "dependency", until: "pr:" + pr, at: "2026-10-05T16:30:06Z" } }) });
-  assert.deepEqual(taskSummary(paused("done: PR " + pr), []), { sentence: "", details: [], isFailure: false, isPlain: true });
+  assert.deepEqual(taskSummary(paused("done: PR " + pr), []), { sentence: "", details: ["It resumes by itself when PR #12 merges."], isFailure: false, isPlain: true });
   assert.deepEqual(taskSummary(paused("working: the review notes are answered; waiting for the merge"), []),
-    { sentence: "", details: ["The review notes are answered. Waiting for the merge."], isFailure: false, isPlain: true });
+    { sentence: "", details: ["The review notes are answered. Waiting for the merge. It resumes by itself when PR #12 merges."], isFailure: false, isPlain: true });
 });
 
-test("a paused card says why it waits and what resumes it in a few words, in place of Paused", () => {
+// The Overlord, 2026-10-16: a pause is on the bench, never a wait, so a paused
+// card always reads Paused and why, in a few words, and never Waiting.
+test("a paused card reads Paused and why in a few words, never Waiting", () => {
   // Arrange
   const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
   const runs = (repository: string, kind: string, minutes: number[]): CIDuration[] => minutes.map((minute) => ({ repository, kind, seconds: minute * 60 }));
   const durations = [...runs("o/r", "ci", [15, 12, 13]), ...runs("o/r", "deploy", [10, 11]), ...runs("o/other", "deploy", [2])];
   const head = "@" + "a".repeat(40);
   const cases: [string, Record<string, unknown> | undefined, CIDuration[], string | RegExp][] = [
-    ["memory", { reason: "memory" }, [], "Memory: resumes at 5 GB free"],
-    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], /^Allowance: resumes Oct \d+, \d+:27 [AP]M$/],
+    ["memory", { reason: "memory" }, [], "Paused for memory"],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], "Paused for allowance"],
     ["the Overlord", { reason: "overlord" }, [], "Paused by you"],
-    ["a question", { reason: "question", until: "q-7" }, [], "Waiting for your answer"],
-    ["a task", { reason: "dependency", until: "task:cg-board-kill" }, [], "Waiting on Pause, Resume and Stop on the board"],
-    ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, [], "Waiting on another task"],
-    ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, [], "Waiting on PR #12 to merge"],
-    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, [], /^Resumes Oct \d+, \d+:00 [AP]M$/],
-    ["CI with the repository's runs", { reason: "ci", until: "pr:https://github.com/o/r/pull/12" + head }, durations, "Waiting on CI, usually 13 min"],
-    ["CI with none measured", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + head }, [], "Waiting on CI"],
-    ["a deploy with an even count of runs", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, durations, "Waiting on deploy, usually 11 min"],
-    ["a deploy measured only elsewhere", { reason: "deploy", until: "run:https://github.com/o/new/actions/runs/9" + head }, durations, "Waiting on deploy"],
+    ["a question", { reason: "question", until: "q-7" }, [], "Paused until you answer"],
+    ["a task", { reason: "dependency", until: "task:cg-board-kill" }, [], "Paused until Pause, Resume and Stop on the board delivers"],
+    ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, [], "Paused until another task delivers"],
+    ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, [], "Paused until PR #12 merges"],
+    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, [], /^Paused until Oct \d+, \d+:00 [AP]M$/],
+    ["CI with the repository's runs", { reason: "ci", until: "pr:https://github.com/o/r/pull/12" + head }, durations, "Paused until CI finishes, usually 13 min"],
+    ["CI with none measured", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + head }, [], "Paused until CI finishes"],
+    ["a deploy with an even count of runs", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, durations, "Paused until its deploy finishes, usually 11 min"],
+    ["a deploy measured only elsewhere", { reason: "deploy", until: "run:https://github.com/o/new/actions/runs/9" + head }, durations, "Paused until its deploy finishes"],
     ["a pause from before pauses had reasons", undefined, [], "Paused"],
   ];
 
@@ -256,13 +258,14 @@ test("a paused card says why it waits and what resumes it in a few words, in pla
     // Assert
     if (typeof said === "string") assert.equal(status, said, name);
     else assert.match(status, said, name);
+    assert.doesNotMatch(status, /Waiting/, name);
   }
 });
 
 test("a helper paused with its parent says it resumes with its parent, in its status and behind Details", () => {
   const parent = task({ id: "g", title: "Sync the ledger" });
   for (const [withParent, card, details] of [
-    [true, "Resumes with Sync the ledger", "It resumes by itself when Sync the ledger runs again."],
+    [true, "Paused with Sync the ledger", "It resumes by itself when Sync the ledger runs again."],
     [false, "Paused by you", "It stays paused until you resume it."],
   ] as [boolean, string, string][]) {
     const helper = task({ id: "g-h1", parent: "g", phase: "paused", lifecycle: lifecycle({ pause: { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" }, with_parent: withParent }) });

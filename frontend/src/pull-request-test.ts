@@ -1,7 +1,5 @@
 import { hostedChecksLook } from "./hosted-checks.ts";
 import { carLook, isTrainOver, trainLook, type Tone } from "./merge-train.ts";
-import { safeGitHubLink } from "./people.ts";
-import { isPausedForItsPullRequest, pauseStatus } from "./task-words.ts";
 import type { MergeTrain, Task } from "./types.ts";
 
 // PullRequestTest is where a goblin's pull request stands under test, read
@@ -35,15 +33,11 @@ const AWAITING = new Set(["idle", "review", "ready", "unavailable", "unknown"]);
 
 // awaitedTest is what a goblin reads in place of its own state on its card,
 // its panel and its canvas node while all it waits on is its pull request's
-// test: paused until the pull request merges or its CI run on it finishes,
-// or live with nothing left to do since it reported the pull request done.
-// Paused before its checks were read, it waits on its pull request. A resume
-// under way says so itself.
+// test: live with nothing left to do since it reported the pull request done.
+// A paused goblin reads its pause, even one paused until its pull request
+// merges, and its chip still says where the pull request stands (the
+// Overlord, 2026-10-16: "paused does it means youre on the bench").
 export function awaitedTest(task: Task, trains: MergeTrain[]): PullRequestTest | undefined {
-  if (isPausedForItsPullRequest(task)) {
-    if (task.phase === "resuming") return undefined;
-    return pullRequestTest(task, trains) ?? { text: pauseStatus(task.lifecycle?.pause, [], []), tone: "pending", url: safeGitHubLink(task.pr), tip: "" };
-  }
   const isOnlyWaiting = task.report === "done" && AWAITING.has(task.phase) && !(task.phase === "review" && task.gate_step) && !task.comeback;
   return isOnlyWaiting ? pullRequestTest(task, trains) : undefined;
 }
