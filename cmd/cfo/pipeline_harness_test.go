@@ -342,23 +342,38 @@ func TestPipelineRunTakesAnUnnamedModelOrEffortFromTheMachineConfig(t *testing.T
 	})
 }
 
-// A Pi task's gate starts Pi, with the provider-qualified model and the
-// effort the task names, so a goblin on Pi no longer has its managed
-// validation restarted on another harness.
-func TestPipelineRunStartsAPiGateOnPi(t *testing.T) {
-	policy := versionSixPolicy(t, pipeline.Reviewer{})
-	h, nm := gateHome(t, policy, operatorMachineConfig)
-	wt, _ := gatedTask(t, h, "task", policy, pipeline.Reviewer{Harness: "pi", Model: "openrouter/deepseek/deepseek-v4.1-flash", Effort: "high"})
-	runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}}
+// A task's gate starts the harness its goblin runs on, with the model and
+// effort the task names: a Pi task's gate starts Pi on its provider-qualified
+// model, so a goblin on Pi no longer has its managed validation restarted on
+// another harness, and a Codex or Claude Code task's gate starts its own.
+func TestPipelineRunStartsATasksGateOnItsOwnHarness(t *testing.T) {
+	for _, test := range []struct {
+		goblin      pipeline.Reviewer
+		serviceTier string
+	}{
+		{piGoblin, ""},
+		{codexGoblin, "default"},
+		{claudeGoblin, ""},
+	} {
+		t.Run(test.goblin.Harness, func(t *testing.T) {
+			policy := versionSixPolicy(t, pipeline.Reviewer{})
+			h, nm := gateHome(t, policy, operatorMachineConfig)
+			wt, _ := gatedTask(t, h, "task", policy, test.goblin)
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}}
 
-	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("pipelineCommand: %v", err)
-	}
+			if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+				t.Fatalf("pipelineCommand: %v", err)
+			}
 
-	selection, raw, _, _ := launchedSelection(t, runner.native)
-	t.Logf("Pi launch selection: %s", raw)
-	if chain := selection.Profiles["primary"]; len(chain) != 1 || chain[0]["harness"] != "pi" || chain[0]["model"] != "openrouter/deepseek/deepseek-v4.1-flash" || chain[0]["effort"] != "high" || chain[0]["service_tier"] != "" {
-		t.Fatalf("launch selection = %s, want Pi on the task's own model and effort", raw)
+			selection, raw, _, _ := launchedSelection(t, runner.native)
+			t.Logf("%s task's launch selection: %s", test.goblin.Harness, raw)
+			for _, role := range []string{"primary", "reviewer", "fixer"} {
+				chain := selection.Profiles[role]
+				if len(chain) != 1 || chain[0]["harness"] != test.goblin.Harness || chain[0]["model"] != test.goblin.Model || chain[0]["effort"] != test.goblin.Effort || chain[0]["service_tier"] != test.serviceTier {
+					t.Fatalf("launch selection = %s, want %s's %s on the task's own model and effort", raw, role, test.goblin.Harness)
+				}
+			}
+		})
 	}
 }
 
