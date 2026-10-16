@@ -43,7 +43,7 @@ test("an answer typed for a busy CFO reads sent, then delivered, and never warns
   await expect(page.getByText(/unconfirmed|Inspect the CFO queue|Not confirmed/)).toHaveCount(0);
   const list = await history(page);
   await expect(list).toContainText("You chose Lift it (not yet delivered to the CFO)");
-  await expect(list.locator(".delivery.queued")).toHaveCount(1);
+  await expect(list.locator(".history-mark.queued .mark-badge")).toHaveCount(1);
 
   // Act
   await page.evaluate((id) => window.settle?.("delivered", id), answer);
@@ -105,6 +105,6 @@ test("an answer the CFO never picks up keeps its card closed, and History says w
   await expect(page.getByLabel(/^Command Center$/)).toBeVisible();
   const list = await history(page);
   await expect(list).toContainText("Open its terminal and press Enter if your answer is waiting in its box");
-  await expect(list.locator(".delivery.uncertain")).toHaveCount(1);
+  await expect(list.locator(".history-mark.uncertain .mark-badge")).toHaveCount(1);
   await expect(page.getByText(/Inspect the CFO queue/)).toHaveCount(0);
 });

@@ -52,6 +52,21 @@ test("a snapshot with nothing to hold comes back as it was", () => {
   assert.equal(remembered(nothing, snapshot), nothing, "nothing closed, nothing to remember");
 });
 
+test("a reopened step card waits again under its new generation", () => {
+  // Arrange
+  const request = { id: "step", generation: "closed-generation", created_at: AT, state: "done" };
+  const memory = remembered(nothing, board({ credentials: [request] }));
+  const reopened = board({ credentials: [{ ...request, generation: "reopened-generation", state: "open" }] });
+  const stale = board({ credentials: [{ ...request, state: "open" }] });
+
+  // Act
+  const held = holdClosed(reopened, memory, unsent);
+
+  // Assert
+  assert.deepEqual(waiting(held), ["credential:step"]);
+  assert.deepEqual(waiting(holdClosed(stale, memory, unsent)), []);
+});
+
 test("what he sent closes its item before the board hears back, as the supervisor will record it", () => {
   const snapshot = board({ questions: [question("train"), question("strays")], reviews: [review("shots"), review("plan")] });
   const cases: [string, string, Sent, (held: ReturnType<typeof board>) => unknown, unknown][] = [
