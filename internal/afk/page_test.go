@@ -27,8 +27,8 @@ func recordedReturn(t *testing.T) Return {
 	return Return{
 		Report: report,
 		Questions: map[string]Question{
-			"question:afk-left-20261015T050000.000000000Z": {ID: "afk-left-20261015T050000.000000000Z", Text: "Delete the idle cache database?", Options: []string{"Delete in a week", "Delete now", "Keep it longer"}, Answer: "Delete in a week"},
-			"question:notify-garden-photos-7":              {ID: "notify-garden-photos-7", Text: "Should the gallery show photos from shared albums?", Options: []string{"Show them", "Hide them"}, Answer: "Show them"},
+			"question:afk-left-20261015T050000.000000000Z": {ID: "afk-left-20261015T050000.000000000Z", Text: "Delete the idle cache database?", Answer: "Delete in a week"},
+			"question:notify-garden-photos-7":              {ID: "notify-garden-photos-7", Text: "Should the gallery show photos from shared albums?", Answer: "Show them"},
 		},
 		Pictures: []Picture{{Task: "garden-photos", Caption: "Before", File: "pictures/1.png"}, {Task: "garden-photos", Caption: "After", File: "pictures/2.png"}},
 	}
@@ -132,8 +132,7 @@ func TestTheReturnPageKeepsEverythingTheReportHeld(t *testing.T) {
 }
 
 // Each decision made for him has Change right on it: the question in his
-// History it changes, its choices and the answer it has now, which the page
-// sends as History's change.
+// History it changes, opened through the board's existing change card.
 func TestEachDecisionOnTheReturnPageCarriesItsChange(t *testing.T) {
 	// Arrange
 	r := recordedReturn(t)
@@ -144,9 +143,8 @@ func TestEachDecisionOnTheReturnPageCarriesItsChange(t *testing.T) {
 	// Assert
 	page = html.UnescapeString(page)
 	for _, want := range []string{
-		`data-question="afk-left-20261015T050000.000000000Z" data-options="["Delete in a week","Delete now","Keep it longer"]" data-answer="Delete in a week"`,
-		`data-question="notify-garden-photos-7" data-options="["Show them","Hide them"]" data-answer="Show them"`,
-		`tag: "answer_change", text: row.dataset.question`,
+		`data-item="change:afk-left-20261015T050000.000000000Z"`,
+		`data-item="change:notify-garden-photos-7"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
@@ -187,11 +185,7 @@ func TestTheReturnPageReadsWithoutSemicolonsOrDashes(t *testing.T) {
 	}
 }
 
-// CFO under AFK, 2026-10-15, approving the page's look: "the phone layout
-// keeps every row on one or two lines without wrapping PR numbers". A change
-// shows at most two pull request numbers, then how many more, which its card
-// lists in full, and its row holds its title to one line beside its status
-// and its numbers to one line.
+// Pull request numbers stay together while the title and status wrap.
 func TestAChangeKeepsItsPullRequestNumbersOnOneLine(t *testing.T) {
 	// Arrange
 	r := recordedReturn(t)
@@ -209,9 +203,9 @@ func TestAChangeKeepsItsPullRequestNumbersOnOneLine(t *testing.T) {
 	if !strings.Contains(page, "https://github.com/example/garden-app/pull/21") {
 		t.Errorf("the page lacks the last pull request behind its card")
 	}
-	for _, rule := range []string{".pulls { display: flex; flex-wrap: nowrap;", ".inbox-text:has(small) strong { -webkit-line-clamp: 1; }", ".inbox-text small { display: flex; flex-wrap: nowrap;"} {
+	for _, rule := range []string{".pulls { display: flex; flex-wrap: nowrap;", ".inbox-text strong { font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }", ".inbox-text small { display: flex; flex-wrap: wrap;"} {
 		if !strings.Contains(page, rule) {
-			t.Errorf("the page lacks the rule %q that keeps a row to two lines", rule)
+			t.Errorf("the page lacks the rule %q that keeps the full row readable", rule)
 		}
 	}
 }
@@ -229,5 +223,31 @@ func TestAChangeShowsOnlyThePicturesItsGoblinMade(t *testing.T) {
 	// Assert
 	if strings.Contains(page, `class="question-thumbs"`) || strings.Contains(words, "Before and after") {
 		t.Errorf("the page shows a picture strip with no pictures made")
+	}
+}
+
+func TestReturnModalFixture(t *testing.T) {
+	r := recordedReturn(t)
+	long := "Review the complete migration and confirm every archived invoice remains available before removing the old database and its shared backup configuration"
+	r.Report.Held = append(r.Report.Held, Held{Item: "question:q-drop-table", What: long, Waiting: true, Now: "still waiting on you"})
+	r.Report.UnderWay[0].Title = long
+	r.Report.Next[0].Title = long
+	page, _ := returnPage(t, r)
+	if directory := os.Getenv("AFK_PROOF_DIR"); directory != "" {
+		if err := os.WriteFile(directory+"/report.html", []byte(page), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTheReturnPageWrapsAndLinksToItsCommandCenterCards(t *testing.T) {
+	r := recordedReturn(t)
+	r.Report.Held = append(r.Report.Held, Held{Item: "question:q-drop-table", What: "Review the migration", Waiting: true})
+	page, _ := returnPage(t, r)
+	if strings.Contains(page, "-webkit-line-clamp") {
+		t.Error("report titles are clipped")
+	}
+	if !strings.Contains(page, `data-item="question:q-drop-table"`) {
+		t.Error("the report does not link to its Command Center card")
 	}
 }

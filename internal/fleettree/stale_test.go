@@ -260,7 +260,7 @@ func TestReadDrawsNoHelperProcessAsAChildOfItsOwn(t *testing.T) {
 // Each child the board opens shows its own output: a background shell what
 // it wrote, a monitor its events, and a job of processes what each of its
 // programs runs, never another child's and never the goblin's terminal.
-func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
+func TestChildOutputIsEachChildsOwn(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	start := at.Add(-20 * time.Minute)
@@ -307,18 +307,19 @@ func TestChildLinesAreEachChildsOwnOutput(t *testing.T) {
 	} {
 		t.Run(tc.node, func(t *testing.T) {
 			// Act
-			lines, err := reader.ChildLines("tree", tc.node)
+			got, err := reader.ChildOutput("tree", tc.node)
+			lines := got.Lines
 
 			// Assert
 			if err != nil || !slices.Equal(lines, tc.want) {
-				t.Errorf("ChildLines(%s) = %q, %v; want %q", tc.node, lines, err, tc.want)
+				t.Errorf("ChildOutput(%s) = %q, %v; want %q", tc.node, lines, err, tc.want)
 			}
 		})
 	}
 	for _, tc := range []struct{ task, node string }{{"tree", "shell:b9"}, {"other", "shell:b1"}} {
 		t.Run("none for "+tc.task+" "+tc.node, func(t *testing.T) {
-			if lines, err := reader.ChildLines(tc.task, tc.node); !errors.Is(err, ErrNoRecord) {
-				t.Errorf("ChildLines(%s, %s) = %q, %v; want ErrNoRecord", tc.task, tc.node, lines, err)
+			if got, err := reader.ChildOutput(tc.task, tc.node); !errors.Is(err, ErrNoRecord) {
+				t.Errorf("ChildOutput(%s, %s) = %q, %v; want ErrNoRecord", tc.task, tc.node, got.Lines, err)
 			}
 		})
 	}
@@ -348,11 +349,12 @@ func TestChildWithoutCaptureExplainsWhyOutputIsUnavailable(t *testing.T) {
 	}
 
 	// Act
-	lines, err := reader.ChildLines("tree", "process:600:60")
+	got, err := reader.ChildOutput("tree", "process:600:60")
+	lines := got.Lines
 
 	// Assert
 	if err != nil || !slices.Equal(lines, []string{"> chrome --headless=new", "This process has no readable output capture. Open the goblin's terminal to follow it."}) {
-		t.Errorf("ChildLines = %q, %v, want an unavailable notice without a process listing", lines, err)
+		t.Errorf("ChildOutput = %q, %v, want an unavailable notice without a process listing", lines, err)
 	}
 }
 

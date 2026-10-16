@@ -34,13 +34,11 @@ type Return struct {
 	Titles    map[string]string
 }
 
-// Question is a decision's question as his History holds it: its choices and
-// the answer it has now.
+// Question is a decision's question as his History holds it and its answer.
 type Question struct {
-	ID      string
-	Text    string
-	Options []string
-	Answer  string
+	ID     string
+	Text   string
+	Answer string
 }
 
 // Picture is one picture a goblin made of its work in the stretch, named by
@@ -83,7 +81,7 @@ type Pull struct {
 
 // Decision is one decision the CFO made for the Overlord: the short question,
 // the answer taken, why in a sentence, and the question in his History it
-// changes, with its choices.
+// changes.
 type Decision struct {
 	// Task is the goblin's task whose question it was, empty for the
 	// Overlord's own.

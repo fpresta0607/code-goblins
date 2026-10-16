@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,28 +13,28 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// childLines answers the newest lines of a child's own output, for its
-// terminal on the board: a child of the task's goblin that the board's last
-// read of the goblin's tree holds, read as that read found it
-// (fleettree.Reader.ChildLines), never from a path the browser names.
-func (h *HTTP) childLines(meta state.TaskMeta, node string) ([]string, error) {
+// childOutput answers a child's own output, for its terminal on the board: a
+// child of the task's goblin that the board's last read of the goblin's tree
+// holds, read as that read found it (fleettree.Reader.ChildOutput), never
+// from a path the browser names.
+func (h *HTTP) childOutput(meta state.TaskMeta, node string) (fleettree.Output, error) {
 	h.Service.mu.Lock()
 	tree, isRead := h.Service.trees[meta.ID]
 	h.Service.mu.Unlock()
 	if !isRead || tree.Generation != meta.SpawnGen || !slices.ContainsFunc(tree.Children, func(child fleettree.Node) bool {
 		return child.ID == node && child.Kind != fleettree.KindHelper
 	}) || h.Service.Options.Tree == nil {
-		return nil, fleettree.ErrNoRecord
+		return fleettree.Output{}, fleettree.ErrNoRecord
 	}
-	return h.Service.Options.Tree.ChildLines(meta.ID, node)
+	return h.Service.Options.Tree.ChildOutput(meta.ID, node)
 }
 
-func (h *HTTP) agentLines(w http.ResponseWriter, r *http.Request, meta state.TaskMeta, node string) {
+func (h *HTTP) agentOutput(w http.ResponseWriter, r *http.Request, meta state.TaskMeta, node string) {
 	if offMachine(r, h.Host) != "" {
 		apiError(w, http.StatusForbidden, "Child output is available only on this computer")
 		return
 	}
-	lines, err := h.childLines(meta, node)
+	output, err := h.childOutput(meta, node)
 	if errors.Is(err, fleettree.ErrNoRecord) {
 		apiError(w, 404, "The child's output is not kept")
 		return
@@ -43,15 +44,13 @@ func (h *HTTP) agentLines(w http.ResponseWriter, r *http.Request, meta state.Tas
 		return
 	}
 	if r.URL.Query().Get("stream") == "1" {
-		h.streamChild(w, r, meta, node, lines)
+		h.streamChild(w, r, meta, node, output)
 		return
 	}
-	respond(w, 200, struct {
-		Lines []string `json:"lines"`
-	}{lines})
+	respond(w, 200, output)
 }
 
-func (h *HTTP) streamChild(w http.ResponseWriter, r *http.Request, meta state.TaskMeta, node string, lines []string) {
+func (h *HTTP) streamChild(w http.ResponseWriter, r *http.Request, meta state.TaskMeta, node string, output fleettree.Output) {
 	select {
 	case h.streams <- struct{}{}:
 		defer func() { <-h.streams }()
@@ -79,16 +78,17 @@ func (h *HTTP) streamChild(w http.ResponseWriter, r *http.Request, meta state.Ta
 	// Renew long-lived connections so a board that vanished holds no slot.
 	end := time.NewTimer(10 * time.Minute)
 	defer end.Stop()
-	var previous []string
-	for first := true; ; first = false {
-		if first || !slices.Equal(previous, lines) {
-			data, err := json.Marshal(struct {
-				Lines []string `json:"lines"`
-			}{lines})
-			if err != nil || !send("output", data) {
+	var previous []byte
+	for {
+		data, err := json.Marshal(output)
+		if err != nil {
+			return
+		}
+		if !bytes.Equal(previous, data) {
+			if !send("output", data) {
 				return
 			}
-			previous = lines
+			previous = data
 		}
 		select {
 		case <-r.Context().Done():
@@ -97,8 +97,7 @@ func (h *HTTP) streamChild(w http.ResponseWriter, r *http.Request, meta state.Ta
 			return
 		case <-tick.C:
 		}
-		var err error
-		lines, err = h.childLines(meta, node)
+		output, err = h.childOutput(meta, node)
 		if err != nil {
 			send("unavailable", []byte(`"The child's output is no longer available"`))
 			return

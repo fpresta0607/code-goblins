@@ -9,10 +9,11 @@ import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
 
-const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
-const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
+export const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
+export const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
 // The even space kept between the panel's edges and the terminal's grid.
-const PADDING = 10;
+export const PADDING = 10;
+export const LINE_HEIGHT = 1.2;
 // A resize while the panel is being dragged reaches the pseudo console once
 // the size has held for this long, so the program redraws once, not per frame.
 const RESIZE_SETTLE_MS = 120;
@@ -98,7 +99,7 @@ export class TerminalView {
     this.element.className = "terminal-view staged";
     container.append(this.element);
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: 1.2, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
+    this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
     this.term.open(this.element);
     try {
       const gpu = new WebglAddon();

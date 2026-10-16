@@ -2,7 +2,8 @@ package supervisor
 
 import (
 	"context"
-	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,112 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
-	"github.com/fpresta0607/code-goblins/internal/axi"
 )
-
-// answeredWhileAway is a decision the CFO answered in the Overlord's place
-// while AFK mode was on, settled in his History as AFK mode settles one when
-// it turns off.
-func answeredWhileAway(t *testing.T, store *Store, identity string) Question {
-	t.Helper()
-	at := time.Now().UTC().Add(-time.Hour)
-	q := Question{ID: "afk-left-20261015T051200.000000000Z", Identity: identity, Text: "Delete the idle cache database?", Options: []string{"Delete in a week", "Delete now", "Keep it longer"}, CreatedAt: at, Status: "succeeded", Message: "Answered by the CFO."}
-	q.Answer, q.AnswerKind, q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "Delete in a week", "option", "Delete in a week", "cfo", &at, true
-	if err := store.settleQuestion(q); err != nil {
-		t.Fatal(err)
-	}
-	return q
-}
-
-// returnItem publishes an item of the CFO's own with its page at page, as the
-// return page is published.
-func returnItem(t *testing.T, store *Store, identity, page string) Review {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(page), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	r := Review{ID: "afk-return-test-stretch", Identity: identity, Title: "Back from AFK", Lavish: pageLink, LavishPage: page, State: "open", CreatedAt: now, UpdatedAt: now}
-	if err := store.acceptReview(r); err != nil {
-		t.Fatal(err)
-	}
-	return r
-}
-
-// The Overlord, 2026-10-15: each decision on the page he comes back to has
-// "the control to change it right there (the same change path History uses
-// today)". His Change on the return page reaches whoever acted on the answer
-// once, as a change, exactly as History's does, the page tells him so, and
-// the page stays open for the rest of what he reads there.
-func TestHisChangeOnTheReturnPageIsHistorysChange(t *testing.T) {
-	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
-	pagePollPause = time.Millisecond
-	// Arrange
-	store, h := testStore(t)
-	_, identity, cfo, connection := primaryFixture(t, store)
-	q := answeredWhileAway(t, store, identity)
-	page := filepath.Join(h.State, afkReturnDir, "afk-20261015T043416.901Z", "index.html")
-	returnItem(t, store, identity, page)
-	var replies []string
-	polls := []axi.PagePoll{{Status: "feedback", Changes: []axi.PageChange{{Question: q.ID, Answer: "Keep it longer"}}}, {Status: "ended", Ended: true, EndedBy: "agent"}}
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(_ context.Context, _, reply string, _ time.Duration) (axi.PagePoll, error) {
-		replies = append(replies, reply)
-		poll := polls[0]
-		polls = polls[1:]
-		return poll, nil
-	}}}
-
-	// Act
-	s.watchPages(context.Background())
-	s.pageWork.Wait()
-	runAll(t, store, s)
-
-	// Assert
-	typed := cfo.waitForLines(t, 1)
-	told := changeLines(typed)
-	if len(told) != 1 || !strings.Contains(told[0], q.ID) {
-		t.Fatalf("the CFO received %q, want one change to its answer", typed)
-	}
-	wantTheChange(t, told[0], "Delete in a week", "Keep it longer")
-	wantHisAnswer(t, store.Snapshot().Questions[0], "Keep it longer", "Delete in a week")
-	if len(replies) != 2 || !strings.Contains(replies[1], `Changed to "Keep it longer"`) {
-		t.Errorf("the page's replies = %q, want the poll after his change to tell him it changed", replies)
-	}
-	if got := store.Snapshot().Reviews[0]; got.AnsweredBy == "overlord" {
-		t.Errorf("the return page's item = %+v, want his change taken as no answer to the page", got)
-	}
-}
-
-// Only the supervisor's own return page changes his answers: a page a goblin
-// or the CFO wrote anywhere else that sends the same change changes nothing.
-func TestAChangeFromAnyOtherPageChangesNothing(t *testing.T) {
-	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
-	pagePollPause = time.Millisecond
-	// Arrange
-	store, h := testStore(t)
-	_, identity, _, connection := primaryFixture(t, store)
-	q := answeredWhileAway(t, store, identity)
-	returnItem(t, store, identity, filepath.Join(h.Root, ".lavish", "afk-return", "index.html"))
-	polls := []axi.PagePoll{{Status: "feedback", Changes: []axi.PageChange{{Question: q.ID, Answer: "Delete now"}}, Prompts: []string{"see the change"}}, {Status: "ended", Ended: true, EndedBy: "agent"}}
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
-		poll := polls[0]
-		polls = polls[1:]
-		return poll, nil
-	}}}
-
-	// Act
-	s.watchPages(context.Background())
-	s.pageWork.Wait()
-	runAll(t, store, s)
-
-	// Assert
-	if got := store.Snapshot().Questions[0]; got.Answer != "Delete in a week" || got.AnsweredBy != "cfo" {
-		t.Errorf("question = %+v, want the CFO's answer kept", got)
-	}
-}
 
 // openedAt is an OpenPage that opens every page at link and records each one.
 func openedAt(link string, opened *[]string) func(context.Context, string) (string, error) {
@@ -126,13 +22,7 @@ func openedAt(link string, opened *[]string) func(context.Context, string) (stri
 	}
 }
 
-// The Overlord, 2026-10-15: one Scrawl page made when AFK mode turns off,
-// opened from a single card in his Command Center, in place of the board's
-// recap. His off writes the page from the report into the stretch's own
-// folder, with the board's goblin faces beside it and each decision's Change
-// naming the question in his History, opens it in Scrawl, and puts one card
-// for it in his Command Center.
-func TestTurningAFKOffMakesHisPageAndOneCardForIt(t *testing.T) {
+func TestTurningAFKOffKeepsTheReportOnTheBoardWithoutScrawl(t *testing.T) {
 	// Arrange
 	s, h, _ := asTheCFO(t)
 	var opened []string
@@ -157,14 +47,14 @@ func TestTurningAFKOffMakesHisPageAndOneCardForIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := filepath.Join(h.State, afkReturnDir, switched.Session, "index.html")
-	if len(opened) != 1 || opened[0] != page {
-		t.Fatalf("opened %q, want only the stretch's page %s", opened, page)
+	if len(opened) != 0 {
+		t.Errorf("opened %q, want no Scrawl page", opened)
 	}
 	written, err := os.ReadFile(page)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := string(written); !strings.Contains(text, "Delete the idle cache database?") || !strings.Contains(text, `data-question="`+afk.LeftQuestionID(logged[0])+`"`) {
+	if text := string(written); !strings.Contains(text, "Delete the idle cache database?") || !strings.Contains(text, `data-item="change:`+afk.LeftQuestionID(logged[0])+`"`) {
 		t.Errorf("the page lacks the decision with the question in his History it changes")
 	}
 	if faces, err := os.ReadFile(filepath.Join(filepath.Dir(page), "goblin-personas.png")); err != nil || string(faces) != "faces" {
@@ -176,31 +66,86 @@ func TestTurningAFKOffMakesHisPageAndOneCardForIt(t *testing.T) {
 			cards = append(cards, item)
 		}
 	}
-	if len(cards) != 1 || cards[0].State != "open" || cards[0].Task != "" || cards[0].Lavish != pageLink || !s.isReturnPage(cards[0]) {
-		t.Fatalf("Command Center items for the page = %+v, want one open card of the CFO's that opens it", cards)
+	if len(cards) != 0 {
+		t.Fatalf("report cards = %+v, want none", cards)
 	}
-	if view, err := s.afkView(s.Store.Snapshot()); err != nil || view.Page != pageLink {
-		t.Errorf("the board's AFK view = %+v, %v, want it to open the page of the stretch from %s", view, err, pageLink)
+	view, err := s.afkView(s.Store.Snapshot())
+	if err != nil || !strings.HasPrefix(view.Page, "/api/afk/report/") {
+		t.Fatalf("report link = %q, %v", view.Page, err)
+	}
+	handler := NewHTTP(s, "127.0.0.1:12345", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345"+view.Page, nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), left.What) {
+		t.Fatalf("report response = %d: %s", response.Code, response.Body.String())
+	}
+	policy := response.Header().Get("Content-Security-Policy")
+	if !strings.Contains(policy, "frame-ancestors 'self'") {
+		t.Error("report must embed only on its own board")
+	}
+	_, after, found := strings.Cut(policy, "script-src 'nonce-")
+	nonce, _, _ := strings.Cut(after, "'")
+	if !found || nonce == "" || !strings.Contains(policy, "style-src 'nonce-"+nonce+"'") || !strings.Contains(response.Body.String(), `<script nonce="`+nonce+`">`) || !strings.Contains(response.Body.String(), `<style nonce="`+nonce+`">`) {
+		t.Fatal("report must allow only its own script and style with a response nonce")
+	}
+	again := httptest.NewRecorder()
+	handler.ServeHTTP(again, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345"+view.Page, nil))
+	if again.Header().Get("Content-Security-Policy") == policy {
+		t.Error("report reused a response nonce")
+	}
+	faces := httptest.NewRecorder()
+	handler.ServeHTTP(faces, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345"+strings.TrimSuffix(view.Page, "index.html")+"goblin-personas.png", nil))
+	if faces.Code != http.StatusOK || faces.Body.String() != "faces" || faces.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("report picture = %d %q, want the copied image", faces.Code, faces.Body.String())
 	}
 }
 
-// A page Scrawl cannot open is no card: the CFO is told, so it tells him
-// what the stretch held itself.
-func TestAReturnPageThatCannotOpenTellsTheCFO(t *testing.T) {
-	// Arrange
-	s, h, _ := asTheCFO(t)
-	s.Options.OpenPage = func(context.Context, string) (string, error) { return "", errors.New("lavish-axi is not installed") }
-
-	// Act
-	awayAndBack(t, s, h)
-	s.pageWork.Wait()
-
-	// Assert
-	if items := s.Store.Snapshot().Reviews; len(items) != 0 {
-		t.Errorf("Command Center items = %+v, want none", items)
+func TestTheBoardCannotReadFilesOutsideTheAFKReport(t *testing.T) {
+	store, _ := testStore(t)
+	handler := NewHTTP(&Service{Store: store}, "127.0.0.1:12345", nil)
+	for _, path := range []string{"/api/afk/report/missing/index.html", "/api/afk/report/../../primary.json", "/api/afk/report/session/../index.html", "/api/afk/report/%2e%2e/primary.json", "/api/afk/report/session%5c..%5cprimary.json", "/api/afk/report/C:/primary.json"} {
+		t.Run(path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345"+path, nil))
+			if response.Code != http.StatusNotFound {
+				t.Errorf("status = %d, want 404", response.Code)
+			}
+		})
 	}
-	wakes := reviewWakes(t, h.State, "afk")
-	if len(wakes) == 0 || !strings.Contains(wakes[len(wakes)-1].Detail, "could not be put in his Command Center (lavish-axi is not installed)") {
-		t.Errorf("the CFO's afk wakes = %+v, want the last to say the page could not be put in his Command Center and why", wakes)
+}
+
+func TestTheReportWaitsForTheAFKSwitchToFinishWritingIt(t *testing.T) {
+	store, _ := testStore(t)
+	service := &Service{Store: store}
+	directory := filepath.Join(store.Home.State, afkReturnDir, "session")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHTTP(service, "127.0.0.1:12345", nil)
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	func() {
+		service.afkChange.Lock()
+		defer service.afkChange.Unlock()
+		go func() {
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345/api/afk/report/session/index.html", nil))
+			close(done)
+		}()
+		select {
+		case <-done:
+			t.Error("report request returned before the AFK switch finished writing it")
+		case <-time.After(100 * time.Millisecond):
+		}
+		if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("Welcome back"), 0o600); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case <-done:
+		if response.Code != http.StatusOK || response.Body.String() != "Welcome back" {
+			t.Errorf("report = %d %q, want the completed report", response.Code, response.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("report did not load after the switch finished")
 	}
 }
