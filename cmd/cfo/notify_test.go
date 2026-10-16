@@ -987,6 +987,40 @@ func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
 	}
 }
 
+// A goblin's wait on the Overlord while its own step card is open is that
+// card on the Command Center, as a wait with a command is its run card: a
+// second card would ask him for the same step again after his Done on the
+// first. The wait still wakes the CFO and tells the goblin which card it is.
+func TestNotifyWaitWhileAStepCardIsOpenOpensNoSecondCard(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	record := `{"credentials":[{"id":"cred-f0ed7ac18b74f587","by":"goblin","task":"g1","project":"throwaway","why":"Tick the App Group","state":"open"}]}`
+	if err := os.WriteFile(filepath.Join(stateDir, ".supervisor.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "tick the App Group"}, &stdout, &stderr, defaultCommandRuntime())
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "cred-f0ed7ac18b74f587") || strings.Contains(stderr.String(), "cannot show this wait") {
+		t.Fatalf("stdout=%q stderr=%q, want the wait shown as its open step card alone", stdout.String(), stderr.String())
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: tick the App Group" {
+		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+	}
+}
+
 // A wait on the Overlord names the one link he goes to with --link, which his
 // card opens: it travels with the wait to the CFO, and a link that is not a
 // safe web link, or one on anything but a wait on him, is refused before

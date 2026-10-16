@@ -359,9 +359,20 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
 		}
 	}
+	// A wait beside the goblin's own open step card is that card, whose Done
+	// ends it: a second card would ask him for the same step again. A wait on
+	// a page is its own card, since only its card gets the page polled.
+	stepCard := ""
+	if verb == "waiting on overlord" && runCommand == "" && page == "" {
+		if stepCard, err = supervisor.OpenStepCard(h.State, id); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: your open step cards cannot be read, so this wait gets a card of its own: "+err.Error())
+		}
+	}
 	switch {
 	case verb == "waiting on overlord" && runCommand != "":
 		// Its run card is the wait.
+	case verb == "waiting on overlord" && stepCard != "":
+		// Its step card is the wait.
 	case verb == "waiting on overlord":
 		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link); err != nil {
 			if page != "" {
@@ -378,6 +389,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// The board shows the report now, not at its next refresh.
 	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+	if stepCard != "" {
+		fmt.Fprintf(stdout, "Your step card %s is open, so the Command Center shows it alone for this wait, and its Done ends the wait; no second card was opened. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard)
+	}
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.
 	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {
