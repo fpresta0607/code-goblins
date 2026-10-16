@@ -29,6 +29,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/release"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -77,9 +78,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// Started from a native terminal, such as the CFO's own, it would hand
 	// that terminal's id and proof value to every process it starts, and the
 	// proof value proves a process runs in that terminal, so it forgets them
-	// too.
+	// too. Started from a CFO's session, it would hand that session to every
+	// goblin it starts, resumes or switches as its parent, long after that
+	// session ended, so it forgets the session too, and such a goblin records
+	// the CFO registered when it starts.
 	for _, entry := range os.Environ() {
-		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
+		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) || spawn.IsCallerSessionVariable(name) {
 			if err := os.Unsetenv(name); err != nil {
 				fmt.Fprintf(stderr, "cfo serve: forget the starting terminal's %s: %v\n", name, err)
 				return 1

@@ -1,14 +1,14 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
-import { nodeStatus } from "./workflow";
+import { CFO_ROOT, lineageFamily, nodeStatus } from "./workflow";
 import { taskStatus } from "./task-status";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
-import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
+import { lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { goblinName, taskName, withoutHarness } from "./task-words";
-import { hasRunningChildren, isHeldByTree, isHelperHeld } from "./fleet-tree";
+import { hasRunningChildren, isHelperHeld } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 import { CardFacts } from "./card-facts";
 import { CardRouting } from "./card-routing";
@@ -36,7 +36,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
   onOpenCfo: (source: HTMLElement) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const sessions = projectSessions(snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session)), snapshot.tasks, project);
+  // The list draws the canvas's family, so a goblin hangs under the CFO here
+  // whenever it does there.
+  const family = lineageFamily(snapshot, project);
+  const sessions = family.sessions;
+  const cfoID = family.cfo?.cfo ? CFO_ROOT : family.cfo?.session?.id;
   const tasks = snapshot.tasks.filter((task) => !task.archived && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks.filter((task) => !isHelperHeld(snapshot, task.id)), snapshot.sessions);
   const taskOf = (node: Session) => snapshot.tasks.find((task) => task.id === node.task_id);
@@ -68,7 +72,8 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
     const seen = new Set([...ancestors, node.id]);
     const task = snapshot.tasks.find((task) => task.id === node.task_id);
     const owner = ownsTaskSession(node, task);
-    const descendants = [...(children.get(node.id) || []).map((child) => render(child, seen)), ...(owner && task ? helpersOf(task.id, seen) : [])];
+    const descendants = [...(children.get(node.id) || []).map((child) => render(child, seen)), ...(owner && task ? helpersOf(task.id, seen) : []),
+      ...(node.id === cfoID ? taskOnly.filter((item) => family.underCfo.has(item.id)).map((item) => renderTask(item)) : [])];
     const title = sessionTitle(node, task);
     const activity = activityDisplay(effects,node.id,node.parent);
     const glow = activity.received || activity.created;
@@ -86,11 +91,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
         <div className={"workflow-node role-" + node.role + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
           {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
           <button className="node-select" aria-pressed={selected?.session === node.id}
-            onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
+            onClick={(event) => onSelect(node.id === CFO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
-            <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus({ id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
+            <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
             {owner && task && <CardRouting task={task} />}
           </button>
           {owner && task && <div className="node-facts"><CardFacts task={task} now={now} /></div>}
@@ -134,7 +139,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
       <p>Tasks and native sessions will appear here as they report. Parent connections use reported evidence.</p>
     </div> : <ul className="workflow-roots">
       {lineageRoots(sessions).filter((node) => !helperSessions.includes(node)).map((node) => render(node, new Set()))}
-      {taskOnly.filter((task) => !helperTasks.includes(task)).map((task) => renderTask(task))}
+      {taskOnly.filter((task) => !helperTasks.includes(task) && !family.underCfo.has(task.id)).map((task) => renderTask(task))}
     </ul>}
   </section>;
 }

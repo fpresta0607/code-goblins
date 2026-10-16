@@ -465,6 +465,8 @@ Task-semantic goblin avatars are presentation choices, not inferred native role 
 
 Orchestration nodes use explicit native parent/root IDs and the launch environment's reported relationships.
 A live task record no native hook reported hangs under the CFO, because cfo spawn is how every task record was dispatched: under the reported CFO session, or under a supervisor root drawn when none reported, which opens the CFO terminal and names a stale registration.
+A live task's goblin session hangs there too when the parent it reported is not in the tree, whoever started or resumed it, and the canvas and the lineage list draw the same family; a session of a retired task leaves both.
+A goblin records the session its start explicitly names (`CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`) as its parent, else the registered live CFO's session, else the session its start runs in (`CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID` or `PI_SESSION_ID`), so a goblin the supervisor starts, resumes or switches by itself records the CFO too; a helper never takes the CFO, since its record names its goblin.
 Completed history and unstarted briefs stay on the board, not in the tree.
 Directory names and temporal proximity never establish parentage.
 Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
@@ -567,7 +569,7 @@ One that finishes or goes sends its last pulse up, fades where it hung and then 
 Every motion on the canvas is a transform or a fade, played once for the snapshot that showed it: nothing of it runs between snapshots, while the board is hidden or while its stream is down, and with reduced motion a baby goblin simply appears or goes.
 On 12 October 2026 the stand-in canvas `frontend/tests/fixtures/canvas-alive.html?demo`, with an event every 1.4 seconds, at 1600 by 1000 in headless Edge, took 49 ms of main thread and 258 ms of all Edge's processor time each second before this motion, and 38 ms and 230 ms with it, since the CFO's pulse moved by transform instead of `stroke-dashoffset`.
 While nothing changes it took no main thread time either way.
-The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID` fallback; same-harness or directory/time resemblance never establishes a sender.
+The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID` and `PI_SESSION_ID` fallbacks; same-harness or directory/time resemblance never establishes a sender.
 When sender identity is unavailable, only target evidence is shown.
 Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.
 Reduced motion uses a short static outline instead of movement.

@@ -375,7 +375,7 @@ func TestARelaunchThatWaitedForItsTurnLeavesATerminalAnotherStartLaunched(t *tes
 		t.Fatal(err)
 	}
 	launch.Dir = f.worktree
-	nativeEnvironment(launch.Env, meta)
+	f.service.nativeEnvironment(launch.Env, meta)
 	started, err := f.service.launchNativeHost("task-7", harness.Codex, launch, f.userEnv, auth.Result{})
 	if err != nil {
 		t.Fatalf("the start's own launch: %v", err)

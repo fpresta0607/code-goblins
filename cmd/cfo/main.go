@@ -354,6 +354,7 @@ func defaultCommandRuntime() commandRuntime {
 				PolicyPath:   filepath.Join(h.Root, "config", "pipeline.json"),
 				HostCommand:  []string{self, "host"},
 				PromptSince:  nativePromptSince(h),
+				CFOSession:   func() (string, string) { return supervisor.RegisteredCFOSession(h.State) },
 				Progress:     os.Stderr,
 				Admit: func() error {
 					memory, err := supervisor.MachineMemory()
@@ -386,6 +387,7 @@ func defaultCommandRuntime() commandRuntime {
 				ScratchRoot:  h.Scratch(),
 				HostCommand:  []string{self, "host"},
 				PromptSince:  nativePromptSince(h),
+				CFOSession:   func() (string, string) { return supervisor.RegisteredCFOSession(h.State) },
 				EndLeft: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
 					return endLeftProcesses(ctx, h, meta)
 				},
