@@ -117,8 +117,10 @@ type Node struct {
 	process     string
 	outsideWork bool
 	// heavyRun says the job is a run in the machine's heavy line, cfo gate
-	// turn's, which tells its goblin how it ended.
-	heavyRun bool
+	// turn's, which tells its goblin how it ended, and lineMovedAt is when
+	// that line last moved while a run of the job waits in it.
+	heavyRun    bool
+	lineMovedAt time.Time
 	// gate is a gate run's step at work or parked, which the supervisor
 	// judges the goblin's wait on it by.
 	gate GateStep
@@ -197,15 +199,17 @@ func (t Tree) Gate() (step GateStep, ok bool) {
 }
 
 // ActivityAt is the latest sign of work the goblin's own records show: its
-// conversation written, any agent, shell or monitor under it active, or its
-// gate's step at work. A process job's activity is its processor use, which
-// Jobs carries instead, and a gate waiting on a decision is not at work.
+// conversation written, any agent, shell or monitor under it active, its
+// gate's step at work, or the heavy line moving while a run of its waits in
+// it. A process job's activity is its processor use, which Jobs carries
+// instead, and a gate waiting on a decision is not at work.
 func (t Tree) ActivityAt() time.Time {
 	latest := t.ConversationAt
 	for _, child := range t.Children {
 		if child.Kind != KindProcess && (child.Kind != KindGate || child.State == Working || child.State == Silent) && child.LastActivity.After(latest) {
 			latest = child.LastActivity
 		}
+		latest = later(latest, child.lineMovedAt)
 	}
 	return latest
 }
