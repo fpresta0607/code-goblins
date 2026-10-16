@@ -1,6 +1,8 @@
-/* A sub-agent's terminal: the newest lines of its own record, drawn as the
-   goblin's terminal draws a terminal, what came back to it quieter. */
-.agent-terminal { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; padding: 14px 18px; background: #071015; color: #d8e9e2; font-family: var(--font-mono); font-size: .875rem; line-height: 1.55; }
-.agent-output { flex: 1; min-height: 0; min-width: 0; }
-.agent-status { padding-top: 8px; color: #8fa5b5; }
+/* A baby goblin's terminal: the goblin's terminal surface, its grid padded
+   evenly to the panel by the fit, as a goblin's is (see panelFit). */
+.agent-terminal { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: #071015; color: #d8e9e2; }
+.agent-output { position: relative; flex: 1; min-height: 0; min-width: 0; }
+.agent-output .xterm { height: 100%; box-sizing: border-box; }
+.agent-output, .agent-output .xterm-viewport { background: #071015 !important; }
+.agent-status { padding: 8px 18px; color: #8fa5b5; font-family: var(--font-mono); font-size: .875rem; }
 .agent-status button { margin-left: 12px; }

@@ -27,12 +27,14 @@ func TestChildShellKeepsTerminalLayoutAndReadsNewOutput(t *testing.T) {
 	if _, err := reader.Read(context.Background(), goblin); err != nil {
 		t.Fatal(err)
 	}
-	lines, err := reader.ChildLines("tree", "shell:b1")
+	got, err := reader.ChildOutput("tree", "shell:b1")
+	lines := got.Lines
 	if err != nil || !strings.Contains(strings.Join(lines, "\n"), "starting\n\n  indented\n\x1b[32mPASS\x1b[0m\n") {
 		t.Fatalf("terminal layout lost: %q, %v", lines, err)
 	}
 	writeFile(t, output, "starting\n\n  indented\n\x1b[32mPASS\x1b[0m\nnext result", at)
-	lines, err = reader.ChildLines("tree", "shell:b1")
+	got, err = reader.ChildOutput("tree", "shell:b1")
+	lines = got.Lines
 	if err != nil || !strings.HasSuffix(strings.Join(lines, "\n"), "next result") {
 		t.Fatalf("new output was not read: %q, %v", lines, err)
 	}
@@ -68,19 +70,19 @@ func TestProcessChildReadsInheritedCaptureWithoutAPathInItsCommand(t *testing.T)
 		Listeners:   func() (map[int][]int, error) { return nil, nil },
 		CommandLine: func(int) (string, error) { return "output-fixture.exe go test ./...", nil },
 	}
-	var lines []string
+	var got Output
 	for attempt := 0; attempt < 50; attempt++ {
 		_, err = reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "claude"}, HarnessPID: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
-		lines, err = reader.ChildLines("tree", fmt.Sprintf("process:%d:60", command.Process.Pid))
-		if slices.Contains(lines, "inherited capture") {
+		got, err = reader.ChildOutput("tree", fmt.Sprintf("process:%d:60", command.Process.Pid))
+		if slices.Contains(got.Lines, "inherited capture") {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("did not find inherited stdout: %q, %v", lines, err)
+	t.Fatalf("did not find inherited stdout: %q, %v", got.Lines, err)
 }
 
 func TestProcessChildReadsItsOwnRedirectedOutputForEachHarness(t *testing.T) {
@@ -106,12 +108,14 @@ func TestProcessChildReadsItsOwnRedirectedOutputForEachHarness(t *testing.T) {
 			if _, err := reader.Read(context.Background(), goblin); err != nil {
 				t.Fatal(err)
 			}
-			lines, err := reader.ChildLines("tree", "process:600:60")
+			got, err := reader.ChildOutput("tree", "process:600:60")
+			lines := got.Lines
 			if err != nil || !strings.Contains(strings.Join(lines, "\n"), "=== RUN TestStream") || strings.Contains(strings.Join(lines, "\n"), "(pid ") {
 				t.Fatalf("not the child's output: %q, %v", lines, err)
 			}
 			writeFile(t, output, "=== RUN TestStream\n--- PASS: TestStream\n", at)
-			lines, err = reader.ChildLines("tree", "process:600:60")
+			got, err = reader.ChildOutput("tree", "process:600:60")
+			lines = got.Lines
 			if err != nil || !slices.Contains(lines, "--- PASS: TestStream") {
 				t.Fatalf("not following output: %q, %v", lines, err)
 			}
@@ -139,7 +143,8 @@ func TestShellUsesItsProcessCaptureWhenTheHarnessNamesNone(t *testing.T) {
 	if _, err := reader.Read(context.Background(), goblin); err != nil {
 		t.Fatal(err)
 	}
-	lines, err := reader.ChildLines("tree", "shell:b1")
+	got, err := reader.ChildOutput("tree", "shell:b1")
+	lines := got.Lines
 	if err != nil || !slices.Contains(lines, "actual shell output") {
 		t.Fatalf("shell lost its capture: %q, %v", lines, err)
 	}
