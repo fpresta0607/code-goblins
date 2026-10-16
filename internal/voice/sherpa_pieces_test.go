@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -324,6 +325,63 @@ func TestRoomNoiseAloneIsLeftOutAtAnyLevel(t *testing.T) {
 				if !heard {
 					t.Errorf("piece %d, %.2f s to %.2f s, is room noise alone", index+1, float64(at)/testRate, float64(at+length)/testRate)
 				}
+			}
+		})
+	}
+}
+
+// wavOf writes sound as a WAV file of channels at rate with bits a sample,
+// each channel the same sound, as the board's page writes one at 16 kHz,
+// mono and 16 bits.
+func wavOf(sound []float32, rate, channels, bits int) []byte {
+	data := make([]byte, 0, len(sound)*channels*bits/8)
+	for _, sample := range sound {
+		for range channels {
+			if bits == 8 {
+				data = append(data, byte(128+int(math.Round(float64(sample)*127))))
+				continue
+			}
+			data = binary.LittleEndian.AppendUint16(data, uint16(int16(math.Round(float64(sample)*32767))))
+		}
+	}
+	header := []byte("RIFF")
+	header = binary.LittleEndian.AppendUint32(header, uint32(36+len(data)))
+	header = append(header, "WAVEfmt "...)
+	header = binary.LittleEndian.AppendUint32(header, 16)
+	header = binary.LittleEndian.AppendUint16(header, 1)
+	header = binary.LittleEndian.AppendUint16(header, uint16(channels))
+	header = binary.LittleEndian.AppendUint32(header, uint32(rate))
+	header = binary.LittleEndian.AppendUint32(header, uint32(rate*channels*bits/8))
+	header = binary.LittleEndian.AppendUint16(header, uint16(channels*bits/8))
+	header = binary.LittleEndian.AppendUint16(header, uint16(bits))
+	header = append(header, "data"...)
+	header = binary.LittleEndian.AppendUint32(header, uint32(len(data)))
+	return append(header, data...)
+}
+
+// A WAV the board's page sent holds speech by the rule that cuts a sound
+// into pieces: anything loud in it.
+func TestSpokenJudgesTheBoardsSoundAsThePiecesDo(t *testing.T) {
+	speech, _ := spoken(soundPart{false, 0.3}, soundPart{true, 0.4}, soundPart{false, 0.3})
+	room, _ := spoken(soundPart{false, 1})
+	soft, _ := spokenAt(-62, leveled{0, 0.3}, leveled{-45, 0.4}, leveled{0, 0.3})
+	for _, test := range []struct {
+		name  string
+		sound []byte
+		want  bool
+	}{
+		{"a second with a word in it", wavOf(speech, testRate, 1, 16), true},
+		{"a word under -40 dB in a quiet room", wavOf(soft, testRate, 1, 16), true},
+		{"a quiet room alone", wavOf(room, testRate, 1, 16), false},
+		{"a word at another rate", wavOf(speech, 48000, 1, 16), true},
+		{"a word in two channels", wavOf(speech, testRate, 2, 16), false},
+		{"a word in 8-bit samples", wavOf(speech, testRate, 1, 8), false},
+		{"no WAV at all", []byte("RIFF-sound"), false},
+		{"a WAV with no samples", wavOf(nil, testRate, 1, 16), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := Spoken(test.sound); got != test.want {
+				t.Fatalf("Spoken = %v, want %v", got, test.want)
 			}
 		})
 	}
