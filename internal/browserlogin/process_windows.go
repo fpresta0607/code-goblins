@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -183,7 +184,7 @@ func End(ctx context.Context, process Process) error {
 			for deadline := time.Now().Add(closeWait); Running(process) && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 				if time.Since(raised) >= time.Second {
 					if ids, err := proc.JobProcessIDs(syscall.Handle(process.job.handle)); err == nil {
-						proc.Raise(ids)
+						priority.Raise(ids)
 					}
 					raised = time.Now()
 				}
@@ -234,7 +235,7 @@ func (j *job) end(pid int) error {
 	for _, member := range members {
 		pids = append(pids, uint32(member.PID))
 	}
-	proc.Raise(pids)
+	priority.Raise(pids)
 	deadline := time.Now().Add(teardownWait)
 	for _, member := range members {
 		if err := awaitGone(member, deadline); err != nil {

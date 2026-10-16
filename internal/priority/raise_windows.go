@@ -1,4 +1,4 @@
-package proc
+package priority
 
 import (
 	"unsafe"
@@ -6,7 +6,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var setThreadPriority = kernel32.NewProc("SetThreadPriority")
+var setThreadPriority = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetThreadPriority")
 
 // normalPriority is the priority a thread of a process in the normal class
 // runs at by default, and threadPriorityNormal is SetThreadPriority's value

@@ -1,4 +1,4 @@
-package proc
+package priority
 
 import (
 	"os"
@@ -49,7 +49,7 @@ func openThreads(t *testing.T, pid int) []windows.Handle {
 	return threads
 }
 
-var getThreadPriority = kernel32.NewProc("GetThreadPriority")
+var getThreadPriority = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetThreadPriority")
 
 func threadPriority(thread windows.Handle) int32 {
 	priority, _, _ := getThreadPriority.Call(uintptr(thread))
@@ -63,8 +63,8 @@ func threadPriority(thread windows.Handle) int32 {
 // lowers nothing that runs above it.
 func TestRaiseLiftsWhatRunsBelowNormalAndLowersNothing(t *testing.T) {
 	// Arrange
-	member := exec.Command(os.Args[0], "-test.run=^TestJobMemberFixture$")
-	member.Env = append(os.Environ(), "CFO_JOB_MEMBER_FIXTURE=1")
+	member := exec.Command(os.Args[0])
+	member.Env = append(os.Environ(), waitReport+"=1")
 	member.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.BELOW_NORMAL_PRIORITY_CLASS}
 	if err := member.Start(); err != nil {
 		t.Fatal(err)
