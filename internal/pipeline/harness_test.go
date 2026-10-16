@@ -28,9 +28,9 @@ func versionSix(t *testing.T, fallback Reviewer) Policy {
 }
 
 // nobodyAsked fails a test in which the gate asks whether a harness is signed in.
-func nobodyAsked(t *testing.T) func(string) bool {
-	return func(harness string) bool {
-		t.Errorf("the gate asked whether %s is signed in", harness)
+func nobodyAsked(t *testing.T) func(Reviewer) bool {
+	return func(fallback Reviewer) bool {
+		t.Errorf("the gate asked whether %s is signed in", fallback.Harness)
 		return true
 	}
 }
@@ -101,17 +101,18 @@ func TestGateChainAddsOnlyANamedSignedInFallback(t *testing.T) {
 		{"named and signed in", claudeTask, codexTask, true, []Reviewer{claudeTask, codexTask}},
 		{"named and signed out", claudeTask, codexTask, false, []Reviewer{claudeTask}},
 		{"the other direction", codexTask, claudeTask, true, []Reviewer{codexTask, claudeTask}},
+		{"a pi fallback", claudeTask, piTask, true, []Reviewer{claudeTask, piTask}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			var asked []string
-			chain, err := versionSix(t, test.fallback).GateChain(test.own, func(harness string) bool {
-				asked = append(asked, harness)
+			var asked []Reviewer
+			chain, err := versionSix(t, test.fallback).GateChain(test.own, func(fallback Reviewer) bool {
+				asked = append(asked, fallback)
 				return test.isSignedIn
 			})
 			if err != nil || !reflect.DeepEqual(chain, test.want) {
 				t.Fatalf("chain = %+v, %v, want %+v", chain, err, test.want)
 			}
-			if !reflect.DeepEqual(asked, []string{test.fallback.Harness}) {
+			if !reflect.DeepEqual(asked, []Reviewer{test.fallback}) {
 				t.Fatalf("asked about %v, want the named fallback alone", asked)
 			}
 		})

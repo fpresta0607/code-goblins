@@ -87,7 +87,8 @@ The operator names a fallback in the home's `config/pipeline.json`, with its har
 }
 ```
 
-A task on another harness then names the fallback second in its chain, and only while the fallback's own status command says somebody is signed in: `claude auth status --json` or `codex login status`, read as the quick start reads them.
+A task on another harness then names the fallback second in its chain, and only while the fallback's own status command says somebody is signed in: `claude auth status --json`, `codex login status`, or for pi `pi auth check --provider <provider> --json --no-refresh` on the provider the fallback's model names, read as the quick start reads them.
+pi signs in per provider, so a pi fallback is asked about its own model's provider and never about pi's default one.
 A fallback that is signed out, missing or unclear is left out, and the `pipeline gate agent:` line says so.
 A task on the fallback's own harness has no second harness.
 A task frozen before the fallback was named takes it with `cfo pipeline migrate <id>`, as it takes a newer version.
@@ -96,7 +97,7 @@ A task frozen before the fallback was named takes it with `cfo pipeline migrate 
 
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
-Pi's own gate needs one more fork pull request, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
+Pi's own gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
 The installer pins the upstream release 1.75.1, which has no launch assertion at all, so the checked-in `config/pipeline.json` stays at v5 and a fresh install gates as before.
 no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate under v6: `cfo spawn` refuses such a task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to it.
 

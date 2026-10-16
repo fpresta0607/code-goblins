@@ -210,6 +210,26 @@ func TestDetectReadsPiAsSignedOutUntilItHasAProvider(t *testing.T) {
 	}
 }
 
+// A caller that names a provider, such as a gate whose pi fallback's model
+// names one, has pi asked about that provider and not the one its settings
+// name.
+func TestDetectAsksPiAboutTheProviderItIsGiven(t *testing.T) {
+	// Arrange
+	var probed []string
+	detector := Detector{LookPath: installed, PiDirectory: piSettings(t), PiProvider: "openrouter", Probe: func(_ context.Context, _ string, args ...string) (execx.Result, error) {
+		probed = args
+		return execx.Result{Stdout: []byte(`{"status":"ready"}`)}, nil
+	}}
+
+	// Act
+	agent := detector.Detect(context.Background(), "pi")
+
+	// Assert
+	if want := []string{"auth", "check", "--provider", "openrouter", "--json", "--no-refresh"}; agent.State != Ready || !slices.Equal(probed, want) {
+		t.Errorf("Detect = %+v after probing %q, want pi asked about %q", agent, probed, want)
+	}
+}
+
 // A name that is no agent is never looked for on PATH.
 func TestDetectRefusesANameThatIsNoAgent(t *testing.T) {
 	// Arrange

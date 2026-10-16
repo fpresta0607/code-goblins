@@ -30,8 +30,8 @@ func launchSelectionArgs(ctx context.Context, commands execx.Runner, root string
 		return nil, err
 	}
 	isSignedOut := false
-	chain, err := selection.Policy.GateChain(own, func(name string) bool {
-		isSignedOut = !isHarnessSignedIn(ctx, commands, name)
+	chain, err := selection.Policy.GateChain(own, func(fallback pipeline.Reviewer) bool {
+		isSignedOut = !isHarnessSignedIn(ctx, commands, fallback)
 		return !isSignedOut
 	})
 	if err != nil {
@@ -105,10 +105,11 @@ func gateAgent(root string, meta state.TaskMeta) (pipeline.Reviewer, error) {
 	return own, nil
 }
 
-// isHarnessSignedIn asks a harness's own status command whether somebody is
-// signed in, read as the quick start reads it. A harness that is missing or
-// does not answer plainly is not signed in.
-func isHarnessSignedIn(ctx context.Context, commands execx.Runner, name string) bool {
+// isHarnessSignedIn asks agent's harness's own status command whether somebody
+// is signed in, read as the quick start reads it. pi is asked about the
+// provider agent's model names, since pi signs in per provider. A harness
+// that is missing or does not answer plainly is not signed in.
+func isHarnessSignedIn(ctx context.Context, commands execx.Runner, agent pipeline.Reviewer) bool {
 	detector := onboarding.Detector{
 		// The status command finds the program itself. This name only tells
 		// the detector that a native terminal could start it.
@@ -117,7 +118,10 @@ func isHarnessSignedIn(ctx context.Context, commands execx.Runner, name string) 
 			return commands.Run(ctx, execx.Request{Name: program, Args: args})
 		},
 	}
-	return detector.Detect(ctx, name).State == onboarding.Ready
+	if agent.Harness == "pi" {
+		detector.PiProvider, _, _ = strings.Cut(agent.Model, "/")
+	}
+	return detector.Detect(ctx, agent.Harness).State == onboarding.Ready
 }
 
 // isLaunchSelectionUnknown reports a no-mistakes that takes no launch
