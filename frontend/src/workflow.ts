@@ -1,5 +1,5 @@
 import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
-import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
+import { isRetiredSession, ownsTaskSession, projectSessions, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { goblinName, waitStatus } from "./task-words.ts";
 import { isHeldByTree, isHelperHeld, LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
@@ -270,7 +270,14 @@ export interface WorkflowNode {
 export const CFO_ROOT = "cfo:primary";
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session));
+  // A retired task's sessions and an ended CFO's leave the tree, and with an
+  // ended CFO its ended sub-agents, so none of them is left a stray card.
+  const gone = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session) || session.role === "cfo" && session.phase === "ended").map((session) => session.id));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const session of snapshot.sessions) if (!gone.has(session.id) && session.phase === "ended" && gone.has(session.parent)) { gone.add(session.id); changed = true; }
+  }
+  const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session) && !gone.has(session.id));
   const ids = new Set(sessions.map((node) => node.id));
   const nodes: WorkflowNode[] = [
     ...sessions.map((session) => {
@@ -296,10 +303,13 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
     if (parent) { node.parent = parent.id; node.relation = "Helper goblin"; helpers.add(node); }
   }
   // Every live task record was dispatched by the CFO through cfo spawn, so a
-  // task no native hook reported hangs under the CFO: the reported session
-  // when there is one, otherwise the supervisor root drawn for it. Sessions
-  // keep only the parents they reported.
-  const dispatched = nodes.filter((node) => node.id.startsWith("task:") && !helpers.has(node));
+  // task card and a goblin session that has no parent in the tree hang under
+  // the CFO, whoever started or resumed the goblin: under the CFO session
+  // that reported, or the supervisor root drawn when none did. A parent a
+  // session reported and the tree holds still wins, which keeps a baby goblin
+  // under its goblin, and a helper hangs under its goblin as above.
+  const dispatched = nodes.filter((node) => !helpers.has(node) && !node.parent &&
+    (node.id.startsWith("task:") || node.session?.role === "goblin"));
   if (dispatched.length) {
     let cfo = nodes.find((node) => node.session?.role === "cfo");
     if (!cfo) {
@@ -317,6 +327,30 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
     if (parent) cyclic.add(node.id);
   }
   return nodes.map((node) => cyclic.has(node.id) ? { ...node, parent: undefined, relation: "Cyclic parent link" } : node);
+}
+
+// LineageFamily is the canvas's family as the lineage list draws it: each
+// session with the parent the canvas gives it, as a session id or CFO_ROOT,
+// the CFO the canvas hangs dispatched work under, and the tasks with no
+// session that hang under that CFO.
+export interface LineageFamily {
+  sessions: Session[];
+  cfo?: WorkflowNode;
+  underCfo: Set<string>;
+}
+
+export function lineageFamily(snapshot: Snapshot, project: string): LineageFamily {
+  const family = workflowNodes(snapshot);
+  const cfo = family.find((node) => node.cfo || node.session?.role === "cfo");
+  const parentOf = (parent?: string) => parent === CFO_ROOT ? CFO_ROOT : parent?.startsWith("session:") ? parent.slice("session:".length) : "";
+  const all = family.flatMap((node): Session[] => node.cfo
+    ? [{ id: CFO_ROOT, native_id: "", harness: "", role: "cfo", task_id: "", generation: "", parent: "", reported_root: "", relation: "", model: "", agent_type: "", phase: "", turn_id: "", host_id: "", last_event_id: "", updated_at: "" }]
+    : node.session ? [{ ...node.session, parent: parentOf(node.parent), relation: node.relation }] : []);
+  const underCfo = new Set(family.flatMap((node) => !node.session && node.task && cfo && node.parent === cfo.id && (!project || node.task.project === project) ? [node.task.id] : []));
+  const sessions = projectSessions(all, snapshot.tasks, project);
+  const cfoSession = all.find((node) => node.id === (cfo?.cfo ? CFO_ROOT : cfo?.session?.id));
+  if (cfoSession && underCfo.size && !sessions.includes(cfoSession)) sessions.unshift(cfoSession);
+  return { sessions, cfo, underCfo };
 }
 
 // waitingOn maps the card of each goblin waiting on another goblin to the card
@@ -467,9 +501,7 @@ export function arrange(nodes: WorkflowNode[], canvas: { width: number; height: 
     positions[node.id] = { x, y: 72 + depth * ROW };
     return x;
   };
-  const sessions = nodes.flatMap((node) => node.session ? [node.session] : []);
-  const rootIDs = new Set(lineageRoots(sessions).map((session) => "session:" + session.id));
-  for (const node of nodes) if (!visited.has(node.id) && (!node.parent || rootIDs.has(node.id))) place(node, 0);
+  for (const node of nodes) if (!visited.has(node.id) && (!node.parent || !ids.has(node.parent))) place(node, 0);
   for (const node of nodes) if (!visited.has(node.id)) place(node, 0);
   for (const [id, target] of below) {
     const awaited = positions[target];
