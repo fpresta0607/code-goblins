@@ -189,6 +189,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.announceItems(w, r)
 	case r.URL.Path == "/api/window/move" && r.Method == "POST":
 		h.moveWindowFromBoard(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/afk/report/") && r.Method == "GET":
+		h.afkReportFile(w, r)
 	case r.URL.Path == "/api/afk" && r.Method == "POST":
 		h.switchAFKFromBoard(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":

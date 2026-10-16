@@ -8,7 +8,7 @@ import "./afk.css";
 // What the board offers the moment the Overlord is back while AFK mode is on,
 // or at his first click or key after the CFO turned it on at his ask, which
 // occasion names. Back after he was gone, the main button turns it off, which
-// puts his page of the stretch in his Command Center, and the lesser one stays
+// opens the report modal, and the lesser one stays
 // away. Right after the CFO turned
 // it on at his ask he has just asked for it, so the main button keeps it on
 // and closes, turning it off is the lesser one, and one short line says the
@@ -43,6 +43,6 @@ export function AfkOffer({ afk, occasion, now, pending, problem, onTurnOff, onSt
     <div className="stop-task-choices">
       {asked ? <><button className="primary" onClick={onStay}>Got it</button>{turnOff}</> : <>{turnOff}<button onClick={onStay}>Stay AFK</button></>}
     </div>
-    {!asked && <p className="muted">Turning it off puts your page of the stretch in your Command Center.</p>}
+    {!asked && <p className="muted">Turning it off opens your report here.</p>}
   </dialog>;
 }
