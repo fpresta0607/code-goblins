@@ -55,10 +55,6 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 		data, _ := json.Marshal(slices.DeleteFunc(slices.Clone(lines), func(line string) bool { return strings.TrimSpace(line) == "" }))
 		return string(data)
 	},
-	"options": func(options []string) string {
-		data, _ := json.Marshal(options)
-		return string(data)
-	},
 	"pictures": func(pictures []Picture) string {
 		type shown struct {
 			File    string `json:"file"`
@@ -98,8 +94,8 @@ type pageView struct {
 }
 
 type needRow struct {
-	Title, Where, Persona string
-	Body                  []string
+	Title, Where, Persona, Item string
+	Body                        []string
 }
 
 type projectRow struct {
@@ -145,7 +141,7 @@ type recordRow struct {
 
 // RenderPage writes the page the Overlord comes back to: how long he was
 // away and whether anything needs him, what changed by project, each decision
-// made for him with Change, which sends his new answer as History does, what
+// made for him with Change, which opens its answer in History, what
 // is still under way and next, what was spent, and the record of the
 // stretch: who switched it, what was struck, settled or paused, and what
 // could not be read. Each row opens a card with what it stood on.
@@ -183,7 +179,7 @@ func (r Return) view() pageView {
 	}
 	for _, held := range report.Held {
 		if held.Waiting {
-			v.Needs = append(v.Needs, needRow{Title: held.What, Where: "In your Command Center", Persona: persona(held.Task), Body: []string{held.Now, held.Meanwhile, Recommends(held.Task, held.Recommendation, true)}})
+			v.Needs = append(v.Needs, needRow{Item: held.Item, Title: held.What, Where: "In your Command Center", Persona: persona(held.Task), Body: []string{held.Now, held.Meanwhile, Recommends(held.Task, held.Recommendation, true)}})
 		}
 	}
 	for _, project := range r.Walkthrough() {

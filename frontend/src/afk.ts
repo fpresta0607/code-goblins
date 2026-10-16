@@ -17,6 +17,7 @@ export function afkTime(at: string, now: number, zone?: string, locale?: string)
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
 export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], page: "" };
+export const OPEN_AFK_REPORT = "cfo-afk-report";
 
 // yours is where the Overlord made the switch, in the words he reads. The
 // supervisor words it for the CFO, as his own terminal or board with the

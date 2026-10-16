@@ -420,8 +420,7 @@ export interface AfkHeld {
 // While on it says since when and from where, how many decisions the CFO
 // logged and what is held for him; asked holds his words when the CFO turned
 // it on at his ask, and is empty when he turned it on himself. While off,
-// page is the link of his page of the last stretch that ended, once it is in
-// his Command Center.
+// page is the board-local report of the last stretch that ended.
 export interface Afk {
   state: "off" | "on" | "unreadable";
   since: string; from: string; asked: string; decided: number; held: AfkHeld[];

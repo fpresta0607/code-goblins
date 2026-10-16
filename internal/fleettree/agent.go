@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -33,37 +34,44 @@ type childRecord struct {
 // child named.
 var ErrNoRecord = errors.New("no output of that child is kept")
 
-// ChildLines are the newest lines of a child of task's goblin's own output,
-// as the reader last read that goblin's tree: a sub-agent's work as the
-// record its harness keeps of it holds it, Claude Code's transcript of the
-// sub-agent or a Codex child agent's rollout (AgentLines), a background
-// shell's command and what it
-// wrote, a monitor's command and its events, the programs a job of
-// processes runs, or a gate run's steps. Never the goblin's, and never
-// another child's.
-func (r *Reader) ChildLines(task, node string) ([]string, error) {
+// Output is a child's own output as its terminal shows it: a sub-agent's
+// work as the entries of its record, or any other child's lines.
+type Output struct {
+	Entries []AgentEntry `json:"entries,omitempty"`
+	Lines   []string     `json:"lines"`
+}
+
+// ChildOutput is a child of task's goblin's own output, as the reader last
+// read that goblin's tree: a sub-agent's work as the record its harness keeps
+// of it holds it, Claude Code's transcript of the sub-agent or a Codex child
+// agent's rollout (AgentEntries), and otherwise its newest lines: a
+// background shell's command and what it wrote, a monitor's command and its
+// events, the programs a job of processes runs, or a gate run's steps. Never
+// the goblin's, and never another child's.
+func (r *Reader) ChildOutput(task, node string) (Output, error) {
 	r.mu.Lock()
 	records := r.records[task]
 	record, isKept := records.children[node]
 	r.mu.Unlock()
 	switch {
 	case !isKept:
-		return nil, ErrNoRecord
+		return Output{}, ErrNoRecord
 	case record.transcript != "":
-		return AgentLines(record.transcript, records.harness)
+		entries, err := AgentEntries(record.transcript, records.harness)
+		return Output{Entries: entries}, err
 	}
 	lines := slices.Clone(record.lines)
 	if record.output != "" {
 		output, err := outputFileLines(record.output)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return Output{}, err
 		}
 		lines = append(lines, output...)
 		if errors.Is(err, fs.ErrNotExist) {
 			lines = append(lines, "Waiting for the child's output file")
 		}
 	}
-	return lines[max(0, len(lines)-ChildLinesKept):], nil
+	return Output{Lines: lines[max(0, len(lines)-ChildLinesKept):]}, nil
 }
 
 // outputFileLines are the newest lines a background shell wrote to its
@@ -121,82 +129,149 @@ const (
 	agentLineLimit = 400
 )
 
-// AgentLines are the newest lines of a sub-agent's work as its own record
-// holds it, drawn as Claude Code draws a conversation: the task it was given
-// after >, what it said and each tool it called after ●, and under a call the
-// first line of what came back after ⎿, with how many lines more. Its
-// thinking, and anything else the record keeps, is left out. harness is the
-// harness that wrote the record, claude or codex.
-func AgentLines(path, harness string) ([]string, error) {
-	written, entries := tail(path)
+// AgentEntry is one step of a sub-agent's work as its own record holds it,
+// which the board draws as Claude Code draws a conversation: a prompt it was
+// given, a reply it wrote, or a tool it called, with what it called it on,
+// whether the call is running, done or failed, and the first lines of what
+// came back with how many lines more.
+type AgentEntry struct {
+	Kind    string   `json:"kind"`
+	Text    string   `json:"text,omitempty"`
+	Tool    string   `json:"tool,omitempty"`
+	Subject string   `json:"subject,omitempty"`
+	State   string   `json:"state,omitempty"`
+	Result  []string `json:"result,omitempty"`
+	More    int      `json:"more,omitempty"`
+}
+
+// The kinds of an AgentEntry, and the states of a call.
+const (
+	EntryPrompt = "prompt"
+	EntryReply  = "reply"
+	EntryCall   = "call"
+
+	CallRunning = "running"
+	CallDone    = "done"
+	CallFailed  = "failed"
+)
+
+const (
+	// AgentEntriesKept is how many of a sub-agent's newest entries its
+	// terminal holds, and agentTextLimit how long a prompt or reply may run.
+	AgentEntriesKept = 200
+	agentTextLimit   = 8000
+	// resultLinesShown is how many lines of what came back Claude Code shows
+	// under a call before it folds the rest into "+N lines".
+	resultLinesShown = 3
+)
+
+// AgentEntries are the newest entries of a sub-agent's work as its own
+// record holds it. Its thinking, and anything else the record keeps, is left
+// out. harness is the harness that wrote the record, claude or codex.
+func AgentEntries(path, harness string) ([]AgentEntry, error) {
+	written, records := tail(path)
 	if written.IsZero() {
 		return nil, errors.New("the sub-agent's record cannot be read")
 	}
-	draw := claudeAgentEntry
+	work := agentWork{calls: map[string]int{}}
+	read := work.claude
 	if strings.EqualFold(harness, "codex") {
-		draw = codexAgentEntry
+		read = work.codex
 	}
-	var lines []string
-	for _, entry := range entries {
-		for _, line := range draw(entry) {
-			lines = append(lines, bounded(line, agentLineLimit))
-		}
+	for _, record := range records {
+		read(record)
 	}
-	return lines[max(0, len(lines)-ChildLinesKept):], nil
+	return work.entries[max(0, len(work.entries)-AgentEntriesKept):], nil
 }
 
-// claudeAgentEntry draws one entry of a Claude Code transcript.
-func claudeAgentEntry(data []byte) []string {
+// agentWork gathers a sub-agent's entries, and where each call it made is
+// among them by its id, so what came back finds its call.
+type agentWork struct {
+	entries []AgentEntry
+	calls   map[string]int
+}
+
+func (w *agentWork) said(kind, text string) {
+	if text = strings.TrimSpace(text); text != "" {
+		w.entries = append(w.entries, AgentEntry{Kind: kind, Text: bounded(text, agentTextLimit)})
+	}
+}
+
+func (w *agentWork) called(id, tool, subject string) {
+	w.calls[id] = len(w.entries)
+	w.entries = append(w.entries, AgentEntry{Kind: EntryCall, Tool: tool, Subject: bounded(subject, agentLineLimit), State: CallRunning})
+}
+
+// cameBack settles a call with what it returned. What came back for a call
+// the read did not reach is left out.
+func (w *agentWork) cameBack(id, text string, isError bool) {
+	index, isCalled := w.calls[id]
+	if !isCalled {
+		return
+	}
+	call := &w.entries[index]
+	call.State = CallDone
+	if isError {
+		call.State = CallFailed
+	}
+	call.Result, call.More = resultLines(call.Tool, text, isError)
+}
+
+// claude reads one entry of a Claude Code transcript.
+func (w *agentWork) claude(data []byte) {
 	var entry struct {
 		Type    string `json:"type"`
+		Cwd     string `json:"cwd"`
 		Message struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
 	if json.Unmarshal(data, &entry) != nil || entry.Type != "user" && entry.Type != "assistant" {
-		return nil
+		return
 	}
 	var text string
 	if json.Unmarshal(entry.Message.Content, &text) == nil {
-		return marked(">", text)
+		w.said(EntryPrompt, text)
+		return
 	}
 	var blocks []struct {
-		Type    string          `json:"type"`
-		Text    string          `json:"text"`
-		Name    string          `json:"name"`
-		Input   json.RawMessage `json:"input"`
-		Content json.RawMessage `json:"content"`
-		IsError bool            `json:"is_error"`
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Input     json.RawMessage `json:"input"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+		IsError   bool            `json:"is_error"`
 	}
 	if json.Unmarshal(entry.Message.Content, &blocks) != nil {
-		return nil
+		return
 	}
-	var lines []string
 	for _, block := range blocks {
 		switch {
 		case block.Type == "text" && entry.Type == "user":
-			lines = append(lines, marked(">", block.Text)...)
+			w.said(EntryPrompt, block.Text)
 		case block.Type == "text":
-			lines = append(lines, marked("●", block.Text)...)
+			w.said(EntryReply, block.Text)
 		case block.Type == "tool_use":
-			lines = append(lines, "● "+block.Name+"("+callSubject(block.Input)+")")
+			w.called(block.ID, toolName(block.Name), callSubject(block.Input, entry.Cwd))
 		case block.Type == "tool_result":
-			lines = append(lines, cameBack(resultText(block.Content), block.IsError)...)
+			w.cameBack(block.ToolUseID, resultText(block.Content), block.IsError)
 		}
 	}
-	return lines
 }
 
-// codexAgentEntry draws one item of a Codex rollout. The rollout's own
-// instructions to the agent, which it records as developer messages and as
-// user messages in tags, are left out.
-func codexAgentEntry(data []byte) []string {
+// codex reads one item of a Codex rollout. The rollout's own instructions to
+// the agent, which it records as developer messages and as user messages in
+// tags, are left out.
+func (w *agentWork) codex(data []byte) {
 	var entry struct {
 		Type    string `json:"type"`
 		Payload struct {
 			Type      string          `json:"type"`
 			Role      string          `json:"role"`
 			Name      string          `json:"name"`
+			CallID    string          `json:"call_id"`
 			Arguments string          `json:"arguments"`
 			Input     string          `json:"input"`
 			Output    json.RawMessage `json:"output"`
@@ -207,92 +282,102 @@ func codexAgentEntry(data []byte) []string {
 		} `json:"payload"`
 	}
 	if json.Unmarshal(data, &entry) != nil || entry.Type != "response_item" {
-		return nil
+		return
 	}
 	item := entry.Payload
 	switch item.Type {
 	case "message":
-		var lines []string
 		for _, part := range item.Content {
 			switch {
 			case item.Role == "user" && part.Type == "input_text" && !strings.HasPrefix(strings.TrimSpace(part.Text), "<"):
-				lines = append(lines, marked(">", part.Text)...)
+				w.said(EntryPrompt, part.Text)
 			case item.Role == "assistant" && part.Type == "output_text":
-				lines = append(lines, marked("●", part.Text)...)
+				w.said(EntryReply, part.Text)
 			}
 		}
-		return lines
 	case "function_call", "custom_tool_call":
-		return []string{"● " + item.Name + "(" + firstLine(item.Arguments+item.Input) + ")"}
+		w.called(item.CallID, item.Name, firstLine(item.Arguments+item.Input))
 	case "function_call_output", "custom_tool_call_output":
-		return cameBack(resultText(item.Output), false)
+		w.cameBack(item.CallID, resultText(item.Output), false)
 	}
-	return nil
 }
 
-// marked draws text after mark, each further line under it.
-func marked(mark, text string) []string {
-	var lines []string
-	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-		if line = strings.TrimRight(line, " \t\r"); strings.TrimSpace(line) == "" {
-			continue
-		}
-		if lines == nil {
-			lines = append(lines, mark+" "+strings.TrimSpace(line))
-		} else {
-			lines = append(lines, "  "+line)
-		}
-	}
-	return lines
+// toolNames are the names Claude Code shows for tools its record names
+// otherwise.
+var toolNames = map[string]string{
+	"Edit": "Update", "MultiEdit": "Update", "Grep": "Search", "Glob": "Search",
+	"WebFetch": "Fetch", "WebSearch": "Web Search", "TodoWrite": "Update Todos",
 }
 
-// cameBack draws what a call returned: its first line, an error marked, and
-// how many lines more it holds.
-func cameBack(text string, isError bool) []string {
-	var kept []string
-	for _, line := range strings.Split(text, "\n") {
-		if strings.TrimSpace(line) != "" {
-			kept = append(kept, strings.TrimSpace(line))
-		}
+func toolName(name string) string {
+	if shown, isRenamed := toolNames[name]; isRenamed {
+		return shown
 	}
-	if len(kept) == 0 {
-		return nil
-	}
-	first := kept[0]
-	if isError {
-		first = "Error: " + first
-	}
-	lines := []string{"  ⎿ " + first}
-	switch more := len(kept) - 1; {
-	case more == 1:
-		lines = append(lines, "     … 1 more line")
-	case more > 1:
-		lines = append(lines, fmt.Sprintf("     … %d more lines", more))
-	}
-	return lines
+	return name
 }
 
-// callSubject is what a tool was called on, as its input says it: its
-// description, else the pattern, file, address, query or command it was
-// given.
-func callSubject(input json.RawMessage) string {
+// callSubject is what a tool was called on, as Claude Code shows it: the
+// command, file, pattern, address, query or description it was given, a file
+// under the folder the sub-agent works in relative to it.
+func callSubject(input json.RawMessage, cwd string) string {
 	var fields struct {
-		Description string `json:"description"`
-		Pattern     string `json:"pattern"`
+		Command     string `json:"command"`
 		FilePath    string `json:"file_path"`
-		Path        string `json:"path"`
+		Pattern     string `json:"pattern"`
 		URL         string `json:"url"`
 		Query       string `json:"query"`
-		Command     string `json:"command"`
+		Description string `json:"description"`
+		Path        string `json:"path"`
 		Prompt      string `json:"prompt"`
 	}
 	_ = json.Unmarshal(input, &fields)
-	for _, subject := range []string{fields.Description, fields.Pattern, fields.FilePath, fields.Path, fields.URL, fields.Query, fields.Command, fields.Prompt} {
+	if cwd != "" && len(fields.FilePath) > len(cwd)+1 && strings.EqualFold(fields.FilePath[:len(cwd)], cwd) && strings.ContainsRune(`\/`, rune(fields.FilePath[len(cwd)])) {
+		fields.FilePath = fields.FilePath[len(cwd)+1:]
+	}
+	for _, subject := range []string{fields.Command, fields.FilePath, fields.Pattern, fields.URL, fields.Query, fields.Description, fields.Path, fields.Prompt} {
 		if line := firstLine(subject); line != "" {
 			return line
 		}
 	}
 	return ""
+}
+
+// toolError is the tag Claude Code wraps a refused call's error in.
+var toolError = regexp.MustCompile(`</?tool_use_error>`)
+
+// resultLines are the lines of what a call returned that Claude Code shows
+// under it, and how many lines more it holds: a read's line count, a file
+// search's file count, the first line of a search or an edit, an error
+// marked, and otherwise the first lines.
+func resultLines(tool, text string, isError bool) ([]string, int) {
+	var kept []string
+	for _, line := range strings.Split(toolError.ReplaceAllString(text, ""), "\n") {
+		if line = strings.TrimRight(line, " \t\r"); strings.TrimSpace(line) != "" {
+			kept = append(kept, bounded(line, agentLineLimit))
+		}
+	}
+	if len(kept) == 0 {
+		return nil, 0
+	}
+	switch {
+	case isError:
+		kept[0] = "Error: " + strings.TrimSpace(kept[0])
+	case tool == "Read":
+		return []string{fmt.Sprintf("Read %d %s", len(kept), plural(len(kept), "line"))}, 0
+	case tool == "Search" && !strings.HasPrefix(kept[0], "Found ") && !strings.HasPrefix(kept[0], "No "):
+		return []string{fmt.Sprintf("Found %d %s", len(kept), plural(len(kept), "file"))}, 0
+	case tool == "Search" || tool == "Update" || tool == "Write":
+		return kept[:1], 0
+	}
+	shown := min(len(kept), resultLinesShown)
+	return kept[:shown], len(kept) - shown
+}
+
+func plural(count int, word string) string {
+	if count == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 // resultText is a call's result as text: a string, or the text of each of

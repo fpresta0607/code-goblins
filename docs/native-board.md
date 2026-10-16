@@ -543,7 +543,12 @@ A goblin's card counts what runs under it, and pressing the count opens the Orch
 Baby goblins live on the canvas and in the lineage list, never as cards of their own on the board's columns.
 
 Pressing a baby goblin, on the canvas or on its rail, opens the same panel a goblin opens, with the baby goblin's name and its task on one line above its terminal.
-A sub-agent's terminal is its own record as its goblin's harness keeps it, Claude Code's transcript of the sub-agent or a Codex child agent's rollout, which the board reads again every two seconds while it shows and draws as Claude Code draws a conversation: the task after >, what the agent said and each tool it called after ●, and under a call the first line of what came back after ⎿.
+A sub-agent's terminal is its own record as its goblin's harness keeps it, Claude Code's transcript of the sub-agent or a Codex child agent's rollout, which the board reads again every half second while it shows and draws as Claude Code draws a conversation, in the same terminal surface, font, size and colours as a goblin's terminal (the Overlord, 2026-10-15: "Baby goblins should look and feel just like the same Claude shells").
+Its task is a block after > on Claude Code's grey, what the agent said follows ●, and each tool it called follows a ● in the colour of its outcome, green when it succeeded, red when it failed and grey while it runs, with the tool's name in bold and what it was called on.
+Under a call, what came back follows ⎿ in grey, its first lines with the rest folded into +N lines, and an error in red.
+Every line wraps where the terminal's row ends and goes on under the text, never under its mark, and while the baby goblin works, Claude Code's working line turns in its orange under the last line.
+It follows new lines while its last lines show and keeps its place while the Overlord reads further up.
+Claude Code can draw a transcript itself only by running a session on it, which would not follow the record as it grows, so the board draws it with Claude Code's marks and colours (`frontend/src/claude-transcript.ts`).
 A sub-agent runs inside its goblin's harness and has no terminal of its own to type into, so this terminal only reads.
 Any other baby goblin's terminal is its own output too, never its goblin's terminal: a background shell's command after > and the newest lines it wrote to its output file, a monitor's command and its events, a job's command and each of its processes with its memory and what it runs, and a gate run's steps with each one's status and what it last did.
 `GET /api/tasks/<id>/agent?node=<child id>` answers a child's newest lines, only for a child the goblin's tree holds and from the record the supervisor's own read of that tree found, never a path the browser names.
@@ -1992,13 +1997,17 @@ An agent that drives the Overlord's own running browser or window through his de
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.
 While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it, its goblin's latest report since and `recommendation`, the choice a held question's asker recommended, empty for none.
-While it is off it carries `page`, the Scrawl link of his page of the last stretch that ended, once its card is in his Command Center.
+While it is off it carries `page`, the board-local URL of the last report, `/api/afk/report/<session>/index.html`.
 The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
 `state/afk-report.json` is that report: who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its lines under the headings `cfo afk report` prints, each heading's `group` (`done`, `decided` or `needs`, in that order), what each goblin finished with its task's `title`, its goblin's name and the goblin's last working `note` before it reported done, what waited on him in the Command Center with what became of each item as it stands now, what was still `under_way` with each goblin's latest note, what is `next` in the backlog's queue, and what was spent.
 When AFK mode turns off the supervisor makes his page of the stretch from it, once each decision the CFO answered in his place is settled in History: `state/afk-return/<session>/index.html`, beside the board's goblin faces and a copy of each picture a goblin's review item showed in the stretch.
-It opens the page with `lavish-axi --no-open` beside the switch, which waits on no program, and puts one item in his Command Center for it, the CFO's own, `afk-return-<when it turned on>`, which the supervisor watches like any page; a page that cannot be opened is no item, and the CFO's `afk` wake says so.
-Each decision on the page carries the question in his History it changes, and its Change sends his new answer back through Scrawl tagged `answer_change`, with the question's ID: the supervisor takes that only from a page in its own `afk-return` folder and queues the same `answer_change` History's Change answer queues, an answer the question offers as `option` and his own words as `other`, and tells him on the page that it changed.
-A change is no answer to the page, which stays open for the rest of what he sends there.
+The board opens that report in a modal when it sees AFK turn off, and the button beside the toggle reopens it after dismissal.
+Its primary green **Go through what needs you** button opens the Command Center's decision modal on the first pending item, using its existing sequence through each answer to completion.
+No Scrawl session or report review card is created.
+The report uses the board's theme tokens inside its own frame, with a scrollbar and full wrapping of row titles and status text.
+Its files are served only from the report directory, and its content security policy permits embedding only by the board itself.
+Each waiting step links to its existing Command Center card.
+Each decision's Change opens the question's current answer in History's Change answer card, using its existing `answer_change` submission path.
 A decision under `decided` carries `item`, the question in his History where he changes its answer: `question:afk-left-<when it was logged>` for one the CFO answered in his place, and `question:<its ID>` for a goblin's question.
 A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`.
 A `his` line still open when AFK mode turns off becomes one card in the Command Center, and the report holds that card among its held items: a line with a card is told by the card and is in no section, so Needs you lists only a step whose card could not be made, as a report kept before cards were made lists them all.
