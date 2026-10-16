@@ -55,6 +55,8 @@ type HTTP struct {
 	terminalBacklog int
 	editor          execx.Starter
 	editorLookup    func(string) (string, error)
+	pickFolder      func(context.Context, string) (string, error)
+	folderPickerMu  sync.Mutex
 	// openWindow starts a Windows Terminal window running a program.
 	openWindow func(ctx context.Context, program string, args ...string) error
 	// build names the bundle in Assets: its index.html names every hashed
@@ -201,6 +203,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.selectTaskEngine(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
+	case r.URL.Path == "/api/setup/folder" && r.Method == "POST":
+		h.chooseProjectsFolder(w, r)
 	case r.URL.Path == "/api/engines" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
