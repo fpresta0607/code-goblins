@@ -1035,7 +1035,7 @@ At his first click or key on the board after five minutes with none, the board o
 After a switch you made at his ask, his very first click or key on the board offers it at once, so a switch made on his words meets him before anything else.
 The desktop window is silenced with it: before `goblins-window.exe` notifies what its own look at the board found, it claims it through `/api/announce`, which hands out nothing while AFK mode is on.
 
-Turning it off produces the report of the stretch and his page of it, a Scrawl page the supervisor makes from the report and opens from one card in his Command Center: how long he was away and whether anything needs him, what changed by project in your task titles and the goblins' done notes, the decisions made for him with Change on each, what is under way and next, what was spent, and the rest of the report as its Record.
+Turning it off opens the report of the stretch in a modal over the board: how long he was away and whether anything needs him, what changed by project in your task titles and the goblins' done notes, the decisions made for him with Change on each, what is under way and next, what was spent, and the rest of the report as its Record.
 Your one-line task titles are the words he reads for each change, so title each dispatch for what it does for him or his users.
 AFK mode in the README owns its board presentation and text usage, and [the native board guide](docs/native-board.md#afk-mode) owns its data and audit contracts.
 The switch waits on no program, so it answers at once, and turning it on again removes the report of the stretch before.

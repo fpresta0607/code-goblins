@@ -836,18 +836,21 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
-Turning it off makes your page of the stretch, a Scrawl page drawn with the board's own cards, icons and goblin faces, and puts one card for it in your Command Center.
-Nothing opens over the board, and the page reads on a phone as well as on the desktop.
+Turning it off opens your report in a modal over the board, drawn with the board's own cards, icons and goblin faces.
+Close it there, or press Escape.
+Long rows wrap in full and the report scrolls on a phone as well as on the desktop.
 It opens with how long you were away and one line on whether anything needs you: **Nothing needs you**, or how many things do, one row each, a step only you can take or an item still waiting in your Command Center.
 Under it, three tiles count what merged, what the CFO decided for you and the goblins still at work.
 **What changed** walks through the stretch by project: each goblin's work is one row in a few words, told by the CFO's title for it, with the goblin's face, what went live, a merge that did not land, before and after pictures where the goblin showed them, and its pull request numbers small beside it.
-**Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and the pencil that changes it right there, the same change **Change answer** sends from History.
+**Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and a pencil that opens History's **Change answer** card.
 **Still at work** and **Next** name what goblins are still doing and the tasks queued to start.
 **Spent** draws each allowance used and free disk as the board's bars: gray before AFK, green what AFK used.
 **Record** keeps the rest of the report: who switched AFK on and off, what waited on you and was settled, goblins paused at a floor, lines the CFO settled or struck, and anything the report could not read.
 Tap any row and it opens a card with what it stood on: the goblin's own notes, the evidence and the pull request links.
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
-The button beside the toggle opens your page of the last stretch again.
+The report links to each waiting card in your Command Center.
+Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
+The button beside the toggle opens your last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 The text report reads Done, Decided for you and Needs you in order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.

@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, ORIGIN, test, type Page, type Route } from "./site";
 
@@ -24,8 +26,8 @@ const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, ins
 // AFK mode on since a moment ago unless ago says how long, so a test that is
 // not about the offer never meets it.
 const on = (fields: Record<string, unknown> = {}, ago = 0) => ({ state: "on", since: new Date(Date.now() - ago).toISOString(), from: BOARD, decided: 0, held: [], ...fields });
-// AFK mode off once his page of the stretch is in his Command Center.
-const PAGE = "http://127.0.0.1:4387/session/afk-return";
+// AFK mode off with the saved report served by the board.
+const PAGE = "/api/afk/report/afk-fixture/index.html";
 const KEPT = { state: "off", page: PAGE };
 // What the supervisor tells him on a board it refuses: one short sentence that
 // says what to do. What it found goes to the CFO, never to the board.
@@ -319,7 +321,7 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
-test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off opens nothing", async ({ page }) => {
+test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off opens the report", async ({ page }) => {
   await page.clock.install();
   const supervisor = await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 7, held: HELD }, 8 * HOURS) }));
   // Nothing opens by itself while he is away.
@@ -345,34 +347,155 @@ test("his first click after he has been gone still does what he meant and offers
   await expect(offer(page)).toHaveCount(0);
 
   // Gone again for longer than the wait: the next click offers, and Turn AFK
-  // off asks the supervisor. What the stretch came to is his page of it, in
-  // his Command Center, so nothing opens over the board.
+  // off asks the supervisor and opens the report over the board.
   await page.clock.fastForward(6 * 60 * 1000);
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
   await expect(offer(page)).toHaveCount(0);
   await push(page, snapshot({ questions: QUESTIONS, afk: KEPT }));
-  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Your AFK report" })).toBeVisible();
 });
 
-// The Overlord, 2026-10-15: one page made when AFK mode turns off, opened
-// from a single card in his Command Center, in place of the board's recap.
-// Turning AFK off opens nothing over the board, and once his page of the
-// stretch is in his Command Center the button beside the toggle opens it too.
-test("turning AFK off from the toggle opens nothing, and the button beside it opens his page of the stretch", async ({ page }) => {
+test("turning AFK off opens the report modal and its button reopens it without a new page", async ({ page, context }) => {
   const supervisor = await open(page, snapshot({ afk: on() }));
+  await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: '<article class="back"><h1>Welcome back</h1></article>' }));
   await openCfoPanel(page);
   await toggle(page).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
   await push(page, snapshot({ afk: { state: "off" } }));
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Your AFK report" })).toContainText("Loading your report");
   await expect(header(page).getByRole("link", { name: "Open your page of the last AFK stretch" })).toHaveCount(0);
   await push(page, snapshot({ afk: KEPT }));
-  const link = header(page).getByRole("link", { name: "Open your page of the last AFK stretch" });
-  await expect(link).toHaveAttribute("href", PAGE);
-  await expect(link).toHaveAttribute("target", "_blank");
+  const report = page.getByRole("dialog", { name: "Your AFK report" });
+  await expect(report).toBeVisible();
+  expect(context.pages()).toHaveLength(1);
+  await expect(page.locator('a[target="_blank"][href*="afk"]')).toHaveCount(0);
+  await report.getByRole("button", { name: "Close AFK report" }).click();
+  await expect(report).toHaveCount(0);
+  await push(page, snapshot({ afk: KEPT }));
+  await expect(report).toHaveCount(0);
+  await header(page).getByRole("button", { name: "Open your last AFK report" }).click();
+  await expect(report).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(report).toHaveCount(0);
+});
+
+test("the report's green primary button walks through every pending decision and closes when done", async ({ page }) => {
+  await open(page, snapshot({ afk: KEPT, questions: QUESTIONS }));
+  await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: '<article class="back"><h1>Welcome back</h1></article>' }));
+  const answered: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    const action = route.request().postDataJSON() as { question_id: string };
+    answered.push(action.question_id);
+    return route.fulfill({ status: 202, json: { ...action, status: "queued" } });
+  });
+  await openCfoPanel(page);
+  await header(page).getByRole("button", { name: "Open your last AFK report" }).click();
+  const report = page.getByRole("dialog", { name: "Your AFK report" });
+  const start = report.getByRole("button", { name: "Go through what needs you" });
+  await expect(start).toHaveClass(/primary/);
+  expect(await start.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgb(0, 229, 155)");
+  await start.click();
+  await expect(report).toHaveCount(0);
+  const decisions = page.locator("dialog.question-modal");
+  for (const question of QUESTIONS) {
+    await expect(decisions.locator(".question-body")).toHaveText(question.text);
+    await decisions.getByRole("radio", { name: "Do it", exact: true }).check();
+    await decisions.getByRole("button", { name: "Send decision" }).click();
+  }
+  await expect(decisions).toContainText("You're all done");
+  await expect(decisions).not.toBeVisible();
+  expect(answered).toEqual(QUESTIONS.map((question) => question.id));
+  await push(page, snapshot({ afk: KEPT }));
+  await header(page).getByRole("button", { name: "Open your last AFK report" }).click();
+  await expect(start).toBeDisabled();
+  await expect(report).toContainText("Nothing is waiting in Command Center.");
+});
+
+test.describe("AFK report layout", () => {
+  let directory = "";
+  let html = "";
+  test.beforeAll(async () => {
+    directory = await mkdtemp(join(tmpdir(), "afk-report-"));
+    execFileSync("go", ["test", "./internal/afk", "-run", "^TestReturnModalFixture$", "-count=1"], { cwd: "..", env: { ...process.env, AFK_PROOF_DIR: directory }, windowsHide: true, timeout: 120_000 });
+    html = await readFile(join(directory, "report.html"), "utf8");
+  });
+  test.afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
+  for (const width of [1097, 390]) test(`the AFK report wraps every long row at ${width} px and links to its Command Center card`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, snapshot({ afk: on(), questions: QUESTIONS }));
+    await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
+    await page.route("**/api/afk/report/afk-fixture/*.png", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
+    await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.png" }));
+    await openCfoPanel(page);
+    await toggle(page).click();
+    await push(page, snapshot({ afk: KEPT, questions: QUESTIONS }));
+    const report = page.getByRole("dialog", { name: "Your AFK report" });
+    await expect(report).toBeVisible();
+    await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
+    const frame = report.locator("iframe").contentFrame();
+    const titles = frame.locator(".inbox-text strong").filter({ hasText: "Review the complete migration" });
+    await expect(titles).toHaveCount(3);
+    for (const title of await titles.all()) {
+      const dimensions = await title.evaluate((element) => ({ height: element.clientHeight, scrollHeight: element.scrollHeight, width: element.clientWidth, scrollWidth: element.scrollWidth, lineHeight: parseFloat(getComputedStyle(element).lineHeight) }));
+      expect(dimensions.height).toBeGreaterThan(dimensions.lineHeight);
+      expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.height + 1);
+      expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.width + 1);
+    }
+    expect(await frame.locator("html").evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await frame.locator("body").evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: testInfo.outputPath(`after-${width}.png`) });
+    await frame.getByRole("heading", { name: "Record", exact: true }).scrollIntoViewIfNeeded();
+    await expect(frame.getByRole("heading", { name: "Record", exact: true })).toBeInViewport();
+    await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`after-${width}-scrolled.png`) });
+    await frame.getByRole("button", { name: "Open in Command Center" }).first().click();
+    await expect(report).toHaveCount(0);
+    await expect(page.locator("dialog.question-modal")).toContainText(QUESTIONS[0].text);
+  });
+
+  test("the report opens the current decision in History's change card", async ({ page }) => {
+    const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option", answered_by: "overlord" };
+    await open(page, snapshot({ afk: KEPT, questions: [decided] }));
+    await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
+    const report = page.getByRole("dialog", { name: "Your AFK report" });
+    await expect(report).toHaveCount(0);
+    await openCfoPanel(page);
+    await header(page).getByRole("button", { name: "Open your last AFK report" }).click();
+    await report.locator("iframe").contentFrame().getByRole("button", { name: "Change answer" }).first().click();
+    await expect(report).toHaveCount(0);
+    const change = page.locator("dialog.question-modal .change-card");
+    await expect(change).toContainText(decided.text);
+    await expect(change.getByRole("radio", { name: "Keep it longer" })).toBeChecked();
+    await expect(change.getByRole("button", { name: "Change answer" })).toBeDisabled();
+    await change.getByRole("radio", { name: "Delete now", exact: true }).check();
+    await expect(change.getByRole("button", { name: "Change answer" })).toBeEnabled();
+  });
+
+  test("a report that cannot load can be retried and Escape inside it returns focus", async ({ page }) => {
+    await open(page, snapshot({ afk: KEPT }));
+    let isAvailable = false;
+    await page.route("**" + PAGE, (route) => route.fulfill(isAvailable ? { contentType: "text/html", body: html } : { status: 404, body: "" }));
+    await openCfoPanel(page);
+    const reopen = header(page).getByRole("button", { name: "Open your last AFK report" });
+    await reopen.click();
+    const report = page.getByRole("dialog", { name: "Your AFK report" });
+    await expect(report.getByRole("alert")).toContainText("Your report could not be loaded.");
+    isAvailable = true;
+    await report.getByRole("button", { name: "Try again" }).click();
+    const frame = report.locator("iframe").contentFrame();
+    await expect(frame.getByRole("heading", { name: /Welcome back/ })).toBeVisible();
+    await frame.locator("li[data-title]").first().focus();
+    await page.keyboard.press("Enter");
+    await expect(frame.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(report).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(report).toHaveCount(0);
+    await expect(reopen).toBeFocused();
+  });
 });
 
 test("a press on the toggle itself is his answer, so it offers nothing", async ({ page }) => {

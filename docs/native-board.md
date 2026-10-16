@@ -1987,13 +1987,17 @@ An agent that drives the Overlord's own running browser or window through his de
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.
 While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it, its goblin's latest report since and `recommendation`, the choice a held question's asker recommended, empty for none.
-While it is off it carries `page`, the Scrawl link of his page of the last stretch that ended, once its card is in his Command Center.
+While it is off it carries `page`, the board-local URL of the last report, `/api/afk/report/<session>/index.html`.
 The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
 `state/afk-report.json` is that report: who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its lines under the headings `cfo afk report` prints, each heading's `group` (`done`, `decided` or `needs`, in that order), what each goblin finished with its task's `title`, its goblin's name and the goblin's last working `note` before it reported done, what waited on him in the Command Center with what became of each item as it stands now, what was still `under_way` with each goblin's latest note, what is `next` in the backlog's queue, and what was spent.
 When AFK mode turns off the supervisor makes his page of the stretch from it, once each decision the CFO answered in his place is settled in History: `state/afk-return/<session>/index.html`, beside the board's goblin faces and a copy of each picture a goblin's review item showed in the stretch.
-It opens the page with `lavish-axi --no-open` beside the switch, which waits on no program, and puts one item in his Command Center for it, the CFO's own, `afk-return-<when it turned on>`, which the supervisor watches like any page; a page that cannot be opened is no item, and the CFO's `afk` wake says so.
-Each decision on the page carries the question in his History it changes, and its Change sends his new answer back through Scrawl tagged `answer_change`, with the question's ID: the supervisor takes that only from a page in its own `afk-return` folder and queues the same `answer_change` History's Change answer queues, an answer the question offers as `option` and his own words as `other`, and tells him on the page that it changed.
-A change is no answer to the page, which stays open for the rest of what he sends there.
+The board opens that report in a modal when it sees AFK turn off, and the button beside the toggle reopens it after dismissal.
+Its primary green **Go through what needs you** button opens the Command Center's decision modal on the first pending item, using its existing sequence through each answer to completion.
+No Scrawl session or report review card is created.
+The report uses the board's theme tokens inside its own frame, with a scrollbar and full wrapping of row titles and status text.
+Its files are served only from the report directory, and its content security policy permits embedding only by the board itself.
+Each waiting step links to its existing Command Center card.
+Each decision's Change opens the question's current answer in History's Change answer card, using its existing `answer_change` submission path.
 A decision under `decided` carries `item`, the question in his History where he changes its answer: `question:afk-left-<when it was logged>` for one the CFO answered in his place, and `question:<its ID>` for a goblin's question.
 A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`.
 A `his` line still open when AFK mode turns off becomes one card in the Command Center, and the report holds that card among its held items: a line with a card is told by the card and is in no section, so Needs you lists only a step whose card could not be made, as a report kept before cards were made lists them all.

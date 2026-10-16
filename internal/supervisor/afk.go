@@ -452,7 +452,7 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 		if err := afk.SaveReport(stateDir, report); err != nil {
 			failed = append(failed, "the report could not name the cards ("+err.Error()+")")
 		}
-		says = strconv.Itoa(len(carded)) + " step(s) only he can take are cards in his Command Center, and his page of the stretch points to them. "
+		says = strconv.Itoa(len(carded)) + " step(s) only he can take are cards in his Command Center, and his report links to them. "
 	}
 	if len(failed) > 0 {
 		says += "These could not become cards and stay as lines of the report: " + strings.Join(failed, ", ") + ". "
@@ -460,15 +460,10 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	// His page of the stretch shows each decision with the question in his
 	// History it changes, so it is made once they are settled there.
 	settled := s.settleInHistory(current.Session)
-	if page, err := s.makeReturnPage(report); err != nil {
-		says += "His page of the stretch could not be made (" + bounded(err.Error(), 300) + "), so tell him what the report holds in your reply. "
+	if _, err := s.makeReturnPage(report); err != nil {
+		says += "His report could not be made (" + bounded(err.Error(), 300) + "), so tell him what the report holds in your reply. "
 	} else {
-		s.pageWork.Add(1)
-		go func() {
-			defer s.pageWork.Done()
-			s.presentReturnPage(current.Session, page)
-		}()
-		says += "His page of the stretch opens from one card in his Command Center. "
+		says += "His report opens in a modal on the board. "
 	}
 	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + settled + says + "Write the report of the stretch into your terminal: cfo afk report")
 }
@@ -917,8 +912,7 @@ type AFKView struct {
 	// for the Overlord in it, each with what became of it.
 	Decided int        `json:"decided"`
 	Held    []afk.Held `json:"held"`
-	// Page is the link of the page the last stretch that ended was made
-	// into, once it is in his Command Center.
+	// Page is the board-local report of the last stretch that ended.
 	Page string `json:"page,omitempty"`
 }
 
@@ -947,9 +941,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 		decisions := afk.Noted(afk.Decisions(entries))
 		view.Decided, view.Held = len(slices.DeleteFunc(slices.Clone(decisions), func(entry afk.Entry) bool { return entry.Kind == afk.KindHis })), s.heldOf(d, entries, decisions)
 	case switched.Session != "" && !switched.Ended.IsZero():
-		if i := slices.IndexFunc(d.Reviews, func(item Review) bool { return item.ID == returnPageID(switched.Session) }); i >= 0 {
-			view.Page = d.Reviews[i].Lavish
-		}
+		view.Page = "/api/afk/report/" + switched.Session + "/index.html"
 	}
 	return view, nil
 }

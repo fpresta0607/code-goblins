@@ -1,24 +1,34 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AfkOffer } from "./afk-offer";
-import { AFK_OFF, offerFor, type Occasion } from "./afk";
+import { AfkReport } from "./afk-report";
+import { AFK_OFF, OPEN_AFK_REPORT, offerFor, type Occasion } from "./afk";
 import { useAfkSwitch } from "./useAfkSwitch";
+import { waitingItems } from "./commandQueue";
 import type { Snapshot } from "./types";
 
 // AFK mode over the whole board, whatever view it shows: the offer to turn it
 // off at the Overlord's first click or key after he has been gone, or after
 // the CFO turned it on at his ask. Nothing here opens by itself while he is
 // away: the offer follows his own click or key. What the stretch came to is
-// his page of it, one card in his Command Center once AFK mode turns off.
+// a report modal once AFK mode turns off.
 // Until the first snapshot comes the board knows of no switch, which is off.
-export function AfkBoard({ snapshot, now, children }: { snapshot: Snapshot | null; now: number; children: ReactNode }) {
+export function AfkBoard({ snapshot, now, children, onOpenCommand }: { snapshot: Snapshot | null; now: number; children: ReactNode; onOpenCommand: (key: string) => void }) {
   const afk = snapshot?.afk ?? AFK_OFF;
   const [priorState, setPriorState] = useState(afk.state);
   const [offering, setOffering] = useState<Occasion>("");
+  const [isReportOpen, setIsReportOpen] = useState(false);
   const { pending, problem, turn, clear } = useAfkSwitch(snapshot?.instance ?? "");
   if (priorState !== afk.state) {
+    if (priorState === "on" && afk.state === "off") setIsReportOpen(true);
+    if (afk.state === "on") setIsReportOpen(false);
     setPriorState(afk.state);
     if (afk.state !== "on") setOffering("");
   }
+  useEffect(() => {
+    const open = () => setIsReportOpen(true);
+    window.addEventListener(OPEN_AFK_REPORT, open);
+    return () => window.removeEventListener(OPEN_AFK_REPORT, open);
+  }, []);
   // The newest AFK state and the last click or key, for the listener below.
   const latest = useRef(afk);
   const lastTouch = useRef(0);
@@ -45,6 +55,7 @@ export function AfkBoard({ snapshot, now, children }: { snapshot: Snapshot | nul
   const turnOff = async () => { if (await turn(false)) setOffering(""); };
   return <>
     {children}
+    {isReportOpen && afk.state === "off" && <AfkReport page={afk.page} hasPendingItems={!!snapshot && waitingItems(snapshot).length > 0} onClose={() => setIsReportOpen(false)} onOpenCommand={onOpenCommand} />}
     {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turnOff()} onStay={() => { setOffering(""); clear(); }} />}
   </>;
 }

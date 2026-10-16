@@ -321,7 +321,7 @@ export function App() {
       : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
     notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
-  return <AfkBoard snapshot={snapshot} now={now}><div className="app-shell" onKeyDown={(event) => {
+  return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
   }}>
     <header className="topbar">
