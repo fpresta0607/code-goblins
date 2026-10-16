@@ -15,7 +15,7 @@ export function TreeChild({ node, name, now, isSelected = false, onOpen }: { nod
     <span className="tree-child-copy">
       <strong>{name}</strong>
       <span className="tree-child-runs">{runs}</span>
-      {model && <span className="tree-child-model" title={model}>{model}</span>}
+      {model && <span className="tree-child-model" data-tip={model}>{model}</span>}
       <span className={"state-chip phase-" + phaseOf(node)}><span className="status-dot" /><span className="state-chip-text">{stateWord(node)}{when && " " + when}</span></span>
     </span>
     {memory && <span className="tree-memory">{memory}</span>}

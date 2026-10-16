@@ -9,7 +9,7 @@ export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "f
   | "researcher" | "performance" | "integrations" | "git" | "accessibility" | "releases";
 export type Point = { x: number; y: number };
 export const NODE_WIDTH = 292;
-export const NODE_HEIGHT = 166;
+export const NODE_HEIGHT = 232;
 
 // The canvas zooms between a tenth and one and a half times, so the whole of
 // any tree fits it.

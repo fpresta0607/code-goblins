@@ -42,13 +42,23 @@ func TestVerificationHelperUsesAnotherModelEvenWithoutQuotaEvidence(t *testing.T
 
 func TestVerificationClassifiesTheTaskRatherThanItsChecklist(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
-		brief := strings.ReplaceAll("## Task\nImplement a settings page.\n## Acceptance criteria\nVerify the page works.\n", "\n", newline)
-		if got := Classify(brief); got.IsVerification || got.Class != Implementation {
-			t.Errorf("implementation classified as verification: %+v", got)
-		}
-		brief = strings.ReplaceAll("## Task\nVerify the security changes.\n## Acceptance criteria\nReturn evidence.\n", "\n", newline)
-		if got := Classify(brief); !got.IsVerification || got.Class != Security {
-			t.Errorf("security verifier lost its job: %+v", got)
+		for _, test := range []struct {
+			brief          string
+			class          TaskClass
+			isVerification bool
+		}{
+			{"## Task\nImplement a settings page.\n## Acceptance criteria\nVerify the page works.\n", Implementation, false},
+			{"## Task - Settings\nImplement a settings page.\n2. Verify the page works.\n", Implementation, false},
+			{"## Task\nFix the login regression.\nVerify it in the browser.\n", Debug, false},
+			{"## Task\nVerify the security changes.\n## Acceptance criteria\nReturn evidence.\n", Security, true},
+			{"## Task - Verification\nValidate the completed changes.\n", Verification, true},
+			{"## Task\n1. Verify the completed changes.\n", Verification, true},
+			{"## Task\nImplement independent verification for the export.\n", Implementation, false},
+		} {
+			brief := strings.ReplaceAll(test.brief, "\n", newline)
+			if got := Classify(brief); got.IsVerification != test.isVerification || got.Class != test.class {
+				t.Errorf("Classify(%q) = %+v, want %s with verification=%v", brief, got, test.class, test.isVerification)
+			}
 		}
 	}
 }
