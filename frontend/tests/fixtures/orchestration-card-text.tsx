@@ -23,7 +23,7 @@ const paused = (reason: string, until: string) => ({
   phase: "paused",
   lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false, pause: { reason, until, at } },
 });
-const goblin = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, since: at, at, ...fields });
+const goblin = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, since: at, at, ...fields });
 const child = (fields: Record<string, unknown>) => ({ parent: "", detail: "", group: "", task: "", last_line: "", memory: 0, finished: "", started: ago(60), last_activity: ago(5), source_updated_at: at, fetched_at: at, ...fields });
 const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: task, generation: "g-" + task.slice(3), harness: "claude", memory: 0, own_memory: 0, children, source_updated_at: at, fetched_at: at });
 // Jules's ninth child is the one still running: the eight before it finished.
@@ -33,7 +33,7 @@ const view = new URLSearchParams(location.search).get("view") || "canvas";
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, cfo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 }],
   tasks: [
-    goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", ...paused("allowance", "2026-10-14T11:05:00Z") }),
+    goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", route_reason: "strong fallback", ...paused("allowance", "2026-10-14T11:05:00Z") }),
     goblin({ id: "cg-plumbing", title: "Fix the reliability of the nightly sync", goblin_name: "Wilhelmina", goblin_title: "Senior Reliability Plumber", generation: "g-plumbing", session: "s-plumbing", ...paused("dependency", "task:cg-archive") }),
     goblin({ id: "cg-dispatch", title: "Dispatch the nightly builds", goblin_name: "Cornelius", goblin_title: "Senior Dispatcher", generation: "g-dispatch", ...paused("allowance", "2026-10-14T11:05:00Z") }),
     goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(135), pr: "https://github.com/fpresta0607/code-goblins-infrastructure-observability-monorepo/pull/12345",

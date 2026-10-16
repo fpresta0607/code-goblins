@@ -15,16 +15,31 @@ import { parseSnapshot } from "../src/types"
 // like Kip Jr. Kip II etc with a job title for that specific agent session".
 
 const AGENT = "subagent:toolu_A";
-// What the supervisor reads from the sub-agent's own transcript.
-const TRANSCRIPT = ["> Find where the harness starts sub-agents and what each one records", "● Grep(subagents/agent-)", "  ⎿ Found 3 files", "● Reading internal/fleettree/claude.go"];
+// What the supervisor reads from the sub-agent's own transcript, and the
+// lines its terminal draws of it as Claude Code would.
+const LONG_PATH = "internal/fleettree/a-folder-name-long-enough-to-wrap/and-one-more-folder-below-it/agent_terminal_windows_test.go";
+const TRANSCRIPT = [
+  { kind: "prompt", text: "Find where the harness starts sub-agents and what each one records" },
+  { kind: "call", tool: "Search", subject: "subagents/agent-", state: "done", result: ["Found 3 files"] },
+  { kind: "call", tool: "Read", subject: LONG_PATH, state: "failed", result: ["Error: File does not exist."] },
+  { kind: "call", tool: "Bash", subject: "go test ./internal/fleettree/", state: "done", result: ["=== RUN TestA", "--- PASS: TestA", "ok  fleettree 1.2s"], more: 2 },
+  { kind: "reply", text: "Reading internal/fleettree/claude.go" },
+];
+const DRAWN = ["> Find where the harness starts sub-agents", "● Search(subagents/agent-)", "⎿  Found 3 files", "⎿  Error: File does not exist.", "● Bash(go test ./internal/fleettree/)", "⎿  === RUN TestA", "--- PASS: TestA", "… +2 lines", "● Reading internal/fleettree/claude.go"];
 const OUTPUTS: Record<string, string[]> = {
   "subagent:tests": ["> Review the affected Go tests", "The affected tests pass"],
   "subagent:server": ["> Review the development server", "The app server answers"],
 };
 
-async function open(page: Page, width = 1600) {
-  await page.setViewportSize({ width, height: 1000 });
+async function open(page: Page, width = 1600, height = 1000) {
+  await page.setViewportSize({ width, height });
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  // No WebGL, so xterm draws with its DOM renderer on every machine, the cells
+  // it draws readable with their colours, as a browser without a GPU draws them.
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext as (this: HTMLCanvasElement, kind: string, options?: unknown) => RenderingContext | null
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value(this: HTMLCanvasElement, kind: string, options?: unknown) { return kind === "webgl2" ? null : getContext.call(this, kind, options) } })
+  })
   const fleet = parseSnapshot(treeFleet(Date.now()))
   const children = fleet.tasks[0].tree!.children
   Object.assign(children.find(child => child.id === "process:5120:1")!, { id: "subagent:server", kind: "subagent", label: "Review the development server", detail: "general-purpose", task: "Review the development server", state: "working" })
@@ -37,15 +52,15 @@ async function open(page: Page, width = 1600) {
       private node = ""
       private snapshot = (event: Event) => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify((event as CustomEvent).detail) }))
       private receive = (event: Event) => {
-        const detail = (event as CustomEvent<{ node: string; lines: string[] }>).detail
-        if (detail.node === this.node) this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify({ lines: detail.lines }) }))
+        const detail = (event as CustomEvent<{ node: string; output: unknown }>).detail
+        if (detail.node === this.node) this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify(detail.output) }))
       }
       constructor(url: string | URL) {
         super(String(url))
         if (!String(url).includes("/agent?")) { window.addEventListener("fleet-snapshot", this.snapshot); return }
         this.node = new URL(url, location.href).searchParams.get("node") || ""
         window.addEventListener("child-output", this.receive)
-        this.timer = setTimeout(() => this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify({ lines: outputs[this.node] || transcript }) })), this.node === "subagent:server" ? 1500 : 0)
+        this.timer = setTimeout(() => this.dispatchEvent(new MessageEvent("output", { data: JSON.stringify(outputs[this.node] ? { lines: outputs[this.node] } : { entries: transcript }) })), this.node === "subagent:server" ? 1500 : 0)
       }
       close() { super.close(); clearTimeout(this.timer); window.removeEventListener("child-output", this.receive); window.removeEventListener("fleet-snapshot", this.snapshot) }
     }
@@ -54,7 +69,7 @@ async function open(page: Page, width = 1600) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const node = url.searchParams.get("node") || "";
-    if (url.pathname === "/api/tasks/fleet/agent" && node === AGENT) await route.fulfill({ json: { lines: TRANSCRIPT } });
+    if (url.pathname === "/api/tasks/fleet/agent" && node === AGENT) await route.fulfill({ json: { entries: TRANSCRIPT } });
     else if (url.pathname === "/api/tasks/fleet/agent" && OUTPUTS[node]) await new Promise((done) => setTimeout(done, node === "subagent:server" ? 1500 : 0)).then(() => route.fulfill({ json: { lines: OUTPUTS[node] } }));
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
@@ -77,7 +92,7 @@ test("clicking a sub-agent opens its own transcript live, under its name and its
   expect(await isOneLine(page)).toBe(true);
   const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" });
   await expect(terminal).toBeVisible();
-  for (const line of TRANSCRIPT) await expect(terminal).toContainText(line);
+  for (const line of DRAWN) await expect(terminal).toContainText(line);
   expect((await terminal.boundingBox())!.y, "under its name and task").toBeGreaterThan((await title(page).boundingBox())!.y);
   await expect(page.getByRole("button", { name: "Back to the CFO", exact: true })).toBeVisible();
 });
@@ -113,6 +128,8 @@ test("hovering a baby goblin shows its task at once", async ({ page }) => {
   // Time stands still, so no wait of any length lets a tip show.
   await page.clock.pauseAt(Date.now() + 60_000);
   await baby(page, "Grub Jr. - Plumbing Mapper").hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
+  await baby(page, "Grub Jr. - Plumbing Mapper").locator(".tree-child-model").hover();
   await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
 });
 
@@ -158,7 +175,7 @@ test("at phone width a baby goblin on its rail opens its panel too", async ({ pa
   await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click();
   await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click();
   await expect(title(page)).toHaveText(/^Grub Jr\. - Plumbing Mapper/);
-  await expect(page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })).toContainText("Grep(subagents/agent-)");
+  await expect(page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })).toContainText("● Search(subagents/agent-)");
 });
 
 test("baby goblins are named after their goblin in the order they started, each with a title from its own description", async ({ page }) => {
@@ -196,21 +213,100 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   await expect(page.getByRole("tooltip")).toHaveText("Review the affected Go tests");
 });
 
-for (const [name, node, initial, next] of [
-  ["Grub III - Test Runner", "subagent:tests", OUTPUTS["subagent:tests"], "The new test also passes"],
-  ["Grub Jr. - Plumbing Mapper", AGENT, TRANSCRIPT, "Found the output capture"],
+for (const [name, node, last, output, next] of [
+  ["Grub III - Test Runner", "subagent:tests", OUTPUTS["subagent:tests"].at(-1)!, { lines: [...OUTPUTS["subagent:tests"], "", "The new test also passes"] }, "The new test also passes"],
+  ["Grub Jr. - Plumbing Mapper", AGENT, DRAWN.at(-1)!, { entries: [...TRANSCRIPT, { kind: "reply", text: "Found the output capture" }] }, "● Found the output capture"],
 ] as const) {
   test(`${name} follows new output without reopening the panel`, async ({ page }) => {
     await open(page)
     await page.getByRole("button", { name: "Orchestration", exact: true }).click()
     await baby(page, name).click()
     const terminal = page.getByRole("log", { name: "Terminal of " + name })
-    await expect(terminal).toContainText(initial.at(-1)!)
-    await page.evaluate(({ node, lines }) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node, lines } })), { node, lines: [...initial, "", next] })
+    await expect(terminal).toContainText(last)
+    await page.evaluate(({ node, output }) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node, output } })), { node, output })
     await expect(terminal).toContainText(next)
     await expect(terminal).not.toContainText("(pid ")
   })
 }
+
+// The Overlord, 2026-10-15: "Baby goblins should look and feel just like the
+// same Claude shells, right? They're Claude shells to begin with". A
+// sub-agent's transcript is drawn in a goblin terminal's surface, at its font
+// and size, with Claude Code's marks in Claude Code's colours: a call's dot in
+// the colour of its outcome, its tool in bold, what came back in grey under
+// the elbow, an error in red, the rest folded dim, and Claude Code's working
+// line in its orange while the baby goblin works.
+const row = (page: Page, start: string) => page.locator(".agent-terminal .xterm-rows > div").filter({ hasText: new RegExp("^\\s*" + start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).first()
+// The look of the first cell run holding text in the row starting with start.
+// The spinner redraws rows, so a run read as it is replaced is read again.
+const colourOf = (page: Page, start: string, text: string) => row(page, start).locator("span").filter({ hasText: text }).evaluateAll((spans) => spans.filter((span) => span.isConnected).map((span) => ({ color: getComputedStyle(span).color, weight: getComputedStyle(span).fontWeight }))[0] ?? { color: "", weight: "" })
+
+test("a sub-agent's transcript is drawn in the goblin terminal's surface with Claude Code's marks and colours", async ({ page }) => {
+  // Tall enough to show the whole transcript.
+  await open(page, 1600, 1500)
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+  await baby(page, "Grub Jr. - Plumbing Mapper").click()
+  const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })
+  await expect(terminal.locator(".xterm-rows")).toContainText("● Search(subagents/agent-)")
+  const look = await terminal.locator(".xterm").evaluate((xterm) => ({ size: getComputedStyle(xterm.querySelector(".xterm-rows")!).fontSize, family: getComputedStyle(xterm.querySelector(".xterm-rows")!).fontFamily, background: getComputedStyle(xterm.querySelector(".xterm-viewport")!).backgroundColor }))
+  expect(look, "a goblin terminal's font, size and background").toEqual({ size: "20px", family: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', background: "rgb(7, 16, 21)" })
+  await expect.poll(() => colourOf(page, "● Search", "●"), "a done call's dot is green").toEqual({ color: "rgb(78, 186, 101)", weight: "400" })
+  await expect.poll(async () => (await colourOf(page, "● Search", "Search")).weight, "the tool in bold").toBe("700")
+  await expect.poll(async () => (await colourOf(page, "● Read(", "●")).color, "a failed call's dot is red").toBe("rgb(255, 107, 128)")
+  await expect.poll(async () => (await colourOf(page, "⎿  Error", "Error")).color, "its error is red").toBe("rgb(255, 107, 128)")
+  await expect.poll(async () => (await colourOf(page, "⎿  Found", "Found")).color, "what came back is grey").toBe("rgb(153, 153, 153)")
+  await expect.poll(async () => (await colourOf(page, "> Find", "Find")).color, "the prompt in the terminal's own colour").toBe("rgb(216, 233, 226)")
+  await expect(terminal.locator(".xterm-rows")).toContainText(/[·✢✳✶✻✽] Working… \(50m \d+s\)/)
+  await expect.poll(() => terminal.locator(".xterm-rows span").filter({ hasText: "Working…" }).evaluateAll((spans) => spans.filter((span) => span.isConnected).map((span) => getComputedStyle(span).color)[0] ?? ""), "the working line in Claude Code's orange").toBe("rgb(215, 119, 87)")
+})
+
+for (const width of [1600, 390]) {
+  test(`a long path wraps where the terminal's row ends, under the text, at ${width} wide`, async ({ page }) => {
+    await open(page, width)
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+    if (width < 600) await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click()
+    await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click()
+    const rows = page.locator(".agent-terminal .xterm-rows")
+    await expect(rows).toContainText("● Read(")
+    const lines = await rows.locator(":scope > div").evaluateAll((divs) => divs.map((div) => div.textContent!.replace(/\s+$/, "")))
+    const cols = await page.locator(".agent-terminal .xterm-rows").evaluate((element) => element.parentElement!.getBoundingClientRect().width / (element.querySelector("span")!.getBoundingClientRect().width / element.querySelector("span")!.textContent!.length))
+    const start = lines.findIndex((line) => line.startsWith("● Read("))
+    const end = lines.findIndex((line, index) => index > start && line.startsWith("  ⎿"))
+    const call = lines.slice(start, end)
+    expect(call.length, "the path takes more than one row").toBeGreaterThan(1)
+    for (const line of call.slice(0, -1)) expect(Math.abs(line.length - cols), `a full row: ${line}`).toBeLessThan(1)
+    for (const line of call.slice(1)) expect(line, "under the text, never under the dot").toMatch(/^ {2}\S/)
+    expect(call.map((line) => line.slice(2)).join(""), "nothing lost at the breaks").toBe("Read(" + LONG_PATH + ")")
+  })
+}
+
+test("a working sub-agent keeps its last lines in view as its transcript grows past the screen", async ({ page }) => {
+  await open(page)
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+  await baby(page, "Grub Jr. - Plumbing Mapper").click()
+  const rows = page.locator(".agent-terminal .xterm-rows")
+  await expect(rows).toContainText("● Reading internal/fleettree/claude.go")
+  const steps = Array.from({ length: 60 }, (_, index) => ({ kind: "call", tool: "Bash", subject: `go test -run TestStep${index}`, state: "done", result: [`ok  step ${index}`] }))
+  await page.evaluate((output) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node: "subagent:toolu_A", output } })), { entries: [...TRANSCRIPT, ...steps] })
+  await expect(rows).toContainText("● Bash(go test -run TestStep59)")
+  await expect(rows, "the oldest lines scrolled up out of view").not.toContainText("Find where the harness")
+  await expect(rows, "the working line under the last call").toContainText("Working…")
+})
+
+test("a transcript replaced while its previous output is queued starts on a clean terminal", async ({ page }) => {
+  await open(page)
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+  await baby(page, "Grub Jr. - Plumbing Mapper").click()
+  await expect(page.locator(".agent-terminal .xterm-rows")).toContainText("Reading internal/fleettree/claude.go")
+  await page.evaluate(() => {
+    const send = (entries: unknown[]) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node: "subagent:toolu_A", output: { entries } } }))
+    send(Array.from({ length: 60 }, (_, index) => ({ kind: "reply", text: `Previous step ${index}` })))
+    send([{ kind: "prompt", text: "Replacement prompt" }, { kind: "reply", text: "Replacement reply" }])
+  })
+  await expect(row(page, "> Replacement prompt")).toBeVisible()
+  await expect(row(page, "● Replacement reply")).toBeVisible()
+  await expect(page.locator(".agent-terminal .xterm-rows")).not.toContainText("Previous step")
+})
 
 test("a process has no baby goblin card even when it starts working", async ({ page }) => {
   const fleet = await open(page)

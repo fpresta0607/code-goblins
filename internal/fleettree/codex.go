@@ -195,6 +195,7 @@ func codexChild(path string, meta rolloutMeta) Node {
 		detail = "child agent"
 	}
 	node := Node{ID: "subagent:" + meta.id, Kind: KindSubagent, Label: label(strings.ReplaceAll(name, "_", " "), "Child agent"), Detail: detail, State: Working, Started: meta.started, LastActivity: written, SourceUpdatedAt: written}
+	node.Model = recordedModel(entries, "codex")
 	lastDid := ""
 	for i := len(entries) - 1; i >= 0; i-- {
 		var entry struct {

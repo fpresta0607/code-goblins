@@ -149,7 +149,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     // A focus on an item he already answered or cleared, as from a
     // notification that outlived it, opens the list, never another item.
     const key = focus?.key || waiting[0]?.key;
-    if (focus && key && stack.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
+    const changedQuestion = key?.startsWith("change:") ? (snapshot.questions || []).find((question) => question.id === key.slice(7) && canChange(question)) : undefined;
+    if (focus) setChanging(changedQuestion?.id || "");
+    if (focus && changedQuestion) setInbox(false);
+    else if (focus && key && stack.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
     else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,

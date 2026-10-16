@@ -322,7 +322,7 @@ func TestAWeekUsedUpUnderAFloorOf0IsWaitedOutAsASpentSessionIs(t *testing.T) {
 }
 
 // The scheduler reads the same setting: under a floor of 0 a queued task the
-// shipped lane table routes to Claude starts with 1 percent of the week
+// lane table routes to Claude starts with 1 percent of the week
 // left, and under the default it waits for the reset. A table that routes
 // the task to Codex starts it while Claude waits, and a row without a brief
 // is routed by the brief Start would write for it.
@@ -340,6 +340,7 @@ func TestTheSchedulerStartsAQueuedGoblinByTheHomesFloor(t *testing.T) {
 		{name: "a floor of 0", settings: `{"weekly_floor_percent":{"claude":0}}`, shouldStart: true},
 		{name: "a floor of 0 for codex alone", settings: `{"weekly_floor_percent":{"codex":0}}`},
 		{name: "a table routing to codex", lanes: `{"default_lane":"build","lanes":{"build":{"harness":"codex","model":"gpt-5.5","effort":"high"}}}`, shouldStart: true},
+		{name: "the shipped table routes around claude", lanes: string(shipped), shouldStart: true},
 		{name: "a row without a brief", isBriefless: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -351,7 +352,7 @@ func TestTheSchedulerStartsAQueuedGoblinByTheHomesFloor(t *testing.T) {
 			} else {
 				queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
 			}
-			lanes := string(shipped)
+			lanes := `{"default_lane":"build","lanes":{"build":{"harness":"claude","model":"sonnet","effort":"high"}}}`
 			if testCase.lanes != "" {
 				lanes = testCase.lanes
 			}

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "./Icon";
+import { OPEN_AFK_REPORT } from "./afk";
 import { AfkOnDialog } from "./afk-on-dialog";
 import { AfkRefusal } from "./afk-refusal";
 import { useAfkSwitch } from "./useAfkSwitch";
@@ -13,9 +14,8 @@ import "./afk.css";
 // until he closes it. Turning it on asks first. Turning it off needs no question:
 // it only gives him his decisions back, and it is how a switch that cannot be
 // read is reset, which its tip says while it cannot be read.
-// While it is off, his page of the last stretch opens from the button beside
-// it, in Scrawl. leading is a control shown before them, on the same row at
-// every width.
+// While it is off, the button beside it reopens his report modal.
+// leading is a control shown before them, on the same row at every width.
 export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: string; leading?: ReactNode }) {
   const [asking, setAsking] = useState(false);
   const { pending, problem, pressedOn, turn, clear } = useAfkSwitch(instance);
@@ -25,7 +25,7 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
   return <>
     <div className="afk-header">
       {leading}
-      {afk.state === "off" && afk.page && <a className="icon-button raised" href={afk.page} target="_blank" rel="noreferrer" aria-label="Open your page of the last AFK stretch" data-tip="Last AFK stretch"><Icon name="file" /></a>}
+      {afk.state === "off" && afk.page && <button className="icon-button raised" aria-label="Open your last AFK report" data-tip="Last AFK stretch" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /></button>}
       <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} data-tip={on ? "Turn AFK off" : afk.state === "off" ? "Turn AFK on" : "Reset AFK to off"} disabled={pending} onClick={press}>
         <span className="afk-toggle-label">AFK</span>
         {pending && <span className="card-start-spinner" aria-hidden="true" />}

@@ -1,10 +1,10 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { message, request, useResource } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
 import { devDriveOffer } from "./dev-drive-offer";
 import { startState } from "./firstRunStart";
-import { parseSetup, type DevDriveView, type SignIn } from "./types";
+import { object, parseSetup, type DevDriveView, type SignIn } from "./types";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
@@ -33,6 +33,9 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
   const [asked, setAsked] = useState<string | null>(null);
   const [picked, setPicked] = useState("");
   const [starting, setStarting] = useState(false);
+  const [isChoosingFolder, setIsChoosingFolder] = useState(false);
+  const folderRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => folderRequest.current?.abort(), []);
   const [failure, setFailure] = useClickFeedback();
   const [folderFeedback, showFolderFeedback] = useClickFeedback();
   const [wantsDevDrive, setWantsDevDrive] = useState(false);
@@ -51,6 +54,26 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
   const { agent, blocked } = startState(data, picked, asked !== null);
   const shown = data.agents.find((each) => each.id === agent);
   const remembered = data.agents.find((each) => each.id === data.agent);
+  const chooseFolder = async () => {
+    if (isChoosingFolder) return;
+    const controller = new AbortController();
+    folderRequest.current = controller;
+    setIsChoosingFolder(true);
+    showFolderFeedback("");
+    try {
+      const selected = object(await request("/api/setup/folder", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ root: folder.trim() }) }));
+      if (typeof selected.root !== "string") throw new Error("The folder picker returned no selection result.");
+      if (selected.root) {
+        setTyped(selected.root);
+        setAsked(selected.root);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) showFolderFeedback(message(error));
+    } finally {
+      folderRequest.current = null;
+      setIsChoosingFolder(false);
+    }
+  };
   const start = async () => {
     onStarting();
     setStarting(true);
@@ -106,11 +129,12 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
     <form className="first-run-step" onSubmit={(event) => { event.preventDefault(); setAsked(folder.trim() || null); }}>
       <label htmlFor="projects-folder">Projects folder <span className="muted">(optional)</span></label>
       <div className="first-run-folder">
-        <input id="projects-folder" value={folder} onChange={(event) => setTyped(event.target.value)} placeholder="C:\dev" spellCheck={false} autoComplete="off" />
-        <button type="submit"><Icon name="folder" />Look</button>
+        <input id="projects-folder" value={folder} onChange={(event) => setTyped(event.target.value)} placeholder="C:\dev" spellCheck={false} autoComplete="off" disabled={isChoosingFolder} />
+        <button type="button" aria-label="Choose folder" data-tip="Choose folder" disabled={isChoosingFolder} onClick={() => void chooseFolder()}><Icon name="folder" /></button>
+        <button type="submit" disabled={isChoosingFolder}>Look</button>
       </div>
-      {data.problem ? <ClickFeedback text={folderFeedback} />
-        : <p className="muted">{data.checkouts.length ? `Goblins find ${data.checkouts.length === 1 ? "1 project" : data.checkouts.length + " projects"} here by name: ${data.checkouts.join(", ")}.` : "The folder that holds your git checkouts, where goblins find a project by its name."}</p>}
+      <ClickFeedback text={folderFeedback} />
+      {!data.problem && <p className="muted">{data.checkouts.length ? `Goblins find ${data.checkouts.length === 1 ? "1 project" : data.checkouts.length + " projects"} here by name: ${data.checkouts.join(", ")}.` : "The folder that holds your git checkouts, where goblins find a project by its name."}</p>}
     </form>
     {offer === "offer" && devDrive && <div className="first-run-step">
       <label className="first-run-choice"><input type="checkbox" checked={wantsDevDrive} onChange={(event) => setWantsDevDrive(event.target.checked)} />Put the goblins' worktrees and caches on a Dev Drive <span className="muted">(optional)</span></label>
@@ -119,7 +143,7 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
     {offer === "unavailable" && devDrive && <p className="muted">Dev Drive: {devDrive.line}.</p>}
     <div className="first-run-actions">
       <span className="muted">{blocked}</span>
-      <button className="primary" disabled={!!blocked || starting} onClick={start}><Icon name="play" />{starting ? "Starting the CFO…" : "Start the CFO"}</button>
+      <button className="primary" disabled={!!blocked || starting || isChoosingFolder} onClick={start}><Icon name="play" />{starting ? "Starting the CFO…" : "Start the CFO"}</button>
       <ClickFeedback text={failure} />
     </div>
     <button type="button" className="quiet-link" onClick={onBoard}>Open the board without a CFO</button>

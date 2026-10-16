@@ -41,6 +41,63 @@ async function open(page: Page, machine: Record<string, unknown>, looked: (root:
 
 test.use({ viewport: { width: 1280, height: 900 } });
 
+test("the folder picker uses the typed path and fills and checks the selected folder", async ({ page }) => {
+  const selected = "C:\\Selected projects";
+  const starts = await open(page, setup(), (root) => setup({ projects_root: root, checkouts: ["gamma"] }));
+  const requests: unknown[] = [];
+  await page.route("**/api/setup/folder", async (route) => {
+    requests.push(route.request().postDataJSON());
+    expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
+    await route.fulfill({ json: { root: selected } });
+  });
+  await page.getByLabel("Projects folder").fill("C:\\Typed projects");
+
+  await page.getByRole("button", { name: "Choose folder" }).click();
+
+  await expect(page.getByLabel("Projects folder")).toHaveValue(selected);
+  await expect(page.getByText("Goblins find 1 project here by name: gamma.")).toBeVisible();
+  expect(requests).toEqual([{ root: "C:\\Typed projects" }]);
+  await page.getByRole("button", { name: "Start the CFO" }).click();
+  expect(starts).toEqual([{ root: selected, agent: "claude" }]);
+});
+
+for (const outcome of ["cancel", "failure"] as const) {
+  test(`the folder picker preserves the field on ${outcome} and can be opened again`, async ({ page }) => {
+    await open(page, setup());
+    await page.route("**/api/setup/folder", (route) => route.fulfill(outcome === "cancel"
+      ? { json: { root: "" } }
+      : { status: 503, json: { error: "Folder selection is unavailable." } }));
+    const button = page.getByRole("button", { name: "Choose folder" });
+
+    await button.click();
+
+    await expect(button).toBeEnabled();
+    await expect(page.getByLabel("Projects folder")).toHaveValue("C:\\dev");
+    if (outcome === "failure") await expect(page.locator(".first-run-step .click-feedback")).toHaveText("Folder selection is unavailable.");
+    else await expect(page.locator(".first-run-step .click-feedback")).toHaveCount(0);
+  });
+}
+
+test("the folder picker disables another selection until the open dialog closes", async ({ page }) => {
+  await open(page, setup());
+  let finishSelection = () => {};
+  const selection = new Promise<void>((resolve) => { finishSelection = resolve; });
+  await page.route("**/api/setup/folder", async (route) => {
+    await selection;
+    await route.fulfill({ json: { root: "" } });
+  });
+  const button = page.getByRole("button", { name: "Choose folder" });
+
+  await button.click();
+
+  await expect(button).toBeDisabled();
+  await expect(page.getByLabel("Projects folder")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start the CFO" })).toBeDisabled();
+  finishSelection();
+  await expect(button).toBeEnabled();
+  await expect(page.getByLabel("Projects folder")).toBeEnabled();
+});
+
 test("the page asks for no project, shows what the quick start knows as done, and starts the CFO in its home", async ({ page }, testInfo) => {
   // Arrange
   const starts = await open(page, setup());

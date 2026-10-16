@@ -30,6 +30,9 @@ func shippedRoutingJSON(t *testing.T) string {
 func routedRuntime(t *testing.T, routingJSON string) (home.Home, commandRuntime) {
 	t.Helper()
 	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(h.Data, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -236,8 +239,8 @@ func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
-	if string(got.Harness) != "claude" || got.Model != "opus" || got.Effort != "high" {
-		t.Errorf("request = %+v, want the build lane (claude/opus/high)", *got)
+	if string(got.Harness) != "codex" || got.Model != "gpt-6-astra" || got.Effort != "xhigh" {
+		t.Errorf("request = %+v, want the build lane (codex/gpt-6-astra/xhigh)", *got)
 	}
 	if got.BriefPath != brief || got.Capsule != nil {
 		t.Errorf("brief = %q capsule = %v, want the original brief and no capsule when the project has no manifest", got.BriefPath, got.Capsule != nil)
@@ -257,8 +260,8 @@ func TestRunSpawnRoutesHighRiskWorkToTheDeepLane(t *testing.T) {
 	if exit := runWithRuntime([]string{"spawn", "g11", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
-	if string(got.Harness) != "claude" || got.Model != "fable" || got.Effort != "xhigh" {
-		t.Errorf("request = %+v, want the deep lane (claude/fable/xhigh)", *got)
+	if string(got.Harness) != "codex" || got.Model != "gpt-6-astra" || got.Effort != "xhigh" {
+		t.Errorf("request = %+v, want the deep lane (codex/gpt-6-astra/xhigh)", *got)
 	}
 	if !strings.Contains(stdout.String(), "routed lane=deep class=security risk=high source=fleet table ") {
 		t.Errorf("stdout = %q, want the deep lane reported", stdout.String())
@@ -274,7 +277,7 @@ func TestRunSpawnAutoIsAnAliasForTheDefaultRouting(t *testing.T) {
 	if exit := runWithRuntime([]string{"spawn", "g12", "--project", `C:\project`, "--brief", brief, "--auto"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
-	if string(got.Harness) != "claude" || got.Model != "opus" || !strings.Contains(stdout.String(), "routed lane=build class=implementation") {
+	if string(got.Harness) != "codex" || got.Model != "gpt-6-astra" || !strings.Contains(stdout.String(), "routed lane=build class=implementation") {
 		t.Errorf("request = %+v stdout = %q, want --auto to route exactly as the default does", *got, stdout.String())
 	}
 }
@@ -285,22 +288,18 @@ func TestRunSpawnAppliesAModelFlagOverTheRoutedLaneAndSaysSo(t *testing.T) {
 	brief := briefWith(t, "Security review of the session cookie signing before launch.")
 
 	var stdout, stderr bytes.Buffer
-	if exit := runWithRuntime([]string{"spawn", "g22", "--project", `C:\project`, "--brief", brief, "--model", "opus"}, &stdout, &stderr, deps); exit != 0 {
+	if exit := runWithRuntime([]string{"spawn", "g22", "--project", `C:\project`, "--brief", brief, "--model", "gpt-6-sol"}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
-	if string(got.Harness) != "claude" || got.Model != "opus" || got.Effort != "xhigh" {
-		t.Errorf("request = %+v, want the deep lane with the given model (claude/opus/xhigh)", *got)
+	if string(got.Harness) != "codex" || got.Model != "gpt-6-sol" || got.Effort != "xhigh" {
+		t.Errorf("request = %+v, want the deep lane with the given model (codex/gpt-6-sol/xhigh)", *got)
 	}
-	if !strings.Contains(stdout.String(), "routed lane=deep class=security risk=high ") || !strings.HasSuffix(stdout.String(), " overrides=--model opus\n") {
+	if !strings.Contains(stdout.String(), "routed lane=deep class=security risk=high ") || !strings.HasSuffix(stdout.String(), " overrides=--model gpt-6-sol\n") {
 		t.Errorf("stdout = %q, want the routed line to end with the override", stdout.String())
 	}
 }
 
-func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
-	// codex is exhausted_now in the fixture, so ordinary work falls from its
-	// codex default to the claude escalation lane, and that lane is judged on
-	// the model:fable scope of the model that will run rather than the
-	// all-models scope of the lane's own opus.
+func TestRunSpawnRefusesCrossHarnessFallbackForAnExplicitModel(t *testing.T) {
 	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","escalate_to":"deep","lanes":{
 	"build":{"harness":"codex","model":"gpt-5.5","effort":"high","note":"ordinary"},
 	"deep":{"harness":"claude","model":"opus","effort":"xhigh","note":"escalation"}}}`)
@@ -309,14 +308,14 @@ func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
 	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
 
 	var stdout, stderr bytes.Buffer
-	if exit := runWithRuntime([]string{"spawn", "g23", "--project", `C:\project`, "--brief", brief, "--model", "fable", "--effort", "low"}, &stdout, &stderr, deps); exit != 0 {
+	if exit := runWithRuntime([]string{"spawn", "g23", "--project", `C:\project`, "--brief", brief, "--model", "gpt-6-sol", "--effort", "low"}, &stdout, &stderr, deps); exit != 1 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
-	if string(got.Harness) != "claude" || got.Model != "fable" || got.Effort != "low" {
-		t.Errorf("request = %+v, want the escalation lane with both overrides applied", *got)
+	if got.Harness != "" {
+		t.Errorf("request = %+v, want no start on an incompatible harness", *got)
 	}
-	if !strings.Contains(stdout.String(), " quota=build: codex at its 5 percent weekly allowance floor, resets 2026-09-20T12:17:37Z; deep: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
-		t.Errorf("stdout = %q, want the fable scope judged on the fallback lane and both overrides reported", stdout.String())
+	if !strings.Contains(stderr.String(), "an explicit model stays on codex") {
+		t.Errorf("stderr = %q, want the incompatible fallback explained", stderr.String())
 	}
 }
 
@@ -491,7 +490,7 @@ func TestRunSpawnRefusesWhenNoLaneIsUsable(t *testing.T) {
 }
 
 func TestRunSpawnKeepsALaneThatIsOnlyProjectedToExhaust(t *testing.T) {
-	_, deps := routedRuntime(t, shippedRoutingJSON(t))
+	_, deps := routedRuntime(t, `{"default_lane":"deep","escalate_to":"deep","start_floor_percent":10,"lanes":{"deep":{"harness":"claude","model":"fable","effort":"xhigh"}}}`)
 	fixtureQuota(t, &deps, "projected")
 	got := captureSpawn(&deps, "spawned g17")
 	brief := briefWith(t, "Security review of the session cookie signing before launch.")

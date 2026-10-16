@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,41 @@ func TestOtherOnACommandSendsHisWordToTheGoblinInsteadOfRunningIt(t *testing.T) 
 	}
 	if len(*told) != 1 || !strings.Contains((*told)[0], word) || !strings.Contains((*told)[0], r.ID) {
 		t.Fatalf("the goblin was told %q, want his answer", *told)
+	}
+}
+
+func TestAPastedPictureReachesTheGoblinWithHisAnswer(t *testing.T) {
+	s, meta, run, told := skipBoard(t)
+	meta.TaskTmp = filepath.Join(s.Store.Home.State, "tasktmp", meta.ID)
+	if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(s.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	s.Instance = "test-instance"
+	board := NewHTTP(s, "127.0.0.1:7777", nil)
+	picture := onePixelPNG(t)
+	response := pastePicture(board, meta.ID, picture)
+	var kept struct{ Path string }
+	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &kept) != nil {
+		t.Fatalf("upload answered %d %s", response.Code, response.Body)
+	}
+	word := "Use this account\n\nImage: " + kept.Path
+
+	err := pressOnRun(t, s, Action{ID: "picture-answer", Kind: "run_answer", RunID: run.ID, Generation: run.Identity, Text: word})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*told) != 1 || !strings.Contains((*told)[0], "Use this account") || !strings.Contains((*told)[0], "Image: "+kept.Path) {
+		t.Fatalf("the goblin was told %q, want the note and picture path", *told)
+	}
+	if data, err := os.ReadFile(kept.Path); err != nil || string(data) != string(picture) {
+		t.Fatalf("the goblin's picture cannot be read intact: %v", err)
+	}
+	if answered := s.Store.Snapshot().Runs[0]; answered.State != "withdrawn" || !strings.Contains(answered.Reason, word) {
+		t.Fatalf("run = %s %q, want it closed with the answer", answered.State, answered.Reason)
 	}
 }
 

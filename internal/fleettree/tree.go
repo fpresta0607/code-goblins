@@ -81,6 +81,7 @@ type Node struct {
 	Label string `json:"label"`
 	// Detail says more: an agent's type, a job's programs, a gate's step.
 	Detail string `json:"detail,omitempty"`
+	Model  string `json:"model,omitempty"`
 	// Task is a named helper goblin's task, which its label leaves to its
 	// tip.
 	Task  string `json:"task,omitempty"`

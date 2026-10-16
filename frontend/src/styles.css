@@ -331,7 +331,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connection-line text { fill: #bcffe9; font-size: 15px; }
 @keyframes effect-life { 0%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
 .flow-node { position: absolute; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease; }
-/* A canvas card is a fixed 292 by 166 box, so the column of text in it never
+/* A canvas card is a fixed 292 by 232 box, so the column of text in it never
    grows past the box: the title and the status end in an ellipsis after two
    lines, the project and the relation after one, and a card that also shows a
    browser line or its relation gives lines up to make room, so every part
@@ -363,6 +363,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .project-label, .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node .card-copy:has(.browser-indicator, small) strong { -webkit-line-clamp: 1; }
 .flow-node .card-copy:has(.browser-indicator):has(small) .card-status-text { -webkit-line-clamp: 1; }
+.flow-node .card-engine { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.flow-node .card-engine, .flow-node .card-route { width: 100%; line-height: 1.25; }
+.flow-node .card-route { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
 /* On the canvas a goblin's chevron folds its branches too, so it hangs low
@@ -1319,6 +1322,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
+.card-engine, .card-route { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
+.card-engine { color: inherit; font-weight: 600; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }
