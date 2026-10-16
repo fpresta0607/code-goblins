@@ -59,7 +59,9 @@ export function TaskControls({ task, snapshot, start, labelled = false, onAdjust
       reportToCfo("the " + action + " of " + task.id, message(error));
     }
   };
-  if (task.archived || task.phase === "stopped") return null;
+  // A card in Completed has nothing running to pause or stop, whatever
+  // session its goblin left before cleanup retires it.
+  if (taskColumn(task) === "Completed") return null;
   const name = withoutHarness(task.title) || task.id;
   const end = isQueued ? "Remove" : "Stop";
   // A labelled button says its own name, so its tip only says why it cannot

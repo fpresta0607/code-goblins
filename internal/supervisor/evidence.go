@@ -431,6 +431,76 @@ func reportedProgress(tail func(id string) ([]string, error), id string, reviews
 	return "waiting", why, target, true
 }
 
+// breakWaitCycles finds every circle the tasks' standing waits on one
+// another close, each as its tasks' ids from the smallest on, and shows none
+// of those tasks as a wait: each waits on a goblin that waits back on it, so
+// neither can go on as reported.
+func breakWaitCycles(tasks []Task) [][]string {
+	at := map[string]int{}
+	for i, task := range tasks {
+		at[task.ID] = i
+	}
+	waitsOn := func(id string) (string, bool) {
+		task := tasks[at[id]]
+		_, isTask := at[task.WaitingOn]
+		return task.WaitingOn, task.Phase == "waiting" && isTask
+	}
+	var cycles [][]string
+	seen := map[string]bool{}
+	for _, task := range tasks {
+		var path []string
+		for id, ok := task.ID, true; ok && !seen[id]; id, ok = waitsOn(id) {
+			seen[id] = true
+			path = append(path, id)
+			next, isWaiting := waitsOn(id)
+			if start := slices.Index(path, next); isWaiting && start >= 0 {
+				cycle := path[start:]
+				smallest := slices.Index(cycle, slices.Min(cycle))
+				cycles = append(cycles, append(slices.Clone(cycle[smallest:]), cycle[:smallest]...))
+			}
+		}
+	}
+	for _, cycle := range cycles {
+		for i, id := range cycle {
+			task, next := &tasks[at[id]], tasks[at[cycle[(i+1)%len(cycle)]]]
+			task.Phase, task.WaitingOn = "blocked", ""
+			task.Reason = "Waits on " + cmp.Or(next.GoblinName, next.ID) + ", whose own wait comes back to it, so neither can go on as reported"
+		}
+	}
+	return cycles
+}
+
+// tellWaitCycles tells the CFO, once for each, of a circle the goblins'
+// standing waits close. A newer report of any goblin in it is a new circle.
+func (s *Service) tellWaitCycles() error {
+	snapshot, err := s.Snapshot()
+	if err != nil {
+		return err
+	}
+	isTold := false
+	for _, cycle := range snapshot.waitCycles {
+		var names []string
+		var newest time.Time
+		for _, id := range cycle {
+			task := snapshot.Tasks[slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == id })]
+			names = append(names, cmp.Or(task.GoblinName, id)+" ("+id+")")
+			if task.ReportedAt.After(newest) {
+				newest = task.ReportedAt
+			}
+		}
+		detail := "wait_cycle: " + strings.Join(names, " waits on ") + " waits on " + names[0] + ", each by its latest cfo notify --waiting-on, so none of them can go on as reported. Ask each what it waits for and tell the one that can go on."
+		_, isNew, err := wake.AppendFirst(s.Store.Home.State, "wait-cycle/"+strings.Join(cycle, "+")+"/"+newest.UTC().Format(time.RFC3339), "notify", cycle[0], detail)
+		if err != nil {
+			return err
+		}
+		isTold = isTold || isNew
+	}
+	if isTold {
+		_, err = wake.PublishEpisode(s.Store.Home.State)
+	}
+	return err
+}
+
 // statusActivity is a task's own latest status line, the one-line answer to
 // what it is doing now, and the pull request it last reported done. A known
 // spawn time limits both to lines its own generation wrote, because a reused

@@ -45,6 +45,23 @@ test.describe("on a wide screen", () => {
     expect((await paused.boundingBox())!.y).toBeGreaterThan(lastWorking.y + lastWorking.height);
   });
 
+  // Issue #1014: a delivered goblin whose session is still up stood in
+  // Completed with Pause and Stop. One column, one set of controls: a card in
+  // Completed has none, and the same goblin at work again is In progress
+  // with both.
+  test("a card in Completed has no Pause or Stop, though its goblin's session is still up", async ({ page }) => {
+    await open(page, [
+      task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" }),
+      task("delivered-two", "working", { verified: true, merged: true, pr: "https://github.com/o/r/pull/10" }),
+    ]);
+    const completed = page.getByRole("region", { name: "Completed", exact: true });
+    await expect(completed.locator(".task-card-shell").filter({ hasText: "delivered-one" })).toBeVisible();
+    await expect(completed.getByRole("button", { name: "Pause delivered-one" })).toHaveCount(0);
+    await expect(completed.getByRole("button", { name: "Stop delivered-one" })).toHaveCount(0);
+    await expect(inProgress(page).getByRole("button", { name: "Pause delivered-two" })).toBeVisible();
+    await expect(inProgress(page).getByRole("button", { name: "Stop delivered-two" })).toBeVisible();
+  });
+
   test("with nothing paused there is no divider", async ({ page }) => {
     await open(page, BOARD.filter((item) => item.phase !== "paused"));
     await expect(inProgress(page).locator(".task-card-shell")).toHaveCount(2);

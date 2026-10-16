@@ -746,6 +746,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
+		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
@@ -1315,6 +1316,9 @@ type Task struct {
 	// background shells and monitors, its jobs of processes with their
 	// memory, and its gate run.
 	Tree *fleettree.Tree `json:"tree,omitempty"`
+	// isAtWork marks a live goblin whose turn runs on a prompt it took after
+	// its latest report, which no merge completes.
+	isAtWork bool
 	Evaluation
 }
 
@@ -1357,6 +1361,9 @@ type Snapshot struct {
 	// CFOConfigured says the home has a valid saved harness, even when no
 	// CFO has registered yet or its last start failed.
 	CFOConfigured bool `json:"cfo_configured"`
+	// waitCycles are the circles the goblins' standing waits on one another
+	// close, which tellWaitCycles names to the CFO.
+	waitCycles [][]string
 	// CFOStarting says native terminal cfo is up for a CFO not registered
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
@@ -1561,11 +1568,24 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
+		// A goblin whose turn runs on a prompt it took after its latest report
+		// is at work on something that report does not say: a wait it
+		// reported, or a delivery it finished, no longer describes it. Two
+		// goblins sent new work each read Waiting on the other on 2026-10-16,
+		// and a delivered goblin resumed to look for more work stayed in
+		// Completed.
+		isAtWork := linked && node.Generation == meta.SpawnGen && (node.Phase == "active" || node.Phase == "started") && node.PromptAt.Truncate(time.Second).After(reportedAt)
+		if isAtWork && evaluation.Phase == "done" {
+			evaluation.Phase, evaluation.Reason = "working", "At work again after its delivery"
+		}
 		// A goblin's own newer report says what it is doing, unless a question
 		// or the gate holds it or its work already merged. A question asked
 		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
 		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
+		if isReported && phase == "waiting" && isAtWork {
+			isReported = false
+		}
 		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
@@ -1597,11 +1617,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isAtWork: isAtWork, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
 	}
+	out.waitCycles = breakWaitCycles(out.Tasks)
 	// The goblins in progress run in the Overlord's attention order, and any
 	// he has not placed follow it.
 	if attention, err := fleet.ReadAttention(s.Store.Home); err != nil {
@@ -1859,7 +1880,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// before its cleanup. One still deploying, or whose deploy failed or
 		// was cancelled, stays In progress.
 		isDeployed := task.Deployment == nil || task.Deployment.State == "deployed"
-		if !task.Archived && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
+		if !task.Archived && !task.isAtWork && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
 			task.Phase, task.Verified, task.Reason = "done", true, "Pull request merged"
 			if task.Deployment != nil {
 				task.Reason = "Pull request merged and deployed"
