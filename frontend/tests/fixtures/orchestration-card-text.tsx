@@ -7,9 +7,10 @@ import "../../src/styles.css";
 
 // The canvas cards with the most text a card holds. Woody is the Overlord's
 // screenshot: a paused goblin whose status reads "Allowance: resumes Oct 14,
-// 4:05 AM", with no browser line. Wilhelmina is the worst case: a goblin whose
-// session reported no parent, so her card also names her relation, with a name
-// that takes two lines, her browser active, and a long status. Cornelius has
+// 4:05 AM", with no browser line. Wilhelmina is the worst case: a goblin with
+// a name that takes two lines, her browser active, and a long status. Her
+// session reported no parent, so she hangs under the CFO, and her card names
+// no relation. Cornelius has
 // his browser active beside a status of two lines, and Bartholomew has a
 // project name no line can break, with baby goblins whose names and states
 // run long. Jules's baby goblin is the Overlord's second screenshot, "Jules IX
