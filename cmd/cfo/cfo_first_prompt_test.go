@@ -20,8 +20,8 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 	}{
 		{"Claude Code, new", "claude", nil, nil},
 		{"Claude Code, resumed", "claude", []string{"--resume", "a1b2"}, []string{"--resume", "a1b2"}},
-		{"Codex, new", "codex", nil, []string{"--no-alt-screen", cfoFirstPrompt}},
-		{"Codex, resumed", "codex", []string{"resume", "a1b2"}, []string{"resume", "a1b2", "--no-alt-screen", cfoFirstPrompt}},
+		{"Codex, new", "codex", nil, []string{"--no-daemon", "--no-alt-screen", cfoFirstPrompt}},
+		{"Codex, resumed", "codex", []string{"resume", "a1b2"}, []string{"resume", "a1b2", "--no-daemon", "--no-alt-screen", cfoFirstPrompt}},
 		{"pi, new", "pi", nil, []string{cfoFirstPrompt}},
 	}
 	for _, test := range tests {
@@ -50,6 +50,23 @@ func TestACodexCFOStartsOnTheInlineScreen(t *testing.T) {
 		// Assert
 		if !slices.Contains(got, "--no-alt-screen") {
 			t.Errorf("cfoStartArguments(codex, %q) = %q, want Codex's inline screen", resume, got)
+		}
+	}
+}
+
+// A Codex CFO is started without the shared background server too, on a fresh
+// conversation and on a resumed one, so every cfo command its harness runs has
+// the CFO's own terminal above it and not a detached app-server left behind by
+// an earlier session. On 2026-10-16 that ancestry was what refused this
+// session's registration for hours.
+func TestACodexCFOStartsWithoutTheSharedBackgroundServer(t *testing.T) {
+	for _, resume := range [][]string{nil, {"resume", "a1b2"}} {
+		// Act
+		got := cfoStartArguments("codex", resume)
+
+		// Assert
+		if !slices.Contains(got, "--no-daemon") {
+			t.Errorf("cfoStartArguments(codex, %q) = %q, want Codex started without the shared background server", resume, got)
 		}
 	}
 }
