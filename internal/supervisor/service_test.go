@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -388,6 +389,39 @@ func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 	s.Options.Gate = fakeProgress{err: pipeline.ErrNoProgress}
 	if err := s.validateTerminalControl(context.Background(), meta); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A worktree on a detached HEAD, as a new task's starts and a scratch
+// comparison works, is on no branch, so no gate run's custody is its own:
+// its terminal opens, where a branch read that failed on it closed the
+// terminal and woke the CFO each time (#1015).
+func TestTerminalControlOpensOnADetachedHead(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	gitFixture(t, meta.Worktree)
+	cmd := exec.Command("git", "checkout", "-q", "--detach", "HEAD")
+	cmd.Dir = meta.Worktree
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v", out, err)
+	}
+	s := &Service{Store: store, Options: Options{Gate: fakeProgress{value: pipeline.Progress{Status: "running"}}}}
+
+	// Act
+	branch, branchErr := s.Git.Branch(context.Background(), meta.Worktree)
+	controlErr := s.validateTerminalControl(context.Background(), meta)
+	details, detailErr := s.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
+
+	// Assert
+	if branch != "" || branchErr != nil {
+		t.Errorf("Branch = %q, %v; want no branch and no error", branch, branchErr)
+	}
+	if controlErr != nil {
+		t.Errorf("validateTerminalControl = %v, want a detached worktree's terminal open", controlErr)
+	}
+	if detailErr != nil || !strings.HasPrefix(details.Branch, "detached at ") || slices.Contains(details.Notes, "Branch information is unavailable.") {
+		t.Errorf("workspace = %+v, %v; want the commit shown in place of a branch", details, detailErr)
 	}
 }
 

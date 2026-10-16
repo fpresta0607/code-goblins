@@ -1151,6 +1151,10 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if err != nil {
 		return result, err
 	}
+	if branch == "" {
+		result.Reason = "HEAD is detached, so no gate run's evidence is this worktree's"
+		return result, nil
+	}
 	if s.Options.Gate == nil {
 		return result, errors.New("no-mistakes evidence reader is unavailable")
 	}
@@ -1206,6 +1210,10 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 		branch, err := s.Git.Branch(ctx, meta.Worktree)
 		if err != nil {
 			return err
+		}
+		// A gate run holds a branch, so a detached HEAD is in no run's custody.
+		if branch == "" {
+			return nil
 		}
 		if s.Options.Gate == nil {
 			return errors.New("cannot verify pipeline custody")

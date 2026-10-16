@@ -475,6 +475,10 @@ func (s *Service) engineGateIdle(ctx context.Context, meta state.TaskMeta) (bool
 	if err != nil {
 		return false, err
 	}
+	// A gate run holds a branch, so none runs for a detached HEAD.
+	if branch == "" {
+		return true, nil
+	}
 	progress, err := s.Options.Gate.Progress(ctx, meta.Project, branch)
 	if errors.Is(err, pipeline.ErrNoProgress) {
 		return true, nil
