@@ -774,6 +774,7 @@ The goblin's branch is its deliverable.
 - `direct-PR` — open the PR as a draft (`gh pr create --draft`), record it with `cfo pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `cfo pr merge`.
 
 A pull request is a draft until its head is the one its goblin means to merge, so the fix rounds before that start no hosted CI: a repository's workflows skip a draft and run on `ready_for_review`, and each push to a ready pull request runs them again.
+A run whose event saw a draft first asks GitHub whether the pull request is a draft now, in one short job, and runs every other job unless it still is: an event can see the pull request as it was a moment before, and on 2026-10-15 a push seconds after a pull request was marked ready saw a draft, skipped every job and cancelled the ready run, so no run tested its last head.
 The goblin's first instruction says so for a direct-PR task.
 A gate opens its pull request ready, at the head its review, tests and lint passed, since its `ci` step waits on that pull request's CI: opened as a draft, a workflow that skips drafts would leave the step nothing to wait on, or skipped checks it would read as passed.
 A merge train and `cfo pr merge` take only a ready pull request, and only one on whose head a check ran: a check that was skipped or neutral tested nothing, though GitHub counts it as passing, and a pull request just marked ready shows its draft run's skipped checks until its ready run registers.
