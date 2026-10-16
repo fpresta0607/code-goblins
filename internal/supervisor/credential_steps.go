@@ -103,7 +103,7 @@ func (s *Service) stepCredential(pid int, connected time.Time, step CredentialSt
 		_, err := s.closeCredential(step.ID, "", "withdrawn", by, step.Reason)
 		return err
 	case "reopen":
-		return s.reopenCredential(step.ID)
+		return s.reopenCredential(step.ID, "", by)
 	case "window-open", "window-failed":
 		if by != "goblin" {
 			return errors.New("only the goblin whose browser it is reports its window")
@@ -113,32 +113,46 @@ func (s *Service) stepCredential(pid int, connected time.Time, step CredentialSt
 	return fmt.Errorf("a card takes done, withdraw, reopen, window-open or window-failed, not %q", step.Action)
 }
 
-// reopenCredential brings back a card he closed, under a new generation so
-// the card he closed never saves into it, for the rest of its day, and tells
-// the goblin that asked to wait on it again.
-func (s *Service) reopenCredential(id string) error {
+// reopenCredential brings back a card he pressed Done on, answered or
+// dismissed: by the Overlord from History on the board, who names its
+// generation, or by its asker or the CFO, who name none. It comes back under a
+// new generation so the card he closed never saves into it, for the rest of
+// its day, and the goblin that asked is told to wait on it again, as the CFO
+// is of his own press.
+func (s *Service) reopenCredential(id, generation, by string) error {
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
 	request, found := s.Store.credential(id)
 	switch {
-	case !found:
-		return fmt.Errorf("card %s is not on the board", id)
-	case request.State != "dismissed":
-		return fmt.Errorf("only a card he closed comes back, and card %s is %s", id, request.State)
+	case !found || generation != "" && generation != request.Generation:
+		return credentialRefusal{status: http.StatusConflict, Message: "This card is not on the board. Refresh the board."}
+	case !slices.Contains([]string{"done", "answered", "dismissed"}, request.State):
+		return credentialRefusal{status: http.StatusConflict, Message: "This card is " + request.State + ", so it does not come back."}
 	case !time.Now().Before(request.ExpiresAt):
-		return fmt.Errorf("card %s expired; file a new one", id)
+		return credentialRefusal{status: http.StatusConflict, Message: "This card expired. File a new one."}
 	}
-	var generation [16]byte
-	if _, err := rand.Read(generation[:]); err != nil {
+	var fresh [16]byte
+	if _, err := rand.Read(fresh[:]); err != nil {
 		return err
 	}
 	reopened, err := s.Store.updateCredential(id, func(r *CredentialRequest) {
-		r.State, r.ClosedAt, r.Reason, r.WindowState, r.Generation = "open", nil, "", "", hex.EncodeToString(generation[:])
+		r.State, r.ClosedAt, r.Reason, r.WindowState, r.Generation = "open", nil, "", "", hex.EncodeToString(fresh[:])
 	})
 	if err != nil {
 		return err
 	}
 	s.notify()
+	if by == "overlord" {
+		whose := "the CFO's card " + reopened.ID
+		if reopened.Task != "" {
+			whose = reopened.Task + "'s card " + reopened.ID
+		}
+		wait := "Wait on it again with cfo auth request --wait-on " + reopened.ID + "."
+		if reopened.By == "goblin" {
+			wait = reopened.Task + " is told to wait on it again."
+		}
+		s.credentialNotice(reopened, "the Overlord brought back "+whose+" ("+reopened.Why+") from History, so it waits on him again. "+wait)
+	}
 	if reopened.By == "goblin" && s.Options.CFO != nil {
 		s.credentialWork.Add(1)
 		go func() {
@@ -322,6 +336,27 @@ func (h *HTTP) closeCredentialCard(w http.ResponseWriter, r *http.Request) {
 		ID    string `json:"id"`
 		State string `json:"state"`
 	}{request.ID, request.State}, err)
+}
+
+// reopenCredentialCard takes his pencil on a card in History, from any
+// board.
+func (h *HTTP) reopenCredentialCard(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ID         string `json:"id"`
+		Generation string `json:"generation"`
+	}
+	if err := decodeBody(w, r, &input, 4096); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if input.ID == "" || input.Generation == "" {
+		apiError(w, http.StatusBadRequest, "Send the card's ID and its generation.")
+		return
+	}
+	err := h.Service.reopenCredential(input.ID, input.Generation, "overlord")
+	respondCredential(w, struct {
+		ID string `json:"id"`
+	}{input.ID}, err)
 }
 
 // openCredentialWindow takes his press of a card's window button, from the

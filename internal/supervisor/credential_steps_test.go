@@ -249,6 +249,127 @@ func TestOtherOnACardClosesItWithHisWord(t *testing.T) {
 	})
 }
 
+func TestThePencilBringsBackACardHeClosed(t *testing.T) {
+	reopenBody := func(b *credentialBoard, generation string) string {
+		data, _ := json.Marshal(map[string]string{"id": b.request.ID, "generation": generation})
+		return string(data)
+	}
+	for _, test := range []struct {
+		name  string
+		close string
+	}{
+		{"done", `{"action":"done"}`},
+		{"dismissed", `{"action":"dismiss"}`},
+		{"answered", `{"action":"answer","text":"The account already existed"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, nil)
+			var press map[string]string
+			if err := json.Unmarshal([]byte(test.close), &press); err != nil {
+				t.Fatal(err)
+			}
+			press["id"], press["generation"] = b.request.ID, b.request.Generation
+			closing, _ := json.Marshal(press)
+			if response := b.send(b.handler, "/api/credentials/close", string(closing), nil); response.Code != http.StatusOK {
+				t.Fatalf("close = %d %s", response.Code, response.Body)
+			}
+			b.service.credentialWork.Wait()
+			closed := b.stored()
+
+			// Act
+			response := b.send(b.handler, "/api/credentials/reopen", reopenBody(b, closed.Generation), func(r *http.Request) { r.RemoteAddr = "100.64.0.7:50000" })
+			b.service.credentialWork.Wait()
+
+			// Assert
+			if response.Code != http.StatusOK {
+				t.Fatalf("reopen = %d %s", response.Code, response.Body)
+			}
+			reopened := b.stored()
+			if reopened.State != "open" || reopened.ClosedAt != nil || reopened.Reason != "" || reopened.Generation == closed.Generation || reopened.Generation == "" {
+				t.Fatalf("reopened = %+v, want it open again under a new generation", reopened)
+			}
+			pending, err := wake.Pending(b.home.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pending) == 0 {
+				t.Fatal("the CFO was not told the card is back")
+			}
+			if last := pending[len(pending)-1].Detail; !strings.Contains(last, "brought back") || !strings.Contains(last, b.request.ID) {
+				t.Fatalf("last wake = %q, want the CFO told the card is back", last)
+			}
+			if again := b.send(b.handler, "/api/credentials/reopen", reopenBody(b, reopened.Generation), nil); again.Code != http.StatusConflict {
+				t.Fatalf("a second reopen of an open card = %d %s, want it refused", again.Code, again.Body)
+			}
+			if stale := b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil); stale.Code != http.StatusConflict {
+				t.Fatalf("an old card closed the reopened card: %d %s", stale.Code, stale.Body)
+			}
+			b.request = reopened
+			if done := b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil); done.Code != http.StatusOK {
+				t.Fatalf("the reopened card could not be completed: %d %s", done.Code, done.Body)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name       string
+		state      string
+		isExpired  bool
+		generation func(CredentialRequest) string
+	}{
+		{"expired", "dismissed", true, func(r CredentialRequest) string { return r.Generation }},
+		{"saved", "saved", false, func(r CredentialRequest) string { return r.Generation }},
+		{"withdrawn", "withdrawn", false, func(r CredentialRequest) string { return r.Generation }},
+		{"another generation", "dismissed", false, func(CredentialRequest) string { return strings.Repeat("f", 32) }},
+	} {
+		t.Run("refuses a card "+test.name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, nil)
+			if _, err := b.service.closeCredential(b.request.ID, "", test.state, "cfo", "Closed for the test"); err != nil {
+				t.Fatal(err)
+			}
+			b.service.credentialWork.Wait()
+			if test.isExpired {
+				if _, err := b.service.Store.updateCredential(b.request.ID, func(r *CredentialRequest) { r.ExpiresAt = time.Now().Add(-time.Minute) }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			closed := b.stored()
+
+			// Act
+			response := b.send(b.handler, "/api/credentials/reopen", reopenBody(b, test.generation(closed)), nil)
+
+			// Assert
+			if response.Code != http.StatusConflict {
+				t.Fatalf("reopen = %d %s, want it refused", response.Code, response.Body)
+			}
+			if request := b.stored(); request.State != test.state {
+				t.Fatalf("request = %+v, want it still %s", request, test.state)
+			}
+		})
+	}
+}
+
+func TestHistoryReopenRequiresTheCardGeneration(t *testing.T) {
+	for _, body := range []string{`{`, `{}`, `{"id":"cred-0123456789abcdef"}`, `{"generation":"old-generation"}`} {
+		t.Run(body, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, nil)
+
+			// Act
+			response := b.send(b.handler, "/api/credentials/reopen", body, nil)
+
+			// Assert
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("reopen = %d %s, want a bad request", response.Code, response.Body)
+			}
+			if request := b.stored(); request.State != "open" || request.Generation != b.request.Generation {
+				t.Fatal("a malformed request changed the card")
+			}
+		})
+	}
+}
+
 // The window button asks the goblin's own browser session to show itself,
 // only from the board on this PC, and only on a card that offers it.
 func TestStepCardAsksForTheGoblinsWindowOnlyFromThisPC(t *testing.T) {
