@@ -482,7 +482,7 @@ test.describe("AFK report layout", () => {
     const reopen = header(page).getByRole("button", { name: "Open your last AFK report" });
     await reopen.click();
     const report = page.getByRole("dialog", { name: "Your AFK report" });
-    await expect(report.getByRole("alert")).toContainText("Your report could not be loaded.");
+    await expect(report.getByRole("status")).toHaveText("Report unavailable");
     isAvailable = true;
     await report.getByRole("button", { name: "Try again" }).click();
     const frame = report.locator("iframe").contentFrame();

@@ -43,7 +43,7 @@ export function AfkReport({ page, hasPendingItems, onClose, onOpenCommand }: { p
   return <dialog ref={dialog} className="afk-report" aria-label="Your AFK report" onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <header className="afk-report-bar"><span>Your AFK report</span><button className="icon-button" aria-label="Close AFK report" data-tip="Close" onClick={onClose}><Icon name="close" /></button></header>
     {status === "loading" && <p className="afk-report-message" role="status">Loading your report</p>}
-    {status === "failed" && <div className="afk-report-message" role="alert"><p>Your report could not be loaded.</p><button onClick={() => { setStatus("loading"); setAttempt(attempt + 1); }}>Try again</button></div>}
+    {status === "failed" && <div className="afk-report-message"><p role="status">Report unavailable</p><button onClick={() => { setStatus("loading"); setAttempt(attempt + 1); }}>Try again</button></div>}
     {page && <iframe key={attempt} src={page} title="What happened while you were away" hidden={status === "failed"} className={status === "ready" ? "is-ready" : ""} onLoad={(event) => loaded(event.currentTarget)} />}
     <footer className="afk-report-actions">
       {!hasPendingItems && <p>Nothing is waiting in Command Center.</p>}
