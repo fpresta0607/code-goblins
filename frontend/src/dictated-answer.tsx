@@ -6,7 +6,8 @@ import "./dictated-answer.css";
 // The box he writes his own answer in, which dictates as the message box under
 // a goblin does: the microphone sits inside the box at its bottom right
 // corner, and Ctrl+Shift+Space dictates from the keyboard anywhere in the
-// box's card, as from the Other he just chose, and puts the caret in the box.
+// box's card or window, as from the Other he just chose, and puts the caret
+// in the box.
 // What he says joins what he wrote, after a space.
 export function DictatedAnswer({ label, placeholder, value, instance, disabled, onText }: {
   label: string; placeholder: string; value: string; instance: string; disabled?: boolean; onText: (text: string) => void;
@@ -15,7 +16,7 @@ export function DictatedAnswer({ label, placeholder, value, instance, disabled, 
   const box = useRef<HTMLTextAreaElement>(null);
   const { key } = dictation;
   useEffect(() => {
-    const card = box.current?.closest("form");
+    const card = box.current?.closest<HTMLElement>("form, dialog");
     if (!card) return;
     const hear = (event: KeyboardEvent) => {
       if (key(event) === false && event.type === "keydown") box.current?.focus();

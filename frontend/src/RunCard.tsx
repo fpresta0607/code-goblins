@@ -15,9 +15,9 @@ import { SkipWithNote } from "./skip-with-note";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, and
-// one Run button that says where it runs, with the pencil beside it for a
-// command he will not run: Skip, or his answer in words instead. Run turns
-// the card into the
+// one Run button that says where it runs, with Skip and the pencil beside
+// it for a command he will not run: the pencil sends his answer in words
+// instead. Run turns the card into the
 // command's own terminal, in place of the notice it once showed: he types
 // there and it completes by itself, Complete, or Failed with one line saying
 // why and who takes the next step, keeping the end of what its terminal
@@ -63,7 +63,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       {pager}
       {run.state === "ready" && <>
         {run.admin && <small className="muted">Windows will ask to confirm.</small>}
-        <SkipWithNote asker={asker} instance={instance} disabled={!connected || sending} onSkip={onSkip} onAnswer={onAnswer} />
+        <SkipWithNote asker={asker} task={run.task} instance={instance} disabled={!connected || sending} onSkip={onSkip} onAnswer={onAnswer} />
         <button className="primary run-button" type="button" disabled={!connected || sending} onClick={onRun}><Icon name="play" />{runLabel(run.shell, run.admin)}</button>
       </>}
     </div>}
