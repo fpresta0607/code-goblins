@@ -53,10 +53,12 @@ func (s *Service) workspaceDetail(ctx context.Context, taskID, generation string
 		out.Model = "Reported: " + session.Model
 	}
 	out.Branch, err = s.Git.Branch(ctx, meta.Worktree)
-	if err == nil && out.Branch == "" {
-		var head string
-		if head, err = s.Git.Head(ctx, meta.Worktree); err == nil {
-			out.Branch = "detached at " + head[:min(len(head), 12)]
+	if err != nil {
+		if detached, _ := s.Git.Detached(ctx, meta.Worktree); detached {
+			var head string
+			if head, err = s.Git.Head(ctx, meta.Worktree); err == nil {
+				out.Branch = "detached at " + head[:min(len(head), 12)]
+			}
 		}
 	}
 	if err != nil {

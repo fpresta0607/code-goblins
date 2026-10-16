@@ -1151,10 +1151,6 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if err != nil {
 		return result, err
 	}
-	if branch == "" {
-		result.Reason = "HEAD is detached, so no gate run's evidence is this worktree's"
-		return result, nil
-	}
 	if s.Options.Gate == nil {
 		return result, errors.New("no-mistakes evidence reader is unavailable")
 	}
@@ -1211,10 +1207,6 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 		if err != nil {
 			return err
 		}
-		// A gate run holds a branch, so a detached HEAD is in no run's custody.
-		if branch == "" {
-			return nil
-		}
 		if s.Options.Gate == nil {
 			return errors.New("cannot verify pipeline custody")
 		}
@@ -1223,6 +1215,25 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 		}
 	}
 	return nil
+}
+
+// boardTerminalControl is validateTerminalControl as the board's terminal
+// views say it. Its decision stands, and a refusal on a detached HEAD, which
+// no gate custody can be read for, names the commit in place of Git's failure
+// (#1015).
+func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta) error {
+	err := s.validateTerminalControl(ctx, meta)
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	if detached, detachedErr := s.Git.Detached(ctx, meta.Worktree); detachedErr != nil || !detached {
+		return err
+	}
+	head, headErr := s.Git.Head(ctx, meta.Worktree)
+	if headErr != nil {
+		return err
+	}
+	return fmt.Errorf("HEAD is detached at %s, and no gate custody can be read for a detached HEAD, so typing is held", head[:min(len(head), 12)])
 }
 
 func (s *Service) previewGit(meta state.TaskMeta) Git {

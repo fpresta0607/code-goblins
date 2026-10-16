@@ -135,17 +135,20 @@ func (g Git) Head(ctx context.Context, dir string) (string, error) {
 	out, err := g.run(ctx, dir, "rev-parse", "--verify", "HEAD")
 	return strings.TrimSpace(out), err
 }
-
-// Branch is the branch dir's HEAD is on, and empty for a detached HEAD, as a
-// new task's worktree starts: that is a state, not a failure (#1015). Only
-// symbolic-ref's own exit code 1 says HEAD is detached.
 func (g Git) Branch(ctx context.Context, dir string) (string, error) {
-	out, err := g.run(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	out, err := g.run(ctx, dir, "symbolic-ref", "--short", "HEAD")
+	return strings.TrimSpace(out), err
+}
+
+// Detached is whether dir's HEAD is on no branch, as a new task's worktree
+// starts. Only symbolic-ref's own exit code 1 says so.
+func (g Git) Detached(ctx context.Context, dir string) (bool, error) {
+	_, err := g.run(ctx, dir, "symbolic-ref", "--quiet", "HEAD")
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return "", nil
+		return true, nil
 	}
-	return strings.TrimSpace(out), err
+	return false, err
 }
 func (g Git) Clean(ctx context.Context, dir string) (bool, error) {
 	out, err := g.run(ctx, dir, "status", "--porcelain", "--untracked-files=normal")

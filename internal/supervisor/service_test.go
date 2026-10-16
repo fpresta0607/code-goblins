@@ -392,36 +392,52 @@ func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 	}
 }
 
-// A worktree on a detached HEAD, as a new task's starts and a scratch
-// comparison works, is on no branch, so no gate run's custody is its own:
-// its terminal opens, where a branch read that failed on it closed the
-// terminal and woke the CFO each time (#1015).
-func TestTerminalControlOpensOnADetachedHead(t *testing.T) {
+// A worktree on a detached HEAD, as a new task's starts, has no branch for a
+// gate's custody to be read on, so typing into its terminal stays held. The
+// board says so and names the commit, where it said Git's symbolic-ref
+// failure and woke the CFO each time (#1015).
+func TestBoardTerminalOnADetachedHeadHoldsTypingAndSaysWhy(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
-	cmd := exec.Command("git", "checkout", "-q", "--detach", "HEAD")
-	cmd.Dir = meta.Worktree
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%s: %v", out, err)
+	s := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	onBranch, onBranchErr := s.Git.Detached(context.Background(), meta.Worktree)
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = meta.Worktree
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v", out, err)
+		}
+		return strings.TrimSpace(string(out))
 	}
-	s := &Service{Store: store, Options: Options{Gate: fakeProgress{value: pipeline.Progress{Status: "running"}}}}
+	git("checkout", "-q", "--detach", "HEAD")
+	commit := git("rev-parse", "HEAD")[:12]
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	// Act
-	branch, branchErr := s.Git.Branch(context.Background(), meta.Worktree)
-	controlErr := s.validateTerminalControl(context.Background(), meta)
+	detached, detachedErr := s.Git.Detached(context.Background(), meta.Worktree)
+	controlErr := s.boardTerminalControl(context.Background(), meta)
+	cancelledErr := s.boardTerminalControl(cancelled, meta)
 	details, detailErr := s.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
 
 	// Assert
-	if branch != "" || branchErr != nil {
-		t.Errorf("Branch = %q, %v; want no branch and no error", branch, branchErr)
+	if onBranch || onBranchErr != nil {
+		t.Errorf("Detached on a branch = %v, %v; want false", onBranch, onBranchErr)
 	}
-	if controlErr != nil {
-		t.Errorf("validateTerminalControl = %v, want a detached worktree's terminal open", controlErr)
+	if !detached || detachedErr != nil {
+		t.Errorf("Detached on a detached HEAD = %v, %v; want true", detached, detachedErr)
 	}
-	if detailErr != nil || !strings.HasPrefix(details.Branch, "detached at ") || slices.Contains(details.Notes, "Branch information is unavailable.") {
-		t.Errorf("workspace = %+v, %v; want the commit shown in place of a branch", details, detailErr)
+	if controlErr == nil || !strings.HasPrefix(controlErr.Error(), "HEAD is detached at "+commit) {
+		t.Errorf("board terminal control = %v, want typing refused on HEAD is detached at %s", controlErr, commit)
+	}
+	if cancelledErr == nil || strings.HasPrefix(cancelledErr.Error(), "HEAD is detached") {
+		t.Errorf("cancelled board terminal control = %v, want the cancellation", cancelledErr)
+	}
+	if detailErr != nil || details.Branch != "detached at "+commit || slices.Contains(details.Notes, "Branch information is unavailable.") {
+		t.Errorf("workspace = %+v, %v; want detached at %s with no unavailable note", details, detailErr, commit)
 	}
 }
 
