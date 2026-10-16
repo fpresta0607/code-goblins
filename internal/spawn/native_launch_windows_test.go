@@ -30,8 +30,9 @@ import (
 )
 
 // The test binary plays every part of a native spawn: with nativeSpawnHost
-// first it is the terminal's host, and copied onto PATH as codex.exe or
-// claude.exe it is the harness, which cmd /c or the spawn finds there.
+// first it is the terminal's host, and copied onto PATH as codex.exe,
+// claude.exe or pi.exe it is the harness, which cmd /c or the spawn finds
+// there.
 const nativeSpawnHost = "native-spawn-host"
 
 // The fake harness records what it sees to the file fakeCodexRecord names, and
@@ -47,7 +48,9 @@ const nativeSpawnHost = "native-spawn-host"
 // text can show only once its console is resized ("undrawn"), or the first
 // Enter can be taken as part of the text ("swallow"), where
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
-// Code shows over background work before it exits.
+// Code shows over background work before it exits. With "pi-starting" it is
+// pi 0.85.1 at its editor while its startup completes for a few seconds, and
+// with "pi-stuck" one whose startup never completes.
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
 	fakeCodexMode   = "SPAWN_TEST_CODEX_MODE"
@@ -60,7 +63,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case slices.Contains([]string{"codex", "claude"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
+	case slices.Contains([]string{"codex", "claude", "pi"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
 		fakeHarness()
 	default:
 		os.Exit(m.Run())
@@ -160,6 +163,14 @@ func fakeHarness() {
 		for key := range keys {
 			record(codexEvent{Event: "typed blind", Text: key})
 		}
+		return
+	}
+	if mode == "pi-starting" || mode == "pi-stuck" {
+		startup := 8 * time.Second
+		if mode == "pi-stuck" {
+			startup = time.Hour
+		}
+		piStartup(startup, keys, record, draw)
 		return
 	}
 	composer := func(text string) {
@@ -408,6 +419,40 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 		}
 	}
 	return true
+}
+
+// piStartup shows pi 0.85.1's editor as it shows while its startup completes,
+// which on a machine without fd and rg includes downloading them: it takes
+// typed text at once, but until startup has run that long it answers Enter by
+// putting the text back in its editor and saying "Startup is still in
+// progress". After that, Enter submits the text and pi works on it.
+func piStartup(startup time.Duration, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
+	rule := strings.Repeat("─", 40)
+	footer := []string{`~\source\demo (detached)`, "0.0%/128k (auto)                                        stand-in"}
+	status := ""
+	editor := func(text string) {
+		draw(append([]string{"", status, rule, " " + text, rule}, footer...)...)
+	}
+	editor("")
+	started := time.Now().Add(startup)
+	var line strings.Builder
+	for key := range keys {
+		switch {
+		case key == "\r" && time.Now().Before(started):
+			record(codexEvent{Event: "refused while starting", Text: line.String()})
+			status = " Startup is still in progress"
+		case key == "\r" && line.Len() > 0:
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			draw(append([]string{"", " " + line.String(), "", "── ⠸ Working ──", "", rule}, footer...)...)
+			line.Reset()
+			continue
+		case key == "\r":
+			continue
+		default:
+			line.WriteString(key)
+		}
+		editor(line.String())
+	}
 }
 
 // watchWidth signals resized each time its console's width changes.
@@ -1140,6 +1185,58 @@ func TestANativeSpawnCountsAHarnessAlreadyWorkingAsStarted(t *testing.T) {
 	status, err := os.ReadFile(filepath.Join(f.stateDir, f.request.ID+".status"))
 	if err != nil && !os.IsNotExist(err) || strings.Contains(string(status), "failed:") {
 		t.Errorf("status = %q, %v; want no failed start", status, err)
+	}
+}
+
+// pi 0.85 takes typed text while its startup completes, which on a machine
+// without fd and rg includes downloading them, but answers Enter by putting
+// the text back in its editor and saying "Startup is still in progress". On
+// 2026-10-14 a spawn on a clean runner pressed Enter once, and pi sat with its
+// instruction unsent until the spawn gave up (issue 919). The spawn presses
+// Enter again while pi says so, for longer than a submitted instruction is
+// given to show pi working, and the instruction is submitted once.
+func TestANativeSpawnSubmitsAgainWhilePiIsStillStarting(t *testing.T) {
+	// Arrange
+	previous := nativeAccepted
+	nativeAccepted = 3 * time.Second
+	t.Cleanup(func() { nativeAccepted = previous })
+	f := newNativeFixture(t, harness.Pi, "pi-starting")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	events := f.events(t)
+	if refused := named(events, "refused while starting"); len(refused) == 0 {
+		t.Fatal("no Enter reached pi while it was starting, so this proves nothing")
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+}
+
+// A pi whose startup never completes fails the spawn once it has said it is
+// still starting for as long as a harness's startup is given, and the error
+// shows what its screen says.
+func TestANativeSpawnFailsWhenPiNeverFinishesStarting(t *testing.T) {
+	// Arrange
+	previousAccepted, previousStartup := nativeAccepted, nativeStartup
+	nativeAccepted, nativeStartup = 3*time.Second, 15*time.Second
+	t.Cleanup(func() { nativeAccepted, nativeStartup = previousAccepted, previousStartup })
+	f := newNativeFixture(t, harness.Pi, "pi-stuck")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "native terminal task-7") || !strings.Contains(err.Error(), "still starting") || !strings.Contains(err.Error(), "Startup is still in progress") {
+		t.Fatalf("Spawn error = %v, want native terminal task-7 named as still starting, with its screen", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted = %+v, want nothing taken", submitted)
 	}
 }
 
