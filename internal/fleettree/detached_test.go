@@ -314,12 +314,6 @@ func TestReadAsksNothingOfATreeOlderThanTheGoblinsHarness(t *testing.T) {
 	}
 }
 
-// A run a goblin started in the machine's heavy line with cfo gate turn
-// --detach waits there, hidden and detached, and tells the goblin how it
-// ended, so the goblin waits on it by design while it waits in line or holds
-// the turn: on 2026-10-14 a goblin's run waited 50 minutes behind another.
-// It is a wait whatever its processor use, and a server left detached is
-// none.
 // A run waiting in the heavy line uses no processor while the runs ahead of
 // it take their turns, so the line moving is its activity: a goblin waiting
 // on it past the busy budget is at work while the turn passes (#965).
@@ -360,6 +354,12 @@ func TestAHeavyLineRunWaitingInLineShowsTheLineMovingAsItsActivity(t *testing.T)
 	}
 }
 
+// A run a goblin started in the machine's heavy line with cfo gate turn
+// --detach waits there, hidden and detached, and tells the goblin how it
+// ended, so the goblin waits on it by design while it waits in line or holds
+// the turn: on 2026-10-14 a goblin's run waited 50 minutes behind another.
+// It is a wait whatever its processor use, and a server left detached is
+// none.
 func TestReadNamesADetachedHeavyLineRunAsAWait(t *testing.T) {
 	// Arrange
 	launched := at.Add(-time.Hour)

@@ -92,7 +92,7 @@ const (
 // because a platform rate limit or 5xx is a wait/backoff case that must never
 // route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
-	lowered := redactReplies(redactQuotedLines(redactOperatorLines(strings.ToLower(paneTail))))
+	lowered := redactQuotedLines(redactReplies(redactOperatorLines(strings.ToLower(paneTail))))
 	if index, ok := thirdPartyFault(lowered); ok {
 		return ThirdParty, evidence(paneTail, index), true
 	}
@@ -349,8 +349,8 @@ var harnessNotices = []string{"api error", "you've hit your", "claude usage limi
 // "⏺ " or Codex with "• ", short of a command a tool call ran or a notice of
 // the harness's own, and the indented rows the reply wraps or continues
 // onto, blank rows between its paragraphs included. A row that is not
-// indented, or opens with a harness mark, as a tool result, a refusal under
-// it or a status row does, ends the reply. On 2026-10-15 a goblin writing "a
+// indented, or opens with a harness mark, as a tool call, its result, a
+// refusal under it or a status row does, ends the reply. On 2026-10-15 a goblin writing "a
 // 429 that the classifier mistakes for rate limiting" woke the CFO as a
 // rate limit (#971). Lengths are kept, so an index into the result still
 // names the same place in the original tail.
@@ -359,12 +359,13 @@ func redactReplies(lowered string) string {
 	isReply := false
 	for index, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
-		if words, isOpened := strings.CutPrefix(trimmed, "⏺ "); isOpened || strings.HasPrefix(trimmed, "• ") && !strings.HasPrefix(trimmed, "• ran ") {
-			if !isOpened {
-				words = strings.TrimPrefix(trimmed, "• ")
-			}
+		words, isOpened := strings.CutPrefix(trimmed, "⏺ ")
+		if !isOpened {
+			words, isOpened = strings.CutPrefix(trimmed, "• ")
+		}
+		if isOpened && !strings.HasPrefix(trimmed, "• ran ") && !claudeToolCall.MatchString(trimmed) {
 			isReply = !slices.ContainsFunc(harnessNotices, func(notice string) bool { return strings.HasPrefix(words, notice) })
-		} else if isReply && trimmed != "" && (len(trimmed) == len(line) || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•└■✽✶✳✢·⏵") == 0) {
+		} else if isReply && strings.TrimSpace(trimmed) != "" && (len(trimmed) == len(line) || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•└■✽✶✳✢·⏵") == 0) {
 			isReply = false
 		}
 		if isReply {

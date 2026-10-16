@@ -14,6 +14,7 @@ func TestDetectIgnoresAGoblinsOwnWordsAboutALimit(t *testing.T) {
 		{"wake 1006530's line", "a 429 that the classifier mistakes for rate limiting and pauses on. I'll dig into that pause logic next."},
 		{"the same under claude's reply mark", "⏺ Found it: a 429 that the classifier mistakes for rate limiting and pauses on.\n  I'll dig into that pause logic next.\n\n✽ Shimmying… (12s · ↓ 1.2k tokens)"},
 		{"a claude reply quoting a refusal", "⏺ The deploy check failed earlier with\n  Error: 429 Too Many Requests - rate limit reached, so the retry\n  waits now.\n\n  The next paragraph says the API error: 429 was the provider's."},
+		{"a claude reply captured with crlf", "⏺ Fixed the retry.\r\n\r\n  It printed Error: 429 Too Many Requests before.\r\n"},
 		{"a codex reply quoting a refusal", "• The API returned Error: 429 Too Many Requests - rate limit reached\n  before, which the backoff now handles.\n\n• Working (8s • esc to interrupt)"},
 	}
 	for _, test := range cases {

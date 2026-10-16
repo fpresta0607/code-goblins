@@ -1,6 +1,7 @@
 package fleettree
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"testing"
@@ -178,5 +179,40 @@ func TestPlacedLeavesABrowserALinkOpenedToTheOverlord(t *testing.T) {
 	}
 	if owner[601] != "cfo" || owner[107] != "tree" {
 		t.Errorf("placed = %v, want the CFO's tool call and the goblin's own browser still placed", owner)
+	}
+}
+
+// The Overlord's browser a link opened under a goblin's harness is his, so
+// its memory is none of the goblin's either, though the opener that started
+// it is the goblin's job and still runs (#1007).
+func TestReadLeavesTheMemoryOfABrowserALinkOpenedOutOfTheGoblins(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	processes := append(goblinProcesses(launched, 0),
+		Process{PID: 601, ParentPID: 100, Exe: "node.exe", Created: 61, Started: launched.Add(50 * time.Minute), Memory: 40 * megabyte},
+		Process{PID: 610, ParentPID: 601, Exe: "chrome.exe", Created: 62, Started: launched.Add(51 * time.Minute), Memory: 900 * megabyte},
+		Process{PID: 611, ParentPID: 610, Exe: "chrome.exe", Created: 63, Started: launched.Add(51 * time.Minute), Memory: 600 * megabyte},
+	)
+	commands := maps.Clone(goblinCommands)
+	commands[601] = `node.exe open.js`
+	commands[610] = `"C:\Program Files\Google\Chrome\Application\chrome.exe" --single-argument https://claude.com/cai/oauth/authorize`
+	commands[611] = `"C:\Program Files\Google\Chrome\Application\chrome.exe" --type=renderer`
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes, nil },
+		Listeners:   func() (map[int][]int, error) { return map[int][]int{}, nil },
+		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+		Now:         func() time.Time { return at },
+	}
+
+	// Act
+	tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint64(500+80+5+300+200+3+150+400+40) * megabyte; tree.Memory != want {
+		t.Errorf("memory = %d MB, want %d MB: the harness and everything under it but the Overlord's browser", tree.Memory/megabyte, want/megabyte)
 	}
 }
