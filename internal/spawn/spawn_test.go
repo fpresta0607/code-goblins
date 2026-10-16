@@ -52,15 +52,15 @@ func TestSpawnRefusesAGatedTaskOnAHarnessNoGateRunsOn(t *testing.T) {
 	if err := os.WriteFile(policy, []byte(followsHarness), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Run("pi", func(t *testing.T) {
+	t.Run("grok", func(t *testing.T) {
 		f := newQuickFixture(t)
 		f.service.PolicyPath = policy
-		f.request.Harness = harness.Pi
+		f.request.Harness = harness.Kind("grok")
 
 		_, err := f.service.Spawn(context.Background(), f.request)
 
-		if err == nil || !strings.Contains(err.Error(), `"pi"`) || !strings.Contains(err.Error(), "--mode direct-PR") {
-			t.Fatalf("error = %v, want the pi task refused with the mode that needs no gate", err)
+		if err == nil || !strings.Contains(err.Error(), `"grok"`) || !strings.Contains(err.Error(), "--mode direct-PR") {
+			t.Fatalf("error = %v, want the grok task refused with the mode that needs no gate", err)
 		}
 		if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
 			t.Fatalf("the refused spawn left a task record: %v", readErr)

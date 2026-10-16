@@ -12,6 +12,7 @@ import (
 var (
 	claudeTask = Reviewer{Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"}
 	codexTask  = Reviewer{Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}
+	piTask     = Reviewer{Harness: "pi", Model: "openrouter/deepseek/deepseek-v4.1-flash", Effort: "high"}
 )
 
 // versionSix is the policy whose gate runs on its task's own harness, with
@@ -59,18 +60,18 @@ func TestVersionSixNamesNoHarness(t *testing.T) {
 }
 
 func TestVersionSixFallbackIsAWholeProfileOnAHarnessAGateCanProve(t *testing.T) {
-	for _, fallback := range []Reviewer{codexTask, claudeTask} {
+	for _, fallback := range []Reviewer{codexTask, claudeTask, piTask} {
 		versionSix(t, fallback)
 	}
 	policy := versionSix(t, Reviewer{})
 	for name, fallback := range map[string]Reviewer{
-		"no model":         {Harness: "claude", Effort: "high"},
-		"no effort":        {Harness: "codex", Model: "gpt-6.1-sol"},
-		"unknown effort":   {Harness: "codex", Model: "gpt-6.1-sol", Effort: "fastest"},
-		"a model flag":     {Harness: "claude", Model: "--model", Effort: "high"},
-		"pi":               {Harness: "pi", Model: "anthropic/claude-opus-5-5", Effort: "high"},
-		"no harness":       {Model: "gpt-6.1-sol", Effort: "high"},
-		"a spaced harness": {Harness: "claude code", Model: "opus", Effort: "high"},
+		"no model":            {Harness: "claude", Effort: "high"},
+		"no effort":           {Harness: "codex", Model: "gpt-6.1-sol"},
+		"unknown effort":      {Harness: "codex", Model: "gpt-6.1-sol", Effort: "fastest"},
+		"a model flag":        {Harness: "claude", Model: "--model", Effort: "high"},
+		"pi without provider": {Harness: "pi", Model: "deepseek-v4.1-flash", Effort: "high"},
+		"no harness":          {Model: "gpt-6.1-sol", Effort: "high"},
+		"a spaced harness":    {Harness: "claude code", Model: "opus", Effort: "high"},
 	} {
 		policy.Fallback = fallback
 		if err := policy.Validate(); err == nil {
@@ -81,7 +82,7 @@ func TestVersionSixFallbackIsAWholeProfileOnAHarnessAGateCanProve(t *testing.T) 
 
 func TestGateChainIsTheTasksOwnHarnessAlone(t *testing.T) {
 	policy := versionSix(t, Reviewer{})
-	for _, own := range []Reviewer{claudeTask, codexTask} {
+	for _, own := range []Reviewer{claudeTask, codexTask, piTask} {
 		chain, err := policy.GateChain(own, nobodyAsked(t))
 		if err != nil || !reflect.DeepEqual(chain, []Reviewer{own}) {
 			t.Fatalf("a %s task's gate chain = %+v, %v, want its own harness alone", own.Harness, chain, err)
@@ -126,11 +127,11 @@ func TestGateChainAddsOnlyANamedSignedInFallback(t *testing.T) {
 func TestGateChainRefusesWhatAGateCannotProve(t *testing.T) {
 	policy := versionSix(t, Reviewer{})
 	for name, own := range map[string]Reviewer{
-		"a pi task":        {Harness: "pi", Model: "anthropic/claude-opus-5-5", Effort: "high"},
 		"no model":         {Harness: "codex", Effort: "high"},
 		"no effort":        {Harness: "claude", Model: "claude-opus-5-5"},
 		"an unread effort": {Harness: "claude", Model: "claude-opus-5-5", Effort: "default"},
 		"a context suffix": {Harness: "claude", Model: "claude-opus-5-5[1m]", Effort: "high"},
+		"pi with no model": {Harness: "pi", Effort: "high"},
 	} {
 		if chain, err := policy.GateChain(own, nobodyAsked(t)); err == nil {
 			t.Fatalf("%s got a gate chain: %+v", name, chain)
@@ -151,6 +152,7 @@ func TestLaunchSelectionRendersTheTasksHarnessForEveryRole(t *testing.T) {
 	}{
 		{claudeTask, "codex", `{"harness":"claude","model":"claude-opus-5-5","effort":"xhigh"}`},
 		{codexTask, "claude", `{"harness":"codex","model":"gpt-6.1-sol","effort":"high","service_tier":"default"}`},
+		{piTask, "codex", `{"harness":"pi","model":"openrouter/deepseek/deepseek-v4.1-flash","effort":"high"}`},
 	} {
 		t.Run(test.own.Harness, func(t *testing.T) {
 			data, err := LaunchSelection(trusted, []Reviewer{test.own})
@@ -198,9 +200,9 @@ func TestLaunchSelectionRefusesAnUnreadableSourceOrChain(t *testing.T) {
 		}
 	}
 	for name, chain := range map[string][]Reviewer{
-		"empty":    nil,
-		"repeated": {claudeTask, claudeTask},
-		"pi":       {{Harness: "pi", Model: "m", Effort: "high"}},
+		"empty":               nil,
+		"repeated":            {claudeTask, claudeTask},
+		"pi without provider": {{Harness: "pi", Model: "m", Effort: "high"}},
 	} {
 		if _, err := LaunchSelection(trusted, chain); err == nil {
 			t.Fatalf("a %s chain was accepted", name)

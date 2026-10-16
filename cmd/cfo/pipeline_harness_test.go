@@ -328,19 +328,39 @@ func TestPipelineRunTakesAnUnnamedModelOrEffortFromTheMachineConfig(t *testing.T
 	})
 }
 
+// A Pi task's gate starts Pi, with the provider-qualified model and the
+// effort the task names, so a goblin on Pi no longer has its managed
+// validation restarted on another harness.
+func TestPipelineRunStartsAPiGateOnPi(t *testing.T) {
+	policy := versionSixPolicy(t, pipeline.Reviewer{})
+	h, nm := gateHome(t, policy, operatorMachineConfig)
+	wt, _ := gatedTask(t, h, "task", policy, pipeline.Reviewer{Harness: "pi", Model: "openrouter/deepseek/deepseek-v4.1-flash", Effort: "high"})
+	runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}}
+
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("pipelineCommand: %v", err)
+	}
+
+	selection, raw, _, _ := launchedSelection(t, runner.native)
+	t.Logf("Pi launch selection: %s", raw)
+	if chain := selection.Profiles["primary"]; len(chain) != 1 || chain[0]["harness"] != "pi" || chain[0]["model"] != "openrouter/deepseek/deepseek-v4.1-flash" || chain[0]["effort"] != "high" || chain[0]["service_tier"] != "" {
+		t.Fatalf("launch selection = %s, want Pi on the task's own model and effort", raw)
+	}
+}
+
 func TestPipelineRunRefusesAGateForAHarnessItCannotProve(t *testing.T) {
 	policy := versionSixPolicy(t, codexGoblin)
 	h, nm := gateHome(t, policy, operatorMachineConfig)
-	wt, _ := gatedTask(t, h, "task", policy, pipeline.Reviewer{Harness: "pi", Model: "anthropic/claude-opus-5-5", Effort: "high"})
+	wt, _ := gatedTask(t, h, "task", policy, pipeline.Reviewer{Harness: "grok", Model: "grok-4", Effort: "high"})
 	runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}, signedIn: map[string]bool{"codex": true}}
 
 	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
 
-	if err == nil || !strings.Contains(err.Error(), "pi") {
-		t.Fatalf("error = %v, want the pi task refused by name", err)
+	if err == nil || !strings.Contains(err.Error(), "grok") {
+		t.Fatalf("error = %v, want the grok task refused by name", err)
 	}
 	if len(runner.native) != 0 || len(runner.probes) != 0 {
-		t.Fatalf("a pi task's gate started %+v after asking %v, though only its own harness may gate it first", runner.native, runner.probes)
+		t.Fatalf("a grok task's gate started %+v after asking %v, though only its own harness may gate it first", runner.native, runner.probes)
 	}
 }
 

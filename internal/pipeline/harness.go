@@ -11,7 +11,7 @@ import (
 // gateHarnesses are the harnesses whose model and effort no-mistakes can
 // prove before it starts an agent, which is what lets one daemon run each
 // gate on the harness its own run names.
-var gateHarnesses = []string{"claude", "codex"}
+var gateHarnesses = []string{"claude", "codex", "pi"}
 
 // gateEfforts are the reasoning efforts no-mistakes names for every harness.
 var gateEfforts = []string{"minimal", "low", "medium", "high", "xhigh", "max"}
@@ -38,6 +38,12 @@ func gateProfile(profile Reviewer) error {
 	}
 	if !isGateToken(profile.Model) {
 		return fmt.Errorf("pipeline: a gate agent on %s needs its model named as an exact identifier, not %q", profile.Harness, profile.Model)
+	}
+	if profile.Harness == "pi" {
+		provider, model, ok := strings.Cut(profile.Model, "/")
+		if !ok || provider == "" || model == "" {
+			return fmt.Errorf("pipeline: a gate agent on pi needs its model as provider/model, not %q", profile.Model)
+		}
 	}
 	if !slices.Contains(gateEfforts, profile.Effort) {
 		return fmt.Errorf("pipeline: a gate agent on %s needs one of the efforts %s, not %q", profile.Harness, strings.Join(gateEfforts, ", "), profile.Effort)

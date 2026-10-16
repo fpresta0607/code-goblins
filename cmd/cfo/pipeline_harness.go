@@ -163,7 +163,7 @@ func restartLaunchSelection(ctx context.Context, commands execx.Runner, gate pip
 		return nil, nil
 	}
 	if err := pipeline.GateHarness(meta.Harness); err != nil {
-		return nil, fmt.Errorf("%w. Task %s would come back on %s, so resume it on claude or codex", err, meta.ID, meta.Harness)
+		return nil, fmt.Errorf("%w. Task %s would come back on %s, so resume it on a harness a gate can prove", err, meta.ID, meta.Harness)
 	}
 	trusted, err := gate.TrustedHead(ctx, meta.Project)
 	if err != nil {
