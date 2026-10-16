@@ -294,6 +294,21 @@ test("a working sub-agent keeps its last lines in view as its transcript grows p
   await expect(rows, "the working line under the last call").toContainText("Working…")
 })
 
+test("a transcript replaced while its previous output is queued starts on a clean terminal", async ({ page }) => {
+  await open(page)
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click()
+  await baby(page, "Grub Jr. - Plumbing Mapper").click()
+  await expect(page.locator(".agent-terminal .xterm-rows")).toContainText("Reading internal/fleettree/claude.go")
+  await page.evaluate(() => {
+    const send = (entries: unknown[]) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node: "subagent:toolu_A", output: { entries } } }))
+    send(Array.from({ length: 60 }, (_, index) => ({ kind: "reply", text: `Previous step ${index}` })))
+    send([{ kind: "prompt", text: "Replacement prompt" }, { kind: "reply", text: "Replacement reply" }])
+  })
+  await expect(row(page, "> Replacement prompt")).toBeVisible()
+  await expect(row(page, "● Replacement reply")).toBeVisible()
+  await expect(page.locator(".agent-terminal .xterm-rows")).not.toContainText("Previous step")
+})
+
 test("a silent child has no card and returns as soon as it works again", async ({ page }) => {
   const fleet = await open(page)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
