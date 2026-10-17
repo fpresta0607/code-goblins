@@ -728,6 +728,45 @@ func TestTheSnapshotNamesTheHarnessTheCFORuns(t *testing.T) {
 	}
 }
 
+// The snapshot names the registered CFO's session, the one every surface
+// reads the CFO's status from, and no session while no CFO is registered: an
+// older CFO's session, which may have ended, never stands in for it. On
+// 2026-10-17 the CFO panel read Session ended from a Pi CFO that had ended,
+// while a Claude Code CFO worked.
+func TestTheSnapshotNamesTheRegisteredCFOsSession(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	before, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := lock.Acquire(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Release(stateDir) })
+	process.Session = "live-cfo-session"
+	data, err := json.Marshal(primaryRegistration{Host: "cfo", Agent: "claude", Process: *process})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	after, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.CFOSession != "" || after.CFOSession != "claude/live-cfo-session" {
+		t.Errorf("CFOSession = %q before the CFO registered and %q after, want empty and claude/live-cfo-session", before.CFOSession, after.CFOSession)
+	}
+}
+
 // The board shows the registered native CFO's terminal as it shows a
 // task's: its output reaches the view and typing reaches the CFO.
 func TestTheBoardShowsANativeCFOsTerminalAndTypesIntoIt(t *testing.T) {
