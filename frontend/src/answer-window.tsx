@@ -66,7 +66,7 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
     {isKeeping && <p className="message-note" role="status">Saving picture...</p>}
     {refusal && <p className="message-note" role="status">{refusal}</p>}
     {isTooLong && <p className="message-note" role="status">Use a shorter answer or fewer pictures.</p>}
-    {refused && <p className="message-note" role="alert">{refused}</p>}
+    {refused && <p className="message-note" role="status">{refused}</p>}
     <div className="credential-replace-choices">
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
       <button type="button" className="primary" disabled={!text || isKeeping || isTooLong || isSending} onClick={() => onSend(text)}><Icon name="send" />Send</button>

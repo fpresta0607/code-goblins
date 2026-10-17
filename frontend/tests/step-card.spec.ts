@@ -214,7 +214,7 @@ test("a refused answer from Something else? stays in his window in full, with hi
   await note.getByRole("button", { name: "Send", exact: true }).click();
 
   // Assert
-  await expect(note.getByRole("alert")).toHaveText(refusal);
+  await expect(note.getByRole("status").filter({ hasText: refusal })).toHaveText(refusal);
   await expect(note.getByLabel("Your note")).toHaveValue("which plan?");
   await expect(note.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   await expect(card.locator(".click-feedback")).toHaveCount(0);
