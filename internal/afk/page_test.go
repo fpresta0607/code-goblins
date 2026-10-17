@@ -156,7 +156,8 @@ func TestEachDecisionOnTheReturnPageCarriesItsChange(t *testing.T) {
 }
 
 // What needs him leads the page in place of the all clear, one row each: a
-// step only he can take and each item still waiting in his Command Center.
+// step only he can take and each item still waiting in his Command Center,
+// with who asks as the Command Center names them.
 func TestTheReturnPageLeadsWithWhatNeedsHim(t *testing.T) {
 	// Arrange
 	r := recordedReturn(t)
@@ -167,13 +168,56 @@ func TestTheReturnPageLeadsWithWhatNeedsHim(t *testing.T) {
 	_, words := returnPage(t, r)
 
 	// Assert
-	for _, want := range []string{"2 things need you", "Sign in to the shop once Only you can do this", "Pick the app's name In your Command Center"} {
+	for _, want := range []string{"Needs you 2", "The CFO Sign in to the shop once Only you can do this", "The CFO Pick the app's name"} {
 		if !strings.Contains(words, want) {
 			t.Errorf("the page reads %q, want it to say %q", words, want)
 		}
 	}
 	if strings.Contains(words, "Nothing needs you") {
 		t.Errorf("the page reads %q, want no all clear while something needs him", words)
+	}
+}
+
+// The Overlord, 2026-10-17: "styling should be command center based ... Same
+// type of controls." Each item still waiting is the Command Center's waiting
+// row: the whole row carries its item, who asks is its goblin, or Code Goblins
+// for its own release update, and its Answer wears the icon of its kind.
+func TestEachItemThatNeedsHimIsTheCommandCentersWaitingRow(t *testing.T) {
+	// Arrange
+	r := recordedReturn(t)
+	r.Report.Held = append(r.Report.Held,
+		Held{Item: "question:pick-a-name", What: "Pick the app's name", Waiting: true},
+		Held{Item: "run:restart-db", Task: "garden-share", What: "Restart the dev database", Waiting: true},
+		Held{Item: "run:update-v1.4.0-0123456789abcdef", What: "Update Code Goblins from v1.3.0 to v1.4.0", Waiting: true},
+		Held{Item: "run:update-node-1", What: "Update Node.js to 22", Waiting: true})
+
+	// Act
+	page, words := returnPage(t, r)
+
+	// Assert
+	page = html.UnescapeString(page)
+	for _, want := range []string{
+		`<ul class="inbox-list waiting" aria-label="Needs you">`,
+		`<li data-item="question:pick-a-name">`,
+		`<li data-item="run:restart-db">`,
+		`aria-label="Answer The CFO: Pick the app's name"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["question"] + `"/>`,
+		`aria-label="Answer Ivy: Restart the dev database"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
+		`<li data-item="run:update-v1.4.0-0123456789abcdef"><span class="goblin-avatar persona-releases"></span>`,
+		`aria-label="Answer Code Goblins: Update Code Goblins from v1.3.0 to v1.4.0"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>`,
+		// A run the CFO named update- itself is no release update, as the
+		// Command Center, which reads the run's update, names it too.
+		`<li data-item="run:update-node-1"><span class="goblin-avatar persona-cfo"></span>`,
+		`aria-label="Answer The CFO: Update Node.js to 22"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+	if !strings.Contains(words, "Ivy Restart the dev database") {
+		t.Errorf("the page reads %q, want the goblin named as who asks", words)
+	}
+	if strings.Contains(page, `class="verdict needs"`) || strings.Contains(page, "Open in Command Center") {
+		t.Errorf("the page keeps its own warning or its own link to the Command Center")
 	}
 }
 

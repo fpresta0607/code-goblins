@@ -54,6 +54,18 @@
   .inbox-text small { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--muted); font-size: .9375rem; font-weight: 600; min-width: 0; }
   .inbox-text small .plain-status { min-width: 0; overflow-wrap: anywhere; }
   .answer-now { min-width: 0; }
+  /* What needs him is the Command Center's waiting row, from lantern.css and
+     styles.css: the lantern box, who asks in lantern and the stepped Answer. */
+  .inbox-list.waiting li { position: relative; isolation: isolate; gap: 10px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
+  .inbox-list.waiting li::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
+  .inbox-list.waiting li:hover { background: transparent; }
+  .inbox-list.waiting .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
+  .inbox-summary { overflow-wrap: anywhere; line-height: 1.3; }
+  .inbox-list.waiting li .icon-button { position: relative; isolation: isolate; width: 44px; height: 44px; min-height: 44px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); }
+  .inbox-list.waiting li .icon-button::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); box-shadow: inset 0 0 0 2px var(--bone); }
+  .inbox-list.waiting li .icon-button:hover { background: transparent; }
+  .inbox-list.waiting li .icon-button:hover::before { background: #ffffff12; }
+  .inbox-list.waiting li .icon-button .icon { width: 22px; height: 22px; }
   .answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
   .answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
   .answer-mark .away-badge .icon { width: 13px; height: 13px; }
@@ -93,8 +105,6 @@
   .verdict { display: flex; align-items: center; gap: 14px; padding: 14px 16px; position: relative; isolation: isolate; filter: drop-shadow(3px 3px 0 var(--soot)); }
   .verdict::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
   .verdict strong { font: 400 1.375rem/1.2 var(--font-display); color: var(--lantern); }
-  .verdict.needs strong { color: var(--amber); }
-  .verdict.needs .icon { width: 40px; height: 40px; color: var(--amber); }
   .tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .tally div { display: grid; justify-items: center; gap: 4px; padding: 12px 6px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); text-align: center; }
   .tally b { font: 400 1.75rem/1 var(--font-display); }
@@ -135,11 +145,14 @@
   </header>
 
   {{if .Needs}}
-  <div class="verdict needs">{{icon "warning"}}<strong>{{len .Needs}} {{if eq (len .Needs) 1}}thing needs{{else}}things need{{end}} you</strong></div>
-  <ul class="inbox-list">
-    {{range .Needs}}<li data-title="{{.Title}}" data-who="The CFO" data-persona="cfo" data-body="{{lines .Body}}"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="inbox-text"><strong>{{.Title}}</strong><small><span class="plain-status phase-waiting">{{icon "command-center"}}{{.Where}}</span></small></span>{{if .Item}}<button type="button" class="icon-button" data-item="{{.Item}}" aria-label="Open in Command Center">{{icon "next"}}</button>{{else}}<span></span>{{end}}</li>
-    {{end}}
-  </ul>
+  <section class="part">
+    <h2>{{icon "command-center"}}Needs you <span class="count-badge">{{len .Needs}}</span></h2>
+    <ul class="inbox-list waiting" aria-label="Needs you">
+      {{range .Needs}}{{if .Item}}<li data-item="{{.Item}}"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="inbox-text"><strong>{{.Who}}</strong><span class="inbox-summary">{{.Title}}</span></span><button type="button" class="icon-button" aria-label="Answer {{.Who}}: {{.Title}}">{{icon .Answer}}</button></li>
+      {{else}}<li data-title="{{.Title}}" data-who="{{.Who}}" data-persona="{{.Persona}}" data-body="{{lines .Body}}"><span class="goblin-avatar persona-{{.Persona}}"></span><span class="inbox-text"><strong>{{.Who}}</strong><span class="inbox-summary">{{.Title}}</span><small><span class="plain-status phase-waiting">{{icon "warning"}}Only you can do this</span></small></span><span></span></li>
+      {{end}}{{end}}
+    </ul>
+  </section>
   {{else}}
   <div class="verdict"><svg class="check-anim" viewBox="0 0 88 88" aria-hidden="true"><path d="M22 46 38 62 68 28"/></svg><strong>Nothing needs you</strong></div>
   {{end}}
