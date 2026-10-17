@@ -200,7 +200,7 @@ func End(ctx context.Context, process Process) error {
 // raise runs the processes j holds now at normal priority at least
 // (priority.Raise).
 func (j *job) raise() {
-	if ids, err := proc.JobProcessIDs(syscall.Handle(j.handle)); err == nil {
+	if ids, _, err := proc.JobProcessIDs(syscall.Handle(j.handle)); err == nil {
 		priority.Raise(ids)
 	}
 }

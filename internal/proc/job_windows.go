@@ -82,7 +82,7 @@ func holdJobs(holderPID int, access uint32) (*HeldJobs, error) {
 	}
 	held := &HeldJobs{}
 	for index, job := range jobs {
-		ids, err := JobProcessIDs(job)
+		ids, _, err := JobProcessIDs(job)
 		if err != nil {
 			held.Close()
 			closeAll(jobs[index:])
@@ -108,7 +108,7 @@ func (h *HeldJobs) Processes() ([]Entry, error) {
 func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
 	held := make([][]uint32, len(jobs))
 	for index, job := range jobs {
-		ids, err := JobProcessIDs(job)
+		ids, _, err := JobProcessIDs(job)
 		if err != nil {
 			return nil, err
 		}
@@ -443,48 +443,43 @@ var readJobList = func(job syscall.Handle, buffer []uintptr) error {
 	return nil
 }
 
-// jobListLimit bounds how long JobProcessIDs reads a list that changes while
-// it is read.
-const jobListLimit = 250 * time.Millisecond
-
-// JobProcessIDs lists the processes in a job. Windows counts them and lists
-// them in one call, and a process that starts or exits during it can leave
-// the count apart from the list, for up to half a millisecond on a job whose
-// processes churn, as while go build starts compilers. That is a race, not an
-// unreadable job, so the list is read again a millisecond later until the
-// two agree, for at most jobListLimit, past which the job is unreadable. A
-// list whose count and length disagree is never used, since an end that
-// spares a machine service goes by it to show that nothing else still runs.
-func JobProcessIDs(job syscall.Handle) ([]uint32, error) {
+// JobProcessIDs lists the processes in a job, and says how many more the job
+// counts than it lists. Windows counts a job's processes and lists them in
+// one call, and while a process exits the count can stay above the list for
+// as long as the exit takes, which no reader bounds: as a headless Chrome
+// was ended its job counted one more process than it listed for up to
+// 474 ms, the process left out one whose exit had begun, and a browser run
+// pinned to four processors beside two busy loops kept the two apart
+// through every read of a sample's 250 ms and then of its end's, which
+// ended the run (issue 1025). A sample takes the list as it is, and a
+// caller that must show the job holds nothing else, as an end that spares a
+// machine service does, waits until the job counts nothing beyond it.
+func JobProcessIDs(job syscall.Handle) (ids []uint32, unlisted uint32, err error) {
 	// Two DWORD counts precede pointer-sized ids. The room grows only when
 	// the list does not fit, within a bound, so a changing job cannot turn
 	// one read into an unbounded allocation.
 	const headerWords = int(8 / unsafe.Sizeof(uintptr(0)))
 	capacity := 64
 	buffer := make([]uintptr, headerWords+capacity)
-	deadline := time.Now().Add(jobListLimit)
 	for {
 		err := readJobList(job, buffer)
 		counts := (*[2]uint32)(unsafe.Pointer(&buffer[0]))
 		switch {
 		case errors.Is(err, syscall.Errno(errorMoreData)) || (err == nil && counts[0] > uint32(capacity)):
 			if capacity *= 4; capacity > 65536 {
-				return nil, errors.New("proc: the job's process list exceeds its bound")
+				return nil, 0, errors.New("proc: the job's process list exceeds its bound")
 			}
 			buffer = make([]uintptr, headerWords+capacity)
 			continue
 		case err != nil:
-			return nil, fmt.Errorf("proc: QueryInformationJobObject: %w", err)
-		case counts[0] == counts[1]:
-			ids := make([]uint32, counts[1])
-			for index, id := range buffer[headerWords : headerWords+int(counts[1])] {
-				ids[index] = uint32(id)
-			}
-			return ids, nil
+			return nil, 0, fmt.Errorf("proc: QueryInformationJobObject: %w", err)
+		case counts[1] > counts[0]:
+			return nil, 0, fmt.Errorf("proc: the job lists %d processes but counts %d", counts[1], counts[0])
 		}
-		if !time.Now().Before(deadline) {
-			return nil, fmt.Errorf("proc: the job's process list changed through every read for %s", jobListLimit)
+		ids = make([]uint32, counts[1])
+		for index, id := range buffer[headerWords : headerWords+int(counts[1])] {
+			ids[index] = uint32(id)
 		}
-		time.Sleep(time.Millisecond)
+		return ids, counts[0] - counts[1], nil
 	}
 }
