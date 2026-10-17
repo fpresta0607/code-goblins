@@ -42,7 +42,7 @@ If it is empty, infer what to show from the conversation.
 ## The page
 
 A Scrawl page starts in the board's look, so it reads as part of Code Goblins and not as another product.
-This needs the Code Goblins build `0.1.79-codegoblins.3` or newer (`lavish-axi --version`); on an older build the page shows unstyled and its choices do not appear, so deliver the content as text instead.
+This needs the Code Goblins build at its floor (above) or newer (`lavish-axi --version`); on an older build deliver the content as text instead.
 
 Put these two lines in the `<head>` and write plain semantic HTML:
 
