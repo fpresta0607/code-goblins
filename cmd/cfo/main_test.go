@@ -154,6 +154,10 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == ownConsoleTestProgram {
 		os.Exit(runOwnConsoleTestProgram(os.Args[2:]))
 	}
+	// A codex guard a test arms runs this binary as the home's cfo.exe.
+	if len(os.Args) > 1 && os.Args[1] == "codex-guard" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	treetest.Run()
 	// goblins starts its own program as serve. A test that reaches that start
 	// would run this binary, and with it every test again, detached and with

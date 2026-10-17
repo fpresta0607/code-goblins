@@ -1,6 +1,7 @@
 package spawn
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -667,7 +669,10 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // one, which win: the user's environment names the machine's installed home
 // and projects root, which for a second home on the machine are another's.
 // This block is how its credentials reach the harness at start, and the only
-// way they do.
+// way they do. A task's PATH begins with its codex guard folder, then the
+// guard folders the spawning process runs under, the one thing of its own
+// environment a terminal starts with: a rig in a goblin's terminal that
+// spawns a scratch home's goblin keeps the goblin's guard (codexguard).
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials auth.Result) []string {
 	names := map[string]string{}
@@ -700,6 +705,18 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	set("CFO_STATE_OVERRIDE", s.StateDir)
 	if s.ProjectsRoot != "" {
 		set(install.ProjectsRootVariable, s.ProjectsRoot)
+	}
+	own := ""
+	if id := launch.Env["CFO_TASK_ID"]; id != "" {
+		own = codexguard.Dir(s.StateDir, id)
+	}
+	if guards := codexguard.Chain(own, os.Getenv(codexguard.Variable)); guards != "" {
+		set(codexguard.Variable, guards)
+		path := guards
+		if userPath := values["PATH"]; userPath != "" {
+			path += string(os.PathListSeparator) + userPath
+		}
+		set(cmp.Or(names["PATH"], "PATH"), path)
 	}
 	env := make([]string, 0, len(values))
 	for upper, value := range values {

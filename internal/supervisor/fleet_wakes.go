@@ -127,6 +127,11 @@ type fleetWakes struct {
 	// AllowanceWalls holds, by provider and window, each session window seen
 	// used up while goblins ran on it, until it renews.
 	AllowanceWalls map[string]allowanceWall `json:"allowance_walls,omitempty"`
+	// CodexUsedUpUntil is when the window that used up Codex's included
+	// allowance renews, as the last reading that measured Codex said, and
+	// zero while Codex has its allowance: until then every goblin's codex
+	// guard is armed.
+	CodexUsedUpUntil time.Time `json:"codex_used_up_until,omitzero"`
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`

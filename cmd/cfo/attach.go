@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -339,6 +340,18 @@ func cfoTerminalEnvironment(h home.Home) ([]string, error) {
 	return nativeCFOEnvironment(userEnv, os.Environ(), h, projects), nil
 }
 
+// environmentValue is the value env, a process's environment, gives name, or
+// empty when it gives none. Names compare without case, as Windows compares
+// them.
+func environmentValue(env []string, name string) string {
+	for _, entry := range env {
+		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
+			return value
+		}
+	}
+	return ""
+}
+
 // nativeCFOProgram is the command line a native terminal starts harness with
 // as the CFO, as a native goblin's is: codex and pi install as npm script shims
 // and run through cmd /c. Claude Code must be its native build, claude.exe.
@@ -366,12 +379,21 @@ func nativeCFOProgram(harness string, args ...string) ([]string, error) {
 // configuration without its pane, so the CFO registers its native terminal
 // and a herdr it starts is not refused as nested inside that pane. Its
 // browser session is its own, named for its terminal as a goblin's is, never
-// the tool's unnamed one that every program of the user shares. Names
-// compare without case, as Windows compares them.
+// the tool's unnamed one that every program of the user shares. A CFO a
+// goblin's rig starts, in a scratch home, keeps the codex guard the rig runs
+// under first on its PATH (codexguard). Names compare without case, as
+// Windows compares them.
 func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRoot string) []string {
 	pinned := [][2]string{{"CFO_HOME", h.Root}, {"CFO_STATE_OVERRIDE", h.State}}
 	if projectsRoot != "" {
 		pinned = append(pinned, [2]string{install.ProjectsRootVariable, projectsRoot})
+	}
+	if guards := codexguard.Chain("", environmentValue(launcherEnv, codexguard.Variable)); guards != "" {
+		path := guards
+		if userPath := environmentValue(userEnv, "PATH"); userPath != "" {
+			path += string(os.PathListSeparator) + userPath
+		}
+		pinned = append(pinned, [2]string{codexguard.Variable, guards}, [2]string{"PATH", path})
 	}
 	pinned = append(pinned, [2]string{spawn.BrowserSessionVariable, supervisor.NativeCFOTerminal})
 	env := slices.DeleteFunc(slices.Clone(userEnv), func(entry string) bool {
