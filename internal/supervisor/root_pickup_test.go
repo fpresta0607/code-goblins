@@ -93,8 +93,10 @@ func TestPickUpRootsQueuesAnOpenRootOnceWithABriefThatClosesIt(t *testing.T) {
 	if strings.Contains(string(brief), "ops-root: test") {
 		t.Errorf("brief keeps the issue's marker:\n%s", brief)
 	}
-	if settings := briefSettings(filepath.Join(h.Data, "root-widgets-7", "brief.md")); settings["mode"] != "" {
-		t.Errorf("the issue's text set the brief's mode to %q", settings["mode"])
+	// A root fix is pushed for CI to judge, on any harness and with no gate
+	// daemon to depend on, and the issue's own "mode:" line never sets it.
+	if settings := briefSettings(filepath.Join(h.Data, "root-widgets-7", "brief.md")); settings["mode"] != "direct-PR" {
+		t.Errorf("the brief's mode = %q, want direct-PR", settings["mode"])
 	}
 	named := tickets.NamedIssues(string(brief), rootRepository)
 	if len(named) == 0 || named[0].Number != 7 {
