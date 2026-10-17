@@ -1,6 +1,7 @@
 import type { MergeTrain, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { cardDate } from "./cards";
 import { cardCars, carLook, carName, trainLook, trainSection } from "./merge-train";
 import { taskName } from "./task-words";
 import { personaFor, stablePersona } from "./workflow";
@@ -11,12 +12,16 @@ import "./merge-train.css";
 // train's pull request, with what happened last in its tip, then the pull
 // requests it tests or landed in train order, opening on GitHub, with the
 // goblin that made it, by its avatar, name and title, its task in the
-// goblin's tip, and where it stands and, in its tip, why. A running train
-// shows when it started, a finished one when it finished. A click anywhere
-// on it but a link opens its panel. tasks are the board's, which hold a
-// goblin still on it.
-export function MergeTrainCard({ train, tasks, selected, onSelect }: { train: MergeTrain; tasks: Task[]; selected: boolean; onSelect: (train: MergeTrain, source: HTMLElement) => void }) {
+// goblin's tip, and where it stands and, in its tip, why, unless the train's
+// status already says it: a train that tests its riders or landed them says
+// so once (the Overlord, 2026-10-17: "landed status is already above it"). A
+// running train shows when it started, a finished one when it finished, as
+// its month and day or, for today, its time. A click anywhere on it but a
+// link opens its panel. tasks are the board's, which hold a goblin still on
+// it.
+export function MergeTrainCard({ train, tasks, now, selected, onSelect }: { train: MergeTrain; tasks: Task[]; now: number; selected: boolean; onSelect: (train: MergeTrain, source: HTMLElement) => void }) {
   const look = trainLook(train), cars = cardCars(train);
+  const said = train.state === "testing" ? "riding" : look.tone === "passed" ? "landed" : "";
   const when = train.finished || train.started;
   const at = new Date(when);
   const status = <><span className="status-dot" />{look.text}</>;
@@ -40,10 +45,10 @@ export function MergeTrainCard({ train, tasks, selected, onSelect }: { train: Me
             <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
             <span className={"train-car-title" + (car.goblin ? " goblin-called" : "")}>{carName(car)}</span>
           </span>
-          <span className="train-car-state">{c.text}</span>
+          {car.state !== said && <span className="train-car-state">{c.text}</span>}
         </li>;
       })}
     </ol>}
-    {Number.isFinite(at.getTime()) && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{train.finished ? "Finished" : "Started"} </span><time dateTime={when}>{at.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}
+    {Number.isFinite(at.getTime()) && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{train.finished ? "Finished" : "Started"} </span><time dateTime={when}>{cardDate(at, now)}</time></span>}
   </section>;
 }

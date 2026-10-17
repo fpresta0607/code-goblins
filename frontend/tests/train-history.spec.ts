@@ -222,7 +222,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         const completed = column(page, "Completed").locator(".train-card");
         await expect(completed).toHaveCount(1);
         await expect(completed.locator(".train-status")).toHaveText("Landed");
-        await expect(completed.locator(".train-car")).toHaveText([/#517.*Landed/]);
+        await expect(completed.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/]);
         await expect(board(page).getByRole("region", { name: "Train history", exact: true })).toHaveCount(0);
         await completed.locator(".train-title").click();
 
@@ -303,13 +303,15 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await page.screenshot({ path: test.info().outputPath("folded-history.png"), fullPage: true });
     });
 
-    test("goblins paused until their pull requests merge sit in Paused with their pause, and their chips say their pull requests landed", async ({ page }) => {
+    test("goblins paused until their pull requests merge sit in Paused with their pause, and their panels say their pull requests landed", async ({ page }) => {
       await open(page);
 
       for (const [name, number] of [["Rosie - Inline Editor", 517], ["Wes - Train Conductor", 519], ["Dolly - Rank Keeper", 520], ["Pearl - Screen Model", 524]] as const) {
         await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: name })).toHaveCount(1);
         await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
-        await expect(card(page, name).locator(".card-checks")).toHaveAttribute("aria-label", /^Landed: /);
+        await expect(card(page, name).locator(".hosted-checks")).toHaveCount(0);
+        await card(page, name).locator(".task-card").click();
+        await expect(page.locator(".goblin-panel .panel-header .hosted-checks")).toHaveAttribute("aria-label", /^Landed: /);
       }
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model", "Otis - Ledger Clerk"]);
       await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
@@ -322,18 +324,21 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(trains).toHaveCount(1);
       await expect(trains.locator(".train-status")).toHaveText("Landed on run 4");
       await expect(trains.locator(".train-status")).toHaveClass(/train-passed/);
-      await expect(trains.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor.*Landed/, /#519.*Wes - Train Conductor.*Landed/, /#520.*Dolly - Rank Keeper.*Landed/, /#524.*Pearl - Screen Model.*Landed/]);
+      // The train's status says Landed, so its rows do not say it again.
+      await expect(trains.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/, /#519.*Wes - Train Conductor$/, /#520.*Dolly - Rank Keeper$/, /#524.*Pearl - Screen Model$/]);
       await expect(trains).not.toContainText(/#523|Train failed|Next train|Conflicts/);
       await expect(trains.locator("p")).toHaveCount(0);
       await expect(column(page, "Completed")).not.toContainText("Nothing finished yet");
       expect(await colours(trains)).not.toContain(AMBER);
     });
 
-    test("a pull request the train could not merge shows on its goblin's card with what happens next, never in yellow", async ({ page }) => {
+    test("a pull request the train could not merge shows in its goblin's panel with what happens next, never in yellow", async ({ page }) => {
       await open(page);
 
       const abe = column(page, "In progress").locator(".task-card-shell").filter({ hasText: "Abe - Screen Painter" });
-      const chip = abe.locator("a.card-checks");
+      await expect(abe.locator(".hosted-checks")).toHaveCount(0);
+      await abe.locator(".task-card").click();
+      const chip = page.locator(".goblin-panel .panel-header a.hosted-checks");
       await expect(chip).toHaveAttribute("aria-label", /^Merging main to fix a conflict: /);
       await expect(chip).toHaveAttribute("href", TRAIN_PR);
       expect(await colours(abe)).not.toContain(AMBER);
@@ -380,7 +385,6 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).locator(".panel-status")).toHaveText("CI tests #517, #519, run 4");
       await panel(page).locator("details > summary").click();
       await expect(panel(page).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
-      await expect(card(page, "Rosie - Inline Editor").locator(".card-checks")).toHaveAttribute("aria-label", /^Testing: /);
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
     });
 

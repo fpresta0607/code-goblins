@@ -64,8 +64,7 @@ async function select(page: Page, name: string) {
   await expect(page.locator("#panel-title")).toHaveText(name);
 }
 
-// What a part says and opens, and the colour it is drawn in; a card's chip is
-// an icon since 2026-10-17, so what it says is in its label.
+// What a part says and opens, and the colour it is drawn in.
 const read = (part: ReturnType<Page["locator"]>) => part.evaluate((element) => ({
   text: element.textContent, label: element.getAttribute("aria-label"), href: element.getAttribute("href"), color: getComputedStyle(element).color,
 }));
@@ -74,7 +73,7 @@ for (const width of [1440, 390]) {
   test.describe(`at ${width}px`, () => {
     test.use({ viewport: { width, height: 1400 } });
 
-    test("a goblin paused until its pull request merges reads its pause in Paused, and its chip reads the train's Testing and opens the train's pull request", async ({ page }) => {
+    test("a goblin paused until its pull request merges reads its pause in Paused, and leaves the train's Testing to its panel", async ({ page }) => {
       // Arrange
       await open(page);
       const sid = card(page, "Sid - Memory Keeper");
@@ -82,7 +81,6 @@ for (const width of [1440, 390]) {
 
       // Act
       const status = await read(sid.locator(".plain-status"));
-      const chip = await read(sid.locator("a.card-checks"));
       const trainStatus = await read(train.locator("a.train-status"));
       const row = train.locator(".train-car").filter({ hasText: "#512" });
 
@@ -90,21 +88,20 @@ for (const width of [1440, 390]) {
       await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: "Sid - Memory Keeper" })).toHaveCount(1);
       expect(status.text).toBe("Paused until PR #512 merges");
       expect(status.color).not.toBe(AMBER);
-      expect(chip.label).toMatch(/^Testing: /);
-      expect(chip.href).toBe(TRAIN_PR);
+      await expect(sid.locator(".hosted-checks")).toHaveCount(0);
       expect(trainStatus.href).toBe(TRAIN_PR);
       await expect(row).toContainText("Sid - Memory Keeper");
-      await expect(row.locator(".train-car-state")).toHaveText("Testing");
+      // The train's status says it tests #512, so its row does not say so again.
+      await expect(row.locator(".train-car-state")).toHaveCount(0);
       await expect(sid.getByRole("button", { name: /^(Resume|Stop) / })).toHaveCount(0);
     });
 
-    test("a goblin waiting on its own CI reads Testing and opens that run", async ({ page }) => {
+    test("a goblin waiting on its own CI reads Testing, with no check on its card", async ({ page }) => {
       await open(page);
       const mae = card(page, "Mae - Bug Hunter");
 
       await expect(mae.locator(".card-status-text")).toHaveText("Testing");
-      await expect(mae.locator("a.card-checks")).toHaveAttribute("aria-label", /^Testing: /);
-      await expect(mae.locator("a.card-checks")).toHaveAttribute("href", RUN);
+      await expect(mae.locator(".hosted-checks")).toHaveCount(0);
     });
 
     test("a pause for memory stays in the Paused section with why, never in yellow", async ({ page }) => {

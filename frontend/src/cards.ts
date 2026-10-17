@@ -16,6 +16,15 @@ export function clockText(since: string, now: number, kind: "running" | "waiting
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
+// When a card's goblin paused or finished, or its train ended, kept short
+// (the Overlord, 2026-10-17: "we could just put 10/14 to keep it smaller"):
+// the time of day when that was today, else the month and day.
+export function cardDate(at: Date, now: number): string {
+  return at.toDateString() === new Date(now).toDateString()
+    ? at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : at.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+}
+
 // A goblin's description is cut to a few lines with Show more while it runs
 // past them; opened, it offers Show less.
 export function showMoreLabel(expanded: boolean, overflowing: boolean): "Show more" | "Show less" | "" {

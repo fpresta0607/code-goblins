@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clockText, panelViews, showMoreLabel } from "./cards.ts";
+import { cardDate, clockText, panelViews, showMoreLabel } from "./cards.ts";
 import type { Session, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
@@ -19,6 +19,23 @@ test("a session clock reads in whole minutes, hours and days", () => {
   assert.equal(clockText(ago(24 * 60), now, "waiting"), "1d 0h");
   assert.equal(clockText(ago(27 * 60 + 59), now, "waiting"), "1d 3h");
 });
+
+for (const [name, at, want] of [
+  ["earlier today shows its time", new Date(2026, 8, 27, 9, 5), new Date(2026, 8, 27, 9, 5).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })],
+  ["yesterday shows its month and day", new Date(2026, 8, 26, 23, 59), new Date(2026, 8, 26).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })],
+  ["last year shows its month and day", new Date(2025, 9, 14, 19, 22), new Date(2025, 9, 14).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })],
+] as const) {
+  test(`a card's date ${name}`, () => {
+    // Arrange
+    const today = new Date(2026, 8, 27, 18, 0).getTime();
+
+    // Act
+    const shown = cardDate(at, today);
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}
 
 test("a clock without a start shows nothing rather than a guess", () => {
   assert.equal(clockText("", now, "running"), "");

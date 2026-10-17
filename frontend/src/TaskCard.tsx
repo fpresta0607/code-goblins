@@ -4,15 +4,11 @@ import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
-import { harnessTip, personaFor, pullRequestIcon, safePullRequest } from "./workflow";
+import { harnessTip, personaFor, pullRequestIcon } from "./workflow";
 import { goblinName, taskName } from "./task-words";
 import { taskStatus } from "./task-status";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
-import { PullRequestTestLink } from "./pull-request-test-link";
-import { pullRequestTest } from "./pull-request-test";
-import { DeploymentLink } from "./deployment-link";
-import { LocalChecksLink } from "./local-checks-link";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 
@@ -23,19 +19,18 @@ import { CardPullRequest } from "./card-pull-request";
 // how long it has run or waited, or when it paused or finished, beside it,
 // and under them its status in at most two lines and its project on a quiet
 // line of its own (the Overlord, 2026-10-17: "please include project repo
-// below status line in board"), with its ticket, pull request, checks and
-// deploy as icons that open them, each saying in its tip what it is, then
-// the mark of the harness it runs, whose tip names the model and effort. A
-// goblin leads with its name, a finished one too, which wraps rather than
-// ending in an ellipsis, and shows its task in the name's tip (the CFO's
-// decision 1008011). The goblin it helps, what runs under it and a waiting
-// update are in its panel. rank, when the card sits in an ordered list, is
-// read out with it; next marks the one card the order for a free slot takes first. The goblin
-// it waits on is named in its status line only. A goblin that waits only on
-// its pull request's test, live or paused until it merges, says where that
-// test stands in the icon beside its pull request, the same as its merge
-// train's card. A goblin gone quiet, and windows still closing, are the CFO's
-// to hear, never warnings on the card.
+// below status line in board"), with only its ticket and pull request as
+// icons that open them, each saying in its tip what it is (the Overlord,
+// 2026-10-17: "for now, we just want to know the pull request and the
+// issue"), then the mark of the harness it runs, whose tip names the model
+// and effort. A goblin leads with its name, a finished one too, which wraps
+// rather than ending in an ellipsis, and shows its task in the name's tip
+// (the CFO's decision 1008011). Its checks and deploy, the goblin it helps,
+// what runs under it and a waiting update are in its panel. rank, when the
+// card sits in an ordered list, is read out with it; next marks the one card
+// the order for a free slot takes first. The goblin it waits on is named in
+// its status line only. A goblin gone quiet, and windows still closing, are
+// the CFO's to hear, never warnings on the card.
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, onSelect }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
   next?: NextUp;
@@ -52,8 +47,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const isNamed = task.goblin_name !== "";
   const name = isNamed ? goblinName(task) : taskName(task);
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
-  const pr = safePullRequest(task.pr), icon = pullRequestIcon(task);
-  const test = pullRequestTest(task, snapshot.merge_trains ?? []), { text: status, phase } = taskStatus(task, snapshot);
+  const icon = pullRequestIcon(task), { text: status, phase } = taskStatus(task, snapshot);
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
@@ -69,9 +63,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <div className="card-icons">
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
-      {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" isIconOnly />}
-      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="card-checks" isIconOnly />}
-      {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" isIconOnly />}
       <SameAreaAvatars overlaps={task.overlaps} />
       {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
     </div>
