@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -156,30 +157,32 @@ func TestAFetchLeavesWholeAReplacedFolderStillInUseAndRemovesItNextTime(t *testi
 // installs ended without dictation (run 39019600037). Nothing else is tried
 // again: not an answer that will not change, as a 404, a redirect refused, or
 // a download that could not be written, and not a connection that could not
-// be made at all, as on a PC with no network, where waiting would only keep
-// the person from being told to connect.
+// be made at all, refused or timed out, as on a PC with no network, where
+// waiting would only keep the person from being told to connect.
 func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 	archive, err := os.ReadFile(filepath.Join("testdata", "part.tar.bz2"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name         string
-		failures     int32
-		status       int
-		isUnwritable bool
-		isFetched    bool
-		wantRequests int32
-		wantWaits    []time.Duration
+		name           string
+		failures       int32
+		status         int
+		isUnwritable   bool
+		isDialTimedOut bool
+		isFetched      bool
+		wantRequests   int32
+		wantWaits      []time.Duration
 	}{
-		{"two 504s, then the archive", 2, http.StatusGatewayTimeout, false, true, 3, []time.Duration{5 * time.Second, 10 * time.Second}},
-		{"a 429, then the archive", 1, http.StatusTooManyRequests, false, true, 2, []time.Duration{5 * time.Second}},
-		{"a dropped connection, then the archive", 1, 0, false, true, 2, []time.Duration{5 * time.Second}},
-		{"three 503s", 3, http.StatusServiceUnavailable, false, false, 3, []time.Duration{5 * time.Second, 10 * time.Second}},
-		{"a 404", 1, http.StatusNotFound, false, false, 1, nil},
-		{"a redirect to an address that is not https", 1, http.StatusFound, false, false, 1, nil},
-		{"a download that cannot be written, as to a temporary folder that is gone", 0, 0, true, false, 1, nil},
-		{"a refused connection, as with no network", -1, 0, false, false, 0, nil},
+		{name: "two 504s, then the archive", failures: 2, status: http.StatusGatewayTimeout, isFetched: true, wantRequests: 3, wantWaits: []time.Duration{5 * time.Second, 10 * time.Second}},
+		{name: "a 429, then the archive", failures: 1, status: http.StatusTooManyRequests, isFetched: true, wantRequests: 2, wantWaits: []time.Duration{5 * time.Second}},
+		{name: "a dropped connection, then the archive", failures: 1, isFetched: true, wantRequests: 2, wantWaits: []time.Duration{5 * time.Second}},
+		{name: "three 503s", failures: 3, status: http.StatusServiceUnavailable, wantRequests: 3, wantWaits: []time.Duration{5 * time.Second, 10 * time.Second}},
+		{name: "a 404", failures: 1, status: http.StatusNotFound, wantRequests: 1},
+		{name: "a redirect to an address that is not https", failures: 1, status: http.StatusFound, wantRequests: 1},
+		{name: "a download that cannot be written, as to a temporary folder that is gone", isUnwritable: true, wantRequests: 1},
+		{name: "a refused connection, as with no network", failures: -1},
+		{name: "a connection that times out before it is made", isDialTimedOut: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -221,6 +224,9 @@ func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 			}
 			wanted := part("model", address+"/part.tar.bz2")
 			client := &http.Client{Transport: server.Client().Transport, CheckRedirect: redirect}
+			if test.isDialTimedOut {
+				client.Transport = &http.Transport{DialContext: (&net.Dialer{Deadline: time.Now()}).DialContext}
+			}
 
 			// Act
 			err := (&Voice{Dir: dir, Client: client}).fetch(context.Background(), wanted, quietPart)

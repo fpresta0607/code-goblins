@@ -210,22 +210,23 @@ func (v *Voice) download(ctx context.Context, part Part, progress func(done int6
 }
 
 // isMomentary says whether a download's failure may pass in seconds: the
-// server answered with a 5xx or a 429, the connection dropped, or it timed
-// out. Anything else fails at once: an answer that will not change, such as
-// a 404, a redirect refused, a certificate that does not verify, a file that
-// could not be written, or a connection that could not be made at all, as
-// on a PC with no network, which would only keep the person waiting to be
-// told to connect.
+// server answered with a 5xx or a 429, or the connection, once made, dropped
+// or timed out. Anything else fails at once: an answer that will not change,
+// such as a 404, a redirect refused, a certificate that does not verify, a
+// file that could not be written, or a connection that could not be made at
+// all, timed out or not, as on a PC with no network, which would only keep
+// the person waiting to be told to connect.
 func isMomentary(err error) bool {
 	var answer serverAnswer
 	if errors.As(err, &answer) {
 		return answer.code >= 500 || answer.code == http.StatusTooManyRequests
 	}
-	var dropped *net.OpError
+	var connection *net.OpError
+	if errors.As(err, &connection) {
+		return connection.Op == "read" || connection.Op == "write"
+	}
 	var timeout net.Error
-	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.As(err, &dropped) && (dropped.Op == "read" || dropped.Op == "write") ||
-		errors.As(err, &timeout) && timeout.Timeout()
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &timeout) && timeout.Timeout()
 }
 
 // serverAnswer is a download the server answered with a status other than
