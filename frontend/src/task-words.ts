@@ -165,7 +165,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   return "It stays paused until you resume it.";
 }
 
-// What a paused goblin says on its card, its panel and its canvas node:
+// What a paused goblin says on its card and its panel:
 // Paused and why, in a few words, once; the panel says what resumes it in a
 // sentence behind Details. A pause is on the bench, never a wait, so it
 // never reads Waiting (the Overlord, 2026-10-16). A CI or deploy pause names

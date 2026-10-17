@@ -989,7 +989,7 @@ The helper works in a worktree of its own, on a branch cut from its parent's las
 While the parent reports it waits on its helper, the helper's progress counts as the parent's, so the parent draws no `progress_stalled` wake while its helper works.
 When it is done, the parent runs `cfo helper merge <its-id>`, which merges the helper's branch into its own with a merge commit and retires the helper; the parent stays the one who opens the pull request.
 Pausing or stopping a goblin pauses or stops its helper with it, and a helper paused with its parent comes back by itself once its parent runs again, when memory allows: its paused card says it resumes with its parent, and **Next** marks it when it is the next to come back.
-`cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent: in the family tree while its parent runs, and as a card under its parent's card while its parent is paused.
+`cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent in the family tree while its parent runs; a helper that keeps working while its parent is paused, as one its parent waits on does, hangs under the CFO.
 
 <p align="center">
   <img src="docs/images/family-tree.webp" alt="The family tree on the Orchestration view: under the goblin streaming the billing export, its sub-agents, its helper goblin, a dev server, a test run and a silent background shell as baby goblins with their state, age and memory, and beside it the goblin's panel listing the same under What's working" width="900" />
