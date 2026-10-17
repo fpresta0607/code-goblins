@@ -166,3 +166,56 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     }
   });
 }
+
+// The Overlord, 2026-10-17: "i sent a question from something else and it
+// said in yellow text your words goes to... it should complete as sent".
+test("his words from Something else? complete the step card as Sent, and History shows them with no warning", async ({ page }, testInfo) => {
+  // Arrange
+  await page.setViewportSize({ width: 1707, height: 1067 });
+  const sent = await answer(page);
+  const card = await openCard(page, INPUTS);
+  await recordDoneCards(page);
+
+  // Act
+  await card.locator(".card-actions").getByRole("button", { name: "Something else?" }).click();
+  const note = page.getByRole("dialog", { name: "Something else?" });
+  await note.getByLabel("Your note").fill("which plan?");
+  await note.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  await setCard(page, INPUTS, { state: "answered", reason: "which plan?", closed_at: "2026-10-14T23:45:00Z" });
+
+  // Assert
+  expect(sent[0]).toMatchObject({ path: "/api/credentials/close", body: { id: INPUTS, generation: "b".repeat(32), action: "answer", text: "which plan?" } });
+  await expect(note).toBeHidden();
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^SentYou wrote: which plan\?/));
+  await page.getByRole("button", { name: "Close the Command Center" }).click();
+  const menu = page.locator(".command-center-menu");
+  await menu.locator("> summary").click();
+  await expect(menu.getByRole("region", { name: "Waiting on you" }).locator(".inbox-list li").filter({ hasText: "for acme-shop" })).toHaveCount(0);
+  await menu.getByText("History").click();
+  const row = menu.locator(".inbox-history .inbox-list > li").filter({ hasText: "for acme-shop" });
+  await row.locator(".history-open").click();
+  await expect(row.locator(".history-mark")).toHaveAttribute("aria-label", "You wrote: which plan?");
+  await expect(row.locator(".history-detail")).toHaveText("You wrote: which plan?");
+  await expect(page.locator(".click-feedback, .signin-note, .credential-refusal, .message-note")).toHaveCount(0);
+  await menu.locator(".command-center-updates").screenshot({ path: testInfo.outputPath("step-card-answer-history.png") });
+});
+
+test("a refused answer from Something else? stays in his window in full, with his words, and no note on the card", async ({ page }) => {
+  // Arrange
+  const refusal = "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent.";
+  await page.route("**/api/credentials/close", (route) => route.fulfill({ status: 400, json: { error: refusal } }));
+  const card = await openCard(page, INPUTS);
+
+  // Act
+  await card.locator(".card-actions").getByRole("button", { name: "Something else?" }).click();
+  const note = page.getByRole("dialog", { name: "Something else?" });
+  await note.getByLabel("Your note").fill("which plan?");
+  await note.getByRole("button", { name: "Send", exact: true }).click();
+
+  // Assert
+  await expect(note.getByRole("alert")).toHaveText(refusal);
+  await expect(note.getByLabel("Your note")).toHaveValue("which plan?");
+  await expect(note.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  await expect(card.locator(".click-feedback")).toHaveCount(0);
+});

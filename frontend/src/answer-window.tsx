@@ -7,7 +7,9 @@ import "./credential-card.css";
 
 interface Picture { key: number; preview: string; path: string }
 
-export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { asker: string; task: string; instance: string; onCancel: () => void; onSend: (text: string) => void }) {
+// isSending holds Send while the board takes the answer, and refusal is why
+// the board refused the last one.
+export function AnswerWindow({ asker, task, instance, isSending = false, refusal: refused = "", onCancel, onSend }: { asker: string; task: string; instance: string; isSending?: boolean; refusal?: string; onCancel: () => void; onSend: (text: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
   const [note, setNote] = useState("");
@@ -64,9 +66,10 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
     {isKeeping && <p className="message-note" role="status">Saving picture...</p>}
     {refusal && <p className="message-note" role="status">{refusal}</p>}
     {isTooLong && <p className="message-note" role="status">Use a shorter answer or fewer pictures.</p>}
+    {refused && <p className="message-note" role="alert">{refused}</p>}
     <div className="credential-replace-choices">
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
-      <button type="button" className="primary" disabled={!text || isKeeping || isTooLong} onClick={() => onSend(text)}><Icon name="send" />Send</button>
+      <button type="button" className="primary" disabled={!text || isKeeping || isTooLong || isSending} onClick={() => onSend(text)}><Icon name="send" />Send</button>
     </div>
   </dialog>;
 }

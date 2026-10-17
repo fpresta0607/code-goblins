@@ -208,7 +208,7 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 	if err != nil {
 		return updated, err
 	}
-	if closed == "done" {
+	if closed == "done" || closed == "answered" {
 		if err := s.Store.closeWaitsForCard(updated, by); err != nil {
 			s.publish(err)
 		}
@@ -221,8 +221,9 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 
 // closeWaitsForCard closes, as answered on it, each wait on the Overlord that
 // the goblin who filed card opened while the card was open: the wait asked him
-// for the card's step, which its Done or its arrived inputs settled. A wait
-// opened before the card, or on a page, is a card of its own and stays.
+// for the card's step, which its Done, its arrived inputs or his words from
+// Something else? settled. A wait opened before the card, or on a page, is a
+// card of its own and stays.
 func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
 	if card.By != "goblin" {
 		return nil
@@ -231,6 +232,8 @@ func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
 	switch {
 	case card.State == "saved":
 		reason = "Its step card " + card.ID + " closed once its inputs arrived."
+	case card.State == "answered":
+		reason = "You wrote on its step card " + card.ID + ": " + card.Reason
 	case by == "overlord":
 		reason = "You pressed Done on its step card " + card.ID + "."
 	case by == "cfo":

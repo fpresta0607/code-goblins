@@ -657,6 +657,13 @@ func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 		{"saved", func(r *CredentialRequest) { r.By, r.Plain = "goblin", []string{"ACCOUNT_EMAIL"} }, func(b *credentialBoard) error {
 			return sent(b.post(b.handler, b.body(map[string]string{"ACCOUNT_EMAIL": "shop-owner@example.com"}), nil))
 		}, "answered", "its inputs arrived"},
+		{"answered by the Overlord", byGoblin, func(b *credentialBoard) error {
+			data, err := json.Marshal(map[string]string{"id": b.request.ID, "generation": b.request.Generation, "action": "answer", "text": "which plan?"})
+			if err != nil {
+				return err
+			}
+			return sent(b.send(b.handler, "/api/credentials/close", string(data), nil))
+		}, "answered", "You wrote on its step card"},
 		{"filed by the CFO", nil, done, "open", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

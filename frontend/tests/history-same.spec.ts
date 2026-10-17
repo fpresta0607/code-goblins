@@ -29,7 +29,7 @@ const MARKS: [string, RegExp][] = [
   ["May I file the push key card now?", /^The CFO answered$/],
   ["Tick the App Group for the share extension", /^Done$/],
   ["Move the sign-in screen out of test mode", /^Closed\./],
-  ["Turn on time sensitive notifications", /^You answered: The box was already ticked$/],
+  ["Turn on time sensitive notifications", /^You wrote: The box was already ticked$/],
   ["Paste APNS_PRIVATE_KEY for sample-app", /^Saved APNS_PRIVATE_KEY/],
   ["Accept the new developer terms", /^Closed\./],
   ["Merge the release pull request?", /^You answered$/],

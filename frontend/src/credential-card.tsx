@@ -145,6 +145,16 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     catch (failure: unknown) { showFeedback(message(failure)); }
     finally { setPressing(""); }
   };
+  // His words from Something else? close the card as sent; a refusal goes back
+  // to his window, which keeps them.
+  const answer = async (text: string) => {
+    setPressing("answer"); showFeedback("");
+    try {
+      await call("/api/credentials/close", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, action: "answer", text }) });
+      return "";
+    } catch (failure: unknown) { return message(failure); }
+    finally { setPressing(""); }
+  };
   const offer = open && local && request.fetch && request.fetch.names.some((name) => needed.includes(name)) ? request.fetch : null;
   const inputs = [...request.names, ...request.plain];
   const sent = (name: string) => request.received.includes(name) || answered.includes(name);
@@ -252,7 +262,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       <ClickFeedback text={feedback} />
       {pager}
       {open && <SkipWithNote asker={request.task ? asker : "the CFO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
-        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={(text) => void press("/api/credentials/close", { action: "answer", text }, "answer")} />}
+        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={answer} />}
       {canPressDone(request) && <button type="button" className="primary step-done" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "done" }, "done")}><Icon name={pressing === "done" ? "clock" : "check"} />Done</button>}
     </div>}
     {confirm && <CredentialReplaceDialog names={confirm.names} project={request.project} action={confirm.action} onCancel={() => setConfirm(null)}

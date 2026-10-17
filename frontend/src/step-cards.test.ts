@@ -75,8 +75,8 @@ test("a closed card's place says how to give its secret later, or to bring it ba
 
 // The Overlord, 2026-10-15: Other is his free answer on any card.
 test("a card he answered in words says so, and shows his answer in his history", () => {
-  assert.deepEqual(credentialFinish(card({ state: "answered", reason: "Use the bot token" })), { heading: "Answered", label: "Its goblin has your answer." });
-  assert.equal(credentialSettled(card({ state: "answered", reason: "Use the bot token" })), "You answered: Use the bot token");
+  assert.deepEqual(credentialFinish(card({ state: "answered", reason: "Use the bot token" })), { heading: "Sent", label: "You wrote: Use the bot token" });
+  assert.equal(credentialSettled(card({ state: "answered", reason: "Use the bot token" })), "You wrote: Use the bot token");
   assert.equal(settledIcon({ kind: "credential", key: "credential:x", request: card({ state: "answered" }) }, []).icon, "check-double");
 });
 
