@@ -501,6 +501,27 @@ func TestANativeCFOLeavesUnsetWhatTheSupervisorDoesNotSet(t *testing.T) {
 	}
 }
 
+// A CFO a goblin's rig starts in a scratch home keeps the codex guard the rig
+// runs under first on its PATH, so a scratch CFO on Codex meets that guard
+// while Codex would bill credits, as the rig's own codex does.
+func TestANativeCFOKeepsTheCodexGuardItsLauncherRunsUnder(t *testing.T) {
+	// Arrange
+	userEnv := []string{`Path=C:\bin`, "USERS_OWN_SETTING=kept"}
+	launcherEnv := []string{`Path=C:\launcher`, `cfo_codex_guard=C:\fleet\state\codex-guard\g1;C:\fleet\state\codex-guard\g1`}
+
+	// Act
+	got := nativeCFOEnvironment(userEnv, launcherEnv, home.Home{Root: `C:\scratch`, State: `C:\scratch\state`}, "")
+
+	// Assert
+	want := []string{
+		"USERS_OWN_SETTING=kept", `CFO_HOME=C:\scratch`, `CFO_STATE_OVERRIDE=C:\scratch\state`,
+		`CFO_CODEX_GUARD=C:\fleet\state\codex-guard\g1`, `PATH=C:\fleet\state\codex-guard\g1;C:\bin`, "CHROME_DEVTOOLS_AXI_SESSION=cfo",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("nativeCFOEnvironment =\n%q\nwant\n%q", got, want)
+	}
+}
+
 // On 2026-09-26 a CFO the board's first-run page started, from a supervisor a
 // Claude Code session in a Herdr pane had started, ran as that session's
 // child: Claude Code said "Transcript saving is off - inherited

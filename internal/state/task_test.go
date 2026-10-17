@@ -601,6 +601,50 @@ func TestWriteTaskMetaRoundTripsTheMCPServersATaskIsGiven(t *testing.T) {
 
 // A grant changes the one line of a record and keeps the rest, the lines
 // this build does not read included.
+// A task authorized to spend paid Codex credits says so in its record, which
+// a spawn's write and a grant's both keep, and a task never authorized, as
+// every task an older build spawned, reads as not authorized. Authorizing and
+// withdrawing it change only its own line.
+func TestTheCodexCreditAuthorizationRoundTripsAndChangesOnlyItsOwnLine(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := WriteTaskMeta(dir, TaskMeta{ID: "g1", Kind: "ship", Mode: "direct-PR", Credentials: []string{"github"}, HasCredentials: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTaskMeta(dir, TaskMeta{ID: "g2", Kind: "ship", Mode: "direct-PR", CodexCredits: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	never, neverErr := ReadTaskMeta(dir, "g1")
+	authorizedErr := WriteTaskCodexCredits(dir, "g1", true)
+	authorized, _ := ReadTaskMeta(dir, "g1")
+	withdrawnErr := WriteTaskCodexCredits(dir, "g1", false)
+	withdrawn, _ := ReadTaskMeta(dir, "g1")
+	spawned, spawnedErr := ReadTaskMeta(dir, "g2")
+	after, err := ReadMeta(TaskMetaPath(dir, "g1"))
+
+	// Assert
+	if neverErr != nil || never.CodexCredits {
+		t.Errorf("a task never authorized reads authorized = %v, %v", never.CodexCredits, neverErr)
+	}
+	if authorizedErr != nil || !authorized.CodexCredits {
+		t.Errorf("after authorizing it the record reads %v, %v", authorized.CodexCredits, authorizedErr)
+	}
+	if withdrawnErr != nil || withdrawn.CodexCredits {
+		t.Errorf("after withdrawing it the record reads %v, %v", withdrawn.CodexCredits, withdrawnErr)
+	}
+	if spawnedErr != nil || !spawned.CodexCredits {
+		t.Errorf("a record written authorized reads %v, %v", spawned.CodexCredits, spawnedErr)
+	}
+	if _, isNamed := after["codex_credits"]; err != nil || isNamed || after["credentials"] != "github" {
+		t.Errorf("the record's lines = %v, %v, want no codex_credits line and the others as they were", after, err)
+	}
+	if err := WriteTaskCodexCredits(dir, "ghost-1", true); err == nil {
+		t.Error("a task with no record was authorized, want it refused")
+	}
+}
+
 func TestWriteTaskMCPServersChangesOnlyItsOwnLine(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
