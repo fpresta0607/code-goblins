@@ -119,9 +119,9 @@ for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CFO
 }
 
 for (const shown of [
-  { name: "a goblin's review its page answers", review: gretaReview },
-  { name: "the CFO's review given only its Scrawl link", review: { ...cfoReview, lavish_page: "" } },
-  { name: "a goblin's wait on a Scrawl page", review: { ...gretaReview, id: "waiting-cg-canvas-live-only-12", title: "Waiting on you: " + TITLE + " (page " + PAGE + ")" } },
+  { name: "a goblin's review its page answers", review: gretaReview, row: TITLE },
+  { name: "the CFO's review given only its Scrawl link", review: { ...cfoReview, lavish_page: "" }, row: cfoReview.title },
+  { name: "a goblin's wait on a Scrawl page", review: { ...gretaReview, id: "waiting-cg-canvas-live-only-12", title: "Waiting on you: " + TITLE + " (page " + PAGE + ")" }, row: TITLE },
 ]) {
   test(`${shown.name} has no box for words, only Skip and the button that opens its page`, async ({ page, context }) => {
     // Arrange
@@ -129,7 +129,7 @@ for (const shown of [
     await boardAsked(page, { reviews: [shown.review] });
 
     // Act
-    await openItem(page, TITLE.slice(0, 40));
+    await openItem(page, shown.row);
 
     // Assert
     await expect(card(page).locator(".question-card")).toBeVisible();
@@ -164,7 +164,7 @@ for (const decision of [
     // Act
     const rows = await waitingList(page).locator("li").allInnerTexts();
     await openItem(page, decision.question.text);
-    await expect(card(page).getByRole("heading", { name: decision.question.text })).toBeVisible();
+    await expect(card(page).getByRole("form", { name: decision.question.text })).toBeVisible();
     await expect(card(page).locator(".stack-count")).toHaveCount(0);
     await card(page).getByText("Build all but the site plan editor", { exact: true }).click();
     await card(page).locator(".send-decision").click();
