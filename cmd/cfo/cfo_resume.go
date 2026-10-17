@@ -102,7 +102,7 @@ func backPrompt(h home.Home, agent, why, fresh string) string {
 func reopenCFO(h home.Home, why string, start startCFO, runs func(stateDir, id string) bool) error {
 	launchErr := acquireCFOLaunch(context.Background(), h.State)
 	if launchErr == nil {
-		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+		defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 	}
 	if supervisor.CFORuns(h.State) || runs(h.State, supervisor.NativeCFOTerminal) {
 		return nil
@@ -127,7 +127,7 @@ func reopenCFO(h home.Home, why string, start startCFO, runs func(stateDir, id s
 func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime, why string) error {
 	launchErr := acquireCFOLaunch(ctx, h.State)
 	if launchErr == nil {
-		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+		defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 	}
 	if cfoRuns(runtime, h.State) {
 		return nil

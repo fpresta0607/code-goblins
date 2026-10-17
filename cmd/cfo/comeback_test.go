@@ -348,16 +348,16 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 					t.Fatal(err)
 				}
 				recordConversation(t, fixture.home.State, "claude", "owned-session", supervisor.NativeCFOTerminal)
-				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock); err != nil {
+				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); err != nil {
 					t.Fatal(err)
 				}
-				t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock) })
+				t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock) })
 				var isRunning atomic.Bool
 				var starts atomic.Int32
 				fixture.runtime.nativeTerminalRuns = func(string, string) bool { return isRunning.Load() }
 				fixture.runtime.startNativeCFO = func(home.Home, string, string, []string, string) error {
 					starts.Add(1)
-					if _, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock); !errors.Is(err, lock.ErrHeld) {
+					if _, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); !errors.Is(err, lock.ErrHeld) {
 						t.Errorf("start did not hold the launch lock: %v", err)
 					}
 					isRunning.Store(true)
@@ -389,7 +389,7 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 				case <-time.After(200 * time.Millisecond):
 				}
 				isRunning.Store(isOtherRunning)
-				if err := lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock); err != nil {
+				if err := lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); err != nil {
 					t.Fatal(err)
 				}
 				select {
@@ -408,10 +408,10 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 				if starts.Load() != wantStarts {
 					t.Fatalf("started %d CFOs, want %d", starts.Load(), wantStarts)
 				}
-				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock); err != nil {
+				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); err != nil {
 					t.Fatalf("start did not release the launch lock: %v", err)
 				}
-				lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock)
+				lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock)
 			})
 		}
 	}
@@ -425,11 +425,11 @@ func TestCFOLaunchWaitRechecksTheCFOWhenItsDeadlineEnds(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			fixture := newSessionFixture(t)
-			holder, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock)
+			holder, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock)
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock) })
+			t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock) })
 			fixture.runtime.nativeTerminalRuns = func(string, string) bool { return isRunning }
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 			defer cancel()
@@ -442,7 +442,7 @@ func TestCFOLaunchWaitRechecksTheCFOWhenItsDeadlineEnds(t *testing.T) {
 			if len(fixture.nativeStarts) != 0 {
 				t.Fatalf("started a CFO without the launch lock: %v", fixture.nativeStarts)
 			}
-			after, err := lock.ReadNamed(fixture.home.State, cfoLaunchLock)
+			after, err := lock.ReadNamed(fixture.home.State, supervisor.CFOLaunchLock)
 			if err != nil || !after.Acquired.Equal(holder.Acquired) {
 				t.Fatalf("changed another start's lock: %+v, %v", after, err)
 			}

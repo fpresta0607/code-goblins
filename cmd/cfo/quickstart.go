@@ -214,7 +214,7 @@ type cfoSession struct {
 func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, agent string, list *onboarding.Checklist) (cfoSession, bool, error) {
 	launchErr := acquireCFOLaunch(ctx, h.State)
 	if launchErr == nil {
-		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+		defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 	}
 	if id, live := runtime.nativeCFO(h.State); live {
 		list.Done("CFO", "already running in native terminal "+id)

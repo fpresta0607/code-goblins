@@ -92,10 +92,10 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 	copyFile(t, self, filepath.Join(bin, "claude.exe"))
 	t.Setenv("PATH", bin)
 	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
-	if _, err := lock.AcquireExclusiveNamed(h.State, cfoLaunchLock); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(h.State, supervisor.CFOLaunchLock); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock) })
+	t.Cleanup(func() { lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock) })
 	finished := make(chan error, 1)
 
 	go func() { finished <- run.StartCFO("claude") }()
@@ -115,7 +115,7 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock); err != nil {
+	if err := lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock); err != nil {
 		t.Fatal(err)
 	}
 	select {

@@ -14,10 +14,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-// cfoLaunchLock serializes restarting the CFO, so two restarts started at
-// once never start two CFOs.
-const cfoLaunchLock = ".cfo-launch.lock"
-
 // restartedWhy is why a restarted CFO started again, as its first instruction
 // tells it.
 const restartedWhy = "the board's Restart or Update, or goblins resume, restarted it"
@@ -45,10 +41,10 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 	if harness != "" && !slices.Contains(cfoHarnesses, harness) {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("harness %q is not claude, codex or pi, so the CFO is left running", harness)
 	}
-	if _, err := lock.AcquireExclusiveNamed(h.State, cfoLaunchLock); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(h.State, supervisor.CFOLaunchLock); err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("another CFO restart is under way: %w", err)
 	}
-	defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+	defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 	id, live := supervisor.NativeCFO(h.State)
 	if !live || id != supervisor.NativeCFOTerminal {
 		return supervisor.CFOConversation{}, "", errNoRunningCFO

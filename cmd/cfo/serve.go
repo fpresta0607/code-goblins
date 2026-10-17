@@ -354,7 +354,7 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 		StartCFO: func(agent string) error {
 			launchErr := acquireCFOLaunch(context.Background(), h.State)
 			if launchErr == nil {
-				defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+				defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 			}
 			if supervisor.CFORuns(h.State) {
 				return nil

@@ -211,6 +211,50 @@ func TestEachEndOfTheCFOBringsItBackOnce(t *testing.T) {
 	}
 }
 
+// An end met while another start of the CFO holds the launch lock, as
+// Restart, Reopen and goblins hold it while a resume they start ends, is that
+// start's: nothing is brought back and no end is spent, and once the start
+// lets go of the lock the next look takes the end as any other.
+func TestAnEndWhileAnotherStartHoldsTheLaunchLockIsLeftToThatStart(t *testing.T) {
+	// Arrange
+	service, h, recorder := cfoBackBoard(t)
+	started := thisSignIn.Add(time.Hour)
+	registerCFO(t, h, 999999, started)
+	cfoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
+	if _, err := lock.AcquireExclusiveNamed(h.State, CFOLaunchLock); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.ReleaseExclusiveNamed(h.State, CFOLaunchLock) })
+
+	// Act
+	err := service.bringEndedCFOBack(t.Context(), started.Add(2*time.Hour))
+
+	// Assert
+	if err != nil {
+		t.Fatalf("bringEndedCFOBack: %v", err)
+	}
+	if told := recorder.told(); len(told) != 0 {
+		t.Errorf("the CFO came back told %q while another start held the launch lock", told)
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "cfo-back.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("state\\cfo-back.json: %v, want it unwritten", err)
+	}
+
+	// Act: the other start lets go of the lock.
+	if err := lock.ReleaseExclusiveNamed(h.State, CFOLaunchLock); err != nil {
+		t.Fatal(err)
+	}
+	err = service.bringEndedCFOBack(t.Context(), started.Add(2*time.Hour+cfoBackEvery))
+
+	// Assert
+	if err != nil {
+		t.Fatalf("bringEndedCFOBack: %v", err)
+	}
+	if told := recorder.told(); !slices.Equal(told, []string{"its terminal ended with exit code 1"}) {
+		t.Errorf("the CFO came back told %q, want once for its end", told)
+	}
+}
+
 // A CFO that keeps ending soon after it started is brought back until it has
 // ended three times in a row, and then left stopped: one wake for the next
 // CFO and one Command Center item for the Overlord, made once, and taken back

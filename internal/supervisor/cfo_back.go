@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
@@ -157,6 +158,9 @@ func (s *Service) bringEndedCFOBack(ctx context.Context, now time.Time) error {
 	// An update that installs stops this supervisor and swaps the programs a
 	// start runs from, and the CFO started after it is the update's.
 	if !cfo.closed || update.Installing(stateDir) {
+		return nil
+	}
+	if holder, err := lock.ReadNamed(stateDir, CFOLaunchLock); err == nil && holder.VerifiedAlive() {
 		return nil
 	}
 	primary, _, err := readPrimary(stateDir)

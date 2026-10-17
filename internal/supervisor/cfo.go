@@ -329,6 +329,11 @@ func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
 // first-run page start the CFO in.
 const NativeCFOTerminal = "cfo"
 
+// CFOLaunchLock serializes starting the CFO, so two starts at once never
+// start two CFOs, and an end a start meets while it holds the lock is that
+// start's, never the automatic comeback's.
+const CFOLaunchLock = ".cfo-launch.lock"
+
 // NativeTerminalRuns reports whether native terminal id's host answers.
 func NativeTerminalRuns(stateDir, id string) bool {
 	record, err := host.ReadRecord(stateDir, id)
