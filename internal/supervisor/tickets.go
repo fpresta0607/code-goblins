@@ -74,9 +74,10 @@ type TaskTicket struct {
 	State  tickets.State `json:"state"`
 }
 
-// ProjectPeople are the people other than the Overlord, bots aside, active
-// in a collaborative project's repository in the last 30 days, most recently
-// active first, under the project name the board's tasks carry.
+// ProjectPeople are the people other than the Overlord, bots aside, who
+// committed to a collaborative project's default branch or opened a pull
+// request in it in the last 30 days, most recently active first, under the
+// project name the board's tasks carry.
 type ProjectPeople struct {
 	Name         string          `json:"name"`
 	Repository   string          `json:"repository"`
@@ -285,7 +286,11 @@ func (k *ticketKeeper) readPeople(ctx context.Context, tasks []Task, now time.Ti
 		switch {
 		case known.err != nil:
 		case known.IsCollaborative && len(known.People) > 0:
-			k.people[task.Project] = ProjectPeople{Name: task.Project, Repository: known.Repository, Contributors: known.People}
+			if len(known.Active) > 0 {
+				k.people[task.Project] = ProjectPeople{Name: task.Project, Repository: known.Repository, Contributors: known.Active}
+			} else {
+				delete(k.people, task.Project)
+			}
 			if err := tickets.RememberTeammates(k.home.State, known.People); err != nil {
 				k.note("teammates", "remember the teammates of "+known.Repository+": "+err.Error())
 			}

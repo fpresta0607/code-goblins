@@ -668,6 +668,48 @@ func TestSnapshotShowsTheTicketsThatWait(t *testing.T) {
 
 var teammate = tickets.Actor{Login: "ana-teammate", AvatarURL: "https://avatars.githubusercontent.com/u/7"}
 
+// The Overlord, 2026-10-17: "Only show the active contributors." A goblin's
+// panel names those who committed to the project's default branch or opened
+// a pull request; one who only opened an issue is still a teammate.
+func TestKeeperShowsOnlyTheActivePeopleInTheProjectsPanel(t *testing.T) {
+	reporter := tickets.Actor{Login: "ivy-reporter", AvatarURL: "https://avatars.githubusercontent.com/u/9"}
+	cases := []struct {
+		name   string
+		active []tickets.Actor
+		want   []ProjectPeople
+	}{
+		{name: "a teammate who committed and one who only opened an issue", active: []tickets.Actor{teammate}, want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository, Contributors: []tickets.Actor{teammate}}}},
+		{name: "only a teammate who opened an issue"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, checkout, github := ticketHome(t)
+			github.collaboration.IsCollaborative = true
+			github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate, reporter}, tc.active
+			task := liveTask("working", "")
+			task.Project = "northwind-api"
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{task}, ticketNow)
+			_, got := keeper.Shown()
+
+			// Assert
+			if !slices.EqualFunc(got, tc.want, ProjectPeople.equal) {
+				t.Fatalf("people = %+v, want %+v", got, tc.want)
+			}
+			remembered, err := tickets.Teammates(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(remembered, teammate.Login) || !slices.Contains(remembered, reporter.Login) {
+				t.Fatalf("teammates remembered = %v, want both %s and %s", remembered, teammate.Login, reporter.Login)
+			}
+		})
+	}
+}
+
 func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *testing.T) {
 	inProject := func(task Task) Task {
 		task.Project = "northwind-api"
@@ -693,7 +735,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 			h, checkout, github := ticketHome(t)
 			github.collaboration.IsCollaborative = tc.isCollaborative
 			if tc.isCollaborative {
-				github.collaboration.People = []tickets.Actor{teammate}
+				github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate}, []tickets.Actor{teammate}
 			}
 			if tc.hasTicket {
 				if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Labels: []string{"cfo: in progress", "goblin: claude"}}); err != nil {
@@ -732,7 +774,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
 	// Arrange
 	h, checkout, github := ticketHome(t)
-	github.collaboration.People = []tickets.Actor{teammate}
+	github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate}, []tickets.Actor{teammate}
 	keeper := newTicketKeeper(h, github.writer(checkout))
 	task := liveTask("working", "")
 	task.Project = "northwind-api"
@@ -743,7 +785,7 @@ func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
 	keeper.reconcile(context.Background(), []Task{task}, ticketNow.Add(61*time.Minute))
 	_, whileDown := keeper.Shown()
 	github.collaborationErr = nil
-	github.collaboration.IsCollaborative, github.collaboration.People = false, nil
+	github.collaboration.IsCollaborative, github.collaboration.People, github.collaboration.Active = false, nil, nil
 	keeper.reconcile(context.Background(), []Task{task}, ticketNow.Add(72*time.Minute))
 	_, afterwards := keeper.Shown()
 
@@ -763,7 +805,7 @@ func TestSnapshotShowsEachTasksTicketAndThePeopleInItsProject(t *testing.T) {
 	if err := os.MkdirAll(h.Data, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}}}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}, Active: []tickets.Actor{teammate}}}
 	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work")))}
 	before, err := service.Snapshot()
 	if err != nil {
@@ -797,7 +839,7 @@ func TestKeepTicketsTellsTheBoardWhenATicketOrThePeopleChange(t *testing.T) {
 	if err := os.MkdirAll(h.Data, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}}}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}, Active: []tickets.Actor{teammate}}}
 	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work"))), subscribers: map[chan struct{}]struct{}{}}
 	told := make(chan struct{}, 1)
 	service.subscribers[told] = struct{}{}

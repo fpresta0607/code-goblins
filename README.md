@@ -1062,7 +1062,7 @@ A project with no GitHub repository simply has no tickets.
 The board shows the same.
 A task's card carries its ticket's number, which opens the issue: green while it is open, purple once its task merged, grey once it closed otherwise.
 Beside it sits the avatar of each teammate whose open pull request, branch or issue meets a live goblin's branch, ringed in amber, opening that work.
-A goblin's panel names the people of its project beside the project's name, each with a GitHub avatar and username, whoever is in the goblin's area first.
+A goblin's panel shows the active people of its project beside the project's name, those who committed to its default branch or opened a pull request in the last 30 days: up to five GitHub avatars, whoever is in the goblin's area first, then a +N that lists every one by their whole name.
 The people come from the same hourly read that decides whether a repository gets tickets, and the overlaps from the ten-minute pull request read below, so the board asks GitHub nothing of its own; a project only you work in shows neither.
 
 The same supervisor poll watches the health of the fleet's own pull requests: a goblin's wherever it is, and every open pull request in a watched repository the fleet owns, including teammates' and fork pull requests.
