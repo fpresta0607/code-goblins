@@ -71,7 +71,7 @@ func (s Service) ProveLaunch(ctx context.Context, id string, kind harness.Kind, 
 	if err != nil {
 		return fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
-	_, _, err = s.awaitNativeReady(ctx, record, screens, false)
+	_, _, err = s.awaitNativeReady(ctx, record, screens)
 	return errors.Join(err, host.Close(s.StateDir, record, nativeCloseWait))
 }
 

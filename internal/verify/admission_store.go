@@ -31,6 +31,16 @@ func AdmissionDir() (string, error) {
 	return admissionDir("", false)
 }
 
+// MachineLine reads who holds the turns of the machine's heavy line and who
+// waits, as Line reads them from its admission store.
+func MachineLine() (holding, waiting []Standing, err error) {
+	dir, err := AdmissionDir()
+	if err != nil {
+		return nil, nil, err
+	}
+	return Line(dir)
+}
+
 func admissionDir(named string, isTest bool) (string, error) {
 	if isTest {
 		if named == "" {

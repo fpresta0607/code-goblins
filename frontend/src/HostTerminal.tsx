@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { reportToCfo } from "./api";
 import { Icon } from "./Icon";
+import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
@@ -106,7 +107,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
           retry = setTimeout(() => setAttempt((prior) => prior + 1), 400 * retries.current);
           return;
         }
-        if (why) reportToCfo(reportAsValue.current, closedReason(code, why));
+        if (why && !isDetachedHold(why)) reportToCfo(reportAsValue.current, closedReason(code, why));
         setReconnecting(false);
         setEndedWhy(ended(code) ? closedReason(code, why) : "");
         setPhase("closed");

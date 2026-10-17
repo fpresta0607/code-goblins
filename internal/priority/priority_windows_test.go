@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -14,10 +15,18 @@ import (
 )
 
 // classReport names the file a child of this test binary writes its own
-// priority class to, instead of running the tests.
-const classReport = "PRIORITY_TEST_CLASS_REPORT"
+// priority class to, instead of running the tests, and a child given
+// waitReport waits a minute to be raised and ended instead.
+const (
+	classReport = "PRIORITY_TEST_CLASS_REPORT"
+	waitReport  = "PRIORITY_TEST_WAIT"
+)
 
 func TestMain(m *testing.M) {
+	if os.Getenv(waitReport) != "" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
 	if report := os.Getenv(classReport); report != "" {
 		class, err := windows.GetPriorityClass(windows.CurrentProcess())
 		if err != nil || os.WriteFile(report, fmt.Appendf(nil, "%#x", class), 0o600) != nil {

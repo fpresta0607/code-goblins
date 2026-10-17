@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/bits"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -375,5 +379,157 @@ func TestChromeOnHostRulesReachesOnlyTheRecipeHosts(t *testing.T) {
 	failed, text = navigate(t, process.URL, page.URL)
 	if failed == "" && text == "the key page" {
 		t.Fatal("an IP address outside the recipe reached the server")
+	}
+}
+
+var (
+	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
+	getProcessAffinityMask = kernel32.NewProc("GetProcessAffinityMask")
+	setThreadAffinityMask  = kernel32.NewProc("SetThreadAffinityMask")
+)
+
+// busyBeside pins process's job to one processor this test may run on and
+// keeps a thread of the test busy on it at normal priority until the test
+// ends, as the fleet's builds and tests keep the machine's cores busy.
+func busyBeside(t *testing.T, process Process) {
+	t.Helper()
+	var allowed, system uintptr
+	if result, _, err := getProcessAffinityMask.Call(uintptr(windows.CurrentProcess()), uintptr(unsafe.Pointer(&allowed)), uintptr(unsafe.Pointer(&system))); result == 0 {
+		t.Fatal(err)
+	}
+	processor := uintptr(1) << (bits.Len(uint(allowed)) - 1)
+	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if err := windows.QueryInformationJobObject(process.job.handle, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+		t.Fatal(err)
+	}
+	limits.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_AFFINITY
+	limits.BasicLimitInformation.Affinity = processor
+	if _, err := windows.SetInformationJobObject(process.job.handle, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+		t.Fatal(err)
+	}
+	var isStopped atomic.Bool
+	pinned, stopped := make(chan error, 1), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		if result, _, err := setThreadAffinityMask.Call(uintptr(windows.CurrentThread()), processor); result == 0 {
+			pinned <- err
+			return
+		}
+		pinned <- nil
+		for !isStopped.Load() {
+		}
+	}()
+	t.Cleanup(func() { isStopped.Store(true); <-stopped })
+	if err := <-pinned; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setSignInCookie signs process in with a cookie its profile keeps for a
+// day.
+func setSignInCookie(t *testing.T, process Process) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	socket, err := browserSocket(ctx, process.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := cdp.Dial(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	cookie := map[string]any{"name": "standin-login", "value": "accepted", "domain": "localhost", "path": "/", "expires": time.Now().Add(24 * time.Hour).Unix()}
+	if err := connection.Call(ctx, "Storage.setCookies", map[string]any{"cookies": []map[string]any{cookie}}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hasSignInCookie reports whether process holds the cookie setSignInCookie
+// gave its profile.
+func hasSignInCookie(t *testing.T, process Process) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	socket, err := browserSocket(ctx, process.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := cdp.Dial(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	var result struct {
+		Cookies []struct{ Name, Value string } `json:"cookies"`
+	}
+	if err := connection.Call(ctx, "Storage.getCookies", nil, &result); err != nil {
+		t.Fatal(err)
+	}
+	return slices.ContainsFunc(result.Cookies, func(cookie struct{ Name, Value string }) bool {
+		return cookie.Name == "standin-login" && cookie.Value == "accepted"
+	})
+}
+
+// Chrome saves its cookies on threads it runs at background priority, and
+// each of its processes ends only once its background threads have run.
+// While other work kept the machine's cores busy at normal priority, a
+// browser asked to close waited tens of seconds for them, so it was ended
+// before it had written its sign-in and the next browser on the profile was
+// signed out, and its end was not confirmed within a minute (issue #896).
+// Here its job has one processor, which a thread of the test keeps busy.
+func TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed(t *testing.T) {
+	// Arrange
+	process, profile := startChrome(t, []string{"localhost"})
+	setSignInCookie(t, process)
+	browser, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(process.PID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(browser)
+	busyBeside(t, process)
+
+	// Act
+	began := time.Now()
+	err = End(context.Background(), process)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("End beside busy work after %s: %v", time.Since(began), err)
+	}
+	// Raised, the browser closed and was torn down in under 5 seconds here;
+	// left at background priority, its end took from 53 seconds to past
+	// teardownWait.
+	if took := time.Since(began); took > closeWait+15*time.Second {
+		t.Fatalf("End beside busy work took %s, want %s at most", took, closeWait+15*time.Second)
+	}
+	// A browser that closed when asked exits 0, and one ended through its
+	// job, before it had written what it holds, exits 1.
+	var exit uint32
+	if err := windows.GetExitCodeProcess(browser, &exit); err != nil || exit != 0 {
+		t.Fatalf("the browser exited %d, %v; want 0, closed when asked within %s", exit, err, closeWait)
+	}
+	executable, err := Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	next, err := Start(ctx, Launch{Executable: executable, Profile: profile, Hosts: []string{"localhost"}, Headless: true})
+	if next.PID != 0 {
+		t.Cleanup(func() {
+			if err := End(context.Background(), next); err != nil {
+				t.Errorf("end chrome %d: %v", next.PID, err)
+			}
+		})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSignInCookie(t, next) {
+		t.Fatal("the next browser on the profile lost the sign-in")
 	}
 }

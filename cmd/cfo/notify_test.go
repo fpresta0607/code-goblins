@@ -492,6 +492,60 @@ func TestNotifyRefusesAChoiceThatIsOnlyALetterOrNumber(t *testing.T) {
 	}
 }
 
+// A question with choices in a report that wakes nobody reached nobody: on
+// 2026-10-15 a goblin's pull request sat 15 minutes on one written into a
+// working note (#984). Such a report is refused and told to go as a blocked
+// notify, which raises a decision; a report that asks nothing is kept.
+func TestNotifyRefusesAQuestionInAReportThatWakesNobody(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	asked := [][]string{
+		{"g1", "--working", "PR 74 needs her helper. Options: Pearl adds it and I push 74 after (Recommended) | I add it inside 74 myself, in her files."},
+		{"g1", "--working", "Should I push now? Push now | Wait for CI"},
+		{"g1", "--waiting-on", "ci", "PR 45 checks; merge right after? options: Merge after (Recommended) | Hold it"},
+	}
+	kept := []struct {
+		args []string
+		line string
+	}{
+		{[]string{"g1", "--working", "piping `go test ./... | tee log` into the gate"}, "working: piping `go test ./... | tee log` into the gate"},
+		{[]string{"g1", "--working", "Choice taken: keep 300 s, the shorter wait loses runs"}, "working: Choice taken: keep 300 s, the shorter wait loses runs"},
+	}
+
+	for _, args := range asked {
+		// Act
+		var stdout, stderr bytes.Buffer
+		exit := runNotify(args, &stdout, &stderr, defaultCommandRuntime())
+
+		// Assert
+		if exit != 2 || !strings.Contains(stderr.String(), "--blocked") {
+			t.Errorf("%q: exit=%d stderr=%q, want it refused and sent to --blocked", args, exit, stderr.String())
+		}
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("a refused report recorded status %q", lines)
+	}
+	for _, c := range kept {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
+			t.Fatalf("%q: exit=%d stderr=%q, want a report that asks nothing kept", c.args, exit, stderr.String())
+		}
+		lines, err := state.TailStatus(stateDir, "g1", 1)
+		if _, event := state.SplitStatus(lines[0]); err != nil || event != c.line {
+			t.Fatalf("status = %q %v, want %q", lines, err, c.line)
+		}
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+		t.Fatalf("wake records = %+v %v, want none", records, err)
+	}
+}
+
 // questionHome is a scratch home for a goblin's questions, with the home,
 // its state and the projects root all pointed at scratch paths, and returns
 // its state directory.

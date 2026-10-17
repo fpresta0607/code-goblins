@@ -13,6 +13,10 @@ import (
 
 const devToolsMessageLimit = 32 << 20
 
+// errPipeClosed is a call's answer when the browser closed its end of the
+// pipe before it answered, as a browser asked to close may.
+var errPipeClosed = errors.New("the private browser pipe closed")
+
 type devToolsMessage struct {
 	ID      int64           `json:"id,omitempty"`
 	Method  string          `json:"method,omitempty"`
@@ -149,7 +153,7 @@ func (p *devToolsPipe) call(ctx context.Context, method string, params, result a
 
 // closedError is what a caller that found the pipe closed is told.
 func (p *devToolsPipe) closedError() error {
-	return fmt.Errorf("the private browser pipe closed: %w", p.why)
+	return fmt.Errorf("%w: %w", errPipeClosed, p.why)
 }
 
 func (p *devToolsPipe) read() {
