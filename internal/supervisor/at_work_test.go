@@ -3,6 +3,7 @@ package supervisor
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -141,13 +142,15 @@ func TestADeliveredGoblinAtWorkAgainIsInProgress(t *testing.T) {
 			name           string
 			isGateVerified bool
 			after          []string
+			newerReport    string
 			isCompleted    bool
 		}{
-			{"gate verified, at rest after its report", true, []string{"tool", "settle"}, true},
-			{"gate verified, at work on a newer prompt", true, []string{"prompt", "tool"}, false},
-			{"gate verified, its newer turn ended", true, []string{"prompt", "tool", "settle"}, true},
-			{"merged, at rest after its report", false, []string{"tool", "settle"}, true},
-			{"merged, at work on a newer prompt", false, []string{"prompt", "tool"}, false},
+			{"gate verified, at rest after its report", true, []string{"tool", "settle"}, "", true},
+			{"gate verified, at work on a newer prompt", true, []string{"prompt", "tool"}, "", false},
+			{"gate verified, at work and saying so", true, []string{"prompt", "tool"}, "working: back at work", false},
+			{"gate verified, its newer turn ended", true, []string{"prompt", "tool", "settle"}, "", true},
+			{"merged, at rest after its report", false, []string{"tool", "settle"}, "", true},
+			{"merged, at work on a newer prompt", false, []string{"prompt", "tool"}, "", false},
 		} {
 			t.Run(harness+"/"+test.name, func(t *testing.T) {
 				// Arrange
@@ -169,6 +172,11 @@ func TestADeliveredGoblinAtWorkAgainIsInProgress(t *testing.T) {
 				fileReport(t, h, "task-1", "done: PR "+pr, now.Add(-time.Minute))
 				for i, moment := range test.after {
 					harnessHook(t, store, h, harness, "task-1", moment, now.Add(time.Duration(i-len(test.after))*10*time.Second))
+				}
+				if test.newerReport != "" {
+					if err := state.AppendStatus(h.State, "task-1", test.newerReport); err != nil {
+						t.Fatal(err)
+					}
 				}
 				service := &Service{Store: store, history: withMergedPRs(nil, []MergedPR{{PR: pr, Branch: "fix/a", Project: "r", At: now.Unix()}})}
 
@@ -269,5 +277,42 @@ func TestAWaitCircleShowsNoWaitAndTellsTheCFOOnce(t *testing.T) {
 	}
 	if len(told) != 1 || !strings.Contains(told[0], "task-1") || !strings.Contains(told[0], "task-2") || strings.Contains(told[0], "task-3") {
 		t.Fatalf("wait-cycle wakes = %q, want one naming task-1 and task-2 alone", told)
+	}
+}
+
+// A stopped goblin waits on nothing, whatever its last report said, so its
+// old wait closes no circle with a goblin that now waits on it.
+func TestAStoppedGoblinsLastWaitClosesNoCircle(t *testing.T) {
+	// Arrange
+	store, h := atWorkFixture(t, "pi", "task-1", "task-2")
+	now := time.Now().UTC()
+	for _, id := range []string{"task-1", "task-2"} {
+		harnessHook(t, store, h, "pi", id, "start", now.Add(-3*time.Minute))
+		harnessHook(t, store, h, "pi", id, "settle", now.Add(-2*time.Minute))
+	}
+	fileReport(t, h, "task-1", "waiting on task-2: its push", now.Add(-2*time.Minute))
+	fileReport(t, h, "task-2", "waiting on task-1: its review", now.Add(-time.Minute))
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "g1", Operation: "stop-1", Action: "stop", Phase: "stopped", Updated: now}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store}
+
+	// Act
+	err := service.tellWaitCycles()
+	got := snapshotTask(t, service, "task-2")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != "waiting" || got.WaitingOn != "task-1" {
+		t.Errorf("task-2 = phase %q waiting on %q (%s), want its own wait on the stopped goblin", got.Phase, got.WaitingOn, got.Reason)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(pending, func(record wake.Record) bool { return strings.HasPrefix(record.Detail, "wait_cycle: ") }) {
+		t.Errorf("wakes = %+v, want no wait circle told", pending)
 	}
 }

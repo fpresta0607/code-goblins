@@ -381,7 +381,7 @@ The panel has no Terminal or Task switch, no explanatory lines and no yellow, an
 A pull request under test reads one state with one link on every surface (`frontend/src/pull-request-test.ts`).
 On a train, its goblin's pull request chip, on the card and in the panel, says what the train's card says of it, in the same tone, and opens the train's pull request: the running train that carries it, else the newest finished one while the pull request's head is still the one that rode.
 Off a train, the chip is its hosted checks above.
-A goblin that waits only on that test, paused until its pull request merges or until its CI run on it finishes, or live and idle since it reported the pull request done, says the same words as its status on its card, in its panel's header with no line under it, and on its node on the Orchestration canvas, whose tip is its card's.
+A live goblin idle since it reported the pull request done, which waits only on that test, says the same words as its status on its card, in its panel's header with no line under it, and on its node on the Orchestration canvas, whose tip is its card's.
 Paused so, its terminal view says the same words in place of Session paused.
 A goblin at work, blocked, asking or waiting on something else says that itself, and only its chip reads the test.
 The supervisor keeps the trains its CI poll reads, so a card follows its train within one poll.
@@ -395,7 +395,8 @@ The status line and the pull request come from the current generation's lines on
 Cards state progress in plain words, never engine words: Queued, Starting, Start failed, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its name, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
 A goblin waiting on another goblin names it once, in its card's status line, and links to it from its panel: a button beside its status there opens the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
 A wait a goblin reported says what it does until it takes a prompt after that report: while the turn that prompt started runs it reads Working, its own tool calls in the turn that filed the wait end nothing, and once that turn ends with no newer report the wait stands again.
-The prompt is proven by the harness's native hooks, which the fleet gives every harness's launch in the follow-up change.
+The prompt is proven by the harness's native hooks; a goblin whose harness reports none keeps its report.
+A delivered goblin is at work again only on a prompt taken after its latest done report, and then its newer reports say what it does.
 A native session of an earlier generation, such as the Pi session of a goblin since switched to a harness whose hooks are not installed, is no evidence of the current one, and the card reads the goblin's gate and terminal instead.
 Goblins whose standing waits on one another close a circle each read Blocked, naming the goblin whose wait comes back to it, never Waiting on it, and the CFO is woken once for each circle with a `wait_cycle` notify naming every goblin in it; a newer report of any of them is a new circle.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.

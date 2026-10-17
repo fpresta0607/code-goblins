@@ -356,6 +356,21 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 	return time.Time{}, ""
 }
 
+// deliveredAt is when the task's current generation last reported a
+// delivery with done:, zero when it reported none.
+func deliveredAt(lines []string, spawned time.Time) time.Time {
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamp, event := state.SplitStatus(lines[i])
+		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
+			break
+		}
+		if strings.HasPrefix(strings.TrimSpace(event), "done: ") {
+			return stamp
+		}
+	}
+	return time.Time{}
+}
+
 // standingReport is latestReport passed over the questions the goblin asked
 // since: a question waits beside what the goblin stands on, such as a wait on
 // the Overlord, and replaces nothing.

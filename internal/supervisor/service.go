@@ -1316,9 +1316,9 @@ type Task struct {
 	// background shells and monitors, its jobs of processes with their
 	// memory, and its gate run.
 	Tree *fleettree.Tree `json:"tree,omitempty"`
-	// isAtWork marks a live goblin whose turn runs on a prompt it took after
-	// its latest report, which no merge completes.
-	isAtWork bool
+	// isBackAtWork marks a live goblin whose turn runs on a prompt it took
+	// after its latest done report, which no merge completes.
+	isBackAtWork bool
 	Evaluation
 }
 
@@ -1579,9 +1579,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// goblins sent new work each read Waiting on the other on 2026-10-16,
 		// and a delivered goblin resumed to look for more work stayed in
 		// Completed. Its native hooks prove the prompt.
-		isAtWork := linked && (node.Phase == "active" || node.Phase == "started") && node.PromptAt.Truncate(time.Second).After(reportedAt)
-		if isAtWork && evaluation.Phase == "done" {
+		isInTurn := linked && (node.Phase == "active" || node.Phase == "started")
+		isAtWork := isInTurn && node.PromptAt.Truncate(time.Second).After(reportedAt)
+		// A delivery is undone only by a prompt taken after it, which the
+		// goblin's own newer reports then describe, a working one included.
+		isBackAtWork := isInTurn && node.PromptAt.Truncate(time.Second).After(deliveredAt(lines, spawned))
+		if isBackAtWork && evaluation.Phase == "done" {
 			evaluation.Phase, evaluation.Reason = "working", "At work again after its delivery"
+			isGateHeld = evaluation.GateStep != ""
 		}
 		// A goblin's own newer report says what it is doing, unless a question
 		// or the gate holds it or its work already merged. A question asked
@@ -1622,12 +1627,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isAtWork: isAtWork, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
 	}
-	out.waitCycles = breakWaitCycles(out.Tasks)
 	// The goblins in progress run in the Overlord's attention order, and any
 	// he has not placed follow it.
 	if attention, err := fleet.ReadAttention(s.Store.Home); err != nil {
@@ -1779,6 +1783,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 	}
+	// A circle of waits counts only goblins still waiting once their pauses
+	// and stops are read: a stopped goblin's last wait waits on nothing.
+	out.waitCycles = breakWaitCycles(out.Tasks)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		if progress, exists := progress[task.ID]; exists && progress.Generation == task.Generation {
@@ -1885,7 +1892,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// before its cleanup. One still deploying, or whose deploy failed or
 		// was cancelled, stays In progress.
 		isDeployed := task.Deployment == nil || task.Deployment.State == "deployed"
-		if !task.Archived && !task.isAtWork && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
+		if !task.Archived && !task.isBackAtWork && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
 			task.Phase, task.Verified, task.Reason = "done", true, "Pull request merged"
 			if task.Deployment != nil {
 				task.Reason = "Pull request merged and deployed"
