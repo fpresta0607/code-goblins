@@ -299,8 +299,7 @@ func TestAFailedResumeAndFreshStartNameTheConversationThatWasLeft(t *testing.T) 
 }
 
 // Each harness resumes with its own arguments. A CFO that ran as another
-// harness, as pi, which cannot resume, or in Herdr starts a new conversation
-// in its native terminal; only pi's case has something to say.
+// harness or in Herdr starts a new conversation in its native terminal.
 func TestACFOResumesOnlyAConversationItsHarnessCanResume(t *testing.T) {
 	for _, c := range []struct {
 		name, harness, host, agent string
@@ -310,7 +309,6 @@ func TestACFOResumesOnlyAConversationItsHarnessCanResume(t *testing.T) {
 		{"Codex in its native terminal", "codex", supervisor.NativeCFOTerminal, "codex", []string{"resume a1b2c3d4-session"}, "CFO        back as Codex on its conversation a1b2c3d4-session"},
 		{"another harness than the one chosen", "codex", supervisor.NativeCFOTerminal, "claude", []string{""}, "CFO        started as Claude Code in "},
 		{"a CFO that ran in Herdr", "claude", "", "claude", []string{""}, "CFO        started as Claude Code in "},
-		{"pi", "pi", supervisor.NativeCFOTerminal, "pi", []string{""}, "pi has no way to resume a conversation, so the CFO starts a new one."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -318,6 +316,59 @@ func TestACFOResumesOnlyAConversationItsHarnessCanResume(t *testing.T) {
 			f := newSessionFixture(t)
 			f.agent = c.agent
 			recordConversation(t, f.home.State, c.harness, "a1b2c3d4-session", c.host)
+
+			// Act
+			exit, stdout, stderr := f.launch()
+
+			// Assert
+			if exit != 0 || !slices.Equal(f.nativeArgs, c.args) {
+				t.Fatalf("exit=%d nativeArgs=%q stderr=%q, want native args %q", exit, f.nativeArgs, stderr, c.args)
+			}
+			if !strings.Contains(stdout, c.said) {
+				t.Errorf("stdout = %q, want %q", stdout, c.said)
+			}
+		})
+	}
+}
+
+// writePiSession writes the file pi 0.85.1 keeps session in under the user's
+// home userHome, which it writes when its first reply ends.
+func writePiSession(t *testing.T, userHome, session string) {
+	t.Helper()
+	folder := filepath.Join(userHome, ".pi", "agent", "sessions", "--C--cfo-home--")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "2026-10-17T02-44-00-000Z_"+session+".jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A pi CFO comes back on its own session with pi --session, as a pi goblin
+// does, once pi has written that session's file: pi 0.85.1 writes it when its
+// first reply ends and exits on a --session it finds no file for, so until
+// then the CFO starts a new conversation and says why.
+func TestAPiCFOComesBackOnItsOwnSessionOncePiHasWrittenIt(t *testing.T) {
+	for _, c := range []struct {
+		name             string
+		isSessionWritten bool
+		args             []string
+		said             string
+	}{
+		{"on its session", true, []string{"--session a1b2c3d4-session"}, "CFO        back as pi on its conversation a1b2c3d4-session, in native terminal cfo"},
+		{"on a new one before pi wrote its session", false, []string{""}, "pi has written no file for its conversation a1b2c3d4-session, which it writes when its first reply ends, so the CFO starts a new one."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			f.agent = "pi"
+			userHome := t.TempDir()
+			t.Setenv("USERPROFILE", userHome)
+			if c.isSessionWritten {
+				writePiSession(t, userHome, "a1b2c3d4-session")
+			}
+			recordConversation(t, f.home.State, "pi", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
 
 			// Act
 			exit, stdout, stderr := f.launch()

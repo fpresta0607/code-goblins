@@ -166,7 +166,7 @@ func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 	want := []SetupAgent{
 		{ID: "claude", Name: "Claude Code", Recommended: true, Note: "the best experience", Installed: true, SignIn: SignedIn},
 		{ID: "codex", Name: "Codex", Note: "woken by a typed line; no digest or guards", Installed: true, SignIn: SignedIn},
-		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest, guards or resume", SignIn: SignInUnknown, Reason: "Install pi to start the CFO"},
+		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest or guards", SignIn: SignInUnknown, Reason: "Install pi to start the CFO"},
 	}
 	if len(setup.Agents) != len(want) {
 		t.Fatalf("agents = %+v, want %+v", setup.Agents, want)
@@ -360,8 +360,8 @@ func TestTheCFOCapabilityTableSaysOnlyWhatIsProved(t *testing.T) {
 			t.Errorf("%s: a row of the table is missing its name, note or how it registers: %+v", row.Agent, row)
 		}
 	}
-	if !table[0].Resumes || !table[1].Resumes || table[2].Resumes {
-		t.Errorf("resumes: %v %v %v, want Claude Code and Codex to come back on their conversation and pi not", table[0].Resumes, table[1].Resumes, table[2].Resumes)
+	if !table[0].Resumes || !table[1].Resumes || !table[2].Resumes {
+		t.Errorf("resumes: %v %v %v, want Claude Code, Codex and pi to come back on their conversation", table[0].Resumes, table[1].Resumes, table[2].Resumes)
 	}
 	if row, ok := CFOCapabilityFor("codex"); !ok || row.Agent != "codex" {
 		t.Errorf("CFOCapabilityFor(codex) = %+v, %v", row, ok)

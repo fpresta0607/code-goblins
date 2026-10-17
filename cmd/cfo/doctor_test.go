@@ -479,7 +479,7 @@ func TestRunDoctorSaysWhatTheCFOsHarnessGets(t *testing.T) {
 	}{
 		{"a home that remembers none starts Claude Code", "", []string{"cfo harness: Claude Code (the best experience); its SessionStart hook registers it\n"}, 0},
 		{"Codex", "codex", []string{"cfo harness: Codex (woken by a typed line; no digest or guards); its first prompt runs cfo register\n", "  goes without: no turn-end guard and no pre-tool guards\n"}, 3},
-		{"pi", "pi", []string{"cfo harness: pi (woken by a typed line; no digest, guards or resume); its first prompt runs cfo register\n", "  goes without: a closed pi CFO starts a new conversation: it is not resumed\n"}, 4},
+		{"pi", "pi", []string{"cfo harness: pi (woken by a typed line; no digest or guards); its first prompt runs cfo register\n", "  goes without: no turn-end guard and no pre-tool guards\n"}, 3},
 		{"a harness no CFO runs in", "kimi", []string{"cfo harness: unreadable ("}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
