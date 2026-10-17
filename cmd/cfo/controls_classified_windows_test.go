@@ -23,6 +23,7 @@ var staysAtNormal = map[string]string{
 	"install":           "copies programs and writes the user's settings",
 	"uninstall":         "removes an installation",
 	"hooks":             "writes a harness's hook files",
+	"codex-guard":       "the codex a goblin's armed codex guard runs, in the goblin's own terminal, where nothing is raised; it prints one line and starts nothing",
 	"version":           "prints one line",
 	"doctor":            "runs every tool's own version check",
 	"dictation":         "downloads and checks the speech engine",

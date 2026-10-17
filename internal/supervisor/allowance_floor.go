@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -139,9 +141,10 @@ func startHeldByAllowance(h home.Home, plan startPlan, watched *fleetWakes, now 
 // pauseAtAllowanceFloor is the fleet reading's allowance pass: it reads each
 // provider's weekly floor from config/fleet.json and keeps it for the dials,
 // holds starts and resumes on a provider at its floor or with a window used
-// up, and pauses the goblins running on a provider at its floor. A floor that
-// cannot be read pauses nothing, and the board says why, while a window used
-// up is still waited out.
+// up, pauses the goblins running on a provider at its floor, and arms the
+// codex guard of every goblin while Codex bills credits (guardCodex). A floor
+// that cannot be read pauses nothing, and the board says why, while a window
+// used up is still waited out.
 func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes, now time.Time) error {
 	watched.AllowanceFloors = map[string]allowanceFloor{}
 	settings, problems := fleetconfig.Read(s.Store.Home.Root)
@@ -162,6 +165,7 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 	if s.Options.Quota != nil {
 		report, skipped = s.readQuota(ctx, 20*time.Second)
 	}
+	problems = errors.Join(problems, s.guardCodex(report, skipped, watched, now))
 	if skipped != "" {
 		// A window seen used up still wakes the CFO when it renews.
 		return errors.Join(problems, s.raiseAllowanceWakes(quota.Report{}, watched, now))
@@ -237,6 +241,34 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 		}
 	}
 	return problems
+}
+
+// guardCodex arms the codex guard of every live task while a window that
+// bounds Codex is used up, so that a Codex session started from a goblin's
+// terminal would bill paid credits, and disarms it once the window renews.
+// A task the operator authorized to spend credits is never armed. A reading
+// that says nothing of Codex, one skipped or stale, keeps the last word until
+// the window it named renews.
+func (s *Service) guardCodex(report quota.Report, skipped string, watched *fleetWakes, now time.Time) error {
+	if reading, ok := report.Providers["codex"]; skipped == "" && ok && !reading.Stale && reading.Known {
+		watched.CodexUsedUpUntil, _ = usedUpReset(report, "codex", "", now)
+	}
+	if !now.Before(watched.CodexUsedUpUntil) {
+		watched.CodexUsedUpUntil = time.Time{}
+	}
+	stateDir := s.Store.Home.State
+	program := filepath.Join(s.Store.Home.Programs(), "cfo.exe")
+	var live []string
+	var problems error
+	for _, meta := range liveTasks(stateDir) {
+		live = append(live, meta.ID)
+		if watched.CodexUsedUpUntil.IsZero() || meta.CodexCredits {
+			problems = errors.Join(problems, codexguard.Disarm(stateDir, meta.ID))
+			continue
+		}
+		problems = errors.Join(problems, codexguard.Arm(stateDir, program, meta.ID, watched.CodexUsedUpUntil))
+	}
+	return errors.Join(problems, codexguard.Prune(stateDir, live))
 }
 
 // pauseAtFloor pauses meta's goblin for a floor in the background, through

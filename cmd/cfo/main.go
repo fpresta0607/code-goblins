@@ -69,6 +69,7 @@ commands:
   update    run as the home's own build: update the home from the newest published release, checked against its SHA256SUMS (--check only says how this build stands; --to <tag> refuses a newer one published since); run by a verified candidate build: install it as this home's bin\cfo.exe and bin\goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; bin keeps the current build alone, the previous one kept in state\update for the rollback; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
+  codex-guard   the codex a goblin's armed codex guard runs while Codex's included allowance is used up: says why in one line, wakes the CFO once and starts nothing; the guard runs it, not you
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
   install   wire the CFO home into the machine (CFO_HOME, PATH, and the Command Center allow rules in your Claude Code settings, out of which it takes the CFO's hooks an older build wrote, since the CFO's terminal starts with its own) so the CFO is supervised wherever it is started: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract, the default policy, the binary as bin\cfo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu and desktop shortcuts and the skills it installed included, and keeps the home's files
   uninstall the same as install --uninstall
@@ -599,6 +600,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runUpdate(args[1:], stdout, stderr, runtime)
 	case "host":
 		return runHost(args[1:], stderr)
+	case "codex-guard":
+		return runCodexGuard(args[1:], stderr, time.Now())
 	case "native-hook":
 		return runNativeHook(args[1:], os.Stdin, stdout, stderr, runtime)
 	case "hooks":
