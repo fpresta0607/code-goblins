@@ -30,12 +30,13 @@ test("a named goblin is called by its name and title, and its task keeps its own
   assert.equal(taskName(untitled), "cg-z");
 });
 
-test("a paused card names the goblin it waits on or resumes with by its goblin name", () => {
+test("a paused card names the goblin it waits on or resumes with by its name alone, and an unnamed one by its task", () => {
   const otis = task({ id: "b", title: "B work", goblin_name: "Otis", goblin_title: "Bug Hunter" });
   const dependency: PauseCondition = { reason: "dependency", until: "task:b", at: "2026-10-05T16:30:06Z" };
   const overlord: PauseCondition = { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" };
-  assert.equal(pauseStatus(dependency, [otis], []), "Paused until Otis - Bug Hunter delivers");
-  assert.equal(pauseStatus(overlord, [otis], [], otis), "Paused with Otis - Bug Hunter");
+  assert.equal(pauseStatus(dependency, [otis], []), "Paused until Otis delivers");
+  assert.equal(pauseStatus(overlord, [otis], [], otis), "Paused with Otis");
+  assert.equal(pauseStatus(dependency, [{ ...otis, goblin_name: "", goblin_title: "" }], []), "Paused until B work delivers");
 });
 
 test("a report loses the state word the status already says", () => {

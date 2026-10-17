@@ -102,13 +102,6 @@ button.tree-child:hover { border-color: var(--glass-border-hover); }
 .workflow-branch > .tree-lineage { margin: 10px 0 0 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; justify-items: start; }
 .tree-lineage > .tree-count { max-width: 100%; flex-wrap: wrap; white-space: normal; }
 
-/* The goblin's card counts what runs under it, and pressing the count shows
-   them on the canvas; a silent child is named in its panel, not on the
-   card. */
-.card-tree { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: none; color: #b9cad6; font-size: .9375rem; font-weight: 700; }
-.card-tree:hover { background: var(--ghost-bg); box-shadow: 0 0 0 4px var(--ghost-bg); }
-.card-tree .tree-tally { gap: 2px; }
-
 /* What's working in the goblin's panel. */
 .working-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 0 0 14px; font-weight: 700; color: #c4d4df; }
 .working-summary .plain-status { font-size: .9375rem; }

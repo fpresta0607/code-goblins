@@ -4,8 +4,8 @@ import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
-import { harnessName, harnessTip, personaFor, pullRequestIcon, safePullRequest, taskColumn } from "./workflow";
-import { goblinName, plainText, taskName } from "./task-words";
+import { harnessTip, personaFor, pullRequestIcon, safePullRequest } from "./workflow";
+import { goblinName, taskName } from "./task-words";
 import { taskStatus } from "./task-status";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
@@ -13,91 +13,63 @@ import { PullRequestTestLink } from "./pull-request-test-link";
 import { pullRequestTest } from "./pull-request-test";
 import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
-import { BabyGoblin } from "./BabyGoblin";
-import { babies, formatMemory, summarize } from "./fleet-tree";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 
-// A task's card on the board: its portrait beside its title, up to three
-// lines, then across the card's whole width one muted line with the repo and
-// the status, wrapping onto further lines only when it must; the goblin's own
-// words stay in its panel, and so does what runs under it, a silent child
-// included. rank, when the card sits in an ordered list, is read out with it.
-// Its pull request takes a row of its own under that, and at the card's foot
-// a quiet clock of how long its session has run or how long it has waited, or
-// when it paused or finished, sits beside the mark of the harness it runs,
-// whose tip names the model and effort: the card shows no line of its own for
-// them (the Overlord, 2026-10-17: "when you hover the icon, it should tell you
-// the model that it's using. You don't have to have it displayed on it").
-// Every part of the card has its own place, so none is drawn over another,
-// and a part's tip floats clear of the card. The goblin it waits
-// on is named in its status line only. A queued
-// task that waits says what for in its status, in place of Queued; a paused or finished task shows when, and its status says what: a
-// paused one, in place of Paused, why it waits and what resumes it. A goblin
-// that waits only on its pull request's test, live or paused until it merges,
-// says where that test stands, the same as its merge train's card, and its
-// pull request's chip opens the same page. A goblin
-// gone quiet, and windows still closing, are the CFO's to hear, never warnings
-// on the card. next marks the one card the order for a free slot takes first.
-export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, onSelect, onCount }: {
+// A task's card on the board is one row, like a conversation in a list (the
+// Overlord, 2026-10-17: "minimal cards are better like an imessage history
+// with name status of whether working time working or last worked tickets pr
+// icons etc and harness icon"): its portrait, its name with a quiet clock of
+// how long it has run or waited, or when it paused or finished, beside it,
+// and under them its status in at most two lines, with its ticket, pull
+// request, checks and deploy as icons that open them, each saying in its tip
+// what it is, then the mark of the harness it runs, whose tip names the
+// model and effort. A goblin leads with its name, a finished one too, and
+// shows its task in the name's tip (the CFO's decision 1008011). Its project,
+// the goblin it helps, what runs under it and a waiting update are in its
+// panel. rank, when the card sits in an ordered list, is read out with it;
+// next marks the one card the order for a free slot takes first. The goblin
+// it waits on is named in its status line only. A goblin that waits only on
+// its pull request's test, live or paused until it merges, says where that
+// test stands in the icon beside its pull request, the same as its merge
+// train's card. A goblin gone quiet, and windows still closing, are the CFO's
+// to hear, never warnings on the card.
+export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, onSelect }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
   next?: NextUp;
   onSelect: (task: Task, source: HTMLElement) => void;
-  // onCount shows what runs under the goblin, on the Orchestration canvas;
-  // a card without it shows no count.
-  onCount?: (task: Task) => void;
 }) {
-  // A live goblin goes by its name and shows its task in a tip on hover or
-  // focus, and a completed card leads with what it delivered. Any other
-  // title still shortened shows in full in its tip: that card carries
-  // data-tip only while its title is shortened.
+  // A task with no goblin yet goes by its title, which shows in full in its
+  // tip while it is shortened: that card carries data-tip only then.
   const [clipped, setClipped] = useState(false);
   const card = useRef<HTMLButtonElement>(null);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
-    setClipped(!!title && title.scrollHeight > title.clientHeight + 1);
+    setClipped(!!title && title.scrollWidth > title.clientWidth + 1);
   };
-  const column = taskColumn(task);
-  const isNamed = task.goblin_name !== "" && column !== "Completed";
+  const isNamed = task.goblin_name !== "";
   const name = isNamed ? goblinName(task) : taskName(task);
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task);
   const test = pullRequestTest(task, snapshot.merge_trains ?? []), { text: status, phase } = taskStatus(task, snapshot);
-  const parent = task.parent && snapshot.tasks.find((other) => other.id === task.parent);
-  const parentName = parent ? goblinName(parent) : task.parent;
-  // What runs under a live goblin, as baby goblins with a count each, which
-  // opens the Orchestration canvas on the goblin: its baby goblins live
-  // there, never as cards of their own.
-  const kinds = column === "In progress" && task.tree ? summarize({ ...task.tree, children: babies(task.tree) }).kinds : [];
-  const count = kinds.length > 0 && onCount && <button type="button" className="card-tree" aria-label={"Show what runs under " + name + " on the canvas"} data-tip="Show on the canvas" onClick={() => onCount(task)}>
-    {kinds.map(([baby, number]) => <span key={baby} className="tree-tally"><BabyGoblin baby={baby} small hasTip={false} />{number}</span>)}{task.tree && formatMemory(task.tree.memory)}
-  </button>;
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span></span>
-      {parentName && <span className="card-secondary">Helper of {parentName}</span>}
-      {task.pending_engine?.when === "update" && <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>}
-      {task.switching && task.pending_engine?.when !== "update" && <span className="card-secondary">Switching engine...</span>}
-      {column === "Completed" && task.phase === "stopped" && task.reason && <span className="card-secondary">{plainText(task.reason)}</span>}
+      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
-    {(count || pr || column === "Completed" || task.ticket || task.overlaps.length > 0 || task.local_checks || task.deployment) && <div className="card-links">
-      {count}
-      <CardPullRequest task={task} />
-      {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" />}
-      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="card-checks" />}
-      {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" />}
-      {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" />}
+    <CardClock task={task} now={now} />
+    <div className="card-icons">
+      {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
+      <CardPullRequest task={task} isIconOnly />
+      {task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="card-checks" isIconOnly />}
+      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="card-checks" isIconOnly />}
+      {task.deployment && <DeploymentLink deployment={task.deployment} className="card-checks" isIconOnly />}
       <SameAreaAvatars overlaps={task.overlaps} />
-      {column === "Completed" && !pr && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
-    </div>}
-    <div className="card-foot">
-      <CardClock task={task} now={now} />
       {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
     </div>
   </div>;

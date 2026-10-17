@@ -53,11 +53,7 @@ function readLayout(): { positions: Record<string, Point> } {
   } catch { return { positions: {} }; }
 }
 
-// focus asks for one goblin, by its task, to be shown in the middle of the
-// canvas with its baby goblins, once for each time it is asked (at).
-export interface CanvasFocus { task: string; at: number }
-
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, focus, presentations, now }: {
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, presentations, now }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
@@ -65,7 +61,6 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
   // onOpenCfo opens the CFO's terminal, from its card's button.
   onOpenCfo: (source: HTMLElement) => void;
-  focus?: CanvasFocus;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
   const awaited = useMemo(() => waitingOn(snapshot, nodes), [snapshot, nodes]);
@@ -173,16 +168,6 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const shown = held ?? view ?? { scale: fitted, x: (canvas.width - fitWidth * fitted) / 2 - fitLeft * fitted, y: (canvas.height - fitHeight * fitted) / 2 - fitTop * fitted };
   const { scale } = shown;
   const zoom = (next: number) => setView(zoomAt(shown, next, { x: canvas.width / 2, y: canvas.height / 2 }));
-  // A goblin asked for from the board shows in the middle of the canvas,
-  // framed with what hangs under its card, once the canvas is measured.
-  const [focusedAt, setFocusedAt] = useState(0);
-  const focused = focus && focus.at !== focusedAt && canvas.width ? visible.find((node) => node.task?.id === focus.task && ownsTaskSession(node.session, node.task)) : undefined;
-  if (focus && focused) {
-    const p = point(focused.id), height = NODE_HEIGHT + (below[focused.id] || 0);
-    const framed = fitScale({ width: (extents[focused.id]?.width || NODE_WIDTH) + 80, height: height + 80 }, canvas);
-    setFocusedAt(focus.at);
-    setView({ scale: framed, x: canvas.width / 2 - (p.x + NODE_WIDTH / 2) * framed, y: canvas.height / 2 - (p.y + height / 2) * framed });
-  }
   const fit = () => setView(null);
   // Measured before the first paint, so the tree never shows unfitted.
   useLayoutEffect(() => {

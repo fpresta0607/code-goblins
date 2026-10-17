@@ -64,9 +64,10 @@ async function select(page: Page, name: string) {
   await expect(page.locator("#panel-title")).toHaveText(name);
 }
 
-// What a part says and opens, and the colour it is drawn in.
+// What a part says and opens, and the colour it is drawn in; a card's chip is
+// an icon since 2026-10-17, so what it says is in its label.
 const read = (part: ReturnType<Page["locator"]>) => part.evaluate((element) => ({
-  text: element.textContent, href: element.getAttribute("href"), color: getComputedStyle(element).color,
+  text: element.textContent, label: element.getAttribute("aria-label"), href: element.getAttribute("href"), color: getComputedStyle(element).color,
 }));
 
 for (const width of [1440, 390]) {
@@ -89,7 +90,8 @@ for (const width of [1440, 390]) {
       await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: "Sid - Memory Keeper" })).toHaveCount(1);
       expect(status.text).toBe("Paused until PR #512 merges");
       expect(status.color).not.toBe(AMBER);
-      expect(chip).toMatchObject({ text: "Testing", href: TRAIN_PR });
+      expect(chip.label).toMatch(/^Testing: /);
+      expect(chip.href).toBe(TRAIN_PR);
       expect(trainStatus.href).toBe(TRAIN_PR);
       await expect(row).toContainText("Sid - Memory Keeper");
       await expect(row.locator(".train-car-state")).toHaveText("Testing");
@@ -101,7 +103,7 @@ for (const width of [1440, 390]) {
       const mae = card(page, "Mae - Bug Hunter");
 
       await expect(mae.locator(".card-status-text")).toHaveText("Testing");
-      await expect(mae.locator("a.card-checks")).toHaveText("Testing");
+      await expect(mae.locator("a.card-checks")).toHaveAttribute("aria-label", /^Testing: /);
       await expect(mae.locator("a.card-checks")).toHaveAttribute("href", RUN);
     });
 
