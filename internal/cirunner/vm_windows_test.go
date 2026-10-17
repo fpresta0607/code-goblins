@@ -1,6 +1,10 @@
 package cirunner
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -12,18 +16,20 @@ func TestHyperVScriptsParse(t *testing.T) {
 	// Arrange
 	commands := &recorder{result: execx.Result{Stdout: []byte("Off")}}
 	eachHyperVCall(HyperV{Commands: commands})
-	texts := make([]string, len(commands.ran))
-	for i, request := range commands.ran {
-		texts[i] = script(request)
-	}
+	shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	const parse = "$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:CG_CI_SCRIPT, [ref]$null, [ref]$errors); $errors | ForEach-Object { $_.Message }; exit $errors.Count"
 
-	// Act
-	said := parseErrors(t, texts)
+	for _, request := range commands.ran {
+		text := script(request)
+		command := execx.CommandContext(context.Background(), shell, "-NoProfile", "-NonInteractive", "-Command", parse)
+		command.Env = append(os.Environ(), "CG_CI_SCRIPT="+text)
 
-	// Assert
-	for i, text := range texts {
-		if said[i] != "" {
-			t.Errorf("%q does not parse: %s", text, said[i])
+		// Act
+		output, err := command.CombinedOutput()
+
+		// Assert
+		if err != nil {
+			t.Errorf("%q does not parse: %v: %s", text, err, strings.TrimSpace(string(output)))
 		}
 	}
 }
