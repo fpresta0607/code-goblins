@@ -8,7 +8,8 @@ import (
 )
 
 // Collaboration is whether people other than the Overlord work in a
-// repository, who they are, most recently active first, whether only its
+// repository, who they are, most recently active first, which of them
+// committed to its default branch or opened a pull request, whether only its
 // members can read it, and the Overlord's login, the account gh is signed in
 // as, which the fleet writes as.
 type Collaboration struct {
@@ -16,6 +17,7 @@ type Collaboration struct {
 	IsCollaborative bool
 	IsPrivate       bool
 	People          []Actor
+	Active          []Actor
 	Viewer          string
 }
 
@@ -43,9 +45,13 @@ func (g GitHub) Collaboration(ctx context.Context, repository string, now time.T
 	for _, node := range repo.Refs.Nodes {
 		activity.Branches = append(activity.Branches, Branch{Name: node.Name, Head: node.Target.Oid, CommittedAt: node.Target.CommittedDate, Author: node.Target.Author.actor()})
 	}
-	var people []Actor
+	var people, active []Actor
 	for _, contributor := range contributors(activity, now) {
-		people = append(people, Actor{Login: contributor.Login, Name: contributor.Name, AvatarURL: contributor.AvatarURL})
+		person := Actor{Login: contributor.Login, Name: contributor.Name, AvatarURL: contributor.AvatarURL}
+		people = append(people, person)
+		if contributor.Commits > 0 || contributor.PullRequests > 0 {
+			active = append(active, person)
+		}
 	}
-	return Collaboration{Repository: repository, IsCollaborative: len(people) > 0, IsPrivate: repo.IsPrivate, People: people, Viewer: activity.Viewer.Login}, nil
+	return Collaboration{Repository: repository, IsCollaborative: len(people) > 0, IsPrivate: repo.IsPrivate, People: people, Active: active, Viewer: activity.Viewer.Login}, nil
 }
