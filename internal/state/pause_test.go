@@ -50,9 +50,9 @@ func TestPauseConditionsRequireTheEvidenceThatClearsThem(t *testing.T) {
 // itself, in the words the board's card uses, not the condition's syntax.
 func TestADependencyPauseSaysWhatResumesIt(t *testing.T) {
 	for until, want := range map[string]string{
-		"date:2026-10-09T13:39:00Z": "Resumes at 2026-10-09T13:39:00Z",
-		"task:other-task":           "Waiting on other-task to deliver; resumes when it does",
-		"pr:https://github.com/fpresta0607/code-goblins/pull/9": "Waiting on https://github.com/fpresta0607/code-goblins/pull/9 to merge; resumes when it does",
+		"date:2026-10-09T13:39:00Z": "Paused until 2026-10-09T13:39:00Z",
+		"task:other-task":           "Paused until other-task delivers; resumes when it does",
+		"pr:https://github.com/fpresta0607/code-goblins/pull/9": "Paused until https://github.com/fpresta0607/code-goblins/pull/9 merges; resumes when it does",
 	} {
 		t.Run(until, func(t *testing.T) {
 			// Arrange

@@ -45,7 +45,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
-        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} labelled />
+        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
         <LifecycleDetails task={task} />
       </div>}
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
@@ -53,7 +53,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
         <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
-          <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} cardStart={cardStart} onSelect={(next) => onOpenTask(next)} />
+          <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} onSelect={(next) => onOpenTask(next)} />
         </section>}
       </div>}
     </div>

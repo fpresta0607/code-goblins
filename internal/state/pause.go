@@ -86,29 +86,31 @@ func validateWaitURL(kind, target string) error {
 	return nil
 }
 
+// Description says why a goblin is paused and what resumes it. A pause is on
+// the bench, never a wait, so it reads Paused (the Overlord, 2026-10-16).
 func (condition PauseCondition) Description() string {
 	switch condition.Reason {
 	case "memory":
-		return "Memory; resumes after two readings with 5 GB of memory and commit free"
+		return "Paused for memory; resumes after two readings with 5 GB of memory and commit free"
 	case "allowance":
-		return "Allowance; resumes at " + condition.Until
+		return "Paused for the allowance; resumes at " + condition.Until
 	case "overlord":
 		return "Paused by the Overlord; resumes on Resume"
 	case "question":
-		return "Waiting for the Overlord's answer to " + condition.Until
+		return "Paused until the Overlord answers " + condition.Until
 	case "dependency":
 		kind, target, _ := strings.Cut(condition.Until, ":")
 		switch kind {
 		case "date":
-			return "Resumes at " + target
+			return "Paused until " + target
 		case "task":
-			return "Waiting on " + target + " to deliver; resumes when it does"
+			return "Paused until " + target + " delivers; resumes when it does"
 		case "pr":
-			return "Waiting on " + target + " to merge; resumes when it does"
+			return "Paused until " + target + " merges; resumes when it does"
 		}
-		return "Waiting on " + condition.Until
+		return "Paused until " + condition.Until
 	case "ci", "deploy":
-		return "Waiting on " + condition.Reason + "; resumes when the awaited head finishes"
+		return "Paused until " + condition.Reason + " finishes; resumes when the awaited head finishes"
 	}
 	return ""
 }

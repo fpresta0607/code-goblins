@@ -34,21 +34,17 @@ export function zoomAt(view: View, scale: number, pointer: Point): View {
   return { scale: next, x: pointer.x - (pointer.x - view.x) * next / view.scale, y: pointer.y - (pointer.y - view.y) * next / view.scale };
 }
 
-// Paused holds only goblins whose terminals were stopped to free memory: a
-// memory pause, the floor's or the CFO's, and the Overlord's own Pause, as
-// does a pause from before conditions were kept, which needs his Resume too
-// (the Overlord, 2026-10-08: "paused is completely stopped terminals for
-// memory reasons"). A goblin paused to wait on something, its own pull
-// request or merge train, another task, a question, an allowance reset, CI
-// or a deploy, is still at its work and stays in In progress. A queued task
-// the supervisor is starting leaves Tasks at once, while one whose Start
-// waits its turn stays there, so the card the Overlord clicked does not move
-// until the supervisor starts it.
-const PAUSED_FOR_MEMORY = new Set(["memory", "overlord", ""]);
+// Paused holds every paused goblin: its terminal is stopped and it does no
+// work until a resume, whatever it waits for (the Overlord, 2026-10-16:
+// "paused does it means youre on the bench to be resumed"). A goblin that
+// waits while its terminal runs is live, on standby, and stays in In
+// progress. A queued task the supervisor is starting leaves Tasks at once,
+// while one whose Start waits its turn stays there, so the card the Overlord
+// clicked does not move until the supervisor starts it.
 
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
   if (task.archived || task.phase === "stopped" || task.phase === "stopping") return "Completed";
-  if (["paused", "pausing", "resuming"].includes(task.phase) && PAUSED_FOR_MEMORY.has(task.lifecycle?.pause?.reason ?? "")) return "Paused";
+  if (["paused", "pausing", "resuming"].includes(task.phase)) return "Paused";
   if (task.phase === "queued") return task.starting && !task.asked ? "In progress" : "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }

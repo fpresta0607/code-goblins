@@ -746,6 +746,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
+		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
@@ -1334,6 +1335,9 @@ type Task struct {
 	// background shells and monitors, its jobs of processes with their
 	// memory, and its gate run.
 	Tree *fleettree.Tree `json:"tree,omitempty"`
+	// isBackAtWork marks a live goblin whose turn runs on a prompt it took
+	// after its latest done report, which no merge completes.
+	isBackAtWork bool
 	Evaluation
 }
 
@@ -1376,6 +1380,9 @@ type Snapshot struct {
 	// CFOConfigured says the home has a valid saved harness, even when no
 	// CFO has registered yet or its last start failed.
 	CFOConfigured bool `json:"cfo_configured"`
+	// waitCycles are the circles the goblins' standing waits on one another
+	// close, which tellWaitCycles names to the CFO.
+	waitCycles [][]string
 	// CFOStarting says native terminal cfo is up for a CFO not registered
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
@@ -1550,6 +1557,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		evaluation := d.Tasks[id]
 		node, linked := d.Sessions[d.TaskSessions[id]]
+		// A session of an earlier generation is no evidence of this one: a
+		// goblin switched off Pi, the one harness whose native hooks a home
+		// may have installed alone, onto one that reports none still named
+		// its Pi session, and its card read no evidence at all.
+		if linked && node.Generation != meta.SpawnGen {
+			node, linked = Session{}, false
+		}
 		runtime := s.runtimeEvidence(meta, node, out.At)
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
@@ -1566,10 +1580,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if !linked {
 			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
-		} else if node.Generation != meta.SpawnGen {
-			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
-		if linked && node.Generation == meta.SpawnGen && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
+		if linked && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
 			if runtime.working() {
 				evaluation.Phase, evaluation.Reason, evaluation.At = "working", "Native activity and runtime evidence agree", node.UpdatedAt
 			} else {
@@ -1580,11 +1592,29 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
+		// A goblin whose turn runs on a prompt it took after its latest report
+		// is at work on something that report does not say: a wait it
+		// reported, or a delivery it finished, no longer describes it. Two
+		// goblins sent new work each read Waiting on the other on 2026-10-16,
+		// and a delivered goblin resumed to look for more work stayed in
+		// Completed. Its native hooks prove the prompt.
+		isInTurn := linked && (node.Phase == "active" || node.Phase == "started")
+		isAtWork := isInTurn && node.PromptAt.Truncate(time.Second).After(reportedAt)
+		// A delivery is undone only by a prompt taken after it, which the
+		// goblin's own newer reports then describe, a working one included.
+		isBackAtWork := isInTurn && node.PromptAt.Truncate(time.Second).After(deliveredAt(lines, spawned))
+		if isBackAtWork && evaluation.Phase == "done" {
+			evaluation.Phase, evaluation.Reason = "working", "At work again after its delivery"
+			isGateHeld = evaluation.GateStep != ""
+		}
 		// A goblin's own newer report says what it is doing, unless a question
 		// or the gate holds it or its work already merged. A question asked
 		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
 		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
+		if isReported && phase == "waiting" && isAtWork {
+			isReported = false
+		}
 		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
@@ -1616,7 +1646,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1772,6 +1802,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 	}
+	// A circle of waits counts only goblins still waiting once their pauses
+	// and stops are read: a stopped goblin's last wait waits on nothing.
+	out.waitCycles = breakWaitCycles(out.Tasks)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		if progress, exists := progress[task.ID]; exists && progress.Generation == task.Generation {
@@ -1878,7 +1911,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// before its cleanup. One still deploying, or whose deploy failed or
 		// was cancelled, stays In progress.
 		isDeployed := task.Deployment == nil || task.Deployment.State == "deployed"
-		if !task.Archived && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
+		if !task.Archived && !task.isBackAtWork && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
 			task.Phase, task.Verified, task.Reason = "done", true, "Pull request merged"
 			if task.Deployment != nil {
 				task.Reason = "Pull request merged and deployed"
