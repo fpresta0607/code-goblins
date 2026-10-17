@@ -156,10 +156,20 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 	if err != nil {
 		return nil, err
 	}
+	inLine()
 	// Each look waits out another process holding the record only until
 	// the deadline, as a scan of a record just written can hold it for
-	// seconds.
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	// seconds. At the head of the line the record is this caller's to take,
+	// so it takes one look at it however late the line let it through, and
+	// that look waits out a holder for one pause at most: a machine that
+	// stalls can spend the whole wait in a line with nobody ahead, and on a
+	// CI runner that did (train PR 1043) a free wake lock was given up as
+	// "context deadline exceeded" before its record was ever tried.
+	looks := deadline
+	if late := time.Now().Add(longestPause); late.After(looks) {
+		looks = late
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), looks)
 	defer cancel()
 	pause := 10 * time.Millisecond
 	for {
@@ -176,6 +186,10 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 		pause = min(2*pause, longestPause)
 	}
 }
+
+// inLine runs as a caller reaches the head of the line, for a test that
+// stalls it there.
+var inLine = func() {}
 
 // longestPause is the longest a caller at the head of the line sleeps between
 // two looks for a record another process holds: what such a hold costs is its
