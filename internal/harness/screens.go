@@ -20,6 +20,10 @@ type Screens struct {
 	Ready *regexp.Regexp
 	// Working matches a row while a turn runs.
 	Working *regexp.Regexp
+	// Starting matches the row a harness shows when it turned a submitted
+	// prompt away because its startup has not finished, and put the prompt
+	// back in its composer.
+	Starting *regexp.Regexp
 	// Pasted is how the composer shows typed text it collapsed as a paste.
 	Pasted []string
 	// PasteTakesEnter says the harness reads fast typing as a paste and can
@@ -134,6 +138,11 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+			// pi 0.85 draws its editor and footer, and takes typed text,
+			// before its startup completes, which on a machine without fd and
+			// rg includes downloading them (InteractiveMode.init); until then
+			// it answers Enter with this status (handleStartupSubmit).
+			Starting: regexp.MustCompile(`Startup is still in progress`),
 			// The editor draws a full-width rule above and below its rows
 			// and nothing at their sides (pi-tui's Editor.render).
 			RuledComposer: true,
@@ -184,6 +193,12 @@ func (s Screens) IsIdleAtEmptyComposer(screen []string) bool {
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
+}
+
+// IsStarting reports whether screen shows the harness turning a submitted
+// prompt away because its startup has not finished.
+func (s Screens) IsStarting(screen []string) bool {
+	return s.Starting != nil && anyRow(screen, s.Starting)
 }
 
 // ComposerEmpty reports whether screen shows the harness's composer holding

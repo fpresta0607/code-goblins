@@ -63,6 +63,9 @@ var (
 	// a turn waits for the harness's record to show it taken, in case the
 	// tool call running was ending.
 	nativeQueuedProof = 5 * time.Second
+	// nativeStartingPress is how often Enter is pressed again while a harness
+	// turns its instruction away as still starting.
+	nativeStartingPress = time.Second
 )
 
 // maxDialogMoves bounds the focus moves one dialog takes.
@@ -351,8 +354,12 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // it to its model at its next tool call, never interrupting the call that
 // runs, and runs its prompt hook as it queues it, so only its own record of
 // the conversation proves it taken; with none soon after the submit the
-// error says it is queued for that tool call. Either way it is typed and
-// submitted once.
+// error says it is queued for that tool call. Either way it is typed once. A
+// harness that turns it away as still starting, putting it back in its
+// composer, has not taken it: while its screen says so, and did not already
+// say so before the submit, Enter is pressed again until it does, for as long
+// as a harness's startup is given, and its time to show itself working counts
+// from the last press.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
@@ -369,6 +376,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	}
 	deadline := time.Now().Add(within)
 	pressed, presses := time.Now(), 0
+	var startingSince, startingPressed time.Time
 	for {
 		if busy && s.Took != nil && s.Took(ctx, meta, instruction, submitted) {
 			return nil
@@ -384,6 +392,21 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		}
 		if !busy && screens.IsWorking(screen) {
 			return nil
+		}
+		if !busy && !screens.IsStarting(before) && screens.IsStarting(screen) && !screens.ComposerEmpty(screen) {
+			if startingSince.IsZero() {
+				startingSince = time.Now()
+			}
+			if time.Since(startingSince) > nativeStartup {
+				return fmt.Errorf("spawn: native terminal %s was still starting %s after its harness first turned the instruction away; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
+			}
+			if time.Since(startingPressed) >= nativeStartingPress {
+				if err := pressNativeEnter(record); err != nil {
+					return err
+				}
+				startingPressed = time.Now()
+				deadline = startingPressed.Add(within)
+			}
 		}
 		// A harness that takes the Enter ending a paste as part of it leaves
 		// the text in its composer: Enter is pressed again while the text
