@@ -840,7 +840,8 @@ When the CFO turned it on at your ask, your very first click or key offers it at
 Turning it off opens your report in a modal over the board, drawn with the board's own cards, icons and goblin faces.
 Close it there, or press Escape.
 Long rows wrap in full and the report scrolls on a phone as well as on the desktop.
-It opens with how long you were away and one line on whether anything needs you: **Nothing needs you**, or how many things do, one row each, a step only you can take or an item still waiting in your Command Center.
+It opens with how long you were away and whether anything needs you: **Nothing needs you**, or **Needs you** with how many, one row each, a step only you can take or an item still waiting in your Command Center.
+Each row there is drawn as the Command Center draws what waits: its lantern box, who asks in lantern and its **Answer** button.
 Under it, three tiles count what merged, what the CFO decided for you and the goblins still at work.
 **What changed** walks through the stretch by project: each goblin's work is one row in a few words, told by the CFO's title for it, with the goblin's face, what went live, a merge that did not land, before and after pictures where the goblin showed them, and its pull request numbers small beside it.
 **Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and a pencil that opens History's **Change answer** card.
@@ -849,7 +850,7 @@ Under it, three tiles count what merged, what the CFO decided for you and the go
 **Record** keeps the rest of the report: who switched AFK on and off, what waited on you and was settled, goblins paused at a floor, lines the CFO settled or struck, and anything the report could not read.
 Tap any row and it opens a card with what it stood on: the goblin's own notes, the evidence and the pull request links.
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
-The report links to each waiting card in your Command Center.
+A click anywhere on a row still waiting in your Command Center closes the report and opens the Command Center on that item, with its usual controls to answer or clear it.
 Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
 The button beside the toggle opens your last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.

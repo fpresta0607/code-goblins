@@ -2023,7 +2023,9 @@ Its primary green **Go through what needs you** button opens the Command Center'
 No Scrawl session or report review card is created.
 The report uses the board's theme tokens inside its own frame, with a scrollbar and full wrapping of row titles and status text.
 Its files are served only from the report directory, and its content security policy permits embedding only by the board itself.
-Each waiting step links to its existing Command Center card.
+Needs you draws each item still waiting as the Command Center's waiting row: its lantern box, who asks in lantern as the Command Center names them, and its stepped Answer with the icon of the item's kind.
+The whole row carries the item's Command Center key, so a click anywhere on it closes the report and opens the Command Center on that item through the board's existing focus, and neither the frame nor the window navigates.
+A step with no card opens its own card in the page.
 Each decision's Change opens the question's current answer in History's Change answer card, using its existing `answer_change` submission path.
 A decision under `decided` carries `item`, the question in his History where he changes its answer: `question:afk-left-<when it was logged>` for one the CFO answered in his place, and `question:<its ID>` for a goblin's question.
 A `his` line the CFO settled is under Settled by the CFO, in `done`, with what became of it in `settled`.
