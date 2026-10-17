@@ -42,7 +42,7 @@ The driver does not rewrite repository configuration, and non-CFO no-mistakes us
 
 Policy v6 names no harness.
 Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on, with the model and effort its record holds.
-A Claude Code goblin's gate runs Claude Code, and a Codex goblin's gate runs Codex.
+A Claude Code goblin's gate runs Claude Code, a Codex goblin's gate runs Codex, and a pi goblin's gate runs pi.
 A task whose record names no model or no effort takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
 A gate with neither is refused, and the refusal names both ways to name them: `cfo switch <id> --model <model> --effort <effort>`, or `agent_config.<harness>`.
 The harness is read from the task's record when a run starts and is not frozen in the snapshot, so after `cfo switch` the next run follows the new harness.
@@ -66,7 +66,7 @@ The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
 Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
 It holds to the driver's checks as well.
-A resume whose replacement run cannot be given its agents, such as one coming back on pi, starts no run and says why.
+A resume whose replacement run cannot be given its agents, such as one coming back on a harness no gate can prove, starts no run and says why.
 A paused task frozen before v6 restarts its run only while the machine config still matches its policy, and is otherwise refused with the `cfo pipeline migrate <id>` that clears it, as `cfo pipeline run` refuses it.
 
 ### A second harness only when named
@@ -87,7 +87,8 @@ The operator names a fallback in the home's `config/pipeline.json`, with its har
 }
 ```
 
-A task on another harness then names the fallback second in its chain, and only while the fallback's own status command says somebody is signed in: `claude auth status --json` or `codex login status`, read as the quick start reads them.
+A task on another harness then names the fallback second in its chain, and only while the fallback's own status command says somebody is signed in: `claude auth status --json`, `codex login status`, or for pi `pi auth check --provider <provider> --json --no-refresh` on the provider the fallback's model names, read as the quick start reads them.
+pi signs in per provider, so a pi fallback is asked about its own model's provider and never about pi's default one.
 A fallback that is signed out, missing or unclear is left out, and the `pipeline gate agent:` line says so.
 A task on the fallback's own harness has no second harness.
 A task frozen before the fallback was named takes it with `cfo pipeline migrate <id>`, as it takes a newer version.
@@ -96,8 +97,9 @@ A task frozen before the fallback was named takes it with `cfo pipeline migrate 
 
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
+Pi's own gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
 The installer pins the upstream release 1.75.1, which has no launch assertion at all, so the checked-in `config/pipeline.json` stays at v5 and a fresh install gates as before.
-no-mistakes proves Codex and Claude Code selections only, so a pi goblin has no gate under v6: `cfo spawn` refuses a pi task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to pi.
+no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate under v6: `cfo spawn` refuses such a task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to it.
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
