@@ -34,7 +34,7 @@ Options:
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Args:       []string{"--tui-mode", "regular"},
+		Args:       []string{"--tui-mode", "fullscreen"},
 		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
 		PromptFile: `C:\briefs\task.md`,
 		Executable: "pi",
@@ -51,7 +51,7 @@ Options:
 	if err != nil {
 		t.Fatalf("Build explicit: %v", err)
 	}
-	if got, want := explicit.Args, []string{"--tui-mode", "regular", "--model", "openai/gpt-5.2-codex", "--thinking", "xhigh", "--extension", `C:\extensions\task.ts`}; !equalStrings(got, want) {
+	if got, want := explicit.Args, []string{"--tui-mode", "fullscreen", "--model", "openai/gpt-5.2-codex", "--thinking", "xhigh", "--extension", `C:\extensions\task.ts`}; !equalStrings(got, want) {
 		t.Errorf("Args = %#v, want %#v", got, want)
 	}
 }
@@ -77,8 +77,46 @@ Options:
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if got, want := launch.Args, []string{"--approve", "--tui-mode", "regular"}; !equalStrings(got, want) {
+	if got, want := launch.Args, []string{"--approve", "--tui-mode", "fullscreen"}; !equalStrings(got, want) {
 		t.Errorf("Args = %#v, want %#v", got, want)
+	}
+}
+
+// The Overlord, 2026-10-17: "when you scroll on like Pi and Codex terminals,
+// it doesn't keep like the bottom banner". In its regular mode pi's footer is
+// output that scrolls away with the history; in its fullscreen mode, as
+// Claude Code's for the CFO, pi keeps its editor and footer on the bottom
+// rows and scrolls its transcript above them itself. A pi whose --tui-mode
+// offers no fullscreen is given no mode, so it draws the only way it can.
+func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
+	cases := []struct {
+		name, help string
+		want       []string
+	}{
+		{"fullscreen offered", "Options:\n  --tui-mode <mode>              TUI mode: regular (default) or fullscreen\n", []string{"--tui-mode", "fullscreen"}},
+		{"only regular", "Options:\n  --tui-mode <mode>              TUI mode: regular\n", nil},
+		{"no TUI mode", "Options:\n  --help                          Show help\n", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			adapter := DefaultRegistry().Adapters[Pi]
+			runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) { return execx.Result{Stdout: []byte(tc.help)}, nil }}
+			if err := adapter.Validate(context.Background(), runner); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+
+			// Act
+			launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if !equalStrings(launch.Args, tc.want) {
+				t.Errorf("Args = %#v, want %#v", launch.Args, tc.want)
+			}
+		})
 	}
 }
 

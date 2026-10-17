@@ -328,9 +328,9 @@ func (p *wakeProof) startCompactCFO(t *testing.T) host.Record {
 	var err error
 	switch p.cfo {
 	case "codex":
-		args, err = spawn.NativeProgram("codex", "--no-daemon", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "-m", proofModel("codex"), prompt)
+		args, err = spawn.NativeProgram("codex", "--no-daemon", "-c", "tui.copy_on_select=always", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "-m", proofModel("codex"), prompt)
 	case "pi":
-		args, err = spawn.NativeProgram("pi", "--approve", prompt)
+		args, err = spawn.NativeProgram("pi", "--approve", "--tui-mode", "fullscreen", prompt)
 	}
 	if err != nil {
 		t.Fatal(err)

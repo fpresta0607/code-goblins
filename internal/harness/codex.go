@@ -192,10 +192,12 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Its animations are off: in a terminal that says it is an xterm, idle
 	// Codex draws braille dots over every empty cell,
 	// the spaces of its composer included, which hides a message it holds.
-	// It draws inline rather than in the alternate screen, as a claude goblin
-	// does, so its history stays in the terminal's scrollback and a drag
-	// selects text.
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
+	// It draws on its own full screen, as a claude goblin does, which keeps
+	// its composer and footer on the bottom rows while its transcript scrolls
+	// above them; inline, the footer scrolled away with the history and a
+	// short conversation left the composer at the top. A drag there selects
+	// in Codex, which copies the selection when the button is released.
+	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always"}
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.

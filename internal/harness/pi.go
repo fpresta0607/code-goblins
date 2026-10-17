@@ -11,12 +11,12 @@ import (
 )
 
 type piCapabilities struct {
-	model     bool
-	thinking  bool
-	extension bool
-	tuiMode   bool
-	approve   bool
-	efforts   map[string]bool
+	model      bool
+	thinking   bool
+	extension  bool
+	fullscreen bool
+	approve    bool
+	efforts    map[string]bool
 }
 
 type piAdapter struct {
@@ -59,8 +59,12 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if capabilities.approve {
 		launch.Args = append(launch.Args, "--approve")
 	}
-	if capabilities.tuiMode {
-		launch.Args = append(launch.Args, "--tui-mode", "regular")
+	// Pi draws on its own full screen where it has one, as a claude goblin
+	// does, which keeps its editor and footer on the bottom rows while its
+	// transcript scrolls above them; in its regular mode the footer scrolled
+	// away with the history.
+	if capabilities.fullscreen {
+		launch.Args = append(launch.Args, "--tui-mode", "fullscreen")
 	}
 	if hasValue(spec.Model) {
 		if !capabilities.model {
@@ -102,10 +106,11 @@ func parsePiHelp(help string) piCapabilities {
 		model:     optionAdvertised(help, "--model"),
 		thinking:  optionAdvertised(help, "--thinking"),
 		extension: optionAdvertised(help, "--extension"),
-		tuiMode:   optionAdvertised(help, "--tui-mode"),
 		approve:   optionAdvertised(help, "--approve"),
 		efforts:   map[string]bool{},
 	}
+	tuiModeLine, advertised := advertisedOptionLine(help, "--tui-mode")
+	capabilities.fullscreen = advertised && containsToken(strings.ToLower(tuiModeLine), "fullscreen")
 	thinkingLine, advertised := advertisedOptionLine(help, "--thinking")
 	if !advertised {
 		return capabilities

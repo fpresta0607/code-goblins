@@ -157,7 +157,10 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	for index, harness := range []string{"codex", "pi", "codex"} {
 		want := harness + "-standin "
 		if harness == "codex" {
-			want += "--no-alt-screen "
+			want += "-c tui.copy_on_select=always "
+		}
+		if harness == "pi" {
+			want += "--tui-mode fullscreen "
 		}
 		if lines[index] != want+cfoFirstPrompt {
 			t.Errorf("start %d = %q, want fresh arguments %q", index, lines[index], want+cfoFirstPrompt)
