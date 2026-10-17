@@ -95,6 +95,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// composer is the harness whose composer the program draws: Claude Code's
 	// unless a draw line names another, for a terminal registered as it.
 	composer := "claude"
+	// mode is the row Claude Code's footer names its permission mode on:
+	// bypassed, as a goblin runs, unless a mode line names another.
+	mode := "⏵⏵ bypass permissions on (shift+tab to cycle)"
 	// footer is a line Claude Code's footer adds under its mode, such as the
 	// one saying an update of it waits for a restart.
 	footer := ""
@@ -118,7 +121,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			}
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
-			rows = append(rows, rule, "❯ "+text, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
+			rows = append(rows, rule, "❯ "+text, rule, mode)
 			if footer != "" {
 				rows = append(rows, footer)
 			}
@@ -144,6 +147,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 			drawComposer("", true)
 		case line == "update installed":
 			footer = "✓ Update installed · Restart to update"
+			drawComposer("", false)
+		case strings.HasPrefix(line, "mode "):
+			mode = strings.TrimPrefix(line, "mode ")
 			drawComposer("", false)
 		case strings.HasPrefix(line, "ask "):
 			if _, err := goblinAsker(args[2], strings.TrimPrefix(line, "ask ")); err != nil {

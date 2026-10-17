@@ -77,9 +77,12 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				Focus:  []string{"❯", ">"},
 				Accept: "Yes, I trust this folder",
 			}},
-			// A goblin runs with permission checks bypassed, which the
-			// composer's footer says while it waits.
-			Ready: regexp.MustCompile(`bypass permissions on`),
+			// The composer's footer names the session's permission mode
+			// while it waits, as in "⏵⏵ auto mode on (shift+tab to
+			// cycle)" or "⏸ manual mode on": a goblin runs with permission
+			// checks bypassed, and a CFO in whichever mode its session
+			// chose. The modes are Claude Code 2.1.302's.
+			Ready: regexp.MustCompile(`(manual mode|plan mode|accept edits|bypass permissions|don't ask|auto mode) on\b`),
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
 			// "✽ Reticulating…". Claude Code draws the spinner from one of
 			// three glyph lists; one has "*" where the others have "✳".
