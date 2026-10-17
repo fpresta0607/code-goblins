@@ -106,7 +106,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if !ok {
 		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
-	untrusted, working, err := s.awaitNativeReady(ctx, record, screens, launch.Resumed)
+	untrusted, working, err := s.awaitNativeReady(ctx, record, screens)
 	if err != nil {
 		return err
 	}
@@ -117,14 +117,20 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	}
 	// A resumed conversation that came back in a turn is at work on its task
 	// already, so its instruction is not typed a second time.
-	if working {
+	if working && launch.Resumed {
 		return nil
 	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
 		return err
 	}
-	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
+	err = s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
+	// A new goblin in a turn holds its instruction for that turn, as a
+	// harness holds any text typed into one.
+	if working && errors.Is(err, fleet.ErrQueuedForToolCall) {
+		return nil
+	}
+	return err
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a
@@ -171,13 +177,15 @@ func instructionPointer(path string) string {
 // from a screen that shows none. The composer counts as ready once it has
 // read so throughout nativeReadySettle: Codex 0.154 drew its composer, then
 // its hook review over it a second later, and a brief typed at the first sight
-// of the composer went into the review. A resumed conversation can come back
-// in a turn, its status row showing it working, as a Codex goblin with a
-// background terminal running did live; once that has held as long as a
-// composer must, it has started and working says so. It returns what a
-// dialog answered without trust left untrusted, in the dialog's own words, or
-// nothing.
-func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens, resumed bool) (untrusted string, working bool, err error) {
+// of the composer went into the review. A harness can be in a turn when it is
+// read, its status row showing it working: a resumed conversation can come
+// back in one, as a Codex goblin with a background terminal running did live,
+// and a new goblin is in one once a cfo send that reached it before its
+// instruction starts it, as cg-cards-stay-open was on 2026-10-15 (#959). Once
+// that has held as long as a composer must, it has started and working says
+// so. It returns what a dialog answered without trust left untrusted, in the
+// dialog's own words, or nothing.
+func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (untrusted string, working bool, err error) {
 	deadline := time.Now().Add(nativeStartup)
 	ready, busy := 0, 0
 	for {
@@ -202,7 +210,7 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 		} else if ready++; ready > readySettleReads() {
 			return untrusted, false, nil
 		}
-		if !resumed || !screens.IsWorking(screen) {
+		if !screens.IsWorking(screen) {
 			busy = 0
 		} else if busy++; busy > readySettleReads() {
 			return untrusted, true, nil

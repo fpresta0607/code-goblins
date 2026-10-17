@@ -53,10 +53,11 @@ func (r *Reader) Placed(owners []Goblin) ([]Placed, error) {
 		if !isRunning || !owner.HarnessStarted.IsZero() && harness.top.Started.Sub(owner.HarnessStarted).Abs() > startSlack {
 			continue
 		}
+		harness = r.withoutLinkBrowsers(harness)
 		for _, detached := range []bool{false, true} {
 			jobs := harness.jobs
 			if detached {
-				jobs = r.detachedJobs(owner.Meta.ID, processes, harness)
+				jobs = r.withoutLinkBrowsers(harnessProcesses{jobs: r.detachedJobs(owner.Meta.ID, processes, harness)}).jobs
 			}
 			for _, job := range jobs {
 				facts := jobFacts{commands: map[int]string{}}

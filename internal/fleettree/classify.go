@@ -221,3 +221,41 @@ func bounded(text string, limit int) string {
 	}
 	return string(runes[:limit-3]) + "..."
 }
+
+// linkOpened says a command line is a browser's that the shell started to
+// open a link, by the command line Windows registers for a link's browser:
+// Chromium's --single-argument or Firefox's -osint. Whatever terminal's tree
+// it started in, it is the Overlord's browser from then on.
+func linkOpened(commandLine string) bool {
+	arguments, _ := proc.SplitCommandLine(commandLine)
+	return slices.ContainsFunc(arguments, func(argument string) bool { return argument == "--single-argument" || argument == "-osint" })
+}
+
+// withoutLinkBrowsers is harness without each browser a link opened in one of
+// its jobs and everything under it, its tabs and the native messaging hosts
+// it starts among them, in its jobs and in all, so no memory of it counts,
+// and without a job left with no process: on 2026-10-16 a sign-in link the
+// CFO's harness opened started the Overlord's browser under its terminal,
+// and the start watch blamed it on the terminal (#1007). A job's members
+// come parents first.
+func (r *Reader) withoutLinkBrowsers(harness harnessProcesses) harnessProcesses {
+	isLeft := map[int]bool{}
+	var kept []job
+	for _, job := range harness.jobs {
+		var members []Process
+		for _, member := range job.members {
+			if command, _ := r.command(member); isLeft[member.ParentPID] || linkOpened(command) {
+				isLeft[member.PID] = true
+				continue
+			}
+			members = append(members, member)
+		}
+		if len(members) > 0 {
+			job.members = members
+			kept = append(kept, job)
+		}
+	}
+	harness.jobs = kept
+	harness.all = slices.DeleteFunc(harness.all, func(process Process) bool { return isLeft[process.PID] })
+	return harness
+}

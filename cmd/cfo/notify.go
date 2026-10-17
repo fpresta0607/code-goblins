@@ -139,6 +139,13 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		}
 		verb, detail = "waiting on "+target, positional[0]
 	}
+	// Only a question, a failure and a wait on the Overlord wake the CFO, so
+	// a question with choices in any other report reaches nobody, and the
+	// goblin waits on it unseen (#984).
+	if (verb == "working" || strings.HasPrefix(verb, "waiting on ") && verb != "waiting on overlord") && wake.OffersChoices(detail) {
+		fmt.Fprintf(stderr, "cfo notify: this report asks a question with choices, and %s wakes nobody; ask it as cfo notify %s --blocked \"<one short question> options: <answer> (Recommended) | <answer>\", or, for a choice you can undo, take it and say which with --working\n", verb, id)
+		return 2
+	}
 	// The record joins the question's lines, so its choices are put last
 	// while its line breaks still show where they end.
 	if verb == "blocked" || verb == "failed" {

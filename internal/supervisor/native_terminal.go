@@ -408,7 +408,7 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 		if err != nil {
 			return nil, err
 		}
-		return s.validateTerminalControl(ctx, current), nil
+		return s.boardTerminalControl(ctx, current), nil
 	}, isLaunching: func() bool {
 		s.starts.Lock()
 		defer s.starts.Unlock()

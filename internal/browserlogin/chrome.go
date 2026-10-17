@@ -96,9 +96,3 @@ func browserSocket(ctx context.Context, address string) (string, error) {
 	}
 	return version.Socket, nil
 }
-
-// CloseBrowser asks the Chrome at address to close itself, which writes its
-// session to the profile first, and returns once it has taken the command.
-func CloseBrowser(ctx context.Context, address string) error {
-	return callBrowser(ctx, address, "Browser.close", nil, nil)
-}

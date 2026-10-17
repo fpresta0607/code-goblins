@@ -124,7 +124,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		return b, unavailableTerminal("This child has no separate terminal. Its owning task has its own terminal.")
 	}
 	if write {
-		if err := s.validateTerminalControl(ctx, meta); err != nil {
+		if err := s.boardTerminalControl(ctx, meta); err != nil {
 			return b, err
 		}
 	}
@@ -342,7 +342,7 @@ func (s *Service) terminalCustody(ctx context.Context, b terminalBinding) error 
 	if err != nil {
 		return err
 	}
-	return s.validateTerminalControl(ctx, meta)
+	return s.boardTerminalControl(ctx, meta)
 }
 
 func (h *HTTP) verifyTerminal(ctx context.Context, b terminalBinding, write bool) error {

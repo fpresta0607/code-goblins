@@ -175,6 +175,29 @@ func fakeHarness() {
 		}
 		mode = "ready"
 	}
+	if mode == "working-at-start" {
+		// As cg-cards-stay-open was on 2026-10-15, when a cfo send reached it
+		// before its spawn typed the instruction: in a turn from its first
+		// screen, it takes what is typed as a message queued for the turn.
+		working := func(text string) {
+			draw("• Working (5s • esc to interrupt)", "", "› "+text, "", "  GPT-6.1-Sol xhigh · "+mustGetwd())
+		}
+		working("Ask Codex to do anything")
+		var line strings.Builder
+		for key := range keys {
+			switch key {
+			case "\r":
+				record(codexEvent{Event: "queued into the turn", Text: line.String()})
+				line.Reset()
+				working("Ask Codex to do anything")
+			case "\x1b[A", "\x1b[B", "\x1b[F":
+			default:
+				line.WriteString(key)
+				working(line.String())
+			}
+		}
+		return
+	}
 	if mode != "ready" && !codexStartup(mode, keys, record, draw, composer) {
 		return
 	}
@@ -1090,6 +1113,33 @@ func TestANativeSpawnSucceedsOnlyOnceTheHarnessWorks(t *testing.T) {
 	}
 	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
 		t.Errorf("submitted = %+v, want the instruction submitted once", submitted)
+	}
+}
+
+// A harness already in a turn when its spawn first reads it has started: a
+// cfo send that reached it first started the turn. Its instruction is still
+// handed to it, queued for the turn, once (#959).
+func TestANativeSpawnCountsAHarnessAlreadyWorkingAsStarted(t *testing.T) {
+	// Arrange
+	previous := nativeStartup
+	nativeStartup = 10 * time.Second
+	t.Cleanup(func() { nativeStartup = previous })
+	f := newNativeFixture(t, harness.Codex, "working-at-start")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v, want a harness at work counted as started", err)
+	}
+	queued := named(f.events(t), "queued into the turn")
+	if len(queued) != 1 || !strings.Contains(delivered(t, queued[0].Text), "follow it exactly") {
+		t.Fatalf("queued = %+v, want the instruction handed to the turn once", queued)
+	}
+	status, err := os.ReadFile(filepath.Join(f.stateDir, f.request.ID+".status"))
+	if err != nil && !os.IsNotExist(err) || strings.Contains(string(status), "failed:") {
+		t.Errorf("status = %q, %v; want no failed start", status, err)
 	}
 }
 
