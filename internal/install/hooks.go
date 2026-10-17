@@ -20,6 +20,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 // shellFormPrefix opened every hook command installs wrote before the hooks
@@ -82,12 +83,28 @@ func Hooks(root string) []Hook {
 	return hooks
 }
 
+// NativeHooks are the native session hooks of a Claude Code session the
+// fleet starts, of the home at root with its state in stateDir: each
+// lifecycle event runs `cfo native-hook claude`, which reports the session to
+// the supervisor as Codex's and Pi's native hooks report theirs. They ride
+// the session's own settings rather than the user's, which every Claude Code
+// session on the machine loads, the Overlord's own outside the fleet
+// included.
+func NativeHooks(root, stateDir string) []Hook {
+	var hooks []Hook
+	for _, event := range nativehook.Events("claude") {
+		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: 3})
+	}
+	return hooks
+}
+
 // CFOSettings is the Claude Code settings document the CFO's terminal starts
-// with: the CFO's hooks and nothing else. Claude Code adds what `--settings`
-// names to the user's own settings, for that session alone.
-func CFOSettings(root string) ([]byte, error) {
+// with: the CFO's hooks and its native session hooks, and nothing else.
+// Claude Code adds what `--settings` names to the user's own settings, for
+// that session alone.
+func CFOSettings(root, stateDir string) ([]byte, error) {
 	file := &settingsFile{values: map[string]any{}}
-	if err := file.addHooks(Hooks(root)); err != nil {
+	if err := file.addHooks(append(Hooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
 	}
 	return file.render()
@@ -112,11 +129,11 @@ func GoblinHooks(root string) []Hook {
 }
 
 // GoblinSettings is the Claude Code settings document a goblin starts with:
-// the goblin hooks and nothing else, which Claude Code adds to the user's own
-// settings for that session alone.
-func GoblinSettings(root string) ([]byte, error) {
+// the goblin hooks and its native session hooks and nothing else, which
+// Claude Code adds to the user's own settings for that session alone.
+func GoblinSettings(root, stateDir string) ([]byte, error) {
 	file := &settingsFile{values: map[string]any{}}
-	if err := file.addHooks(GoblinHooks(root)); err != nil {
+	if err := file.addHooks(append(GoblinHooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
 	}
 	return file.render()

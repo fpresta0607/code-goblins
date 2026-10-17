@@ -153,6 +153,23 @@ func TestCodexStartsNoneOfTheOperatorsMCPServers(t *testing.T) {
 	}
 }
 
+// A Codex launch carries the native session hooks its spec names, after the
+// overrides that turn the operator's MCP servers off.
+func TestCodexCarriesItsNativeSessionHooks(t *testing.T) {
+	adapter, _ := DefaultRegistry().Get(Codex)
+	hooks := []string{"--enable", "hooks", "-c", "hooks.Stop=[{hooks=[{type='command',command='C:/cfo.exe native-hook codex',timeout=3}]}]"}
+
+	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: []string{"qdrant"}, CodexHooks: hooks})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := slices.Index(launch.Args, "mcp_servers.qdrant.enabled=false")
+	if at < 0 || !slices.Equal(launch.Args[at+1:at+1+len(hooks)], hooks) {
+		t.Fatalf("Args = %q, want the hooks %q after the MCP overrides", launch.Args, hooks)
+	}
+}
+
 // A server name Codex's -c override cannot address stops the launch rather
 // than letting that server start.
 func TestCodexRefusesAnMCPServerItCannotTurnOff(t *testing.T) {

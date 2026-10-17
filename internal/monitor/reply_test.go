@@ -171,27 +171,55 @@ func TestACodexGoblinsLastReplyIsReadFromItsRollout(t *testing.T) {
 	}
 }
 
-// pi's reply is read off its screen, the rows above the editor, since its
-// transcript is not one this reads.
-func TestAPiGoblinsLastReplyIsReadFromItsScreen(t *testing.T) {
-	// Arrange
-	rule := strings.Repeat("─", 40)
-	screen := strings.Join([]string{
-		"The tests pass and the branch is pushed.",
-		"",
-		"I'll open the pull request next unless you want",
-		"the screenshots first.",
-		rule,
-		"",
-		rule,
-		"↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)",
-	}, "\n")
+func piTurnMessage(role, stopReason string, content ...map[string]any) map[string]any {
+	return map[string]any{"type": "message", "timestamp": "2026-10-16T20:04:14Z", "message": map[string]any{"role": role, "stopReason": stopReason, "content": content}}
+}
 
-	// Act
-	got := (&HostProgress{}).LastReply(context.Background(), state.TaskMeta{ID: "g1", Harness: "pi"}, EndpointSample{Harness: "pi", Capture: []byte(screen)})
+// piFolder is the folder pi 0.85 keeps the sessions of worktree in.
+func piFolder(home, worktree string) string {
+	return filepath.Join(home, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(worktree)+"--")
+}
 
-	// Assert
-	if want := "The tests pass and the branch is pushed.\n\nI'll open the pull request next unless you want the screenshots first."; got != want {
-		t.Errorf("reply = %q, want %q", got, want)
+// A pi goblin's last reply is the text of the assistant message that ended its
+// last turn, read from its own session as Claude Code's and Codex's are, and
+// nothing for a turn still running, ended on a tool call, cut off at pi's
+// output cap, failed or aborted: on 2026-10-16 replies cut off at 16384
+// tokens showed their thinking on screen, which the stale sweep read as
+// questions.
+func TestAPiGoblinsLastReplyIsReadFromItsSession(t *testing.T) {
+	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CFO: carry on"}}
+	thought := map[string]any{"type": "thinking", "thinking": "Should I open the pull request now, or wait?"}
+	text := func(text string) map[string]any { return map[string]any{"type": "text", "text": text} }
+	toolCall := map[string]any{"type": "toolCall", "name": "bash"}
+	toolResult := map[string]any{"type": "message", "message": map[string]any{"role": "toolResult", "content": []map[string]any{text("ok")}}}
+	for _, test := range []struct {
+		name    string
+		entries []map[string]any
+		want    string
+	}{
+		{"a turn that ended", []map[string]any{prompt, piTurnMessage("assistant", "stop", thought, text("Tests pass."), text("Should I open the PR?"))}, "Tests pass.\n\nShould I open the PR?"},
+		{"a turn cut off at the output cap", []map[string]any{prompt, piTurnMessage("assistant", "length", thought)}, ""},
+		{"a turn the provider refused", []map[string]any{prompt, piTurnMessage("assistant", "error")}, ""},
+		{"a turn aborted", []map[string]any{prompt, piTurnMessage("assistant", "aborted", text("Should I"))}, ""},
+		{"a turn that stopped on a tool call", []map[string]any{prompt, piTurnMessage("assistant", "toolUse", text("Checking."), toolCall)}, ""},
+		{"a turn still running", []map[string]any{prompt, piTurnMessage("assistant", "toolUse", toolCall), toolResult}, ""},
+		{"a reply an extension's message follows", []map[string]any{prompt, piTurnMessage("assistant", "stop", text("PR 12 is open.")), {"type": "custom_message", "customType": "herdr-state", "content": "herdr state", "display": true}}, "PR 12 is open."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(piFolder(home, worktree), "2026-10-16T20-04-14-465Z_01a14650-ac01-7127-9115-4f3a806b967f.jsonl"), time.Now(), test.entries...)
+			meta := nativeMeta("g1", "pi")
+			meta.Worktree = worktree
+
+			// Act
+			recorded := recordedAs(home, "01a14650-ac01-7127-9115-4f3a806b967f").LastReply(context.Background(), meta, EndpointSample{Harness: "pi"})
+			unrecorded := (&HostProgress{Home: home}).LastReply(context.Background(), meta, EndpointSample{Harness: "pi"})
+
+			// Assert
+			if recorded != test.want || unrecorded != test.want {
+				t.Errorf("reply = %q from the recorded session and %q from the worktree's newest, want %q", recorded, unrecorded, test.want)
+			}
+		})
 	}
 }

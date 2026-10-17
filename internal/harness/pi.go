@@ -188,11 +188,13 @@ func isTokenCharacter(character byte) bool {
 	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_'
 }
 
-// Control stops pi with /quit. pi advertises no resume flag, so a switch that
-// keeps pi still restarts it cold and hands it the written handoff instead.
+// Control stops pi with /quit and resumes it as Claude Code and Codex are
+// resumed: pi 0.85.1 continues its last session in the folder with
+// --continue, and a recorded one with --session <id>.
 func (*piAdapter) Control() Control {
 	return Control{
 		StopKeys:    []string{"escape"},
 		StopCommand: "/quit",
+		ResumeArgs:  []string{"--continue"},
 	}
 }
