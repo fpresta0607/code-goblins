@@ -841,7 +841,7 @@ Turning it off opens your report in a modal over the board, drawn with the board
 Close it there, or press Escape.
 Long rows wrap in full and the report scrolls on a phone as well as on the desktop.
 It opens with how long you were away and whether anything needs you: **Nothing needs you**, or **Needs you** with how many, one row each, a step only you can take or an item still waiting in your Command Center.
-Each row there is drawn as the Command Center draws what waits: its lantern box, who asks in lantern and its **Answer** button.
+Each item still waiting there is drawn as the Command Center draws what waits: its lantern box, who asks in lantern and its **Answer** button.
 Under it, three tiles count what merged, what the CFO decided for you and the goblins still at work.
 **What changed** walks through the stretch by project: each goblin's work is one row in a few words, told by the CFO's title for it, with the goblin's face, what went live, a merge that did not land, before and after pictures where the goblin showed them, and its pull request numbers small beside it.
 **Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and a pencil that opens History's **Change answer** card.
