@@ -214,7 +214,7 @@ type cfoSession struct {
 func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, agent string, list *onboarding.Checklist) (cfoSession, bool, error) {
 	launchErr := acquireCFOLaunch(ctx, h.State)
 	if launchErr == nil {
-		defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+		defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 	}
 	if id, live := runtime.nativeCFO(h.State); live {
 		list.Done("CFO", "already running in native terminal "+id)
@@ -242,6 +242,9 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		}
 	}
 	resume, why := cfoResume(h, agent)
+	// A CFO that ran in this home before is told why it starts again, so it
+	// takes up its work without anybody typing into it.
+	const back = "goblins started it again after it closed"
 	// said is what the lines under the CFO's own say, starting with why it
 	// did not come back on its conversation, when it did not.
 	var said []string
@@ -252,7 +255,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	if len(resume) > 0 {
 		conversation := resume[len(resume)-1]
 		list.Working("CFO", "coming back as "+onboarding.Name(agent)+" on its conversation")
-		held, err := comeBack(h, agent, resume, runtime.startNativeCFO, runtime.nativeTerminalRuns)
+		held, err := comeBack(h, agent, resume, backPrompt(h, agent, back, ""), runtime.startNativeCFO, runtime.nativeTerminalRuns)
 		if err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
@@ -274,7 +277,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		left = &supervisor.CFOConversationLeft{Harness: agent, Session: conversation, Resume: resume}
 	}
 	list.Working("CFO", "starting as "+onboarding.Name(agent))
-	if err := runtime.startNativeCFO(h, h.Root, agent, nil); err != nil {
+	if err := runtime.startNativeCFO(h, h.Root, agent, nil, backPrompt(h, agent, back, strings.Join(said, " "))); err != nil {
 		return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 	}
 	if left != nil {

@@ -240,7 +240,7 @@ func scratchHome(t *testing.T) home.Home {
 // the home.
 func startCFOSession(t *testing.T, h home.Home) *standInSession {
 	t.Helper()
-	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
 		t.Fatalf("start the CFO in native terminal cfo: %v", err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })

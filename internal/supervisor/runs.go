@@ -110,6 +110,10 @@ type Run struct {
 	// CFOUnwoken is the oldest wake the supervisor could not type into the
 	// CFO, for the item that offers the Overlord its restart.
 	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
+	// CFOStopped marks the item that tells the Overlord the supervisor
+	// stopped bringing back a CFO that kept ending, or could not bring it
+	// back, and offers him Reopen.
+	CFOStopped bool `json:"cfo_stopped,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -457,6 +461,35 @@ func (s *Store) withdrawCFOUnwoken(reason string) error {
 		}
 	}
 	return err
+}
+
+// withdrawCFOStopped takes back the item that offers the Overlord to reopen a
+// CFO the supervisor left stopped, while nobody acted on it, once a CFO runs
+// again.
+func (s *Store) withdrawCFOStopped(reason string) error {
+	var open []string
+	s.mu.Lock()
+	for _, r := range s.db.Runs {
+		if r.CFOStopped && r.State == "ready" {
+			open = append(open, r.ID)
+		}
+	}
+	s.mu.Unlock()
+	var err error
+	for _, id := range open {
+		if withdrawErr := s.withdrawRun(id, reason); withdrawErr != nil && s.runReady(id) {
+			err = errors.Join(err, withdrawErr)
+		}
+	}
+	return err
+}
+
+// offersCFOReopen reports whether an item offering to reopen a CFO the
+// supervisor left stopped still waits.
+func (s *Store) offersCFOReopen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.CFOStopped && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
 }
 
 // runReady reports whether run item id waits to be run.

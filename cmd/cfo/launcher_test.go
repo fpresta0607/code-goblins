@@ -85,8 +85,10 @@ type launcherFixture struct {
 	screens []finalScreen
 	answer  int
 	// nativeArgs are the arguments each native start gave the harness, and
-	// resumeEnds makes a CFO started to resume a conversation end at once.
-	nativeArgs []string
+	// nativePrompts the first instruction each gave it; resumeEnds makes a
+	// CFO started to resume a conversation end at once.
+	nativeArgs    []string
+	nativePrompts []string
 	resumeEnds bool
 	// restarts counts goblins resume's restarts of a running CFO, which end
 	// with restartErr, or else restart it on restartSession, on a new
@@ -164,10 +166,11 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_ home.Home, project, harness string, args []string) error {
+		startNativeCFO: func(_ home.Home, project, harness string, args []string, prompt string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
 			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
+			f.nativePrompts = append(f.nativePrompts, prompt)
 			// A resumed CFO's terminal runs on, unless its harness could not
 			// resume the conversation and ended at once.
 			f.cfoTerminalRuns = len(args) == 0 || !f.resumeEnds
@@ -223,7 +226,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		},
 	}
 	// A goblin running these tests sits in a Herdr pane itself; each test
-	// says where it is and which session is the fleet's instead.
+	// says where it is and which session is the fleet's instead. Its user
+	// home, where Claude Code keeps its transcripts, is its own too.
+	t.Setenv("USERPROFILE", t.TempDir())
 	t.Setenv("HERDR_PANE_ID", "")
 	t.Setenv("HERDR_SESSION", "fixture-fleet")
 	return f

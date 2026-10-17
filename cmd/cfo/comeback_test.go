@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -21,22 +22,31 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-// After a restart the supervisor brings the CFO back in native terminal cfo
-// with an explicit resume of the conversation it last registered with, and
-// never on a new conversation: one it cannot resume stays closed with the
-// reason, for the board's Reopen. A CFO that already runs is left as it is.
-func TestTheComebackResumesTheCFOOnItsOwnConversationAndNeverStartsAFreshOne(t *testing.T) {
+// After a restart, and after the CFO's terminal ended while nobody asked it
+// to stop, the supervisor brings the CFO back in native terminal cfo by the
+// rule Restart the CFO keeps: on the conversation it last registered with,
+// and on a new one when the resumed terminal does not hold or the
+// conversation is past the size a CFO resumes, which then starts with no
+// --resume. Its first instruction tells it why it is back, so nobody has to
+// type into it. A CFO that already runs is left as it is.
+func TestTheComebackBringsTheCFOBackOnItsConversationOrANewOneAndTellsItWhy(t *testing.T) {
+	const why = "its terminal ended with exit code 1"
 	for _, tc := range []struct {
-		name, conversation string
-		isRunning          bool
-		resumeEnds         bool
-		wantArgs           []string
-		wantErr            string
+		name         string
+		isRunning    bool
+		resumeEnds   bool
+		endsSettling bool
+		isTooLarge   bool
+		isUnwritten  bool
+		wantArgs     []string
+		wantPrompts  []string
 	}{
-		{name: "on its conversation", conversation: "a1b2c3d4-session", wantArgs: []string{"--resume a1b2c3d4-session"}},
-		{name: "not on a new one when the resumed terminal does not hold", conversation: "a1b2c3d4-session", resumeEnds: true, wantArgs: []string{"--resume a1b2c3d4-session"}, wantErr: "its conversation a1b2c3d4-session could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"},
-		{name: "not at all when it registered no conversation", wantErr: "it registered no conversation of its own as Claude Code; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"},
-		{name: "not again when it already runs", conversation: "a1b2c3d4-session", isRunning: true},
+		{name: "on its conversation", wantArgs: []string{"--resume a1b2c3d4-session"}, wantPrompts: []string{cfoBackPrompt("claude", why, "")}},
+		{name: "on a new one when the resumed terminal does not hold", resumeEnds: true, wantArgs: []string{"--resume a1b2c3d4-session", ""}, wantPrompts: []string{cfoBackPrompt("claude", why, ""), cfoBackPrompt("claude", why, "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed.")}},
+		{name: "on a new one when the resumed terminal ends while its dialogs are answered", endsSettling: true, wantArgs: []string{"--resume a1b2c3d4-session", ""}, wantPrompts: []string{cfoBackPrompt("claude", why, ""), cfoBackPrompt("claude", why, "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed.")}},
+		{name: "on a new one when Claude Code wrote no transcript for it", isUnwritten: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Claude Code has written no transcript for its conversation a1b2c3d4-session, which it writes when its first turn begins.")}},
+		{name: "on a new one past the size a CFO resumes", isTooLarge: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Its last conversation is 21 MB, past the 20 MB a CFO resumes.")}},
+		{name: "not again when it already runs", isRunning: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -49,36 +59,65 @@ func TestTheComebackResumesTheCFOOnItsOwnConversationAndNeverStartsAFreshOne(t *
 			if err := os.WriteFile(cfoHarnessPath(f.home.State), []byte("claude\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if tc.conversation != "" {
-				recordConversation(t, f.home.State, "claude", tc.conversation, supervisor.NativeCFOTerminal)
+			recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+			userHome := t.TempDir()
+			t.Setenv("USERPROFILE", userHome)
+			if tc.isTooLarge {
+				folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(f.home.Root, "-"))
+				if err := os.MkdirAll(folder, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				transcript := filepath.Join(folder, "a1b2c3d4-session.jsonl")
+				if err := os.WriteFile(transcript, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Truncate(transcript, cfoTranscriptLimit+1<<20); err != nil {
+					t.Fatal(err)
+				}
+			} else if !tc.isUnwritten {
+				claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
+			}
+			if tc.endsSettling {
+				settles := 0
+				f.runtime.settleCFO = func(context.Context, string, string) []string {
+					settles++
+					if settles == 1 {
+						f.cfoTerminalRuns = false
+					}
+					return nil
+				}
 			}
 
 			// Act
-			err := comebackCFO(t.Context(), f.home, f.runtime)
+			err := comebackCFO(t.Context(), f.home, f.runtime, why)
 
 			// Assert
+			if err != nil {
+				t.Fatalf("comebackCFO = %v, want the CFO back", err)
+			}
 			if !slices.Equal(f.nativeArgs, tc.wantArgs) {
 				t.Errorf("started the CFO with %q, want %q", f.nativeArgs, tc.wantArgs)
 			}
-			if got := errorText(err); got != tc.wantErr {
-				t.Errorf("comebackCFO = %q, want %q", got, tc.wantErr)
+			if !slices.Equal(f.nativePrompts, tc.wantPrompts) {
+				t.Errorf("told the CFO %q, want %q", f.nativePrompts, tc.wantPrompts)
 			}
 		})
 	}
 }
 
 // After a restart a pi CFO comes back on its own session with pi --session,
-// as a pi goblin does, once pi has written that session's file, and stays
-// closed with why until it has.
+// as a pi goblin does, once pi has written that session's file, and on a new
+// one, told why, until it has.
 func TestTheComebackResumesAPiCFOOnItsOwnSession(t *testing.T) {
+	const why = "the machine restarted or its Windows sign-in ended, which ended its terminal"
 	for _, tc := range []struct {
 		name             string
 		isSessionWritten bool
 		wantArgs         []string
-		wantErr          string
+		wantPrompts      []string
 	}{
-		{name: "on its session", isSessionWritten: true, wantArgs: []string{"--session a1b2c3d4-session"}},
-		{name: "not before pi wrote its session", wantErr: "pi has written no file for its conversation a1b2c3d4-session, which it writes when its first reply ends; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"},
+		{name: "on its session", isSessionWritten: true, wantArgs: []string{"--session a1b2c3d4-session"}, wantPrompts: []string{cfoBackPrompt("pi", why, "")}},
+		{name: "on a new one before pi wrote its session", wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("pi", why, "You start on a new conversation. pi has written no file for its conversation a1b2c3d4-session, which it writes when its first reply ends.")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -95,16 +134,40 @@ func TestTheComebackResumesAPiCFOOnItsOwnSession(t *testing.T) {
 			recordConversation(t, f.home.State, "pi", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
 
 			// Act
-			err := comebackCFO(t.Context(), f.home, f.runtime)
+			err := comebackCFO(t.Context(), f.home, f.runtime, why)
 
 			// Assert
+			if err != nil {
+				t.Fatalf("comebackCFO = %v, want the CFO back", err)
+			}
 			if !slices.Equal(f.nativeArgs, tc.wantArgs) {
 				t.Errorf("started the CFO with %q, want %q", f.nativeArgs, tc.wantArgs)
 			}
-			if got := errorText(err); got != tc.wantErr {
-				t.Errorf("comebackCFO = %q, want %q", got, tc.wantErr)
+			if !slices.Equal(f.nativePrompts, tc.wantPrompts) {
+				t.Errorf("told the CFO %q, want %q", f.nativePrompts, tc.wantPrompts)
 			}
 		})
+	}
+}
+
+// A CFO brought back whose terminal ends while its startup dialogs are
+// answered did not come back, and the supervisor is told so.
+func TestTheComebackSaysACFOThatEndedDuringStartupDidNotComeBack(t *testing.T) {
+	// Arrange
+	noResumeWait(t)
+	f := newSessionFixture(t)
+	recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+	f.runtime.settleCFO = func(context.Context, string, string) []string {
+		f.cfoTerminalRuns = false
+		return nil
+	}
+
+	// Act
+	err := comebackCFO(t.Context(), f.home, f.runtime, "its terminal ended with exit code 1")
+
+	// Assert
+	if got := errorText(err); got != "its native terminal ended during startup" {
+		t.Fatalf("comebackCFO = %q, want the ended terminal said", got)
 	}
 }
 
@@ -285,16 +348,16 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 					t.Fatal(err)
 				}
 				recordConversation(t, fixture.home.State, "claude", "owned-session", supervisor.NativeCFOTerminal)
-				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock); err != nil {
+				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); err != nil {
 					t.Fatal(err)
 				}
-				t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock) })
+				t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock) })
 				var isRunning atomic.Bool
 				var starts atomic.Int32
 				fixture.runtime.nativeTerminalRuns = func(string, string) bool { return isRunning.Load() }
-				fixture.runtime.startNativeCFO = func(home.Home, string, string, []string) error {
+				fixture.runtime.startNativeCFO = func(home.Home, string, string, []string, string) error {
 					starts.Add(1)
-					if _, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock); !errors.Is(err, lock.ErrHeld) {
+					if _, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); !errors.Is(err, lock.ErrHeld) {
 						t.Errorf("start did not hold the launch lock: %v", err)
 					}
 					isRunning.Store(true)
@@ -308,9 +371,9 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 						_, _, err := ensureCFOSession(t.Context(), fixture.runtime, fixture.home, "claude", &onboarding.Checklist{Output: io.Discard, Plain: true})
 						finished <- err
 					case "reopen":
-						finished <- reopenCFO(fixture.home, fixture.runtime.startNativeCFO, fixture.runtime.nativeTerminalRuns)
+						finished <- reopenCFO(fixture.home, "the Overlord reopened it from the board", fixture.runtime.startNativeCFO, fixture.runtime.nativeTerminalRuns)
 					case "comeback":
-						finished <- comebackCFO(t.Context(), fixture.home, fixture.runtime)
+						finished <- comebackCFO(t.Context(), fixture.home, fixture.runtime, "its terminal ended with exit code 1")
 					case "app":
 						exit, _, stderr := fixture.launch("--window", "--locate")
 						if exit != 0 || stderr != "" {
@@ -326,7 +389,7 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 				case <-time.After(200 * time.Millisecond):
 				}
 				isRunning.Store(isOtherRunning)
-				if err := lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock); err != nil {
+				if err := lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); err != nil {
 					t.Fatal(err)
 				}
 				select {
@@ -345,10 +408,10 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 				if starts.Load() != wantStarts {
 					t.Fatalf("started %d CFOs, want %d", starts.Load(), wantStarts)
 				}
-				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock); err != nil {
+				if _, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock); err != nil {
 					t.Fatalf("start did not release the launch lock: %v", err)
 				}
-				lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock)
+				lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock)
 			})
 		}
 	}
@@ -362,16 +425,16 @@ func TestCFOLaunchWaitRechecksTheCFOWhenItsDeadlineEnds(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			fixture := newSessionFixture(t)
-			holder, err := lock.AcquireExclusiveNamed(fixture.home.State, cfoLaunchLock)
+			holder, err := lock.AcquireExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock)
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, cfoLaunchLock) })
+			t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock) })
 			fixture.runtime.nativeTerminalRuns = func(string, string) bool { return isRunning }
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 			defer cancel()
 
-			err = comebackCFO(ctx, fixture.home, fixture.runtime)
+			err = comebackCFO(ctx, fixture.home, fixture.runtime, "its terminal ended with exit code 1")
 
 			if isRunning && err != nil || !isRunning && !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("comeback = %v, CFO running %v, want the final running-state check", err, isRunning)
@@ -379,7 +442,7 @@ func TestCFOLaunchWaitRechecksTheCFOWhenItsDeadlineEnds(t *testing.T) {
 			if len(fixture.nativeStarts) != 0 {
 				t.Fatalf("started a CFO without the launch lock: %v", fixture.nativeStarts)
 			}
-			after, err := lock.ReadNamed(fixture.home.State, cfoLaunchLock)
+			after, err := lock.ReadNamed(fixture.home.State, supervisor.CFOLaunchLock)
 			if err != nil || !after.Acquired.Equal(holder.Acquired) {
 				t.Fatalf("changed another start's lock: %+v, %v", after, err)
 			}

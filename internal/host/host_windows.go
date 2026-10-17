@@ -199,13 +199,21 @@ func Run(stateDir string, spec Spec) error {
 	// The terminal's last output is read before Close, which ends whatever
 	// the process left running and discards the output of a terminal that is
 	// closed early.
+	isClosed := false
 	select {
 	case <-outputEnded:
 	case <-closing:
+		isClosed = true
 	}
 	screens.Lock()
 	closeErr := console.Close()
 	screens.Unlock()
+	// How the program ended is kept before the record goes, so whoever finds
+	// the terminal ended finds how.
+	end := End{ID: spec.ID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: console.ExitCode(), Closed: isClosed}
+	if err := writeEnd(stateDir, end); err != nil {
+		fmt.Fprintf(os.Stderr, "host: record how terminal %s ended: %v\n", spec.ID, err)
+	}
 	farewell := make(chan struct{})
 	go func() {
 		viewers.Wait()
