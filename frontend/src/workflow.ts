@@ -275,19 +275,21 @@ export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_sessio
   return snapshot.sessions.filter((session) => session.role === "cfo" && session.phase !== "ended").at(-1);
 }
 
-// isPastCfo says a CFO session is not the CFO's own: it ended, or a
-// registration names another.
-const isPastCfo = (snapshot: Pick<Snapshot, "cfo_session">, session: Session) =>
-  session.role === "cfo" && (session.phase === "ended" || !!snapshot.cfo_session && session.id !== snapshot.cfo_session);
-
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  // A retired task's sessions and a CFO's that is not the CFO's own leave the
-  // tree, and with such a CFO its ended sub-agents, so none of them is left a
-  // stray card and the root is the CFO that runs.
-  const gone = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session) || isPastCfo(snapshot, session)).map((session) => session.id));
+  // Every CFO session but the one liveCfoSession reads leaves the tree with
+  // its sub-agents and workers, ended or not, so the root is the CFO the
+  // panel header reads; a goblin it started stays and hangs under that CFO.
+  // A retired task's sessions leave with their ended sub-agents, so none of
+  // them is left a stray card.
+  const live = liveCfoSession(snapshot);
+  const pastCfo = new Set(snapshot.sessions.filter((session) => session.role === "cfo" && session.id !== live?.id).map((session) => session.id));
+  const gone = new Set([...pastCfo, ...snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session)).map((session) => session.id)]);
   for (let changed = true; changed;) {
     changed = false;
-    for (const session of snapshot.sessions) if (!gone.has(session.id) && session.phase === "ended" && gone.has(session.parent)) { gone.add(session.id); changed = true; }
+    for (const session of snapshot.sessions) {
+      if (!pastCfo.has(session.id) && (session.role === "subagent" || session.role === "worker") && pastCfo.has(session.parent)) { pastCfo.add(session.id); gone.add(session.id); changed = true; }
+      if (!gone.has(session.id) && session.phase === "ended" && gone.has(session.parent)) { gone.add(session.id); changed = true; }
+    }
   }
   const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session) && !gone.has(session.id));
   const ids = new Set(sessions.map((node) => node.id));

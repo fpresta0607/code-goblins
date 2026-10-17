@@ -412,12 +412,18 @@ test("an ended CFO session is never the tree's root, and leaves with its sub-age
 // The Overlord, 2026-10-17, of the CFO panel reading Session ended while a
 // Claude Code CFO worked: the CFO's status comes from the registered CFO's
 // own session on every surface. An older CFO's session, ended or still
-// marked running, never stands in for it, and while the registered CFO has
-// reported no session the canvas draws the supervisor root.
+// marked running, never stands in for it and leaves with its sub-agents,
+// while a goblin it started hangs under the live CFO. With no registration
+// naming a session the newest CFO session still running is read, and while
+// the registered CFO has reported no session the canvas draws the supervisor
+// root.
 test("the CFO's status comes from the registered CFO's session, never an older one", () => {
   // Arrange
   const endedPi = { id: "pi/old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended" };
   const stalePi = { id: "pi/stale-cfo", native_id: "stale-cfo", harness: "pi", role: "cfo", phase: "settled" };
+  const newerPi = { id: "pi/new-cfo", native_id: "new-cfo", harness: "pi", role: "cfo", phase: "active" };
+  const activePi = { id: "pi/active-cfo", native_id: "active-cfo", harness: "pi", role: "cfo", phase: "active" };
+  const activeAgent = { id: "pi/active-agent", native_id: "active-agent", harness: "pi", role: "subagent", parent: "pi/active-cfo", relation: "delegated", phase: "active" };
   const live = { id: "claude/live-cfo", native_id: "live-cfo", harness: "claude", role: "cfo", phase: "active" };
   const goblin = { id: "pi/a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "pi/old-cfo" };
   const tasks = [{ id: "a", phase: "working", session: "pi/a-session", generation: "g1", verified: false }];
@@ -427,6 +433,8 @@ test("the CFO's status comes from the registered CFO's session, never an older o
   const reported = board([endedPi, stalePi, live, goblin], "claude/live-cfo");
   const unreported = board([endedPi, stalePi, goblin], "claude/live-cfo");
   const unregistered = board([endedPi, goblin], "");
+  const newest = board([stalePi, newerPi, goblin], "");
+  const superseded = board([activePi, activeAgent, live, { ...goblin, parent: "pi/active-cfo" }], "claude/live-cfo");
 
   // Assert
   assert.equal(liveCfoSession(reported)?.id, "claude/live-cfo");
@@ -435,6 +443,10 @@ test("the CFO's status comes from the registered CFO's session, never an older o
   assert.equal(liveCfoSession(unregistered), undefined);
   assert.deepEqual(workflowNodes(reported).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
   assert.deepEqual(workflowNodes(unreported).map((node) => [node.id, node.parent]), [[CFO_ROOT, undefined], ["session:pi/a-session", CFO_ROOT]]);
+  assert.equal(liveCfoSession(newest)?.id, "pi/new-cfo");
+  assert.deepEqual(workflowNodes(newest).map((node) => [node.id, node.parent]), [["session:pi/new-cfo", undefined], ["session:pi/a-session", "session:pi/new-cfo"]]);
+  assert.equal(lineageFamily(newest, "").cfo?.session?.id, "pi/new-cfo");
+  assert.deepEqual(workflowNodes(superseded).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
 });
 
 // A goblin hung under a CFO session the board heard from after it is drawn a
