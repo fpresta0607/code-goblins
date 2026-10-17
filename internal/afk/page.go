@@ -110,6 +110,11 @@ type needRow struct {
 // row, by the kind its item key starts with, from CommandCenter.tsx.
 var answerIcons = map[string]string{"question": "question", "review": "comment", "run": "play", "credential": "key", "browser-signin": "lock"}
 
+// releaseUpdate is the key of the board's own release update run, which
+// releases.go names update-<tag>-<16 hex nonce>. The CFO names its own runs,
+// update-node-1 among them, so the prefix alone is no release update.
+var releaseUpdate = regexp.MustCompile(`^run:update-.+-[0-9a-f]{16}$`)
+
 type projectRow struct {
 	Name    string
 	Changes []changeRow
@@ -194,12 +199,12 @@ func (r Return) view() pageView {
 			continue
 		}
 		// As the Command Center names who asks: Code Goblins for its own
-		// release update, whose run the board names update-<tag>-<nonce>, the
-		// goblin, or the CFO for an item of no task.
+		// release update, a run of no task, the goblin, or the CFO for an item
+		// of no task.
 		kind, _, _ := strings.Cut(held.Item, ":")
 		who, face, answer := "The CFO", "cfo", answerIcons[kind]
 		switch {
-		case strings.HasPrefix(held.Item, "run:update-"):
+		case held.Task == "" && releaseUpdate.MatchString(held.Item):
 			who, face, answer = "Code Goblins", "releases", "download"
 		case held.Task != "":
 			who, face = cmpOr(names[held.Task], held.Task), persona(held.Task)

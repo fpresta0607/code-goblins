@@ -188,7 +188,8 @@ func TestEachItemThatNeedsHimIsTheCommandCentersWaitingRow(t *testing.T) {
 	r.Report.Held = append(r.Report.Held,
 		Held{Item: "question:pick-a-name", What: "Pick the app's name", Waiting: true},
 		Held{Item: "run:restart-db", Task: "garden-share", What: "Restart the dev database", Waiting: true},
-		Held{Item: "run:update-v1.4.0-0123456789abcdef", What: "Update Code Goblins from v1.3.0 to v1.4.0", Waiting: true})
+		Held{Item: "run:update-v1.4.0-0123456789abcdef", What: "Update Code Goblins from v1.3.0 to v1.4.0", Waiting: true},
+		Held{Item: "run:update-node-1", What: "Update Node.js to 22", Waiting: true})
 
 	// Act
 	page, words := returnPage(t, r)
@@ -203,6 +204,10 @@ func TestEachItemThatNeedsHimIsTheCommandCentersWaitingRow(t *testing.T) {
 		`aria-label="Answer Ivy: Restart the dev database"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
 		`<li data-item="run:update-v1.4.0-0123456789abcdef"><span class="goblin-avatar persona-releases"></span>`,
 		`aria-label="Answer Code Goblins: Update Code Goblins from v1.3.0 to v1.4.0"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>`,
+		// A run the CFO named update- itself is no release update, as the
+		// Command Center, which reads the run's update, names it too.
+		`<li data-item="run:update-node-1"><span class="goblin-avatar persona-cfo"></span>`,
+		`aria-label="Answer The CFO: Update Node.js to 22"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
