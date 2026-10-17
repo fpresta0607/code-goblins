@@ -543,9 +543,9 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
-While a process starts or exits, Windows can briefly count a different number of a job's members than it lists, so `internal/proc.JobProcessIDs` reads the list again at 1 ms intervals, for up to 250 ms, until its count and its length agree.
-A job whose list never agrees in that time is unreadable and the sample fails.
-A list whose count and length disagree is never used, by a sample or by an end that spares a machine service, which goes by the list to show that nothing else still runs before it lets the job's handle close.
+While a process exits, Windows can count a job's member it no longer lists, for as long as the exit takes, so `internal/proc.JobProcessIDs` returns the list with how many more members the job counts than it lists.
+No reader bounds that: as a headless Chrome was ended its job counted one more process than it listed for up to 474 ms, and a browser run pinned to four busy processors kept the two apart for over 250 ms, which once ended its run (issue 1025).
+A sample takes the list as it is, and an end that spares a machine service, which goes by the list to show that nothing else still runs, lets the job's handle close only once the job counts nothing beyond the list, within the end's own deadline.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
 Recovery uses `TerminateAndWait`, which spares nothing.
