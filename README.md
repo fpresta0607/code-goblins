@@ -452,7 +452,7 @@ A task ended by Stop, or cleaned up without delivery, says **Stopped**, with whe
 Every Completed card leads with its PR title, or its task title without a PR, then repository and state together, then its PR link when present; task IDs and branch names are secondary detail.
 A number on each card shows its place, and stays in sight on hover, on focus and while the card is dragged.
 Drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
-A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks it turns the page and goes with it.
+A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks or Paused it turns the page and goes with it.
 On a touch screen, drag a card by its number.
 Paused cards drag too, with no numbers, and a drag among them changes the order the supervisor resumes them in; a drop against the resume order, such as a goblin paused until tomorrow above **Next up**, goes back and says why.
 **Alt+Up** or **Alt+Down** past the page's edge moves a card on and turns the page with it.
