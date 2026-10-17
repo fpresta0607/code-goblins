@@ -135,3 +135,41 @@ test("in a column beside the CFO's panel a card's time and icons take a line und
   expect(clock.x).toBeLessThan(name.x);
   expect(icons.x + icons.width).toBeLessThanOrEqual(shell.x + shell.width);
 });
+
+// The Overlord, 2026-10-17: "by the time, put the little clock icon". Every
+// goblin's time has its clock icon at its left, centred on it, on the board
+// and the canvas.
+const isClockBesideItsTime = (clock: Element) => {
+  const text = document.createRange();
+  text.selectNode(clock.lastChild!);
+  const icon = clock.querySelector(".icon")!.getBoundingClientRect(), time = text.getBoundingClientRect();
+  const isWhole = (box: DOMRect) => box.width > 0 && box.height > 0;
+  return isWhole(icon) && isWhole(time) && icon.right <= time.left && Math.abs((icon.top + icon.height / 2) - (time.top + time.height / 2)) < 3;
+};
+for (const colorScheme of ["dark", "light"] as const) {
+  test(`every goblin's time has its clock icon beside it on the board and the canvas in ${colorScheme}`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.emulateMedia({ colorScheme });
+    await open(page);
+    await page.getByRole("button", { name: "Close panel" }).click();
+    const rows = { working: card(page, "Benny - AFK Ace"), waiting: page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title", { hasText: LONG.slice(0, 20) }) }), paused: card(page, "Otis - Ledger Clerk"), done: card(page, "Ivy - Merge Maven") };
+
+    // Act and assert: the board.
+    for (const [kind, row] of Object.entries(rows)) {
+      const clock = row.locator(".card-clock");
+      await expect(clock.locator(".icon"), kind).toBeVisible();
+      expect(await clock.evaluate(isClockBesideItsTime), kind).toBe(true);
+      await row.screenshot({ path: testInfo.outputPath(`board-${kind}-${colorScheme}.png`) });
+    }
+
+    // Act and assert: the canvas.
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    for (const [kind, name] of [["working", "Benny - AFK Ace"], ["paused", "Otis - Ledger Clerk"]]) {
+      const node = page.locator(".flow-node").filter({ has: page.locator("strong").getByText(name, { exact: true }) });
+      const clock = node.locator(".card-clock");
+      await expect(clock.locator(".icon"), kind).toBeVisible();
+      expect(await clock.evaluate(isClockBesideItsTime), kind).toBe(true);
+      await node.screenshot({ path: testInfo.outputPath(`canvas-${kind}-${colorScheme}.png`) });
+    }
+  });
+}
