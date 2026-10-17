@@ -145,7 +145,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       test.slow();
       await open(page);
       const { shown, faults } = await walk(page.locator(".app-shell"));
-      expect(shown).toBeGreaterThanOrEqual(15);
+      expect(shown).toBeGreaterThanOrEqual(14);
       expect(faults).toEqual([]);
     });
 
@@ -321,11 +321,11 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
 // taken in the first frame after the event, so a wait or a fade of any length
 // is seen.
 test("a tip shows, swaps and goes on the frame the pointer or focus moves, with no fade", async ({ page }) => {
-  // Arrange: a card's model and its harness mark each carry a tip, and a
-  // finished card's pull request carries its branch in a tip of its own.
+  // Arrange: a card's harness mark carries a tip, and a finished card's pull
+  // request carries its branch in a tip of its own.
   await open(page);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
-  const model = shell.locator(".card-engine"), mark = shell.locator(".card-harness [role=img]");
+  const mark = shell.locator(".card-harness [role=img]");
   const finished = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/198']") });
   const chip = finished.locator(".card-pr");
   await page.evaluate(() => {
@@ -339,22 +339,22 @@ test("a tip shows, swaps and goes on the frame the pointer or focus moves, with 
       }) }));
     }, true);
   });
-  const center = async (part: typeof model) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
-  const [modelX, modelY] = await center(model), [markX, markY] = await center(mark);
+  const center = async (part: typeof mark) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
+  const [chipX, chipY] = await center(chip), [markX, markY] = await center(mark);
   const lookAfter = (event: string, part: string) => page.evaluate(([event, part]) => (window as unknown as { tipLooks: { event: string; part: string; tips: string[] }[] }).tipLooks.filter((look) => look.event === event && look.part === part).at(-1)?.tips, [event, part]);
-  const MODEL = "gpt-6-astra", MARK = "Codex · gpt-6-astra · xhigh", BRANCH = "fix/done-one";
+  const MARK = "Codex · gpt-6-astra · xhigh", BRANCH = "fix/done-one";
 
-  // Act: the pointer comes to the model, moves straight on to the mark, and
-  // leaves.
-  await page.mouse.move(modelX, modelY);
-  await expect.poll(() => lookAfter("pointerover", MODEL)).toBeDefined();
+  // Act: the pointer comes to the finished card's pull request, moves
+  // straight on to the mark, and leaves.
+  await page.mouse.move(chipX, chipY);
+  await expect.poll(() => lookAfter("pointerover", BRANCH)).toBeDefined();
   await page.mouse.move(markX, markY);
   await expect.poll(() => lookAfter("pointerover", MARK)).toBeDefined();
   await page.mouse.move(1, 1);
   await expect.poll(() => lookAfter("pointerout", MARK)).toBeDefined();
 
   // Assert
-  expect([await lookAfter("pointerover", MODEL), await lookAfter("pointerover", MARK), await lookAfter("pointerout", MARK)]).toEqual([[MODEL], [MARK], []]);
+  expect([await lookAfter("pointerover", BRANCH), await lookAfter("pointerover", MARK), await lookAfter("pointerout", MARK)]).toEqual([[BRANCH], [MARK], []]);
 
   // Act: the keyboard's focus comes from the finished card to its pull
   // request, and leaves.

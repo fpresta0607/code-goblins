@@ -611,7 +611,7 @@ The Task view shows **Workspace** with the repository, branch and exact working 
 For a queued task, **Save** sets the engine **Start** will use; for a paused task, **Save for Resume** sets its next session's engine.
 A running task's **Restart** acts at once, as the CFO's does: unchanged it restarts the goblin on its own harness, model and effort, and changed it switches onto the ones shown, interrupting the turn and any running gate step.
 The switch closes the old native terminal, keeps the task, worktree and branch, and passes `--force-dirty` so uncommitted work stays.
-A pending choice appears on the card and can be cancelled under Harness; the live values change after the switch completes.
+A pending choice appears under Harness, where it can be cancelled; the live values change after the switch completes.
 Pausing the task first makes its next **Resume** use the pending choice, and a choice that is no longer available when the turn ends is dropped with the reason on the card.
 A completed task shows its recorded harness, model and effort without controls, or **Engine not recorded** when an older record has no engine.
 Each connection is a card, as Claude lists its connectors: the service's own logo, bundled with the board, or its initial where the board has none, its name, one line on what it does, and one square button. **+** gives the task a repository service or a project MCP server it does not carry, and the check takes it back, as `cfo auth grant` and `cfo auth revoke` do, and the card changes at once.
