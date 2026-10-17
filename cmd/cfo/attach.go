@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -15,7 +16,9 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -229,23 +232,28 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 
 // cfoStartArguments are the arguments a CFO's harness starts with: args, such
 // as the ones that resume a conversation, and for a harness the supervisor
-// wakes by typing, the first prompt that registers it, last. Codex and pi
-// draw on their own full screens, as a goblin's do and as Claude Code's does,
-// which keep the input line and footer on the bottom rows while the
-// transcript scrolls above them, and Codex copies what a drag selects when
-// the button is released.
+// wakes by typing, the first prompt that registers it, last.
 func cfoStartArguments(harness string, args []string) []string {
 	args = slices.Clone(args)
-	switch harness {
-	case "codex":
-		args = append(args, "-c", "tui.copy_on_select=always")
-	case "pi":
-		args = append(args, "--tui-mode", "fullscreen")
-	}
 	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
 		return args
 	}
 	return append(args, cfoFirstPrompt)
+}
+
+// cfoScreenArguments are the arguments that start a CFO's harness on its own
+// full screen, as a goblin's starts and as Claude Code's does, which keeps
+// the input line and footer on the bottom rows while the transcript scrolls
+// above them: Codex's alternate screen, copying what a drag selects when the
+// button is released, and pi's fullscreen mode where its help offers it.
+func cfoScreenArguments(agent string) ([]string, error) {
+	switch agent {
+	case "codex":
+		return []string{"-c", "tui.copy_on_select=always"}, nil
+	case "pi":
+		return harness.PiScreenArgs(context.Background(), execx.OSRunner{})
+	}
+	return nil, nil
 }
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
@@ -256,7 +264,11 @@ func startNativeCFO(h home.Home, project, harness string, args []string) error {
 	if err != nil {
 		return err
 	}
-	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, append(hooks, args...))...)
+	screen, err := cfoScreenArguments(harness)
+	if err != nil {
+		return err
+	}
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, args, screen))...)
 	if err != nil {
 		return err
 	}

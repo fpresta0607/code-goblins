@@ -1,9 +1,12 @@
 package main
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // A Codex or pi CFO has no session-start hook that registers it, so the
@@ -20,9 +23,9 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 	}{
 		{"Claude Code, new", "claude", nil, nil},
 		{"Claude Code, resumed", "claude", []string{"--resume", "a1b2"}, []string{"--resume", "a1b2"}},
-		{"Codex, new", "codex", nil, []string{"-c", "tui.copy_on_select=always", cfoFirstPrompt}},
-		{"Codex, resumed", "codex", []string{"resume", "a1b2"}, []string{"resume", "a1b2", "-c", "tui.copy_on_select=always", cfoFirstPrompt}},
-		{"pi, new", "pi", nil, []string{"--tui-mode", "fullscreen", cfoFirstPrompt}},
+		{"Codex, new", "codex", nil, []string{cfoFirstPrompt}},
+		{"Codex, resumed", "codex", []string{"resume", "a1b2"}, []string{"resume", "a1b2", cfoFirstPrompt}},
+		{"pi, new", "pi", nil, []string{cfoFirstPrompt}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -42,25 +45,40 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 // footer on the bottom rows while the transcript scrolls above them: the
 // Overlord, 2026-10-17, "when you scroll on like Pi and Codex terminals, it
 // doesn't keep like the bottom banner". Codex copies what a drag selects when
-// the button is released, as he asked on 2026-10-02. A resumed conversation
-// is no exception.
+// the button is released, as he asked on 2026-10-02. pi is asked its help
+// first, as a pi goblin is: one whose --tui-mode offers no fullscreen is
+// given no mode, so it draws the only way it can.
 func TestACodexOrPiCFODrawsOnItsHarnesssOwnFullScreen(t *testing.T) {
-	for _, harness := range []string{"codex", "pi"} {
-		for _, resume := range [][]string{nil, {"resume", "a1b2"}} {
+	for _, test := range []struct {
+		name, harness, piHelp string
+		want                  []string
+	}{
+		{"Codex", "codex", "", []string{"-c", "tui.copy_on_select=always"}},
+		{"pi offering fullscreen", "pi", "Options:\n  --tui-mode <mode>              TUI mode: regular (default) or fullscreen\n", []string{"--tui-mode", "fullscreen"}},
+		{"pi offering only regular", "pi", "Options:\n  --tui-mode <mode>              TUI mode: regular\n", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			bin := t.TempDir()
+			standin.RemoveAtCleanup(t, bin)
+			standin.Put(t, filepath.Join(bin, "pi.exe"))
+			t.Setenv("PATH", bin)
+			for _, variable := range standin.Env("", standin.Rule{Args: "--help", Stdout: test.piHelp}) {
+				name, value, _ := strings.Cut(variable, "=")
+				t.Setenv(name, value)
+			}
+
 			// Act
-			got := cfoStartArguments(harness, resume)
+			got, err := cfoScreenArguments(test.harness)
 
 			// Assert
-			if slices.Contains(got, "--no-alt-screen") || slices.Contains(got, "regular") {
-				t.Errorf("cfoStartArguments(%s, %q) = %q, want no inline screen", harness, resume, got)
+			if err != nil {
+				t.Fatalf("cfoScreenArguments(%s): %v", test.harness, err)
 			}
-			if harness == "codex" && !slices.Contains(got, "tui.copy_on_select=always") {
-				t.Errorf("cfoStartArguments(codex, %q) = %q, want Codex to copy a selection on release", resume, got)
+			if !slices.Equal(got, test.want) {
+				t.Errorf("cfoScreenArguments(%s) = %q, want %q", test.harness, got, test.want)
 			}
-			if harness == "pi" && !slices.Contains(got, "fullscreen") {
-				t.Errorf("cfoStartArguments(pi, %q) = %q, want pi's fullscreen mode", resume, got)
-			}
-		}
+		})
 	}
 }
 

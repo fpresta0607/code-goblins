@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -87,7 +88,8 @@ Options:
 // output that scrolls away with the history; in its fullscreen mode, as
 // Claude Code's for the CFO, pi keeps its editor and footer on the bottom
 // rows and scrolls its transcript above them itself. A pi whose --tui-mode
-// offers no fullscreen is given no mode, so it draws the only way it can.
+// offers no fullscreen is given no mode, so it draws the only way it can. A
+// pi CFO's screen is read from the same help, so it starts as its goblins do.
 func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
 	cases := []struct {
 		name, help string
@@ -108,6 +110,7 @@ func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
 
 			// Act
 			launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+			screen, screenErr := PiScreenArgs(context.Background(), runner)
 
 			// Assert
 			if err != nil {
@@ -116,7 +119,35 @@ func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
 			if !equalStrings(launch.Args, tc.want) {
 				t.Errorf("Args = %#v, want %#v", launch.Args, tc.want)
 			}
+			if screenErr != nil {
+				t.Fatalf("PiScreenArgs: %v", screenErr)
+			}
+			if !equalStrings(screen, tc.want) {
+				t.Errorf("PiScreenArgs = %#v, want %#v", screen, tc.want)
+			}
+			for _, request := range runner.requests {
+				if request.Name != "pi" || !equalStrings(request.Args, []string{"--help"}) {
+					t.Errorf("probe = %#v, want pi --help", request)
+				}
+			}
 		})
+	}
+}
+
+// A pi that does not answer its help is not started with a screen guessed
+// for it: the CFO's start reports why instead.
+func TestPiScreenArgsRefuseAPiThatDoesNotAnswerItsHelp(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
+		return execx.Result{ExitCode: 1, Stderr: []byte("Cannot find module")}, nil
+	}}
+
+	// Act
+	screen, err := PiScreenArgs(context.Background(), runner)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "Cannot find module") {
+		t.Fatalf("PiScreenArgs = %#v, %v; want the failed help reported", screen, err)
 	}
 }
 

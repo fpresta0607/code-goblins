@@ -9,7 +9,10 @@ import { expect, test, type Page } from "./site";
 // keeps its input line and footer on its bottom rows and scrolls its own
 // transcript under the wheel. These are each harness's own screens, recorded
 // from real Claude Code, Codex and pi in native terminals at the panel's size
-// in his window, replayed into the board's terminal.
+// in his window, replayed into the board's terminal. Each recording opens
+// with the modes the live xterm held after the harness's own output, since
+// the repaint after a resize, which the rest of it is, carries none; pi-tui
+// turns on the same set (ENABLE_ALL_MOTION_MOUSE and ?2004h).
 
 // xterm draws in the DOM, where a test reads it, without WebGL.
 test.use({ launchOptions: { args: ["--disable-webgl"] }, viewport: { width: 1707, height: 912 }, deviceScaleFactor: 1.5 });
@@ -84,10 +87,12 @@ for (const { name, harness, idle, choices, inputLine, footer, asks } of HARNESSE
     await expect(rows(page).filter({ hasText: footer })).toHaveCount(1);
     const before = await rows(page).allTextContents();
 
-    // Assert: the footer is on the last two rows, and the input line, drawn
-    // between rules for pi, just above it.
+    // Assert: the footer is on the last two rows, and the input line just
+    // above it. pi's editor has no prompt and sits between two rules across
+    // the screen, so for pi the last full-width rule row, one run of the box
+    // rule character, stands for its input line.
     expect(await lastRowWith(page, footer)).toBeGreaterThanOrEqual(screen.rows - 2);
-    if (inputLine) expect(await lastRowWith(page, inputLine)).toBeGreaterThanOrEqual(screen.rows - 5);
+    expect(await lastRowWith(page, inputLine || "─".repeat(screen.cols))).toBeGreaterThanOrEqual(screen.rows - 5);
 
     // Act
     await page.locator(".terminal-view:not(.staged) .xterm-screen").hover();

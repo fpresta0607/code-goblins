@@ -59,13 +59,7 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if capabilities.approve {
 		launch.Args = append(launch.Args, "--approve")
 	}
-	// Pi draws on its own full screen where it has one, as a claude goblin
-	// does, which keeps its editor and footer on the bottom rows while its
-	// transcript scrolls above them; in its regular mode the footer scrolled
-	// away with the history.
-	if capabilities.fullscreen {
-		launch.Args = append(launch.Args, "--tui-mode", "fullscreen")
-	}
+	launch.Args = append(launch.Args, piScreenArgs(capabilities)...)
 	if hasValue(spec.Model) {
 		if !capabilities.model {
 			return Launch{}, errors.New("harness: installed Pi does not advertise --model")
@@ -85,6 +79,28 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 		launch.Args = append(launch.Args, "--extension", spec.PiExtensionPath)
 	}
 	return launch, nil
+}
+
+// PiScreenArgs are the arguments that start the pi on PATH on its own full
+// screen, as a pi goblin starts, read from its help as Validate reads it.
+func PiScreenArgs(ctx context.Context, runner execx.Runner) ([]string, error) {
+	result, err := validateExecutable(ctx, runner, "pi", "--help")
+	if err != nil {
+		return nil, err
+	}
+	return piScreenArgs(parsePiHelp(string(result.Stdout))), nil
+}
+
+// piScreenArgs has pi draw on its own full screen where it has one, as a
+// claude goblin does, which keeps its editor and footer on the bottom rows
+// while its transcript scrolls above them; in its regular mode the footer
+// scrolled away with the history. A pi with no fullscreen is given no mode,
+// so it draws the only way it can.
+func piScreenArgs(capabilities piCapabilities) []string {
+	if !capabilities.fullscreen {
+		return nil
+	}
+	return []string{"--tui-mode", "fullscreen"}
 }
 
 func (adapter *piAdapter) capabilitiesSnapshot() (piCapabilities, error) {
