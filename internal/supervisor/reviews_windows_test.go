@@ -205,6 +205,41 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-17 about 22:10Z, opened a review card the CFO had just
+// published and got Scrawl's "Session ended. Return to your agent to
+// continue.": its page's session had ended a minute before. A review given
+// the link of a session that has ended is refused, recording nothing, with a
+// line naming --reopen.
+func TestAReviewOfAnEndedScrawlSessionIsRefusedNamingReopen(t *testing.T) {
+	for _, endedBy := range []string{"user", "agent"} {
+		t.Run(endedBy, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"ad6519f76542da4e":{"key":"ad6519f76542da4e","file":"C:\\scratch\\site\\mockup.html","status":"ended","ended_by":"` + endedBy + `"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := PublishReview(h, meta.ID, "itascaunity-site-real-photos", "The site with real photos", "https://sermon.tailcc4238.ts.net:4388/session/ad6519f76542da4e", "", nil)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "has ended") || !strings.Contains(err.Error(), "--reopen") {
+				t.Fatalf("a review of an ended session = %v, want it refused naming --reopen", err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Reviews; len(got) != 0 {
+				t.Fatalf("reviews = %+v, want nothing recorded", got)
+			}
+		})
+	}
+}
+
 // Only the reporter that published an item can withdraw it, and its reason
 // is kept.
 func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {

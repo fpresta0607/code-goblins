@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -56,13 +57,25 @@ type PageChange struct {
 }
 
 // Open opens or resumes the page's review session without opening a browser,
-// and returns the page's address.
+// and returns the page's address. lavish-axi refuses a page whose review the
+// Overlord ended.
 func (l Lavish) Open(ctx context.Context, file string) (string, error) {
-	req, err := l.request(file, "--no-open")
+	return l.open(ctx, file, "--no-open")
+}
+
+// Reopen is Open for a page whose review the Overlord ended, which only his
+// asking for another look warrants.
+func (l Lavish) Reopen(ctx context.Context, file string) (string, error) {
+	return l.open(ctx, file, "--no-open", "--reopen")
+}
+
+func (l Lavish) open(ctx context.Context, file string, flags ...string) (string, error) {
+	args := append([]string{file}, flags...)
+	req, err := l.request(args...)
 	if err != nil {
 		return "", err
 	}
-	result, err := run(ctx, l.Commands, "lavish-axi "+file+" --no-open", req)
+	result, err := run(ctx, l.Commands, "lavish-axi "+strings.Join(args, " "), req)
 	if err != nil {
 		return "", err
 	}
@@ -189,6 +202,30 @@ func (l Lavish) Sessions() ([]PageSession, error) {
 	}
 	slices.SortFunc(sessions, func(a, b PageSession) int { return strings.Compare(a.File, b.File) })
 	return sessions, nil
+}
+
+// SessionAt finds the review session a Scrawl link names: the one whose key
+// the link's address ends with as /session/<key>, on whichever of
+// lavish-axi's addresses the link names. found is false for a link to no
+// session lavish-axi keeps.
+func (l Lavish) SessionAt(link string) (session PageSession, found bool, err error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return PageSession{}, false, nil
+	}
+	key, isSession := strings.CutPrefix(u.Path, "/session/")
+	if !isSession || key == "" || strings.Contains(key, "/") {
+		return PageSession{}, false, nil
+	}
+	sessions, err := l.Sessions()
+	if err != nil {
+		return PageSession{}, false, err
+	}
+	i := slices.IndexFunc(sessions, func(s PageSession) bool { return s.Key == key })
+	if i < 0 {
+		return PageSession{}, false, nil
+	}
+	return sessions[i], true, nil
 }
 
 // promptColumn reads one column of the top-level TOON `prompts` table, such as

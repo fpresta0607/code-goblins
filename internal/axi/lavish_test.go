@@ -75,6 +75,20 @@ func TestLavishOpenReturnsThePageAddressWithoutABrowser(t *testing.T) {
 	assertLavishRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open"}})
 }
 
+// lavish-axi refuses to open again a page whose review the Overlord ended,
+// unless it is told to reopen it, which only his asking for another look
+// warrants.
+func TestLavishReopenOpensAPageHisEndedReviewClosed(t *testing.T) {
+	runner := &fakeRunner{result: execx.Result{Stdout: []byte(lavishOpened)}}
+
+	_, err := (Lavish{Commands: runner}).Reopen(context.Background(), `C:\work\.lavish\plan.html`)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open", "--reopen"}})
+}
+
 func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 	for name, test := range map[string]struct {
 		output  string
@@ -232,6 +246,35 @@ func TestLavishSessionsReadsEverySessionWithoutTakingItsFeedback(t *testing.T) {
 	want := []PageSession{{Key: "a1", File: `C:\work\a.html`, Status: "feedback", Pending: 2}, {Key: "b2", File: `C:\work\b.html`, Status: "ended", EndedBy: "user"}}
 	if err != nil || !slices.Equal(sessions, want) {
 		t.Fatalf("Sessions = %+v, %v; want %+v", sessions, err, want)
+	}
+}
+
+// A Scrawl link names its session by the key its address ends with, on
+// either of the addresses lavish-axi answers on; a link to no session it
+// keeps names none.
+func TestLavishSessionAtFindsTheSessionALinkNames(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", dir)
+	stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":"C:\\scratch\\review\\index.html","status":"ended","ended_by":"user"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(stored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := PageSession{Key: "1a4d8f434fcca24b", File: `C:\scratch\review\index.html`, Status: "ended", EndedBy: "user"}
+	for link, isKept := range map[string]bool{
+		"https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b": true,
+		"http://127.0.0.1:4387/session/1a4d8f434fcca24b":                 true,
+		"http://127.0.0.1:4387/session/0000000000000000":                 false,
+		"http://127.0.0.1:4387/session/1a4d8f434fcca24b/export":          false,
+		"https://example.com/plan":                                        false,
+	} {
+		// Act
+		session, found, err := (Lavish{}).SessionAt(link)
+
+		// Assert
+		if err != nil || found != isKept || isKept && session != want {
+			t.Errorf("SessionAt(%s) = %+v, %v, %v; want found %v", link, session, found, err, isKept)
+		}
 	}
 }
 

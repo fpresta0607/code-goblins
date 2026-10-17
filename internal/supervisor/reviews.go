@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -215,27 +214,21 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 
 // servedPage is the HTML page of the review session lavish-axi keeps at link,
 // whose address ends with /session/<key> on whichever of its addresses link
-// names, or "" for a link to no such session.
+// names, or "" for a link to no such session. A session that has ended is
+// refused: its card would open a page that says the review ended.
 func servedPage(link string) (string, error) {
-	u, err := url.Parse(link)
-	if err != nil {
-		return "", nil
-	}
-	key, found := strings.CutPrefix(u.Path, "/session/")
-	if !found || key == "" || strings.Contains(key, "/") {
-		return "", nil
-	}
-	sessions, err := (axi.Lavish{}).Sessions()
-	if err != nil {
+	session, found, err := (axi.Lavish{}).SessionAt(link)
+	if err != nil || !found {
 		return "", err
 	}
-	for _, session := range sessions {
-		extension := strings.ToLower(filepath.Ext(session.File))
-		if session.Key == key && filepath.IsAbs(session.File) && filepath.Clean(session.File) == session.File && (extension == ".html" || extension == ".htm") {
-			return session.File, nil
-		}
+	if session.Status == "ended" {
+		return "", fmt.Errorf("the Scrawl session at %s has ended, so its card would open a page that says so; open its page again with cfo review --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", link)
 	}
-	return "", nil
+	extension := strings.ToLower(filepath.Ext(session.File))
+	if !filepath.IsAbs(session.File) || filepath.Clean(session.File) != session.File || extension != ".html" && extension != ".htm" {
+		return "", nil
+	}
+	return session.File, nil
 }
 
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
