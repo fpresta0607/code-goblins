@@ -3,10 +3,12 @@ package voice
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -145,5 +147,97 @@ func TestAFetchLeavesWholeAReplacedFolderStillInUseAndRemovesItNextTime(t *testi
 	}
 	if got := entries(t, dir); len(got) != 8 {
 		t.Fatalf("the folder holds %v, want the engine and the newer model alone", got)
+	}
+}
+
+// A download the server answers with a 5xx or a 429, or whose connection
+// drops, is tried again, three attempts in all, as the install script tries
+// its own downloads: on 2026-10-17 GitHub's release host answered two CI
+// runners' model downloads 504 Gateway Timeout in the same minute, and both
+// installs ended without dictation (run 39019600037). Nothing else is tried
+// again: not an answer that will not change, as a 404, a redirect refused, or
+// a download that could not be written, and not a connection that could not
+// be made at all, refused or timed out, as on a PC with no network, where
+// waiting would only keep the person from being told to connect.
+func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
+	archive, err := os.ReadFile(filepath.Join("testdata", "part.tar.bz2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name           string
+		failures       int32
+		status         int
+		isUnwritable   bool
+		isDialTimedOut bool
+		isFetched      bool
+		wantRequests   int32
+		wantWaits      []time.Duration
+	}{
+		{name: "two 504s, then the archive", failures: 2, status: http.StatusGatewayTimeout, isFetched: true, wantRequests: 3, wantWaits: []time.Duration{5 * time.Second, 10 * time.Second}},
+		{name: "a 429, then the archive", failures: 1, status: http.StatusTooManyRequests, isFetched: true, wantRequests: 2, wantWaits: []time.Duration{5 * time.Second}},
+		{name: "a dropped connection, then the archive", failures: 1, isFetched: true, wantRequests: 2, wantWaits: []time.Duration{5 * time.Second}},
+		{name: "three 503s", failures: 3, status: http.StatusServiceUnavailable, wantRequests: 3, wantWaits: []time.Duration{5 * time.Second, 10 * time.Second}},
+		{name: "a 404", failures: 1, status: http.StatusNotFound, wantRequests: 1},
+		{name: "a redirect to an address that is not https", failures: 1, status: http.StatusFound, wantRequests: 1},
+		{name: "a download that cannot be written, as to a temporary folder that is gone", isUnwritable: true, wantRequests: 1},
+		{name: "a refused connection, as with no network", failures: -1},
+		{name: "a connection that times out before it is made", isDialTimedOut: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			var requests atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if requests.Add(1) > test.failures {
+					w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
+					_, _ = w.Write(archive)
+					return
+				}
+				if test.status == http.StatusFound {
+					w.Header().Set("Location", "http://example.test/part.tar.bz2")
+				}
+				if test.status != 0 {
+					w.WriteHeader(test.status)
+					return
+				}
+				connection, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_ = connection.Close()
+			}))
+			t.Cleanup(server.Close)
+			address := server.URL
+			if test.failures < 0 {
+				server.Close()
+			}
+			var waits []time.Duration
+			waited := waitToRetry
+			waitToRetry = func(_ context.Context, wait time.Duration) { waits = append(waits, wait) }
+			t.Cleanup(func() { waitToRetry = waited })
+			dir := t.TempDir()
+			if test.isUnwritable {
+				gone := filepath.Join(t.TempDir(), "gone")
+				t.Setenv("TMP", gone)
+				t.Setenv("TEMP", gone)
+			}
+			wanted := part("model", address+"/part.tar.bz2")
+			client := &http.Client{Transport: server.Client().Transport, CheckRedirect: redirect}
+			if test.isDialTimedOut {
+				client.Transport = &http.Transport{DialContext: (&net.Dialer{Deadline: time.Now()}).DialContext}
+			}
+
+			// Act
+			err := (&Voice{Dir: dir, Client: client}).fetch(context.Background(), wanted, quietPart)
+
+			// Assert
+			if (err == nil) != test.isFetched {
+				t.Errorf("fetch = %v, want fetched %t", err, test.isFetched)
+			}
+			if requests.Load() != test.wantRequests || !slices.Equal(waits, test.wantWaits) {
+				t.Errorf("%d downloads after waits %v, want %d after %v", requests.Load(), waits, test.wantRequests, test.wantWaits)
+			}
+		})
 	}
 }
