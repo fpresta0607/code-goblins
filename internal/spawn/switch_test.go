@@ -57,18 +57,25 @@ type switchFixture struct {
 
 func newSwitchFixture(t *testing.T, control harness.Control) *switchFixture {
 	t.Helper()
-	f := newQuickFixture(t)
+	return newSwitchFixtureOf(t, harness.Codex, control)
+}
+
+// newSwitchFixtureOf is newSwitchFixture for a goblin of kind: the fake
+// harness on PATH stands in for kind, and the task runs it with control.
+func newSwitchFixtureOf(t *testing.T, kind harness.Kind, control harness.Control) *switchFixture {
+	t.Helper()
+	f := newQuickFixtureOf(t, kind)
 	closeCurrentTerminal(t, f)
 	git := &switchGit{next: f.runner, branch: "gb/task-7", log: "abc1234 first commit\ndef5678 second commit"}
 	f.service.Commands = git
-	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: control, specs: &f.fixture.specs}}}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{kind: nativeAdapter{kind: kind, control: control, specs: &f.fixture.specs}}}
 	meta := state.TaskMeta{
 		ID:             "task-7",
 		Window:         "native",
 		EndpointTaskID: "task-7",
 		Worktree:       f.worktree,
 		Project:        f.project,
-		Harness:        string(harness.Codex),
+		Harness:        string(kind),
 		Kind:           "ship",
 		Mode:           "no-mistakes",
 		Yolo:           "on",
@@ -224,26 +231,6 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	}
 }
 
-// newPiSwitchFixture is newSwitchFixture for a pi goblin: the fake pi is on
-// PATH and the task runs pi with pi's own control.
-func newPiSwitchFixture(t *testing.T) *switchFixture {
-	t.Helper()
-	f := newSwitchFixture(t, harness.DefaultRegistry().Adapters[harness.Pi].Control())
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	copyFile(t, program, filepath.Join(bin, "pi.exe"))
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Pi: nativeAdapter{kind: harness.Pi, control: harness.DefaultRegistry().Adapters[harness.Pi].Control(), specs: &f.fixture.specs}}}
-	f.meta.Harness = string(harness.Pi)
-	if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
-		t.Fatal(err)
-	}
-	return f
-}
-
 // A pi goblin resumes its own conversation as Claude Code and Codex goblins
 // do: a switch that changes only its model, and the resume of a paused one,
 // start pi on the recorded session with --session, and hand it no written
@@ -264,7 +251,7 @@ func TestAPiGoblinResumesItsOwnSession(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			f := newPiSwitchFixture(t)
+			f := newSwitchFixtureOf(t, harness.Pi, harness.DefaultRegistry().Adapters[harness.Pi].Control())
 			profile := t.TempDir()
 			t.Setenv("USERPROFILE", profile)
 			if test.isSessionWritten {
