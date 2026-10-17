@@ -359,9 +359,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
 		}
 	}
-	// A wait beside the goblin's own open step card is that card, and ends
-	// when it closes: a second card would ask him for the same step again. A
-	// wait on a page is its own card, since only its card gets the page polled.
+	// A wait beside the goblin's own open step card is that card, whose close
+	// the goblin hears through its own wait on it: a second card would ask him
+	// for the same step again. A wait on a page is its own card, since only its
+	// card gets the page polled.
 	stepCard := ""
 	if verb == "waiting on overlord" && runCommand == "" && page == "" {
 		if stepCard, err = supervisor.OpenStepCard(h.State, id); err != nil {
