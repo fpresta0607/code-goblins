@@ -18,10 +18,15 @@ permissions:
 
 concurrency:
   # A newer commit on a pull request supersedes the run on the older one,
-  # which is cancelled. Every other run, on main, in the merge queue or
+  # which is cancelled. A run whose event saw a draft has a group apart from
+  # the one of runs whose event saw the pull request ready, so neither
+  # cancels the other: a pull request marked ready within seconds of a push
+  # has both on one head, the run that saw a draft may have read it ready
+  # and started its jobs, and every reader of that head's checks counts a
+  # cancelled one as failed. Every other run, on main, in the merge queue or
   # started by hand, has a group of its own, so none is ever cancelled or
   # held waiting.
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -197,7 +202,7 @@ jobs:
 
   frontend:
     needs: plan
-    if: needs.plan.outputs.frontend == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.frontend == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -251,7 +256,7 @@ jobs:
   # length.
   browser:
     needs: plan
-    if: needs.plan.outputs.browser == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.browser == 'true' }}
     name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
     strategy:
@@ -311,7 +316,7 @@ jobs:
 
   go:
     needs: plan
-    if: needs.plan.outputs.go != '[]'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}
     name: go (${{ matrix.shard }})
     runs-on: windows-latest
     strategy:

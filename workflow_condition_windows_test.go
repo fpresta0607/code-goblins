@@ -1,46 +1,93 @@
 package codegoblins
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
-// pullRequestRun is a pull request's run as a job's condition reads it.
+// pullRequestRun is a pull request's run as a job's condition reads it. Its
+// plan, where it succeeds, starts every job it answers for.
 type pullRequestRun struct {
 	// isDraftSeen says the run's event saw a draft.
 	isDraftSeen bool
 	// draft is the draft job's result, and read its draft output.
 	draft, read string
-	// others is the result of every other job the job needs.
+	// others is the result of every other job that starts.
 	others      string
 	isCancelled bool
 }
 
-// jobStarts says whether GitHub Actions starts a job that needs needs and
-// runs if condition, in run. It reads condition as GitHub's expressions are
-// read (docs.github.com, "Evaluate expressions in workflows and actions"): a
-// condition that calls no status function is success() && condition, and
-// success() holds while the run goes on and every job it needs succeeded; a
-// && or || gives the operand that decides it; strings compare ignoring case;
-// an empty string, null and false are false. An output or field run does not
-// give is null, which compares as the empty string here. A condition it does
-// not follow fails the test.
-func jobStarts(t *testing.T, condition string, needs []string, run pullRequestRun) bool {
+// workflowJobs is each job of a workflow as GitHub Actions reads it to decide
+// whether to start it.
+type workflowJobs map[string]struct {
+	If    string          `yaml:"if"`
+	Needs goWorkflowNeeds `yaml:"needs"`
+}
+
+// readWorkflowJobs is the jobs of the workflow in the file named name.
+func readWorkflowJobs(t *testing.T, name string) workflowJobs {
 	t.Helper()
-	values := map[string]string{"needs.draft.outputs.draft": run.read}
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs workflowJobs `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	return workflow.Jobs
+}
+
+// jobStarts says whether GitHub Actions starts job of jobs in run. It reads
+// the job's condition as GitHub's expressions are read (docs.github.com,
+// "Evaluate expressions in workflows and actions", and "Using jobs in a
+// workflow"): a condition that calls no status function is
+// success() && condition, and success() holds while the run goes on and
+// every job above it, those it needs and those they need in turn, succeeded,
+// so a job skipped anywhere above skips it; a && or || gives the operand that
+// decides it; strings compare ignoring case; an empty string, null and false
+// are false. A job above that does not start is skipped. An output or field
+// run does not give is null, which compares as the empty string here. A
+// condition it does not follow fails the test.
+func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) bool {
+	t.Helper()
+	result := func(name string) string {
+		switch {
+		case name == "draft":
+			return run.draft
+		case jobStarts(t, jobs, name, run):
+			return run.others
+		}
+		return "skipped"
+	}
+	values := map[string]string{"github.event_name": "pull_request", "needs.draft.outputs.draft": run.read}
 	if run.isDraftSeen {
 		values["github.event.pull_request.draft"] = "true"
 	}
-	for _, need := range needs {
-		values["needs."+need+".result"] = run.others
+	for _, need := range jobs[job].Needs {
+		values["needs."+need+".result"] = result(need)
 	}
-	values["needs.draft.result"] = run.draft
+	if values["needs.plan.result"] == "success" {
+		values["needs.plan.outputs.frontend"] = "true"
+		values["needs.plan.outputs.browser"] = "true"
+		values["needs.plan.outputs.go"] = `[{"shard":"rest"}]`
+	}
 	succeeded := !run.isCancelled
-	for _, need := range needs {
-		succeeded = succeeded && values["needs."+need+".result"] == "success"
+	for above := slices.Clone(jobs[job].Needs); len(above) > 0; {
+		name := above[len(above)-1]
+		above = append(above[:len(above)-1], jobs[name].Needs...)
+		succeeded = succeeded && result(name) == "success"
 	}
 
+	condition := jobs[job].If
 	expression := strings.TrimSpace(condition)
 	if inner, ok := strings.CutPrefix(expression, "${{"); ok {
 		expression = strings.TrimSuffix(inner, "}}")

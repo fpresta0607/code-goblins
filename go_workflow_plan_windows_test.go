@@ -54,8 +54,9 @@ func TestGoWorkflowKnowsATrainsRunByTheTrainsOwnBranchPrefix(t *testing.T) {
 // answer, would run or be skipped whatever the change, and a job the plan
 // has no answer for could be left out of the required check's reckoning. So
 // the jobs are exactly the plan, the three it answers for and the check, each
-// of the three reads its own answer, and the plan and the check agree on
-// which runs may leave a job out.
+// of the three reads its own answer once the plan succeeded, whatever became
+// of the draft job above it, and the plan and the check agree on which runs
+// may leave a job out.
 func TestGoWorkflowJobsStartOnlyAsThePlanSays(t *testing.T) {
 	// Arrange
 	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
@@ -76,9 +77,9 @@ func TestGoWorkflowJobsStartOnlyAsThePlanSays(t *testing.T) {
 	}
 	jobs := goWorkflowJobs(t)
 	starts := map[string]string{
-		"frontend": "needs.plan.outputs.frontend == 'true'",
-		"browser":  "needs.plan.outputs.browser == 'true'",
-		"go":       "needs.plan.outputs.go != '[]'",
+		"frontend": "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.frontend == 'true' }}",
+		"browser":  "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.browser == 'true' }}",
+		"go":       "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}",
 	}
 
 	// Act

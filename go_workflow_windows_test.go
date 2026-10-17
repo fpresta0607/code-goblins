@@ -252,14 +252,18 @@ func TestGoWorkflowSplitsCmdCfoIntoThreeJobs(t *testing.T) {
 }
 
 // A newer commit on a pull request supersedes the run validating the older
-// one, so that run is cancelled. A run on main or started by hand is never
+// one, so that run is cancelled. A run whose event saw a draft is grouped
+// apart from one whose event saw the pull request ready: marked ready within
+// seconds of a push, a pull request has both on one head, the one that saw a
+// draft may have read it ready and started its jobs, and a cancelled check
+// on that head counts as failed. A run on main or started by hand is never
 // cancelled or held: in a shared group it would wait behind another, and a
 // waiting run is cancelled when a newer one joins, leaving its commit
 // unvalidated. A release is never cancelled halfway. Every workflow says
 // which it is, so a new one cannot join a group by accident.
 func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	// Arrange
-	const superseded = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}"
+	const superseded = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}"
 	groups := map[string]string{"go.yml": superseded, "install.yml": superseded, "release.yml": "", "windows.yml": superseded}
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
@@ -385,12 +389,12 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 		t.Errorf("test needs %v, want every other job: %v", needs, others)
 	}
 	for name, run := range map[string]pullRequestRun{
-		"a job failed in a run whose event saw no draft":              {draft: "skipped", others: "failure"},
-		"a run whose event saw no draft was cancelled":                {draft: "skipped", others: "cancelled", isCancelled: true},
-		"a job failed once the draft job read the pull request ready": {isDraftSeen: true, draft: "success", read: "false", others: "failure"},
-		"a job failed once the draft job could not read":              {isDraftSeen: true, draft: "failure", others: "failure"},
+		"every job failed in a run whose event saw no draft":              {draft: "skipped", others: "failure"},
+		"a run whose event saw no draft was cancelled":                    {draft: "skipped", others: "cancelled", isCancelled: true},
+		"every job failed once the draft job read the pull request ready": {isDraftSeen: true, draft: "success", read: "false", others: "failure"},
+		"every job failed once the draft job could not read":              {isDraftSeen: true, draft: "failure", others: "failure"},
 	} {
-		if !jobStarts(t, check.If, check.Needs, run) {
+		if !jobStarts(t, readWorkflowJobs(t, "go.yml"), "test", run) {
 			t.Errorf("test runs if %q, so it is skipped when %s, and a skipped check passes", check.If, name)
 		}
 	}
@@ -480,29 +484,24 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 			if draft.Name != train.DraftStateCheck {
 				t.Errorf("%s draft job is named %q, want %q, the check every reader of a head's checks passes over as testing nothing", name, draft.Name, train.DraftStateCheck)
 			}
-			for job, spec := range workflow.Jobs {
+			jobs := readWorkflowJobs(t, name)
+			for job, spec := range jobs {
 				isPushOnly := spec.If == "github.event_name == 'push'"
 				if job == "draft" || isPushOnly {
-					continue
-				}
-				if !slices.Contains(spec.Needs, "draft") {
-					if len(spec.Needs) == 0 || strings.Contains(spec.If, "always()") {
-						t.Errorf("%s job %s needs %v, so a draft does not stop it", name, job, spec.Needs)
-					}
 					continue
 				}
 				for when, test := range map[string]struct {
 					run         pullRequestRun
 					shouldStart bool
 				}{
-					"the event saw no draft":                                        {pullRequestRun{draft: "skipped", others: "skipped"}, true},
-					"the draft job read that the pull request is ready now":         {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "skipped"}, true},
-					"the draft job could not read the pull request":                 {pullRequestRun{isDraftSeen: true, draft: "failure", others: "skipped"}, true},
-					"the draft job read a draft":                                    {pullRequestRun{isDraftSeen: true, draft: "success", read: "true", others: "skipped"}, false},
-					"the run that saw a draft was cancelled before it read":         {pullRequestRun{isDraftSeen: true, draft: "cancelled", others: "skipped", isCancelled: true}, false},
+					"the event saw no draft":                                        {pullRequestRun{draft: "skipped", others: "success"}, true},
+					"the draft job read that the pull request is ready now":         {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "success"}, true},
+					"the draft job could not read the pull request":                 {pullRequestRun{isDraftSeen: true, draft: "failure", others: "success"}, true},
+					"the draft job read a draft":                                    {pullRequestRun{isDraftSeen: true, draft: "success", read: "true", others: "success"}, false},
+					"the run that saw a draft was cancelled before it read":         {pullRequestRun{isDraftSeen: true, draft: "cancelled", others: "cancelled", isCancelled: true}, false},
 					"the run that saw a draft was cancelled after it read it ready": {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "cancelled", isCancelled: true}, false},
 				} {
-					if starts := jobStarts(t, spec.If, spec.Needs, test.run); starts != test.shouldStart {
+					if starts := jobStarts(t, jobs, job, test.run); starts != test.shouldStart {
 						t.Errorf("%s job %s runs if %q, so it starts %v when %s, want %v", name, job, spec.If, starts, when, test.shouldStart)
 					}
 				}
