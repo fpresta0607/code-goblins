@@ -353,16 +353,18 @@ test("a connector to a later row of goblins runs down clear of every card and ba
   assert.ok(detoured > 10, "connectors that had to go around: " + detoured);
 });
 
-test("a sub-agent its goblin's tree holds is a baby goblin under it, not a card of its own", () => {
+// A sub-agent's record has no terminal of its own, so it is never a card:
+// its goblin's family tree draws it as a baby goblin while it runs.
+test("a sub-agent is a baby goblin under its goblin, never a card of its own", () => {
   const sessions = [
-    { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g" },
-    { id: "a1", native_id: "a1", harness: "claude", role: "subagent", task_id: "g", parent: "own", relation: "delegated" },
+    { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1" },
+    { id: "a1", native_id: "a1", harness: "claude", role: "subagent", task_id: "g", generation: "s1", parent: "own", relation: "delegated" },
   ];
-  const goblin = { id: "g", phase: "working", verified: false };
+  const goblin = { id: "g", phase: "working", session: "own", generation: "s1", verified: false };
   const held = { ...goblin, tree: { task_id: "g", generation: "s1", harness: "claude", children: [{ id: "subagent:a1", kind: "subagent", state: "working" }] } };
   const cards = (task: object) => workflowNodes(parseSnapshot({ healthy: true, tasks: [task], sessions })).map((node) => node.id);
   assert.ok(cards(held).includes("session:own") && !cards(held).includes("session:a1"), "the tree holds the sub-agent: " + cards(held).join(", "));
-  assert.ok(cards(goblin).includes("session:a1"), "with no tree to hold it, the sub-agent keeps its card");
+  assert.ok(!cards(goblin).includes("session:a1"), "with no tree to hold it, the sub-agent has no card either: " + cards(goblin).join(", "));
 });
 
 test("a helper goblin is drawn as a goblin baby under its parent and named a helper", () => {
@@ -372,11 +374,11 @@ test("a helper goblin is drawn as a goblin baby under its parent and named a hel
 
 test("a helper its parent's tree holds is a baby goblin under its parent, not a card of its own", () => {
   const sessions = [
-    { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g" },
-    { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1" },
+    { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1" },
+    { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2" },
   ];
-  const helper = { id: "g-h1", parent: "g", phase: "working", verified: false };
-  const parent = { id: "g", phase: "working", verified: false };
+  const helper = { id: "g-h1", parent: "g", phase: "working", session: "helper", generation: "s2", verified: false };
+  const parent = { id: "g", phase: "working", session: "own", generation: "s1", verified: false };
   const holding = { ...parent, tree: { task_id: "g", generation: "s1", harness: "claude", children: [{ id: "helper:g-h1", kind: "helper", state: "working" }] } };
   const cards = (tasks: object[], withSessions = true) => workflowNodes(parseSnapshot({ healthy: true, tasks, sessions: withSessions ? sessions : [] })).map((node) => node.id);
   assert.ok(cards([holding, helper]).includes("session:own") && !cards([holding, helper]).includes("session:helper"), "the tree holds the helper's session: " + cards([holding, helper]).join(", "));
@@ -386,11 +388,14 @@ test("a helper its parent's tree holds is a baby goblin under its parent, not a 
   assert.equal(parseSnapshot({ healthy: true, tasks: [parent] }).tasks[0].parent, "");
 });
 
-test("a helper no family tree holds hangs under its parent's card, never the CFO's", () => {
+// A helper no family tree holds hangs under its parent's card while its
+// parent is in progress. A paused parent waits on the Paused bench, so the
+// helper it waits on, which keeps working, hangs under the CFO.
+test("a helper no family tree holds hangs under its parent's card while its parent is in progress", () => {
   const cfo = { id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", generation: "c1" };
   const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "cfo" };
   const helperSession = { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2", parent: "cfo" };
-  const parent = { id: "g", phase: "paused", verified: false, generation: "s1" };
+  const parent = { id: "g", phase: "waiting", waiting_on: "g-h1", verified: false, generation: "s1" };
   const helper = { id: "g-h1", parent: "g", phase: "working", verified: false, generation: "s2" };
   const parentOf = (tasks: object[], sessions: object[]) => Object.fromEntries(workflowNodes(parseSnapshot({ healthy: true, tasks, sessions }))
     .map((node) => [node.id, [node.parent, node.relation]]));
@@ -403,6 +408,8 @@ test("a helper no family tree holds hangs under its parent's card, never the CFO
     assert.deepEqual(parentOf(tasks, sessions)[card], [under, "Helper goblin"], name);
   }
   assert.deepEqual(parentOf([parent, helper], [])["task:g"], ["cfo:primary", "Dispatched by the CFO"], "its parent still hangs under the CFO");
+  const paused = parentOf([{ ...parent, phase: "paused", session: "own" }, { ...helper, session: "helper" }], [cfo, own, helperSession]);
+  assert.deepEqual([paused["session:own"], paused["session:helper"]?.[0]], [undefined, "session:cfo"], "a paused parent's helper hangs under the CFO");
   assert.equal(parentOf([helper], [])["task:g-h1"][0], "cfo:primary", "a helper whose parent is gone hangs under the CFO");
 });
 
