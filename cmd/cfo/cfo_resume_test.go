@@ -39,21 +39,26 @@ func noResumeWait(t *testing.T) {
 // The board's Reopen brings a closed CFO back as goblins does: as the agent
 // the home remembers, in native terminal cfo, on the conversation it last
 // registered with where its harness resumes one, on a new one when the
-// resumed terminal does not hold, and on a new one when there is none.
+// resumed terminal does not hold, and on a new one when there is none. A CFO
+// that ran before is told why it started again and on which conversation; a
+// home's first CFO waits for the Overlord.
 func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
 	type start struct {
 		project, harness string
 		args             []string
+		prompt           string
 	}
+	const why = "the Overlord reopened it from the board"
+	unresumed := "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed."
 	for _, tc := range []struct {
 		name, remembered, conversation string
 		holds                          bool
 		want                           []start
 	}{
-		{"on its conversation", "claude", "a1b2c3d4-session", true, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}}}},
-		{"on a new one when the resumed terminal does not hold", "claude", "a1b2c3d4-session", false, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}}, {"", "claude", nil}}},
-		{"on a new one when it registered no conversation", "claude", "", true, []start{{"", "claude", nil}}},
-		{"as the remembered agent, which a conversation of another harness does not resume", "codex", "a1b2c3d4-session", true, []start{{"", "codex", nil}}},
+		{"on its conversation", "claude", "a1b2c3d4-session", true, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}, cfoBackPrompt("claude", why, "")}}},
+		{"on a new one when the resumed terminal does not hold", "claude", "a1b2c3d4-session", false, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}, cfoBackPrompt("claude", why, "")}, {"", "claude", nil, cfoBackPrompt("claude", why, unresumed)}}},
+		{"on a new one when it registered no conversation", "claude", "", true, []start{{"", "claude", nil, ""}}},
+		{"as the remembered agent, which a conversation of another harness does not resume", "codex", "a1b2c3d4-session", true, []start{{"", "codex", nil, cfoBackPrompt("codex", why, "")}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -66,20 +71,20 @@ func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
 				recordConversation(t, f.home.State, "claude", tc.conversation, supervisor.NativeCFOTerminal)
 			}
 			var starts []start
-			started := func(_ home.Home, project, harness string, args []string) error {
-				starts = append(starts, start{project, harness, args})
+			started := func(_ home.Home, project, harness string, args []string, prompt string) error {
+				starts = append(starts, start{project, harness, args, prompt})
 				return nil
 			}
 
 			// Act
-			err := reopenCFO(f.home, started, func(string, string) bool { return len(starts) > 0 && tc.holds })
+			err := reopenCFO(f.home, why, started, func(string, string) bool { return len(starts) > 0 && tc.holds })
 
 			// Assert
 			for i := range tc.want {
 				tc.want[i].project = f.home.Root
 			}
 			if err != nil || !slices.EqualFunc(starts, tc.want, func(a, b start) bool {
-				return a.project == b.project && a.harness == b.harness && slices.Equal(a.args, b.args)
+				return a.project == b.project && a.harness == b.harness && slices.Equal(a.args, b.args) && a.prompt == b.prompt
 			}) {
 				t.Fatalf("reopenCFO = %v, started %+v; want %+v", err, starts, tc.want)
 			}
@@ -111,7 +116,7 @@ func TestReopenReportsTheConversationItActuallyCouldNotResume(t *testing.T) {
 			}
 			startError := errors.New("fresh start failed")
 			isStarted := false
-			start := func(_ home.Home, _, _ string, args []string) error {
+			start := func(_ home.Home, _, _ string, args []string, _ string) error {
 				if len(args) == 0 && testCase.isStartError {
 					return startError
 				}
@@ -120,7 +125,7 @@ func TestReopenReportsTheConversationItActuallyCouldNotResume(t *testing.T) {
 			}
 
 			// Act
-			err := reopenCFO(fixture.home, start, func(string, string) bool { return isStarted && testCase.isResumeHeld })
+			err := reopenCFO(fixture.home, "the Overlord reopened it from the board", start, func(string, string) bool { return isStarted && testCase.isResumeHeld })
 
 			// Assert
 			if testCase.isStartError != errors.Is(err, startError) || !testCase.isStartError && err != nil {
@@ -159,6 +164,9 @@ func TestAClosedCFOComesBackOnItsConversation(t *testing.T) {
 	}
 	if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
 		t.Errorf("native terminals shown = %q, want the CFO's", f.nativeAttached)
+	}
+	if want := cfoBackPrompt("claude", "goblins started it again after it closed", ""); !slices.Equal(f.nativePrompts, []string{want}) {
+		t.Errorf("the CFO was told %q, want %q", f.nativePrompts, want)
 	}
 }
 
@@ -414,5 +422,23 @@ func TestACFOWhoseConversationIsTooLargeStartsANewOne(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Its last conversation is 21 MB, past the 20 MB a CFO resumes, so the CFO starts a new one.") {
 		t.Errorf("stdout = %q, want why the conversation was not resumed", stdout)
+	}
+	if len(f.nativePrompts) != 1 || !strings.Contains(f.nativePrompts[0], "Its last conversation is 21 MB, past the 20 MB a CFO resumes") {
+		t.Errorf("the CFO was told %q, want why it is on a new conversation", f.nativePrompts)
+	}
+}
+
+// A home whose CFO never registered starts its first CFO as it always has: a
+// Claude Code CFO with no prompt, which waits for the Overlord.
+func TestAHomesFirstCFOStartsWithNoInstruction(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+
+	// Act
+	exit, _, stderr := f.launch()
+
+	// Assert
+	if exit != 0 || !slices.Equal(f.nativeArgs, []string{""}) || !slices.Equal(f.nativePrompts, []string{""}) {
+		t.Fatalf("exit=%d nativeArgs=%q prompts=%q stderr=%q, want one new CFO and no instruction", exit, f.nativeArgs, f.nativePrompts, stderr)
 	}
 }

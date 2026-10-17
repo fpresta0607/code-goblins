@@ -523,6 +523,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepCFOAwake(ctx, cfoWakeEvery)
 	}()
 	defer func() { s.cancel(); <-awakeDone }()
+	backDone := make(chan struct{})
+	go func() {
+		defer close(backDone)
+		s.keepCFOBack(ctx, cfoBackEvery)
+	}()
+	defer func() { s.cancel(); <-backDone }()
 	fleetDone := make(chan struct{})
 	go func() {
 		defer close(fleetDone)

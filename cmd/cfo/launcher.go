@@ -194,7 +194,7 @@ func launchAppBoard(runtime commandRuntime, h home.Home, stdout, stderr io.Write
 		return board, true
 	}
 	if err == nil {
-		err = reopenCFO(h, runtime.startNativeCFO, runtime.nativeTerminalRuns)
+		err = reopenCFO(h, "the Overlord opened the board, which reopened it", runtime.startNativeCFO, runtime.nativeTerminalRuns)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "goblins: the CFO could not be reopened: %v\nOpen the board at %s to try Reopen again.\n", err, board)

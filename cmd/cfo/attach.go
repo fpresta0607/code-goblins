@@ -231,15 +231,41 @@ func detachAt(keys []byte) int {
 // session's start is the contract's, which the harness reads from AGENTS.md.
 const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session, and wait for the Overlord."
 
+// cfoBackPrompt is the first instruction of a CFO started again in a home
+// whose CFO ran before, which nobody types into: that it is that home's CFO,
+// why it started again, why it is on a new conversation when fresh says so,
+// and to take up the fleet's work at once. Claude Code's SessionStart hook
+// registers it and prints the digest; a Codex or pi CFO registers itself. It
+// passes through cmd /c for Codex and pi, so it holds none of the characters
+// cmd reads (spawn's cmdProgram).
+func cfoBackPrompt(harness, why, fresh string) string {
+	prompt := "You are the CFO of this Code Goblins home, started again because " + why + "."
+	if fresh != "" {
+		prompt += " " + fresh
+	}
+	prompt += " This instruction came with the start, not from the Overlord."
+	if supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
+		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session."
+	} else {
+		prompt += " Your SessionStart hook registered you and printed the session digest: read the file it names and act on it."
+	}
+	return prompt + " Run cfo drain, handle each wake it shows and acknowledge them, and carry on with the fleet without waiting for the Overlord."
+}
+
 // cfoStartArguments are the arguments a CFO's harness starts with: args, such
-// as the ones that resume a conversation, and for a harness the supervisor
-// wakes by typing, the first prompt that registers it, last.
-func cfoStartArguments(harness string, args []string) []string {
+// as the ones that resume a conversation, and its first instruction, prompt,
+// last. With none, a harness the supervisor wakes by typing starts with the
+// first prompt that registers it, and a Claude Code CFO waits for the
+// Overlord, as on a home's first start.
+func cfoStartArguments(harness string, args []string, prompt string) []string {
 	args = slices.Clone(args)
-	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
+	if prompt == "" && supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
+		prompt = cfoFirstPrompt
+	}
+	if prompt == "" {
 		return args
 	}
-	return append(args, cfoFirstPrompt)
+	return append(args, prompt)
 }
 
 // cfoScreenArguments are the arguments that start a CFO's harness on its own
@@ -259,8 +285,9 @@ func cfoScreenArguments(agent string) ([]string, error) {
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
 // in project, in a host of its own that outlives this console, with args,
-// such as the arguments that resume a conversation.
-func startNativeCFO(h home.Home, project, harness string, args []string) error {
+// such as the arguments that resume a conversation, and prompt as its first
+// instruction (cfoStartArguments).
+func startNativeCFO(h home.Home, project, harness string, args []string, prompt string) error {
 	hooks, err := cfoHookArguments(h, harness)
 	if err != nil {
 		return err
@@ -269,7 +296,7 @@ func startNativeCFO(h home.Home, project, harness string, args []string) error {
 	if err != nil {
 		return err
 	}
-	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, args, screen))...)
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, args, screen), prompt)...)
 	if err != nil {
 		return err
 	}

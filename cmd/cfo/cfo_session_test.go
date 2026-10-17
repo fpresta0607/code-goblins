@@ -92,7 +92,7 @@ func TestGoblinsStartsTheCFOInItsHome(t *testing.T) {
 func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
-	f.runtime.startNativeCFO = func(home.Home, string, string, []string) error { return errors.New("claude is not on PATH") }
+	f.runtime.startNativeCFO = func(home.Home, string, string, []string, string) error { return errors.New("claude is not on PATH") }
 
 	// Act
 	exit, _, stderr := f.launch()

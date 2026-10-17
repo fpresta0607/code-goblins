@@ -18,6 +18,10 @@ import (
 // once never start two CFOs.
 const cfoLaunchLock = ".cfo-launch.lock"
 
+// restartedWhy is why a restarted CFO started again, as its first instruction
+// tells it.
+const restartedWhy = "the board's Restart or Update, or goblins resume, restarted it"
+
 // errNoRunningCFO says no CFO runs in native terminal cfo to restart.
 var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 
@@ -86,8 +90,10 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 	if err := host.Close(h.State, record, 5*time.Second); err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO's terminal could not be closed, so nothing was restarted: %w", err)
 	}
+	// The restarted CFO is told so, as every CFO brought back is, so it takes
+	// up its work without anybody typing into it.
 	if len(args) == 0 {
-		held, err := comeBack(h, conversation.Harness, nil, startNativeCFO, supervisor.NativeTerminalRuns)
+		held, err := comeBack(h, conversation.Harness, nil, cfoBackPrompt(conversation.Harness, restartedWhy, fresh), startNativeCFO, supervisor.NativeTerminalRuns)
 		if err != nil {
 			return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO stopped but did not start again on a new conversation; run goblins to bring it back: %w", err)
 		}
@@ -97,7 +103,7 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 		supervisor.ClearCFOConversationLeft(h.State)
 		return conversation, fresh, nil
 	}
-	if err := startNativeCFO(h, h.Root, conversation.Harness, args); err != nil {
+	if err := startNativeCFO(h, h.Root, conversation.Harness, args, cfoBackPrompt(conversation.Harness, restartedWhy, "")); err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO stopped but did not start again on its conversation; run goblins to bring it back: %w", err)
 	}
 	cfoResumeWait(cfoResumeSettle)
@@ -105,7 +111,8 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 		supervisor.ClearCFOConversationLeft(h.State)
 		return conversation, "", nil
 	}
-	held, err := comeBack(h, conversation.Harness, nil, startNativeCFO, supervisor.NativeTerminalRuns)
+	unresumed := fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation.Session)
+	held, err := comeBack(h, conversation.Harness, nil, cfoBackPrompt(conversation.Harness, restartedWhy, unresumed), startNativeCFO, supervisor.NativeTerminalRuns)
 	if err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO stopped, its conversation %s could not be resumed, and it did not start on a new one; run goblins to bring it back: %w", conversation.Session, err)
 	}
@@ -115,5 +122,5 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 	if err := supervisor.RecordCFOConversationLeft(h.State, supervisor.CFOConversationLeft{Harness: conversation.Harness, Session: conversation.Session, Resume: args}); err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", conversation.Session, err)
 	}
-	return conversation, fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation.Session), nil
+	return conversation, unresumed, nil
 }

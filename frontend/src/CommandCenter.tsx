@@ -11,6 +11,7 @@ import { publicationKey, publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CfoUnwokenCard } from "./cfo-unwoken-card";
+import { CfoStoppedCard } from "./cfo-stopped-card";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk, credentialFinish, onThisMachine } from "./credentials";
 import { BrowserSignInCard } from "./browser-signin-card";
@@ -511,6 +512,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
               : item.kind === "run" && item.run.cfo_unwoken
               ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
+              : item.kind === "run" && item.run.cfo_stopped
+              ? <CfoStoppedCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
               : item.kind === "run" && item.run.update
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"

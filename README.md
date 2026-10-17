@@ -395,7 +395,8 @@ A restart or a sign-out ends all of those processes, and Code Goblins brings the
 The supervisor then brings back what the restart ended, in this order:
 
 1. The registered CFO, in its terminal, on the conversation it last ran, resumed by that conversation's id: Claude Code with `--resume <session>`, Codex with `codex resume <session>`.
-   It never starts a fresh CFO in its place.
+   A conversation past 20 MB, or one that cannot be resumed, is left as it is, and the CFO starts on a new one, as Restart the CFO does.
+   Either way its first instruction says the machine restarted and to carry on, so you type nothing into it.
 2. Each goblin that was working and had not finished, in its own session, with the same harness, model and effort, one at a time.
    Each waits for room as a start does: memory and commit both at the 5 GB mark on two readings in a row, a minute apart, and a free goblin slot.
 3. Each goblin that comes back is told in one line that the machine restarted and to continue where it left off.
@@ -404,9 +405,15 @@ Goblins that had finished, were paused or stopped, or were retired stay as they 
 While anything waits to come back nothing else starts by itself: queued starts, paused goblins' automatic resumes and `memory_ready` wait.
 A Start or Resume you press on the board, or a `cfo spawn` the CFO chooses, is still allowed.
 A goblin that cannot come back, such as one whose harness sign-in expired, stays stopped with the reason on its card, the CFO is told, and the other goblins still come back.
-A CFO whose conversation cannot be resumed stays closed with the reason, and **Reopen** on its bar tries its conversation again and starts it on a new one where that cannot be resumed.
+A CFO that cannot come back stays closed with the reason, and **Reopen** on its bar tries again.
 While this runs, one line at the top of the board says what is back and what waits, then what resumed, such as "Resumed the CFO and 6 goblins after a restart."; it is the same line in the desktop window and in the browser, and Dismiss puts it away.
 With Start at login off, the same happens the first time the supervisor starts after the restart, when you open the app or run `goblins`.
+
+The CFO's terminal can also end while the machine keeps running, as when Claude Code crashes or ends itself after an update.
+Then the supervisor brings the CFO back by itself within about ten seconds, on the harness it ran, on its conversation where that is small enough and on a new one where not, and its first instruction tells it why it is back, so it reads its digest and carries on with the fleet without you typing anything.
+Whenever the CFO starts again, by **Reopen**, **Restart**, `goblins` or after a restart, it gets the same kind of first instruction.
+A stop you asked for stays: your own exit from the CFO's harness, **Restart** and a harness switch, which start it again themselves, and the uninstall.
+A CFO that keeps ending soon after it starts is brought back twice; at its third end in a row it stays closed, and one Command Center item tells you so with **Reopen the CFO** as its one action.
 
 Start at login is one setting wherever you change it: the switch under **Workspace** in the CFO's panel on the board, **Start at login** in the desktop window's tray menu, the box in the setup, or `cfo install --start-at-login off` or `on` in a terminal.
 The home keeps your choice, so an update never turns back on what you turned off, and `goblins uninstall` removes the entry.

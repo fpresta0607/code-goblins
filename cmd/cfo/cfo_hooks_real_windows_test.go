@@ -80,7 +80,7 @@ func TestARealClaudeCFOGetsItsHooksThroughItsTerminalAlone(t *testing.T) {
 	prompt := "You stand in for the CFO of a scratch Code Goblins home in an automated test. Use the shell only as told. First use your Bash tool, never PowerShell, to run the command cd /c/Windows exactly once, reply with the bracketed code its refusal begins with, and end your turn. After that, every time a line starting with cfo watcher wake reaches you, run " + cfo + " drain, then run the WAKE_ACK_REQUIRED command it prints with " + cfo + " in place of cfo, then reply with one short line naming each drained record by kind and key, and end your turn. Run no other command and change no file."
 
 	// Act: the product's own start of the CFO.
-	if err := startNativeCFO(h, h.Root, "claude", []string{"--setting-sources", "project,local", "--dangerously-skip-permissions", prompt}); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", []string{"--setting-sources", "project,local", "--dangerously-skip-permissions"}, prompt); err != nil {
 		t.Fatalf("startNativeCFO: %v", err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })

@@ -495,6 +495,9 @@ export interface Run {
   // cfo_unwoken is the oldest wake the supervisor could not type into the CFO,
   // on the item that offers the Overlord Restart the CFO; 0 on every other.
   cfo_unwoken: number;
+  // cfo_stopped marks the item that says the supervisor stopped bringing back
+  // a CFO that kept ending, and offers him Reopen the CFO.
+  cfo_stopped: boolean;
 }
 // A newer release of Code Goblins, as the Update item offers it: the version
 // this board runs and the one it installs, when that was published, a few
@@ -746,7 +749,7 @@ function itemLists(v: Record<string, unknown>) {
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
-        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken),
+        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken), cfo_stopped: r.cfo_stopped === undefined ? false : boolean(r.cfo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
           notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
     }),

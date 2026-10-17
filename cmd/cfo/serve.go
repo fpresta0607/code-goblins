@@ -202,7 +202,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 		comeback = &supervisor.Comeback{
 			SignedIn: supervisor.SignInBegan,
-			CFO:      func(ctx context.Context) error { return comebackCFO(ctx, h, runtime) },
+			CFO: func(ctx context.Context) error {
+				return comebackCFO(ctx, h, runtime, "the machine restarted or its Windows sign-in ended, which ended its terminal")
+			},
+			CFOEnded: func(ctx context.Context, why string) error { return comebackCFO(ctx, h, runtime, why) },
 			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
 				return comebackGoblin(ctx, h, runtime, id)
 			},
@@ -359,9 +362,11 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			if launchErr != nil {
 				return launchErr
 			}
-			return startNativeCFO(h, h.Root, agent, nil)
+			return startNativeCFO(h, h.Root, agent, nil, "")
 		},
-		ReopenCFO: func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
+		ReopenCFO: func() error {
+			return reopenCFO(h, "the Overlord reopened it from the board", startNativeCFO, supervisor.NativeTerminalRuns)
+		},
 		RestartCFO: func(harness string) (supervisor.CFOConversation, bool, error) {
 			conversation, fresh, err := restartCFO(h, harness)
 			return conversation, fresh == "", err

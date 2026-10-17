@@ -107,7 +107,7 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 		t.Fatalf("first-run Start returned while another start held the lock: %v", err)
 	case <-time.After(200 * time.Millisecond):
 	}
-	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })

@@ -745,6 +745,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
 		case s.db.Runs[run].CFOUnwoken != 0:
 			return Action{}, errors.New("that item restarts the CFO with Restart the CFO; it runs no command")
+		case s.db.Runs[run].CFOStopped:
+			return Action{}, errors.New("that item reopens the CFO with Reopen the CFO; it runs no command")
 		case s.db.Runs[run].State == "withdrawn":
 			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
@@ -760,7 +762,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		switch {
 		case declined < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
-		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "":
+		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "":
 			return Action{}, errors.New("that item is the board's own, not a command someone asked you to run")
 		case s.db.Runs[declined].State != "ready" || !time.Now().Before(s.db.Runs[declined].ExpiresAt):
 			return Action{}, errors.New("that run item is no longer waiting on you; refresh the board")
