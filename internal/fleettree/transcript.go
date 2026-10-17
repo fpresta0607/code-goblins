@@ -37,6 +37,30 @@ func SessionTranscript(home, harness, session string) string {
 	return newestFile(matches)
 }
 
+// piFolderCharacters are the characters pi 0.85 writes as a hyphen in the
+// folder it keeps a working folder's sessions in, which it wraps in two
+// hyphens: C:\dev\x is --C--dev-x--.
+var piFolderCharacters = strings.NewReplacer(`\`, "-", "/", "-", ":", "-")
+
+// PiSessions is every session pi keeps under home for the folder dir.
+func PiSessions(home, dir string) []string {
+	if home == "" || !filepath.IsAbs(dir) {
+		return nil
+	}
+	matches, _ := filepath.Glob(filepath.Join(home, ".pi", "agent", "sessions", "--"+piFolderCharacters.Replace(dir)+"--", "*.jsonl"))
+	return matches
+}
+
+// piSessionID is the id of the pi session whose file is path, which pi names
+// <time>_<id>.jsonl, or empty for none.
+func piSessionID(path string) string {
+	_, id, found := strings.Cut(strings.TrimSuffix(filepath.Base(path), ".jsonl"), "_")
+	if !found || !sessionID.MatchString(id) {
+		return ""
+	}
+	return id
+}
+
 // newestFile is the path in paths whose file was written last.
 func newestFile(paths []string) string {
 	newest := ""

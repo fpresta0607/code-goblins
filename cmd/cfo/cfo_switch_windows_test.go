@@ -154,10 +154,14 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("harness starts = %q, want three", lines)
 	}
+	codexHooks, err := cfoHookArguments(h, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for index, harness := range []string{"codex", "pi", "codex"} {
 		want := harness + "-standin "
 		if harness == "codex" {
-			want += "--no-alt-screen "
+			want += strings.Join(append(codexHooks, "--no-alt-screen"), " ") + " "
 		}
 		if lines[index] != want+cfoFirstPrompt {
 			t.Errorf("start %d = %q, want fresh arguments %q", index, lines[index], want+cfoFirstPrompt)

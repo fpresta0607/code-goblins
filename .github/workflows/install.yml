@@ -334,7 +334,7 @@ jobs:
           }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           $commands = @($settings.hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
-          foreach ($hook in @{ match = "cfo\.exe hook session-start"; want = 0 }, @{ match = "cfo-native-hook\.ps1"; want = 1 }) {
+          foreach ($hook in @{ match = "cfo\.exe hook session-start"; want = 0 }, @{ match = "cfo-native-hook\.ps1"; want = 0 }) {
             $count = @($commands -match $hook.match).Count
             if ($count -ne $hook.want) { throw "after a second install SessionStart holds $count hooks matching $($hook.match), want $($hook.want)" }
           }
@@ -462,7 +462,7 @@ jobs:
             if ((Get-Item -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill") -Force).LinkType -ne "Junction") { throw "~\.claude\skills\$skill is not a junction to ~\.agents\skills\$skill" }
           }
           $commands = @((Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json).hooks.SessionStart.hooks | ForEach-Object { @($_.command) + @($_.args) -join " " })
-          if (-not ($commands -match "cfo-native-hook\.ps1")) { throw "no SessionStart hook in the Claude Code user settings matches cfo-native-hook\.ps1" }
+          if ($commands -match "cfo-native-hook\.ps1") { throw "-Dev wrote the native hooks into the Claude Code user settings, where every session runs them" }
           if ($commands -match "cfo\.exe hook ") { throw "-Dev wrote the CFO's hooks into the Claude Code user settings, where every session runs them" }
           foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
             if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill\SKILL.md"))) { throw "-Dev did not install the $skill skill" }

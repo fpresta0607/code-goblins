@@ -22,7 +22,7 @@ type registeredHook struct {
 // starts with, for the home at root.
 func terminalHooks(t *testing.T, root string) []registeredHook {
 	t.Helper()
-	settings, err := CFOSettings(root)
+	settings, err := CFOSettings(root, filepath.Join(root, "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +150,9 @@ func TestTheCFOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	for _, hook := range hooks {
 		if hook.Command != binary {
 			t.Errorf("%s hook runs %q, want the home's %s", hook.Event, hook.Command, binary)
+			continue
+		}
+		if isNativeHook(hook) {
 			continue
 		}
 		if hook.Shell || len(hook.Args) != 2 || hook.Args[0] != "hook" {

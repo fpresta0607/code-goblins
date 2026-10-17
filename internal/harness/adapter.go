@@ -62,7 +62,11 @@ type LaunchSpec struct {
 	// starts none of them, as claude's --strict-mcp-config starts none of the
 	// operator's.
 	CodexMCPServers []string
-	Subagents       map[string]routing.ExecutionLane
+	// CodexHooks are the arguments that give a Codex launch its native
+	// session hooks (nativehook.CodexArguments), and empty for a launch that
+	// runs none. Only the codex adapter reads them.
+	CodexHooks []string
+	Subagents  map[string]routing.ExecutionLane
 }
 
 // Launch is a harness launch specification: the native terminal's host starts

@@ -885,14 +885,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # The board's native lifecycle hooks, for each harness installed here.
-    foreach ($harness in @("claude", "codex", "pi")) {
-        if (-not (Get-Command $harness -ErrorAction SilentlyContinue)) {
-            continue
-        }
-        if ((Invoke-Logged $dest @("hooks", "install", $harness)) -ne 0) {
-            Write-Detail ("WARN     {0,-20} native hooks were not installed; see the line above" -f $harness)
-            $failedInstalls += "$harness hooks"
+    # Pi's native lifecycle hooks, its extension, when pi is installed here.
+    # The fleet's Claude Code and Codex sessions carry theirs in their own
+    # launches, so nothing goes into the settings every Claude Code or Codex
+    # session on the machine loads.
+    if (Get-Command pi -ErrorAction SilentlyContinue) {
+        if ((Invoke-Logged $dest @("hooks", "install", "pi")) -ne 0) {
+            Write-Detail ("WARN     {0,-20} native hooks were not installed; see the line above" -f "pi")
+            $failedInstalls += "pi hooks"
         }
     }
 

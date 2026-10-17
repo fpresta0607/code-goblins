@@ -12,7 +12,7 @@ import (
 func TestGoblinSettingsHoldTheSealBeforeShellCallsAndTheAlarmAfterEveryTool(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
-	settings, err := GoblinSettings(root)
+	settings, err := GoblinSettings(root, filepath.Join(root, "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestGoblinSettingsHoldTheSealBeforeShellCallsAndTheAlarmAfterEveryTool(t *t
 	}
 
 	// Act
-	hooks := registeredHooks(t, path)
+	hooks := slices.DeleteFunc(registeredHooks(t, path), isNativeHook)
 
 	// Assert
 	executable := filepath.Join(root, home.BinDir, "cfo.exe")

@@ -205,6 +205,7 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	for _, name := range spec.CodexMCPServers {
 		launch.Args = append(launch.Args, "-c", "mcp_servers."+name+".enabled=false")
 	}
+	launch.Args = append(launch.Args, spec.CodexHooks...)
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
