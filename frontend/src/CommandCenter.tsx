@@ -25,6 +25,7 @@ import { Disclosure } from "./Disclosure";
 import { countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
 import { HistoryMark } from "./history-mark";
+import { HistoryStoredCard } from "./history-stored-card";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
@@ -434,7 +435,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               <HistoryMark icon={who === "you" ? "crown" : who === "away" ? "moon" : who === "cfo" || candidate.kind === "credential" && candidate.request.state === "answered" ? "comment" : mark.icon} tone={mark.tone} label={label} />
               <span className="inbox-text">
                 <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
-                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
+                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}
+                  {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
               <time>{age(closedAt(candidate))}</time>

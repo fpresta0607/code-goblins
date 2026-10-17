@@ -606,3 +606,47 @@ func TestIngestRecoversConcurrentSpoolCapacityOvershoot(t *testing.T) {
 		t.Fatal("bounded read window never reached deferred start")
 	}
 }
+
+// The board sends a message to a goblin naming no generation, and the store
+// records the goblin's. A resend after a lost answer names none either, so it
+// is the same message, while other words under its ID are refused.
+func TestAResentGoblinMessageUnderItsIDReturnsTheFirstAction(t *testing.T) {
+	for _, resend := range []struct {
+		name    string
+		text    string
+		isFirst bool
+	}{
+		{name: "same words", text: "use the staging database", isFirst: true},
+		{name: "other words", text: "use the production database"},
+	} {
+		t.Run(resend.name, func(t *testing.T) {
+			// Arrange
+			s, _ := testStore(t)
+			first, err := s.Queue(Action{ID: "message-1", Kind: "message", TaskID: "task-1", Text: "use the staging database"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			again, err := s.Queue(Action{ID: "message-1", Kind: "message", TaskID: "task-1", Text: resend.text})
+
+			// Assert
+			if first.Generation != "g1" {
+				t.Fatalf("the first message recorded generation %q, not the goblin's g1", first.Generation)
+			}
+			if resend.isFirst {
+				if err != nil {
+					t.Fatalf("the resend was refused: %v", err)
+				}
+				if again.ID != first.ID || again.Text != first.Text || again.Generation != first.Generation || again.Status != first.Status {
+					t.Fatalf("the resend returned %+v, not the first action %+v", again, first)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "already used for another action") {
+				t.Fatalf("other words under the same ID were not refused: %v", err)
+			}
+			if count := len(s.Snapshot().Actions); count != 1 {
+				t.Fatalf("the store holds %d actions, not the one message", count)
+			}
+		})
+	}
+}
