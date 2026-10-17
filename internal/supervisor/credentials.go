@@ -792,6 +792,11 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	if err != nil {
 		return credentialOutcome{}, fmt.Errorf("stored %s, but the board could not record it: %w", strings.Join(slices.Concat(saved, plain), ", "), err)
 	}
+	if updated.State == "saved" {
+		if err := s.Store.closeWaitsForCard(updated, "overlord"); err != nil {
+			s.publish(err)
+		}
+	}
 	s.credentialWork.Add(1)
 	go s.afterCredentialSave(updated, saved, plain)
 	s.notify()
@@ -1049,6 +1054,11 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 	if err != nil {
 		s.publish(err)
 		return
+	}
+	if updated.State == "saved" {
+		if err := s.Store.closeWaitsForCard(updated, "overlord"); err != nil {
+			s.publish(err)
+		}
 	}
 	detail := strings.Join(typed, ", ") + " stored for " + request.Project + " in a terminal on this PC (" + request.ID + "); cfo auth store refreshed the project's running goblins itself"
 	if len(written) > 0 {
