@@ -6,7 +6,7 @@ import { copyText } from "./clipboard";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
-import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { clipboardInput, terminalKey } from "./terminal-keys";
@@ -217,7 +217,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       liveValue.current = false;
       setLive(false);
       setStatus("Disconnected");
-      reportToCfo(reportAs.current, typingHeldReason(reason));
+      if (!isDetachedHold(reason)) reportToCfo(reportAs.current, typingHeldReason(reason));
     };
     // Typing goes one input at a time in order, each with the lease's next
     // number.

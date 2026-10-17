@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -388,6 +389,55 @@ func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 	s.Options.Gate = fakeProgress{err: pipeline.ErrNoProgress}
 	if err := s.validateTerminalControl(context.Background(), meta); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A worktree on a detached HEAD, as a new task's starts, has no branch for a
+// gate's custody to be read on, so typing into its terminal stays held. The
+// board says so and names the commit, where it said Git's symbolic-ref
+// failure and woke the CFO each time (#1015).
+func TestBoardTerminalOnADetachedHeadHoldsTypingAndSaysWhy(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	gitFixture(t, meta.Worktree)
+	s := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	onBranch, onBranchErr := s.Git.Detached(context.Background(), meta.Worktree)
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = meta.Worktree
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v", out, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("checkout", "-q", "--detach", "HEAD")
+	commit := git("rev-parse", "HEAD")[:12]
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Act
+	detached, detachedErr := s.Git.Detached(context.Background(), meta.Worktree)
+	controlErr := s.boardTerminalControl(context.Background(), meta)
+	cancelledErr := s.boardTerminalControl(cancelled, meta)
+	details, detailErr := s.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
+
+	// Assert
+	if onBranch || onBranchErr != nil {
+		t.Errorf("Detached on a branch = %v, %v; want false", onBranch, onBranchErr)
+	}
+	if !detached || detachedErr != nil {
+		t.Errorf("Detached on a detached HEAD = %v, %v; want true", detached, detachedErr)
+	}
+	if controlErr == nil || !strings.HasPrefix(controlErr.Error(), "HEAD is detached at "+commit) {
+		t.Errorf("board terminal control = %v, want typing refused on HEAD is detached at %s", controlErr, commit)
+	}
+	if cancelledErr == nil || strings.HasPrefix(cancelledErr.Error(), "HEAD is detached") {
+		t.Errorf("cancelled board terminal control = %v, want the cancellation", cancelledErr)
+	}
+	if detailErr != nil || details.Branch != "detached at "+commit || slices.Contains(details.Notes, "Branch information is unavailable.") {
+		t.Errorf("workspace = %+v, %v; want detached at %s with no unavailable note", details, detailErr, commit)
 	}
 }
 

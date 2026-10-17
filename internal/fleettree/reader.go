@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // Reader reads goblins' trees. It keeps what it has read of each goblin's
@@ -58,6 +59,9 @@ type Reader struct {
 	// Console reads the process id of the host of the console a process is
 	// attached to; nil reads it through Windows.
 	Console func(pid int) (int, error)
+	// HeavyLine reads the machine's heavy line: the runs that hold a turn
+	// and the runs that wait for one. Nil reads none.
+	HeavyLine func() (holding, waiting []verify.Standing, err error)
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
@@ -131,6 +135,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	tree := Tree{TaskID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Children: []Node{}, FetchedAt: now}
 
 	processes, harness, isRunning, isReused, processErr := r.harnessOf(goblin)
+	harness = r.withoutLinkBrowsers(harness)
 	switch {
 	case processErr != nil:
 		tree.Unread = append(tree.Unread, "processes: "+processErr.Error())
@@ -191,7 +196,14 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 				child.LastLine = "ended with an earlier run of its harness"
 			}
 		}
-		jobs, err := r.jobNodes(harness, commands, tree.Children, now)
+		var line heavyLine
+		if r.HeavyLine != nil {
+			var err error
+			if line.holding, line.waiting, err = r.HeavyLine(); err != nil {
+				tree.Unread = append(tree.Unread, "heavy line: "+err.Error())
+			}
+		}
+		jobs, err := r.jobNodes(harness, commands, tree.Children, line, now)
 		if err != nil {
 			tree.Unread = append(tree.Unread, "listening ports: "+err.Error())
 		}
@@ -210,8 +222,8 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		// replacing its own process, which leaves the program no parent, so
 		// a detached job counts in the child whose processes host the console
 		// it is attached to.
-		detached := r.detachedJobs(meta.ID, processes, harness)
-		left, _ := r.jobNodes(harnessProcesses{jobs: detached}, commands, tree.Children, now)
+		detached := r.withoutLinkBrowsers(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)})
+		left, _ := r.jobNodes(detached, commands, tree.Children, line, now)
 		for i := range left {
 			node := &left[i]
 			node.Detached = true
@@ -220,7 +232,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 			}
 			tree.Memory += node.Memory
 			if node.Parent == "" {
-				node.Parent = countsIn[r.console(detached[i].root.PID)]
+				node.Parent = countsIn[r.console(detached.jobs[i].root.PID)]
 			}
 		}
 		jobs = append(jobs, left...)
@@ -439,7 +451,7 @@ func claudeProcessSession(home string, harness Process) string {
 // jobNodes are the jobs the harness started, each with what it is doing,
 // its memory and whether it is using the processor. err says the listening
 // ports could not be read, so no job reads as a dev server.
-func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, children []Node, now time.Time) ([]Node, error) {
+func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, children []Node, line heavyLine, now time.Time) ([]Node, error) {
 	if len(harness.jobs) == 0 {
 		return nil, nil
 	}
@@ -491,7 +503,7 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if reading.isWorking {
 			state = Working
 		}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts)}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts), lineMovedAt: line.movedFor(job)}
 		// A machine service a goblin started works for every goblin, as the
 		// no-mistakes daemon runs every gate's agents: it is shown at work,
 		// and its processor use is no goblin's work.
@@ -752,6 +764,7 @@ func mergeShells(children []Node) []Node {
 				child.process = job.process
 			}
 			child.heavyRun = child.heavyRun || job.heavyRun
+			child.lineMovedAt = later(child.lineMovedAt, job.lineMovedAt)
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}

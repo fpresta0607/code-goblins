@@ -1218,6 +1218,25 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 	return nil
 }
 
+// boardTerminalControl is validateTerminalControl as the board's terminal
+// views say it. Its decision stands, and a refusal on a detached HEAD, which
+// no gate custody can be read for, names the commit in place of Git's failure
+// (#1015).
+func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta) error {
+	err := s.validateTerminalControl(ctx, meta)
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	if detached, detachedErr := s.Git.Detached(ctx, meta.Worktree); detachedErr != nil || !detached {
+		return err
+	}
+	head, headErr := s.Git.Head(ctx, meta.Worktree)
+	if headErr != nil {
+		return err
+	}
+	return fmt.Errorf("HEAD is detached at %s, and no gate custody can be read for a detached HEAD, so typing is held", head[:min(len(head), 12)])
+}
+
 func (s *Service) previewGit(meta state.TaskMeta) Git {
 	preview := s.Git
 	prior := s.Store.Snapshot().Tasks[meta.ID]

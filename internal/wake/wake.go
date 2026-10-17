@@ -806,6 +806,26 @@ func choices(list string) []string {
 	return options
 }
 
+// notChoices are a report's code spans and links, which can hold a "|" or
+// a question mark that is not the goblin's own words.
+var notChoices = regexp.MustCompile("`[^`]*`|https?://\\S+")
+
+// OffersChoices says text asks a question with a fixed set of answers, as a
+// blocked notify asks one: two or more choices after the options marker in
+// any case, a choice marked (Recommended) among choices split by "|", or
+// choices split by "|" after a question mark.
+func OffersChoices(text string) bool {
+	words := strings.ToLower(notChoices.ReplaceAllString(text, ""))
+	if at := strings.LastIndex(words, optionsMarker); at >= 0 && len(choices(words[at+len(optionsMarker):])) >= 2 {
+		return true
+	}
+	if strings.Contains(words, "(recommended)") && len(choices(words)) >= 2 {
+		return true
+	}
+	at := strings.Index(words, "?")
+	return at >= 0 && len(choices(words[at+1:])) >= 2
+}
+
 // ChoicesLast is a goblin's question, as it typed it with its line breaks,
 // in the form every reader takes its choices from: its words and every
 // detail, then the marker and the choices last. The record joins the
