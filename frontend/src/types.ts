@@ -50,8 +50,6 @@ export interface Task extends Evaluation {
   model: string;
   effort: string;
   mode: string;
-  route_lane?: string;
-  route_reason?: string;
   generation: string;
   session: string;
   // waits is what a queued task's row still waits for before the scheduler
@@ -876,8 +874,6 @@ export function parseSnapshot(value: unknown): Snapshot {
         backend: string(t.backend),
         model: string(t.model),
         effort: string(t.effort),
-        route_lane: string(t.route_lane),
-        route_reason: string(t.route_reason),
         mode: string(t.mode),
         generation: string(t.generation),
         session: string(t.session),

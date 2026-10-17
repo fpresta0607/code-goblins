@@ -240,17 +240,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 /* A task card is a grid: what the card says, with its pull request on a row of
    its own under it, and its controls beside them, or under them on a narrow
    card. Every part has its own place. */
-.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card side" "card mark" "links mark"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "card" "links" "foot"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-links { grid-area: links; }
-.task-card-shell > .task-controls { grid-area: side; }
-/* The mark of the harness a goblin runs sits in the card's corner, under its
-   controls, and names the harness, model and effort in its tip. */
-.task-card-shell > .card-harness { grid-area: mark; align-self: end; justify-self: end; margin-top: 10px; }
+/* At the card's foot its clock sits beside the mark of the harness its
+   goblin runs, at the card's corner, which names the harness, model and
+   effort in its tip. */
+.task-card-shell > .card-foot { grid-area: foot; display: flex; align-items: center; gap: 12px; min-width: 0; margin-top: 10px; }
+.task-card-shell > .card-foot:empty { display: none; }
+.card-foot > .card-harness { margin-left: auto; }
 .card-harness .mark { width: 40px; height: 40px; }
 .card-harness .mark svg, .card-harness .mark .icon { width: 22px; height: 22px; }
 .task-card-shell > .task-card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
-.card-links > *, .task-card-shell > .task-controls > *, .task-card-shell > .card-harness { position: relative; z-index: 1; }
+.card-links > *, .card-foot > .card-harness { position: relative; z-index: 1; }
 .card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
@@ -363,9 +365,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .project-label, .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node .card-copy:has(.browser-indicator, small) strong { -webkit-line-clamp: 1; }
 .flow-node .card-copy:has(.browser-indicator):has(small) .card-status-text { -webkit-line-clamp: 1; }
-.flow-node .card-engine { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.flow-node .card-engine, .flow-node .card-route { width: 100%; line-height: 1.25; }
-.flow-node .card-route { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
 /* On the canvas a goblin's chevron folds its branches too, so it hangs low
@@ -1322,8 +1321,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.card-engine, .card-route { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.card-engine { color: inherit; font-weight: 600; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }
@@ -1352,15 +1349,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 dialog > .preservation-notice { margin-top: 18px; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
-@container (max-width: 420px) {
-  .task-card-shell { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card card" "links links" "side mark"; }
-  .task-card-shell > .card-harness { align-self: center; }
-  .task-card-shell > .task-controls { margin-top: 10px; }
-}
 /* A card as narrow as a column beside the CFO's panel in the Overlord's window
-   keeps its four controls and its harness mark on one row. */
+   draws its harness mark a little smaller. */
 @container (max-width: 300px) {
-  .task-card-shell > .task-controls { gap: 6px; }
-  .task-card-shell > .task-controls .icon-button { width: 36px; height: 36px; min-height: 36px; }
-  .task-card-shell > .card-harness .mark { width: 36px; height: 36px; }
+  .card-foot > .card-harness .mark { width: 36px; height: 36px; }
 }
