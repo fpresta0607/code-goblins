@@ -166,7 +166,10 @@ func TestASweepDeliversARetiredGoblinsUnreadFeedbackToTheCFOOnce(t *testing.T) {
 // by the item that presented them or by the worktree, data folder or task
 // scratch folder that holds them, so Scrawl's open list means something. It
 // never touches a page of a goblin that stands, the CFO's own, one a poller
-// watches, one already ended, or one no fleet task holds.
+// watches, one already ended, or one no fleet task holds. A goblin's harness
+// keeps its own scratchpad inside the task's scratch folder, under either
+// scratch root, where cg-canvas-live-only's page sat on 2026-10-17 while the
+// sweep passed over the Overlord's prompt on it.
 func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -185,7 +188,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(h.State, state.ArchiveDirName, "task-3.20261006T120000Z"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"task-4", "task-5", "task-6"} {
+	for _, id := range []string{"task-4", "task-5", "task-6", "task-7", "task-8"} {
 		if err := state.AppendStatus(h.State, id, "done: PR https://github.com/example/repo/pull/4"); err != nil {
 			t.Fatal(err)
 		}
@@ -195,8 +198,11 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	inTaskScratch := writePage(t, filepath.Join(h.State, "tasktmp", "task-4", "scrawl", "index.html"))
 	inHomeWorktree := writePage(t, filepath.Join(h.Root, "worktrees", "project", "task-5", ".lavish", "plan.html"))
 	inDevDriveWorktree := writePage(t, filepath.Join(store.Home.DevDrive, "worktrees", "project", "task-6", ".lavish", "plan.html"))
+	inHomeScratch := writePage(t, filepath.Join(h.Root, "scratch", "task-7", "claude", "session", "scratchpad", "review", "index.html"))
+	inDevDriveScratch := writePage(t, filepath.Join(store.Home.DevDrive, "scratch", "task-8", "review.html"))
+	inSharedTemp := writePage(t, filepath.Join(store.Home.DevDrive, "scratch", ".tmp", "task-8", "review.html"))
 	watched := writePage(t, filepath.Join(h.Data, "task-1", "watched.html"))
-	for _, page := range []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree, writePage(t, filepath.Join(h.Data, "task-1", "review.html")), filepath.Join(h.Root, ".lavish", "cfo.html"), writePage(t, filepath.Join(h.Data, "research", "plan.html")), writePage(t, filepath.Join(t.TempDir(), "notes.html"))} {
+	for _, page := range []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree, inHomeScratch, inDevDriveScratch, inSharedTemp, writePage(t, filepath.Join(h.Data, "task-1", "review.html")), filepath.Join(h.Root, ".lavish", "cfo.html"), writePage(t, filepath.Join(h.Data, "research", "plan.html")), writePage(t, filepath.Join(t.TempDir(), "notes.html"))} {
 		scrawl.add(page, "open")
 	}
 	ended := writePage(t, filepath.Join(h.Data, "task-2", "old.html"))
@@ -212,7 +218,7 @@ func TestASweepEndsOnlyTheOpenPagesOfRetiredGoblins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree}
+	want := []string{presented, inData, inOldWorktree, inTaskScratch, inHomeWorktree, inDevDriveWorktree, inHomeScratch, inDevDriveScratch}
 	slices.Sort(want)
 	got := slices.Clone(scrawl.ended)
 	slices.Sort(got)

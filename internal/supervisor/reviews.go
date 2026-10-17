@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -176,12 +178,19 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
-// link, is polled by the supervisor for his feedback. While AFK mode is on a
-// goblin's item with a page is that goblin's question to the CFO instead,
-// which answers it in his place.
+// link, is polled by the supervisor for his feedback; a Scrawl link given
+// without its page is polled on the page lavish-axi serves there. While AFK
+// mode is on a goblin's item with a page is that goblin's question to the CFO
+// instead, which answers it in his place.
 func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
 	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
 		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
+	}
+	if lavish != "" && page == "" {
+		var err error
+		if page, err = servedPage(lavish); err != nil {
+			return err
+		}
 	}
 	if switched, err := afk.Read(h.State); taskID != "" && lavish != "" && err == nil && switched.On {
 		return askCFOOnPage(h, taskID, id, title, lavish, page, images)
@@ -191,6 +200,31 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 		r.ImageSums = sums
 		return len(images) > 0, err
 	}, nil)
+}
+
+// servedPage is the HTML page of the review session lavish-axi keeps at link,
+// whose address ends with /session/<key> on whichever of its addresses link
+// names, or "" for a link to no such session.
+func servedPage(link string) (string, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return "", nil
+	}
+	key, found := strings.CutPrefix(u.Path, "/session/")
+	if !found || key == "" || strings.Contains(key, "/") {
+		return "", nil
+	}
+	sessions, err := (axi.Lavish{}).Sessions()
+	if err != nil {
+		return "", err
+	}
+	for _, session := range sessions {
+		extension := strings.ToLower(filepath.Ext(session.File))
+		if session.Key == key && filepath.IsAbs(session.File) && filepath.Clean(session.File) == session.File && (extension == ".html" || extension == ".htm") {
+			return session.File, nil
+		}
+	}
+	return "", nil
 }
 
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the

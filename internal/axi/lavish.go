@@ -138,10 +138,12 @@ func (l Lavish) request(args ...string) (execx.Request, error) {
 	return execx.Request{Dir: profile, Name: "lavish-axi", Args: args}, nil
 }
 
-// PageSession is one review session lavish-axi keeps: its page, its status
-// (open, feedback or ended), who ended an ended one, and how many of the
-// Overlord's prompts wait on it undelivered.
+// PageSession is one review session lavish-axi keeps: its key, which its
+// address ends with as /session/<key>, its page, its status (open, feedback or
+// ended), who ended an ended one, and how many of the Overlord's prompts wait
+// on it undelivered.
 type PageSession struct {
+	Key     string
 	File    string
 	Status  string
 	EndedBy string
@@ -181,8 +183,8 @@ func (l Lavish) Sessions() ([]PageSession, error) {
 		return nil, fmt.Errorf("axi: lavish-axi's state file is unreadable: %w", err)
 	}
 	sessions := make([]PageSession, 0, len(stored.Sessions))
-	for _, session := range stored.Sessions {
-		sessions = append(sessions, PageSession{File: session.File, Status: session.Status, EndedBy: session.EndedBy, Pending: max(session.PendingPrompts, len(session.Prompts))})
+	for key, session := range stored.Sessions {
+		sessions = append(sessions, PageSession{Key: key, File: session.File, Status: session.Status, EndedBy: session.EndedBy, Pending: max(session.PendingPrompts, len(session.Prompts))})
 	}
 	slices.SortFunc(sessions, func(a, b PageSession) int { return strings.Compare(a.File, b.File) })
 	return sessions, nil

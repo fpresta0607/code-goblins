@@ -63,6 +63,12 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("GIT_CEILING_DIRECTORIES", cmp.Or(os.Getenv("GOTMPDIR"), os.TempDir())); err != nil {
 		panic(err)
 	}
+	// Nor does any test read the review sessions lavish-axi keeps on the
+	// machine the tests run on: their state folder is one that is not there,
+	// unless a test names one of its own.
+	if err := os.Setenv("LAVISH_AXI_STATE_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("no-lavish-state-%d", os.Getpid()))); err != nil {
+		panic(err)
+	}
 	// A goblin's shell and a gate agent's export these, and neither is the
 	// CFO's own session, so every test that stands this process in as the
 	// CFO's would be refused where a goblin or a gate runs the suite and

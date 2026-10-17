@@ -89,6 +89,47 @@ func TestReviewItemOutlivesItsSourceTheSupervisorAndTheGoblin(t *testing.T) {
 	}
 }
 
+// A review given its Scrawl link alone is polled on the page lavish-axi
+// serves at that link, as one given its file is, so his answer there closes
+// it. A link to no session lavish-axi keeps is a link alone.
+func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
+	for name, test := range map[string]struct {
+		link, wantPage string
+	}{
+		"a session lavish-axi keeps":   {link: "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
+		"the same session on loopback": {link: "http://127.0.0.1:4387/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
+		"a session it does not keep":   {link: "https://sermon.tailcc4238.ts.net:4388/session/0000000000000000"},
+		"a link to no session":         {link: "https://example.com/plan"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":"C:\\scratch\\task-1\\review\\index.html","status":"opened"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := PublishReview(h, meta.ID, "canvas-before-after", "Before and after pictures of the canvas", test.link, "", nil)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			got := store.Snapshot().Reviews
+			if len(got) != 1 || got[0].Lavish != test.link || got[0].LavishPage != test.wantPage {
+				t.Fatalf("reviews = %+v, want the link %s polled on %q", got, test.link, test.wantPage)
+			}
+		})
+	}
+}
+
 // Only the reporter that published an item can withdraw it, and its reason
 // is kept.
 func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {

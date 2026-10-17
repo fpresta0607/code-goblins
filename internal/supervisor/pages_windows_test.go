@@ -912,8 +912,9 @@ func TestAnAnswerOnAPageReachesTheGoblinItself(t *testing.T) {
 	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": Approved as shown.") {
 		t.Fatalf("the goblin got %q, want his answer", told)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Reason != "You answered on its page; the goblin has it." {
-		t.Fatalf("the wait = %+v, want it answered, saying the goblin has it", got)
+	// The item keeps what he wrote there, which its line in History shows.
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Reason != "You answered on its page; the goblin has it." || got.Answer != "Approved as shown." {
+		t.Fatalf("the wait = %+v, want it answered with what he wrote, saying the goblin has it", got)
 	}
 	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the goblin has it: Approved as shown.") {
 		t.Fatalf("review wakes = %+v, want the CFO told the goblin has the answer", wakes)
