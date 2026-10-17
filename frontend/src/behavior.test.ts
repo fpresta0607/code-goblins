@@ -413,10 +413,11 @@ test("an ended CFO session is never the tree's root, and leaves with its sub-age
 // Claude Code CFO worked: the CFO's status comes from the registered CFO's
 // own session on every surface. An older CFO's session, ended or still
 // marked running, never stands in for it and leaves with its sub-agents,
-// while a goblin it started hangs under the live CFO. With no registration
-// naming a session the newest CFO session still running is read, and while
-// the registered CFO has reported no session the canvas draws the supervisor
-// root.
+// while a goblin it started, ended or not, hangs under the live CFO, so a
+// live task keeps its card. With no registration naming a session the newest
+// CFO session still running is read, and while the registered CFO has
+// reported no session, or its session has ended, no CFO session is read and
+// the canvas draws the supervisor root.
 test("the CFO's status comes from the registered CFO's session, never an older one", () => {
   // Arrange
   const endedPi = { id: "pi/old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended" };
@@ -426,15 +427,20 @@ test("the CFO's status comes from the registered CFO's session, never an older o
   const activeAgent = { id: "pi/active-agent", native_id: "active-agent", harness: "pi", role: "subagent", parent: "pi/active-cfo", relation: "delegated", phase: "active" };
   const live = { id: "claude/live-cfo", native_id: "live-cfo", harness: "claude", role: "cfo", phase: "active" };
   const goblin = { id: "pi/a-session", native_id: "a-session", harness: "pi", role: "goblin", task_id: "a", generation: "g1", parent: "pi/old-cfo" };
+  const endedGoblin = { ...goblin, phase: "ended" };
   const tasks = [{ id: "a", phase: "working", session: "pi/a-session", generation: "g1", verified: false }];
-  const board = (sessions: object[], cfo: string) => parseSnapshot({ healthy: true, cfo_runs: true, cfo_session: cfo, sessions, tasks });
+  const pausedTasks = [{ ...tasks[0], phase: "paused" }];
+  const board = (sessions: object[], cfo: string, onBoard: object[] = tasks) => parseSnapshot({ healthy: true, cfo_runs: true, cfo_session: cfo, sessions, tasks: onBoard });
 
   // Act
   const reported = board([endedPi, stalePi, live, goblin], "claude/live-cfo");
   const unreported = board([endedPi, stalePi, goblin], "claude/live-cfo");
   const unregistered = board([endedPi, goblin], "");
   const newest = board([stalePi, newerPi, goblin], "");
-  const superseded = board([activePi, activeAgent, live, { ...goblin, parent: "pi/active-cfo" }], "claude/live-cfo");
+  const superseded = board([activePi, activeAgent, live, { ...goblin, parent: "pi/active-cfo", phase: "active" }], "claude/live-cfo");
+  const pausedUnderStale = board([stalePi, newerPi, { ...endedGoblin, parent: "pi/stale-cfo" }], "", pausedTasks);
+  const pausedUnderSuperseded = board([activePi, live, { ...endedGoblin, parent: "pi/active-cfo" }], "claude/live-cfo", pausedTasks);
+  const registeredEnded = board([{ ...live, phase: "ended" }, goblin], "claude/live-cfo");
 
   // Assert
   assert.equal(liveCfoSession(reported)?.id, "claude/live-cfo");
@@ -447,6 +453,10 @@ test("the CFO's status comes from the registered CFO's session, never an older o
   assert.deepEqual(workflowNodes(newest).map((node) => [node.id, node.parent]), [["session:pi/new-cfo", undefined], ["session:pi/a-session", "session:pi/new-cfo"]]);
   assert.equal(lineageFamily(newest, "").cfo?.session?.id, "pi/new-cfo");
   assert.deepEqual(workflowNodes(superseded).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
+  assert.deepEqual(workflowNodes(pausedUnderStale).map((node) => [node.id, node.parent]), [["session:pi/new-cfo", undefined], ["session:pi/a-session", "session:pi/new-cfo"]]);
+  assert.deepEqual(workflowNodes(pausedUnderSuperseded).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:pi/a-session", "session:claude/live-cfo"]]);
+  assert.equal(liveCfoSession(registeredEnded), undefined);
+  assert.deepEqual(workflowNodes(registeredEnded).map((node) => [node.id, node.parent]), [[CFO_ROOT, undefined], ["session:pi/a-session", CFO_ROOT]]);
 });
 
 // A goblin hung under a CFO session the board heard from after it is drawn a

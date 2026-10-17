@@ -266,31 +266,33 @@ export interface WorkflowNode {
 export const CFO_ROOT = "cfo:primary";
 
 // liveCfoSession is the session every surface reads the CFO's status from:
-// the registered CFO's own, and while no registration names one, the newest
-// CFO session still running. An ended CFO session never stands in for the
-// CFO (the Overlord, 2026-10-17, of the panel reading Session ended: "it says
-// session ended when it's truly working").
+// the registered CFO's own while it runs, and while no registration names
+// one, the newest CFO session still running. An ended CFO session, the
+// registered CFO's included, never stands in for the CFO (the Overlord,
+// 2026-10-17, of the panel reading Session ended: "it says session ended when
+// it's truly working").
 export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_session">): Session | undefined {
-  if (snapshot.cfo_session) return snapshot.sessions.find((session) => session.id === snapshot.cfo_session);
-  return snapshot.sessions.filter((session) => session.role === "cfo" && session.phase !== "ended").at(-1);
+  const running = snapshot.sessions.filter((session) => session.role === "cfo" && session.phase !== "ended");
+  return snapshot.cfo_session ? running.find((session) => session.id === snapshot.cfo_session) : running.at(-1);
 }
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   // Every CFO session but the one liveCfoSession reads leaves the tree with
   // its sub-agents and workers, ended or not, so the root is the CFO the
-  // panel header reads; a goblin it started stays and hangs under that CFO.
-  // A retired task's sessions leave with their ended sub-agents, so none of
-  // them is left a stray card.
+  // panel header reads; a goblin it started stays, ended or not, and hangs
+  // under that CFO. A retired task's sessions leave with their ended
+  // sub-agents, so none of them is left a stray card.
   const live = liveCfoSession(snapshot);
   const pastCfo = new Set(snapshot.sessions.filter((session) => session.role === "cfo" && session.id !== live?.id).map((session) => session.id));
-  const gone = new Set([...pastCfo, ...snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session)).map((session) => session.id)]);
+  const retired = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session)).map((session) => session.id));
   for (let changed = true; changed;) {
     changed = false;
     for (const session of snapshot.sessions) {
-      if (!pastCfo.has(session.id) && (session.role === "subagent" || session.role === "worker") && pastCfo.has(session.parent)) { pastCfo.add(session.id); gone.add(session.id); changed = true; }
-      if (!gone.has(session.id) && session.phase === "ended" && gone.has(session.parent)) { gone.add(session.id); changed = true; }
+      if (!pastCfo.has(session.id) && (session.role === "subagent" || session.role === "worker") && pastCfo.has(session.parent)) { pastCfo.add(session.id); changed = true; }
+      if (!retired.has(session.id) && session.phase === "ended" && retired.has(session.parent)) { retired.add(session.id); changed = true; }
     }
   }
+  const gone = new Set([...pastCfo, ...retired]);
   const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session) && !gone.has(session.id));
   const ids = new Set(sessions.map((node) => node.id));
   const nodes: WorkflowNode[] = [
