@@ -3,9 +3,9 @@ name: go
 on:
   push:
     branches: [main]
-  # A draft runs nothing: its goblin pushes fix rounds to it before its head
-  # is final, and marking it ready runs every job on that head. A draft
-  # cannot merge, so its test check, skipped, approves nothing.
+  # A draft runs nothing but the draft job: its goblin pushes fix rounds to
+  # it before its head is final, and marking it ready runs every job on that
+  # head. A draft cannot merge, so its test check, skipped, approves nothing.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   # The merge queue tests each group of pull requests on main's tip before it
@@ -18,10 +18,15 @@ permissions:
 
 concurrency:
   # A newer commit on a pull request supersedes the run on the older one,
-  # which is cancelled. Every other run, on main, in the merge queue or
+  # which is cancelled. A run whose event saw a draft has a group apart from
+  # the one of runs whose event saw the pull request ready, so neither
+  # cancels the other: a pull request marked ready within seconds of a push
+  # has both on one head, the run that saw a draft may have read it ready
+  # and started its jobs, and every reader of that head's checks counts a
+  # cancelled one as failed. Every other run, on main, in the merge queue or
   # started by hand, has a group of its own, so none is ever cancelled or
   # held waiting.
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -97,8 +102,36 @@ env:
 # the one check branch protection requires, and it passes only when every
 # job the plan started passed.
 jobs:
+  # A run whose event saw a draft asks GitHub whether the pull request is a
+  # draft now, and every other job runs unless it still is. An event can see
+  # the pull request as it was a moment before: on 2026-10-15 PR 961 was
+  # marked ready and pushed to within seconds, the push's event still saw a
+  # draft, and its run, which skipped every job, cancelled the ready run as
+  # it joined the pull request's group, so no run tested its last head. A
+  # read that fails runs every job, as for a pull request that is ready.
+  draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
+    if: github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      draft: ${{ steps.read.outputs.draft }}
+    steps:
+      - name: Read whether the pull request is a draft now
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: repos/${{ github.repository }}/pulls/${{ github.event.number }}
+        run: |
+          draft=$(gh api "$PULL_REQUEST" --jq .draft)
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
   plan:
-    if: ${{ !github.event.pull_request.draft }}
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' }}
     runs-on: windows-latest
     # A push reads the records pull request runs left (tools/pushreuse).
     permissions:
@@ -169,7 +202,7 @@ jobs:
 
   frontend:
     needs: plan
-    if: needs.plan.outputs.frontend == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.frontend == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -223,7 +256,7 @@ jobs:
   # length.
   browser:
     needs: plan
-    if: needs.plan.outputs.browser == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.browser == 'true' }}
     name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
     strategy:
@@ -283,7 +316,7 @@ jobs:
 
   go:
     needs: plan
-    if: needs.plan.outputs.go != '[]'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}
     name: go (${{ matrix.shard }})
     runs-on: windows-latest
     strategy:
@@ -433,16 +466,18 @@ jobs:
         run: go build ./cmd/cfo
 
   # The check branch protection requires. It runs whatever happened above,
-  # and fails unless the plan succeeded and every job it started succeeded: a
-  # job that failed or was cancelled is not a pass, and neither is one that
-  # was skipped unless the plan left it out. Only a pull request's own run
-  # may leave a job out: in a merge train's run and every other, a job that
-  # did not succeed fails the check whatever the plan said, but for a push
-  # whose plan found a pull request run that passed its exact tree on the
-  # same main, which leaves every job out.
+  # but in a run of a draft and in one whose event saw a draft and that was
+  # cancelled, as marking the pull request ready cancels it with a run of its
+  # own. It fails unless the plan succeeded and every job it started
+  # succeeded: a job that failed or was cancelled is not a pass, and neither
+  # is one that was skipped unless the plan left it out. Only a pull
+  # request's own run may leave a job out: in a merge train's run and every
+  # other, a job that did not succeed fails the check whatever the plan said,
+  # but for a push whose plan found a pull request run that passed its exact
+  # tree on the same main, which leaves every job out.
   test:
-    if: ${{ always() && !github.event.pull_request.draft }}
-    needs: [plan, frontend, browser, go]
+    if: ${{ always() && needs.draft.outputs.draft != 'true' && (needs.draft.result == 'skipped' || !cancelled()) }}
+    needs: [draft, plan, frontend, browser, go]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -455,7 +490,8 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           $needs = $env:RESULTS | ConvertFrom-Json
-          $jobs = @($needs.PSObject.Properties)
+          # The draft job tests nothing: it only says whether this run runs.
+          $jobs = @($needs.PSObject.Properties | Where-Object Name -ne 'draft')
           $jobs | ForEach-Object { "$($_.Name): $($_.Value.result)" }
           $plan = $needs.plan
           # What the plan left out, which only a plan that succeeded and said

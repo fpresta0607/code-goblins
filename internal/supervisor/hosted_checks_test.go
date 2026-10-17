@@ -153,6 +153,11 @@ func TestHostedChecksShowNothingForAPullRequestWhoseEveryCheckWasSkipped(t *test
 	ran := cardChecks(t, s, "cg-wakes", now)
 	forge.pulls = hostedRollup("", testSkipped)
 	skipped := cardChecks(t, s, "cg-wakes", now.Add(ciPollEvery))
+	// A draft's run, whose draft job succeeded while every other job was
+	// skipped: that job reads whether the pull request is a draft and tests
+	// nothing (#963).
+	forge.pulls = hostedRollup("", draftStatePassed, testSkipped)
+	drafted := cardChecks(t, s, "cg-wakes", now.Add(2*ciPollEvery))
 
 	// Assert
 	if ran == nil || ran["state"] != "passed" {
@@ -160,6 +165,9 @@ func TestHostedChecksShowNothingForAPullRequestWhoseEveryCheckWasSkipped(t *test
 	}
 	if skipped != nil {
 		t.Errorf("hosted checks = %v for a pull request whose every check was skipped, want none", skipped)
+	}
+	if drafted != nil {
+		t.Errorf("hosted checks = %v for a pull request whose only other check than the draft job's was skipped, want none", drafted)
 	}
 }
 

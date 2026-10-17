@@ -147,17 +147,18 @@ for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
   });
 }
 
-// A card collapses to one column by the width of the list it sits in, so in
-// the CFO panel's queue on a phone its harness mark goes under its text, as
-// it does in a board column that narrow, and leaves the text the card's whole
-// width.
-test("at 390 px a card in the CFO panel's queue collapses to one column", async ({ page }) => {
+// In a list as narrow as the CFO panel's queue on a phone, a card's clock and
+// icons, its harness mark last, take a line under its name and status, which
+// keep the card's whole width, inside the list and with nothing drawn over
+// anything else.
+test("at 390 px a card in the CFO panel's queue puts its clock and icons under its text", async ({ page }) => {
   await board(page, 390, 0, "?queue");
   const shell = page.locator(".cfo-queue .task-card-shell").first();
   const list = (await page.locator(".cfo-queue .task-cards").first().boundingBox())!;
   const card = (await shell.locator(".task-card").boundingBox())!, mark = (await shell.locator(".card-harness").boundingBox())!;
   expect(list.width).toBeLessThan(420);
   expect(mark.y).toBeGreaterThanOrEqual(card.y + card.height);
+  expect(mark.x + mark.width).toBeLessThanOrEqual(list.x + list.width);
   const seen = await page.evaluate(crowding);
   expect({ overlaps: seen.overlaps, outside: seen.outside, tallTitles: seen.tallTitles, smallText: [...new Set(seen.smallText)] })
     .toEqual({ overlaps: [], outside: [], tallTitles: [], smallText: [] });
@@ -229,14 +230,14 @@ test("a card's tip shows on keyboard focus, touching its part, and goes with the
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/198']") });
   // A finished card's pull request comes after the card itself, and its tip
-  // names its branch.
+  // names it and its branch.
   await shell.locator(".task-card").focus();
   await page.keyboard.press("Tab");
   const chip = shell.locator(".card-pr");
   await expect(chip).toBeFocused();
   let tips: ShownTip[] = [];
   await expect.poll(async () => (tips = await chip.evaluate(shownTips)).length).toBe(1);
-  expect(tips[0].text).toBe("fix/orchestration-pulse-end");
+  expect(tips[0].text).toBe("code-goblins #198 · fix/orchestration-pulse-end");
   expect(tipProblems(tips)).toEqual([]);
   await watchTipGo(chip, "blur");
   await chip.evaluate((element) => (element as HTMLElement).blur());
@@ -332,14 +333,15 @@ test("a card shows its harness mark with the harness, model and effort in its ti
 });
 
 // The Overlord, 2026-10-07: "format and indent can fill whole box why so
-// uneven". In his window, beside the CFO's panel, a live card's lines under
-// its title start at the card's left edge. The Overlord, 2026-10-16: a card
+// uneven". In his window, beside the CFO's panel, a live card's status
+// starts where its name starts, as a row in a conversation list does since
+// 2026-10-17. The Overlord, 2026-10-16: a card
 // carries no action buttons, so a goblin with a harness update waiting shows
 // no Update, Pause or Stop on its card; they are in its panel.
 test.describe("in his window, beside the CFO's panel", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
-  test("a live card uses its whole width and carries no controls", async ({ page }) => {
+  test("a live card's status lines up under its name, and it carries no controls", async ({ page }) => {
     // Arrange
     const live = { id: "cg-board-trim", title: "Trim the board's header, meters and cards", project: "code-goblins", phase: "working", verified: false, generation: "g1", since: "2026-10-07T20:00:00Z", harness: "claude", harness_update: { harness: "claude", installed: "2026-10-07T20:30:00Z" } };
     await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [live] });
@@ -352,12 +354,12 @@ test.describe("in his window, beside the CFO's panel", () => {
     // Act
     const layout = await shell.evaluate((card) => ({
       controls: card.querySelectorAll(".task-controls").length,
-      metaAtTheLeft: Math.round(card.querySelector(".card-meta")!.getBoundingClientRect().left - card.querySelector(".task-card")!.getBoundingClientRect().left),
+      statusUnderTheName: Math.round(card.querySelector(".card-status-text")!.getBoundingClientRect().left - card.querySelector(".card-title")!.getBoundingClientRect().left) <= 18,
     }));
 
-    // Assert: no controls, and the lines under the title start at the card's
-    // left edge.
-    expect(layout).toEqual({ controls: 0, metaAtTheLeft: 0 });
+    // Assert: no controls, and the status, after its dot, starts under the
+    // name.
+    expect(layout).toEqual({ controls: 0, statusUnderTheName: true });
     await expect(shell.getByRole("button", { name: /^(Update|Pause|Stop) / })).toHaveCount(0);
   });
 });

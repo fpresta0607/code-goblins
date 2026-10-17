@@ -76,7 +76,7 @@ test.describe("in his window", () => {
     const ticket = sync.locator("a.card-ticket");
     await expect(ticket).toHaveAttribute("href", REPO + "/issues/52");
     await expect(ticket).toHaveAttribute("aria-label", "Open Ticket #52: pr open");
-    await expect(ticket).toHaveText("#52");
+    await expect(ticket).toHaveAttribute("data-tip", "Ticket #52: pr open");
     const teammate = sync.locator("a.same-area-person");
     await expect(teammate).toHaveCount(1);
     await expect(teammate).toHaveAttribute("href", REPO + "/pull/46");
@@ -84,7 +84,7 @@ test.describe("in his window", () => {
     await expect(teammate.locator("img")).toHaveAttribute("src", avatar(7));
     expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 3, outside: 0, overlaps: 0 });
     // Queued work shows the ticket it was given at once, here and in the CFO's queue.
-    await expect(card(page, "Export the audit trail").locator("a.card-ticket")).toHaveText(["#54", "#54"]);
+    expect(await card(page, "Export the audit trail").locator("a.card-ticket").evaluateAll((tickets) => tickets.map((ticket) => ticket.getAttribute("data-tip")?.split(":")[0]))).toEqual(["Ticket #54", "Ticket #54"]);
 
     const header = await openPanel(page, "Say why a billing sync fails");
     const people = header.locator(".people-row .person");
@@ -107,7 +107,6 @@ test.describe("in his window", () => {
     await open(page);
     const solo = card(page, "Tidy the solo tool");
     await expect(solo.locator(".card-ticket, .same-area-person")).toHaveCount(0);
-    await expect(solo.locator(".card-links")).toHaveCount(0);
     const header = await openPanel(page, "Tidy the solo tool");
     await expect(header.locator(".project-label")).toHaveText("solo-tool");
     await expect(header.locator(".people-row, .ticket-link")).toHaveCount(0);

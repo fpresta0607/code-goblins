@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
 type prProof struct {
@@ -30,6 +32,22 @@ type prProofCheckView struct {
 	Conclusion string `json:"conclusion"`
 }
 
+// prProofChecks is a head's check rollup less the workflows' draft job's
+// check, which reads whether the pull request is a draft and tests nothing
+// (train.DraftStateCheck): it neither proves a head nor refuses one.
+type prProofChecks []prProofCheckView
+
+func (c *prProofChecks) UnmarshalJSON(data []byte) error {
+	var rollup []prProofCheckView
+	if err := json.Unmarshal(data, &rollup); err != nil {
+		return err
+	}
+	*c = slices.DeleteFunc(rollup, func(check prProofCheckView) bool {
+		return check.TypeName == "CheckRun" && check.Name == train.DraftStateCheck
+	})
+	return nil
+}
+
 type prProofCheck struct {
 	Name       string
 	Status     string
@@ -37,12 +55,12 @@ type prProofCheck struct {
 }
 
 type prProofView struct {
-	State          string             `json:"state"`
-	IsDraft        bool               `json:"isDraft"`
-	Mergeable      string             `json:"mergeable"`
-	ReviewDecision string             `json:"reviewDecision"`
-	HeadRefOID     string             `json:"headRefOid"`
-	Checks         []prProofCheckView `json:"statusCheckRollup"`
+	State          string        `json:"state"`
+	IsDraft        bool          `json:"isDraft"`
+	Mergeable      string        `json:"mergeable"`
+	ReviewDecision string        `json:"reviewDecision"`
+	HeadRefOID     string        `json:"headRefOid"`
+	Checks         prProofChecks `json:"statusCheckRollup"`
 	Author         struct {
 		Login string `json:"login"`
 	} `json:"author"`

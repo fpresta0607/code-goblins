@@ -1,0 +1,137 @@
+import { expect, holdStream, test, type Page } from "./site";
+
+// The Overlord, 2026-10-17: "minimal cards are better like an imessage
+// history with name status of whether working time working or last worked
+// tickets pr icons etc and harness icon". A goblin's card is one row: its
+// face, its name and when it last worked on top, its status under them in at
+// most two lines, and its ticket, pull request, checks and harness mark as
+// icons whose tips say what each one is. A finished goblin's row leads with
+// its name too, its task in the name's tip, and a pause on a goblin names the
+// goblin alone (the CFO's decision 1008011).
+const REPO = "https://github.com/fpresta0607/code-goblins";
+const now = Date.now();
+const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+const goblin = (id: string, name: string, title: string, task: string, fields: Record<string, unknown> = {}) => ({
+  id, title: task, goblin_name: name, goblin_title: title, project: "code-goblins", phase: "working", report: "working", verified: false,
+  generation: id + "-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", since: ago(210), ...fields,
+});
+const pause = (until: string, minutes: number) => ({ phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "dependency", until, at: ago(minutes) } });
+const LONG = "Teach the board to read every harness's own session record instead of its screen, for the waiting and working status";
+const SNAPSHOT = {
+  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+  tasks: [
+    goblin("cg-benny", "Benny", "AFK Ace", "Show what needs you while AFK", { pr: REPO + "/pull/1031", ticket: { number: 1013, url: REPO + "/issues/1013", state: "open" } }),
+    goblin("cg-kip", "Kip", "Helper", "Help Benny with the AFK page", { parent: "cg-benny", since: ago(12) }),
+    goblin("cg-otis", "Otis", "Ledger Clerk", "Sync the ledger", { phase: "paused", at: ago(48), lifecycle: pause("task:cg-benny", 48) }),
+    goblin("cg-wade", "Wade", "Waiter", "Wait on a long task", { phase: "paused", at: ago(40), lifecycle: pause("task:cg-long", 40) }),
+    { id: "cg-long", title: LONG, project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, since: ago(30) },
+    goblin("finished:cg-ivy", "Ivy", "Merge Maven", "Read the CFO's status from the live CFO", { phase: "done", archived: true, merged: true, verified: true, at: ago(35), pr: REPO + "/pull/1036", branch: "fix/cfo-status-from-registration", generation: "" }),
+  ],
+};
+
+async function open(page: Page) {
+  await page.setViewportSize({ width: 1707, height: 1000 });
+  await page.clock.setFixedTime(now);
+  await holdStream(page, SNAPSHOT);
+  await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
+  await page.goto("/");
+  await expect(page.locator(".board-column").first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+}
+const card = (page: Page, name: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(name, { exact: true }) });
+const box = async (part: ReturnType<Page["locator"]>) => (await part.boundingBox())!;
+
+test("a working goblin's card is one row: face, name, time and status, with its parts as icons", async ({ page }) => {
+  // Arrange: the board without the CFO's panel beside it.
+  await open(page);
+  await page.getByRole("button", { name: "Close panel" }).click();
+  const row = card(page, "Benny - AFK Ace");
+
+  // Act
+  await row.locator(".card-pr").hover();
+  const prTip = await page.getByRole("tooltip").textContent();
+  await row.locator(".card-ticket").hover();
+  const ticketTip = await page.getByRole("tooltip").textContent();
+
+  // Assert
+  await expect(row.locator(".card-status-text")).toHaveText("Working");
+  await expect(row.locator(".card-clock")).toContainText("3h 30m");
+  await expect(row).not.toContainText("code-goblins");
+  await expect(row).not.toContainText("#1031");
+  await expect(row).not.toContainText("#1013");
+  expect(prTip).toContain("code-goblins #1031");
+  expect(ticketTip).toContain("#1013");
+  const [face, name, clock, status, mark] = await Promise.all([".goblin-avatar", ".card-title", ".card-clock", ".card-status-text", ".card-harness"].map((selector) => box(row.locator(selector))));
+  expect(Math.abs((clock.y + clock.height / 2) - (name.y + name.height / 2))).toBeLessThan(6);
+  expect(clock.x).toBeGreaterThan(name.x + name.width);
+  expect(status.y).toBeGreaterThanOrEqual(name.y + name.height - 1);
+  expect(mark.x).toBeGreaterThan(status.x + status.width);
+  expect((await box(row)).height).toBeLessThan(face.height + 40);
+});
+
+test("a finished goblin's row leads with its name, with its task in the name's tip", async ({ page }) => {
+  // Arrange
+  await open(page);
+  const row = card(page, "Ivy - Merge Maven");
+
+  // Act
+  await row.locator(".task-card").hover();
+
+  // Assert
+  await expect(row).toBeVisible();
+  await expect(page.getByRole("tooltip")).toHaveText("Read the CFO's status from the live CFO");
+  await expect(row.locator(".card-status-text")).toHaveText("Merged");
+});
+
+test("a pause on a goblin names the goblin alone", async ({ page }) => {
+  // Arrange and act
+  await open(page);
+
+  // Assert
+  await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused until Benny delivers");
+});
+
+test("a status takes at most two lines", async ({ page }) => {
+  // Arrange and act
+  await open(page);
+  const status = card(page, "Wade - Waiter").locator(".card-status-text");
+
+  // Assert
+  await expect(status).toContainText("Paused until " + LONG.slice(0, 20));
+  const lines = await status.evaluate((element) => Math.round(element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight)));
+  expect(lines).toBeLessThanOrEqual(2);
+  expect(await status.evaluate((element) => element.scrollHeight > element.clientHeight + 1)).toBe(true);
+});
+
+test("a helper's row names no parent, and its panel names the goblin it helps", async ({ page }) => {
+  // Arrange
+  await open(page);
+  const row = card(page, "Kip - Helper");
+
+  // Act
+  await row.locator(".task-card").click();
+
+  // Assert
+  await expect(row).not.toContainText("Helper of");
+  await expect(page.locator("#panel-title")).toHaveText("Kip - Helper");
+  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+  await expect(page.locator(".panel-header")).toContainText("Helper of Benny - AFK Ace");
+});
+
+test("in a column beside the CFO's panel a card's time and icons take a line under its status", async ({ page }) => {
+  // Arrange and act: his window, with the CFO's panel open beside the board.
+  await open(page);
+  const row = card(page, "Benny - AFK Ace");
+
+  // Assert: the name and status keep the card's width, and the time and
+  // icons share a line under them, the time at the left.
+  const [name, clock, status, icons, shell] = await Promise.all([".card-title", ".card-clock", ".card-status-text", ".card-icons", ".task-card-shell"].map((selector) => box(selector === ".task-card-shell" ? row : row.locator(selector))));
+  expect(shell.width).toBeLessThan(360);
+  await expect(row.locator(".card-title")).toHaveText("Benny - AFK Ace");
+  expect(await row.locator(".card-title").evaluate((title) => title.scrollWidth <= title.clientWidth)).toBe(true);
+  expect(status.height).toBeLessThan(1.5 * 22.4);
+  expect(clock.y).toBeGreaterThanOrEqual(status.y + status.height - 1);
+  expect(Math.abs((clock.y + clock.height / 2) - (icons.y + icons.height / 2))).toBeLessThan(6);
+  expect(clock.x).toBeLessThan(name.x);
+  expect(icons.x + icons.width).toBeLessThanOrEqual(shell.x + shell.width);
+});

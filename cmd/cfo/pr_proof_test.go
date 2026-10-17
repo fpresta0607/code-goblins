@@ -156,6 +156,10 @@ func TestVerifyPRReadyRefusesARollupInWhichNoCheckRan(t *testing.T) {
 	for name, checks := range map[string]string{
 		"every check skipped":        `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"},{"__typename":"CheckRun","name":"plan","status":"COMPLETED","conclusion":"SKIPPED"}`,
 		"skipped and neutral checks": `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"},{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}`,
+		// The workflows' draft job reads whether the pull request is a draft
+		// and tests nothing: on a draft it succeeds while every other job is
+		// skipped (#963).
+		"a draft's run, whose draft job succeeded": `{"__typename":"CheckRun","name":"draft state","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
@@ -166,6 +170,22 @@ func TestVerifyPRReadyRefusesARollupInWhichNoCheckRan(t *testing.T) {
 				t.Fatalf("err=%v, want a refusal saying no check ran", err)
 			}
 		})
+	}
+}
+
+// The workflows' draft job tests nothing, so how it concluded neither proves
+// a head nor refuses one: a read of the draft state that failed ran every job
+// all the same, and those passed (#963).
+func TestVerifyPRReadyPassesOverTheDraftStateCheck(t *testing.T) {
+	// Arrange
+	checks := `{"__typename":"CheckRun","name":"draft state","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}`
+
+	// Act
+	proof, err := verifyPRReady(context.Background(), "https://github.com/o/r/pull/1", proofRunner{stdout: readyPRView(checks)})
+
+	// Assert
+	if err != nil || proof.Checks != 1 {
+		t.Fatalf("proof=%+v err=%v, want the head proved by its one check that tested it", proof, err)
 	}
 }
 

@@ -11,8 +11,8 @@ name: windows
 # installed. The tests that show a window run only here, where
 # CFO_WINDOW_PROOF names the default terminal.
 on:
-  # A draft runs nothing, and marking it ready runs the proof on its head, as
-  # the go workflow does.
+  # A draft runs nothing but the draft job, and marking it ready runs the
+  # proof on its head, as the go workflow does.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -30,12 +30,39 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. A run whose event saw a draft has a group apart from
+  # the one of runs whose event saw the pull request ready, so neither
+  # cancels the other, as in the go workflow.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}
   cancel-in-progress: true
 
 jobs:
+  # A run whose event saw a draft asks GitHub whether the pull request is a
+  # draft now, as the go workflow's does, and the proof runs unless it still is.
+  draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
+    if: github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      draft: ${{ steps.read.outputs.draft }}
+    steps:
+      - name: Read whether the pull request is a draft now
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: repos/${{ github.repository }}/pulls/${{ github.event.number }}
+        run: |
+          draft=$(gh api "$PULL_REQUEST" --jq .draft)
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
   windows:
-    if: ${{ !github.event.pull_request.draft }}
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' }}
     runs-on: windows-2025
     timeout-minutes: 30
     strategy:

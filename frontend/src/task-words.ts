@@ -169,13 +169,15 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 // Paused and why, in a few words, once; the panel says what resumes it in a
 // sentence behind Details. A pause is on the bench, never a wait, so it
 // never reads Waiting (the Overlord, 2026-10-16). A CI or deploy pause names
-// how long the repository's runs usually take.
+// how long the repository's runs usually take. A pause on a goblin names the
+// goblin alone, as Paused until Benny delivers, without its title (the CFO's
+// decision 1008011, 2026-10-17).
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
     case "memory": return "Paused for memory";
     case "allowance": return "Paused for allowance";
-    case "overlord": return parent ? "Paused with " + goblinName(parent) : "Paused by you";
+    case "overlord": return parent ? "Paused with " + (parent.goblin_name || goblinName(parent)) : "Paused by you";
     case "question": return "Paused until you answer";
     case "ci": case "deploy": {
       const usual = usualMinutes(durations, repositoryOf(target.split("@")[0]), pause.reason);
@@ -185,7 +187,7 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], du
       if (kind === "pr") return "Paused until " + plainText(target).replace(/\.$/, "") + " merges";
       if (kind === "date") return "Paused until " + when(target);
       const awaited = tasks.find((candidate) => candidate.id === target);
-      return "Paused until " + (awaited ? goblinName(awaited) : "another task") + " delivers";
+      return "Paused until " + (awaited ? awaited.goblin_name || goblinName(awaited) : "another task") + " delivers";
     }
   }
   return "Paused";
