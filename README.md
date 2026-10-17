@@ -329,12 +329,13 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
-Install the native lifecycle hooks once for each harness you use (the install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
+The fleet's Claude Code and Codex sessions carry their native lifecycle hooks in their own launches, and the install writes pi's extension, so start the supervisor in its own terminal and open the URL it prints:
 
 ```powershell
-cfo hooks install claude   # repeat for codex or pi
-cfo serve                  # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
+cfo serve   # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
 ```
+
+`cfo hooks install claude` or `cfo hooks install codex` is only for Claude Code or Codex sessions the fleet did not start: it writes the hooks into the settings every session of that harness on the machine loads.
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
 An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
