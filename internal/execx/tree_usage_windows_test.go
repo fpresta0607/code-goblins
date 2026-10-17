@@ -492,3 +492,55 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 		})
 	}
 }
+
+// While a process exits, Windows can count one more in its job than it
+// lists, for as long as the exit takes (issue 1025). An end that spares a
+// machine service lets the job's handle close only once the job counts
+// nothing beyond its list, so it waits out an exit that finishes within its
+// caller's deadline, and over one that does not it confirms nothing and the
+// job still ends everything it holds when its last handle closes.
+func TestTreeEndAndWaitWaitsUntilTheJobCountsNothingBeyondItsList(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// unlistedReads is how many reads of the job's members count one
+		// process beyond the list.
+		unlistedReads int
+		isConfirmed   bool
+	}{
+		{name: "an exit that finishes within the end", unlistedReads: 3, isConfirmed: true},
+		{name: "an exit that outlasts the end", unlistedReads: 1 << 30},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			tree, _, pids, held := serviceTree(t, "")
+			// An end that confirms nothing leaves the job to the strict end.
+			t.Cleanup(func() { _, _ = tree.TerminateAndWait(context.Background()) })
+			execx.CountUnlistedForTest(t, test.unlistedReads)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			// Act
+			_, spared, err := tree.EndAndWait(ctx)
+
+			// Assert
+			if test.isConfirmed {
+				if err != nil || len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
+					t.Fatalf("end = %+v, %v; want the machine service spared once the job counted nothing beyond its list", spared, err)
+				}
+			} else {
+				if err == nil || !strings.Contains(err.Error(), "it counts 1 more than it lists") || len(spared) != 0 {
+					t.Fatalf("end = %+v, %v; want no confirmation while the job counted a process beyond its list", spared, err)
+				}
+				if isArmed, err := tree.KillsOnCloseForTest(); err != nil || !isArmed {
+					t.Fatalf("kill on close armed = %v, %v; want the job still to end everything when it closes", isArmed, err)
+				}
+			}
+			if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+				t.Fatal("the machine service was ended by an end that spares it")
+			}
+			if event, err := windows.WaitForSingleObject(held["worker"], 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+				t.Fatal("the worker still runs after the tree's end")
+			}
+		})
+	}
+}
