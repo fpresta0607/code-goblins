@@ -1216,9 +1216,10 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
 /* A ranked card's number sits before its portrait, so the lines under them
-   still take the card's whole width. */
-.ranked-item .render-error { padding-left: 44px; }
-.ranked-item .task-card > .goblin-avatar { margin-left: 34px; }
+   still take the card's whole width. Paused moves its cards the same way with
+   no numbers. */
+.numbered .ranked-item .render-error { padding-left: 44px; }
+.numbered .ranked-item .task-card > .goblin-avatar { margin-left: 34px; }
 @media (hover: hover) and (pointer: fine) {
   .ranked-item .task-card { cursor: grab; }
   .task-cards.sorting .task-card { cursor: grabbing; }

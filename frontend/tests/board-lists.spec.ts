@@ -94,7 +94,8 @@ for (const [layout, width] of [["side by side", 2400], ["stacked", 1000]] as con
       await expect.poll(async () => (await ranked(progress))[0], { timeout: 15_000 }).toBe("working-6");
       await page.mouse.up();
       const order = ["working-6", ...ids(WORKING).filter((id) => id !== "working-6")];
-      await expect.poll(() => posted).toEqual([{ path: "/api/order", body: { list: "progress", order } }]);
+      // The paused goblins keep their order after the working ones.
+      await expect.poll(() => posted).toEqual([{ path: "/api/order", body: { list: "progress", order: [...order, ...ids(PAUSED)] } }]);
       expect(await ranked(progress)).toEqual(order);
       await expect(progress.locator(".order-error")).toHaveCount(0);
     });
