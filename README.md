@@ -142,7 +142,7 @@ All other content is preserved.
 `cfo watch`, hooks, `cfo reap`, durable wake events, harness health, and explicit task states are designed around unattended operation. The system detects work that needs intervention and wakes the CFO instead of making the user stare at terminals.
 A goblin is judged stalled by evidence rather than by how long its turn has run: its harness's transcript writes and the processor use of the processes its harness started, so a long refactor, a long test run, or a goblin waiting on its own background job or monitor stays quiet, and the CFO hears about it once that evidence stops.
 A pane that shows a tool or a turn running, whichever harness drew it, keeps the goblin read as working until that evidence stops, and a goblin sitting at its prompt with nothing running, nothing asked and nothing reported wakes the CFO after three minutes as `goblin_idle`, read from its own screen and processes, so a Codex or pi goblin without its hooks wakes the same as a Claude Code one.
-One whose last reply asks the CFO something or offers it a choice, instead of asking with `cfo notify --blocked`, wakes it with that question quoted as `goblin_asks`, read from Claude Code's conversation, Codex's rollout or pi's screen, and the board shows it waiting on the CFO with the question.
+One whose last reply asks the CFO something or offers it a choice, instead of asking with `cfo notify --blocked`, wakes it with that question quoted as `goblin_asks`, read from Claude Code's conversation, Codex's rollout or pi's session, and the board shows it waiting on the CFO with the question.
 `cfo doctor` prints how many stale wakes the monitor raised and how many it held back, and why.
 
 ## Quick start
@@ -263,7 +263,7 @@ The board is only a view, so closing the browser stops nothing, and a supervisor
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
 It starts in its remembered harness, in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
 A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
-A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
+A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 `goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
 It always restarts it: a conversation it cannot resume, such as one in pi, one past 20 MB or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.

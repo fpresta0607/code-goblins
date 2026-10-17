@@ -95,7 +95,7 @@ Codex 0.154 has no loader for `~/.codex/prompts`; commands reach Codex as skills
 Codex reads `hooks.json` and the `[hooks]` table of `config.toml` from each enabled layer: system, user, and each trusted project `.codex`.
 A worktree takes its project hooks from the main checkout's `.codex`.
 A hook runs only when its hash is trusted in the user configuration (review it in `/hooks`).
-`cfo hooks install codex` writes the CFO's native hooks into `~/.codex/hooks.json`.
+A Codex session the fleet starts, the CFO's included, takes the board's native hooks as `-c` overrides of its own launch, and `cfo hooks install codex` writes them into `~/.codex/hooks.json` for one it did not start ([native hook setup](native-board.md#native-hook-setup)).
 
 **MCP.**
 Servers come only from `[mcp_servers]` in the `config.toml` layers; a project `.mcp.json` is never read.
@@ -174,7 +174,7 @@ Re-run `cfo install` to register the PreCompact hook; this change needs no super
 A Codex or pi CFO gets the same checkpoint from its native hooks: Codex `PreCompact` and pi `session_before_compact` write it under the same custody rule.
 Codex `PostCompact` and pi `session_compact` then queue one `check` wake that names the checkpoint, or says no fresh one was written, and the supervisor types it into the idle CFO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
-Re-run `cfo hooks install codex` or `cfo hooks install pi` to add these events; the Codex reinstall also rewrites every Codex hook to run `cfo` directly, and Codex runs the changed definitions only once they are trusted in `/hooks`.
+A Codex CFO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CFO.
 The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
 Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
