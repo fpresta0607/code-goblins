@@ -15,7 +15,7 @@ import (
 )
 
 // lavishFile is the release file of the lavish-axi fork the install installs.
-const lavishFile = "lavish-axi-0.1.79-codegoblins.3.tgz"
+const lavishFile = "lavish-axi-0.1.79-codegoblins.16.tgz"
 
 // lavishPin finds the SHA256 the install script pins for that file.
 var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
@@ -75,7 +75,7 @@ func npmCallsFor(recorded string) []string {
 func TestOneLineInstallRefusesALavishDownloadThatDoesNotMatchItsPin(t *testing.T) {
 	output, recorded, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), nil)
 
-	if !strings.Contains(recorded, "/v0.1.79-codegoblins.3/"+lavishFile) {
+	if !strings.Contains(recorded, "/v0.1.79-codegoblins.16/"+lavishFile) {
 		t.Fatalf("the lavish-axi release was not downloaded:\n%s\n%s", recorded, output)
 	}
 	if !strings.Contains(output, "does not match the SHA256 this install pins") {

@@ -37,9 +37,12 @@ type Check struct {
 
 // LavishRelease is the Code Goblins build of lavish-axi, from the fork at
 // github.com/fpresta0607/lavish-axi: upstream's review page named Scrawl, in
-// the Code Goblins board's look, drawing the choices a page declares.
+// the Code Goblins board's look, drawing the choices a page declares, with
+// its page server started in its own state folder. A build before it kept the
+// folder of whichever command started the server, so a goblin's worktree
+// could not be removed while the server ran (#950).
 // install.ps1 installs the same file, once it matches the SHA256 pinned there.
-const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"
+const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.16/lavish-axi-0.1.79-codegoblins.16.tgz"
 
 var tools = []struct {
 	name  string
@@ -58,7 +61,7 @@ var tools = []struct {
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
-	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.3", build: "codegoblins", presentation: true},
+	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.16", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
