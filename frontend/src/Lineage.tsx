@@ -1,14 +1,14 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
-import { CFO_ROOT, lineageFamily, nodeStatus } from "./workflow";
+import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
 import { taskStatus } from "./task-status";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { goblinName, taskName, withoutHarness } from "./task-words";
-import { hasRunningChildren, isHelperHeld } from "./fleet-tree";
+import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 import { CardFacts } from "./card-facts";
 import { CfoCardFacts } from "./cfo-card-facts";
@@ -40,11 +40,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
   const family = lineageFamily(snapshot, project);
   const sessions = family.sessions;
   const cfoID = family.cfo?.cfo ? CFO_ROOT : family.cfo?.session?.id;
-  const tasks = snapshot.tasks.filter((task) => !task.archived && (!project || task.project === project));
+  const tasks = snapshot.tasks.filter((task) => isInProgress(task) && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks.filter((task) => !isHelperHeld(snapshot, task.id)), snapshot.sessions);
   const taskOf = (node: Session) => snapshot.tasks.find((task) => task.id === node.task_id);
-  // A helper no family tree holds, such as one whose parent is paused, hangs
-  // under its parent's own session or, with none reported, its parent's task.
+  // A helper no family tree holds hangs under its parent's own session or,
+  // with none reported, its parent's task.
   const hasItem = (id: string) => sessions.some((node) => node.task_id === id && ownsTaskSession(node, taskOf(node))) || taskOnly.some((task) => task.id === id);
   const isHelperItem = (task?: Task) => !!task?.parent && hasItem(task.parent);
   const helperSessions = sessions.filter((node) => ownsTaskSession(node, taskOf(node)) && isHelperItem(taskOf(node)));

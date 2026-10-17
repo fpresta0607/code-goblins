@@ -162,15 +162,14 @@ for (const colorScheme of ["dark", "light"] as const) {
       await row.screenshot({ path: testInfo.outputPath(`board-${kind}-${colorScheme}.png`) });
     }
 
-    // Act and assert: the canvas.
+    // Act and assert: the canvas, which draws only goblins in progress.
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-    for (const [kind, name] of [["working", "Benny - AFK Ace"], ["paused", "Otis - Ledger Clerk"]]) {
-      const node = page.locator(".flow-node").filter({ has: page.locator("strong").getByText(name, { exact: true }) });
-      const clock = node.locator(".card-clock");
-      await expect(clock.locator(".icon"), kind).toBeVisible();
-      expect(await clock.evaluate(isClockBesideItsTime), kind).toBe(true);
-      await node.screenshot({ path: testInfo.outputPath(`canvas-${kind}-${colorScheme}.png`) });
-    }
+    const node = (name: string) => page.locator(".flow-node").filter({ has: page.locator("strong").getByText(name, { exact: true }) });
+    const clock = node("Benny - AFK Ace").locator(".card-clock");
+    await expect(clock.locator(".icon")).toBeVisible();
+    expect(await clock.evaluate(isClockBesideItsTime)).toBe(true);
+    await node("Benny - AFK Ace").screenshot({ path: testInfo.outputPath(`canvas-working-${colorScheme}.png`) });
+    await expect(node("Otis - Ledger Clerk")).toHaveCount(0);
   });
 }
 
