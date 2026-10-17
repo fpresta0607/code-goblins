@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"path/filepath"
@@ -83,7 +84,8 @@ func browserSocket(ctx context.Context, address string) (string, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%s/json/version answered %s", address, response.Status)
+		said, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return "", fmt.Errorf("%s/json/version answered %s: %s", address, response.Status, strings.TrimSpace(string(said)))
 	}
 	var version struct {
 		Socket string `json:"webSocketDebuggerUrl"`
