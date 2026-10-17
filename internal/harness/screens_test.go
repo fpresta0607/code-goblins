@@ -193,6 +193,40 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	}
 }
 
+// Claude Code's footer names the session's permission mode, which a CFO the
+// Overlord opens chooses for itself, so its composer reads as ready, and its
+// turn as working, in every mode. The rows are Claude Code 2.1.302's, read
+// from its build; the manual one is a live capture's, where it holds no
+// cycle hint.
+func TestClaudeCodesComposerIsReadInEveryPermissionMode(t *testing.T) {
+	screens, _ := NativeScreens(Claude)
+	for mode, footer := range map[string]string{
+		"manual":             "⏸ manual mode on · ? for shortcuts · ← 2 agents",
+		"plan":               "⏸ plan mode on (shift+tab to cycle)",
+		"accept edits":       "⏵⏵ accept edits on (shift+tab to cycle)",
+		"bypass permissions": "⏵⏵ bypass permissions on (shift+tab to cycle)",
+		"don't ask":          "⏵⏵ don't ask on (shift+tab to cycle)",
+		"auto":               "⏵⏵ auto mode on (shift+tab to cycle)",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			idle := claudeScreen([]string{"● Done. The branch is pushed."}, footer)
+			working := claudeScreen([]string{"✽ Reticulating… (3s · esc to interrupt)"}, footer)
+
+			// Act
+			idleReady, workingReady := screens.IsReady(idle), screens.IsReady(working)
+
+			// Assert
+			if !idleReady || !screens.ComposerEmpty(idle) {
+				t.Errorf("idle under %q: ready %v, empty %v; want an empty composer ready for input", footer, idleReady, screens.ComposerEmpty(idle))
+			}
+			if workingReady || !screens.IsWorking(working) {
+				t.Errorf("in a turn under %q: ready %v, working %v; want working", footer, workingReady, screens.IsWorking(working))
+			}
+		})
+	}
+}
+
 // Codex 0.154's composer, captured live on a native terminal: its footer names
 // the model and folder, not the context left, so the empty composer's
 // placeholder is what shows it ready, at start and after a turn; its working
