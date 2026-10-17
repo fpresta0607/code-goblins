@@ -49,3 +49,30 @@ func TestAcquireNamedOwnerWithinEndsAtItsWaitWhileTheRecordIsHeld(t *testing.T) 
 		t.Errorf("the acquire waited %s while the record was held, want it to give up near its wait of %s: %v", waited, wait, err)
 	}
 }
+
+// At the head of the line the record is the caller's to take, so it takes
+// one look at it however late the line let it through. A machine that stalls
+// can spend the whole wait in a line with nobody ahead: on a CI runner (train
+// PR 1043) the monitor's wake lock was given up as "context deadline
+// exceeded" before its free record was ever tried, and the pause test of the
+// same run lost the same ten seconds.
+func TestAWaiterAtTheHeadOfTheLineLooksAtTheRecordHoweverLate(t *testing.T) {
+	// Arrange: the caller stalls once it is at the head of the line, past
+	// its whole wait.
+	dir := t.TempDir()
+	const wait = 100 * time.Millisecond
+	stalled := inLine
+	inLine = func() { time.Sleep(2 * wait) }
+	t.Cleanup(func() { inLine = stalled })
+
+	// Act
+	info, err := AcquireNamedOwnerWithin(dir, ".wake-queue.lock", os.Getpid(), "wake", wait)
+
+	// Assert
+	if err != nil || info == nil || info.PID != os.Getpid() {
+		t.Fatalf("acquire = %+v, %v, want the free lock taken by the caller the line let through late", info, err)
+	}
+	if err := ReleaseNamed(dir, ".wake-queue.lock"); err != nil {
+		t.Fatal(err)
+	}
+}

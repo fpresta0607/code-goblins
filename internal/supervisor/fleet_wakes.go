@@ -895,19 +895,33 @@ func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 
 // ghPullRequest is one open pull request as gh pr list reports it.
 type ghPullRequest struct {
-	Number            int       `json:"number"`
-	URL               string    `json:"url"`
-	HeadRefName       string    `json:"headRefName"`
-	HeadRefOid        string    `json:"headRefOid"`
-	Checks            []ghCheck `json:"statusCheckRollup"`
-	Mergeable         string    `json:"mergeable"`
-	IsDraft           bool      `json:"isDraft"`
-	ReviewDecision    string    `json:"reviewDecision"`
-	BaseRefName       string    `json:"baseRefName"`
-	IsCrossRepository bool      `json:"isCrossRepository"`
+	Number            int      `json:"number"`
+	URL               string   `json:"url"`
+	HeadRefName       string   `json:"headRefName"`
+	HeadRefOid        string   `json:"headRefOid"`
+	Checks            ghChecks `json:"statusCheckRollup"`
+	Mergeable         string   `json:"mergeable"`
+	IsDraft           bool     `json:"isDraft"`
+	ReviewDecision    string   `json:"reviewDecision"`
+	BaseRefName       string   `json:"baseRefName"`
+	IsCrossRepository bool     `json:"isCrossRepository"`
 	Author            struct {
 		Login string `json:"login"`
 	} `json:"author"`
+}
+
+// ghChecks is a head's check rollup as gh reports it, less the workflows'
+// draft job's check, which reads whether the pull request is a draft and
+// tests nothing (train.DraftStateCheck), whatever it concluded.
+type ghChecks []ghCheck
+
+func (c *ghChecks) UnmarshalJSON(data []byte) error {
+	var rollup []ghCheck
+	if err := json.Unmarshal(data, &rollup); err != nil {
+		return err
+	}
+	*c = slices.DeleteFunc(rollup, func(check ghCheck) bool { return check.Kind == "CheckRun" && check.Name == train.DraftStateCheck })
+	return nil
 }
 
 // ghCheck is one entry of a pull request's check rollup: a check run, with a

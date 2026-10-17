@@ -6,8 +6,8 @@ name: install
 # the setup program's install of that same release, and `.\install.cmd -Dev`
 # from this checkout. Each ends with dictation ready.
 on:
-  # A draft runs nothing, and marking it ready runs both installs on its
-  # head, as the go workflow does.
+  # A draft runs nothing but the draft job, and marking it ready runs both
+  # installs on its head, as the go workflow does.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -73,16 +73,40 @@ on:
 
 concurrency:
   # A newer commit on a pull request supersedes the run on the older one,
-  # which is cancelled. Every other run, on main, in the merge queue or
-  # started by hand, has a group of its own, so none is ever cancelled or
-  # held waiting.
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  # which is cancelled. A run whose event saw a draft has a group apart from
+  # the one of runs whose event saw the pull request ready, so neither
+  # cancels the other, as in the go workflow. Every other run, on main, in
+  # the merge queue or started by hand, has a group of its own, so none is
+  # ever cancelled or held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  # A run whose event saw a draft asks GitHub whether the pull request is a
+  # draft now, as the go workflow's does, and the installs run unless it still is.
+  draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
+    if: github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      draft: ${{ steps.read.outputs.draft }}
+    steps:
+      - name: Read whether the pull request is a draft now
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: repos/${{ github.repository }}/pulls/${{ github.event.number }}
+        run: |
+          draft=$(gh api "$PULL_REQUEST" --jq .draft)
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
   # A push to main runs neither install when a pull request run of this
   # workflow passed on the push's exact tree and first parent, as a merge
   # train's run does for the tree the train lands unchanged
@@ -115,8 +139,8 @@ jobs:
     # The setup program runs the install script in Windows PowerShell, out of
     # sight, as CodeGoblinsSetup.exe does once Install is pressed.
     name: ${{ matrix.via }} (${{ matrix.shell }})
-    needs: reuse
-    if: ${{ !cancelled() && !github.event.pull_request.draft && needs.reuse.outputs.run == '' }}
+    needs: [draft, reuse]
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' && needs.reuse.outputs.run == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -387,8 +411,8 @@ jobs:
           retention-days: 14
 
   dev:
-    needs: reuse
-    if: ${{ !cancelled() && !github.event.pull_request.draft && needs.reuse.outputs.run == '' }}
+    needs: [draft, reuse]
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' && needs.reuse.outputs.run == '' }}
     runs-on: windows-latest
     # -Dev runs the same third-party installers as the one-line install.
     timeout-minutes: 30

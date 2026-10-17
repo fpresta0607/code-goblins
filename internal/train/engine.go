@@ -228,9 +228,9 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, error) {
 		return "", nil, fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
 	}
 	var view struct {
-		State      string  `json:"state"`
-		HeadRefOid string  `json:"headRefOid"`
-		Checks     []Check `json:"statusCheckRollup"`
+		State      string `json:"state"`
+		HeadRefOid string `json:"headRefOid"`
+		Checks     Checks `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
 		return "", nil, fmt.Errorf("merge train %s: gh reported its CI in a shape it cannot read: %w", t.ID, err)

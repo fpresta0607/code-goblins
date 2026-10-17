@@ -53,14 +53,20 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 				t.Cleanup(func() { windows.CloseHandle(retained) })
 			}
 			var wasTerminated atomic.Bool
-			// How long the stop took, apart from the rest of the pause, which
-			// a pause that outlasts its deadline names: on PR 992 (run
-			// 38802190640) one took 49.7 s, alone in a package whose others
-			// ran at their usual pace, and said nothing of where (#993).
-			var stopTook time.Duration
+			// Whether the fixture, which the stand-in termination never ends,
+			// still ran as the stop returned: a stop that waited for its
+			// handle would have returned only once it exited.
+			watched, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(identity.PID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { windows.CloseHandle(watched) })
+			var isRunningAfterStop bool
 			service.Operations.Stop = func(ctx context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
-				stopBegan := time.Now()
-				defer func() { stopTook = time.Since(stopBegan) }()
+				defer func() {
+					wait, err := windows.WaitForSingleObject(watched, 0)
+					isRunningAfterStop = err == nil && wait == uint32(windows.WAIT_TIMEOUT)
+				}()
 				stopped, teardown, err := stopResources(ctx, Resources{Directories: []string{meta.TaskTmp}}, func(ctx context.Context, found Identity) (bool, error) {
 					if found != identity {
 						return false, errors.New("unexpected owned identity")
@@ -82,12 +88,14 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 				record.Teardown = teardown
 				return stopped, err
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			begin := time.Now()
+			// What Pause waits on is measured, never how fast the machine
+			// runs: on CI it timed the whole pause against ten seconds, and a
+			// runner that stalled for ten seconds failed it twice (PR 992, and
+			// train PR 1043, where the stop itself took 4.9 ms of 11.2 s) (#993).
+			ctx := t.Context()
 			record, err := service.Run(ctx, Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-teardown", Action: "pause", Reason: "overlord"})
-			if took := time.Since(begin); took >= 10*time.Second {
-				t.Fatalf("Pause exceeded its ten-second deadline: it took %s, %s of it in the stop and its sweep, the rest in its own locks, records and handoff wait; it ended %s with %v (problems %q)", took, stopTook, record.Phase, err, record.Problems)
+			if !isRunningAfterStop {
+				t.Fatalf("Pause's stop returned only once the process it was ending had exited, so it waited for the handle: %+v %v", record, err)
 			}
 			if testCase.shouldFail {
 				if err == nil || record.Phase != "failed" {

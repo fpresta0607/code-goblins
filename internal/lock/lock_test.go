@@ -747,6 +747,39 @@ func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
 	}
 }
 
+// A record the acquire has just created is its own, so it reads it back
+// however late: the look's deadline bounds only its waits for another
+// holder. A waiter the line lets through late looks for one pause, which a
+// slow create can spend. A read-back that then failed on the passed deadline
+// sent the acquire round to a create that failed too, so it returned an
+// error and left behind a record naming its own live process, which every
+// other acquire then found held.
+func TestAnAcquireWhoseDeadlinePassesAfterItsCreateTakesTheRecordItMade(t *testing.T) {
+	// Arrange: the look's deadline passes as the read-back begins.
+	dir, name := t.TempDir(), ".wake-queue.lock"
+	self, status := ownerInfo(os.Getpid(), "wake")
+	if status == statusDead {
+		t.Fatal("current process unexpectedly dead")
+	}
+	look, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	read := func(ctx context.Context, dir, name string) (*Info, error) {
+		<-look.Done()
+		return readNamedContext(ctx, dir, name)
+	}
+
+	// Act
+	info, err := acquireReading(look, dir, name, self, true, false, read)
+
+	// Assert
+	if err != nil || info != self {
+		t.Fatalf("acquire = %+v, %v; want the record it created taken", info, err)
+	}
+	if recorded, err := ReadNamed(dir, name); err != nil || recorded.PID != self.PID || !recorded.Start.Equal(self.Start) {
+		t.Errorf("the lock records %+v, %v; want this process", recorded, err)
+	}
+}
+
 // deadHoldersRecord writes dir/name naming a process that has ended.
 func deadHoldersRecord(t *testing.T, dir, name string) string {
 	t.Helper()

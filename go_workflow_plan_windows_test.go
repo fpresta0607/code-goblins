@@ -54,8 +54,9 @@ func TestGoWorkflowKnowsATrainsRunByTheTrainsOwnBranchPrefix(t *testing.T) {
 // answer, would run or be skipped whatever the change, and a job the plan
 // has no answer for could be left out of the required check's reckoning. So
 // the jobs are exactly the plan, the three it answers for and the check, each
-// of the three reads its own answer, and the plan and the check agree on
-// which runs may leave a job out.
+// of the three reads its own answer once the plan succeeded, whatever became
+// of the draft job above it, and the plan and the check agree on which runs
+// may leave a job out.
 func TestGoWorkflowJobsStartOnlyAsThePlanSays(t *testing.T) {
 	// Arrange
 	source, err := os.ReadFile(filepath.Join(".github", "workflows", "go.yml"))
@@ -76,16 +77,16 @@ func TestGoWorkflowJobsStartOnlyAsThePlanSays(t *testing.T) {
 	}
 	jobs := goWorkflowJobs(t)
 	starts := map[string]string{
-		"frontend": "needs.plan.outputs.frontend == 'true'",
-		"browser":  "needs.plan.outputs.browser == 'true'",
-		"go":       "needs.plan.outputs.go != '[]'",
+		"frontend": "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.frontend == 'true' }}",
+		"browser":  "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.browser == 'true' }}",
+		"go":       "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}",
 	}
 
 	// Act
 	names := slices.Sorted(maps.Keys(jobs))
 
 	// Assert
-	if want := []string{"browser", "frontend", "go", "plan", "test"}; !slices.Equal(names, want) {
+	if want := []string{"browser", "draft", "frontend", "go", "plan", "test"}; !slices.Equal(names, want) {
 		t.Fatalf("the go workflow's jobs are %v, want %v: a new job needs an answer from the plan, a rule in JOBS and a place in the check", names, want)
 	}
 	for name, condition := range starts {
@@ -100,8 +101,8 @@ func TestGoWorkflowJobsStartOnlyAsThePlanSays(t *testing.T) {
 	if include := jobs["go"].Strategy.Matrix.Include; include != "${{ fromJSON(needs.plan.outputs.go) }}" {
 		t.Errorf("the go job runs %q, want the go jobs the plan started", include)
 	}
-	if want := "${{ " + draftCondition + " }}"; len(jobs["plan"].Needs) != 0 || jobs["plan"].If != want {
-		t.Errorf("the plan job needs %v and starts if %q, want it to start with every run but a draft's, if %q", jobs["plan"].Needs, jobs["plan"].If, want)
+	if want := "${{ !cancelled() && " + draftCondition + " }}"; !slices.Equal(jobs["plan"].Needs, goWorkflowNeeds{"draft"}) || jobs["plan"].If != want {
+		t.Errorf("the plan job needs %v and starts if %q, want it to need the draft job and start with every run but one of a draft, if %q", jobs["plan"].Needs, jobs["plan"].If, want)
 	}
 	checks := ""
 	for _, step := range workflow.Jobs["test"].Steps {

@@ -2,6 +2,7 @@ package train
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -24,10 +25,31 @@ type PullRequest struct {
 	Mergeable         string  `json:"mergeable"`
 	ReviewDecision    string  `json:"reviewDecision"`
 	Labels            []Label `json:"labels"`
-	Checks            []Check `json:"statusCheckRollup"`
+	Checks            Checks  `json:"statusCheckRollup"`
 	Author            struct {
 		Login string `json:"login"`
 	} `json:"author"`
+}
+
+// DraftStateCheck is the check of the workflows' draft job, which runs only
+// when a pull request event saw a draft and reads whether the pull request is
+// a draft now, so a push an event saw as a draft still tests the head of one
+// marked ready meanwhile (#963). It tests nothing: on a draft it succeeds
+// while every other job is skipped, so counted it made a head that only a
+// draft's run had seen look tested.
+const DraftStateCheck = "draft state"
+
+// Checks is a head's check rollup as gh reports it, less the draft job's
+// check, which tests nothing (DraftStateCheck), whatever it concluded.
+type Checks []Check
+
+func (c *Checks) UnmarshalJSON(data []byte) error {
+	var rollup []Check
+	if err := json.Unmarshal(data, &rollup); err != nil {
+		return err
+	}
+	*c = slices.DeleteFunc(rollup, func(check Check) bool { return check.Kind == "CheckRun" && check.Name == DraftStateCheck })
+	return nil
 }
 
 // Label is one of a pull request's labels.

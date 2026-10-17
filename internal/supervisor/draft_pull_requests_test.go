@@ -96,3 +96,42 @@ func TestPRHealthLeavesADraftThatIsOnlyBehindAlone(t *testing.T) {
 		})
 	}
 }
+
+const draftStatePassed = `{"__typename":"CheckRun","name":"draft state","workflowName":"go","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-10-14T12:00:30Z"}`
+
+// The workflows' draft job reads whether a pull request is a draft now and
+// tests nothing (train.DraftStateCheck): on a draft it succeeds while every
+// other job is skipped. A head that only a draft's run has seen is no more
+// tested for that success: marked ready, it finishes only when its ready run
+// does, and the draft job's check is never one of the checks counted (#963).
+func TestCIWakesPassOverTheDraftStateCheck(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	project := t.TempDir()
+	runsWorkflows(t, project)
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs = "feat/wakes", "[]"
+	s.Options.CI = forge
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+
+	// Act
+	forge.pulls = draftRollup("ed99ac3f00", "MERGEABLE", false, scanPassedRun, draftStatePassed, goTestSkipped)
+	var skipped []wake.Record
+	for poll := 0; poll < 10 && len(skipped) == 0; poll++ {
+		skipped = pollForge(t, s, h, &now)
+	}
+	forge.pulls = draftRollup("ed99ac3f00", "MERGEABLE", false, scanPassedRun, draftStatePassed, goTestPassed)
+	var finished []wake.Record
+	for poll := 0; poll < 5 && len(finished) == 0; poll++ {
+		finished = pollForge(t, s, h, &now)
+	}
+
+	// Assert
+	if len(skipped) != 1 || !strings.Contains(skipped[0].Detail, "no workflow ran") || strings.Contains(skipped[0].Detail, "passed") {
+		t.Fatalf("a ready head with only its draft run's checks = %+v, want one wake saying no workflow ran and none that it passed", skipped)
+	}
+	if len(finished) != 1 || !strings.Contains(finished[0].Detail, "all 2 passed") {
+		t.Fatalf("the ready run finished = %+v, want one wake counting the scan and the test, never the draft job's check", finished)
+	}
+}
