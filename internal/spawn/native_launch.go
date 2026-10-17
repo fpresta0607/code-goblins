@@ -356,9 +356,10 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // the conversation proves it taken; with none soon after the submit the
 // error says it is queued for that tool call. Either way it is typed once. A
 // harness that turns it away as still starting, putting it back in its
-// composer, has not taken it: Enter is pressed again until it does, for as
-// long as a harness's startup is given, and its time to show itself working
-// counts from the last press.
+// composer, has not taken it: while its screen says so, and did not already
+// say so before the submit, Enter is pressed again until it does, for as long
+// as a harness's startup is given, and its time to show itself working counts
+// from the last press.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
@@ -392,7 +393,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if !busy && screens.IsWorking(screen) {
 			return nil
 		}
-		if !busy && screens.IsStarting(screen) && !screens.ComposerEmpty(screen) {
+		if !busy && !screens.IsStarting(before) && screens.IsStarting(screen) && !screens.ComposerEmpty(screen) {
 			if startingSince.IsZero() {
 				startingSince = time.Now()
 			}
