@@ -9,7 +9,7 @@ test("a helper hangs under its parent as a helper goblin, not as a card of its o
   await expect(helper).toContainText("Accounts migration");
   await expect(helper).toContainText("Working 4m");
   await expect(helper).toContainText("512 MB");
-  // A helper whose parent waits on it, with no tree to hold it, keeps its card.
+  // A helper whose parent has no tree yet, so none holds it, keeps its card.
   await expect(page.locator(".flow-node").filter({ hasText: "Ledger fixtures" })).toHaveCount(1);
 });
 
