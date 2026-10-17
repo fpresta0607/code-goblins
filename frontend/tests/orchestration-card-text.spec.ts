@@ -123,7 +123,7 @@ test("a goblin's card holds its whole title, project and status, as in the Overl
   const seen = await card(page, "Woody").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Allowance: resumes Oct 14, 4:05 AM", "model: claude-opus-5-5 · xhigh", "route: strong fallback"]);
+  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Paused for allowance", "model: claude-opus-5-5 · xhigh", "route: strong fallback", "clock: Oct 12, 5:00 AM"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);
@@ -151,8 +151,8 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
 // Text a card cannot hold may end in an ellipsis, but none of it is painted
 // beyond the card, whatever it says, and no part of it goes unseen.
 for (const [title, parts] of [
-  ["Wilhelmina", ["title", "browser", "project", "status", "model", "route"]],
-  ["Cornelius", ["title", "browser", "project", "status", "model", "route"]],
+  ["Wilhelmina", ["title", "browser", "project", "status", "model", "route", "clock"]],
+  ["Cornelius", ["title", "browser", "project", "status", "model", "route", "clock"]],
   ["Bartholomew", ["title", "project", "status", "model", "route", "clock", "pull request"]],
   ["CFO", ["title", "status", "dial"]],
 ] as const) {

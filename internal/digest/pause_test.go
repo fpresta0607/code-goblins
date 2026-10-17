@@ -25,7 +25,7 @@ func TestBothDigestsShowPauseReasonAndResumeCondition(t *testing.T) {
 	var full bytes.Buffer
 	writeMetaEntry(h.State, meta.ID, 5, &werr{w: &full})
 	for _, text := range []string{fleetLine(h.State, meta.ID), full.String()} {
-		if !strings.Contains(text, "Allowance; resumes at 2026-10-03T00:00:00Z") {
+		if !strings.Contains(text, "Paused for the allowance; resumes at 2026-10-03T00:00:00Z") {
 			t.Fatalf("digest hid the pause condition: %s", text)
 		}
 	}

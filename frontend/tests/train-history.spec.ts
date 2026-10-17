@@ -4,11 +4,13 @@ import { expect, holdStream, test, type Page } from "./site";
 // are waiting", "merge train failed and landed of the same merge
 // train...should not duplicate", "how is there complete with conflicts??"
 // and "why when i click on completed merge trains is there no panel??".
-// Goblins waiting on their pull requests stay in In progress and Paused holds
-// only goblins stopped for memory; a batch shows as one train card listing
-// only what it landed; a pull request it could not merge shows on its
-// goblin's card; and a train's card opens its panel. The supervisor is played
-// by one held snapshot, its trains as it folds them.
+// Goblins paused until their pull requests merge sit in Paused with every
+// other paused goblin (the Overlord, 2026-10-16: "paused does it means youre
+// on the bench to be resumed"), their chips saying where their pull requests
+// stand; a batch shows as one train card listing only what it landed; a pull
+// request it could not merge shows on its goblin's card; and a train's card
+// opens its panel. The supervisor is played by one held snapshot, its trains
+// as it folds them.
 const REPO = "https://github.com/fpresta0607/code-goblins";
 const FIRST_PR = REPO + "/pull/522";
 const TRAIN_PR = REPO + "/pull/526";
@@ -301,15 +303,16 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await page.screenshot({ path: test.info().outputPath("folded-history.png"), fullPage: true });
     });
 
-    test("goblins waiting on their pull requests stay in In progress and Paused holds only the goblin stopped for memory", async ({ page }) => {
+    test("goblins paused until their pull requests merge sit in Paused with their pause, and their chips say their pull requests landed", async ({ page }) => {
       await open(page);
 
-      for (const name of ["Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model"]) {
-        await expect(column(page, "In progress").locator(".task-card-shell").filter({ hasText: name })).toHaveCount(1);
-        await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: name })).toHaveCount(0);
-        await expect(card(page, name).locator(".card-status-text")).toHaveText("Landed");
+      for (const [name, number] of [["Rosie - Inline Editor", 517], ["Wes - Train Conductor", 519], ["Dolly - Rank Keeper", 520], ["Pearl - Screen Model", 524]] as const) {
+        await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: name })).toHaveCount(1);
+        await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
+        await expect(card(page, name).locator(".card-checks")).toHaveText("Landed");
       }
-      await expect(pausedSection(page).locator(".task-card-shell")).toHaveText([/Otis - Ledger Clerk.*Memory: resumes at 5 GB free/]);
+      await expect(pausedSection(page).locator(".card-title")).toHaveText(["Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model", "Otis - Ledger Clerk"]);
+      await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
     });
 
     test("one card for the batch lists only what it landed, and no card for the train it took on", async ({ page }) => {
@@ -377,7 +380,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).locator(".panel-status")).toHaveText("CI tests #517, #519, run 4");
       await panel(page).locator("details > summary").click();
       await expect(panel(page).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
-      await expect(card(page, "Rosie - Inline Editor").locator(".card-status-text")).toHaveText("Testing");
+      await expect(card(page, "Rosie - Inline Editor").locator(".card-checks")).toHaveText("Testing");
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
     });
 

@@ -5,9 +5,12 @@ import { expect, holdStream, test, type Page } from "./site";
 // Sid's panel read Paused in yellow, "It resumes by itself when PR #512
 // merges." and "Checks passed". A goblin whose pull request is under test
 // reads one state with one link on its card, its panel, its canvas node and
-// the train's card, and stays in In progress, its session live or paused
-// until the pull request merges. A real pause stays in the Paused section,
-// never in yellow. The supervisor is played by one held snapshot.
+// the train's card, and stays in In progress while its session is live. The
+// Overlord, 2026-10-16: "paused does it means youre on the bench to be
+// resumed". A goblin paused until its pull request merges reads its pause in
+// the Paused section like any paused goblin, never in yellow, while its
+// pull request's chip still says where that pull request stands. The
+// supervisor is played by one held snapshot.
 const REPO = "https://github.com/northwind/northwind-api";
 const TRAIN_PR = REPO + "/pull/900";
 const RUN = REPO + "/actions/runs/77/job/770";
@@ -70,7 +73,7 @@ for (const width of [1440, 390]) {
   test.describe(`at ${width}px`, () => {
     test.use({ viewport: { width, height: 1400 } });
 
-    test("a goblin paused until its pull request merges reads the train's Testing and opens the train's pull request, in In progress", async ({ page }) => {
+    test("a goblin paused until its pull request merges reads its pause in Paused, and its chip reads the train's Testing and opens the train's pull request", async ({ page }) => {
       // Arrange
       await open(page);
       const sid = card(page, "Sid - Memory Keeper");
@@ -83,16 +86,14 @@ for (const width of [1440, 390]) {
       const row = train.locator(".train-car").filter({ hasText: "#512" });
 
       // Assert
-      await expect(progress(page).locator(".task-card-shell").filter({ hasText: "Sid - Memory Keeper" })).toHaveCount(1);
-      await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: "Sid - Memory Keeper" })).toHaveCount(0);
-      expect(status.text).toBe("Testing");
+      await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: "Sid - Memory Keeper" })).toHaveCount(1);
+      expect(status.text).toBe("Paused until PR #512 merges");
       expect(status.color).not.toBe(AMBER);
       expect(chip).toMatchObject({ text: "Testing", href: TRAIN_PR });
       expect(trainStatus.href).toBe(TRAIN_PR);
       await expect(row).toContainText("Sid - Memory Keeper");
       await expect(row.locator(".train-car-state")).toHaveText("Testing");
-      await expect(sid).not.toContainText(/Paused|resumes/);
-      await expect(sid.getByRole("button", { name: "Resume Keep the memory floor", exact: true })).toBeVisible();
+      await expect(sid.getByRole("button", { name: /^(Resume|Stop) / })).toHaveCount(0);
     });
 
     test("a goblin waiting on its own CI reads Testing and opens that run", async ({ page }) => {
@@ -104,17 +105,17 @@ for (const width of [1440, 390]) {
       await expect(mae.locator("a.card-checks")).toHaveAttribute("href", RUN);
     });
 
-    test("a real pause stays in the Paused section with what resumes it, never in yellow", async ({ page }) => {
+    test("a pause for memory stays in the Paused section with why, never in yellow", async ({ page }) => {
       await open(page);
       const otis = pausedSection(page).locator(".task-card-shell").filter({ hasText: "Otis - Ledger Clerk" });
 
       const status = await read(otis.locator(".plain-status"));
       const dot = await otis.locator(".status-dot").evaluate((element) => getComputedStyle(element).backgroundColor);
 
-      expect(status.text).toBe("Memory: resumes at 5 GB free");
+      expect(status.text).toBe("Paused for memory");
       expect(status.color).not.toBe(AMBER);
       expect(dot).not.toBe(AMBER);
-      await expect(pausedSection(page).locator(".task-card-shell")).toHaveCount(1);
+      await expect(pausedSection(page).locator(".card-title")).toHaveText(["Sid - Memory Keeper", "Otis - Ledger Clerk"]);
     });
   });
 }
@@ -122,38 +123,48 @@ for (const width of [1440, 390]) {
 test.describe("in his window", () => {
   test.use({ viewport: { width: 1707, height: 1067 } });
 
-  test("the panel and the canvas node read the card's state and open the same page", async ({ page }) => {
+  test("the panel and the canvas node of a goblin paused until its pull request merges read the card's pause, and its chip opens the train's pull request", async ({ page }) => {
     // Arrange
     await open(page);
-    const cardTip = await card(page, "Sid - Memory Keeper").locator(".task-card").getAttribute("data-tip");
+    const sid = card(page, "Sid - Memory Keeper");
+    const cardStatus = await sid.locator(".card-status-text").textContent();
+    const cardTip = await sid.locator(".task-card").getAttribute("data-tip");
 
     // Act
     await select(page, "Sid - Memory Keeper");
     const panelStatus = await read(header(page).locator(".panel-status"));
     const panelChip = await read(header(page).locator("a.hosted-checks"));
+    const paneTitle = await ended(page).locator("h2").textContent();
+    const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+    if (await pill.count()) await pill.click();
+    await header(page).locator(".raw-details > summary").click();
+    const details = await header(page).locator(".raw-details-text").innerText();
+    const controls = await page.locator(".goblin-panel").getByRole("group", { name: "Controls for Keep the memory floor" }).getByRole("button").allTextContents();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const node = page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: "Sid - Memory Keeper" }) });
     const nodeStatus = await read(node.locator(".plain-status"));
 
-    // Assert
-    expect(panelStatus.text).toBe("Testing");
+    // Assert: one pause, the same everywhere, and what resumes it behind
+    // Details; the pull request's test is its chip's to say.
+    expect(cardStatus).toBe("Paused until PR #512 merges");
+    expect(panelStatus.text).toBe(cardStatus);
     expect(panelStatus.color).not.toBe(AMBER);
     expect(panelChip).toMatchObject({ text: "Testing", href: TRAIN_PR });
     await expect(header(page).locator(".panel-activity")).toHaveCount(0);
-    await expect(header(page)).not.toContainText(/Paused|resumes/);
-    await expect(ended(page).locator("h2")).toHaveText("Testing");
-    await expect(ended(page)).not.toContainText("Paused");
-    expect(nodeStatus.text).toBe("Testing");
+    expect(paneTitle).toBe("Session paused");
+    expect(details).toBe("It resumes by itself when PR #512 merges.");
+    expect(controls).toEqual(["Resume", "Stop"]);
+    expect(nodeStatus.text).toBe(cardStatus);
     await expect(node.locator(".flow-node-main")).toHaveAttribute("data-tip", cardTip!);
-    await expect(node.locator(".flow-node-main")).toHaveAttribute("aria-label", /^Sid - Memory Keeper\. Testing\./);
+    await expect(node.locator(".flow-node-main")).toHaveAttribute("aria-label", /^Sid - Memory Keeper\. Paused until PR #512 merges\./);
   });
 
-  test("a real pause's panel reads its card's state and still says its session paused", async ({ page }) => {
+  test("a pause for memory's panel reads its card's state and still says its session paused", async ({ page }) => {
     await open(page);
 
     await select(page, "Otis - Ledger Clerk");
 
-    await expect(header(page).locator(".panel-status")).toHaveText("Memory: resumes at 5 GB free");
+    await expect(header(page).locator(".panel-status")).toHaveText("Paused for memory");
     await expect(ended(page).locator("h2")).toHaveText("Session paused");
   });
 

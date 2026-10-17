@@ -56,7 +56,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
         if (!each) return null;
         const ended = sessionEnd(each);
         if (ended) {
-          const view = <EndedSession task={each} kind={ended} trains={snapshot.merge_trains ?? []} />;
+          const view = <EndedSession task={each} kind={ended} />;
           return takesMessages(each) ? messaging(entry, here, view, each) : slot(entry, here, view);
         }
         if (!each.generation) return null;

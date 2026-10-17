@@ -30,6 +30,16 @@ async function open(page: Page, first: object): Promise<Sent[]> {
 
 const header = (page: Page) => page.locator(".panel-header");
 const card = (page: Page) => page.locator(".task-card-shell").filter({ hasText: "Export invoices as CSV" });
+const panel = (page: Page) => page.locator(".goblin-panel");
+
+// A goblin's controls are in its panel, never on its card (the Overlord,
+// 2026-10-16), so its card opens it, on its Task view.
+async function openGoblinPanel(page: Page) {
+  await card(page).locator(".task-card").click();
+  await expect(header(page).locator("#panel-title")).toHaveText("Export invoices as CSV");
+  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+  if (await pill.count()) await pill.click();
+}
 
 async function openCfoPanel(page: Page) {
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
@@ -62,21 +72,24 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
       await expect.poll(() => sent).toEqual([{ path: "/api/cfo/update", body: {}, token: "fixture" }]);
     });
 
-    test("a goblin's card offers Update among its controls while an update waits, and his press asks for its own update once", async ({ page }, testInfo) => {
+    test("a goblin's panel offers Update among its controls while an update waits, its card none, and his press asks for its own update once", async ({ page }, testInfo) => {
       // Arrange
       const sent = await open(page, snapshot({}, { harness_update: { harness: "claude", installed: "2026-10-07T14:10:37Z" } }));
-      const update = card(page).getByRole("button", { name: "Update Export invoices as CSV" });
+      await expect(card(page)).toBeVisible();
+      await expect(card(page).getByRole("button", { name: /^Update / })).toHaveCount(0);
+      await openGoblinPanel(page);
+      const update = panel(page).getByRole("button", { name: "Update Export invoices as CSV" });
 
       // Assert
       await expect(update).toBeVisible();
       await expect(update).toHaveAttribute("data-tip", "Claude Code was updated. Restart this goblin onto it at its next stopping point. Its conversation is kept.");
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-      await card(page).screenshot({ path: testInfo.outputPath(`goblin-card-update-${width}.png`) });
+      await panel(page).screenshot({ path: testInfo.outputPath(`goblin-panel-update-${width}.png`) });
 
       // The Overlord, 2026-10-07: "update button on task cards is ugly". It
-      // wears the look of the card's other controls.
-      const look = (button: Locator) => button.evaluate((element) => { const style = getComputedStyle(element); return [style.width, style.borderTopColor, style.color, style.boxShadow, style.backgroundColor].join(" | "); });
-      expect(await look(update)).toBe(await look(card(page).getByRole("button", { name: "Pause Export invoices as CSV" })));
+      // wears the look of the panel's other controls.
+      const look = (button: Locator) => button.evaluate((element) => { const style = getComputedStyle(element); return [style.height, style.borderTopColor, style.color, style.boxShadow, style.backgroundColor].join(" | "); });
+      expect(await look(update)).toBe(await look(panel(page).getByRole("button", { name: "Pause Export invoices as CSV" })));
 
       // Act
       await update.click();
@@ -106,16 +119,18 @@ test.describe("once pressed", () => {
     await expect.poll(() => sent).toEqual([{ path: "/api/cfo/update", body: { cancel: true }, token: "fixture" }]);
   });
 
-  test("a goblin's card says it updates at its next stopping point, and a second press takes it back", async ({ page }, testInfo) => {
+  test("a goblin's card says it updates at its next stopping point, and a second press in its panel takes it back", async ({ page }, testInfo) => {
     // Arrange
     const sent = await open(page, snapshot({}, { harness_update: { harness: "claude", installed: "2026-10-07T14:10:37Z" }, pending_engine: { harness: "claude", model: "claude-opus-5-5", effort: "xhigh", when: "update" } }));
 
     // Assert
     await expect(card(page)).toContainText("Updates Claude Code at its next stopping point");
+    await expect(card(page).getByRole("button", { name: /^Cancel the update of / })).toHaveCount(0);
     await card(page).screenshot({ path: testInfo.outputPath("goblin-card-update-pending.png") });
 
     // Act
-    await card(page).getByRole("button", { name: "Cancel the update of Export invoices as CSV" }).click();
+    await openGoblinPanel(page);
+    await panel(page).getByRole("button", { name: "Cancel the update of Export invoices as CSV" }).click();
 
     // Assert
     await expect.poll(() => sent).toEqual([{ path: "/api/tasks/engine", body: { task: "nw-invoice-export", generation: "nw-invoice-export-1", when: "cancel" }, token: "fixture" }]);

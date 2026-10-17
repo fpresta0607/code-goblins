@@ -1,11 +1,11 @@
 import { expect, holdStream, test, type Page } from "./site";
 
 // The board's part of automatic resume, as approved on its Scrawl page: each
-// paused card says why it waits and what resumes it in place of Paused, Next
-// sits on the card the order for a free slot takes first, the memory meter
-// says nothing of slots or a cap, a Start or Resume goes by memory alone, a
-// reported production defect says it jumps the queue, and a live goblin past
-// 20 minutes without progress says for how long.
+// paused card says Paused and why, Next sits on the card the order for a free
+// slot takes first, the memory meter says nothing of slots or a cap, a Start
+// or Resume in a panel goes by memory alone, a reported production defect
+// says it jumps the queue, and a live goblin past 20 minutes without progress
+// says for how long.
 const GB = 2 ** 30;
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
@@ -38,13 +38,22 @@ async function open(page: Page, memory: object, tasks: object[]) {
 }
 // The board only: the CFO's Task tab shows the queue and its meter too.
 const board = (page: Page) => page.locator(".task-board");
-const card = (page: Page, id: string) => board(page).locator(".task-card-shell").filter({ has: page.getByRole("button", { name: "Stop " + id, exact: true }).or(page.getByRole("button", { name: "Remove " + id, exact: true })) });
+const card = (page: Page, id: string) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
+const panel = (page: Page) => page.locator(".goblin-panel");
+
+// Opens a goblin's panel from its card, on its Task view.
+async function select(page: Page, id: string) {
+  await card(page, id).locator(".task-card").click();
+  await expect(page.locator("#panel-title")).toHaveText(id);
+  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+  if (await pill.count()) await pill.click();
+}
 
 for (const width of [1440, 390]) {
   test.describe(`at ${width}px`, () => {
     test.use({ viewport: { width, height: 2400 } });
 
-    test("each paused card says why it waits and what resumes it, once, inside its card", async ({ page }) => {
+    test("each paused card says Paused and why, once, inside its card", async ({ page }) => {
       // Arrange
       await open(page, machine(4.6), [task("queued-one", "queued", { generation: "", brief: true }), ...WORKING, ...PAUSED]);
       const cards = board(page).locator(".task-card-shell").filter({ has: page.locator(".phase-paused") });
@@ -57,23 +66,20 @@ for (const width of [1440, 390]) {
       }).length);
 
       // Assert
-      expect(said).toEqual(["Memory: resumes at 5 GB free", "Waiting on PR #331 to merge", "Waiting for your answer", "Paused by you", "Waiting on CI, usually 13 min"]);
+      expect(said).toEqual(["Paused for memory", "Paused until PR #331 merges", "Paused until you answer", "Paused by you", "Paused until CI finishes, usually 13 min"]);
       expect(outside).toBe(0);
     });
 
-    // The Overlord, 2026-10-08: "paused is completely stopped terminals for
-    // memory reasons". A goblin paused to wait on something is at its work.
-    test("Paused holds only the goblins stopped for memory and by his own Pause", async ({ page }) => {
+    // The Overlord, 2026-10-16: "paused does it means youre on the bench to
+    // be resumed". Every paused goblin's terminal is stopped, whatever it
+    // waits for, so Paused holds them all and none reads Waiting.
+    test("Paused holds every paused goblin, whatever its pause waits for", async ({ page }) => {
       await open(page, machine(4.6), [...WORKING, ...PAUSED]);
       const section = board(page).getByRole("region", { name: "Paused", exact: true });
 
-      await expect(section.locator(".card-status-text")).toHaveText(["Memory: resumes at 5 GB free", "Paused by you"]);
-      const progress = board(page).getByRole("region", { name: "In progress", exact: true });
-      for (const id of ["paused-pull", "paused-answer", "paused-ci"]) {
-        const stop = page.getByRole("button", { name: "Stop " + id, exact: true });
-        await expect(progress.locator(".task-card-shell").filter({ has: stop })).toHaveCount(1);
-        await expect(section.locator(".task-card-shell").filter({ has: stop })).toHaveCount(0);
-      }
+      await expect(section.locator(".card-status-text")).toHaveText(["Paused for memory", "Paused until PR #331 merges", "Paused until you answer", "Paused by you", "Paused until CI finishes, usually 13 min"]);
+      await expect(section.locator(".card-title")).toHaveText(PAUSED.map((paused) => paused.id));
+      await expect(board(page).locator(".card-status-text").filter({ hasText: /^Waiting/ })).toHaveCount(0);
     });
   });
 }
@@ -111,11 +117,49 @@ test.describe("on the wide board", () => {
 
   // On 2026-10-07 the board refused a Start with "No free slot: 8 of 8
   // goblins live" while 9 GB was free: no count of goblins holds one back.
+  // Start and Resume are in the task's panel, never on its card.
   test("with eight goblins live and 9 GB free, Start and Resume are not held back", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
     await open(page, machine(9), [task("queued-one", "queued", { generation: "", brief: true }), ...PAUSED]);
-    for (const button of [board(page).getByRole("button", { name: "Start queued-one" }), board(page).getByRole("button", { name: "Resume paused-pull" })]) {
+    for (const [id, name] of [["queued-one", "Start queued-one"], ["paused-pull", "Resume paused-pull"]]) {
+      await select(page, id);
+      const button = panel(page).getByRole("button", { name, exact: true });
+      await expect(button).toBeVisible();
       await expect(button).not.toHaveAttribute("aria-disabled", "true");
     }
+  });
+
+  // The Overlord, 2026-10-16: a paused goblin is on the bench to be resumed,
+  // and a waiting one is live, on standby. One paused until another goblin
+  // delivers reads so in Paused, and its panel resumes or stops it; one
+  // waiting on that goblin reads Waiting in In progress, and its panel pauses
+  // or stops it, with nothing to resume.
+  test("a goblin paused on another reads Paused and sits in Paused, and one waiting on it reads Waiting in In progress", async ({ page }) => {
+    // Arrange
+    const awaited = task("cg-merge", "working", { goblin_name: "Bernie", goblin_title: "Merge Maestro" });
+    const benched = paused("paused-on-task", "dependency", "task:cg-merge", 15);
+    const standing = task("waiting-on-task", "waiting", { waiting_on: "cg-merge" });
+    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await open(page, machine(9), [awaited, standing, benched]);
+    const section = board(page).getByRole("region", { name: "Paused", exact: true });
+    const progress = board(page).getByRole("region", { name: "In progress", exact: true });
+
+    // Assert: the paused goblin, on its card and in its panel.
+    await expect(card(page, "paused-on-task").locator(".card-status-text")).toHaveText("Paused until Bernie - Merge Maestro delivers");
+    await expect(section.locator(".card-title")).toHaveText(["paused-on-task"]);
+    await select(page, "paused-on-task");
+    const benchedControls = panel(page).getByRole("group", { name: "Controls for paused-on-task" });
+    await expect(benchedControls.getByRole("button")).toHaveText(["Resume", "Stop"]);
+    await expect(panel(page).getByRole("button", { name: "Pause paused-on-task", exact: true })).toHaveCount(0);
+
+    // Assert: the waiting goblin, on its card and in its panel.
+    await expect(card(page, "waiting-on-task").locator(".card-status-text")).toHaveText("Waiting on Bernie - Merge Maestro");
+    await expect(progress.locator(".card-title").getByText("waiting-on-task", { exact: true })).toHaveCount(1);
+    await expect(section.locator(".card-title").getByText("waiting-on-task", { exact: true })).toHaveCount(0);
+    await select(page, "waiting-on-task");
+    const standingControls = panel(page).getByRole("group", { name: "Controls for waiting-on-task" });
+    await expect(standingControls.getByRole("button")).toHaveText(["Pause", "Stop"]);
+    await expect(panel(page).getByRole("button", { name: "Resume waiting-on-task", exact: true })).toHaveCount(0);
   });
 
   // The Overlord, 2026-10-08: "everything error wise goes to cfo". A goblin

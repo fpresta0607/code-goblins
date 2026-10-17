@@ -453,7 +453,10 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 	}{
 		{name: "settled current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "settled", wantPhase: "review"},
 		{name: "ended current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "ended", wantPhase: "review"},
-		{name: "prior generation session rejects matching evaluation", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "unknown"},
+		// A session of an earlier generation is no evidence of this one, such
+		// as the Pi session of a goblin since switched to a harness that has
+		// reported none yet, so the current generation's own evaluation stands.
+		{name: "prior generation session leaves the matching evaluation standing", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "done", wantVerified: true},
 		{name: "unlinked task rejects completed prior generation", evaluationGeneration: "g1", wantPhase: "unknown"},
 		{name: "matching generation retains completed evaluation", evaluationGeneration: "g2", linked: true, phase: "settled", wantPhase: "done", wantVerified: true},
 	}
