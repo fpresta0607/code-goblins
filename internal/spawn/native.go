@@ -40,12 +40,20 @@ func (s *Service) goblinSettings(kind harness.Kind) (string, error) {
 
 // codexHooks are the arguments that give a goblin of this home on kind its
 // native session hooks: Codex's -c overrides, and none for any other harness,
-// whose hooks its settings file or its extension carries.
-func (s *Service) codexHooks(kind harness.Kind) ([]string, error) {
+// whose hooks its settings file or its extension carries. A home whose paths
+// a Codex hook command cannot hold, such as one under a profile whose name
+// has a space, starts its Codex goblin without them rather than not at all,
+// and notice says so for the start's output; the board then reads that goblin
+// from its terminal, as it reads one with no hooks.
+func (s *Service) codexHooks(kind harness.Kind) (hooks []string, notice string) {
 	if kind != harness.Codex {
-		return nil, nil
+		return nil, ""
 	}
-	return nativehook.CodexArguments(filepath.Join(s.HomeRoot, home.BinDir, "cfo.exe"), s.HomeRoot, s.StateDir)
+	hooks, err := nativehook.CodexArguments(filepath.Join(s.HomeRoot, home.BinDir, "cfo.exe"), s.HomeRoot, s.StateDir)
+	if err != nil {
+		return nil, "hooks: Codex starts without its native session hooks, so the board reads it from its terminal: " + err.Error()
+	}
+	return hooks, ""
 }
 
 // BrowserSessionVariable names the session chrome-devtools-axi keeps its

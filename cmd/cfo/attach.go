@@ -280,10 +280,17 @@ const cfoSettingsFile = "cfo-claude-settings.json"
 // Code session on the machine ran them: each Bash call, turn end and start
 // started cfo.exe, about 0.1 s each, only for the hook to leave on its
 // environment. A Codex CFO takes its native hooks as -c overrides of its own
-// session, and a pi CFO has its extension (cfo hooks install pi).
+// session, and a pi CFO has its extension (cfo hooks install pi). A home whose
+// paths a Codex hook command cannot hold starts its Codex CFO without them, as
+// every Codex CFO started before they came with its launch, and cfo hooks
+// install codex writes them for it with its helper instead.
 func cfoHookArguments(h home.Home, harness string) ([]string, error) {
 	if harness == "codex" {
-		return nativehook.CodexArguments(filepath.Join(h.Root, home.BinDir, "cfo.exe"), h.Root, h.State)
+		hooks, err := nativehook.CodexArguments(filepath.Join(h.Root, home.BinDir, "cfo.exe"), h.Root, h.State)
+		if err != nil {
+			return nil, nil
+		}
+		return hooks, nil
 	}
 	if harness != "claude" {
 		return nil, nil

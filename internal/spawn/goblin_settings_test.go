@@ -66,22 +66,31 @@ func TestSpawnStartsAClaudeGoblinWithTheGoblinHooks(t *testing.T) {
 // A Codex goblin takes its native session hooks in its own launch, run by the
 // home's cfo.exe against the home's state, and a goblin of any other harness
 // takes none that way: Claude Code's ride its settings file and Pi's its
-// extension.
+// extension. A home under a path with a space, as a profile named for a
+// person can be, still starts its Codex goblin, without them.
 func TestSpawnStartsACodexGoblinWithItsNativeSessionHooks(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		kind         harness.Kind
+		homeFolder   string
 		isGivenHooks bool
 	}{
-		{"a Codex goblin", harness.Codex, true},
-		{"a Claude goblin", harness.Claude, false},
-		{"a Pi goblin", harness.Pi, false},
+		{"a Codex goblin", harness.Codex, "", true},
+		{"a Codex goblin of a home under a path with a space", harness.Codex, "John Smith", false},
+		{"a Claude goblin", harness.Claude, "", false},
+		{"a Pi goblin", harness.Pi, "", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newFixture(t)
 			f.service.Harness.Adapters[test.kind] = fixtureAdapter{events: &f.events, specs: &f.specs, buildErr: errors.New("nothing starts in this test")}
 			f.request.Harness = test.kind
+			if test.homeFolder != "" {
+				f.service.HomeRoot = filepath.Join(t.TempDir(), test.homeFolder)
+				if err := os.MkdirAll(f.service.HomeRoot, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			// Act
 			_, err := f.service.Spawn(context.Background(), f.request)

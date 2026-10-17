@@ -429,10 +429,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: %w", err))
 	}
-	codexHooks, err := s.codexHooks(req.Harness)
-	if err != nil {
-		return fail(result, fmt.Errorf("spawn: %w", err))
-	}
+	codexHooks, hooksNotice := s.codexHooks(req.Harness)
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       req.BriefPath,
 		TaskTmp:         taskTmp,
@@ -500,6 +497,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result.Output = successOutput(result.Meta) + "\ngoblin: " + goblin.String()
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
+	}
+	if hooksNotice != "" {
+		result.Output += "\n" + hooksNotice
 	}
 	if len(provision.Install) > 0 {
 		result.Output += "\ndependencies: the goblin installs them as its first step, in its own terminal: " + strings.Join(provision.Install, " && ")

@@ -36,3 +36,19 @@ func TestTheCodexCFOStartsWithItsNativeSessionHooks(t *testing.T) {
 		t.Errorf("the Pi CFO starts with %q, want none", pi)
 	}
 }
+
+// A home under a path with a space, as a profile named for a person can be,
+// still starts its Codex CFO, without per-launch hooks, as before they came.
+func TestACodexCFOOfAHomeUnderAPathWithASpaceStillStarts(t *testing.T) {
+	// Arrange
+	root := filepath.Join(t.TempDir(), "John Smith")
+	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+
+	// Act
+	hooks, err := cfoHookArguments(h, "codex")
+
+	// Assert
+	if err != nil || len(hooks) != 0 {
+		t.Fatalf("cfoHookArguments = %q, %v; want the CFO started with no hooks", hooks, err)
+	}
+}

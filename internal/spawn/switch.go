@@ -256,10 +256,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
 	}
-	codexHooks, err := s.codexHooks(target.Harness)
-	if err != nil {
-		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
-	}
+	codexHooks, hooksNotice := s.codexHooks(target.Harness)
 	subagents, err := s.subagentRoutes(target.Harness, target.Model)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
@@ -459,6 +456,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
+	}
+	if hooksNotice != "" {
+		result.Output += "\n" + hooksNotice
 	}
 	result.Output += left + scriptNote
 	if isNarrowed {
