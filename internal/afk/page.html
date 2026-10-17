@@ -55,13 +55,10 @@
   .inbox-text small .plain-status { min-width: 0; overflow-wrap: anywhere; }
   .answer-now { min-width: 0; }
   /* What needs him is the Command Center's waiting row, from lantern.css and
-     styles.css: the lantern box, who asks in lantern and the stepped Answer.
-     The whole row opens its item in the Command Center, so its edge lights
-     under the pointer. */
+     styles.css: the lantern box, who asks in lantern and the stepped Answer. */
   .inbox-list.waiting li { position: relative; isolation: isolate; gap: 10px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
   .inbox-list.waiting li::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
   .inbox-list.waiting li:hover { background: transparent; }
-  .inbox-list.waiting li:hover::before { box-shadow: inset 0 0 0 2px var(--lantern); }
   .inbox-list.waiting .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
   .inbox-summary { overflow-wrap: anywhere; line-height: 1.3; }
   .inbox-list.waiting li .icon-button { position: relative; isolation: isolate; width: 44px; height: 44px; min-height: 44px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); }
