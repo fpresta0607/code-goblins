@@ -17,19 +17,20 @@ import { BabyGoblin } from "./BabyGoblin";
 import { babies, formatMemory, summarize } from "./fleet-tree";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
-import { CardRouting } from "./card-routing";
 
 // A task's card on the board: its portrait beside its title, up to three
-// lines, then across the card's whole width one muted line with the repo, the
-// status and a quiet clock of how long its session has run or how long it has
-// waited, or when it paused or finished, wrapping onto further lines only
-// when it must; the goblin's own words stay in its panel, and so does what
-// runs under it, a silent child included. rank,
-// when the card sits in an ordered list, is read out with it. Its pull request
-// takes a row of its own under that, and its controls sit beside it or, on a
-// narrow card, in one row under it, with the mark of the harness it runs at
-// that row's end: every part of the card has its own place, so none is drawn
-// over another, and a part's tip floats clear of the card. The goblin it waits
+// lines, then across the card's whole width one muted line with the repo and
+// the status, wrapping onto further lines only when it must; the goblin's own
+// words stay in its panel, and so does what runs under it, a silent child
+// included. rank, when the card sits in an ordered list, is read out with it.
+// Its pull request takes a row of its own under that, and at the card's foot
+// a quiet clock of how long its session has run or how long it has waited, or
+// when it paused or finished, sits beside the mark of the harness it runs,
+// whose tip names the model and effort: the card shows no line of its own for
+// them (the Overlord, 2026-10-17: "when you hover the icon, it should tell you
+// the model that it's using. You don't have to have it displayed on it").
+// Every part of the card has its own place, so none is drawn over another,
+// and a part's tip floats clear of the card. The goblin it waits
 // on is named in its status line only. A queued
 // task that waits says what for in its status, in place of Queued; a paused or finished task shows when, and its status says what: a
 // paused one, in place of Paused, why it waits and what resumes it. A goblin
@@ -75,12 +76,9 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span><CardClock task={task} now={now} /></span>
+      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span></span>
       {parentName && <span className="card-secondary">Helper of {parentName}</span>}
-      <CardRouting task={task} />
-      {task.pending_engine?.when === "update"
-        ? <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>
-        : task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
+      {task.pending_engine?.when === "update" && <span className="card-secondary">{task.switching ? "Updating " + harnessName(task.harness) + "..." : "Updates " + harnessName(task.harness) + " at its next stopping point"}</span>}
       {task.switching && task.pending_engine?.when !== "update" && <span className="card-secondary">Switching engine...</span>}
       {column === "Completed" && task.phase === "stopped" && task.reason && <span className="card-secondary">{plainText(task.reason)}</span>}
     </span>
@@ -98,6 +96,9 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       <SameAreaAvatars overlaps={task.overlaps} />
       {column === "Completed" && !pr && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
-    {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
+    <div className="card-foot">
+      <CardClock task={task} now={now} />
+      {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
+    </div>
   </div>;
 }

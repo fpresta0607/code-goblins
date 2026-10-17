@@ -87,7 +87,9 @@ func validateWaitURL(kind, target string) error {
 }
 
 // Description says why a goblin is paused and what resumes it. A pause is on
-// the bench, never a wait, so it reads Paused (the Overlord, 2026-10-16).
+// the bench, never a wait, so it reads Paused (the Overlord, 2026-10-16). A
+// dependency pause names only what it waits for, as the board's card does
+// (the Overlord, 2026-10-17: "I just don't like the resume").
 func (condition PauseCondition) Description() string {
 	switch condition.Reason {
 	case "memory":
@@ -104,9 +106,9 @@ func (condition PauseCondition) Description() string {
 		case "date":
 			return "Paused until " + target
 		case "task":
-			return "Paused until " + target + " delivers; resumes when it does"
+			return "Paused until " + target + " delivers"
 		case "pr":
-			return "Paused until " + target + " merges; resumes when it does"
+			return "Paused until " + target + " merges"
 		}
 		return "Paused until " + condition.Until
 	case "ci", "deploy":

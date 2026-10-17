@@ -715,7 +715,7 @@ A fresh session, weekly or model window at that floor makes a candidate unavaila
 Only windows that bound that model count.
 Unknown, stale or reset windows do not establish a floor.
 The existing weekly reserve still applies.
-A fallback records the wanted lane and evidence, puts a durable notice in the CFO's queue, and shows its lane reason beside the model and effort on the goblin's card.
+A fallback records the wanted lane and evidence, and puts a durable notice in the CFO's queue; the goblin's card names its model and effort only in its harness mark's tip.
 This changes no running goblin: the separate `rules` array remains the CFO's authority for switching one.
 
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.

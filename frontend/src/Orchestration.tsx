@@ -12,7 +12,6 @@ import { BABY_HEIGHT, BABY_WIDTH, babies, babyName, branchLayout, elbows, hasRun
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { CardFacts } from "./card-facts";
-import { CardRouting } from "./card-routing";
 import { CfoCardFacts } from "./cfo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
 import { withDepartures } from "./tree-traffic";
@@ -414,7 +413,6 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
               <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
                 {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
-                {owner && node.task && <CardRouting task={node.task} />}
               </span>
             </button>
             {owner && node.task && <div className="flow-node-foot"><CardFacts task={node.task} now={now} /></div>}

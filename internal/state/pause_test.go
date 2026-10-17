@@ -46,13 +46,14 @@ func TestPauseConditionsRequireTheEvidenceThatClearsThem(t *testing.T) {
 	}
 }
 
-// A dependency pause says what the goblin waits for and that it resumes by
-// itself, in the words the board's card uses, not the condition's syntax.
-func TestADependencyPauseSaysWhatResumesIt(t *testing.T) {
+// A dependency pause says what the goblin waits for, in the words the board's
+// card uses, not the condition's syntax, and no more (the Overlord,
+// 2026-10-17, of a paused card: "I just don't like the resume").
+func TestADependencyPauseSaysWhatItWaitsFor(t *testing.T) {
 	for until, want := range map[string]string{
 		"date:2026-10-09T13:39:00Z": "Paused until 2026-10-09T13:39:00Z",
-		"task:other-task":           "Paused until other-task delivers; resumes when it does",
-		"pr:https://github.com/fpresta0607/code-goblins/pull/9": "Paused until https://github.com/fpresta0607/code-goblins/pull/9 merges; resumes when it does",
+		"task:other-task":           "Paused until other-task delivers",
+		"pr:https://github.com/fpresta0607/code-goblins/pull/9": "Paused until https://github.com/fpresta0607/code-goblins/pull/9 merges",
 	} {
 		t.Run(until, func(t *testing.T) {
 			// Arrange
