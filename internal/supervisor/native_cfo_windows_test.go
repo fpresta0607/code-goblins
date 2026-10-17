@@ -334,6 +334,45 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	}
 }
 
+// A Claude Code CFO's footer names the permission mode its session runs in,
+// which is the Overlord's to choose, so an answer to an idle CFO is typed at
+// once in each mode Claude Code 2.1.302 draws, not queued until something
+// else ends its turn.
+func TestADeliveryToAnIdleNativeCFOIsTypedInEveryPermissionMode(t *testing.T) {
+	for mode, footer := range map[string]string{
+		"manual":             "⏸ manual mode on · ? for shortcuts",
+		"plan":               "⏸ plan mode on (shift+tab to cycle)",
+		"accept edits":       "⏵⏵ accept edits on (shift+tab to cycle)",
+		"bypass permissions": "⏵⏵ bypass permissions on (shift+tab to cycle)",
+		"don't ask":          "⏵⏵ don't ask on (shift+tab to cycle)",
+		"auto":               "⏵⏵ auto mode on (shift+tab to cycle)",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			cfo := hostTerminal(t, stateDir, "cfo")
+			cfo.typeLine(t, "register")
+			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+				t.Fatalf("the program recorded %q, want its registration", lines)
+			}
+			cfo.typeLine(t, "hooked")
+			cfo.typeLine(t, "mode "+footer)
+			screenShows(t, stateDir, "cfo", footer, false)
+
+			// Act
+			result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+
+			// Assert
+			if err != nil || !strings.Contains(result.Reason, "its hook reported") {
+				t.Errorf("Send = %+v, %v; want it delivered once the CFO's hook reported taking it", result, err)
+			}
+			if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
+				t.Errorf("the terminal received %q, want its registration and then the message once", typed)
+			}
+		})
+	}
+}
+
 // A delivery to a native CFO whose terminal has shown more than the host's
 // pipe holds is still typed into it and submitted once.
 func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *testing.T) {
