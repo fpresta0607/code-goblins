@@ -5,7 +5,7 @@ import { useTaskClicks } from "./use-task-clicks";
 import { withClicks } from "./task-clicks";
 import { childSelection, Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
-import { Orchestration, type CanvasFocus } from "./Orchestration";
+import { Orchestration } from "./Orchestration";
 import { CommandCenter, type CommandFocus } from "./CommandCenter";
 import { ComebackBanner } from "./ComebackBanner";
 import { useActivity } from "./useActivity";
@@ -91,8 +91,6 @@ export function App() {
   const clicks = useTaskClicks();
   const snapshot = useMemo(() => held && withClicks(held, clicks), [held, clicks]);
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
-  // The goblin a card's count asked the canvas to show.
-  const [canvasFocus, setCanvasFocus] = useState<CanvasFocus>();
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
   // A panel opens on its terminal, in either view.
@@ -356,10 +354,9 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onSelectTrain={(train, source) => select({ train: train.id }, source, "task")} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")}
-            onCount={(task) => { setView("Orchestration"); setPanelView("terminal"); setCanvasFocus({ task: task.id, at: Date.now() }); }} />
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onSelectTrain={(train, source) => select({ train: train.id }, source, "task")} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
             : compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected} focus={canvasFocus}
+              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
                 onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}

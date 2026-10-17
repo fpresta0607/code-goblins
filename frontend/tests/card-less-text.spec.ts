@@ -4,8 +4,9 @@ import { expect, holdStream, test, type Page } from "./site";
 // and an "explicit choice" line: "when you hover the icon, it should tell you
 // the model that it's using. You don't have to have it displayed on it. It's
 // just too redundant, too wordy." A goblin's card and its canvas node show no
-// model or route line, the harness mark's tip names the model, a paused card
-// says only what it waits for, and the card's time sits at its foot.
+// model or route line, the harness mark's tip names the model, and a paused
+// card says only what it waits for. Where the card's time sits is
+// minimal-card.spec.ts's.
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({
@@ -59,20 +60,3 @@ test("a paused card says only what it waits for, with no resume line", async ({ 
   await expect(paused).not.toContainText(/resume/i);
   await expect(paused).not.toContainText("claude-sonnet-5-5");
 });
-
-for (const id of ["working-one", "paused-one"]) {
-  test(`the ${id} card's time sits at its foot, beside its harness mark`, async ({ page }) => {
-    // Arrange and act
-    await open(page);
-    const shell = card(page, id);
-
-    // Assert
-    const clock = (await shell.locator(".card-clock").boundingBox())!, mark = (await shell.locator(".card-harness").boundingBox())!;
-    const status = (await shell.locator(".card-status-text").boundingBox())!;
-    const above = await shell.locator(".card-pr").count() ? (await shell.locator(".card-pr").boundingBox())! : status;
-    expect(clock.y).toBeGreaterThanOrEqual(Math.max(status.y + status.height, above.y + above.height));
-    expect(clock.y + clock.height / 2).toBeGreaterThan(mark.y);
-    expect(clock.y + clock.height / 2).toBeLessThan(mark.y + mark.height);
-    expect(clock.x + clock.width).toBeLessThan(mark.x);
-  });
-}

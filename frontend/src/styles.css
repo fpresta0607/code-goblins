@@ -222,13 +222,16 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column h2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); }
 .task-cards { container-type: inline-size; display: grid; align-content: start; gap: 16px; }
-/* A task card's portrait sits beside its head, the chip and title, and every
-   line under them takes the card's whole width. */
-.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
-.task-card > .goblin-avatar { grid-column: 1; grid-row: 1; }
+/* A task card's portrait sits beside its head, the chip and its name on one
+   line, and under them its status in at most two lines. */
+.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "face head" "face status"; align-items: center; gap: 2px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
+.task-card > .goblin-avatar { grid-area: face; }
 .task-card > .card-copy { display: contents; }
-.task-card .card-head { grid-column: 2; grid-row: 1; align-self: center; display: grid; justify-items: start; gap: 4px; min-width: 0; }
-.task-card > .card-copy > :not(.card-head) { grid-column: 1 / -1; }
+.task-card .card-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.task-card .card-head > :not(.card-title) { flex: none; max-width: 100%; }
+.task-card > .card-copy > .plain-status { grid-area: status; align-items: flex-start; min-width: 0; color: var(--muted); font-weight: 600; }
+.task-card .plain-status .status-dot { margin-top: 7px; }
+.task-card .card-status-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .task-card-shell:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); border-color: var(--glass-border-hover); background: var(--glass-bg-hover), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .task-card-shell:has(> .task-card:active), .workflow-node:active { transform: none; box-shadow: var(--glass-shadow); }
 .task-card .goblin-avatar { width: 44px; height: 44px; }
@@ -237,23 +240,31 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .card-copy strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .card-copy small { font-size: .9375rem; color: var(--muted); }
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
-/* A task card is a grid: what the card says, with its pull request on a row of
-   its own under it, and its controls beside them, or under them on a narrow
-   card. Every part has its own place. */
-.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "card" "links" "foot"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+/* A task card is one row, like a conversation in a list: what the card says,
+   with its clock at the top right and its icons under it, ending with the
+   mark of the harness its goblin runs, which names the harness, model and
+   effort in its tip. Every part has its own place. */
+.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card time" "card icons"; align-items: start; column-gap: 12px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
-.task-card-shell > .card-links { grid-area: links; }
-/* At the card's foot its clock sits beside the mark of the harness its
-   goblin runs, at the card's corner, which names the harness, model and
-   effort in its tip. */
-.task-card-shell > .card-foot { grid-area: foot; display: flex; align-items: center; gap: 12px; min-width: 0; margin-top: 10px; }
-.task-card-shell > .card-foot:empty { display: none; }
-.card-foot > .card-harness { margin-left: auto; }
+.task-card-shell > .card-clock { grid-area: time; justify-self: end; white-space: nowrap; }
+.task-card-shell > .card-clock .icon { display: none; }
+.task-card-shell > .card-icons { grid-area: icons; justify-self: end; align-self: end; display: flex; align-items: center; gap: 10px; }
+.card-icons .icon { width: 18px; height: 18px; }
 .card-harness .mark { width: 40px; height: 40px; }
 .card-harness .mark svg, .card-harness .mark .icon { width: 22px; height: 22px; }
+.card-icons .card-harness .mark { width: 30px; height: 30px; }
+.card-icons .card-harness .mark svg, .card-icons .card-harness .mark .icon { width: 17px; height: 17px; }
 .task-card-shell > .task-card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
-.card-links > *, .card-foot > .card-harness { position: relative; z-index: 1; }
-.card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; }
+.card-icons > * { position: relative; z-index: 1; }
+/* A list too narrow for a card's clock and icons beside its name and status,
+   such as a column beside the CFO's panel, puts them on a line of their own
+   under its status, the clock at the left and the icons at the right, so its
+   name and status keep the card's whole width. */
+@container (max-width: 360px) {
+  .task-card-shell { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "card card" "time icons"; align-items: center; }
+  .task-card-shell > .card-clock { justify-self: start; margin-top: 6px; }
+  .task-card-shell > .card-icons { margin-top: 6px; }
+}
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
 .card-pr:hover, .card-pr:focus-visible { text-decoration: underline; }
@@ -1127,10 +1138,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    repo and the status, which wrap onto further lines rather than ending in an
    ellipsis. */
 .task-card .browser-indicator { font-size: 1rem; }
-.task-card .card-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
-.card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--muted); font-size: 1rem; line-height: 1.4; }
+.task-card .card-title { flex: 1 1 8rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 1rem; font-weight: 700; line-height: 1.4; }
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
-.card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
 /* In progress shows every card. Any other board list shows up to ten whole;
    past ten it shows a page, as many as fit the visible board and never fewer
@@ -1332,7 +1341,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .labelled-button.danger { border-color: #fa727266; }
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
-.card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }
@@ -1361,8 +1369,3 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 dialog > .preservation-notice { margin-top: 18px; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
-/* A card as narrow as a column beside the CFO's panel in the Overlord's window
-   draws its harness mark a little smaller. */
-@container (max-width: 300px) {
-  .card-foot > .card-harness .mark { width: 36px; height: 36px; }
-}

@@ -25,19 +25,17 @@ export type BoardLayout = "kanban" | "stacked";
 // progress shows every goblin at once; Tasks, Paused and Completed page past
 // ten cards. A merge train's card opens its panel, and selectedTrain is the
 // train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect, onSelectTrain, onCount, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
+export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect, onSelectTrain, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
-  // onCount shows a goblin's baby goblins, on the Orchestration canvas.
-  onCount: (task: Task) => void;
   onOpenCfo: (source: HTMLElement) => void;
   onOpenCommand: () => void;
   onStartCfo: () => void;
 }) {
   const next = nextInOrder(snapshot, now);
-  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} onCount={onCount} />;
+  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} />;
   const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
   const trainsIn = (name: string) => (snapshot.merge_trains ?? []).filter((train) => trainSection(train) === name);
   const history = trainsIn("Train history");

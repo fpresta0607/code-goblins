@@ -322,7 +322,7 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
 // is seen.
 test("a tip shows, swaps and goes on the frame the pointer or focus moves, with no fade", async ({ page }) => {
   // Arrange: a card's harness mark carries a tip, and a finished card's pull
-  // request carries its branch in a tip of its own.
+  // request icon carries its number and branch in a tip of its own.
   await open(page);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
   const mark = shell.locator(".card-harness [role=img]");
@@ -342,7 +342,7 @@ test("a tip shows, swaps and goes on the frame the pointer or focus moves, with 
   const center = async (part: typeof mark) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
   const [chipX, chipY] = await center(chip), [markX, markY] = await center(mark);
   const lookAfter = (event: string, part: string) => page.evaluate(([event, part]) => (window as unknown as { tipLooks: { event: string; part: string; tips: string[] }[] }).tipLooks.filter((look) => look.event === event && look.part === part).at(-1)?.tips, [event, part]);
-  const MARK = "Codex · gpt-6-astra · xhigh", BRANCH = "fix/done-one";
+  const MARK = "Codex · gpt-6-astra · xhigh", BRANCH = "code-goblins #198 · fix/done-one";
 
   // Act: the pointer comes to the finished card's pull request, moves
   // straight on to the mark, and leaves.

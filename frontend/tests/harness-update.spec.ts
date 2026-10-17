@@ -119,12 +119,12 @@ test.describe("once pressed", () => {
     await expect.poll(() => sent).toEqual([{ path: "/api/cfo/update", body: { cancel: true }, token: "fixture" }]);
   });
 
-  test("a goblin's card says it updates at its next stopping point, and a second press in its panel takes it back", async ({ page }, testInfo) => {
+  test("a waiting update shows in a goblin's panel, never on its one-row card, and a second press there takes it back", async ({ page }, testInfo) => {
     // Arrange
     const sent = await open(page, snapshot({}, { harness_update: { harness: "claude", installed: "2026-10-07T14:10:37Z" }, pending_engine: { harness: "claude", model: "claude-opus-5-5", effort: "xhigh", when: "update" } }));
 
     // Assert
-    await expect(card(page)).toContainText("Updates Claude Code at its next stopping point");
+    await expect(card(page)).not.toContainText("Updates Claude Code");
     await expect(card(page).getByRole("button", { name: /^Cancel the update of / })).toHaveCount(0);
     await card(page).screenshot({ path: testInfo.outputPath("goblin-card-update-pending.png") });
 

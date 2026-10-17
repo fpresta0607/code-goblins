@@ -309,7 +309,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       for (const [name, number] of [["Rosie - Inline Editor", 517], ["Wes - Train Conductor", 519], ["Dolly - Rank Keeper", 520], ["Pearl - Screen Model", 524]] as const) {
         await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: name })).toHaveCount(1);
         await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
-        await expect(card(page, name).locator(".card-checks")).toHaveText("Landed");
+        await expect(card(page, name).locator(".card-checks")).toHaveAttribute("aria-label", /^Landed: /);
       }
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model", "Otis - Ledger Clerk"]);
       await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
@@ -334,7 +334,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
 
       const abe = column(page, "In progress").locator(".task-card-shell").filter({ hasText: "Abe - Screen Painter" });
       const chip = abe.locator("a.card-checks");
-      await expect(chip).toHaveText("Merging main to fix a conflict");
+      await expect(chip).toHaveAttribute("aria-label", /^Merging main to fix a conflict: /);
       await expect(chip).toHaveAttribute("href", TRAIN_PR);
       expect(await colours(abe)).not.toContain(AMBER);
     });
@@ -380,7 +380,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).locator(".panel-status")).toHaveText("CI tests #517, #519, run 4");
       await panel(page).locator("details > summary").click();
       await expect(panel(page).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
-      await expect(card(page, "Rosie - Inline Editor").locator(".card-checks")).toHaveText("Testing");
+      await expect(card(page, "Rosie - Inline Editor").locator(".card-checks")).toHaveAttribute("aria-label", /^Testing: /);
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
     });
 
