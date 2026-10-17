@@ -29,6 +29,7 @@ var icons = map[string]string{
 	"codex":          "M14.02 4.47A4.62 4.62 0 0 1 19.53 9.98 4.62 4.62 0 0 1 17.52 17.52 4.62 4.62 0 0 1 9.98 19.53 4.62 4.62 0 0 1 4.47 14.02 4.62 4.62 0 0 1 6.48 6.48 4.62 4.62 0 0 1 14.02 4.47ZM8.7 9.7l1.5 2.3-1.5 2.3M13 14.3h2.8",
 	"comment":        "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5Z",
 	"command-center": "M6.5 3.5h11a2.5 2.5 0 0 1 2.5 2.5v7.5a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4a2.5 2.5 0 0 1-2.5-2.5V6a2.5 2.5 0 0 1 2.5-2.5ZM8.5 12.5l-.75-5 2.75 2L12 6.5l1.5 3 2.75-2-.75 5Z",
+	"download":       "M12 4v11M7 10.5l5 5 5-5M5 19.5h14",
 	"drive":          "M3.5 13.5h17M6.3 5.5 3.5 13.5V18A1.5 1.5 0 0 0 5 19.5h14a1.5 1.5 0 0 0 1.5-1.5v-4.5l-2.8-8a1.5 1.5 0 0 0-1.4-1H7.7a1.5 1.5 0 0 0-1.4 1ZM7 16.5h.01M10.5 16.5h.01",
 	"edit":           "m4 16-1 5 5-1L20 8l-4-4ZM14 6l4 4",
 	"external":       "M14 4h6v6M20 4l-8 8M10 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4",
@@ -192,14 +193,18 @@ func (r Return) view() pageView {
 		if !held.Waiting {
 			continue
 		}
-		// As the Command Center names who asks: the goblin, or the CFO for an
-		// item of no task.
-		who, face := "The CFO", "cfo"
-		if held.Task != "" {
+		// As the Command Center names who asks: Code Goblins for its own
+		// release update, whose run the board names update-<tag>-<nonce>, the
+		// goblin, or the CFO for an item of no task.
+		kind, _, _ := strings.Cut(held.Item, ":")
+		who, face, answer := "The CFO", "cfo", answerIcons[kind]
+		switch {
+		case strings.HasPrefix(held.Item, "run:update-"):
+			who, face, answer = "Code Goblins", "releases", "download"
+		case held.Task != "":
 			who, face = cmpOr(names[held.Task], held.Task), persona(held.Task)
 		}
-		kind, _, _ := strings.Cut(held.Item, ":")
-		v.Needs = append(v.Needs, needRow{Item: held.Item, Title: held.What, Who: who, Persona: face, Answer: answerIcons[kind]})
+		v.Needs = append(v.Needs, needRow{Item: held.Item, Title: held.What, Who: who, Persona: face, Answer: answer})
 	}
 	for _, project := range r.Walkthrough() {
 		row := projectRow{Name: project.Name}

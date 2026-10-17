@@ -180,14 +180,15 @@ func TestTheReturnPageLeadsWithWhatNeedsHim(t *testing.T) {
 
 // The Overlord, 2026-10-17: "styling should be command center based ... Same
 // type of controls." Each item still waiting is the Command Center's waiting
-// row: the whole row carries its item, who asks is its goblin, and its Answer
-// wears the icon of its kind.
+// row: the whole row carries its item, who asks is its goblin, or Code Goblins
+// for its own release update, and its Answer wears the icon of its kind.
 func TestEachItemThatNeedsHimIsTheCommandCentersWaitingRow(t *testing.T) {
 	// Arrange
 	r := recordedReturn(t)
 	r.Report.Held = append(r.Report.Held,
 		Held{Item: "question:pick-a-name", What: "Pick the app's name", Waiting: true},
-		Held{Item: "run:restart-db", Task: "garden-share", What: "Restart the dev database", Waiting: true})
+		Held{Item: "run:restart-db", Task: "garden-share", What: "Restart the dev database", Waiting: true},
+		Held{Item: "run:update-v1.4.0-0123456789abcdef", What: "Update Code Goblins from v1.3.0 to v1.4.0", Waiting: true})
 
 	// Act
 	page, words := returnPage(t, r)
@@ -200,6 +201,8 @@ func TestEachItemThatNeedsHimIsTheCommandCentersWaitingRow(t *testing.T) {
 		`<li data-item="run:restart-db">`,
 		`aria-label="Answer The CFO: Pick the app's name"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["question"] + `"/>`,
 		`aria-label="Answer Ivy: Restart the dev database"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
+		`<li data-item="run:update-v1.4.0-0123456789abcdef"><span class="goblin-avatar persona-releases"></span>`,
+		`aria-label="Answer Code Goblins: Update Code Goblins from v1.3.0 to v1.4.0"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
