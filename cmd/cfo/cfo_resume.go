@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
@@ -147,6 +148,14 @@ func cfoResume(h home.Home, agent string) (args []string, why string) {
 		return []string{"--resume", conversation.Session}, ""
 	case "codex":
 		return []string{"resume", conversation.Session}, ""
+	case "pi":
+		// As a pi goblin's switch does: pi 0.85.1 writes a session's file when
+		// its first reply ends, and exits on a --session it finds no file for.
+		userHome, _ := os.UserHomeDir()
+		if fleettree.SessionTranscript(userHome, "pi", conversation.Session) == "" {
+			return nil, fmt.Sprintf("pi has written no file for its conversation %s, which it writes when its first reply ends", conversation.Session)
+		}
+		return []string{"--session", conversation.Session}, ""
 	}
 	return nil, fmt.Sprintf("%s has no way to resume a conversation", agent)
 }

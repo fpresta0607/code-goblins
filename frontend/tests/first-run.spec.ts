@@ -16,7 +16,7 @@ const setup = (changes: Record<string, unknown> = {}) => ({
   agents: [
     { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" },
     { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, sign_in: "signed_in" },
-    { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, sign_in: "unknown", reason: missing },
+    { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest or guards", installed: false, sign_in: "unknown", reason: missing },
   ],
   cfo_runs: false,
   ...changes,

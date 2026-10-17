@@ -67,6 +67,47 @@ func TestTheComebackResumesTheCFOOnItsOwnConversationAndNeverStartsAFreshOne(t *
 	}
 }
 
+// After a restart a pi CFO comes back on its own session with pi --session,
+// as a pi goblin does, once pi has written that session's file, and stays
+// closed with why until it has.
+func TestTheComebackResumesAPiCFOOnItsOwnSession(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		isSessionWritten bool
+		wantArgs         []string
+		wantErr          string
+	}{
+		{name: "on its session", isSessionWritten: true, wantArgs: []string{"--session a1b2c3d4-session"}},
+		{name: "not before pi wrote its session", wantErr: "pi has written no file for its conversation a1b2c3d4-session, which it writes when its first reply ends; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			userHome := t.TempDir()
+			t.Setenv("USERPROFILE", userHome)
+			if tc.isSessionWritten {
+				writePiSession(t, userHome, "a1b2c3d4-session")
+			}
+			if err := os.WriteFile(cfoHarnessPath(f.home.State), []byte("pi\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			recordConversation(t, f.home.State, "pi", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+
+			// Act
+			err := comebackCFO(t.Context(), f.home, f.runtime)
+
+			// Assert
+			if !slices.Equal(f.nativeArgs, tc.wantArgs) {
+				t.Errorf("started the CFO with %q, want %q", f.nativeArgs, tc.wantArgs)
+			}
+			if got := errorText(err); got != tc.wantErr {
+				t.Errorf("comebackCFO = %q, want %q", got, tc.wantErr)
+			}
+		})
+	}
+}
+
 func errorText(err error) string {
 	if err == nil {
 		return ""

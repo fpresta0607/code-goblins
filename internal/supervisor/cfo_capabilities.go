@@ -31,7 +31,9 @@ type CFOCapability struct {
 // prompts: nothing gives them the session-start digest and nothing guards
 // their turns. Both were proved with real harnesses in scratch homes on
 // 2026-10-02, and a closed Codex CFO coming back on its conversation with
-// them (TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack).
+// them (TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack). A
+// closed pi CFO comes back on its session with pi --session, as a pi goblin
+// does since pi 0.85.1, once pi has written that session's file.
 func CFOCapabilities() []CFOCapability {
 	typed := []string{
 		"it is woken only in a native terminal, where the wake line is typed while it sits idle at an empty prompt",
@@ -41,7 +43,7 @@ func CFOCapabilities() []CFOCapability {
 	return []CFOCapability{
 		{Agent: "claude", Name: "Claude Code", Recommended: true, Wake: CFOWakeFor("claude"), Registers: "its SessionStart hook registers it", Resumes: true, Note: "the best experience"},
 		{Agent: "codex", Name: "Codex", Wake: CFOWakeFor("codex"), Registers: "its first prompt runs cfo register", Resumes: true, Note: "woken by a typed line; no digest or guards", Lacks: typed},
-		{Agent: "pi", Name: "pi", Wake: CFOWakeFor("pi"), Registers: "its first prompt runs cfo register", Note: "woken by a typed line; no digest, guards or resume", Lacks: append(append([]string{}, typed...), "a closed pi CFO starts a new conversation: it is not resumed")},
+		{Agent: "pi", Name: "pi", Wake: CFOWakeFor("pi"), Registers: "its first prompt runs cfo register", Resumes: true, Note: "woken by a typed line; no digest or guards", Lacks: typed},
 	}
 }
 
