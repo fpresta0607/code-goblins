@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -91,7 +92,7 @@ const (
 // because a platform rate limit or 5xx is a wait/backoff case that must never
 // route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
-	lowered := redactQuotedLines(redactOperatorLines(strings.ToLower(paneTail)))
+	lowered := redactQuotedLines(redactReplies(redactOperatorLines(strings.ToLower(paneTail))))
 	if index, ok := thirdPartyFault(lowered); ok {
 		return ThirdParty, evidence(paneTail, index), true
 	}
@@ -339,6 +340,41 @@ func redactQuotedLines(lowered string) string {
 	return strings.Join(lines, "\n")
 }
 
+// harnessNotices are how a harness's own notice begins on its reply mark
+// rather than an agent's words: Claude Code can draw an API error there.
+var harnessNotices = []string{"api error", "you've hit your", "claude usage limit", "usage limit reached", "error:", "stream error"}
+
+// redactReplies blanks what the agent wrote in its replies, which is its own
+// words, never its harness's: a row Claude Code opens with its reply mark
+// "⏺ " or Codex with "• ", short of a command a tool call ran or a notice of
+// the harness's own, and the indented rows the reply wraps or continues
+// onto, blank rows between its paragraphs included. A row that is not
+// indented, or opens with a harness mark, as a tool call, its result, a
+// refusal under it or a status row does, ends the reply. On 2026-10-15 a goblin writing "a
+// 429 that the classifier mistakes for rate limiting" woke the CFO as a
+// rate limit (#971). Lengths are kept, so an index into the result still
+// names the same place in the original tail.
+func redactReplies(lowered string) string {
+	lines := strings.Split(lowered, "\n")
+	isReply := false
+	for index, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		words, isOpened := strings.CutPrefix(trimmed, "⏺ ")
+		if !isOpened {
+			words, isOpened = strings.CutPrefix(trimmed, "• ")
+		}
+		if isOpened && !strings.HasPrefix(trimmed, "• ran ") && !claudeToolCall.MatchString(trimmed) {
+			isReply = !slices.ContainsFunc(harnessNotices, func(notice string) bool { return strings.HasPrefix(words, notice) })
+		} else if isReply && strings.TrimSpace(trimmed) != "" && (len(trimmed) == len(line) || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•└■✽✶✳✢·⏵") == 0) {
+			isReply = false
+		}
+		if isReply {
+			lines[index] = strings.Repeat(" ", len(line))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // lineStartMatches returns the indexes where needle begins a line, after any
 // leading whitespace and the harness glyphs a pane prints output under (the
 // ones redactOperatorLines knows), as in Claude Code's " ⎿ gh: ...".
@@ -395,6 +431,12 @@ var usageWarning = regexp.MustCompile(`used \d+(?:\.\d+)?% of your [a-z -]*limit
 // Retry-After header.
 var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying in|try again in|will reset in|resets in)\W{0,3}\d|(?:(?:try again|will reset|resets) at|limit · resets)\W{0,3}(?:\d|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.? \d)`)
 
+// statusShape is a 429 or 403 written as a status: after an error word,
+// "status", "http", "code" or "failed with", or directly before a colon or
+// its status phrase, not as a path segment, reference or longer token. "a
+// 429 that the classifier mistakes" names one in prose (#971).
+var statusShape = regexp.MustCompile(`(?:error|status|http|code|failed with)\W{0,3}(?:429|403)\b|(?:^|[^a-z0-9/#.-])(?:429|403)(?::|\s+(?:too many requests|forbidden))`)
+
 // errorShaped reports whether a line is shaped like a provider's own refusal
 // rather than prose about one: a 429 or 403 status, a provider's error type,
 // a harness's "API Error:", a retry or reset time other than a usage
@@ -402,10 +444,8 @@ var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying i
 // word is not a shape: "API errors, and rate limits" is a goblin listing doc
 // topics.
 func errorShaped(line string) bool {
-	for _, code := range []string{"429", "403"} {
-		if hasStatusCode(line, code) {
-			return true
-		}
+	if statusShape.MatchString(line) {
+		return true
 	}
 	for _, shape := range []string{"rate_limit_error", "ratelimit_error", "insufficient_quota", "resource_exhausted", "api error:", "usage limit reached · continuing automatically", "usage limit reached · wrapping up", "spend limit reached"} {
 		if strings.Contains(line, shape) {

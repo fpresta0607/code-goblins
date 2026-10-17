@@ -3,9 +3,12 @@ package fleettree
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // Process is one running process as one system snapshot read it.
@@ -151,4 +154,29 @@ func (j job) name() string {
 // case.
 func executableName(exe string) string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(exe)), ".exe")
+}
+
+// heavyLine is one reading of the machine's heavy line.
+type heavyLine struct {
+	holding, waiting []verify.Standing
+}
+
+// movedFor is when the line last moved for a run of job's that waits in it:
+// when the turn last passed to a run that holds one, or when the run joined
+// the line, whichever is later. A run waiting its turn uses no processor,
+// so this is its activity (#965). It is zero for a job with no run waiting.
+func (line heavyLine) movedFor(job job) time.Time {
+	var moved time.Time
+	for _, run := range line.waiting {
+		if slices.ContainsFunc(job.members, func(member Process) bool { return member.PID == run.PID }) {
+			moved = later(moved, run.Since)
+		}
+	}
+	if moved.IsZero() {
+		return moved
+	}
+	for _, run := range line.holding {
+		moved = later(moved, run.Since)
+	}
+	return moved
 }
