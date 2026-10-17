@@ -496,7 +496,8 @@ export interface Run {
   // on the item that offers the Overlord Restart the CFO; 0 on every other.
   cfo_unwoken: number;
   // cfo_stopped marks the item that says the supervisor stopped bringing back
-  // a CFO that kept ending, and offers him Reopen the CFO.
+  // a CFO that kept ending, or could not bring it back, and offers him Reopen
+  // the CFO.
   cfo_stopped: boolean;
 }
 // A newer release of Code Goblins, as the Update item offers it: the version

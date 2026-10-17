@@ -111,7 +111,8 @@ type Run struct {
 	// CFO, for the item that offers the Overlord its restart.
 	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
 	// CFOStopped marks the item that tells the Overlord the supervisor
-	// stopped bringing back a CFO that kept ending, and offers him Reopen.
+	// stopped bringing back a CFO that kept ending, or could not bring it
+	// back, and offers him Reopen.
 	CFOStopped bool `json:"cfo_stopped,omitempty"`
 }
 
@@ -463,7 +464,8 @@ func (s *Store) withdrawCFOUnwoken(reason string) error {
 }
 
 // withdrawCFOStopped takes back the item that offers the Overlord to reopen a
-// CFO that kept ending, while nobody acted on it, once a CFO runs again.
+// CFO the supervisor left stopped, while nobody acted on it, once a CFO runs
+// again.
 func (s *Store) withdrawCFOStopped(reason string) error {
 	var open []string
 	s.mu.Lock()
@@ -482,8 +484,8 @@ func (s *Store) withdrawCFOStopped(reason string) error {
 	return err
 }
 
-// offersCFOReopen reports whether an item offering to reopen a CFO that kept
-// ending still waits.
+// offersCFOReopen reports whether an item offering to reopen a CFO the
+// supervisor left stopped still waits.
 func (s *Store) offersCFOReopen() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

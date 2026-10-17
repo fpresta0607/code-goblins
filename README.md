@@ -413,7 +413,7 @@ The CFO's terminal can also end while the machine keeps running, as when Claude 
 Then the supervisor brings the CFO back by itself within about ten seconds, on the harness it ran, on its conversation where that is small enough and on a new one where not, and its first instruction tells it why it is back, so it reads its digest and carries on with the fleet without you typing anything.
 Whenever the CFO starts again, by **Reopen**, **Restart**, `goblins` or after a restart, it gets the same kind of first instruction.
 A stop you asked for stays: your own exit from the CFO's harness, **Restart** and a harness switch, which start it again themselves, and the uninstall.
-A CFO that keeps ending soon after it starts is brought back twice; at its third end in a row it stays closed, and one Command Center item tells you so with **Reopen the CFO** as its one action.
+A CFO that keeps ending soon after it starts stays closed at its third end in a row, each within ten minutes of its start, with no more than ten minutes between one end and the next start; one Command Center item then tells you so with **Reopen the CFO** as its one action, and so does one when the supervisor could not bring the CFO back.
 
 Start at login is one setting wherever you change it: the switch under **Workspace** in the CFO's panel on the board, **Start at login** in the desktop window's tray menu, the box in the setup, or `cfo install --start-at-login off` or `on` in a terminal.
 The home keeps your choice, so an update never turns back on what you turned off, and `goblins uninstall` removes the entry.

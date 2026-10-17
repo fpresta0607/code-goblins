@@ -6,9 +6,9 @@ import type { Run, Snapshot } from "./types";
 
 // The supervisor brings back a CFO whose terminal ended while nobody asked it
 // to stop, and stops after it has ended three times in a row soon after it
-// started. This item tells the Overlord so in plain words and offers one
-// thing: the board's own Reopen the CFO. It runs no command. Once a CFO runs
-// again, the supervisor takes the item back.
+// started, or when it could not bring it back. This item tells the Overlord
+// so in plain words and offers one thing: the board's own Reopen the CFO. It
+// runs no command. Once a CFO runs again, the supervisor takes the item back.
 export function CfoStoppedCard({ run, snapshot, pager }: { run: Run; snapshot: Snapshot; pager?: ReactNode }) {
   return <article className="update-card" aria-labelledby={"cfo-stopped-" + run.id}>
     <header className="update-head">

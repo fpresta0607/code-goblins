@@ -213,19 +213,21 @@ func TestEachEndOfTheCFOBringsItBackOnce(t *testing.T) {
 // A CFO that keeps ending soon after it started is brought back until it has
 // ended three times in a row, and then left stopped: one wake for the next
 // CFO and one Command Center item for the Overlord, made once, and taken back
-// once a CFO runs again.
+// once a CFO runs again. The end of a CFO that ran for hours before them is
+// not one of them.
 func TestACFOThatEndsThreeTimesInARowIsNotBroughtBackAgain(t *testing.T) {
 	// Arrange
 	service, h, recorder := cfoBackBoard(t)
 	registered := thisSignIn.Add(time.Hour)
 	registerCFO(t, h, 999999, registered)
 	// The first end is of a CFO that ran for hours; each after it, of the
-	// one brought back, ended within a minute of its start.
+	// one brought back a minute after the end before, ended within a minute
+	// of its start.
 	ends := []struct {
 		pid     int
 		ranFor  time.Duration
 		started time.Time
-	}{{999999, 4 * time.Hour, registered}, {999998, 30 * time.Second, registered.Add(5 * time.Hour)}, {999997, 30 * time.Second, registered.Add(5*time.Hour + 2*time.Minute)}}
+	}{{999999, 4 * time.Hour, registered}, {999998, 30 * time.Second, registered.Add(4*time.Hour + time.Minute)}, {999997, 30 * time.Second, registered.Add(4*time.Hour + 2*time.Minute)}, {999996, 30 * time.Second, registered.Add(4*time.Hour + 3*time.Minute)}}
 
 	// Act
 	for _, end := range ends {
@@ -239,8 +241,8 @@ func TestACFOThatEndsThreeTimesInARowIsNotBroughtBackAgain(t *testing.T) {
 	}
 
 	// Assert
-	if told := recorder.told(); len(told) != 2 {
-		t.Errorf("the CFO was brought back %d times, want twice before the cap", len(told))
+	if told := recorder.told(); len(told) != 3 {
+		t.Errorf("the CFO was brought back %d times, want three times before the cap", len(told))
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil {
@@ -270,32 +272,73 @@ func TestACFOThatEndsThreeTimesInARowIsNotBroughtBackAgain(t *testing.T) {
 	}
 }
 
-// An end of a CFO that held for a while starts the count again: only ends of
-// CFOs that ran under cfoBackHeld count as in a row.
+// The count of ends in a row starts again once the CFO held: the end of a CFO
+// that ran cfoBackHeld is not in a row, nor does a short end join one from
+// hours before, so the ends on either side never add up to the cap.
 func TestAnEndAfterTheCFOHeldStartsTheCountAgain(t *testing.T) {
-	// Arrange
-	service, h, recorder := cfoBackBoard(t)
 	registered := thisSignIn.Add(time.Hour)
-	registerCFO(t, h, 999999, registered)
-	ends := []struct {
-		pid     int
+	type end struct {
 		ranFor  time.Duration
 		started time.Time
-	}{{999999, 30 * time.Second, registered}, {999998, 30 * time.Second, registered.Add(time.Minute)}, {999997, cfoBackHeld, registered.Add(2 * time.Minute)}}
+	}
+	for _, testCase := range []struct {
+		name string
+		ends []end
+	}{
+		{name: "an end of a CFO that held", ends: []end{{30 * time.Second, registered}, {30 * time.Second, registered.Add(time.Minute)}, {cfoBackHeld, registered.Add(2 * time.Minute)}, {30 * time.Second, registered.Add(13 * time.Minute)}, {30 * time.Second, registered.Add(14 * time.Minute)}}},
+		{name: "two short ends hours apart", ends: []end{{30 * time.Second, registered}, {30 * time.Second, registered.Add(3 * time.Hour)}, {30 * time.Second, registered.Add(3*time.Hour + time.Minute)}}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			service, h, recorder := cfoBackBoard(t)
+			registerCFO(t, h, 999999, registered)
+
+			// Act
+			for i, end := range testCase.ends {
+				cfoEnded(t, h, 999999-i, end.started, end.started.Add(end.ranFor), 1, false)
+				if err := service.bringEndedCFOBack(t.Context(), end.started.Add(end.ranFor+time.Second)); err != nil {
+					t.Fatalf("bringEndedCFOBack: %v", err)
+				}
+			}
+
+			// Assert
+			if told := recorder.told(); len(told) != len(testCase.ends) {
+				t.Errorf("the CFO was brought back %d times, want after each of its %d ends", len(told), len(testCase.ends))
+			}
+			if items := stoppedItems(service); len(items) != 0 {
+				t.Errorf("items %+v, want none", items)
+			}
+		})
+	}
+}
+
+// A comeback that fails leaves the CFO stopped as the cap does, never closed
+// with nothing lasting on the board: one check wake for the next CFO and one
+// Command Center item for the Overlord that says why in plain words.
+func TestACFOThatDidNotComeBackIsLeftForTheOverlordToReopen(t *testing.T) {
+	// Arrange
+	service, h, recorder := cfoBackBoard(t)
+	recorder.err = errors.New("claude is not on PATH")
+	started := thisSignIn.Add(time.Hour)
+	registerCFO(t, h, 999999, started)
+	cfoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
 
 	// Act
-	for _, end := range ends {
-		cfoEnded(t, h, end.pid, end.started, end.started.Add(end.ranFor), 1, false)
-		if err := service.bringEndedCFOBack(t.Context(), end.started.Add(end.ranFor+time.Second)); err != nil {
-			t.Fatalf("bringEndedCFOBack: %v", err)
-		}
-	}
+	err := service.bringEndedCFOBack(t.Context(), started.Add(2*time.Hour))
 
 	// Assert
-	if told := recorder.told(); len(told) != 3 {
-		t.Errorf("the CFO was brought back %d times, want after each of its three ends", len(told))
+	if err == nil {
+		t.Error("the failed comeback was not said")
 	}
-	if items := stoppedItems(service); len(items) != 0 {
-		t.Errorf("items %+v, want none", items)
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks := slices.DeleteFunc(slices.Clone(pending), func(record wake.Record) bool { return record.Kind != "check" || record.Key != "cfo" }); len(checks) != 1 {
+		t.Errorf("wakes %+v, want one check wake for the CFO", pending)
+	}
+	want := "The CFO did not come back after its terminal ended with exit code 1: claude is not on PATH. Reopen the CFO once you have looked?"
+	if items := stoppedItems(service); len(items) != 1 || items[0].State != "ready" || items[0].Title != want {
+		t.Errorf("items %+v, want one waiting item titled %q", items, want)
 	}
 }

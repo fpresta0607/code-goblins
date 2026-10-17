@@ -29,8 +29,10 @@ import (
 // a viewer closed, as Restart, a harness switch and the uninstall close it,
 // and a harness that exited with code 0, as its own exit does. A CFO that
 // keeps ending soon after it started is not brought back once it has ended
-// cfoBackCap times in a row: it stays stopped, with one wake for the next CFO
-// and one Command Center item for the Overlord, whose one action is Reopen.
+// cfoBackCap times in a row, each soon after it started again: it stays
+// stopped, with one wake for the next CFO and one Command Center item for the
+// Overlord, whose one action is Reopen. A CFO the supervisor could not bring
+// back is told of the same way.
 // On 2026-10-16 and again on 2026-10-17 the CFO's Claude Code ended with exit
 // code 1 right after a turn ended, and it stayed closed, the first time for
 // 16 hours, until the Overlord reopened it and typed its first instruction.
@@ -39,7 +41,8 @@ const (
 	// ended unasked.
 	cfoBackEvery = 10 * time.Second
 	// cfoBackHeld is how long a CFO runs before its end no longer counts as
-	// one more in a row.
+	// one more in a row, and how soon after the row's last end it starts for
+	// its end to join the row.
 	cfoBackHeld = 10 * time.Minute
 	// cfoBackCap is how many ends in a row leave the CFO stopped.
 	cfoBackCap = 3
@@ -50,13 +53,12 @@ const (
 const cfoBackFile = "cfo-back.json"
 
 // cfoBack is cfoBackFile: the program whose end was acted on last, by pid and
-// creation time, when each end in a row came, oldest first, whether the last
-// one left the CFO stopped, and why the CFO did not come back when it did not.
+// creation time, when each end in a row came, oldest first, and why the CFO
+// did not come back when it did not.
 type cfoBack struct {
 	PID     int         `json:"pid"`
 	Start   time.Time   `json:"start"`
 	InARow  []time.Time `json:"in_a_row,omitempty"`
-	Stopped bool        `json:"stopped,omitempty"`
 	Problem string      `json:"problem,omitempty"`
 }
 
@@ -135,8 +137,11 @@ func (s *Service) keepCFOBack(ctx context.Context, every time.Duration) {
 
 // bringEndedCFOBack brings the home's CFO back when its terminal ended in this
 // sign-in while nobody asked it to stop, once for each end, and leaves it
-// stopped at the cap. A CFO of the sign-in before is the comeback's, and a
-// CFO that runs again takes back the cap's item.
+// stopped at the cap or when it could not bring it back. An end joins the row
+// when its CFO ran under cfoBackHeld and started within cfoBackHeld of the
+// row's last end; otherwise the row starts again, with that end when its CFO
+// ran under cfoBackHeld. A CFO of the sign-in before is the comeback's, and a
+// CFO that runs again takes back the item that left it stopped.
 func (s *Service) bringEndedCFOBack(ctx context.Context, now time.Time) error {
 	comeback := s.Options.Comeback
 	if comeback == nil || comeback.CFOEnded == nil || s.Options.Example {
@@ -181,16 +186,22 @@ func (s *Service) bringEndedCFOBack(ctx context.Context, now time.Time) error {
 		ended.Why += ", after an update of " + name + " was installed while it ran"
 	}
 	inARow := record.InARow
-	if ended.At.Sub(ended.Start) >= cfoBackHeld {
+	switch {
+	case ended.At.Sub(ended.Start) >= cfoBackHeld:
 		inARow = nil
+	case len(inARow) > 0 && ended.Start.Sub(inARow[len(inARow)-1]) > cfoBackHeld:
+		inARow = []time.Time{ended.At}
+	default:
+		inARow = append(inARow, ended.At)
 	}
-	record = cfoBack{PID: ended.PID, Start: ended.Start, InARow: append(inARow, ended.At)}
+	record = cfoBack{PID: ended.PID, Start: ended.Start, InARow: inARow}
 	if len(record.InARow) >= cfoBackCap {
-		record.Stopped = true
 		if err := writeCFOBack(stateDir, record); err != nil {
 			return err
 		}
-		return s.stopBringingCFOBack(ended, len(record.InARow), now)
+		minutes := int(cfoBackHeld / time.Minute)
+		what := fmt.Sprintf("The CFO's terminal ended %d times in a row, each within %d minutes of its start, with no more than %d minutes between one end and the next start, the last time because %s, so the supervisor stopped bringing it back", len(record.InARow), minutes, minutes, ended.Why)
+		return s.leaveCFOStopped(what, "This CFO came back another way: find why it ends, from its last transcript and its terminal's end in state\\hosts\\cfo.end, before it ends again.", now)
 	}
 	s.starts.Lock()
 	if s.isCFOComingBack {
@@ -213,7 +224,8 @@ func (s *Service) bringEndedCFOBack(ctx context.Context, now time.Time) error {
 	s.notify()
 	if err := comeback.CFOEnded(ctx, ended.Why); err != nil {
 		record.Problem = err.Error()
-		return errors.Join(fmt.Errorf("the CFO did not come back after %s: %w", ended.Why, err), writeCFOBack(stateDir, record))
+		stopErr := s.leaveCFOStopped(fmt.Sprintf("The CFO did not come back after %s: %v", ended.Why, err), "Find why it did not, and why its terminal ended, from its last transcript and its terminal's end in state\\hosts\\cfo.end, before it ends again.", now)
+		return errors.Join(fmt.Errorf("the CFO did not come back after %s: %w", ended.Why, err), writeCFOBack(stateDir, record), stopErr)
 	}
 	return nil
 }
@@ -231,14 +243,12 @@ func (s *Service) signInBegan() (time.Time, error) {
 	return s.signedIn, nil
 }
 
-// stopBringingCFOBack leaves the CFO stopped after ends ends in a row, the
-// last ended: one wake the next CFO reads, and one Command Center item for the
-// Overlord, whose one action is the board's Reopen the CFO, made while none
-// waits already.
-func (s *Service) stopBringingCFOBack(ended cfoEnd, ends int, now time.Time) error {
-	what := fmt.Sprintf("The CFO's terminal ended %d times in a row, each within %d minutes of its start, the last time because %s", ends, int(cfoBackHeld/time.Minute), ended.Why)
-	detail := what + ". The supervisor stopped bringing it back, so this CFO came back another way: find why it ends, from its last transcript and its terminal's end in state\\hosts\\cfo.end, before it ends again."
-	err := raiseFleetWake(s.Store.Home.State, "check", "cfo", detail)
+// leaveCFOStopped tells why the supervisor left the CFO stopped, which what
+// says in plain words: one check wake keyed cfo for the next CFO, with what it
+// should find, and one Command Center item for the Overlord, whose one action
+// is the board's Reopen the CFO, made while none waits already.
+func (s *Service) leaveCFOStopped(what, find string, now time.Time) error {
+	err := raiseFleetWake(s.Store.Home.State, "check", "cfo", what+". "+find)
 	if s.Store.offersCFOReopen() {
 		return err
 	}
@@ -250,6 +260,6 @@ func (s *Service) stopBringingCFOBack(ended cfoEnd, ends int, now time.Time) err
 	identity := sha256.Sum256([]byte("cfo-stopped\n" + id + "\n" + strconv.FormatInt(now.UnixNano(), 10)))
 	command := "# This item reopens the CFO with the board's Reopen the CFO, never as a command.\n"
 	made := time.Now().UTC()
-	_, recordErr := s.recordBoardRun(Run{ID: id, Identity: hex.EncodeToString(identity[:]), Title: what + ", so the supervisor stopped bringing it back. Reopen the CFO once you have looked?", Shell: "powershell", Command: command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: made, ExpiresAt: made.Add(runLifetime), CFOStopped: true})
+	_, recordErr := s.recordBoardRun(Run{ID: id, Identity: hex.EncodeToString(identity[:]), Title: what + ". Reopen the CFO once you have looked?", Shell: "powershell", Command: command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: made, ExpiresAt: made.Add(runLifetime), CFOStopped: true})
 	return errors.Join(err, recordErr)
 }
