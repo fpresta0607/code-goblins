@@ -4,7 +4,6 @@ import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { harnessMark } from "./connectors";
 import type { NextUp } from "./start";
-import { TaskControls } from "./task-controls";
 import { harnessName, harnessTip, personaFor, pullRequestIcon, safePullRequest, taskColumn } from "./workflow";
 import { goblinName, plainText, taskName } from "./task-words";
 import { taskStatus } from "./task-status";
@@ -39,10 +38,9 @@ import { CardRouting } from "./card-routing";
 // pull request's chip opens the same page. A goblin
 // gone quiet, and windows still closing, are the CFO's to hear, never warnings
 // on the card. next marks the one card the order for a free slot takes first.
-export interface CardStart { blocked: string; onStart: () => void }
-export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onCount }: {
+export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, onSelect, onCount }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
-  next?: NextUp; start?: CardStart;
+  next?: NextUp;
   onSelect: (task: Task, source: HTMLElement) => void;
   // onCount shows what runs under the goblin, on the Orchestration canvas;
   // a card without it shows no count.
@@ -100,7 +98,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       <SameAreaAvatars overlaps={task.overlaps} />
       {column === "Completed" && !pr && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
-    <TaskControls task={task} snapshot={snapshot} start={start} onAdjust={(source) => onSelect(task, source)} />
     {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
   </div>;
 }

@@ -150,7 +150,7 @@ test("a goblin whose spawn ended reads Starting until the supervisor has evidenc
 
 test("a paused goblin reads why it waits and what resumes it, the same words on every surface", () => {
   const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
-  assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Memory: resumes at 5 GB free", phase: "paused" });
+  assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Paused for memory", phase: "paused" });
 });
 
 test("a task with no terminal yet says its status where its terminal will be", () => {

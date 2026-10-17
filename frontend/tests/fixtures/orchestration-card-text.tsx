@@ -6,8 +6,9 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The canvas cards with the most text a card holds. Woody is the Overlord's
-// screenshot: a paused goblin whose status reads "Allowance: resumes Oct 14,
-// 4:05 AM", with no browser line. Wilhelmina is the worst case: a goblin with
+// screenshot: a paused goblin whose status read "Allowance: resumes Oct 14,
+// 4:05 AM", now "Paused for allowance", with no
+// browser line. Wilhelmina is the worst case: a goblin with
 // a name that takes two lines, her browser active, and a long status. Her
 // session reported no parent, so she hangs under the CFO, and her card names
 // no relation. Cornelius has
@@ -64,7 +65,7 @@ const opened = window as Window & { cfoOpened?: number };
 
 function Fixture() {
   if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} onSelect={() => {}} /></main>;
-  if (view === "board") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
+  if (view === "board") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
     <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => { opened.cfoOpened = (opened.cfoOpened || 0) + 1; }} />
   </main>;
