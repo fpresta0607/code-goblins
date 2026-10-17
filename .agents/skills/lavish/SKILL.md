@@ -8,7 +8,8 @@ argument-hint: <what the artifact should show>
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
 It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
-`cfo doctor` reports it against its floor, the Code Goblins build `0.1.79-codegoblins.3`, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+`cfo doctor` reports it against its floor, the Code Goblins build `0.1.79-codegoblins.16`, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+The floor is the first build whose page server runs in its own state folder: an older one keeps the folder of the first `lavish-axi` command that started it, so a worktree it started in cannot be removed while it runs.
 
 ## Request
 
@@ -41,7 +42,7 @@ If it is empty, infer what to show from the conversation.
 ## The page
 
 A Scrawl page starts in the board's look, so it reads as part of Code Goblins and not as another product.
-This needs the Code Goblins build `0.1.79-codegoblins.3` or newer (`lavish-axi --version`); on an older build the page shows unstyled and its choices do not appear, so deliver the content as text instead.
+This needs the Code Goblins build at its floor (above) or newer (`lavish-axi --version`); on an older build deliver the content as text instead.
 
 Put these two lines in the `<head>` and write plain semantic HTML:
 

@@ -6,10 +6,10 @@ import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 // How many cards the first page holds follows from how tall they are, as the
 // pager fits them, so it is read from the page rather than fixed: the cards
 // lost their buttons on 2026-10-16 and the page took nine instead of eight.
-// The window is tall enough that the final page still ends the scroll bar:
-// the cards took their clock to a row at their foot on 2026-10-17, and at
-// 1100 px the final page then scrolled too.
-test.use({ viewport: { width: 1440, height: 1400 } });
+// The window holds most of the queue on its first page and leaves a final
+// page short enough to end the scroll bar: a card became one row on
+// 2026-10-17, and the first page holds ten of them at 920 px.
+test.use({ viewport: { width: 1440, height: 920 } });
 
 test("the CFO queue can turn to its short final page without a render loop", async ({ page }) => {
   const errors: string[] = [];

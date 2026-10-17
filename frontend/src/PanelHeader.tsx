@@ -49,6 +49,10 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? taskName(task) : "";
+  // A helper names the goblin it helps here, since its card on the board is
+  // one row with no room for it.
+  const helped = owner && task.parent ? snapshot.tasks.find((other) => other.id === task.parent) : undefined;
+  const helps = owner && task.parent ? (helped ? goblinName(helped) : task.parent) : "";
   // The name or the task cut short shows in full in its tip. Each carries an
   // empty tip until it is pointed at, so the board's tips count it as a part
   // from the start, as they count a card.
@@ -85,6 +89,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         <h2 id="panel-title" data-tip={cut.name ? title : ""}>{title}</h2>
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
+        {!compact && helps && <p className="muted">Helper of {helps}</p>}
         <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}

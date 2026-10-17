@@ -57,19 +57,19 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
 
       const failed = card(page, "Say why a billing sync fails").locator("a.card-checks.hosted-checks");
-      await expect(failed).toHaveText("Checks failed");
+      await expect(failed).toHaveAttribute("aria-label", /^Checks failed: /);
       await expect(failed).toHaveAttribute("href", JOB);
-      await expect(failed).toHaveAttribute("data-tip", "Failed: go (rest), frontend");
+      await expect(failed).toHaveAttribute("data-tip", "Checks failed: Failed: go (rest), frontend");
       await expect(failed).toHaveClass(/hosted-failed/);
       const passed = card(page, "Export the audit trail").locator(".card-checks");
-      await expect(passed).toHaveText(["Local tests passed", "Checks passed", "Approved"]);
+      expect(await passed.evaluateAll((parts) => parts.map((part) => part.getAttribute("data-tip")?.split(":")[0]))).toEqual(["Local tests passed", "Checks passed", "Approved"]);
       await expect(passed.nth(1)).toHaveAttribute("href", REPO + "/pull/56/checks");
-      await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveText("Testing");
+      await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveAttribute("aria-label", /^Testing: /);
       await expect(card(page, "Fix the docs links").locator(".hosted-checks")).toHaveCount(0);
       const local = card(page, "Say why a billing sync fails").locator("a.local-checks");
-      await expect(local).toHaveText("Local tests failed");
+      await expect(local).toHaveAttribute("aria-label", /^Local tests failed: /);
       await expect(local).toHaveAttribute("href", "/api/tasks/nw-sync/checks");
-      await expect(local).toHaveAttribute("data-tip", "Failed: internal/supervisor. Affected level, 18m, 5m of it waiting for its turn");
+      await expect(local).toHaveAttribute("data-tip", "Local tests failed: Failed: internal/supervisor. Affected level, 18m, 5m of it waiting for its turn");
       expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 4, outside: 0, overlaps: 0 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
@@ -82,11 +82,11 @@ test("a merged task's card says how its deploy stands and opens the run", async 
   await open(page);
 
   const failed = card(page, "Ship the export").locator("a.deployment");
-  await expect(failed).toHaveText("Deploy failed");
+  await expect(failed).toHaveAttribute("aria-label", /^Deploy failed: /);
   await expect(failed).toHaveAttribute("href", REPO + "/actions/runs/82");
-  await expect(failed).toHaveAttribute("data-tip", "Deploy API, Deploy worker at ccc333d");
+  await expect(failed).toHaveAttribute("data-tip", "Deploy failed: Deploy API, Deploy worker at ccc333d");
   await expect(failed).toHaveClass(/hosted-failed/);
-  await expect(card(page, "Fix the docs links").locator("a.deployment")).toHaveText("Deploying");
+  await expect(card(page, "Fix the docs links").locator("a.deployment")).toHaveAttribute("aria-label", /^Deploying: /);
   await expect(card(page, "Say why a billing sync fails").locator(".deployment")).toHaveCount(0);
 });
 

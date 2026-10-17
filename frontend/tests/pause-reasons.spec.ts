@@ -145,7 +145,7 @@ test.describe("on the wide board", () => {
     const progress = board(page).getByRole("region", { name: "In progress", exact: true });
 
     // Assert: the paused goblin, on its card and in its panel.
-    await expect(card(page, "paused-on-task").locator(".card-status-text")).toHaveText("Paused until Bernie - Merge Maestro delivers");
+    await expect(card(page, "paused-on-task").locator(".card-status-text")).toHaveText("Paused until Bernie delivers");
     await expect(section.locator(".card-title")).toHaveText(["paused-on-task"]);
     await select(page, "paused-on-task");
     const benchedControls = panel(page).getByRole("group", { name: "Controls for paused-on-task" });

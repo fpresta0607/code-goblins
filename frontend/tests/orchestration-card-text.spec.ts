@@ -243,23 +243,25 @@ function facts(card: Element, selectors: Record<string, string>): Record<string,
     .map((node) => node.textContent).join("").replace(/\s+/g, " ").trim();
   return Object.fromEntries(Object.entries(selectors).map(([fact, selector]) => {
     const element = card.querySelector(selector);
-    return [fact, !element ? "" : fact === "harness" ? element.getAttribute("aria-label") || "" : fact === "pull request" ? text(element) + " " + element.getAttribute("href") : text(element)];
+    return [fact, !element ? "" : fact === "harness" ? element.getAttribute("aria-label") || "" : fact === "pull request" ? element.getAttribute("href") || "" : text(element)];
   }));
 }
 
 // The Overlord, 2026-10-12: a card on the canvas shows the same facts as
-// that goblin's card on the board, its name and title, project and status,
-// how long it has run, its pull request and its harness mark.
+// that goblin's card on the board, its name and title, its status, how long
+// it has run, its pull request and its harness mark. The board's card is one
+// row since 2026-10-17, so its project is in its panel, and its pull request
+// is an icon: what both open is compared.
 for (const title of ["Olive - Billing Baron", "Woody - Tour Guide", "Bartholomew - Distinguished Infrastructure Archivist", "Jules - Process Keeper"]) {
   test(`${title}'s canvas card says what its board card says`, async ({ page }) => {
     // Arrange
     await open(page, "board");
     const board = await page.locator(".task-card-shell").filter({ has: page.locator(".card-title", { hasText: title }) })
-      .evaluate(facts, { title: ".card-title", project: ".card-repo", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
+      .evaluate(facts, { title: ".card-title", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
     await open(page);
 
     // Act
-    const canvas = await card(page, title).evaluate(facts, { title: "strong", project: ".project-label", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
+    const canvas = await card(page, title).evaluate(facts, { title: "strong", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
 
     // Assert
     expect(board.title).toBe(title);

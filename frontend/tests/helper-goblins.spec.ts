@@ -13,13 +13,15 @@ test("a helper hangs under its parent as a helper goblin, not as a card of its o
   await expect(page.locator(".flow-node").filter({ hasText: "Ledger fixtures" })).toHaveCount(1);
 });
 
-test("a helper's card on the board names its parent", async ({ page }) => {
+// A card on the board is one row (the CFO's decision 1008011, 2026-10-17), so
+// a helper's names no parent: its panel does (minimal-card.spec.ts).
+test("a helper's card on the board is one row that names no parent", async ({ page }) => {
   await page.goto("/tests/fixtures/helper-goblins.html?view=cards");
-  await expect(page.locator(".task-card-shell").filter({ hasText: "Accounts migration" }).locator(".card-secondary")).toHaveText("Helper of Let goblins start helpers");
-  await expect(page.locator(".task-card-shell").filter({ hasText: "Ledger fixtures" }).locator(".card-secondary")).toHaveText("Helper of Sync the ledger");
-  const parent = page.locator(".task-card-shell").filter({ has: page.locator(".card-title", { hasText: /^Let goblins start helpers$/ }) });
-  await expect(parent).toHaveCount(1);
-  await expect(parent.getByText(/^Helper of/)).toHaveCount(0);
+  for (const name of ["Accounts migration", "Ledger fixtures", "Let goblins start helpers"]) {
+    const card = page.locator(".task-card-shell").filter({ hasText: name });
+    await expect(card).toHaveCount(1);
+    await expect(card.getByText(/^Helper of/)).toHaveCount(0);
+  }
 });
 
 test("at phone width the lineage list shows a held helper under its parent only", async ({ page }) => {
