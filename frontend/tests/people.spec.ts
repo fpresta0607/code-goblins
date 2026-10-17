@@ -88,8 +88,9 @@ test.describe("in his window", () => {
 
     const header = await openPanel(page, "Say why a billing sync fails");
     const people = header.locator(".people-row .person");
-    const names = header.locator(".people-row .person-name");
-    await expect(names).toHaveText(["ana-teammate", "ben-teammate", "cy-teammate"]);
+    expect(await people.evaluateAll((faces) => faces.map((face) => face.querySelector("a")?.getAttribute("aria-label")))).toEqual(["ana-teammate, in the same area: PR #46, issue #49", "ben-teammate", "cy-teammate"]);
+    await expect(people.nth(1).locator("a")).toHaveAttribute("data-tip", "ben-teammate");
+    await expect(header.locator(".people-more")).toHaveCount(0);
     await expect(people.first()).toHaveClass(/same-area/);
     await expect(people.nth(1)).not.toHaveClass(/same-area/);
     await expect(people.first().locator("a")).toHaveAttribute("href", "https://github.com/ana-teammate");
@@ -159,5 +160,52 @@ test.describe("with nine people in a goblin's area, in his window", () => {
       return [...shell.querySelectorAll(".same-area-person, .same-area-more")].filter((part) => part.getBoundingClientRect().right > box.right + 1).length;
     });
     expect(outside).toBe(0);
+  });
+});
+
+// The Overlord, 2026-10-17, of about sixty avatars and names filling a
+// no-mistakes goblin's panel: "when there's a ton of contributors in a
+// project, you need to condense it with a plus, and no truncation on the
+// contributors. Only show the active contributors." The panel shows five
+// faces and +N beside the project's name, and +N opens every name, whole.
+test.describe("with 47 active people in a project, in his window", () => {
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+  const LONGEST = "contributor-with-the-longest-login-xyz9";
+  const crowd = Array.from({ length: 47 }, (_, index) => ({ login: index === 30 ? LONGEST : "contributor-" + String(index).padStart(2, "0"), avatar_url: avatar(100 + index) }));
+
+  test("the panel shows five faces and +42 beside the project, and +42 opens every name whole", async ({ page }, testInfo) => {
+    // Arrange
+    await holdStream(page, { ...SNAPSHOT, projects: [{ name: "no-mistakes", repository: "kunchenguid/no-mistakes", contributors: crowd }], tasks: [task("nm-gate", "Finish a gate run whose PR passed CI", { project: "no-mistakes" })] });
+    await page.route("https://avatars.githubusercontent.com/**", (route) => route.fulfill({ contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#8a4fbf"/></svg>` }));
+    await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
+    await page.goto("/");
+    await page.evaluate(() => document.fonts.ready);
+    const header = await openPanel(page, "Finish a gate run whose PR passed CI");
+    await header.screenshot({ path: testInfo.outputPath("panel-many.png") });
+
+    // Act
+    await header.locator(".people-more").click();
+    const list = page.locator(".people-list");
+    await expect(list).toBeVisible();
+    await page.locator(".panel-header").screenshot({ path: testInfo.outputPath("panel-many-open.png") });
+    const shown = await list.evaluate((element) => [...element.querySelectorAll(".person-name")].map((name) => ({ text: name.textContent, isWhole: name.scrollWidth <= name.clientWidth && getComputedStyle(name).textOverflow !== "ellipsis" })));
+    const isInView = await list.evaluate((element) => { const box = element.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight; });
+    await page.keyboard.press("Escape");
+
+    // Assert
+    await expect(header.locator(".people-row .person")).toHaveCount(5);
+    await expect(header.locator(".people-more")).toHaveText("+42");
+    await expect(header.locator(".people-more")).toHaveAttribute("aria-label", "42 more people in no-mistakes");
+    expect(shown.map((name) => name.text)).toEqual(crowd.map((person) => person.login));
+    expect(shown.filter((name) => !name.isWhole)).toEqual([]);
+    expect(isInView).toBe(true);
+    await expect(list).toHaveCount(0);
+    await expect(header.locator(".people-more")).toBeFocused();
+    await expect(page.locator(".panel-header")).toBeVisible();
+    const [project, row] = await Promise.all([header.locator(".project-label").boundingBox(), header.locator(".people-row").boundingBox()]);
+    expect(row!.x).toBeGreaterThan(project!.x + project!.width);
+    expect(row!.height).toBeLessThan(40);
+    expect(Math.abs((project!.y + project!.height / 2) - (row!.y + row!.height / 2))).toBeLessThan(6);
+    expect(await fits(page)).toBe(true);
   });
 });
