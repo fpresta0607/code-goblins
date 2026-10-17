@@ -1584,7 +1584,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// or the gate holds it or its work already merged. A question asked
 		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
-		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, d.Credentials, standingAt, standing)
+		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, d.Runs, d.Credentials, standingAt, standing)
 		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}

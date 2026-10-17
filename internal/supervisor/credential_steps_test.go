@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -625,26 +626,38 @@ func TestWaitingOnACardTheBoardNeverTookEnds(t *testing.T) {
 	}
 }
 
-// Done on a goblin's step card, or its inputs arriving, also closes its wait
-// on the Overlord that was opened while the card was open, which asked him
-// for the same step. A wait opened before the card, a wait on a page and
+// Done on a goblin's step card, by the Overlord or the CFO, or its inputs
+// arriving, also closes its wait on the Overlord that was opened while the
+// card was open, which asked him for the same step, saying who closed it. A wait opened before the card, a wait on a page and
 // another goblin's wait are cards of their own and stay open, and a card the
 // CFO filed for the goblin closes none of its waits.
 func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
-	done := func(b *credentialBoard) *httptest.ResponseRecorder {
-		return b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil)
+	sent := func(response *httptest.ResponseRecorder) error {
+		if response.Code != http.StatusOK {
+			return fmt.Errorf("%d %s", response.Code, response.Body)
+		}
+		return nil
 	}
+	done := func(b *credentialBoard) error {
+		return sent(b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil))
+	}
+	byGoblin := func(r *CredentialRequest) { r.By = "goblin" }
 	for _, tc := range []struct {
 		name   string
 		change func(*CredentialRequest)
-		close  func(*credentialBoard) *httptest.ResponseRecorder
+		close  func(*credentialBoard) error
 		want   string
+		reason string
 	}{
-		{"done", func(r *CredentialRequest) { r.By = "goblin" }, done, "answered"},
-		{"saved", func(r *CredentialRequest) { r.By, r.Plain = "goblin", []string{"ACCOUNT_EMAIL"} }, func(b *credentialBoard) *httptest.ResponseRecorder {
-			return b.post(b.handler, b.body(map[string]string{"ACCOUNT_EMAIL": "shop-owner@example.com"}), nil)
-		}, "answered"},
-		{"filed by the CFO", nil, done, "open"},
+		{"done by the Overlord", byGoblin, done, "answered", "You pressed Done"},
+		{"done by the CFO", byGoblin, func(b *credentialBoard) error {
+			_, err := b.service.closeCredential(b.request.ID, "", "done", "cfo", "")
+			return err
+		}, "answered", "The CFO closed"},
+		{"saved", func(r *CredentialRequest) { r.By, r.Plain = "goblin", []string{"ACCOUNT_EMAIL"} }, func(b *credentialBoard) error {
+			return sent(b.post(b.handler, b.body(map[string]string{"ACCOUNT_EMAIL": "shop-owner@example.com"}), nil))
+		}, "answered", "its inputs arrived"},
+		{"filed by the CFO", nil, done, "open", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -670,20 +683,20 @@ func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 			}
 
 			// Act
-			response := tc.close(b)
+			err := tc.close(b)
 			b.service.credentialWork.Wait()
 
 			// Assert
-			if response.Code != http.StatusOK || b.stored().State == "open" {
-				t.Fatalf("close = %d %s, card %s", response.Code, response.Body, b.stored().State)
+			if err != nil || b.stored().State == "open" {
+				t.Fatalf("close = %v, card %s", err, b.stored().State)
 			}
 			want := map[string]string{"waiting-task-1-7": tc.want, "waiting-task-1-3": "open", "waiting-task-1-8": "open", "waiting-task-2-9": "open"}
 			for _, r := range b.service.Store.Snapshot().Reviews {
 				if r.State != want[r.ID] {
 					t.Errorf("wait %s = %s, want %s", r.ID, r.State, want[r.ID])
 				}
-				if r.ID == "waiting-task-1-7" && r.State == "answered" && (r.AnsweredIn == "" || !strings.Contains(r.Reason, b.request.ID)) {
-					t.Errorf("the closed wait = %+v, want it answered on the card it names", r)
+				if r.ID == "waiting-task-1-7" && r.State == "answered" && (r.AnsweredIn == "" || !strings.Contains(r.Reason, b.request.ID) || !strings.Contains(r.Reason, tc.reason)) {
+					t.Errorf("the closed wait = %+v, want it answered on the card it names, saying %q", r, tc.reason)
 				}
 			}
 		})

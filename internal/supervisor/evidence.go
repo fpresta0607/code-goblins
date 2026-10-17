@@ -395,7 +395,7 @@ func supersedesQuestion(report string) bool {
 // Overlord once the Command Center item it raised closed, answered, cleared or
 // handed to the CFO, or once the goblin's own step card that stood for it
 // closed; any other wait lasts until the goblin reports again.
-func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, credentials []CredentialRequest, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
+func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, runs []Run, credentials []CredentialRequest, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
 	if what, found := strings.CutPrefix(report, "working: "); found {
 		return "working", what, "", true
 	}
@@ -418,9 +418,12 @@ func reportedProgress(tail func(id string) ([]string, error), id string, reviews
 			return "", "", "", false
 		}
 		// A wait beside its open step card opened no item: the card is the
-		// wait, so it ends when the card closes. Its stamp is to the second.
+		// wait, so it ends when the card closes, the report's stamp being to
+		// the second. A wait with a command has its run card as its item.
 		hasItem := slices.ContainsFunc(reviews, func(r Review) bool {
 			return r.Task == id && strings.HasPrefix(r.ID, "waiting-"+id+"-") && !r.CreatedAt.Before(reportedAt)
+		}) || slices.ContainsFunc(runs, func(r Run) bool {
+			return r.Task == id && strings.HasPrefix(r.ID, "run-"+id+"-") && !r.CreatedAt.Before(reportedAt)
 		})
 		if !hasItem && slices.ContainsFunc(credentials, func(c CredentialRequest) bool {
 			return c.By == "goblin" && c.Task == id && !c.CreatedAt.Truncate(time.Second).After(reportedAt) &&

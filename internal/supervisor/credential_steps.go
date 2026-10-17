@@ -227,12 +227,14 @@ func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
 	if card.By != "goblin" {
 		return nil
 	}
-	reason := "You pressed Done on its step card " + card.ID + "."
+	reason := "Its step card " + card.ID + " closed as done: the goblin saw the step done."
 	switch {
 	case card.State == "saved":
 		reason = "Its step card " + card.ID + " closed once its inputs arrived."
-	case by != "overlord":
-		reason = "Its step card " + card.ID + " closed as done: the goblin saw the step done."
+	case by == "overlord":
+		reason = "You pressed Done on its step card " + card.ID + "."
+	case by == "cfo":
+		reason = "The CFO closed its step card " + card.ID + " as done."
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
