@@ -86,6 +86,9 @@ jobs:
   # A run whose event saw a draft asks GitHub whether the pull request is a
   # draft now, as the go workflow's does, and the installs run unless it still is.
   draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
     if: github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:

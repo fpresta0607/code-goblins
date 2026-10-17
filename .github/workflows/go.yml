@@ -105,6 +105,9 @@ jobs:
   # it joined the pull request's group, so no run tested its last head. A
   # read that fails runs every job, as for a pull request that is ready.
   draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
     if: github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:

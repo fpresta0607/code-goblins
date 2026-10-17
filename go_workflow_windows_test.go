@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"gopkg.in/yaml.v3"
 )
 
@@ -319,6 +320,16 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 						Types []string `yaml:"types"`
 					} `yaml:"merge_group"`
 				} `yaml:"on"`
+				Jobs map[string]struct {
+					If    string            `yaml:"if"`
+					Env   map[string]string `yaml:"env"`
+					Steps []struct {
+						If   string            `yaml:"if"`
+						Env  map[string]string `yaml:"env"`
+						With map[string]string `yaml:"with"`
+						Run  string            `yaml:"run"`
+					} `yaml:"steps"`
+				} `yaml:"jobs"`
 			}
 			if err := yaml.Unmarshal(source, &workflow); err != nil {
 				t.Fatal(err)
@@ -328,11 +339,20 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 			if workflow.On.MergeGroup == nil || !slices.Equal(workflow.On.MergeGroup.Types, []string{"checks_requested"}) {
 				t.Errorf("%s runs on merge_group %+v, want types [checks_requested]", name, workflow.On.MergeGroup)
 			}
-			// The draft job reads one field too, which is empty in a queue
-			// run, so it is skipped there and every other job runs.
-			reads := strings.Count(string(source), "github.event.pull_request")
-			if reads != 2 {
-				t.Errorf("%s reads the pull request's fields %d times, want twice: in the concurrency group with its fallback and in the draft job's condition", name, reads)
+			// The draft job's condition reads one field too, which is empty
+			// in a queue run, so it is skipped there and every other job
+			// runs. Nothing else of any job reads one.
+			for job, spec := range workflow.Jobs {
+				reads := slices.Collect(maps.Values(spec.Env))
+				if job != "draft" {
+					reads = append(reads, spec.If)
+				}
+				for _, step := range spec.Steps {
+					reads = append(append(append(reads, step.If, step.Run), slices.Collect(maps.Values(step.Env))...), slices.Collect(maps.Values(step.With))...)
+				}
+				if i := slices.IndexFunc(reads, func(read string) bool { return strings.Contains(read, "github.event.pull_request") }); i >= 0 {
+					t.Errorf("%s job %s reads the pull request's fields in %q, want only the draft job's condition to", name, job, reads[i])
+				}
 			}
 		})
 	}
@@ -416,6 +436,7 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 					} `yaml:"pull_request"`
 				} `yaml:"on"`
 				Jobs map[string]struct {
+					Name        string            `yaml:"name"`
 					If          string            `yaml:"if"`
 					Needs       goWorkflowNeeds   `yaml:"needs"`
 					Permissions map[string]string `yaml:"permissions"`
@@ -438,9 +459,12 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s has no draft job, so its jobs skip on what the event saw", name)
 			}
-			isRead := len(draft.Steps) == 1 && draft.Steps[0].ID == "read" && strings.Contains(draft.Steps[0].Run, "gh api ") && strings.Contains(draft.Steps[0].Run, "--jq .draft")
+			isRead := len(draft.Steps) == 1 && draft.Steps[0].ID == "read"
 			if draft.If != draftJobCondition || len(draft.Needs) != 0 || !isRead || draft.Outputs["draft"] != "${{ steps.read.outputs.draft }}" || !maps.Equal(draft.Permissions, map[string]string{"pull-requests": "read"}) {
-				t.Errorf("%s draft job runs if %q, needs %v, has permissions %v and outputs %v; want it to run only when the event saw a draft, need nothing, and read the pull request with gh api as its draft output", name, draft.If, draft.Needs, draft.Permissions, draft.Outputs)
+				t.Fatalf("%s draft job runs if %q, needs %v, has permissions %v and outputs %v; want it to run only when the event saw a draft, need nothing, and give its one step's draft output", name, draft.If, draft.Needs, draft.Permissions, draft.Outputs)
+			}
+			if draft.Name != train.DraftStateCheck {
+				t.Errorf("%s draft job is named %q, want %q, the check every reader of a head's checks passes over as testing nothing", name, draft.Name, train.DraftStateCheck)
 			}
 			for job, spec := range workflow.Jobs {
 				isPushOnly := spec.If == "github.event_name == 'push'"
@@ -460,10 +484,79 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 					t.Errorf("%s job %s runs if %q, which a skipped draft job, as in every run whose event saw no draft, skips too", name, job, spec.If)
 				}
 			}
+			runDraftStep(t, draft.Steps[0].Run)
 		})
 	}
 	if checked < 3 {
 		t.Errorf("%d workflows run on pull requests, want go, install and windows at least: the glob or the trigger's spelling changed", checked)
+	}
+}
+
+// runDraftStep runs a draft job's step as GitHub Actions runs a bash step,
+// with a stand-in gh that says the pull request is or is not a draft, or
+// fails: the step gives the job its draft output from what gh read, and a
+// read that fails fails the step, so its draft output is empty and every
+// other job runs.
+func runDraftStep(t *testing.T, script string) {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("the step runs in Git's bash, and git is not installed")
+	}
+	// Git's own bash, never the one Windows may have on its path for WSL.
+	// git.exe is in Git's cmd, bin or mingw64in folder.
+	bash := ""
+	for dir := filepath.Dir(git); bash == "" && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "bin", "bash.exe")); err == nil {
+			bash = filepath.Join(dir, "bin", "bash.exe")
+		}
+	}
+	if bash == "" {
+		t.Skipf("the step runs in Git's bash, which is not in a folder above %s", git)
+	}
+	stubs := t.TempDir()
+	stub := "#!/bin/sh\necho \"$*\" >> \"$STUB_GH_CALLS\"\ncase \"$STUB_GH\" in\nfail) echo 'gh: HTTP 502' >&2; exit 1 ;;\n*) echo \"$STUB_GH\" ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(stubs, "gh"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		gh, want string
+		isFailed bool
+	}{
+		{"true", "draft=true", false},
+		{"false", "draft=false", false},
+		{"fail", "", true},
+	} {
+		t.Run("gh says "+test.gh, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			step := filepath.Join(dir, "step.sh")
+			if err := os.WriteFile(step, []byte(script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, calls := filepath.Join(dir, "output"), filepath.Join(dir, "calls")
+			cmd := exec.Command(bash, "--noprofile", "--norc", "-eo", "pipefail", step)
+			cmd.Env = append(os.Environ(), "PATH="+stubs+string(os.PathListSeparator)+os.Getenv("PATH"), "GITHUB_OUTPUT="+output, "GH_TOKEN=token", "PULL_REQUEST=repos/o/r/pulls/7", "STUB_GH="+test.gh, "STUB_GH_CALLS="+calls)
+
+			// Act
+			out, err := cmd.CombinedOutput()
+
+			// Assert
+			said, _ := os.ReadFile(output)
+			asked, _ := os.ReadFile(calls)
+			if strings.TrimSpace(string(asked)) != "api repos/o/r/pulls/7 --jq .draft" {
+				t.Errorf("the step asked gh %q, want the pull request's draft field", asked)
+			}
+			if test.isFailed {
+				if err == nil || strings.Contains(string(said), "draft=") {
+					t.Errorf("a read that failed: step err %v, output %q, want the step failed and no draft output\n%s", err, said, out)
+				}
+				return
+			}
+			if err != nil || strings.TrimSpace(string(said)) != test.want {
+				t.Errorf("step err %v, output %q, want %q\n%s", err, said, test.want, out)
+			}
+		})
 	}
 }
 
