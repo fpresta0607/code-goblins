@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -984,6 +985,68 @@ func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
 	}
 	if records, _ := wake.Pending(stateDir); len(records) != 0 {
 		t.Fatalf("wake records = %+v, want none", records)
+	}
+}
+
+// A goblin's wait on the Overlord while its own step card is open is that
+// card on the Command Center, as a wait with a command is its run card: a
+// second card would ask him for the same step again after his Done on the
+// first. The wait still wakes the CFO and tells the goblin which card it is.
+func TestNotifyWaitWhileAStepCardIsOpenOpensNoSecondCard(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	record := `{"credentials":[{"id":"cred-f0ed7ac18b74f587","by":"goblin","task":"g1","project":"throwaway","why":"Tick the App Group","state":"open"}]}`
+	if err := os.WriteFile(filepath.Join(stateDir, ".supervisor.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "tick the App Group"}, &stdout, &stderr, defaultCommandRuntime())
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "cfo auth request --wait-on cred-f0ed7ac18b74f587 --task g1") || strings.Contains(stderr.String(), "cannot show this wait") {
+		t.Fatalf("stdout=%q stderr=%q, want the wait shown as its open step card alone and the goblin told to wait on it", stdout.String(), stderr.String())
+	}
+	var reviews []supervisor.Review
+	entries, err := os.ReadDir(filepath.Join(stateDir, "reviews-inbox"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var published supervisor.Review
+		if err := json.Unmarshal(data, &published); err != nil {
+			t.Fatal(err)
+		}
+		reviews = append(reviews, published)
+	}
+	data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board supervisor.Database
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	reviews = append(reviews, board.Reviews...)
+	if i := slices.IndexFunc(reviews, func(r supervisor.Review) bool { return strings.HasPrefix(r.ID, "waiting-g1-") }); i >= 0 {
+		t.Fatalf("Command Center item %+v, want no second card for the wait", reviews[i])
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: tick the App Group" {
+		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
 	}
 }
 
