@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -1013,8 +1014,36 @@ func TestNotifyWaitWhileAStepCardIsOpenOpensNoSecondCard(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "cred-f0ed7ac18b74f587") || strings.Contains(stderr.String(), "cannot show this wait") {
-		t.Fatalf("stdout=%q stderr=%q, want the wait shown as its open step card alone", stdout.String(), stderr.String())
+	if !strings.Contains(stdout.String(), "cfo auth request --wait-on cred-f0ed7ac18b74f587 --task g1") || strings.Contains(stderr.String(), "cannot show this wait") {
+		t.Fatalf("stdout=%q stderr=%q, want the wait shown as its open step card alone and the goblin told to wait on it", stdout.String(), stderr.String())
+	}
+	var reviews []supervisor.Review
+	entries, err := os.ReadDir(filepath.Join(stateDir, "reviews-inbox"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var published supervisor.Review
+		if err := json.Unmarshal(data, &published); err != nil {
+			t.Fatal(err)
+		}
+		reviews = append(reviews, published)
+	}
+	data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board supervisor.Database
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	reviews = append(reviews, board.Reviews...)
+	if i := slices.IndexFunc(reviews, func(r supervisor.Review) bool { return strings.HasPrefix(r.ID, "waiting-g1-") }); i >= 0 {
+		t.Fatalf("Command Center item %+v, want no second card for the wait", reviews[i])
 	}
 	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: tick the App Group" {
 		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)

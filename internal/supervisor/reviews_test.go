@@ -712,6 +712,75 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 	}
 }
 
+// A goblin's wait on the Overlord beside its own open step card raised no
+// item of its own: the card stands for it, so the board reads the goblin as
+// past the wait once that card closed, in any closed state. A card the CFO
+// filed for it, a card filed after the wait, or a wait with an item of its
+// own, such as one on a page, keeps the wait.
+func TestSnapshotEndsAWaitOnTheOverlordOnceItsStepCardCloses(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		by        string
+		state     string
+		filed     time.Duration // when the card was filed, from the report
+		hasItem   bool
+		isWaiting bool
+	}{
+		{"its card still open", "goblin", "open", -time.Minute, false, true},
+		{"its card done", "goblin", "done", -time.Minute, false, false},
+		{"its card saved", "goblin", "saved", -time.Minute, false, false},
+		{"its card dismissed", "goblin", "dismissed", -time.Minute, false, false},
+		{"a card the CFO filed for it", "cfo", "done", -time.Minute, false, true},
+		{"a card filed after the wait", "goblin", "done", 2 * time.Second, false, true},
+		{"a wait with an item of its own", "goblin", "done", -time.Minute, true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange: the card is filed, the wait reported, then the card
+			// closes, as the goblin and the board write them.
+			store, h := testStore(t)
+			reported := time.Now().UTC()
+			card := CredentialRequest{ID: "cred-0123456789abcdef", By: c.by, Task: "task-1", Project: "throwaway", Why: "Tick the App Group", State: "open", CreatedAt: reported.Add(c.filed), ExpiresAt: reported.Add(24 * time.Hour)}
+			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: tick the App Group"); err != nil {
+				t.Fatal(err)
+			}
+			if c.hasItem {
+				wait := openReview("waiting-task-1-7", "task-1")
+				wait.Lavish, wait.LavishPage = "http://127.0.0.1:4387/session/f26e", `C:\work\.lavish\plan.html`
+				if err := store.acceptReview(wait); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.state != "open" {
+				closed := time.Now().UTC()
+				card.State, card.ClosedAt = c.state, &closed
+			}
+			store.mu.Lock()
+			store.db.Credentials = append(store.db.Credentials, card)
+			saveErr := store.save()
+			store.mu.Unlock()
+			if saveErr != nil {
+				t.Fatal(saveErr)
+			}
+
+			// Act
+			snapshot, err := (&Service{Store: store}).Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+			if i < 0 {
+				t.Fatal("task-1 missing from the snapshot")
+			}
+			got := snapshot.Tasks[i]
+			if isWaiting := got.Phase == "waiting" && got.WaitingOn == "overlord"; isWaiting != c.isWaiting {
+				t.Fatalf("task-1 = %+v, want waiting on the Overlord %v", got.Evaluation, c.isWaiting)
+			}
+		})
+	}
+}
+
 // A goblin waiting on the Overlord that asks the CFO a question waits on both
 // at once: the question replaces nothing, so the wait's item stays in the
 // Command Center while the question is open, and once the CFO answers, the

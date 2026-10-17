@@ -220,15 +220,18 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 }
 
 // closeWaitsForCard closes, as answered on it, each wait on the Overlord that
-// card's goblin opened while the card was open: the wait asked him for the
-// card's step, which its Done settled. A wait opened before the card, or on a
-// page, is a card of its own and stays.
+// the goblin who filed card opened while the card was open: the wait asked him
+// for the card's step, which its Done or its arrived inputs settled. A wait
+// opened before the card, or on a page, is a card of its own and stays.
 func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
-	if card.Task == "" {
+	if card.By != "goblin" {
 		return nil
 	}
 	reason := "You pressed Done on its step card " + card.ID + "."
-	if by != "overlord" {
+	switch {
+	case card.State == "saved":
+		reason = "Its step card " + card.ID + " closed once its inputs arrived."
+	case by != "overlord":
 		reason = "Its step card " + card.ID + " closed as done: the goblin saw the step done."
 	}
 	s.mu.Lock()
@@ -552,15 +555,15 @@ func readCredentials(stateDir string) ([]CredentialRequest, error) {
 	return record.Credentials, nil
 }
 
-// OpenStepCard names the open step card of goblin task, on the board's
-// record or waiting in its inbox for the board to take it, or is empty when
-// it has none. It only reads, as WaitCredential does.
+// OpenStepCard names the open step card goblin task filed itself, on the
+// board's record or waiting in its inbox for the board to take it, or is
+// empty when it has none. It only reads, as WaitCredential does.
 func OpenStepCard(stateDir, task string) (string, error) {
 	credentials, err := readCredentials(stateDir)
 	if err != nil {
 		return "", err
 	}
-	if i := slices.IndexFunc(credentials, func(r CredentialRequest) bool { return r.Task == task && r.State == "open" }); i >= 0 {
+	if i := slices.IndexFunc(credentials, func(r CredentialRequest) bool { return r.By == "goblin" && r.Task == task && r.State == "open" }); i >= 0 {
 		return credentials[i].ID, nil
 	}
 	dir := filepath.Join(stateDir, credentialInbox)

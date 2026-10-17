@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -624,57 +625,81 @@ func TestWaitingOnACardTheBoardNeverTookEnds(t *testing.T) {
 	}
 }
 
-// Done on a goblin's step card also closes its wait on the Overlord that was
-// opened while the card was open, which asked him for the same step. A wait
-// opened before the card, a wait on a page and another goblin's wait are
-// cards of their own and stay open.
+// Done on a goblin's step card, or its inputs arriving, also closes its wait
+// on the Overlord that was opened while the card was open, which asked him
+// for the same step. A wait opened before the card, a wait on a page and
+// another goblin's wait are cards of their own and stay open, and a card the
+// CFO filed for the goblin closes none of its waits.
 func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
-	// Arrange
-	b := stepCard(t, nil)
-	wait := func(id, task string, opened time.Duration, page string) Review {
-		r := openReview(id, task)
-		r.CreatedAt = b.request.CreatedAt.Add(opened)
-		r.UpdatedAt = r.CreatedAt
-		if page != "" {
-			r.Lavish, r.LavishPage = "http://127.0.0.1:4387/session/f26e", page
-		}
-		return r
+	done := func(b *credentialBoard) *httptest.ResponseRecorder {
+		return b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil)
 	}
-	for _, r := range []Review{
-		wait("waiting-task-1-7", "task-1", time.Second, ""),
-		wait("waiting-task-1-3", "task-1", -time.Minute, ""),
-		wait("waiting-task-1-8", "task-1", time.Second, `C:\work\.lavish\plan.html`),
-		wait("waiting-task-2-9", "task-2", time.Second, ""),
+	for _, tc := range []struct {
+		name   string
+		change func(*CredentialRequest)
+		close  func(*credentialBoard) *httptest.ResponseRecorder
+		want   string
+	}{
+		{"done", func(r *CredentialRequest) { r.By = "goblin" }, done, "answered"},
+		{"saved", func(r *CredentialRequest) { r.By, r.Plain = "goblin", []string{"ACCOUNT_EMAIL"} }, func(b *credentialBoard) *httptest.ResponseRecorder {
+			return b.post(b.handler, b.body(map[string]string{"ACCOUNT_EMAIL": "shop-owner@example.com"}), nil)
+		}, "answered"},
+		{"filed by the CFO", nil, done, "open"},
 	} {
-		if err := b.service.Store.acceptReview(r); err != nil {
-			t.Fatal(err)
-		}
-	}
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, tc.change)
+			wait := func(id, task string, opened time.Duration, page string) Review {
+				r := openReview(id, task)
+				r.CreatedAt = b.request.CreatedAt.Add(opened)
+				r.UpdatedAt = r.CreatedAt
+				if page != "" {
+					r.Lavish, r.LavishPage = "http://127.0.0.1:4387/session/f26e", page
+				}
+				return r
+			}
+			for _, r := range []Review{
+				wait("waiting-task-1-7", "task-1", time.Second, ""),
+				wait("waiting-task-1-3", "task-1", -time.Minute, ""),
+				wait("waiting-task-1-8", "task-1", time.Second, `C:\work\.lavish\plan.html`),
+				wait("waiting-task-2-9", "task-2", time.Second, ""),
+			} {
+				if err := b.service.Store.acceptReview(r); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	// Act
-	response := b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil)
-	b.service.credentialWork.Wait()
+			// Act
+			response := tc.close(b)
+			b.service.credentialWork.Wait()
 
-	// Assert
-	if response.Code != http.StatusOK {
-		t.Fatalf("done = %d %s", response.Code, response.Body)
-	}
-	want := map[string]string{"waiting-task-1-7": "answered", "waiting-task-1-3": "open", "waiting-task-1-8": "open", "waiting-task-2-9": "open"}
-	for _, r := range b.service.Store.Snapshot().Reviews {
-		if r.State != want[r.ID] {
-			t.Errorf("wait %s = %s, want %s", r.ID, r.State, want[r.ID])
-		}
-		if r.ID == "waiting-task-1-7" && (r.AnsweredIn == "" || !strings.Contains(r.Reason, b.request.ID)) {
-			t.Errorf("the closed wait = %+v, want it answered on the card it names", r)
-		}
+			// Assert
+			if response.Code != http.StatusOK || b.stored().State == "open" {
+				t.Fatalf("close = %d %s, card %s", response.Code, response.Body, b.stored().State)
+			}
+			want := map[string]string{"waiting-task-1-7": tc.want, "waiting-task-1-3": "open", "waiting-task-1-8": "open", "waiting-task-2-9": "open"}
+			for _, r := range b.service.Store.Snapshot().Reviews {
+				if r.State != want[r.ID] {
+					t.Errorf("wait %s = %s, want %s", r.ID, r.State, want[r.ID])
+				}
+				if r.ID == "waiting-task-1-7" && r.State == "answered" && (r.AnsweredIn == "" || !strings.Contains(r.Reason, b.request.ID)) {
+					t.Errorf("the closed wait = %+v, want it answered on the card it names", r)
+				}
+			}
+		})
 	}
 }
 
 // A goblin's open step card is found on the board's record and in its inbox
-// before the board takes it, and a closed card or another goblin's is not.
+// before the board takes it, and a closed card, another goblin's or one the
+// CFO filed for it is not.
 func TestOpenStepCardFindsTheGoblinsOpenCard(t *testing.T) {
 	// Arrange
-	b := stepCard(t, nil)
+	b := stepCard(t, func(r *CredentialRequest) { r.By = "goblin" })
+	byCFO := CredentialRequest{ID: "cred-2222222222222222", Identity: strings.Repeat("e", 64), By: "cfo", Task: "task-4", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
+	if _, err := b.service.acceptCredentialRequest(byCFO); err != nil {
+		t.Fatal(err)
+	}
 	spooled := CredentialRequest{ID: "cred-1111111111111111", Identity: strings.Repeat("d", 64), By: "goblin", Task: "task-2", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
 	if err := spoolCredentialRequest(b.home.State, spooled); err != nil {
 		t.Fatal(err)
@@ -684,6 +709,7 @@ func TestOpenStepCardFindsTheGoblinsOpenCard(t *testing.T) {
 	onBoard, boardErr := OpenStepCard(b.home.State, "task-1")
 	inInbox, inboxErr := OpenStepCard(b.home.State, "task-2")
 	none, noneErr := OpenStepCard(b.home.State, "task-3")
+	cfoCard, cfoErr := OpenStepCard(b.home.State, "task-4")
 	if _, err := b.service.closeCredential(b.request.ID, "", "done", "cfo", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -691,10 +717,10 @@ func TestOpenStepCardFindsTheGoblinsOpenCard(t *testing.T) {
 	closed, closedErr := OpenStepCard(b.home.State, "task-1")
 
 	// Assert
-	if err := errors.Join(boardErr, inboxErr, noneErr, closedErr); err != nil {
+	if err := errors.Join(boardErr, inboxErr, noneErr, cfoErr, closedErr); err != nil {
 		t.Fatal(err)
 	}
-	if onBoard != b.request.ID || inInbox != spooled.ID || none != "" || closed != "" {
-		t.Fatalf("open cards = %q, %q, %q, %q after Done; want %s, %s and none for the rest", onBoard, inInbox, none, closed, b.request.ID, spooled.ID)
+	if onBoard != b.request.ID || inInbox != spooled.ID || none != "" || cfoCard != "" || closed != "" {
+		t.Fatalf("open cards = %q, %q, %q, %q, %q after Done; want %s, %s and none for the rest", onBoard, inInbox, none, cfoCard, closed, b.request.ID, spooled.ID)
 	}
 }

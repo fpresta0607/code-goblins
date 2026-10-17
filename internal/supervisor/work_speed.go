@@ -191,7 +191,7 @@ measuring:
 		watched.Progress[meta.ID] = prior
 		measured[meta.ID] = true
 		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
-		phase, _, target, isReported := reportedProgress(s.statusTail, meta.ID, database.Reviews, standingAt, standing)
+		phase, _, target, isReported := reportedProgress(s.statusTail, meta.ID, database.Reviews, database.Credentials, standingAt, standing)
 		if helper, isHelper := helpers[strings.ToLower(target)]; isReported && phase == "waiting" && isHelper && strings.EqualFold(helper.Parent, meta.ID) {
 			awaitedHelper[meta.ID] = helper.ID
 		}

@@ -359,9 +359,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
 		}
 	}
-	// A wait beside the goblin's own open step card is that card, whose Done
-	// ends it: a second card would ask him for the same step again. A wait on
-	// a page is its own card, since only its card gets the page polled.
+	// A wait beside the goblin's own open step card is that card, and ends
+	// when it closes: a second card would ask him for the same step again. A
+	// wait on a page is its own card, since only its card gets the page polled.
 	stepCard := ""
 	if verb == "waiting on overlord" && runCommand == "" && page == "" {
 		if stepCard, err = supervisor.OpenStepCard(h.State, id); err != nil {
@@ -390,7 +390,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	if stepCard != "" {
-		fmt.Fprintf(stdout, "Your step card %s is open, so the Command Center shows it alone for this wait, and its Done ends the wait; no second card was opened. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard)
+		fmt.Fprintf(stdout, "Your step card %s is open, so it stands for this wait in the Command Center and no second card was opened. Wait on it in the background with cfo auth request --wait-on %s --task %s, which ends when the card closes. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard, stepCard, id)
 	}
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.
