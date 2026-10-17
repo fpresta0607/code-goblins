@@ -67,17 +67,18 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       expect(first).toContain("train-card");
     });
 
-    test("a finished train heads Completed and lists only what it landed", async ({ page }) => {
+    test("a finished train heads Completed and lists what it landed and what it could not merge", async ({ page }) => {
       await open(page);
 
       const finished = column(page, "Completed").locator(".train-card");
       await expect(finished).toHaveCount(1);
       await expect(finished.locator(".train-status")).toHaveText("Landed on run 3");
       await expect(finished.locator(".train-status")).toHaveClass(/train-passed/);
-      // The train's status says Landed, so its riders do not say it again.
-      await expect(finished.locator(".train-car")).toHaveText(["#51Ingrid - Clock Icon Restorer of the Minimal Cards", "#52Cache the rates"]);
-      await expect(finished.locator(".train-car-state")).toHaveCount(0);
-      await expect(finished).not.toContainText(/#53|#54/);
+      // The train's status says Landed, so its landed riders do not say it
+      // again; one it could not merge says what happened to it.
+      await expect(finished.locator(".train-car")).toHaveText(["#51Ingrid - Clock Icon Restorer of the Minimal Cards", "#52Cache the rates", "#53Speed up the importerBreaks CI", "#54Tidy the logsRides the next train"]);
+      await expect(finished.locator(".train-car-state")).toHaveText(["Breaks CI", "Rides the next train"]);
+      await expect(finished.locator(".train-car").nth(2)).toHaveClass(/train-failed/);
       await expect(column(page, "In progress").locator(".train-card")).toHaveCount(1);
     });
 

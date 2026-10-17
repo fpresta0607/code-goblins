@@ -7,9 +7,9 @@ import { expect, holdStream, test, type Page } from "./site";
 // Goblins paused until their pull requests merge sit in Paused with every
 // other paused goblin (the Overlord, 2026-10-16: "paused does it means youre
 // on the bench to be resumed"), their chips saying where their pull requests
-// stand; a batch shows as one train card listing only what it landed; a pull
-// request it could not merge shows on its goblin's card; and a train's card
-// opens its panel. The supervisor is played by one held snapshot, its trains
+// stand; a batch shows as one train card listing what it landed and, with
+// what happens next, what it could not merge; and a train's card opens its
+// panel. The supervisor is played by one held snapshot, its trains
 // as it folds them.
 const REPO = "https://github.com/fpresta0607/code-goblins";
 const FIRST_PR = REPO + "/pull/522";
@@ -195,6 +195,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         await page.keyboard.press("Enter");
 
         await expect(history.locator(".train-status")).toHaveText(status);
+        await expect(history.locator(".train-car-state")).toHaveText(attempt.cars.map(() => "Rides the next train"));
         await expect(history).toContainText(attempt.note);
         await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -222,7 +223,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         const completed = column(page, "Completed").locator(".train-card");
         await expect(completed).toHaveCount(1);
         await expect(completed.locator(".train-status")).toHaveText("Landed");
-        await expect(completed.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/]);
+        await expect(completed.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/, /#519.*Wes - Train Conductor.*Rides the next train$/]);
         await expect(board(page).getByRole("region", { name: "Train history", exact: true })).toHaveCount(0);
         await completed.locator(".train-title").click();
 
@@ -234,6 +235,20 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       });
     }
+
+    test("a train that broke CI names its culprit once, and its other riders say what happens next", async ({ page }) => {
+      // Arrange
+      const broken = { ...STOPPED, note: "#517 breaks CI on main", cars: [{ ...SINGLE.cars[0], state: "culprit" }, { ...RETRYING.cars[1], state: "returned" }], history: [run(1, [517, 519], "failed", 5)] };
+      await open(page, [broken]);
+      const history = board(page).getByRole("region", { name: "Train history", exact: true });
+
+      // Act
+      await history.locator("summary").click();
+
+      // Assert
+      await expect(history.locator(".train-status")).toHaveText("#517 breaks CI");
+      await expect(history.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/, /#519.*Wes - Train Conductor.*Rides the next train$/]);
+    });
 
     test("a stopped zero-merge train keeps PR729's hold reason as plain text in its primary row", async ({ page }) => {
       await open(page, [HELD]);
@@ -317,16 +332,16 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
     });
 
-    test("one card for the batch lists only what it landed, and no card for the train it took on", async ({ page }) => {
+    test("one card for the batch lists what it landed and what it could not merge, and no card for the train it took on", async ({ page }) => {
       await open(page);
 
       const trains = column(page, "Completed").locator(".train-card");
       await expect(trains).toHaveCount(1);
       await expect(trains.locator(".train-status")).toHaveText("Landed on run 4");
       await expect(trains.locator(".train-status")).toHaveClass(/train-passed/);
-      // The train's status says Landed, so its rows do not say it again.
-      await expect(trains.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/, /#519.*Wes - Train Conductor$/, /#520.*Dolly - Rank Keeper$/, /#524.*Pearl - Screen Model$/]);
-      await expect(trains).not.toContainText(/#523|Train failed|Next train|Conflicts/);
+      // The train's status says Landed, so its landed rows do not say it again.
+      await expect(trains.locator(".train-car")).toHaveText([/#517.*Rosie - Inline Editor$/, /#519.*Wes - Train Conductor$/, /#520.*Dolly - Rank Keeper$/, /#524.*Pearl - Screen Model$/, /#523.*Abe - Screen Painter.*Merging main to fix a conflict$/]);
+      await expect(trains).not.toContainText(/Train failed|Next train|Conflicts/);
       await expect(trains.locator("p")).toHaveCount(0);
       await expect(column(page, "Completed")).not.toContainText("Nothing finished yet");
       expect(await colours(trains)).not.toContain(AMBER);
