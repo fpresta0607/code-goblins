@@ -759,7 +759,7 @@ Pick another choice or write your own and **Change answer** sends it, at any tim
 The goblin that asked gets it once, as a change from the old answer to the new one, and the CFO gets it for its own question or when that goblin has ended.
 A change made while the first answer is still on its way follows it, choosing the answer already chosen sends nothing, and a double click or a resend after a dropped connection sends it once.
 When the goblin's pull request already merged, one line says your change goes as a new instruction.
-A step card in **History** whose values are stored opens from its chevron to its steps, each value saying it is already stored and none shown, with nothing to change or delete one, and its **Something else?** still sends your words to whoever asked.
+A step card in **History** whose values are stored opens from its chevron to its steps, each value saying it is already stored and none shown, with nothing to change or delete one, and its **Something else?** still sends your words to whoever asked, or to the CFO once that goblin has ended.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of everything waiting on you, including a walkthrough a goblin asks you to watch, and a History of what you answered, cleared or ran; a goblin's own test runs stay off it.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.

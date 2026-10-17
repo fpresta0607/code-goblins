@@ -37,6 +37,7 @@ const cards = [
   card("cred-3333333333333333", "Turn on time sensitive notifications", "answered", 4),
   card("cred-4444444444444444", "The push key for the gateways", "saved", 5, { names: ["APNS_PRIVATE_KEY"], saved: ["APNS_PRIVATE_KEY"], link: "https://developer.example.com/account/keys", steps: ["download the .p8 key"] }),
   card("cred-6666666666666666", "Where the deploys report", "saved", 7, { by: "goblin", plain: ["DEPLOY_CHANNEL"], labels: { DEPLOY_CHANNEL: "Deploy channel" }, received: ["DEPLOY_CHANNEL"], link: "", steps: ["Pick the channel the team reads"] }),
+  card("cred-7777777777777777", "The key ID for the gateways", "saved", 8, { task: "cg-push-retired", names: ["APNS_KEY_ID"], saved: ["APNS_KEY_ID"] }),
   card("cred-5555555555555555", "Accept the new developer terms", "dismissed", 6, { expires_at: minutesAgo(1) }),
 ];
 const reviews = [{

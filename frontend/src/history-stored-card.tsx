@@ -11,20 +11,24 @@ import { inputLabel, linkLabel, stepText } from "./credentials";
 // says it is already stored, or sent for a plain value, and never shows a
 // value. Nothing here stores, replaces or deletes one. Something else? still
 // reaches the asker as his word, as a message about the card.
-export function HistoryStoredCard({ request, asker, connected, instance }: { request: CredentialRequest; asker: string; connected: boolean; instance: string }) {
+export function HistoryStoredCard({ request, asker, to, connected, instance }: { request: CredentialRequest; asker: string; to: string; connected: boolean; instance: string }) {
   const [isWriting, setIsWriting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
-  // One ID for each note, kept across a retry, so the board queues it once.
-  const sendID = useRef("");
-  const send = async (text: string) => {
+  // A card whose goblin has ended goes to the CFO, named by its task.
+  const recipient = to ? asker : "the CFO";
+  // One ID for each note, kept across a retry of the same words, so the
+  // board queues it once.
+  const sent = useRef({ text: "", id: "" });
+  const send = async (note: string) => {
     setIsWriting(false); setIsSending(true); showFeedback("");
-    sendID.current ||= crypto.randomUUID();
+    const text = (to || !request.task ? "About your card " + request.id : "About the card " + request.id + " of task " + request.task) + " (" + request.why + "), whose values are stored: " + note;
+    if (sent.current.text !== text) sent.current = { text, id: crypto.randomUUID() };
     try {
       await call("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance },
-        body: JSON.stringify({ id: sendID.current, kind: "message", task_id: request.task, generation: "", text: "About your card " + request.id + " (" + request.why + "), whose values are stored: " + text }) });
-      sendID.current = "";
-      showFeedback("Sent to " + asker);
+        body: JSON.stringify({ id: sent.current.id, kind: "message", task_id: to, generation: "", text }) });
+      sent.current = { text: "", id: "" };
+      showFeedback("Sent to " + recipient);
     } catch (failure: unknown) { showFeedback(message(failure)); }
     finally { setIsSending(false); }
   };
@@ -40,8 +44,8 @@ export function HistoryStoredCard({ request, asker, connected, instance }: { req
     </ul>}
     <div className="history-stored-actions">
       <ClickFeedback text={feedback} />
-      <button type="button" className="history-stored-note" data-tip={"Write to " + asker + " about this card"} disabled={!connected || isSending} onClick={() => setIsWriting(true)}><Icon name="comment" />Something else?</button>
+      <button type="button" className="history-stored-note" data-tip={"Write to " + recipient + " about this card"} disabled={!connected || isSending} onClick={() => setIsWriting(true)}><Icon name="comment" />Something else?</button>
     </div>
-    {isWriting && <AnswerWindow asker={asker} task={request.task} instance={instance} onCancel={() => setIsWriting(false)} onSend={(text) => void send(text)} />}
+    {isWriting && <AnswerWindow asker={recipient} task={to} instance={instance} onCancel={() => setIsWriting(false)} onSend={(text) => void send(text)} />}
   </div>;
 }
