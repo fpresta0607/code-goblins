@@ -279,16 +279,19 @@ export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_sessio
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   // Every CFO session but the one liveCfoSession reads leaves the tree with
   // its sub-agents and workers, ended or not, so the root is the CFO the
-  // panel header reads; a goblin it started stays, ended or not, and hangs
-  // under that CFO. A retired task's sessions leave with their ended
-  // sub-agents, so none of them is left a stray card.
+  // panel header reads. A goblin it started that still runs, or that is a
+  // live task's current session, stays and hangs under that CFO; an ended
+  // goblin session that is no live task's current one leaves with it, so a
+  // finished task leaves no Session ended card. A retired task's sessions
+  // leave with their ended sub-agents, so none of them is left a stray card.
   const live = liveCfoSession(snapshot);
   const pastCfo = new Set(snapshot.sessions.filter((session) => session.role === "cfo" && session.id !== live?.id).map((session) => session.id));
   const retired = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session)).map((session) => session.id));
+  const isLeftBehind = (session: Session) => session.role === "goblin" && session.phase === "ended" && !snapshot.tasks.some((task) => !task.archived && ownsTaskSession(session, task));
   for (let changed = true; changed;) {
     changed = false;
     for (const session of snapshot.sessions) {
-      if (!pastCfo.has(session.id) && (session.role === "subagent" || session.role === "worker") && pastCfo.has(session.parent)) { pastCfo.add(session.id); changed = true; }
+      if (!pastCfo.has(session.id) && (session.role === "subagent" || session.role === "worker" || isLeftBehind(session)) && pastCfo.has(session.parent)) { pastCfo.add(session.id); changed = true; }
       if (!retired.has(session.id) && session.phase === "ended" && retired.has(session.parent)) { retired.add(session.id); changed = true; }
     }
   }
