@@ -1,4 +1,4 @@
-import type { FleetTree, Session, Snapshot, Task, TreeNode } from "./types.ts";
+import type { FleetTree, Task, TreeNode } from "./types.ts";
 import { clockText } from "./cards.ts";
 
 // Baby is the baby goblin a child is drawn as: its kind, and for a job of
@@ -318,15 +318,3 @@ export function branchLayout(count: number, cardWidth: number, passes = 0): Bran
   return { width, height, places, routes, lines: routes.map(elbows), ends, drops: [0, sideLane(passes - 1) - centre, ...middles],
     passes: Array.from({ length: passes }, (_, pass) => [...leave(pass), { x: descents[pass], y: height }]) };
 }
-
-// isHeldByTree is whether a session is a sub-agent a native hook reported whose
-// goblin's family tree holds it, or a helper goblin's whose parent's tree
-// holds it: it shows as a baby goblin under that goblin, not as a card of its
-// own as well.
-export const isHeldByTree = (snapshot: Snapshot, session: Session): boolean =>
-  session.role === "subagent" && snapshot.tasks.some((task) => task.id === session.task_id && task.tree !== undefined)
-  || session.role === "goblin" && isHelperHeld(snapshot, session.task_id);
-
-// isHelperHeld is whether helper task id hangs in its parent's family tree.
-export const isHelperHeld = (snapshot: Snapshot, id: string): boolean =>
-  snapshot.tasks.some((task) => (task.tree?.children || []).some((node) => node.kind === "helper" && node.id === "helper:" + id));

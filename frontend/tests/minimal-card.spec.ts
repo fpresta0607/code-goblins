@@ -4,7 +4,7 @@ import { expect, holdStream, test, type Page } from "./site";
 // history with name status of whether working time working or last worked
 // tickets pr icons etc and harness icon". A goblin's card is one row: its
 // face, its name and when it last worked on top, its status under them in at
-// most two lines, and its ticket, pull request, checks and harness mark as
+// most two lines and its project under that, and its ticket, pull request, checks and harness mark as
 // icons whose tips say what each one is. A finished goblin's row leads with
 // its name too, its task in the name's tip, and a pause on a goblin names the
 // goblin alone (the CFO's decision 1008011).
@@ -25,6 +25,7 @@ const SNAPSHOT = {
     goblin("cg-otis", "Otis", "Ledger Clerk", "Sync the ledger", { phase: "paused", at: ago(48), lifecycle: pause("task:cg-benny", 48) }),
     goblin("cg-wade", "Wade", "Waiter", "Wait on a long task", { phase: "paused", at: ago(40), lifecycle: pause("task:cg-long", 40) }),
     { id: "cg-long", title: LONG, project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, since: ago(30) },
+    goblin("cg-bart", "Bartholomew", "Distinguished Infrastructure Archivist", "Archive the old gate logs", { since: ago(5) }),
     goblin("finished:cg-ivy", "Ivy", "Merge Maven", "Read the CFO's status from the live CFO", { phase: "done", archived: true, merged: true, verified: true, at: ago(35), pr: REPO + "/pull/1036", branch: "fix/cfo-status-from-registration", generation: "" }),
   ],
 };
@@ -56,7 +57,6 @@ test("a working goblin's card is one row: face, name, time and status, with its 
   // Assert
   await expect(row.locator(".card-status-text")).toHaveText("Working");
   await expect(row.locator(".card-clock")).toContainText("3h 30m");
-  await expect(row).not.toContainText("code-goblins");
   await expect(row).not.toContainText("#1031");
   await expect(row).not.toContainText("#1013");
   expect(prTip).toContain("code-goblins #1031");
@@ -66,7 +66,7 @@ test("a working goblin's card is one row: face, name, time and status, with its 
   expect(clock.x).toBeGreaterThan(name.x + name.width);
   expect(status.y).toBeGreaterThanOrEqual(name.y + name.height - 1);
   expect(mark.x).toBeGreaterThan(status.x + status.width);
-  expect((await box(row)).height).toBeLessThan(face.height + 40);
+  expect((await box(row)).height).toBeLessThan(face.height + 62);
 });
 
 test("a finished goblin's row leads with its name, with its task in the name's tip", async ({ page }) => {
@@ -162,14 +162,47 @@ for (const colorScheme of ["dark", "light"] as const) {
       await row.screenshot({ path: testInfo.outputPath(`board-${kind}-${colorScheme}.png`) });
     }
 
-    // Act and assert: the canvas.
+    // Act and assert: the canvas, which draws only goblins in progress.
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-    for (const [kind, name] of [["working", "Benny - AFK Ace"], ["paused", "Otis - Ledger Clerk"]]) {
-      const node = page.locator(".flow-node").filter({ has: page.locator("strong").getByText(name, { exact: true }) });
-      const clock = node.locator(".card-clock");
-      await expect(clock.locator(".icon"), kind).toBeVisible();
-      expect(await clock.evaluate(isClockBesideItsTime), kind).toBe(true);
-      await node.screenshot({ path: testInfo.outputPath(`canvas-${kind}-${colorScheme}.png`) });
-    }
+    const node = (name: string) => page.locator(".flow-node").filter({ has: page.locator("strong").getByText(name, { exact: true }) });
+    const clock = node("Benny - AFK Ace").locator(".card-clock");
+    await expect(clock.locator(".icon")).toBeVisible();
+    expect(await clock.evaluate(isClockBesideItsTime)).toBe(true);
+    await node("Benny - AFK Ace").screenshot({ path: testInfo.outputPath(`canvas-working-${colorScheme}.png`) });
+    await expect(node("Otis - Ledger Clerk")).toHaveCount(0);
   });
 }
+
+// The Overlord, 2026-10-17: "please include project repo below status line in
+// board, I liked having that, and please flex wrap goblin name and title". A
+// goblin's project is a quiet line of its own under its status, and its name
+// and title wrap onto another line rather than end in an ellipsis.
+test("a goblin's project is on its own line under its status", async ({ page }, testInfo) => {
+  // Arrange and act: his window, with the CFO's panel open beside the board.
+  await open(page);
+
+  // Assert
+  for (const name of ["Benny - AFK Ace", "Otis - Ledger Clerk", "Ivy - Merge Maven"]) {
+    const row = card(page, name), project = row.locator(".card-repo");
+    await expect(project, name).toHaveText("code-goblins");
+    const [status, line] = await Promise.all([box(row.locator(".card-status-text")), box(project)]);
+    expect(line.y, name).toBeGreaterThanOrEqual(status.y + status.height - 1);
+    expect(Math.abs(line.x - status.x), name).toBeLessThan(20);
+    expect(line.height, name).toBeLessThan(1.5 * 22.4);
+    await row.screenshot({ path: testInfo.outputPath(`project-${name.split(" ")[0].toLowerCase()}.png`) });
+  }
+});
+
+test("a goblin's long name and title wrap onto another line instead of being cut", async ({ page }, testInfo) => {
+  // Arrange and act: a column beside the CFO's panel, too narrow for the
+  // name and title on one line.
+  await open(page);
+  const row = card(page, "Bartholomew - Distinguished Infrastructure Archivist"), title = row.locator(".card-title");
+
+  // Assert
+  await expect(title).toBeVisible();
+  const lines = await title.evaluate((element) => Math.round(element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight)));
+  expect(lines).toBeGreaterThan(1);
+  expect(await title.evaluate((element) => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBe(true);
+  await row.screenshot({ path: testInfo.outputPath("long-name.png") });
+});

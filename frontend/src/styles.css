@@ -222,9 +222,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column h2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); }
 .task-cards { container-type: inline-size; display: grid; align-content: start; gap: 16px; }
-/* A task card's portrait sits beside its head, the chip and its name on one
-   line, and under them its status in at most two lines. */
-.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "face head" "face status"; align-items: center; gap: 2px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
+/* A task card's portrait sits beside its head, the chip and its name, and
+   under them its status in at most two lines and its project. */
+.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "face head" "face status" "face repo"; align-items: center; gap: 2px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
 .task-card > .goblin-avatar { grid-area: face; }
 .task-card > .card-copy { display: contents; }
 .task-card .card-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
@@ -232,6 +232,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .task-card > .card-copy > .plain-status { grid-area: status; align-items: flex-start; min-width: 0; color: var(--muted); font-weight: 600; }
 .task-card .plain-status .status-dot { margin-top: 7px; }
 .task-card .card-status-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.task-card > .card-copy > .card-repo { grid-area: repo; color: var(--muted); font-size: 1rem; line-height: 1.4; }
 .task-card-shell:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); border-color: var(--glass-border-hover); background: var(--glass-bg-hover), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .task-card-shell:has(> .task-card:active), .workflow-node:active { transform: none; box-shadow: var(--glass-shadow); }
 .task-card .goblin-avatar { width: 44px; height: 44px; }
@@ -1133,11 +1134,12 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
   .question-card { padding: 16px; }
 }
 .question-card h3:focus { outline: none; }
-/* A task card: its title, up to three lines, then a muted line with the
-   repo and the status, which wrap onto further lines rather than ending in an
-   ellipsis. */
+/* A goblin's name and title wrap onto further lines rather than ending in an
+   ellipsis, and so does its project. A task with no goblin yet keeps its
+   title to one line, in full in its tip. */
 .task-card .browser-indicator { font-size: 1rem; }
-.task-card .card-title { flex: 1 1 8rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 1rem; font-weight: 700; line-height: 1.4; }
+.task-card .card-title { flex: 1 1 8rem; min-width: 0; overflow-wrap: anywhere; font-size: 1rem; font-weight: 700; line-height: 1.4; }
+.task-card .card-task-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
 /* In progress shows every card. Any other board list shows up to ten whole;

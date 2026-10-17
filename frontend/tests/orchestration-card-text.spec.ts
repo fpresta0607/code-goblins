@@ -123,7 +123,7 @@ test("a goblin's card holds its whole title, project and status, as in the Overl
   const seen = await card(page, "Woody").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Paused for allowance", "clock: Oct 12, 5:00 AM"]);
+  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Waiting on Jules - Process Keeper", "clock: 1h 35m"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);

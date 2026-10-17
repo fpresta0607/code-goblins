@@ -1,7 +1,7 @@
 import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
-import { isRetiredSession, ownsTaskSession, projectSessions, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
+import { ownsTaskSession, projectSessions, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { goblinName, waitStatus } from "./task-words.ts";
-import { isHeldByTree, isHelperHeld, LINE_GAP } from "./fleet-tree.ts";
+import { LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
@@ -276,27 +276,30 @@ export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_sessio
   return snapshot.cfo_session ? running.find((session) => session.id === snapshot.cfo_session) : running.at(-1);
 }
 
+// isInProgress says a task's goblin works or waits, as the board's In progress
+// column holds it: the canvas and the lineage list draw only these goblins.
+export const isInProgress = (task: Task): boolean => taskColumn(task) === "In progress";
+
+// isHelperHeld is whether helper task id hangs in the family tree of a goblin
+// in progress, which draws it as a baby goblin.
+export const isHelperHeld = (snapshot: Snapshot, id: string): boolean =>
+  snapshot.tasks.some((task) => isInProgress(task) && (task.tree?.children || []).some((node) => node.kind === "helper" && node.id === "helper:" + id));
+
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  // Every CFO session but the one liveCfoSession reads leaves the tree with
-  // its sub-agents and workers, ended or not, so the root is the CFO the
-  // panel header reads. A goblin it started that still runs, or that is a
-  // live task's current session, stays and hangs under that CFO; an ended
-  // goblin session that is no live task's current one leaves with it, so a
-  // finished task leaves no Session ended card. A retired task's sessions
-  // leave with their ended sub-agents, so none of them is left a stray card.
+  // The tree holds the CFO liveCfoSession reads and the goblins in progress,
+  // each drawn from its live task record and the session that record names
+  // as its own, so a goblin is there from its start until it finishes,
+  // pauses or retires. No other session is drawn: the supervisor keeps a
+  // session's record after its task retires, and one cfo cleanup ended still
+  // reads as it last reported, so on 2026-10-17 goblins retired the day
+  // before, which the board's history of its newest 20 entries no longer
+  // named, were back under the CFO reading Turn finished. A sub-agent's or
+  // worker's record has no terminal of its own and the family tree draws its
+  // goblin's live children, an earlier generation's session is over, and a
+  // paused goblin waits on the board's Paused bench.
   const live = liveCfoSession(snapshot);
-  const pastCfo = new Set(snapshot.sessions.filter((session) => session.role === "cfo" && session.id !== live?.id).map((session) => session.id));
-  const retired = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session)).map((session) => session.id));
-  const isLeftBehind = (session: Session) => session.role === "goblin" && session.phase === "ended" && !snapshot.tasks.some((task) => !task.archived && ownsTaskSession(session, task));
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const session of snapshot.sessions) {
-      if (!pastCfo.has(session.id) && (session.role === "subagent" || session.role === "worker" || isLeftBehind(session)) && pastCfo.has(session.parent)) { pastCfo.add(session.id); changed = true; }
-      if (!retired.has(session.id) && session.phase === "ended" && retired.has(session.parent)) { retired.add(session.id); changed = true; }
-    }
-  }
-  const gone = new Set([...pastCfo, ...retired]);
-  const sessions = snapshot.sessions.filter((session) => !isHeldByTree(snapshot, session) && !gone.has(session.id));
+  const goblins = snapshot.tasks.filter((task) => isInProgress(task) && !isHelperHeld(snapshot, task.id));
+  const sessions = snapshot.sessions.filter((session) => session.id === live?.id || goblins.some((task) => ownsTaskSession(session, task)));
   const ids = new Set(sessions.map((node) => node.id));
   const nodes: WorkflowNode[] = [
     ...sessions.map((session) => {
@@ -305,16 +308,16 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
         id: "session:" + session.id, title: sessionTitle(session, task), task, session,
         parent: session.parent && ids.has(session.parent) ? "session:" + session.parent : undefined,
         relation: session.parent && ids.has(session.parent) ? session.relation || "Reported child"
-          : session.role === "cfo" ? "Supervisor"
-            : snapshot.retired.includes(session.parent) ? "Parent retired" : "Parent unreported",
+          : session.role === "cfo" ? "Supervisor" : "Parent unreported",
       };
     }),
-    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && taskColumn(task) !== "Tasks" && !isHelperHeld(snapshot, task.id)), snapshot.sessions).map((task) => ({
+    ...tasksWithoutSession(goblins, snapshot.sessions).map((task) => ({
       id: "task:" + task.id, title: goblinName(task), task, relation: "Session unreported",
     })),
   ];
-  // A helper no family tree holds, such as one whose parent is paused, hangs
-  // under its parent's card: its record names its parent.
+  // A helper no family tree holds hangs under its parent's card: its record
+  // names its parent. One whose parent is paused, which keeps working for
+  // the goblin it waits on, hangs under the CFO as dispatched work.
   const owns = (node: WorkflowNode) => node.task !== undefined && ownsTaskSession(node.session, node.task);
   const helpers = new Set<WorkflowNode>();
   for (const node of nodes) {
@@ -325,8 +328,8 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   // task card and a goblin session that has no parent in the tree hang under
   // the CFO, whoever started or resumed the goblin: under the CFO session
   // that reported, or the supervisor root drawn when none did. A parent a
-  // session reported and the tree holds still wins, which keeps a baby goblin
-  // under its goblin, and a helper hangs under its goblin as above.
+  // session reported and the tree holds still wins, and a helper hangs under
+  // its goblin as above.
   const dispatched = nodes.filter((node) => !helpers.has(node) && !node.parent &&
     (node.id.startsWith("task:") || node.session?.role === "goblin"));
   if (dispatched.length) {

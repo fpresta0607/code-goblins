@@ -125,12 +125,11 @@ for (const width of [1440, 390]) {
 test.describe("in his window", () => {
   test.use({ viewport: { width: 1707, height: 1067 } });
 
-  test("the panel and the canvas node of a goblin paused until its pull request merges read the card's pause, and its chip opens the train's pull request", async ({ page }) => {
+  test("the panel of a goblin paused until its pull request merges reads the card's pause, and its chip opens the train's pull request", async ({ page }) => {
     // Arrange
     await open(page);
     const sid = card(page, "Sid - Memory Keeper");
     const cardStatus = await sid.locator(".card-status-text").textContent();
-    const cardTip = await sid.locator(".task-card").getAttribute("data-tip");
 
     // Act
     await select(page, "Sid - Memory Keeper");
@@ -143,8 +142,8 @@ test.describe("in his window", () => {
     const details = await header(page).locator(".raw-details-text").innerText();
     const controls = await page.locator(".goblin-panel").getByRole("group", { name: "Controls for Keep the memory floor" }).getByRole("button").allTextContents();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-    const node = page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: "Sid - Memory Keeper" }) });
-    const nodeStatus = await read(node.locator(".plain-status"));
+    const node = (name: string) => page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: name }) });
+    await expect(node("Ned - Docs Scribe")).toHaveCount(1);
 
     // Assert: one pause, the same everywhere, and what resumes it behind
     // Details; the pull request's test is its chip's to say.
@@ -156,9 +155,7 @@ test.describe("in his window", () => {
     expect(paneTitle).toBe("Session paused");
     expect(details).toBe("It resumes by itself when PR #512 merges.");
     expect(controls).toEqual(["Resume", "Stop"]);
-    expect(nodeStatus.text).toBe(cardStatus);
-    await expect(node.locator(".flow-node-main")).toHaveAttribute("data-tip", cardTip!);
-    await expect(node.locator(".flow-node-main")).toHaveAttribute("aria-label", /^Sid - Memory Keeper\. Paused until PR #512 merges\./);
+    await expect(node("Sid - Memory Keeper")).toHaveCount(0);
   });
 
   test("a pause for memory's panel reads its card's state and still says its session paused", async ({ page }) => {
