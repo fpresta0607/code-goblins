@@ -248,15 +248,7 @@ func piReply(entries [][]byte) string {
 		if json.Unmarshal(entries[i], &entry) != nil || entry.Type != "message" {
 			continue
 		}
-		switch entry.Message.Role {
-		case "assistant":
-		case "custom", "compactionSummary", "branchSummary":
-			// What an extension or a compaction adds is not a turn.
-			continue
-		default:
-			return ""
-		}
-		if entry.Message.StopReason != "stop" {
+		if entry.Message.Role != "assistant" || entry.Message.StopReason != "stop" {
 			return ""
 		}
 		var texts []string

@@ -203,7 +203,7 @@ func TestAPiGoblinsLastReplyIsReadFromItsSession(t *testing.T) {
 		{"a turn aborted", []map[string]any{prompt, piTurnMessage("assistant", "aborted", text("Should I"))}, ""},
 		{"a turn that stopped on a tool call", []map[string]any{prompt, piTurnMessage("assistant", "toolUse", text("Checking."), toolCall)}, ""},
 		{"a turn still running", []map[string]any{prompt, piTurnMessage("assistant", "toolUse", toolCall), toolResult}, ""},
-		{"a reply an extension's message follows", []map[string]any{prompt, piTurnMessage("assistant", "stop", text("PR 12 is open.")), piTurnMessage("custom", "", text("herdr state"))}, "PR 12 is open."},
+		{"a reply an extension's message follows", []map[string]any{prompt, piTurnMessage("assistant", "stop", text("PR 12 is open.")), {"type": "custom_message", "customType": "herdr-state", "content": "herdr state", "display": true}}, "PR 12 is open."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

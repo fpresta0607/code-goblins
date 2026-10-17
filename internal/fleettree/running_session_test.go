@@ -57,6 +57,41 @@ func TestRunningSessionIsTheConversationTheRunningHarnessRecords(t *testing.T) {
 	}
 }
 
+// A running pi goblin whose terminal and board name no session is in its
+// worktree's newest pi session only once that session was written since pi
+// started: pi writes a session only when its first reply ends, so until then
+// the newest is an earlier pi's, whose last question is not this goblin's
+// and whose last write is not its activity.
+func TestAPiGoblinsConversationIsNeverOneAnEarlierPiWrote(t *testing.T) {
+	home, worktree := t.TempDir(), t.TempDir()
+	newest := filepath.Join(home, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(worktree)+"--", "2026-10-07T15-00-00-000Z_01a1-newest.jsonl")
+	writeLines(t, newest, at, object{"type": "session"})
+	for name, test := range map[string]struct {
+		started time.Time
+		want    string
+		wantAt  time.Time
+	}{
+		"one this pi wrote":       {at.Add(-30 * time.Minute), newest, at},
+		"one an earlier pi wrote": {at.Add(time.Minute), "", time.Time{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			pi := Process{PID: 7373, ParentPID: 1, Exe: "node.exe", Started: test.started}
+			reader := Reader{Home: home, Processes: func() ([]Process, error) { return []Process{pi}, nil }, Listeners: func() (map[int][]int, error) { return nil, nil }, Now: func() time.Time { return at }}
+			goblin := Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "pi", Worktree: worktree}, HarnessPID: 7373}
+
+			// Act
+			path := reader.Conversation(context.Background(), goblin)
+			tree, _ := reader.Read(context.Background(), goblin)
+
+			// Assert
+			if path != test.want || !tree.ConversationAt.Equal(test.wantAt) {
+				t.Errorf("conversation = %q written %v, want %q written %v", path, tree.ConversationAt, test.want, test.wantAt)
+			}
+		})
+	}
+}
+
 // A goblin's conversation is the thread it runs at its prompt, never one a
 // codex exec it ran in its worktree wrote later, nor a child agent's whose
 // source names its spawning in a shape this reader does not know: the entry

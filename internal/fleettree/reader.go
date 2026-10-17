@@ -183,7 +183,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		}
 	case "pi":
 		// pi 0.85 records no sub-agents and no background jobs; only its
-		// conversation's last write is read, when the terminal names it.
+		// conversation's last write is read.
 		tree.ConversationAt = WrittenAt(path)
 	}
 	if isRunning {
@@ -327,10 +327,11 @@ func (r *Reader) harnessOf(goblin Goblin) (processes []Process, harness harnessP
 
 // conversation is the goblin's own conversation file: the session its
 // terminal names, else the one the board recorded for its generation, else
-// for Claude Code the one its running process records for itself, and for
-// Codex its worktree's rollout written last; for Claude Code never merely the
-// newest in its folder. metas is every Codex rollout read, among which a
-// Codex goblin's children are.
+// for Claude Code the one its running process records for itself, for Codex
+// its worktree's rollout written last, and for pi its worktree's session
+// written last, once written since its running pi started; for Claude Code
+// never merely the newest in its folder. metas is every Codex rollout read,
+// among which a Codex goblin's children are.
 func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Process, isRunning bool) (string, map[string]rolloutMeta) {
 	session := goblin.Session
 	if session == "" && r.Recorded != nil {
@@ -347,7 +348,7 @@ func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Proces
 		return r.codexConversation(ctx, goblin.Meta.Worktree, session, metas), metas
 	case "pi":
 		if session == "" {
-			return newestFile(PiSessions(r.Home, goblin.Meta.Worktree)), nil
+			return r.piSession(goblin.Meta.Worktree, harness), nil
 		}
 		return SessionTranscript(r.Home, "pi", session), nil
 	}
@@ -395,13 +396,20 @@ func (r *Reader) provedSession(ctx context.Context, goblin Goblin, harness Proce
 	case "codex":
 		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
 	case "pi":
-		path := newestFile(PiSessions(r.Home, goblin.Meta.Worktree))
-		if WrittenAt(path).Before(harness.Started) {
-			return ""
-		}
-		return piSessionID(path)
+		return piSessionID(r.piSession(goblin.Meta.Worktree, harness))
 	}
 	return ""
+}
+
+// piSession is the pi session of worktree written last, once written since
+// harness started: pi writes a session only when its first reply ends, so
+// until then the newest is an earlier pi's.
+func (r *Reader) piSession(worktree string, harness Process) string {
+	path := newestFile(PiSessions(r.Home, worktree))
+	if WrittenAt(path).Before(harness.Started) {
+		return ""
+	}
+	return path
 }
 
 // claudeLog keeps one log per goblin, read on from where it stopped while
