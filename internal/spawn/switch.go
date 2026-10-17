@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -256,6 +257,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
 	}
+	codexHooks, hooksNotice := s.codexHooks(target.Harness)
 	subagents, err := s.subagentRoutes(target.Harness, target.Model)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
@@ -269,6 +271,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		MCPConfig:       mcp.Config(meta.TaskTmp),
 		Settings:        settings,
 		CodexMCPServers: codexServers,
+		CodexHooks:      codexHooks,
 		Subagents:       subagents,
 	})
 	if err != nil {
@@ -455,6 +458,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
+	if hooksNotice != "" {
+		result.Output += "\n" + hooksNotice
+	}
 	result.Output += left + scriptNote
 	if isNarrowed {
 		result.Output += "\nauth: " + narrowedLine(req.ID, project, preflight.Grant)
@@ -496,8 +502,16 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 // environment and the MCP servers withheld from the task.
 func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
+	// Claude Code, Codex and pi each resume a recorded conversation, so the
+	// resume of a pause does wherever its pause recorded one, and pi only once
+	// it has written that session's file: pi 0.85.1 writes it when its first
+	// reply ends, and exits on a --session it finds no file for.
 	if request.IsResume {
-		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
+		resumed = request.ResumeSession != ""
+	}
+	if resumed && target.Harness == harness.Pi {
+		userHome, _ := os.UserHomeDir()
+		resumed = fleettree.SessionTranscript(userHome, "pi", request.ResumeSession) != ""
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
@@ -510,8 +524,11 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		resumeArgs := []string{"--resume", request.ResumeSession}
-		if target.Harness == harness.Codex {
+		switch target.Harness {
+		case harness.Codex:
 			resumeArgs = []string{"resume", request.ResumeSession}
+		case harness.Pi:
+			resumeArgs = []string{"--session", request.ResumeSession}
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)

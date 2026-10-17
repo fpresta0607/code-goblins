@@ -580,7 +580,7 @@ func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook 
 	t.Helper()
 	root := homeWithBinary(t, exe)
 	// The settings a Claude Code CFO's terminal starts with hold them.
-	data, err := install.CFOSettings(root)
+	data, err := install.CFOSettings(root, filepath.Join(root, "state"))
 	if err != nil {
 		t.Fatalf("the settings the CFO's terminal starts with: %v", err)
 	}

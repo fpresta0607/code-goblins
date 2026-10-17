@@ -47,8 +47,8 @@ func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 // adapter advertises, which switch relies on to stop a harness on its own
 // terms and to know whether a model-or-effort-only change can resume the
 // harness's own session. The resume-arg shape is load-bearing: codex takes
-// its resume as a subcommand and pi has none, so switch hands pi a written
-// handoff instead.
+// its resume as a subcommand, and pi 0.85.1 continues a session as Claude
+// Code does.
 func TestControlContractForSwitch(t *testing.T) {
 	cases := []struct {
 		kind       Kind
@@ -58,7 +58,7 @@ func TestControlContractForSwitch(t *testing.T) {
 	}{
 		{Claude, []string{"escape"}, "/exit", []string{"--continue"}},
 		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}},
-		{Pi, []string{"escape"}, "/quit", nil},
+		{Pi, []string{"escape"}, "/quit", []string{"--continue"}},
 	}
 	registry := DefaultRegistry()
 	for _, test := range cases {

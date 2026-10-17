@@ -1402,6 +1402,11 @@ type Snapshot struct {
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
 	CFOHarness string `json:"cfo_harness"`
+	// CFOSession is the session of the registered CFO, as Sessions keys it,
+	// which every surface reads the CFO's status from, and empty while no
+	// CFO is registered or its registration names no session: an older CFO's
+	// session, ended or not, never stands in for the CFO that runs.
+	CFOSession string `json:"cfo_session,omitempty"`
 	// CFOConversationLeft names the conversation the CFO could not resume
 	// when it last came back, and is empty when it came back on its own.
 	CFOConversationLeft string `json:"cfo_conversation_left"`
@@ -1489,7 +1494,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		taskTickets, out.Projects = s.tickets.Shown()
 	}
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness, out.CFOSession = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness, cfo.session
 	if firstRun := s.Options.FirstRun; firstRun != nil && firstRun.SavedAgent != nil {
 		out.CFOConfigured = firstRun.SavedAgent() != ""
 	}

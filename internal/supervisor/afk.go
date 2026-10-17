@@ -738,7 +738,7 @@ func waitingOnOverlord(d Database) []heldItem {
 		// connection's repair, is ready only for the moment after his own
 		// click, and was never something that waited on him.
 		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" {
-			items = append(items, heldItem{"run", r.ID, "", r.Title, ""})
+			items = append(items, heldItem{"run", r.ID, r.Task, r.Title, ""})
 		}
 	}
 	for _, c := range d.Credentials {

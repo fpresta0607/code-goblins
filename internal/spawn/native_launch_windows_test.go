@@ -167,9 +167,12 @@ func fakeHarness() {
 		}
 		return
 	}
-	if mode == "pi-starting" || mode == "pi-stuck" || mode == "pi-stale" {
+	if mode == "pi-ready" || mode == "pi-starting" || mode == "pi-stuck" || mode == "pi-stale" {
 		startup := 8 * time.Second
-		if mode == "pi-stuck" {
+		switch mode {
+		case "pi-ready":
+			startup = 0
+		case "pi-stuck":
 			startup = time.Hour
 		}
 		piStartup(startup, mode == "pi-stale", keys, record, draw)
@@ -641,10 +644,21 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 // harness's startup screens, with the composer's settle cut to two reads.
 func newQuickFixture(t *testing.T) *nativeFixture {
 	t.Helper()
+	return newQuickFixtureOf(t, harness.Codex)
+}
+
+// newQuickFixtureOf is newQuickFixture with its fake harness standing in for
+// kind; a fake pi shows its editor as it does once its startup has ended.
+func newQuickFixtureOf(t *testing.T, kind harness.Kind) *nativeFixture {
+	t.Helper()
 	previous := nativeReadySettle
 	nativeReadySettle = 2 * nativePoll
 	t.Cleanup(func() { nativeReadySettle = previous })
-	return newNativeFixture(t, harness.Codex, "ready")
+	mode := "ready"
+	if kind == harness.Pi {
+		mode = "pi-ready"
+	}
+	return newNativeFixture(t, kind, mode)
 }
 
 // A check the caller ran beside the start, such as who else works in the
