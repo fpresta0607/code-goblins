@@ -42,6 +42,20 @@ const lines = (locator: Locator) => locator.evaluate((element) => {
 });
 const pageScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
+// The Overlord, 2026-10-17, with the CFO panel reading Session ended while a
+// Claude Code CFO worked: the header reads the registered CFO's own session,
+// and an older CFO's ended session never stands in for it, whether or not the
+// registered CFO has reported its session yet.
+test("the CFO's panel header reads the registered CFO, never an ended CFO session", async ({ page }) => {
+  const endedPi = { id: "pi/old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended", model: "openrouter/deepseek/deepseek-v4.1-flash" };
+  const live = { id: "claude/live-cfo", native_id: "live-cfo", harness: "claude", role: "cfo", phase: "active", model: "claude-opus-5-5" };
+  for (const [sessions, said] of [[[endedPi, live], "Working"], [[endedPi], "Supervising"]] as const) {
+    await open(page, snapshot({ cfo_session: "claude/live-cfo", sessions }));
+    await expect(page.locator(".panel-status")).toHaveText(said);
+    await expect(page.locator(".panel-status")).not.toHaveText(/Session ended/);
+  }
+});
+
 for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
   test.describe(`at ${size} width`, () => {
     test.use({ viewport });

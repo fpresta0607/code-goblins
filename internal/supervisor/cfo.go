@@ -370,6 +370,9 @@ type cfoState struct {
 	since time.Time
 	// harness is the harness the registered CFO runs, as it registered.
 	harness string
+	// session is the board's key of the registered CFO's native session,
+	// harness/id, and empty when its registration names none.
+	session string
 	// identity is the fingerprint of the registration this read found, and
 	// empty when it found none it could read.
 	identity string
@@ -389,6 +392,9 @@ func readCFOState(stateDir string) cfoState {
 	primary, identity, err := readPrimary(stateDir)
 	if err == nil && primary.Process.VerifiedAlive() {
 		cfo := cfoState{registered: true, terminal: primary.Host, harness: primary.Agent, identity: identity}
+		if session := cfoSession(stateDir, primary); session != "" {
+			cfo.session = primary.Agent + "/" + session
+		}
 		if primary.Host != "" {
 			record, err := terminalLeft(stateDir, primary)
 			if err != nil {

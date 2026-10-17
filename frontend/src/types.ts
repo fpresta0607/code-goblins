@@ -347,6 +347,9 @@ export interface Snapshot {
   cfo_terminal_since: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  // The registered CFO's session, as sessions key it; empty while no CFO is
+  // registered or its registration names no session.
+  cfo_session: string;
   // The conversation the CFO could not resume when it last came back, and how
   // to resume it by hand; empty when it came back on its own.
   cfo_conversation_left: string;
@@ -816,6 +819,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    cfo_session: v.cfo_session === undefined ? "" : string(v.cfo_session),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
