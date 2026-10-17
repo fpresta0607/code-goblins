@@ -97,6 +97,23 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
   return null;
 }
 
+// A decision card for goblin task: the CFO's question for it (cfo question
+// --for), or the goblin's own question with choices.
+const decidesFor = (question: Question, task: string) => question.for_task === task || question.task === task && question.options.length > 0;
+
+// followsDecision says whether a goblin's wait on him is a follow-up of a
+// decision card for its task, which alone shows (the Overlord, 2026-10-17:
+// "These follow-ups should not be notifications in the Command Center ...
+// But the initial one is critical"): a wait that opens nothing, while that
+// decision is open, or once the decision it followed is answered. An answer
+// on its way that names no time yet is being given now.
+export function followsDecision(review: Review, snapshot: Snapshot): boolean {
+  if (!waitsOnOverlord(review) || waitTarget(review, snapshot)) return false;
+  const raised = Date.parse(review.created_at);
+  return (snapshot.questions || []).some((question) => decidesFor(question, review.task) && (question.status === "pending"
+    || questionOutcome(question) === "answered" && Date.parse(question.created_at) <= raised && (Date.parse(question.answered_at) || Infinity) >= raised));
+}
+
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
 }
@@ -104,11 +121,12 @@ export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
 // The stack he works through: the CFO's own items first, then goblins in the
 // In progress order he set, then goblins he has not placed, each by longest
 // wait. An item answered in this sitting keeps its place, so it can show its
-// outcome instead of vanishing under the pointer.
+// outcome instead of vanishing under the pointer. A goblin's follow-up of a
+// decision never waits on him: the decision does.
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && waitsOnHim(item) || kept.has(item.key))
+    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && waitsOnHim(item) && !(item.kind === "review" && followsDecision(item.review, snapshot)) || kept.has(item.key))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
@@ -345,7 +363,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
   if (state !== "answered") return reason || "Cleared";
-  if (answeredElsewhere(item)) return reason;
+  if (answeredElsewhere(item)) return answer ? reason + " You wrote: " + answer : reason;
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return advice(item.review.answer_id) || "Not confirmed: check " + asker + "'s terminal before answering again";

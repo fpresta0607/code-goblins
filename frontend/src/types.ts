@@ -437,6 +437,9 @@ export interface Question {
   answered_option: string; answered_by: string; answered_at: string;
   // task names the goblin that asked; it is empty for the CFO's own question.
   task: string;
+  // for_task names the goblin whose decision the CFO's own question puts to
+  // him (cfo question --for); it is empty for a goblin's question.
+  for_task: string;
   // answered_in says where an answer given outside its card came from, such
   // as "chat".
   answered_in: string;
@@ -733,7 +736,7 @@ function itemLists(v: Record<string, unknown>) {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), answered_in: string(q.answered_in),
-        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), for_task: string(q.for_task) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);

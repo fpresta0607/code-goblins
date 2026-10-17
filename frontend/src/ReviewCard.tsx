@@ -18,14 +18,16 @@ import { SkipWithNote } from "./skip-with-note";
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
 // One review item, saying each thing once: who asks by the goblin's name and
-// title, what to look at, its images and its page. A page the supervisor
-// watches shows itself, live and scaled down, and is answered on the page, so
-// the card has one button that opens it and no text box. A goblin waiting on
-// the Overlord is a status that opens what it waits on (its page, question,
-// file or link) from its one action button. Either has Skip beside its
-// button, telling a waiting goblin to go on without it, and the pencil, which
-// sends his answer in words to the asker once. Anything else takes a written answer that
-// goes to the asker once, with Skip beside its Send.
+// title, what to look at, its images and its page. A Scrawl page is answered
+// on the page, so its card has Skip and one button that opens it, and no text
+// box at all (the Overlord, 2026-10-17: "There does not need to be a text box
+// in when there is a scroll open review page involved"); one the supervisor
+// watches also shows itself, live and scaled down. A goblin waiting on the
+// Overlord is a status that opens what it waits on (its page, question, file
+// or link) from its one action button. Without a page it has Skip beside its
+// button, telling the goblin to go on without it, and the pencil, which sends
+// his answer in words to the asker once. Anything else takes a written answer
+// that goes to the asker once, with Skip beside its Send.
 export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onAnswer, onOpen, onImage, pager }: {
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onAnswer: (text: string) => void; onOpen: (key: string) => void; onImage: (index: number) => void; pager?: ReactNode;
@@ -42,10 +44,11 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const item: Item = { kind: "review", key: "review:" + review.id, review };
   const settled = settledIcon(item, snapshot.actions);
   const status = waitsOnOverlord(review);
-  // A card with its own answer box has Skip beside its Send; one without, a
-  // wait or a page answered on its page, has Skip and the pencil, which
-  // answers in words.
-  const hasBox = !review.watched && !status;
+  // A card with its own answer box has Skip beside its Send; a wait without a
+  // page has Skip and the pencil, which answers in words; a page has Skip
+  // alone.
+  const hasBox = !review.lavish && !status;
+  const hasPencil = !review.lavish && !!status;
   const answersHere = pending && hasBox;
   const target = status ? waitTarget(review, snapshot) : null;
   // The goblin's own words, formatted: its lead line heads the card, and the
@@ -69,8 +72,8 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {pending && hasBox && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip="Clear it without answering" onClick={onClear}><Icon name="close" /></button>}
-      {pending && !hasBox && <SkipWithNote asker={review.task ? asker : "the CFO"} task={review.task} instance={snapshot.instance} disabled={!connected || draft.sending} onSkip={onClear} onAnswer={onAnswer} />}
+      {pending && !hasPencil && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip={status ? "Skip: " + asker + " goes on without it" : "Clear it without answering"} onClick={onClear}><Icon name="close" /></button>}
+      {pending && hasPencil && <SkipWithNote asker={review.task ? asker : "the CFO"} task={review.task} instance={snapshot.instance} disabled={!connected || draft.sending} onSkip={onClear} onAnswer={onAnswer} />}
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
       {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={target.url} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
       {review.lavish && !status && <a className="primary button-link open-page" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}

@@ -1370,6 +1370,7 @@ cfo question --id layout-choice-001 --text "Which layout should I use?" --option
 
 Omit `--option` when the question needs a written answer.
 `--recommend` must exactly match a supplied option, which the modal shows first with its real recommendation; omit the flag when no option is recommended.
+`--for <task>` names the goblin whose decision the question puts to him, which the fleet must know: that goblin's wait on him that opens nothing then shows under the question and never as a card of its own, as it does under the goblin's own question with choices.
 The Supreme Overlord Command Center labels supplied choices A/B/C and always offers Other for a written answer.
 The box for a written answer has a microphone at its bottom right corner, and Ctrl+Shift+Space held anywhere in its card, as on the Other just chosen, dictates into the box and puts the caret there: until 15 October 2026 only the box itself heard the keys, and choosing Other leaves the keyboard on the choice, so a dictation held there was never typed.
 A question, the CFO's or a goblin's, is shown as body text at a readable line length rather than as a heading: a blank line starts a paragraph, a line that starts with `- ` is a bullet, text between `**two asterisks**` is bold, an http or https address is an underlined link that opens in the default browser (punctuation ending its sentence is not part of it, and any other scheme stays text), and everything else, markup included, is shown exactly as written; no HTML is ever interpreted.
@@ -1393,7 +1394,7 @@ A card's own action row holds Back, its place such as 2 of 4, and Next, which le
 Closing keeps every item for later.
 Every open item also has a way out at the bottom, beside its decision buttons, as he asked on 2026-10-15, never at its top:
 
-- A card with no choices or answer box of its own, a command to run, a goblin's wait, a page answered on its page, or a credential or step card, has **Skip** and a **pencil**.
+- A card with no choices or answer box of its own, a command to run, a goblin's wait with no page, or a credential or step card, has **Skip** and a **pencil**.
   Skip clears the item and tells the goblin that asked, in its own terminal, to go on without it: a `review_clear`, a `run_skip`, which closes a command nobody ran in place of running it, or a credential card's close.
   The pencil, **Something else?**, opens a small window with that title and a box where he types or dictates his answer, with its microphone or Ctrl+Shift+Space held anywhere in the window, and pastes pictures.
   The board's green **Send**, offered once the window holds words or a picture, sends them to whoever asked as his word: a `review_answer`, a `run_answer`, which closes the command in place of running it, or a credential card's `"action": "answer"`, which closes it as answered.
@@ -1402,6 +1403,7 @@ Every open item also has a way out at the bottom, beside its decision buttons, a
   Each pasted picture goes to `POST /api/answer-images?task=<asker>` as it is pasted, which keeps a PNG, JPEG, GIF or WebP picture of at most 10 MiB in the asking goblin's task folder, or in the state folder's `answer-images` for the CFO, and his answer names each kept picture on a line of its own, `Image: <path>`, for the asker to read.
   Cancel sends nothing.
 - A question, which has its own Other for a written answer, and a review with its own answer box, have a plain **Skip** beside Send: a `question_clear`, which also tells a goblin that asked to go on without it, or a `review_clear`.
+- A Scrawl review card, a review or a goblin's wait with a page, has a plain **Skip** beside its one button that opens the page, and no box for words at all, neither an answer box nor the pencil, since he answers on the page (the Overlord, 2026-10-17: "There does not need to be a text box in when there is a scroll open review page involved").
 
 A command he skipped or answered reads Skipped or Answered, and the CFO hears of either.
 
@@ -1425,8 +1427,12 @@ Every time the Command Center opens, from an alert, the counter or a card, it st
 A card whose item closes while it is on screen and that sent nothing itself, answered with `cfo answer`, on another board or on its page, or taken back by its goblin or the CFO, finishes as one he sent from does: its check draws with Answered, or Closed for an item nobody answered, over the line its History row carries, and three quarters of a second later the next open item follows.
 A card whose answer did not arrive keeps its place and says what to do, and a run card stays to show the command's result.
 Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items under Waiting on you, then a history of what he answered, cleared or ran, newest first by when each closed.
-Waiting on you lists everything that needs him, and only that: every open question, review item and run item, and each live presentation its goblin asked him to watch with `cfo present --watch`, as its line with a Watch button (an eye) that opens it, counted in the badge.
+Waiting on you lists everything that needs him, and only that: every open question, review item and run item, and each live browser walkthrough its goblin asked him to watch with `cfo present --watch`, as its line with a Watch button (an eye) that opens it, counted in the badge.
+A click anywhere on an item's row, or on its button, opens that item's card in the Command Center, so a page opens only from its card (the Overlord, 2026-10-17: "the button didn't open up the Command Center modal, it just took me right to the page").
+A review he is asked to watch is a review item, never a presentation: [Nonblocking presentation notices](#nonblocking-presentation-notices) says how.
 A presentation without `--watch`, such as a goblin's own test walkthrough, stays off the Command Center; its task card still shows the browser it has open.
+A goblin's wait on him that opens nothing (no page, file or link) follows the decision card for its task, the CFO's question for that goblin (`cfo question --for <task>`) or the goblin's own question with choices: it shows nowhere and counts for nothing while that decision is open, nor once the decision it followed is answered, so he sees one card, the decision, and answering it clears both (the Overlord, 2026-10-17: "These follow-ups should not be notifications in the Command Center ... But the initial one is critical").
+A wait raised before the decision was asked, or one with something to open, stays its own card.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
@@ -1627,8 +1633,10 @@ An announcement and its notification leave when their item closes or is publishe
 A click on an item already closed opens the Command Center's list, never another item's card.
 Its card names its goblin by the goblin's name and title, never the task's title, then shows the item's title once, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when the supervisor watches it, as the page itself, with one Open review button that opens it.
 The page is drawn from `/api/reviews/<id>/preview`: the supervisor asks the review server its link names for the page's export (`/api/<key>/export` beside `/session/<key>`, which carries the page's own files inline and opens no review window) and serves it under `Content-Security-Policy: sandbox allow-scripts; frame-ancestors 'self'`, so the page's scripts run in an origin of their own and only the board can frame it, and the card draws it in a sandboxed frame, scaled down, that takes no clicks; a redirect from the review server is never followed.
-A page given only by its link, with no page file, shows no preview, and its card opens it from the same one button.
-An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
+A page given only by its Scrawl link is watched on the page lavish-axi serves at that link, its `/session/<key>` on either of lavish-axi's addresses, as one given its HTML file is; a link to no session lavish-axi keeps shows no preview, and its card opens it from the same one button.
+Until 2026-10-17 a link was never watched, so the CFO's `cfo review --lavish <link>` cards stayed after he sent and ended the review on their pages.
+An item whose page the supervisor watches is answered on that page: it finishes the moment the Overlord sends or ends the review there, a goblin's item and the CFO's alike, and History keeps what he wrote, as You wrote: after who has it; or he closes it with Clear.
+No Scrawl card has a box for words, watched or not.
 A page's card shows the page's own words as its body, the page and one Open review button instead of choices, since he answers on the page, and no line that explains how: a closed review window (`window_closed_at`) and a revision (`revising_since`) change nothing on it, since its one button opens the page again.
 A goblin's question is never a page's card, whatever page its goblin has open: the question is the CFO's to answer, as every goblin's question is, and a goblin's newer question supersedes its older pending one, so one card shows.
 A page and a question close apart: his answer on the page or his Clear of its card closes only that page's items, leaving the goblin's question pending and its notify unanswered, and an answer to the question closes only the question.
@@ -1693,7 +1701,8 @@ Its words show once: a wait with a page opens it from the card's one Open review
 The goblin's words keep their lines and read formatted, never as raw markup: the first line heads the card, `**bold**` is bold, `- ` lines are bullets, a value in backticks is code with a copy button beside it, drawn as a link when the value is an address, and an address in the words is a link with no copy button.
 Values the Overlord must enter somewhere, such as DNS records, go in a Markdown pipe table on the lines after the lead (a header row, a separator row of dashes, one row each), which the card shows as a table, each backticked value with its own copy button; `cfo notify`'s help shows this one way to send a table.
 The Command Center's list rows, the pinned CFO bar, alerts and the Answer button read a wait on one line, without its table.
-The card opens what the wait points at, as its main button, with Skip and the pencil beside it: the page the goblin named with `--lavish` (Open the page), else that goblin's newest question still waiting in the Command Center (Open its question), else a file it delivered with `cfo deliver` (Open the file), else the link it gave with `--link` (Open the link); a wait that names none of these offers Skip and the pencil alone. Its Skip tells the goblin to go on without it.
+The card opens what the wait points at, as its main button, with Skip beside it, and the pencil too unless it opens a page: the page the goblin named with `--lavish` (Open the page), else that goblin's newest question still waiting in the Command Center (Open its question), else a file it delivered with `cfo deliver` (Open the file), else the link it gave with `--link` (Open the link); a wait that names none of these offers Skip and the pencil alone. Its Skip tells the goblin to go on without it.
+A wait that names none of them while a decision card for its goblin is open, or that followed a decision since answered, is that decision's follow-up and shows no card at all ([Deliberate CFO questions](#deliberate-cfo-questions) says which).
 A web address the goblin only names in its words is never offered as the link, and `--link` must be https (or plain http on this machine or the tailnet) with no credentials, query or fragment, checked before anything is recorded.
 The board never opens a path from a wait's text, only the link the goblin gave or an item it already holds.
 Every item runs its script with nothing between it and its terminal, so a sign-in, `cfo attach` or anything else that needs a real terminal works on the card; `--interactive`, which once asked for that, is gone.
@@ -2176,6 +2185,7 @@ The tailnet URL `lavish-axi` returns is therefore kept exactly as returned and o
 For a Scrawl page, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
 Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
 A presentation reaches the Overlord's Command Center only when it asks him to watch it, with one line he reads under Waiting on you, at most 300 characters: `--watch "Watch the checkout walkthrough I am running for you"`; a goblin's own test run omits it and stays off his Command Center.
+A `--kind review --watch` waits on him until he answers it, so it is published as a review item instead, under the same ID, titled by that line and watched on the page lavish-axi serves at its link, and the same command with `--state ended` withdraws it: as a presentation it knew nothing of the page, so on 2026-10-17 his Send and End there left its line under Waiting on you until it expired.
 IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.
 The store and inbox retain at most 128 receipts, URLs exclude credentials/query/fragment and known sensitive paths, and expiry is limited to thirty minutes.
 Only declared safe presentation links belong here, not raw tool arguments or arbitrary browser history.

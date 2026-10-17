@@ -395,11 +395,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
           <h3>Waiting on you <span className="column-count">{needing}</span>{waiting.length > 1 && <button className="primary go-through" onClick={() => { setInbox(false); setOpen(true); show(waiting[0].key); }}>Go through them</button>}</h3>
-          {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={release(candidate) ? "release-row" : undefined}>
+          {/* The whole row opens its item in the Command Center, as its
+              button does for the keyboard: a click on the button reaches the
+              row. A page opens only from the item's card. */}
+          {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={"opens-item" + (release(candidate) ? " release-row" : "")} onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}>
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{age(created(candidate))}</time>
-            <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
+            <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer"><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
             <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>

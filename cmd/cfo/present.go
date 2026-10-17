@@ -19,7 +19,7 @@ func runPresent(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	f.StringVar(&a.Kind, "kind", "", "browser or review")
 	f.StringVar(&a.URL, "url", "", "https, or plain http on this machine or the tailnet, without credentials, query or fragment")
 	f.StringVar(&a.State, "state", "active", "active or ended")
-	f.StringVar(&a.Watch, "watch", "", "one line asking the Overlord to watch it, such as \"Watch the checkout walkthrough I am running for you\"; only a presentation with it reaches his Command Center, and a test run of your own leaves it out")
+	f.StringVar(&a.Watch, "watch", "", "one line asking the Overlord to watch it, such as \"Watch the checkout walkthrough I am running for you\"; only a presentation with it reaches his Command Center, and a test run of your own leaves it out. A review with it is a review item there, titled by it and polled on its Scrawl page: his answer there reaches you and closes it, and --state ended withdraws it")
 	ttl := f.Duration("ttl", 5*time.Minute, "evidence expiry, at most 30m; refresh only while activity is actually live")
 	if !parseFlags(f, args) {
 		return 2

@@ -13,6 +13,7 @@
   content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge);
 }
 .inbox-list.waiting li.release-row { border: 0; box-shadow: none; }
+.inbox-list.waiting li.opens-item { cursor: pointer; }
 
 /* Who asks is named in lantern, as the box's tab names the CFO. */
 :is(.question-card, .run-card) .asker strong, .inbox-list.waiting .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
