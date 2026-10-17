@@ -37,6 +37,8 @@ async function open(page: Page, posted: Posted[] = []) {
 }
 
 const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
+// The working goblins' list, above the Paused group In progress also holds.
+const working = (page: Page) => column(page, "In progress").locator(".task-cards.ranked").first();
 const ranked = (list: Locator) => list.locator("[data-sort-id]").evaluateAll((cards) => cards.map((card) => card.getAttribute("data-sort-id")));
 // The cards a pager says its page shows, such as 6 and 10 for 6–10 of 19.
 const paged = async (pager: Locator) => { const [, first, last] = (await pager.innerText()).match(/(\d+)–(\d+) of \d+/)!; return { first: Number(first), last: Number(last) }; };
@@ -68,7 +70,7 @@ for (const [layout, width] of [["side by side", 2400], ["stacked", 1000]] as con
     test("In progress shows every goblin's card at once, with no pager", async ({ page }) => {
       await open(page);
       const progress = column(page, "In progress");
-      expect(await ranked(progress)).toEqual(ids(WORKING));
+      expect(await ranked(working(page))).toEqual(ids(WORKING));
       await expect(progress.locator(":scope > .pager")).toHaveCount(0);
     });
 
@@ -91,12 +93,12 @@ for (const [layout, width] of [["side by side", 2400], ["stacked", 1000]] as con
       // Held at the board's top edge, the card waits while the board scrolls
       // up under it to the start of its list.
       await page.mouse.move(at.x, (await view(page)).top + 10, { steps: 6 });
-      await expect.poll(async () => (await ranked(progress))[0], { timeout: 15_000 }).toBe("working-6");
+      await expect.poll(async () => (await ranked(working(page)))[0], { timeout: 15_000 }).toBe("working-6");
       await page.mouse.up();
       const order = ["working-6", ...ids(WORKING).filter((id) => id !== "working-6")];
       // The paused goblins keep their order after the working ones.
       await expect.poll(() => posted).toEqual([{ path: "/api/order", body: { list: "progress", order: [...order, ...ids(PAUSED)] } }]);
-      expect(await ranked(progress)).toEqual(order);
+      expect(await ranked(working(page))).toEqual(order);
       await expect(progress.locator(".order-error")).toHaveCount(0);
     });
 
