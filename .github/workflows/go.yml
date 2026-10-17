@@ -61,7 +61,13 @@ env:
   # middle of their time.
   # internal/conpty is fast but times keystrokes against bounds: beside the
   # rest job's other packages, which keep all four cores busy, one key's echo
-  # spent 429 ms waiting for a core, so it runs alone. The tests that drive a
+  # spent 429 ms waiting for a core, so it runs alone. internal/cirunner's
+  # tests wait, one after another, on the Windows PowerShell and other
+  # programs they start. In the rest job it starts in the first 25 s and runs
+  # while go test builds and tests most of the other packages on the same
+  # four cores: that took it 126 to 331 s, and 1201 s on a runner 4.3 times
+  # slow, where go test's 20-minute limit cut it off (#1017), so it runs
+  # alone. The tests that drive a
   # real Chrome run in the chrome job, one package at a time, so nothing
   # competes with Chrome for the runner's disk and cores: beside other tests
   # a fresh profile's Chrome took over a minute to start or 10 s to answer
@@ -91,7 +97,8 @@ env:
         {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed)$"},
         {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed)$|^Test[A-M]"},
         {"shard": "conpty", "packages": "./internal/conpty"},
-        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/browserlogin"}
+        {"shard": "cirunner", "packages": "./internal/cirunner"},
+        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/cirunner ./internal/browserlogin"}
       ]
     }
 
