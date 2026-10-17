@@ -434,11 +434,11 @@ The header switches between two views, one at a time, each with a contextual pan
 
 Every goblin gets a fun first name and a title that names its work, such as Vera - Voice Whisperer for long dictation, as soon as its task is queued, and keeps them when it starts.
 A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip while the pointer is on it and under its name in the panel, and the CFO calls it by that name.
-Each card shows that name, a queued task's included, or the task's short title once it has completed, and a muted line with its repo and status.
+Each card shows that name, a queued task's included, or the task's short title while it has no goblin, its status, and its project on a muted line under it.
 The goblin's own words are in its panel.
 Each card carries the mark of the harness its goblin runs (Codex, Claude Code, pi, Kimi or a terminal for any other), and its tip names the harness, model and effort.
 The CFO's bar carries the mark of the harness the CFO runs, and its tip names the harness and its model.
-On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
+On a narrow screen the columns stack and a goblin's name and title and its project wrap onto more lines, so nothing scrolls sideways; a task with no goblin yet keeps its title to one line, shown in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first by when the work finished.
