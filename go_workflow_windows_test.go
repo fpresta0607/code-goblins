@@ -261,10 +261,29 @@ func TestGoWorkflowSplitsCmdCfoIntoThreeJobs(t *testing.T) {
 // waiting run is cancelled when a newer one joins, leaving its commit
 // unvalidated. A release is never cancelled halfway. Every workflow says
 // which it is, so a new one cannot join a group by accident.
+//
+// The group is read as GitHub Actions makes it for each kind of run, never
+// compared as text: a mistake in the expression that the test also made
+// would pass as text.
 func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	// Arrange
-	const superseded = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}"
-	groups := map[string]string{"go.yml": superseded, "install.yml": superseded, "release.yml": "", "windows.yml": superseded}
+	type run struct {
+		event, number string
+		isDraft       bool
+	}
+	runs := map[string]run{
+		"a ready run of #7":            {"pull_request", "7", false},
+		"another ready run of #7":      {"pull_request", "7", false},
+		"a draft-seen run of #7":       {"pull_request", "7", true},
+		"another draft-seen run of #7": {"pull_request", "7", true},
+		"a ready run of #8":            {"pull_request", "8", false},
+		"a push to main":               {"push", "", false},
+		"another push to main":         {"push", "", false},
+		"a merge queue run":            {"merge_group", "", false},
+		"a run started by hand":        {"workflow_dispatch", "", false},
+	}
+	shared := [][2]string{{"a ready run of #7", "another ready run of #7"}, {"a draft-seen run of #7", "another draft-seen run of #7"}}
+	cancels := map[string]bool{"go.yml": true, "install.yml": true, "release.yml": false, "windows.yml": true}
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -273,11 +292,11 @@ func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	for _, file := range files {
 		names = append(names, filepath.Base(file))
 	}
-	if want := slices.Sorted(maps.Keys(groups)); !slices.Equal(names, want) {
+	if want := slices.Sorted(maps.Keys(cancels)); !slices.Equal(names, want) {
 		t.Fatalf("workflows %v, want %v: say whether a new workflow's pull request runs are cancelled when superseded", names, want)
 	}
 
-	for name, group := range groups {
+	for name, isCancelling := range cancels {
 		t.Run(name, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
 			if err != nil {
@@ -295,9 +314,42 @@ func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			groups := map[string]string{}
+			for which, kind := range runs {
+				values := map[string]any{"github.workflow": name, "github.event_name": kind.event, "github.run_id": fmt.Sprint(len(groups) + 1000)}
+				if kind.event == "pull_request" {
+					values["github.event.pull_request.number"] = kind.number
+					values["github.event.pull_request.draft"] = kind.isDraft
+				}
+				groups[which] = render(t, workflow.Concurrency.Group, values, func(function string, args []any) any {
+					if function != "format" || len(args) == 0 {
+						t.Fatalf("group %q calls %s(), which this reading does not follow", workflow.Concurrency.Group, function)
+					}
+					formatted := fmt.Sprint(args[0])
+					for index, arg := range args[1:] {
+						if arg == nil {
+							arg = ""
+						}
+						formatted = strings.ReplaceAll(formatted, fmt.Sprintf("{%d}", index), fmt.Sprint(arg))
+					}
+					return formatted
+				})
+			}
+
 			// Assert
-			if workflow.Concurrency.Group != group || workflow.Concurrency.CancelInProgress != (group != "") {
-				t.Errorf("concurrency group %q, cancel-in-progress %t; want group %q, cancelling only when it is set", workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, group)
+			if workflow.Concurrency.CancelInProgress != isCancelling || (workflow.Concurrency.Group != "") != isCancelling {
+				t.Fatalf("concurrency group %q, cancel-in-progress %t; want a group that cancels %t", workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, isCancelling)
+			}
+			if !isCancelling {
+				return
+			}
+			for first, firstGroup := range groups {
+				for second, secondGroup := range groups {
+					isShared := first == second || slices.Contains(shared, [2]string{first, second}) || slices.Contains(shared, [2]string{second, first})
+					if (firstGroup == secondGroup) != isShared {
+						t.Errorf("%s is in group %q and %s in %q; want them to share one %t", first, firstGroup, second, secondGroup, isShared)
+					}
+				}
 			}
 		})
 	}
@@ -366,8 +418,9 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
 // It skips only a run of a pull request that is a draft, which cannot merge,
-// and one whose event saw a draft and that was cancelled, as marking the pull
-// request ready cancels it with a run of its own
+// and one whose event saw a draft and that was cancelled, which only a newer
+// push whose event also saw a draft, or a person, cancels, since such runs
+// have a concurrency group of their own
 // (TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady).
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	// Arrange
@@ -425,9 +478,10 @@ const draftJobCondition = "github.event.pull_request.draft"
 // event saw would skip that run again.
 //
 // A run whose event saw a draft starts nothing either once it is cancelled,
-// as the run of marking the pull request ready cancels it on the same head:
-// a required check it started would fail beside the ready run's and hold the
-// pull request back.
+// as a draft's run starts nothing: such runs have a concurrency group of
+// their own, so only a newer push whose event also saw a draft, or a person,
+// cancels one, and a required check it started would fail on a head it never
+// finished testing.
 func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {

@@ -1,6 +1,7 @@
 package codegoblins
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -68,9 +69,9 @@ func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) 
 		}
 		return "skipped"
 	}
-	values := map[string]string{"github.event_name": "pull_request", "needs.draft.outputs.draft": run.read}
+	values := map[string]any{"github.event_name": "pull_request", "needs.draft.outputs.draft": run.read}
 	if run.isDraftSeen {
-		values["github.event.pull_request.draft"] = "true"
+		values["github.event.pull_request.draft"] = true
 	}
 	for _, need := range jobs[job].Needs {
 		values["needs."+need+".result"] = result(need)
@@ -87,8 +88,42 @@ func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) 
 		succeeded = succeeded && result(name) == "success"
 	}
 
-	condition := jobs[job].If
-	expression := strings.TrimSpace(condition)
+	isStatusRead := false
+	value := evaluate(t, jobs[job].If, values, func(name string, args []any) any {
+		if len(args) != 0 {
+			t.Fatalf("condition %q passes %s() something, which this reading does not follow", jobs[job].If, name)
+		}
+		isStatusRead = true
+		switch name {
+		case "always":
+			return true
+		case "cancelled":
+			return run.isCancelled
+		}
+		t.Fatalf("condition %q calls %s(), which this reading does not follow", jobs[job].If, name)
+		return nil
+	})
+	if !isStatusRead {
+		return succeeded && isTrue(value)
+	}
+	return isTrue(value)
+}
+
+// isTrue says whether value is true as GitHub's expressions read it: an
+// empty string, null and false are false.
+func isTrue(value any) bool { return value == true || (value != false && value != "" && value != nil) }
+
+// evaluate reads expression, one expression of a workflow with or without
+// its ${{ }}, as GitHub's expressions are read (docs.github.com, "Evaluate
+// expressions in workflows and actions"): a && or || gives the operand that
+// decides it, strings compare ignoring case, a number is its digits, and a
+// field values does not name is null. call answers each function the
+// expression calls with its arguments. What it does not follow fails the
+// test.
+func evaluate(t *testing.T, expression string, values map[string]any, call func(name string, args []any) any) any {
+	t.Helper()
+	source := expression
+	expression = strings.TrimSpace(expression)
 	if inner, ok := strings.CutPrefix(expression, "${{"); ok {
 		expression = strings.TrimSuffix(inner, "}}")
 	}
@@ -99,17 +134,17 @@ func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) 
 		case rest[0] == '\'':
 			size = strings.IndexByte(rest[1:], '\'') + 2
 			if size < 2 {
-				t.Fatalf("condition %q has a string with no end", condition)
+				t.Fatalf("expression %q has a string with no end", source)
 			}
 		case strings.HasPrefix(rest, "&&"), strings.HasPrefix(rest, "||"), strings.HasPrefix(rest, "=="), strings.HasPrefix(rest, "!="):
 			size = 2
-		case strings.ContainsRune("!()", rune(rest[0])):
+		case strings.ContainsRune("!(),", rune(rest[0])):
 		default:
 			size = strings.IndexFunc(rest, func(r rune) bool {
 				return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("._-", r)
 			})
 			if size == 0 {
-				t.Fatalf("condition %q has %q, which this reading does not follow", condition, rest)
+				t.Fatalf("expression %q has %q, which this reading does not follow", source, rest)
 			}
 			if size < 0 {
 				size = len(rest)
@@ -133,8 +168,6 @@ func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) 
 		position++
 		return true
 	}
-	isTrue := func(value any) bool { return value == true || (value != false && value != "") }
-	isStatusRead := false
 	var or, and, compare, unary func() any
 	or = func() any {
 		value := and()
@@ -161,10 +194,18 @@ func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) 
 			if !isEqual && !take("!=") {
 				return value
 			}
+			// A null compares as the empty string.
+			other := unary()
+			if value == nil {
+				value = ""
+			}
+			if other == nil {
+				other = ""
+			}
 			left, isLeftString := value.(string)
-			right, isRightString := unary().(string)
+			right, isRightString := other.(string)
 			if !isLeftString || !isRightString {
-				t.Fatalf("condition %q compares what is not a string, which this reading does not follow", condition)
+				t.Fatalf("expression %q compares what is not a string, which this reading does not follow", source)
 			}
 			value = strings.EqualFold(left, right) == isEqual
 		}
@@ -179,35 +220,55 @@ func jobStarts(t *testing.T, jobs workflowJobs, job string, run pullRequestRun) 
 		case token == "(":
 			value := or()
 			if !take(")") {
-				t.Fatalf("condition %q opens a bracket it does not close", condition)
+				t.Fatalf("expression %q opens a bracket it does not close", source)
 			}
 			return value
 		case strings.HasPrefix(token, "'"):
-			return strings.Trim(token, "'")
+			return token[1 : len(token)-1]
+		case token != "" && unicode.IsDigit(rune(token[0])):
+			return token
 		case token == "" || !unicode.IsLetter(rune(token[0])):
-			t.Fatalf("condition %q has %q where a value belongs", condition, token)
+			t.Fatalf("expression %q has %q where a value belongs", source, token)
 		case take("("):
-			if !take(")") {
-				t.Fatalf("condition %q passes %s() something, which this reading does not follow", condition, token)
+			var args []any
+			for !take(")") {
+				if len(args) > 0 && !take(",") {
+					t.Fatalf("expression %q passes %s() what this reading does not follow", source, token)
+				}
+				args = append(args, or())
 			}
-			isStatusRead = true
-			switch token {
-			case "always":
-				return true
-			case "cancelled":
-				return run.isCancelled
-			}
-			t.Fatalf("condition %q calls %s(), which this reading does not follow", condition, token)
+			return call(token, args)
 		}
 		return values[token]
 	}
 
 	value := or()
 	if position != len(tokens) {
-		t.Fatalf("condition %q has %v left over", condition, tokens[position:])
+		t.Fatalf("expression %q has %v left over", source, tokens[position:])
 	}
-	if !isStatusRead {
-		return succeeded && isTrue(value)
+	return value
+}
+
+// render is template, a workflow value with ${{ }} expressions in it, as
+// GitHub Actions makes it: each expression's value, as a string, in its
+// place, a null as nothing.
+func render(t *testing.T, template string, values map[string]any, call func(name string, args []any) any) string {
+	t.Helper()
+	var rendered strings.Builder
+	for rest := template; ; {
+		start := strings.Index(rest, "${{")
+		if start < 0 {
+			rendered.WriteString(rest)
+			return rendered.String()
+		}
+		end := strings.Index(rest[start:], "}}")
+		if end < 0 {
+			t.Fatalf("value %q opens an expression it does not close", template)
+		}
+		rendered.WriteString(rest[:start])
+		if value := evaluate(t, rest[start:start+end+2], values, call); value != nil {
+			rendered.WriteString(fmt.Sprint(value))
+		}
+		rest = rest[start+end+2:]
 	}
-	return isTrue(value)
 }
