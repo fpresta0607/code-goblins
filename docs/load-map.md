@@ -135,8 +135,8 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMPDIR` and `GOTMPDIR` in the task's scratch folder, `TMP` in `scratch\.tmp`, the folder every goblin shares, since Git Bash makes the `TMP` of its first shell `/tmp` for every shell of the user, the shared cache roots, and the credentials of the services the task's brief names, which ride the terminal's environment rather than being typed.
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, drawn in the interface the operator's `tui` setting names, as the CFO is, with `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, so Claude Code does not end a goblin's background shells for low memory, among them its queued `cfo gate turn`: the line ends the run it lets use the machine's spare memory instead ([docs/pipeline.md](pipeline.md#any-command-in-the-line)).
-   Codex: `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it draws inline and its history stays in the terminal's own scrollback, where a drag selects text as it does for Claude.
-   Pi: `--tui-mode regular`.
+   Codex: `--dangerously-bypass-approvals-and-sandbox -c tui.copy_on_select=always`, so it draws on its own full screen and copies what a drag selects when the button is released.
+   Pi: `--tui-mode fullscreen`, where its help offers it, so it draws on its own full screen too.
    Model and effort flags follow the lane table in `data/routing.json`.
    Each harness's trust dialog is confirmed automatically.
 4. **MCP.** The token-authenticated subset of the project's `.mcp.json`, written under the task's temporary directory: Claude receives it by flag, and Codex and Pi do not use it.

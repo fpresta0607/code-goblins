@@ -11,12 +11,12 @@ import (
 )
 
 type piCapabilities struct {
-	model     bool
-	thinking  bool
-	extension bool
-	tuiMode   bool
-	approve   bool
-	efforts   map[string]bool
+	model      bool
+	thinking   bool
+	extension  bool
+	fullscreen bool
+	approve    bool
+	efforts    map[string]bool
 }
 
 type piAdapter struct {
@@ -59,9 +59,7 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if capabilities.approve {
 		launch.Args = append(launch.Args, "--approve")
 	}
-	if capabilities.tuiMode {
-		launch.Args = append(launch.Args, "--tui-mode", "regular")
-	}
+	launch.Args = append(launch.Args, piScreenArgs(capabilities)...)
 	if hasValue(spec.Model) {
 		if !capabilities.model {
 			return Launch{}, errors.New("harness: installed Pi does not advertise --model")
@@ -83,6 +81,28 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	return launch, nil
 }
 
+// PiScreenArgs are the arguments that start the pi on PATH on its own full
+// screen, as a pi goblin starts, read from its help as Validate reads it.
+func PiScreenArgs(ctx context.Context, runner execx.Runner) ([]string, error) {
+	result, err := validateExecutable(ctx, runner, "pi", "--help")
+	if err != nil {
+		return nil, err
+	}
+	return piScreenArgs(parsePiHelp(string(result.Stdout))), nil
+}
+
+// piScreenArgs has pi draw on its own full screen where it has one, as a
+// claude goblin does, which keeps its editor and footer on the bottom rows
+// while its transcript scrolls above them; in its regular mode the footer
+// scrolled away with the history. A pi with no fullscreen is given no mode,
+// so it draws the only way it can.
+func piScreenArgs(capabilities piCapabilities) []string {
+	if !capabilities.fullscreen {
+		return nil
+	}
+	return []string{"--tui-mode", "fullscreen"}
+}
+
 func (adapter *piAdapter) capabilitiesSnapshot() (piCapabilities, error) {
 	adapter.mu.RLock()
 	defer adapter.mu.RUnlock()
@@ -102,10 +122,11 @@ func parsePiHelp(help string) piCapabilities {
 		model:     optionAdvertised(help, "--model"),
 		thinking:  optionAdvertised(help, "--thinking"),
 		extension: optionAdvertised(help, "--extension"),
-		tuiMode:   optionAdvertised(help, "--tui-mode"),
 		approve:   optionAdvertised(help, "--approve"),
 		efforts:   map[string]bool{},
 	}
+	tuiModeLine, advertised := advertisedOptionLine(help, "--tui-mode")
+	capabilities.fullscreen = advertised && containsToken(strings.ToLower(tuiModeLine), "fullscreen")
 	thinkingLine, advertised := advertisedOptionLine(help, "--thinking")
 	if !advertised {
 		return capabilities

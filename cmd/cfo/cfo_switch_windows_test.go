@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -42,10 +43,14 @@ func switchStandIns(t *testing.T, h home.Home) {
 	t.Setenv("CFO_STATE_OVERRIDE", h.State)
 	t.Setenv("CFO_PROJECTS_ROOT", filepath.Join(h.Root, "projects"))
 	t.Setenv("PATH", h.Root)
+	rules, err := json.Marshal([]standin.Rule{{Args: "--help", Stdout: "Options:\n  --tui-mode <mode>              TUI mode: regular or fullscreen\n"}, {Any: true, Hold: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, harness := range []string{"codex", "pi"} {
 		program := filepath.Join(h.Root, harness+"-standin.exe")
 		standin.Put(t, program)
-		script := "@echo off\r\nset \"CFO_STANDIN_RULES=[{\"any\":true,\"hold\":true}]\"\r\n" +
+		script := "@echo off\r\nset \"CFO_STANDIN_RULES=" + string(rules) + "\"\r\n" +
 			"set \"CFO_STANDIN_RECORD=" + filepath.Join(h.Root, "switch-arguments.txt") + "\"\r\n" +
 			"\"" + program + "\" %*\r\n"
 		if err := os.WriteFile(filepath.Join(h.Root, harness+".cmd"), []byte(script), 0o700); err != nil {
@@ -150,7 +155,12 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(arguments)), "\r\n")
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(arguments)), "\r\n") {
+		if !strings.HasSuffix(line, "-standin --help") {
+			lines = append(lines, line)
+		}
+	}
 	if len(lines) != 3 {
 		t.Fatalf("harness starts = %q, want three", lines)
 	}
@@ -161,7 +171,10 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	for index, harness := range []string{"codex", "pi", "codex"} {
 		want := harness + "-standin "
 		if harness == "codex" {
-			want += strings.Join(append(codexHooks, "--no-alt-screen"), " ") + " "
+			want += strings.Join(append(codexHooks, "-c", "tui.copy_on_select=always"), " ") + " "
+		}
+		if harness == "pi" {
+			want += "--tui-mode fullscreen "
 		}
 		if lines[index] != want+cfoFirstPrompt {
 			t.Errorf("start %d = %q, want fresh arguments %q", index, lines[index], want+cfoFirstPrompt)

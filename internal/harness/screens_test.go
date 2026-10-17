@@ -247,6 +247,40 @@ func TestCodexWorkingIsReadOnlyFromItsStatusRow(t *testing.T) {
 	}
 }
 
+// Codex 0.160 on its alternate screen and pi 0.85.1 with --tui-mode
+// fullscreen, as goblins and the CFO start them since 2026-10-17, read in a
+// native terminal on that day: the rows a turn shows and the rows after it,
+// with the scratch folder's path shortened. They read as their inline screens
+// did, ready only while no turn runs.
+func TestFullScreenCodexAndPiReadAsReadyOnlyWhileNoTurnRuns(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	codexFooter := "  ? for shortcuts                                    ⚠ 5 warnings · f2 to view"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)             (openrouter) deepseek/deepseek-v4.1-flash • high"
+	for name, test := range map[string]struct {
+		kind                  Kind
+		screen                []string
+		ready, working, empty bool
+	}{
+		"codex in a turn": {Codex, []string{"› Count from 1 to 300, one number per line, nothing else.", "", "", "Working (2s • esc to interrupt)", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · ⠋`, codexFooter}, false, true, true},
+		"codex after it":  {Codex, []string{"• done", "", "  Worked for 10s • 10:28 PM", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · Count to 300`, codexFooter}, true, false, true},
+		"pi in a turn":    {Pi, []string{" Reply from 127.0.0.1: bytes=32 time<1ms TTL=128", " Elapsed 2.0s", "", "", "── ⠸ Working " + rule, "", rule, `~\work\task`, piFooter}, false, true, false},
+		"pi after it":     {Pi, []string{" Took 5.7s", "", " done", "", rule, "", rule, `~\work\task`, piFooter}, true, false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			ready, working, empty := screens.IsReady(test.screen), screens.IsWorking(test.screen), screens.ComposerEmpty(test.screen)
+
+			// Assert
+			if ready != test.ready || working != test.working || empty != test.empty {
+				t.Fatalf("ready %v, working %v, empty %v; want %v, %v, %v", ready, working, empty, test.ready, test.working, test.empty)
+			}
+		})
+	}
+}
+
 // After its first turn pi's footer leads with the session's token counts and
 // cost, so its context meter is found anywhere in the row, as seen live on pi
 // 0.85.1.
