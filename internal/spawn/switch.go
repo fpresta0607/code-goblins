@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -502,9 +503,15 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	// Claude Code, Codex and pi each resume a recorded conversation, so the
-	// resume of a pause does wherever its pause recorded one.
+	// resume of a pause does wherever its pause recorded one, and pi only once
+	// it has written that session's file: pi 0.85.1 writes it when its first
+	// reply ends, and exits on a --session it finds no file for.
 	if request.IsResume {
 		resumed = request.ResumeSession != ""
+	}
+	if resumed && target.Harness == harness.Pi {
+		userHome, _ := os.UserHomeDir()
+		resumed = fleettree.SessionTranscript(userHome, "pi", request.ResumeSession) != ""
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared

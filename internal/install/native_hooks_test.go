@@ -7,8 +7,11 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
+
+// claudeEvents are the Claude Code events a fleet session reports its
+// session through.
+var claudeEvents = []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
 
 // isNativeHook reports whether hook runs cfo native-hook, which reports its
 // session to the supervisor, rather than a cfo hook.
@@ -54,7 +57,7 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 				events = append(events, hook.Event)
 			}
 			slices.Sort(events)
-			wantEvents := slices.Sorted(slices.Values(nativehook.Events("claude")))
+			wantEvents := slices.Sorted(slices.Values(claudeEvents))
 			if !slices.Equal(events, wantEvents) {
 				t.Fatalf("native hook events = %q, want each of %q once", events, wantEvents)
 			}

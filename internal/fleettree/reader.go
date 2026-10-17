@@ -369,7 +369,9 @@ func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
 // the board recorded none: Claude Code's record of its own process, or the
 // Codex rollout of the goblin's worktree written last, never a child
 // agent's nor a codex exec's, or the pi session of the goblin's worktree
-// written last. It is empty while the harness does not run.
+// written last, once written since pi started: pi writes a session only when
+// its first reply ends, so until then the newest is an earlier pi's. It is
+// empty while the harness does not run.
 func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -393,7 +395,11 @@ func (r *Reader) provedSession(ctx context.Context, goblin Goblin, harness Proce
 	case "codex":
 		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
 	case "pi":
-		return piSessionID(newestFile(PiSessions(r.Home, goblin.Meta.Worktree)))
+		path := newestFile(PiSessions(r.Home, goblin.Meta.Worktree))
+		if WrittenAt(path).Before(harness.Started) {
+			return ""
+		}
+		return piSessionID(path)
 	}
 	return ""
 }

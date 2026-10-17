@@ -247,24 +247,33 @@ func newPiSwitchFixture(t *testing.T) *switchFixture {
 // A pi goblin resumes its own conversation as Claude Code and Codex goblins
 // do: a switch that changes only its model, and the resume of a paused one,
 // start pi on the recorded session with --session, and hand it no written
-// handoff.
+// handoff. pi 0.85.1 writes a session's file only once its first reply ends
+// and exits on a --session it finds no file for, so a session pi has not
+// written yet starts pi cold with the handoff instead.
 func TestAPiGoblinResumesItsOwnSession(t *testing.T) {
+	const session = "01a14650-ac01-7127-9115-4f3a806b967f"
 	for _, test := range []struct {
-		name    string
-		request func(meta state.TaskMeta) SwitchRequest
+		name             string
+		isResume         bool
+		isSessionWritten bool
 	}{
-		{"a switch of its model", func(meta state.TaskMeta) SwitchRequest {
-			return SwitchRequest{ID: meta.ID, Model: "openrouter/deepseek/deepseek-v4.1-flash", Generation: meta.SpawnGen, ResumeSession: "01a14650-ac01-7127-9115-4f3a806b967f"}
-		}},
-		{"the resume of its pause", func(meta state.TaskMeta) SwitchRequest {
-			return SwitchRequest{ID: meta.ID, IsResume: true, ResumeSession: "01a14650-ac01-7127-9115-4f3a806b967f"}
-		}},
+		{"a switch of its model", false, true},
+		{"the resume of its pause", true, true},
+		{"a switch before pi wrote its session", false, false},
+		{"the resume of a pause before pi wrote its session", true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newPiSwitchFixture(t)
-			request := test.request(f.meta)
-			if request.IsResume {
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			if test.isSessionWritten {
+				sessions := makeDir(t, filepath.Join(profile, ".pi", "agent", "sessions", "--worktree--"))
+				writeFile(t, filepath.Join(sessions, "2026-10-16T09-00-00-000Z_"+session+".jsonl"), `{"type":"session","id":"`+session+`"}`+"\n")
+			}
+			request := SwitchRequest{ID: f.meta.ID, Model: "openrouter/deepseek/deepseek-v4.1-flash", Generation: f.meta.SpawnGen, ResumeSession: session}
+			if test.isResume {
+				request = SwitchRequest{ID: f.meta.ID, IsResume: true, ResumeSession: session}
 				if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
 					t.Fatal(err)
 				}
@@ -278,8 +287,12 @@ func TestAPiGoblinResumesItsOwnSession(t *testing.T) {
 				t.Fatalf("Switch: %v", err)
 			}
 			launches := named(f.events(t), "env")
-			if !result.Resumed || result.Handoff != "" || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "--session 01a14650-ac01-7127-9115-4f3a806b967f ") {
-				t.Fatalf("result = %+v, launches = %+v; want pi started on its own session and no handoff", result, launches)
+			if len(launches) != 1 {
+				t.Fatalf("launches = %+v, want pi started once", launches)
+			}
+			isOnSession := strings.HasPrefix(launches[0].Text, "--session "+session+" ")
+			if result.Resumed != test.isSessionWritten || isOnSession != test.isSessionWritten || (result.Handoff == "") != test.isSessionWritten {
+				t.Fatalf("result = %+v, launch = %q; want pi started on its own session with no handoff only when pi wrote it (%v), else cold with the handoff", result, launches[0].Text, test.isSessionWritten)
 			}
 		})
 	}
