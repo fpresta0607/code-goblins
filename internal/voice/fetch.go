@@ -188,9 +188,6 @@ func redirect(next *http.Request, via []*http.Request) error {
 	return nil
 }
 
-// download writes the part's archive to a file of its own in the temporary
-// folder, where one an ended install leaves is cleared with the rest, and
-// returns it, telling progress how much of it has arrived.
 // downloadAttempts is how many times a download is tried. A server can
 // answer for a moment with a 5xx or a 429, or drop the connection: on
 // 2026-10-17 GitHub's release host answered two CI runners' model downloads
@@ -199,28 +196,36 @@ func redirect(next *http.Request, via []*http.Request) error {
 // (Save-Download in install.ps1), and so does this.
 const downloadAttempts = 3
 
+// download writes the part's archive to a file of its own in the temporary
+// folder, where one an ended install leaves is cleared with the rest, and
+// returns it, telling progress how much of it has arrived.
 func (v *Voice) download(ctx context.Context, part Part, progress func(done int64)) (string, error) {
 	for attempt := 1; ; attempt++ {
 		file, err := v.downloadOnce(ctx, part, progress)
-		if err == nil || isLasting(err) || attempt == downloadAttempts || ctx.Err() != nil {
+		if err == nil || !isMomentary(err) || attempt == downloadAttempts || ctx.Err() != nil {
 			return file, err
 		}
 		waitToRetry(ctx, time.Duration(5*attempt)*time.Second)
 	}
 }
 
-// isLasting says whether a download's failure will not pass in seconds: an
-// answer other than a 5xx or a 429, such as a 404, or a connection that
-// could not be made at all, as on a PC with no network, which would only
-// keep the person waiting to be told to connect.
-func isLasting(err error) bool {
+// isMomentary says whether a download's failure may pass in seconds: the
+// server answered with a 5xx or a 429, the connection dropped, or it timed
+// out. Anything else fails at once: an answer that will not change, such as
+// a 404, a redirect refused, a certificate that does not verify, a file that
+// could not be written, or a connection that could not be made at all, as
+// on a PC with no network, which would only keep the person waiting to be
+// told to connect.
+func isMomentary(err error) bool {
 	var answer serverAnswer
 	if errors.As(err, &answer) {
-		return answer.code < 500 && answer.code != http.StatusTooManyRequests
+		return answer.code >= 500 || answer.code == http.StatusTooManyRequests
 	}
-	var refused *net.OpError
-	var unknown *net.DNSError
-	return errors.As(err, &unknown) || errors.As(err, &refused) && refused.Op == "dial"
+	var dropped *net.OpError
+	var timeout net.Error
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.As(err, &dropped) && (dropped.Op == "read" || dropped.Op == "write") ||
+		errors.As(err, &timeout) && timeout.Timeout()
 }
 
 // serverAnswer is a download the server answered with a status other than

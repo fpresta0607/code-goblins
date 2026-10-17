@@ -153,10 +153,11 @@ func TestAFetchLeavesWholeAReplacedFolderStillInUseAndRemovesItNextTime(t *testi
 // drops, is tried again, three attempts in all, as the install script tries
 // its own downloads: on 2026-10-17 GitHub's release host answered two CI
 // runners' model downloads 504 Gateway Timeout in the same minute, and both
-// installs ended without dictation (run 39019600037). An answer that will not
-// change, as a 404, is not tried again, and neither is a connection that
-// could not be made at all, as on a PC with no network, where waiting would
-// only keep the person from being told to connect.
+// installs ended without dictation (run 39019600037). Nothing else is tried
+// again: not an answer that will not change, as a 404, a redirect refused, or
+// a download that could not be written, and not a connection that could not
+// be made at all, as on a PC with no network, where waiting would only keep
+// the person from being told to connect.
 func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 	archive, err := os.ReadFile(filepath.Join("testdata", "part.tar.bz2"))
 	if err != nil {
@@ -166,16 +167,19 @@ func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 		name         string
 		failures     int32
 		status       int
+		isUnwritable bool
 		isFetched    bool
 		wantRequests int32
 		wantWaits    []time.Duration
 	}{
-		{"two 504s, then the archive", 2, http.StatusGatewayTimeout, true, 3, []time.Duration{5 * time.Second, 10 * time.Second}},
-		{"a 429, then the archive", 1, http.StatusTooManyRequests, true, 2, []time.Duration{5 * time.Second}},
-		{"a dropped connection, then the archive", 1, 0, true, 2, []time.Duration{5 * time.Second}},
-		{"three 503s", 3, http.StatusServiceUnavailable, false, 3, []time.Duration{5 * time.Second, 10 * time.Second}},
-		{"a 404", 1, http.StatusNotFound, false, 1, nil},
-		{"a refused connection, as with no network", -1, 0, false, 0, nil},
+		{"two 504s, then the archive", 2, http.StatusGatewayTimeout, false, true, 3, []time.Duration{5 * time.Second, 10 * time.Second}},
+		{"a 429, then the archive", 1, http.StatusTooManyRequests, false, true, 2, []time.Duration{5 * time.Second}},
+		{"a dropped connection, then the archive", 1, 0, false, true, 2, []time.Duration{5 * time.Second}},
+		{"three 503s", 3, http.StatusServiceUnavailable, false, false, 3, []time.Duration{5 * time.Second, 10 * time.Second}},
+		{"a 404", 1, http.StatusNotFound, false, false, 1, nil},
+		{"a redirect to an address that is not https", 1, http.StatusFound, false, false, 1, nil},
+		{"a download that cannot be written, as to a temporary folder that is gone", 0, 0, true, false, 1, nil},
+		{"a refused connection, as with no network", -1, 0, false, false, 0, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -185,6 +189,9 @@ func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 					w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
 					_, _ = w.Write(archive)
 					return
+				}
+				if test.status == http.StatusFound {
+					w.Header().Set("Location", "http://example.test/part.tar.bz2")
 				}
 				if test.status != 0 {
 					w.WriteHeader(test.status)
@@ -207,10 +214,16 @@ func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 			waitToRetry = func(_ context.Context, wait time.Duration) { waits = append(waits, wait) }
 			t.Cleanup(func() { waitToRetry = waited })
 			dir := t.TempDir()
+			if test.isUnwritable {
+				gone := filepath.Join(t.TempDir(), "gone")
+				t.Setenv("TMP", gone)
+				t.Setenv("TEMP", gone)
+			}
 			wanted := part("model", address+"/part.tar.bz2")
+			client := &http.Client{Transport: server.Client().Transport, CheckRedirect: redirect}
 
 			// Act
-			err := (&Voice{Dir: dir, Client: server.Client()}).fetch(context.Background(), wanted, quietPart)
+			err := (&Voice{Dir: dir, Client: client}).fetch(context.Background(), wanted, quietPart)
 
 			// Assert
 			if (err == nil) != test.isFetched {

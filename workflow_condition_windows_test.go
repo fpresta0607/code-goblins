@@ -116,10 +116,9 @@ func isTrue(value any) bool { return value == true || (value != false && value !
 // evaluate reads expression, one expression of a workflow with or without
 // its ${{ }}, as GitHub's expressions are read (docs.github.com, "Evaluate
 // expressions in workflows and actions"): a && or || gives the operand that
-// decides it, strings compare ignoring case, a number is its digits, and a
-// field values does not name is null. call answers each function the
-// expression calls with its arguments. What it does not follow fails the
-// test.
+// decides it, strings compare ignoring case, and a field values does not
+// name is null. call answers each function the expression calls with its
+// arguments. What it does not follow fails the test.
 func evaluate(t *testing.T, expression string, values map[string]any, call func(name string, args []any) any) any {
 	t.Helper()
 	source := expression
@@ -225,8 +224,6 @@ func evaluate(t *testing.T, expression string, values map[string]any, call func(
 			return value
 		case strings.HasPrefix(token, "'"):
 			return token[1 : len(token)-1]
-		case token != "" && unicode.IsDigit(rune(token[0])):
-			return token
 		case token == "" || !unicode.IsLetter(rune(token[0])):
 			t.Fatalf("expression %q has %q where a value belongs", source, token)
 		case take("("):

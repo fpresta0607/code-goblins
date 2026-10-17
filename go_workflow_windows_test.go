@@ -264,7 +264,9 @@ func TestGoWorkflowSplitsCmdCfoIntoThreeJobs(t *testing.T) {
 //
 // The group is read as GitHub Actions makes it for each kind of run, never
 // compared as text: a mistake in the expression that the test also made
-// would pass as text.
+// would pass as text. A group is shared across the repository's workflows,
+// so the runs of every workflow are read together, and no two workflows'
+// runs may share one.
 func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	// Arrange
 	type run struct {
@@ -296,62 +298,61 @@ func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 		t.Fatalf("workflows %v, want %v: say whether a new workflow's pull request runs are cancelled when superseded", names, want)
 	}
 
-	for name, isCancelling := range cancels {
-		t.Run(name, func(t *testing.T) {
-			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
-			if err != nil {
-				t.Fatal(err)
+	// Act
+	groups := map[[2]string]string{}
+	for _, name := range names {
+		source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var workflow struct {
+			Name        string `yaml:"name"`
+			Concurrency struct {
+				Group            string `yaml:"group"`
+				CancelInProgress bool   `yaml:"cancel-in-progress"`
+			} `yaml:"concurrency"`
+		}
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		isCancelling := cancels[name]
+		if workflow.Concurrency.CancelInProgress != isCancelling || (workflow.Concurrency.Group != "") != isCancelling {
+			t.Errorf("%s has concurrency group %q, cancel-in-progress %t; want a group that cancels %t", name, workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, isCancelling)
+			continue
+		}
+		if !isCancelling {
+			continue
+		}
+		for which, kind := range runs {
+			values := map[string]any{"github.workflow": workflow.Name, "github.event_name": kind.event, "github.run_id": fmt.Sprint(len(groups) + 1000)}
+			if kind.event == "pull_request" {
+				values["github.event.pull_request.number"] = kind.number
+				values["github.event.pull_request.draft"] = kind.isDraft
 			}
-
-			// Act
-			var workflow struct {
-				Concurrency struct {
-					Group            string `yaml:"group"`
-					CancelInProgress bool   `yaml:"cancel-in-progress"`
-				} `yaml:"concurrency"`
-			}
-			if err := yaml.Unmarshal(source, &workflow); err != nil {
-				t.Fatal(err)
-			}
-
-			groups := map[string]string{}
-			for which, kind := range runs {
-				values := map[string]any{"github.workflow": name, "github.event_name": kind.event, "github.run_id": fmt.Sprint(len(groups) + 1000)}
-				if kind.event == "pull_request" {
-					values["github.event.pull_request.number"] = kind.number
-					values["github.event.pull_request.draft"] = kind.isDraft
+			groups[[2]string{name, which}] = render(t, workflow.Concurrency.Group, values, func(function string, args []any) any {
+				if function != "format" || len(args) == 0 {
+					t.Fatalf("%s's group %q calls %s(), which this reading does not follow", name, workflow.Concurrency.Group, function)
 				}
-				groups[which] = render(t, workflow.Concurrency.Group, values, func(function string, args []any) any {
-					if function != "format" || len(args) == 0 {
-						t.Fatalf("group %q calls %s(), which this reading does not follow", workflow.Concurrency.Group, function)
+				formatted := fmt.Sprint(args[0])
+				for index, arg := range args[1:] {
+					if arg == nil {
+						arg = ""
 					}
-					formatted := fmt.Sprint(args[0])
-					for index, arg := range args[1:] {
-						if arg == nil {
-							arg = ""
-						}
-						formatted = strings.ReplaceAll(formatted, fmt.Sprintf("{%d}", index), fmt.Sprint(arg))
-					}
-					return formatted
-				})
-			}
-
-			// Assert
-			if workflow.Concurrency.CancelInProgress != isCancelling || (workflow.Concurrency.Group != "") != isCancelling {
-				t.Fatalf("concurrency group %q, cancel-in-progress %t; want a group that cancels %t", workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, isCancelling)
-			}
-			if !isCancelling {
-				return
-			}
-			for first, firstGroup := range groups {
-				for second, secondGroup := range groups {
-					isShared := first == second || slices.Contains(shared, [2]string{first, second}) || slices.Contains(shared, [2]string{second, first})
-					if (firstGroup == secondGroup) != isShared {
-						t.Errorf("%s is in group %q and %s in %q; want them to share one %t", first, firstGroup, second, secondGroup, isShared)
-					}
+					formatted = strings.ReplaceAll(formatted, fmt.Sprintf("{%d}", index), fmt.Sprint(arg))
 				}
+				return formatted
+			})
+		}
+	}
+
+	// Assert
+	for first, firstGroup := range groups {
+		for second, secondGroup := range groups {
+			isShared := first == second || first[0] == second[0] && (slices.Contains(shared, [2]string{first[1], second[1]}) || slices.Contains(shared, [2]string{second[1], first[1]}))
+			if (firstGroup == secondGroup) != isShared {
+				t.Errorf("%s's %s is in group %q and %s's %s in %q; want them to share one %t", first[0], first[1], firstGroup, second[0], second[1], secondGroup, isShared)
 			}
-		})
+		}
 	}
 }
 
