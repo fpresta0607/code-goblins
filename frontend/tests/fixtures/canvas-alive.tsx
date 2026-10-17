@@ -40,7 +40,7 @@ const snapshot = () => parseSnapshot({ healthy: true, instance: "canvas-alive", 
     tree: { task_id: "cg-tests", generation: "g-cg-tests", harness: "claude", memory: 0, own_memory: 0, children: families["cg-tests"], source_updated_at: minutes(0), fetched_at: minutes(0) } }),
   task("pd-email", { title: "Send the tenant emails", goblin_name: "Mabel", goblin_title: "Email Elf", project: "PrecisionDocs-AI", phase: "working", activity: "working: report " + activity["pd-email"],
     tree: { task_id: "pd-email", generation: "g-pd-email", harness: "claude", memory: 0, own_memory: 0, children: families["pd-email"], source_updated_at: minutes(0), fetched_at: minutes(0) } }),
-  task("cg-tour", { title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", phase: "paused", activity: "paused" }),
+  task("cg-tour", { title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", phase: "waiting", waiting_on: "ci", activity: "waiting" }),
 ] });
 
 // step changes one goblin's family as a snapshot would show it.
