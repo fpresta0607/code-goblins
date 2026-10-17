@@ -265,10 +265,26 @@ export interface WorkflowNode {
 
 export const CFO_ROOT = "cfo:primary";
 
+// liveCfoSession is the session every surface reads the CFO's status from:
+// the registered CFO's own, and while no registration names one, the newest
+// CFO session still running. An ended CFO session never stands in for the
+// CFO (the Overlord, 2026-10-17, of the panel reading Session ended: "it says
+// session ended when it's truly working").
+export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_session">): Session | undefined {
+  if (snapshot.cfo_session) return snapshot.sessions.find((session) => session.id === snapshot.cfo_session);
+  return snapshot.sessions.filter((session) => session.role === "cfo" && session.phase !== "ended").at(-1);
+}
+
+// isPastCfo says a CFO session is not the CFO's own: it ended, or a
+// registration names another.
+const isPastCfo = (snapshot: Pick<Snapshot, "cfo_session">, session: Session) =>
+  session.role === "cfo" && (session.phase === "ended" || !!snapshot.cfo_session && session.id !== snapshot.cfo_session);
+
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
-  // A retired task's sessions and an ended CFO's leave the tree, and with an
-  // ended CFO its ended sub-agents, so none of them is left a stray card.
-  const gone = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session) || session.role === "cfo" && session.phase === "ended").map((session) => session.id));
+  // A retired task's sessions and a CFO's that is not the CFO's own leave the
+  // tree, and with such a CFO its ended sub-agents, so none of them is left a
+  // stray card and the root is the CFO that runs.
+  const gone = new Set(snapshot.sessions.filter((session) => isRetiredSession(snapshot.tasks, session) || isPastCfo(snapshot, session)).map((session) => session.id));
   for (let changed = true; changed;) {
     changed = false;
     for (const session of snapshot.sessions) if (!gone.has(session.id) && session.phase === "ended" && gone.has(session.parent)) { gone.add(session.id); changed = true; }

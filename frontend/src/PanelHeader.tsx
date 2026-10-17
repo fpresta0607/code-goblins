@@ -5,7 +5,7 @@ import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { ALREADY_FINISHED, harnessName, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, harnessName, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
@@ -40,7 +40,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
   const owner = !!task && ownsTaskSession(node, task);
-  const cfoSession = snapshot.sessions.find((session) => session.role === "cfo");
+  const cfoSession = liveCfoSession(snapshot);
   const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task ? goblinName(task) : "";
   const trains = snapshot.merge_trains ?? [];
   // A goblin's own panel reads its task's one status, as its card does; the
