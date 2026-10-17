@@ -1690,8 +1690,10 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	u.awaitBoard()
 	running := serveProcess{pid: candidateServe.Process.Pid, start: u.started[candidateServe]}
 
+	// Refused once on main's CI (merge train for PR 972) as "being used by
+	// another process", which names no one (#973).
 	if err := os.Rename(alias, alias+".candidate-aside"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v: %s", err, holdersOf(alias))
 	}
 	if err := os.WriteFile(alias, u.previous, 0o755); err != nil {
 		t.Fatal(err)

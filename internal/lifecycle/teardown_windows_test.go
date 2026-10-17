@@ -53,7 +53,14 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 				t.Cleanup(func() { windows.CloseHandle(retained) })
 			}
 			var wasTerminated atomic.Bool
+			// How long the stop took, apart from the rest of the pause, which
+			// a pause that outlasts its deadline names: on PR 992 (run
+			// 38802190640) one took 49.7 s, alone in a package whose others
+			// ran at their usual pace, and said nothing of where (#993).
+			var stopTook time.Duration
 			service.Operations.Stop = func(ctx context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				stopBegan := time.Now()
+				defer func() { stopTook = time.Since(stopBegan) }()
 				stopped, teardown, err := stopResources(ctx, Resources{Directories: []string{meta.TaskTmp}}, func(ctx context.Context, found Identity) (bool, error) {
 					if found != identity {
 						return false, errors.New("unexpected owned identity")
@@ -79,8 +86,8 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 			defer cancel()
 			begin := time.Now()
 			record, err := service.Run(ctx, Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-teardown", Action: "pause", Reason: "overlord"})
-			if time.Since(begin) >= 10*time.Second {
-				t.Fatal("Pause exceeded its ten-second deadline")
+			if took := time.Since(begin); took >= 10*time.Second {
+				t.Fatalf("Pause exceeded its ten-second deadline: it took %s, %s of it in the stop and its sweep, the rest in its own locks, records and handoff wait; it ended %s with %v (problems %q)", took, stopTook, record.Phase, err, record.Problems)
 			}
 			if testCase.shouldFail {
 				if err == nil || record.Phase != "failed" {

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
@@ -71,7 +73,8 @@ func pages(ctx context.Context, address string) ([]page, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.New("the browser did not list its pages")
+		said, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return nil, fmt.Errorf("the browser did not list its pages: it answered %s: %s", response.Status, strings.TrimSpace(string(said)))
 	}
 	var listed []page
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&listed); err != nil {

@@ -421,6 +421,45 @@ func TestNoisePassesOverWhatTheRunnersGuestAgentLeavesButNotOurs(t *testing.T) {
 	}
 }
 
+// Windows' own Microsoft account and Live sign-in write a credential for the
+// profile by themselves, at a time of their own: in run 38978481733 four of
+// five jobs' runners held WindowsLive:target=virtualapp/didlogical before the
+// install began, and the fifth came to hold it during its job, which named it
+// left by the install. Code Goblins writes only credentials named cfo:, so
+// that one is passed over and ours, one beside it and one the uninstall took
+// are still named.
+func TestNoisePassesOverWindowsOwnLiveCredentialButNeverOurs(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		difference difference
+		isNamed    bool
+	}{
+		{"Windows' own Live credential, come during the run", difference{Change: changeLeft, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/didlogical`}, false},
+		{"our credential", difference{Change: changeLeft, Kind: kindCredential, Identity: `LegacyGeneric:target=cfo:DEMO_TOKEN`}, true},
+		{"a Live credential naming cfo", difference{Change: changeLeft, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/cfo`}, true},
+		{"another program's credential", difference{Change: changeLeft, Kind: kindCredential, Identity: `LegacyGeneric:target=git:https://github.com`}, true},
+		{"Windows' own Live credential, taken by the uninstall", difference{Change: changeGone, Kind: kindCredential, Identity: `WindowsLive:target=virtualapp/didlogical`}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			before, after := newSnapshot(time.Unix(0, 0)), newSnapshot(time.Unix(0, 0))
+			if tc.difference.Change == changeGone {
+				before.add(tc.difference.Kind, tc.difference.Identity, "")
+			} else {
+				after.add(tc.difference.Kind, tc.difference.Identity, "")
+			}
+
+			// Act
+			remaining, _ := compare(before, after, nil, noise())
+
+			// Assert
+			if (len(remaining) == 1) != tc.isNamed {
+				t.Errorf("named %v, want named %t", remaining, tc.isNamed)
+			}
+		})
+	}
+}
+
 // The rule for HKCU\Software\Classes, and why. Windows registers each of
 // its own packaged apps' file types, links and classes there as it
 // provisions the app for a profile, at times of its own, under names of the
