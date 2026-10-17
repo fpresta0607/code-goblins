@@ -419,7 +419,7 @@ The header switches between two views, one at a time, each with a contextual pan
   Real tasks sit in **Tasks**, **In progress** and **Completed**, side by side as a kanban; the layout button in the top bar switches to a stacked layout, one column under another, and your browser remembers the choice.
   An open panel leaves the kanban the width its three columns need whenever the window can hold both; in a window too narrow for that the board stacks and the layout button says why.
   Goblins stopped for memory, or by your own Pause, sit at the bottom of In progress, under a **Paused** divider, and keep their Resume and Stop.
-  Paused runs in the order its goblins resume: **Next up** first, then the others paused for memory in your In progress order, then those paused until a time, earliest first, then those waiting on another task, a pull request or a person.
+  Paused runs in the order its goblins resume: a goblin resuming now or one you clicked Resume on first, then **Next up**, then the others paused for memory in your In progress order, then those paused until a time, earliest first, then those waiting on another task, a pull request or a person.
   A goblin paused to wait on something, such as its pull request's merge train, stays among the working cards.
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.

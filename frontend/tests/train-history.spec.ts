@@ -311,7 +311,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
         await expect(card(page, name).locator(".card-checks")).toHaveAttribute("aria-label", /^Landed: /);
       }
-      await expect(pausedSection(page).locator(".card-title")).toHaveText(["Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model", "Otis - Ledger Clerk"]);
+      await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model"]);
       await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
     });
 

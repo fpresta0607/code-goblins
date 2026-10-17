@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 import type { Task } from "./types";
 import { message, request } from "./api";
 import { object } from "./types";
@@ -23,11 +23,12 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // with the card. Paused shows no numbers and keeps the order its goblins
 // resume in (resumeOrder), so arrange puts a drop back in that order, and a
 // drop that order undoes goes back and says so. saves is the whole order a
-// drop saves, given this list's.
-export function RankedCards({ list, tasks, instance, revision, empty, renderCard, saves = (order) => order, arrange = (shown) => shown }: {
+// drop saves, given this list's, and shownRef holds the order the list shows
+// while it is on the board.
+export function RankedCards({ list, tasks, instance, revision, empty, renderCard, saves = (order) => order, arrange = (shown) => shown, shownRef }: {
   list: "queued" | "progress" | "paused"; tasks: Task[]; instance: string; revision: number; empty: ReactNode;
   renderCard: (task: Task, rank: string, index: number) => ReactNode;
-  saves?: (order: string[]) => string[]; arrange?: (shown: Task[]) => Task[];
+  saves?: (order: string[]) => string[]; arrange?: (shown: Task[]) => Task[]; shownRef?: RefObject<string[]>;
 }) {
   const [pending, setPending] = useState<{ order: string[]; revision: number } | null>(null);
   const [note, setNote] = useState("");
@@ -38,6 +39,11 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   // with, and one the list no longer fits gives way to the supervisor's.
   if (pending && (revision >= pending.revision || pendingSettled(tasks.map((task) => task.id), pending.order))) setPending(null);
   const listed = arrange(orderShown(tasks, pending?.order || null));
+  useLayoutEffect(() => {
+    if (!shownRef) return;
+    shownRef.current = listed.map((task) => task.id);
+    return () => { shownRef.current = []; };
+  });
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const pagerRef = useRef<HTMLDivElement>(null);

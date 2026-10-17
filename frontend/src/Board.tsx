@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { BoardActivity, MergeTrain, Snapshot, Task } from "./types";
 import { CfoPin } from "./CfoPin";
 import { Disclosure } from "./Disclosure";
@@ -41,6 +42,8 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
   const paused = resumeOrder(snapshot.tasks.filter((task) => taskColumn(task) === "Paused"), snapshot.tasks, now);
   const working = inProgressCards(snapshot.tasks.filter((task) => taskColumn(task) === "In progress"));
   const ids = (tasks: Task[]) => tasks.map((task) => task.id);
+  const workingShown = useRef<string[]>([]);
+  const pausedShown = useRef<string[]>([]);
   const trainsIn = (name: string) => (snapshot.merge_trains ?? []).filter((train) => trainSection(train) === name);
   const history = trainsIn("Train history");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
@@ -54,12 +57,12 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
         <h2>{column.name}<span className="column-count">{tasks.length}</span></h2>
         {trains.length > 0 && <div className="train-cards">{trains.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} selected={train.id === selectedTrain} onSelect={onSelectTrain} />)}</div>}
         {column.list === "queued" ? <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={onSelect} />
-          : <RenderBoundary scope="list">{column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} saves={(order) => [...order, ...ids(paused)]} />
+          : <RenderBoundary scope="list">{column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} shownRef={workingShown} saves={(order) => [...order, ...(pausedShown.current.length ? pausedShown.current : ids(paused))]} />
             : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}</RenderBoundary>}
         {column.list === "progress" && paused.length > 0 && <section className="paused-tasks" aria-label="Paused">
           <h3 className="column-divider">Paused<span className="column-count">{paused.length}</span></h3>
           <RenderBoundary scope="list"><RankedCards list="paused" tasks={paused} instance={snapshot.instance} revision={snapshot.revision} empty={null} renderCard={card}
-            saves={(order) => [...ids(working), ...order]} arrange={(shown) => resumeOrder(shown, snapshot.tasks, now)} /></RenderBoundary>
+            shownRef={pausedShown} saves={(order) => [...(workingShown.current.length ? workingShown.current : ids(working)), ...order]} arrange={(shown) => resumeOrder(shown, snapshot.tasks, now)} /></RenderBoundary>
         </section>}
       </section>;
     })}

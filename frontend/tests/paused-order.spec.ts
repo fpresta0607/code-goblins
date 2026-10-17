@@ -144,3 +144,18 @@ test("a drag among the working goblins keeps the paused goblins' order after the
   // Assert
   await expect.poll(() => posted).toEqual([{ path: "/api/order", body: { list: "progress", order: ["working-two", "working-one", ...RESUME_ORDER] } }]);
 });
+
+test("a drag among the working goblins before the snapshot catches up keeps a paused drop it has not seen", async ({ page }) => {
+  // Arrange
+  const { section, posted } = await open(page);
+  const progress = page.getByRole("region", { name: "In progress", exact: true }).locator(".task-cards.ranked").first();
+  await drag(page, section.locator("[data-sort-id='dex']"), section.locator("[data-sort-id='greta']"));
+  await expect.poll(() => posted.length).toBe(1);
+
+  // Act: no snapshot at the saved revision has streamed in.
+  await drag(page, progress.locator("[data-sort-id='working-two']"), progress.locator("[data-sort-id='working-one']"));
+
+  // Assert
+  await expect.poll(() => posted.length).toBe(2);
+  expect(posted[1]).toEqual({ path: "/api/order", body: { list: "progress", order: ["working-two", "working-one", "dex", "greta", ...RESUME_ORDER.slice(2)] } });
+});
