@@ -3,9 +3,9 @@ name: go
 on:
   push:
     branches: [main]
-  # A draft runs nothing but the draft job: its goblin pushes fix rounds to
-  # it before its head is final, and marking it ready runs every job on that
-  # head. A draft cannot merge, so its test check, skipped, approves nothing.
+  # A draft runs nothing: its goblin pushes fix rounds to it before its head
+  # is final, and marking it ready runs every job on that head. A draft
+  # cannot merge, so its test check, skipped, approves nothing.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   # The merge queue tests each group of pull requests on main's tip before it
@@ -97,33 +97,8 @@ env:
 # the one check branch protection requires, and it passes only when every
 # job the plan started passed.
 jobs:
-  # A run whose event saw a draft asks GitHub whether the pull request is a
-  # draft now, and every other job runs unless it still is. An event can see
-  # the pull request as it was a moment before: on 2026-10-15 PR 961 was
-  # marked ready and pushed to within seconds, the push's event still saw a
-  # draft, and its run, which skipped every job, cancelled the ready run as
-  # it joined the pull request's group, so no run tested its last head. A
-  # read that fails runs every job, as for a pull request that is ready.
-  draft:
-    if: github.event.pull_request.draft
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    outputs:
-      draft: ${{ steps.read.outputs.draft }}
-    steps:
-      - name: Read whether the pull request is a draft now
-        id: read
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PULL_REQUEST: repos/${{ github.repository }}/pulls/${{ github.event.number }}
-        run: |
-          draft=$(gh api "$PULL_REQUEST" --jq .draft)
-          echo "draft=$draft" >> "$GITHUB_OUTPUT"
-
   plan:
-    needs: draft
-    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' }}
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: windows-latest
     # A push reads the records pull request runs left (tools/pushreuse).
     permissions:
@@ -466,8 +441,8 @@ jobs:
   # whose plan found a pull request run that passed its exact tree on the
   # same main, which leaves every job out.
   test:
-    if: ${{ always() && needs.draft.outputs.draft != 'true' }}
-    needs: [draft, plan, frontend, browser, go]
+    if: ${{ always() && !github.event.pull_request.draft }}
+    needs: [plan, frontend, browser, go]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -480,8 +455,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           $needs = $env:RESULTS | ConvertFrom-Json
-          # The draft job tests nothing: it only says whether this run runs.
-          $jobs = @($needs.PSObject.Properties | Where-Object Name -ne 'draft')
+          $jobs = @($needs.PSObject.Properties)
           $jobs | ForEach-Object { "$($_.Name): $($_.Value.result)" }
           $plan = $needs.plan
           # What the plan left out, which only a plan that succeeded and said
