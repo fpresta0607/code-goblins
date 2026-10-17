@@ -461,15 +461,17 @@ jobs:
         run: go build ./cmd/cfo
 
   # The check branch protection requires. It runs whatever happened above,
-  # and fails unless the plan succeeded and every job it started succeeded: a
-  # job that failed or was cancelled is not a pass, and neither is one that
-  # was skipped unless the plan left it out. Only a pull request's own run
-  # may leave a job out: in a merge train's run and every other, a job that
-  # did not succeed fails the check whatever the plan said, but for a push
-  # whose plan found a pull request run that passed its exact tree on the
-  # same main, which leaves every job out.
+  # but in a run of a draft and in one whose event saw a draft and that was
+  # cancelled, as marking the pull request ready cancels it with a run of its
+  # own. It fails unless the plan succeeded and every job it started
+  # succeeded: a job that failed or was cancelled is not a pass, and neither
+  # is one that was skipped unless the plan left it out. Only a pull
+  # request's own run may leave a job out: in a merge train's run and every
+  # other, a job that did not succeed fails the check whatever the plan said,
+  # but for a push whose plan found a pull request run that passed its exact
+  # tree on the same main, which leaves every job out.
   test:
-    if: ${{ always() && needs.draft.outputs.draft != 'true' }}
+    if: ${{ always() && needs.draft.outputs.draft != 'true' && (needs.draft.result == 'skipped' || !cancelled()) }}
     needs: [draft, plan, frontend, browser, go]
     runs-on: ubuntu-latest
     permissions:

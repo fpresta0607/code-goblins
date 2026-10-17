@@ -361,8 +361,10 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
-// The one run it skips is one of a pull request that is a draft, which
-// cannot merge.
+// It skips only a run of a pull request that is a draft, which cannot merge,
+// and one whose event saw a draft and that was cancelled, as marking the pull
+// request ready cancels it with a run of its own
+// (TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady).
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	// Arrange
 	jobs := goWorkflowJobs(t)
@@ -382,8 +384,15 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	if len(others) == 0 || !slices.Equal(needs, others) {
 		t.Errorf("test needs %v, want every other job: %v", needs, others)
 	}
-	if want := "${{ always() && " + draftCondition + " }}"; check.If != want {
-		t.Errorf("test runs if %q, want %q, so a failed or cancelled job cannot leave it skipped", check.If, want)
+	for name, run := range map[string]pullRequestRun{
+		"a job failed in a run whose event saw no draft":              {draft: "skipped", others: "failure"},
+		"a run whose event saw no draft was cancelled":                {draft: "skipped", others: "cancelled", isCancelled: true},
+		"a job failed once the draft job read the pull request ready": {isDraftSeen: true, draft: "success", read: "false", others: "failure"},
+		"a job failed once the draft job could not read":              {isDraftSeen: true, draft: "failure", others: "failure"},
+	} {
+		if !jobStarts(t, check.If, check.Needs, run) {
+			t.Errorf("test runs if %q, so it is skipped when %s, and a skipped check passes", check.If, name)
+		}
 	}
 }
 
@@ -410,6 +419,11 @@ const draftJobCondition = "github.event.pull_request.draft"
 // cancelled the ready run as it joined the pull request's concurrency group,
 // so no run tested the last head (#963). A job that skipped on what the
 // event saw would skip that run again.
+//
+// A run whose event saw a draft starts nothing either once it is cancelled,
+// as the run of marking the pull request ready cancels it on the same head:
+// a required check it started would fail beside the ready run's and hold the
+// pull request back.
 func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
@@ -477,11 +491,20 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 					}
 					continue
 				}
-				if !strings.Contains(spec.If, draftCondition) || strings.Contains(spec.If, draftJobCondition) {
-					t.Errorf("%s job %s runs if %q, want it to skip only what the draft job read as a draft, %q", name, job, spec.If, draftCondition)
-				}
-				if !strings.Contains(spec.If, "always()") && !strings.Contains(spec.If, "!cancelled()") {
-					t.Errorf("%s job %s runs if %q, which a skipped draft job, as in every run whose event saw no draft, skips too", name, job, spec.If)
+				for when, test := range map[string]struct {
+					run         pullRequestRun
+					shouldStart bool
+				}{
+					"the event saw no draft":                                        {pullRequestRun{draft: "skipped", others: "skipped"}, true},
+					"the draft job read that the pull request is ready now":         {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "skipped"}, true},
+					"the draft job could not read the pull request":                 {pullRequestRun{isDraftSeen: true, draft: "failure", others: "skipped"}, true},
+					"the draft job read a draft":                                    {pullRequestRun{isDraftSeen: true, draft: "success", read: "true", others: "skipped"}, false},
+					"the run that saw a draft was cancelled before it read":         {pullRequestRun{isDraftSeen: true, draft: "cancelled", others: "skipped", isCancelled: true}, false},
+					"the run that saw a draft was cancelled after it read it ready": {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "cancelled", isCancelled: true}, false},
+				} {
+					if starts := jobStarts(t, spec.If, spec.Needs, test.run); starts != test.shouldStart {
+						t.Errorf("%s job %s runs if %q, so it starts %v when %s, want %v", name, job, spec.If, starts, when, test.shouldStart)
+					}
 				}
 			}
 			runDraftStep(t, draft.Steps[0].Run)
@@ -504,7 +527,7 @@ func runDraftStep(t *testing.T, script string) {
 		t.Skip("the step runs in Git's bash, and git is not installed")
 	}
 	// Git's own bash, never the one Windows may have on its path for WSL.
-	// git.exe is in Git's cmd, bin or mingw64in folder.
+	// git.exe is in Git's cmd, bin or mingw64\bin folder.
 	bash := ""
 	for dir := filepath.Dir(git); bash == "" && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "bin", "bash.exe")); err == nil {

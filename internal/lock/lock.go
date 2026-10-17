@@ -310,7 +310,7 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 		err := writeInfo(ctx, path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := read(ctx, dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
+			if verified, verr := read(context.WithoutCancel(ctx), dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
 				return self, nil
 			}
 			// Either we lost the race (another acquirer wrote after us) or the
