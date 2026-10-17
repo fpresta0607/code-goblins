@@ -247,7 +247,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card time" "card icons"; align-items: start; column-gap: 12px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-clock { grid-area: time; justify-self: end; white-space: nowrap; }
-.task-card-shell > .card-clock .icon { display: none; }
 .task-card-shell > .card-icons { grid-area: icons; justify-self: end; align-self: end; display: flex; align-items: center; gap: 10px; }
 .card-icons .icon { width: 18px; height: 18px; }
 .card-harness .mark { width: 40px; height: 40px; }
