@@ -23,7 +23,7 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	store, _ := testStore(t)
 	primary, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -32,10 +32,10 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if len(store.Snapshot().Questions) != 1 {
 		t.Fatal("missing published question")
 	}
-	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, ""); err == nil {
+	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, "", ""); err == nil {
 		t.Fatal("conflicting durable ID published")
 	}
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", ""); err != nil {
 		t.Fatal(err)
 	}
 	primary.Process.PID = 1
@@ -43,8 +43,42 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, ""); err == nil {
+	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, "", ""); err == nil {
 		t.Fatal("non-CFO published a user modal")
+	}
+}
+
+// The CFO's question can name the goblin whose decision it puts to the
+// Overlord, as pd-mcp-only's parity sizing was on 2026-10-17, so the board
+// shows that goblin's follow-up wait on him under it. A task the fleet does
+// not know is refused, and so is the same ID for another goblin.
+func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
+	meta := makeNative(t, store.Home.State, "task-1")
+
+	// Act
+	err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID)
+	unknown := cfo.PublishQuestion("other-parity", "Build them?", []string{"Yes", "No"}, "", "no-such-task")
+	other := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", "")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Questions; len(got) != 1 || got[0].ForTask != meta.ID || got[0].Task != "" {
+		t.Fatalf("questions = %+v, want the CFO's own question for %s", got, meta.ID)
+	}
+	if unknown == nil || !strings.Contains(unknown.Error(), "no-such-task") {
+		t.Errorf("a question for a task the fleet does not know = %v, want it refused", unknown)
+	}
+	if other == nil || !strings.Contains(other.Error(), "already used") {
+		t.Errorf("the same ID decided for no goblin = %v, want it refused", other)
 	}
 }
 

@@ -75,6 +75,11 @@ type Question struct {
 	// the CFO as this question, so an answer to it is the answer to that page.
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
+	// ForTask names the goblin whose decision the CFO's own question puts
+	// to the Overlord, so the board shows that goblin's wait on him for it
+	// under the question. It is empty for a goblin's question, whose Task
+	// names it.
+	ForTask string `json:"for_task,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -94,6 +99,9 @@ func validQuestion(q Question) error {
 	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
+	if q.ForTask != "" && (q.Task != "" || state.ValidTaskID(q.ForTask) != nil) {
+		return errors.New("only the CFO's own question names a goblin it decides for, by its task ID")
+	}
 	if len(q.Images) > 0 && (q.Task == "" || len(q.Images) != len(q.Options)) {
 		return errors.New("only a goblin's question takes images, one for each choice it offers")
 	}
@@ -106,7 +114,7 @@ func validQuestion(q Question) error {
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && slices.Equal(a.Images, b.Images)
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && a.ForTask == b.ForTask && slices.Equal(a.Images, b.Images)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane
@@ -933,15 +941,22 @@ func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
-func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended string) error {
+// forTask, when set, is the goblin task whose decision the question puts to
+// the Overlord, which the fleet must know.
+func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string) error {
 	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
 	}
 	defer release()
-	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending"}
+	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", ForTask: forTask}
 	if err := validQuestion(q); err != nil {
 		return err
+	}
+	if forTask != "" {
+		if _, err := state.ReadTaskMeta(c.State, forTask); err != nil {
+			return fmt.Errorf("the question decides for %s, which the fleet does not know: %w", forTask, err)
+		}
 	}
 	return sendPipeRequest(c.State, runPipeRequest{Kind: "question", Question: &q})
 }
