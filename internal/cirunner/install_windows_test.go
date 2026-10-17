@@ -3,6 +3,7 @@ package cirunner
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -20,22 +22,37 @@ import (
 // Every script the install runs is one Windows PowerShell parses without
 // error, so none fails first on the Overlord's machine.
 func TestInstallScriptsParse(t *testing.T) {
-	shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-	const parse = "$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:CG_CI_SCRIPT, [ref]$null, [ref]$errors); $errors | ForEach-Object { $_.Message }; exit $errors.Count"
-	for name, text := range map[string]string{"check": checkScript, "folder": folderScript, "disk": diskScript, "vm": vmScript, "network": networkScript, "checkpoint": checkpointScript, "service": serviceScript, "start": startScript, "machine": machineScript, "remove the service": removeServiceScript, "remove the VM": removeVMScript, "remove the folder": removeFolderScript} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			command := execx.CommandContext(context.Background(), shell, "-NoProfile", "-NonInteractive", "-Command", parse)
-			command.Env = append(os.Environ(), "CG_CI_SCRIPT=$ErrorActionPreference = 'Stop'; "+text)
+	// Arrange
+	scripts := map[string]string{"check": checkScript, "folder": folderScript, "disk": diskScript, "vm": vmScript, "network": networkScript, "checkpoint": checkpointScript, "service": serviceScript, "start": startScript, "machine": machineScript, "remove the service": removeServiceScript, "remove the VM": removeVMScript, "remove the folder": removeFolderScript}
+	names := slices.Sorted(maps.Keys(scripts))
+	texts := make([]string, len(names))
+	for i, name := range names {
+		texts[i] = "$ErrorActionPreference = 'Stop'; " + scripts[name]
+	}
 
-			// Act
-			output, err := command.CombinedOutput()
+	// Act
+	said := parseErrors(t, texts)
 
-			// Assert
-			if err != nil {
-				t.Errorf("the %s script does not parse: %v: %s", name, err, strings.TrimSpace(string(output)))
-			}
-		})
+	// Assert
+	for i, name := range names {
+		if said[i] != "" {
+			t.Errorf("the %s script does not parse: %s", name, said[i])
+		}
+	}
+}
+
+// The parse check names a script that does not parse, and passes one that
+// does, so a script it could not read never passes as parsed.
+func TestParseErrorsSaysWhatDoesNotParse(t *testing.T) {
+	// Arrange
+	texts := []string{"'fine'", "if ($true) {", "Get-Item -LiteralPath 'x'"}
+
+	// Act
+	said := parseErrors(t, texts)
+
+	// Assert
+	if said[0] != "" || !strings.Contains(said[1], "Missing closing '}'") || said[2] != "" {
+		t.Errorf("the parse said %q; want only the second script refused for its missing '}'", said)
 	}
 }
 
@@ -357,6 +374,56 @@ func TestTheInstallRefusesAProgramOutsideProgramFiles(t *testing.T) {
 func runStubbed(t *testing.T, stubs, script string, env ...string) (string, error) {
 	t.Helper()
 	return powerShell(context.Background(), execx.OSRunner{}, installStepLimit, "run a script with stand-ins", stubs+"\n"+script, env...)
+}
+
+// parseErrors parses each of texts with Windows PowerShell's own parser and
+// returns what it said of each, in their order: nothing of one that parses.
+// One Windows PowerShell parses them all: on a slow CI runner each one
+// started took up to a minute and a half, and this package, starting them
+// one after another, ran past its 20 minutes (#1017). Each text reaches it
+// in a variable of its own, and it says how long each text it parsed was,
+// so a text it never read fails the test instead of passing unparsed.
+func parseErrors(t *testing.T, texts []string) []string {
+	t.Helper()
+	env := make([]string, len(texts))
+	for i, text := range texts {
+		env[i] = fmt.Sprintf("CG_CI_SCRIPT_%d=%s", i, text)
+	}
+	parse := fmt.Sprintf(`foreach ($i in 0..%d) {
+  $text = [Environment]::GetEnvironmentVariable('CG_CI_SCRIPT_' + $i)
+  $errors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
+  "$i parsed $($text.Length)"
+  foreach ($e in $errors) { "$i error " + ($e.Message -replace '\s+', ' ') }
+}`, len(texts)-1)
+	output, err := powerShell(context.Background(), execx.OSRunner{}, installStepLimit, "parse the scripts", parse, env...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := make([]string, len(texts))
+	parsed := make([]int, len(texts))
+	for _, line := range strings.Split(output, "\n") {
+		index, rest, _ := strings.Cut(strings.TrimSpace(line), " ")
+		kind, what, _ := strings.Cut(rest, " ")
+		i, err := strconv.Atoi(index)
+		if err != nil || i < 0 || i >= len(texts) {
+			t.Fatalf("the parse said %q; want a line about one of the %d scripts", line, len(texts))
+		}
+		switch kind {
+		case "parsed":
+			parsed[i], _ = strconv.Atoi(what)
+		case "error":
+			said[i] = strings.TrimSpace(said[i] + " " + what)
+		default:
+			t.Fatalf("the parse said %q; want what it parsed or an error", line)
+		}
+	}
+	for i, text := range texts {
+		if want := len(utf16.Encode([]rune(text))); parsed[i] != want {
+			t.Fatalf("Windows PowerShell parsed %d characters of script %d; want its %d: %s", parsed[i], i, want, output)
+		}
+	}
+	return said
 }
 
 // The VM's jobs may reach no address in closedRanges but by DNS and DHCP, the
