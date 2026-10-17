@@ -32,7 +32,8 @@ import (
 // cfoBackCap times in a row, each soon after it started again: it stays
 // stopped, with one wake for the next CFO and one Command Center item for the
 // Overlord, whose one action is Reopen. A CFO the supervisor could not bring
-// back is told of the same way.
+// back is told of the same way, unless the CFO it started ended while it
+// started, which is one more end for the next look.
 // On 2026-10-16 and again on 2026-10-17 the CFO's Claude Code ended with exit
 // code 1 right after a turn ended, and it stayed closed, the first time for
 // 16 hours, until the Overlord reopened it and typed its first instruction.
@@ -137,8 +138,9 @@ func (s *Service) keepCFOBack(ctx context.Context, every time.Duration) {
 
 // bringEndedCFOBack brings the home's CFO back when its terminal ended in this
 // sign-in while nobody asked it to stop, once for each end, and leaves it
-// stopped at the cap or when it could not bring it back. An end joins the row
-// when its CFO ran under cfoBackHeld and started within cfoBackHeld of the
+// stopped at the cap or when it could not bring it back and no newer end came
+// of the try; a newer end is the next look's, as any end is. An end joins the
+// row when its CFO ran under cfoBackHeld and started within cfoBackHeld of the
 // row's last end; otherwise the row starts again, with that end when its CFO
 // ran under cfoBackHeld. A CFO of the sign-in before is the comeback's, and a
 // CFO that runs again takes back the item that left it stopped.
@@ -224,7 +226,10 @@ func (s *Service) bringEndedCFOBack(ctx context.Context, now time.Time) error {
 	s.notify()
 	if err := comeback.CFOEnded(ctx, ended.Why); err != nil {
 		record.Problem = err.Error()
-		stopErr := s.leaveCFOStopped(fmt.Sprintf("The CFO did not come back after %s: %v", ended.Why, err), "Find why it did not, and why its terminal ended, from its last transcript and its terminal's end in state\\hosts\\cfo.end, before it ends again.", now)
+		var stopErr error
+		if again := lastCFOEnd(stateDir, primary, now); again.PID == ended.PID && again.Start.Equal(ended.Start) {
+			stopErr = s.leaveCFOStopped(fmt.Sprintf("The CFO did not come back after %s: %v", ended.Why, err), "Find why it did not, and why its terminal ended, from its last transcript and its terminal's end in state\\hosts\\cfo.end, before it ends again.", now)
+		}
 		return errors.Join(fmt.Errorf("the CFO did not come back after %s: %w", ended.Why, err), writeCFOBack(stateDir, record), stopErr)
 	}
 	return nil

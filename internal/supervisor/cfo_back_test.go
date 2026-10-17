@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -314,31 +315,102 @@ func TestAnEndAfterTheCFOHeldStartsTheCountAgain(t *testing.T) {
 
 // A comeback that fails leaves the CFO stopped as the cap does, never closed
 // with nothing lasting on the board: one check wake for the next CFO and one
-// Command Center item for the Overlord that says why in plain words.
+// Command Center item for the Overlord that says why in plain words, whether
+// its host recorded how it ended or not.
 func TestACFOThatDidNotComeBackIsLeftForTheOverlordToReopen(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		isEnded bool
+		want    string
+	}{
+		{name: "an end its host recorded", isEnded: true, want: "The CFO did not come back after its terminal ended with exit code 1: claude is not on PATH. Reopen the CFO once you have looked?"},
+		{name: "a host that recorded nothing", want: "The CFO did not come back after its terminal ended with its host, which recorded nothing of how: claude is not on PATH. Reopen the CFO once you have looked?"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			service, h, recorder := cfoBackBoard(t)
+			recorder.err = errors.New("claude is not on PATH")
+			started := thisSignIn.Add(time.Hour)
+			registerCFO(t, h, 999999, started)
+			if testCase.isEnded {
+				cfoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
+			}
+
+			// Act
+			err := service.bringEndedCFOBack(t.Context(), started.Add(2*time.Hour))
+
+			// Assert
+			if err == nil {
+				t.Error("the failed comeback was not said")
+			}
+			pending, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checks := slices.DeleteFunc(slices.Clone(pending), func(record wake.Record) bool { return record.Kind != "check" || record.Key != "cfo" }); len(checks) != 1 {
+				t.Errorf("wakes %+v, want one check wake for the CFO", pending)
+			}
+			if items := stoppedItems(service); len(items) != 1 || items[0].State != "ready" || items[0].Title != testCase.want {
+				t.Errorf("items %+v, want one waiting item titled %q", items, testCase.want)
+			}
+		})
+	}
+}
+
+// A comeback whose CFO ended while it started left a newer end, which is not
+// a CFO left stopped but one more end in the row for the next look: one
+// incident, a crash and then CFOs that keep ending while they start, raises
+// one check wake and one item, the cap's, and none for each failed try.
+func TestACFOThatEndsWhileItComesBackIsOneMoreEndInTheRow(t *testing.T) {
 	// Arrange
 	service, h, recorder := cfoBackBoard(t)
-	recorder.err = errors.New("claude is not on PATH")
-	started := thisSignIn.Add(time.Hour)
-	registerCFO(t, h, 999999, started)
-	cfoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
+	recorder.err = errors.New("its native terminal ended during startup")
+	registered := thisSignIn.Add(time.Hour)
+	registerCFO(t, h, 999999, registered)
+	cfoEnded(t, h, 999999, registered, registered.Add(time.Hour), 1, false)
+	look := registered.Add(time.Hour + cfoBackEvery)
+	pid := 999999
+	service.Options.Comeback.CFOEnded = func(ctx context.Context, why string) error {
+		pid--
+		cfoEnded(t, h, pid, look, look.Add(3*time.Second), 1, false)
+		return recorder.back(ctx, why)
+	}
+	checks := func() []wake.Record {
+		pending, err := wake.Pending(h.State)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.DeleteFunc(pending, func(record wake.Record) bool { return record.Kind != "check" || record.Key != "cfo" })
+	}
 
 	// Act
-	err := service.bringEndedCFOBack(t.Context(), started.Add(2*time.Hour))
+	err := service.bringEndedCFOBack(t.Context(), look)
 
 	// Assert
 	if err == nil {
 		t.Error("the failed comeback was not said")
 	}
-	pending, err := wake.Pending(h.State)
-	if err != nil {
-		t.Fatal(err)
+	if wakes, items := checks(), stoppedItems(service); len(wakes) != 0 || len(items) != 0 {
+		t.Errorf("wakes %+v, items %+v; want none while a newer end waits for the next look", wakes, items)
 	}
-	if checks := slices.DeleteFunc(slices.Clone(pending), func(record wake.Record) bool { return record.Kind != "check" || record.Key != "cfo" }); len(checks) != 1 {
-		t.Errorf("wakes %+v, want one check wake for the CFO", pending)
+
+	// Act: each next look takes the newer end; the third short one is the cap.
+	failed := 0
+	for range 3 {
+		look = look.Add(cfoBackEvery)
+		if err := service.bringEndedCFOBack(t.Context(), look); err != nil {
+			failed++
+		}
 	}
-	want := "The CFO did not come back after its terminal ended with exit code 1: claude is not on PATH. Reopen the CFO once you have looked?"
-	if items := stoppedItems(service); len(items) != 1 || items[0].State != "ready" || items[0].Title != want {
-		t.Errorf("items %+v, want one waiting item titled %q", items, want)
+
+	// Assert
+	if told := recorder.told(); len(told) != 3 || failed != 2 {
+		t.Errorf("the CFO was brought back %d times, %d of them failed after the first; want three, two failed, then the cap", len(told), failed)
+	}
+	if wakes := checks(); len(wakes) != 1 {
+		t.Errorf("wakes %+v, want one check wake for the incident", wakes)
+	}
+	if items := stoppedItems(service); len(items) != 1 || !strings.HasPrefix(items[0].Title, "The CFO's terminal ended 3 times in a row") {
+		t.Errorf("items %+v, want the cap's one item", items)
 	}
 }
