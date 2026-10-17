@@ -81,8 +81,10 @@ func TestDetectKeepsMatchingFenceRefusalsQuoted(t *testing.T) {
 					if fault, evidence, found := Detect(quote); found {
 						t.Fatalf("closed quoted refusal = (%q, %q), want no fault", fault, evidence)
 					}
+					// A harness draws its refusal at the left edge: a row
+					// indented under the reply is the reply going on (#971).
 					for _, actual := range refusals {
-						fault, evidence, found := Detect(quote + "\n\n  " + actual.line + "\r\n")
+						fault, evidence, found := Detect(quote + "\n\n" + actual.line + "\r\n")
 						if !found || fault != actual.fault || evidence != actual.line {
 							t.Errorf("actual %s after quoted %s = (%q, %q, %v), want (%q, %q, true)", actual.name, quoted.name, fault, evidence, found, actual.fault, actual.line)
 						}
