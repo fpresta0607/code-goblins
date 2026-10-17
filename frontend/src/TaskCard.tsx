@@ -21,14 +21,16 @@ import { CardPullRequest } from "./card-pull-request";
 // with name status of whether working time working or last worked tickets pr
 // icons etc and harness icon"): its portrait, its name with a quiet clock of
 // how long it has run or waited, or when it paused or finished, beside it,
-// and under them its status in at most two lines, with its ticket, pull
-// request, checks and deploy as icons that open them, each saying in its tip
-// what it is, then the mark of the harness it runs, whose tip names the
-// model and effort. A goblin leads with its name, a finished one too, and
-// shows its task in the name's tip (the CFO's decision 1008011). Its project,
-// the goblin it helps, what runs under it and a waiting update are in its
-// panel. rank, when the card sits in an ordered list, is read out with it;
-// next marks the one card the order for a free slot takes first. The goblin
+// and under them its status in at most two lines and its project on a quiet
+// line of its own (the Overlord, 2026-10-17: "please include project repo
+// below status line in board"), with its ticket, pull request, checks and
+// deploy as icons that open them, each saying in its tip what it is, then
+// the mark of the harness it runs, whose tip names the model and effort. A
+// goblin leads with its name, a finished one too, which wraps rather than
+// ending in an ellipsis, and shows its task in the name's tip (the CFO's
+// decision 1008011). The goblin it helps, what runs under it and a waiting
+// update are in its panel. rank, when the card sits in an ordered list, is
+// read out with it; next marks the one card the order for a free slot takes first. The goblin
 // it waits on is named in its status line only. A goblin that waits only on
 // its pull request's test, live or paused until it merges, says where that
 // test stands in the icon beside its pull request, the same as its merge
@@ -54,9 +56,10 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const test = pullRequestTest(task, snapshot.merge_trains ?? []), { text: status, phase } = taskStatus(task, snapshot);
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong></span>
+    <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
+      {task.project && <span className="card-repo">{task.project}</span>}
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>

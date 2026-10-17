@@ -8,8 +8,9 @@ import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 // lost their buttons on 2026-10-16 and the page took nine instead of eight.
 // The window holds most of the queue on its first page and leaves a final
 // page short enough to end the scroll bar: a card became one row on
-// 2026-10-17, and the first page holds ten of them at 920 px.
-test.use({ viewport: { width: 1440, height: 920 } });
+// 2026-10-17, and took its project's line back the same day, and the first
+// page holds ten of them at 1160 px.
+test.use({ viewport: { width: 1440, height: 1160 } });
 
 test("the CFO queue can turn to its short final page without a render loop", async ({ page }) => {
   const errors: string[] = [];
