@@ -15,7 +15,7 @@ func TestOpenItemsReadsOnlyWhatWaitsWithoutChangingTheStore(t *testing.T) {
 		Schema:      1,
 		Questions:   []Question{{ID: "question-open", Text: "Which plan?", Status: "pending"}, {ID: "question-done", Status: "succeeded"}},
 		Reviews:     []Review{{ID: "review-open", Task: "task-1", Title: "Read the plan", State: "open"}, {ID: "review-done", State: "answered"}},
-		Runs:        []Run{{ID: "run-ready", Title: "Install the build", State: "ready"}, {ID: "run-done", State: "succeeded"}},
+		Runs:        []Run{{ID: "run-ready", Title: "Install the build", State: "ready"}, {ID: "run-goblin", Task: "task-3", Title: "Restart the dev database", State: "ready"}, {ID: "run-done", State: "succeeded"}},
 		Credentials: []CredentialRequest{{ID: "credential-open", Task: "task-2", Project: "example", Names: []string{"DATABASE_URL"}, Why: "Start the database", State: "open"}, {ID: "credential-done", State: "closed"}},
 	})
 	if err != nil {
@@ -34,6 +34,7 @@ func TestOpenItemsReadsOnlyWhatWaitsWithoutChangingTheStore(t *testing.T) {
 		{Kind: "question", ID: "question-open", Text: "Which plan?"},
 		{Kind: "review", ID: "review-open", Task: "task-1", Text: "Read the plan"},
 		{Kind: "run", ID: "run-ready", Text: "Install the build"},
+		{Kind: "run", ID: "run-goblin", Task: "task-3", Text: "Restart the dev database"},
 		{Kind: "credential", ID: "credential-open", Task: "task-2", Text: "Credentials for example (DATABASE_URL): Start the database"},
 	}
 	if !reflect.DeepEqual(items, want) {
