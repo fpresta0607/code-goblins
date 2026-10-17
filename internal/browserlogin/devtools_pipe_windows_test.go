@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -246,6 +247,53 @@ func TestAClosedPipeSaysWhatClosedIt(t *testing.T) {
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("call = %v, want it to say %q", err, test.want)
+			}
+		})
+	}
+}
+
+// End gives a browser that closed the pipe once it read the ask to close
+// closeWait to exit, and ends one it could not ask at once, so a call says
+// errPipeClosed only when its command was written before the pipe closed. A
+// call on a pipe a frame that was not JSON had closed, while the browser
+// kept running, said it too, and End waited closeWait for a browser it
+// never asked.
+func TestOnlyACallWrittenBeforeThePipeClosedSaysTheBrowserTookIt(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isWritten bool
+		want      string
+	}{
+		{"the pipe closed before the call", false, "not JSON"},
+		{"the browser closed its end once it read the call", true, "the browser closed its end"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			commands, input := io.Pipe()
+			output, replies := io.Pipe()
+			pipe := newDevToolsPipe(output, input)
+			defer pipe.close()
+			defer commands.Close()
+			defer replies.Close()
+			if test.isWritten {
+				go func() {
+					if _, err := bufio.NewReader(commands).ReadBytes(0); err == nil {
+						replies.Close()
+					}
+				}()
+			} else {
+				io.WriteString(replies, "not json\x00")
+				<-pipe.done
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			// Act
+			err := pipe.call(ctx, "Browser.close", nil, nil)
+
+			// Assert
+			if err == nil || errors.Is(err, errPipeClosed) != test.isWritten || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("call = %v, want errPipeClosed %t and it to say %q", err, test.isWritten, test.want)
 			}
 		})
 	}

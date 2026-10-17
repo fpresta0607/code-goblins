@@ -96,16 +96,18 @@ func (p *devToolsPipe) send(ctx context.Context, message devToolsMessage, pendin
 				_, err = p.writer.Write(append(data, 0))
 				stop()
 			}
-			select {
-			case <-p.done:
-				err = p.closedError()
-			default:
+			if err != nil {
+				select {
+				case <-p.done:
+					err = p.unaskedError()
+				default:
+				}
 			}
 			<-p.writing
 		case <-ctx.Done():
 			err = ctx.Err()
 		case <-p.done:
-			err = p.closedError()
+			err = p.unaskedError()
 		}
 	}
 	if err != nil {
@@ -151,9 +153,17 @@ func (p *devToolsPipe) call(ctx context.Context, method string, params, result a
 	}
 }
 
-// closedError is what a caller that found the pipe closed is told.
+// closedError is what a caller whose command was written is told when the
+// pipe closes before the browser answers.
 func (p *devToolsPipe) closedError() error {
 	return fmt.Errorf("%w: %w", errPipeClosed, p.why)
+}
+
+// unaskedError is what a caller is told when the pipe closed before its
+// command was written: the browser was never asked, so it is no
+// errPipeClosed.
+func (p *devToolsPipe) unaskedError() error {
+	return fmt.Errorf("the browser could not be asked: %w", p.why)
 }
 
 func (p *devToolsPipe) read() {
