@@ -467,8 +467,11 @@ jobs:
 
   # The check branch protection requires. It runs whatever happened above,
   # but in a run of a draft and in one whose event saw a draft and that was
-  # cancelled, as marking the pull request ready cancels it with a run of its
-  # own. It fails unless the plan succeeded and every job it started
+  # cancelled, which it leaves as it leaves a draft's: such a run has a
+  # concurrency group of its own, so only a newer push whose event also saw
+  # a draft cancels it, or a person, and the head it stopped testing has a
+  # newer run or none that counts. It fails unless the plan succeeded and
+  # every job it started
   # succeeded: a job that failed or was cancelled is not a pass, and neither
   # is one that was skipped unless the plan left it out. Only a pull
   # request's own run may leave a job out: in a merge train's run and every
