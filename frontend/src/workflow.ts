@@ -1,7 +1,7 @@
 import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
 import { ownsTaskSession, projectSessions, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { goblinName, waitStatus } from "./task-words.ts";
-import { isHelperHeld, LINE_GAP } from "./fleet-tree.ts";
+import { LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
@@ -279,6 +279,11 @@ export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_sessio
 // isInProgress says a task's goblin works or waits, as the board's In progress
 // column holds it: the canvas and the lineage list draw only these goblins.
 export const isInProgress = (task: Task): boolean => taskColumn(task) === "In progress";
+
+// isHelperHeld is whether helper task id hangs in the family tree of a goblin
+// in progress, which draws it as a baby goblin.
+export const isHelperHeld = (snapshot: Snapshot, id: string): boolean =>
+  snapshot.tasks.some((task) => isInProgress(task) && (task.tree?.children || []).some((node) => node.kind === "helper" && node.id === "helper:" + id));
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   // The tree holds the CFO liveCfoSession reads and the goblins in progress,

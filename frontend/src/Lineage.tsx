@@ -1,14 +1,14 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
-import { CFO_ROOT, isInProgress, lineageFamily, nodeStatus } from "./workflow";
+import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
 import { taskStatus } from "./task-status";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { goblinName, taskName, withoutHarness } from "./task-words";
-import { hasRunningChildren, isHelperHeld } from "./fleet-tree";
+import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 import { CardFacts } from "./card-facts";
 import { CfoCardFacts } from "./cfo-card-facts";

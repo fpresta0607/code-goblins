@@ -388,6 +388,39 @@ test("a helper its parent's tree holds is a baby goblin under its parent, not a 
   assert.equal(parseSnapshot({ healthy: true, tasks: [parent] }).tasks[0].parent, "");
 });
 
+// The supervisor rereads family trees only now and then, so a goblin that
+// has paused or finished can still carry the last tree read, which lists its
+// helper. Only a goblin in progress has a card to draw that tree under, so
+// only its tree holds a helper: one still working for a paused or finished
+// goblin keeps its card, under the CFO.
+test("a working helper keeps its card under the CFO while its paused or finished parent's last tree still lists it", () => {
+  // Arrange
+  const cfo = { id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", generation: "c1" };
+  const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "cfo" };
+  const helperSession = { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2" };
+  const lastTree = { task_id: "g", generation: "s1", harness: "claude", children: [{ id: "helper:g-h1", kind: "helper", state: "working" }] };
+  const parent = { id: "g", session: "own", generation: "s1", verified: false, tree: lastTree };
+  const helper = { id: "g-h1", parent: "g", phase: "working", verified: false, generation: "s2" };
+  const reports = [
+    { sessions: [cfo, own, helperSession], helperTask: { ...helper, session: "helper" }, card: "session:helper", under: "session:cfo" },
+    { sessions: [], helperTask: helper, card: "task:g-h1", under: "cfo:primary" },
+  ];
+  for (const [name, fields, isHeld] of [
+    ["working", { phase: "working" }, true],
+    ["waiting on its helper", { phase: "waiting", waiting_on: "g-h1" }, true],
+    ["pausing", { phase: "pausing" }, false],
+    ["paused", { phase: "paused" }, false],
+    ["done and verified", { phase: "done", verified: true }, false],
+  ] as [string, object, boolean][]) for (const { sessions, helperTask, card, under } of reports) {
+    // Act
+    const nodes = workflowNodes(parseSnapshot({ healthy: true, tasks: [{ ...parent, ...fields }, helperTask], sessions }));
+
+    // Assert
+    const drawn = nodes.find((node) => node.id === card);
+    assert.deepEqual(drawn && [drawn.parent, drawn.relation], isHeld ? undefined : [under, "Dispatched by the CFO"], "parent " + name + ", " + card);
+  }
+});
+
 // A helper no family tree holds hangs under its parent's card while its
 // parent is in progress. A paused parent waits on the Paused bench, so the
 // helper it waits on, which keeps working, hangs under the CFO.

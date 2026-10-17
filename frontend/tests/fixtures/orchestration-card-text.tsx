@@ -5,14 +5,15 @@ import { Board } from "../../src/Board";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
-// The canvas cards with the most text a card holds. Woody is the Overlord's
-// screenshot: a paused goblin whose status read "Allowance: resumes Oct 14,
-// 4:05 AM", now "Paused for allowance", with no
-// browser line. Wilhelmina is the worst case: a goblin with
-// a name that takes two lines, her browser active, and a long status. Her
-// session reported no parent, so she hangs under the CFO, and her card names
-// no relation. Cornelius has
-// his browser active beside a status of two lines, and Bartholomew has a
+// The canvas cards with the most text a card holds, each a goblin in
+// progress, since only those have a canvas card. Woody is the Overlord's
+// screenshot: a goblin with no browser line whose status, "Allowance: resumes
+// Oct 14, 4:05 AM", took two lines, as waiting on Jules does now.
+// Wilhelmina is the worst case: a goblin with a name that takes two lines,
+// her browser active, and a long status, waiting on Bartholomew. Her session
+// reported no parent, so she hangs under the CFO, and her card names no
+// relation. Cornelius has his browser active beside a status of two lines,
+// waiting on Wilhelmina, and Bartholomew has a
 // project name no line can break, with baby goblins whose names and states
 // run long. Jules's baby goblin is the Overlord's second screenshot, "Jules IX
 // - Process Wrangler", now working with 4 MB, Mabel's four are his third, which
@@ -21,10 +22,6 @@ import "../../src/styles.css";
 // lineage list the canvas becomes at phone width, or the board's cards.
 const at = "2026-10-12T12:00:00Z";
 const ago = (minutes: number) => new Date(Date.parse(at) - minutes * 60_000).toISOString();
-const paused = (reason: string, until: string) => ({
-  phase: "paused",
-  lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false, pause: { reason, until, at } },
-});
 const goblin = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, since: at, at, ...fields });
 const child = (fields: Record<string, unknown>) => ({ parent: "", detail: "", group: "", task: "", last_line: "", memory: 0, finished: "", started: ago(60), last_activity: ago(5), source_updated_at: at, fetched_at: at, ...fields });
 const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: task, generation: "g-" + task.slice(3), harness: "claude", memory: 0, own_memory: 0, children, source_updated_at: at, fetched_at: at });
@@ -35,9 +32,9 @@ const view = new URLSearchParams(location.search).get("view") || "canvas";
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, cfo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 }],
   tasks: [
-    goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", route_reason: "strong fallback", ...paused("allowance", "2026-10-14T11:05:00Z") }),
-    goblin({ id: "cg-plumbing", title: "Fix the reliability of the nightly sync", goblin_name: "Wilhelmina", goblin_title: "Senior Reliability Plumber", generation: "g-plumbing", session: "s-plumbing", ...paused("dependency", "task:cg-archive") }),
-    goblin({ id: "cg-dispatch", title: "Dispatch the nightly builds", goblin_name: "Cornelius", goblin_title: "Senior Dispatcher", generation: "g-dispatch", ...paused("allowance", "2026-10-14T11:05:00Z") }),
+    goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", route_reason: "strong fallback", phase: "waiting", waiting_on: "cg-processes", since: ago(95) }),
+    goblin({ id: "cg-plumbing", title: "Fix the reliability of the nightly sync", goblin_name: "Wilhelmina", goblin_title: "Senior Reliability Plumber", generation: "g-plumbing", session: "s-plumbing", phase: "waiting", waiting_on: "cg-archive", since: ago(64) }),
+    goblin({ id: "cg-dispatch", title: "Dispatch the nightly builds", goblin_name: "Cornelius", goblin_title: "Senior Dispatcher", generation: "g-dispatch", phase: "waiting", waiting_on: "cg-plumbing", since: ago(52) }),
     goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(135), pr: "https://github.com/fpresta0607/code-goblins-infrastructure-observability-monorepo/pull/12345",
       tree: tree("cg-archive", [
         child({ id: "subagent:observability", kind: "subagent", label: "Investigate the infrastructure observability", state: "working", started: ago(42), last_activity: ago(1) }),

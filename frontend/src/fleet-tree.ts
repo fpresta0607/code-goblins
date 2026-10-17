@@ -1,4 +1,4 @@
-import type { FleetTree, Snapshot, Task, TreeNode } from "./types.ts";
+import type { FleetTree, Task, TreeNode } from "./types.ts";
 import { clockText } from "./cards.ts";
 
 // Baby is the baby goblin a child is drawn as: its kind, and for a job of
@@ -318,7 +318,3 @@ export function branchLayout(count: number, cardWidth: number, passes = 0): Bran
   return { width, height, places, routes, lines: routes.map(elbows), ends, drops: [0, sideLane(passes - 1) - centre, ...middles],
     passes: Array.from({ length: passes }, (_, pass) => [...leave(pass), { x: descents[pass], y: height }]) };
 }
-
-// isHelperHeld is whether helper task id hangs in its parent's family tree.
-export const isHelperHeld = (snapshot: Snapshot, id: string): boolean =>
-  snapshot.tasks.some((task) => (task.tree?.children || []).some((node) => node.kind === "helper" && node.id === "helper:" + id));
