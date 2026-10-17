@@ -32,15 +32,19 @@ import (
 func TestTheComebackBringsTheCFOBackOnItsConversationOrANewOneAndTellsItWhy(t *testing.T) {
 	const why = "its terminal ended with exit code 1"
 	for _, tc := range []struct {
-		name        string
-		isRunning   bool
-		resumeEnds  bool
-		isTooLarge  bool
-		wantArgs    []string
-		wantPrompts []string
+		name         string
+		isRunning    bool
+		resumeEnds   bool
+		endsSettling bool
+		isTooLarge   bool
+		isUnwritten  bool
+		wantArgs     []string
+		wantPrompts  []string
 	}{
 		{name: "on its conversation", wantArgs: []string{"--resume a1b2c3d4-session"}, wantPrompts: []string{cfoBackPrompt("claude", why, "")}},
 		{name: "on a new one when the resumed terminal does not hold", resumeEnds: true, wantArgs: []string{"--resume a1b2c3d4-session", ""}, wantPrompts: []string{cfoBackPrompt("claude", why, ""), cfoBackPrompt("claude", why, "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed.")}},
+		{name: "on a new one when the resumed terminal ends while its dialogs are answered", endsSettling: true, wantArgs: []string{"--resume a1b2c3d4-session", ""}, wantPrompts: []string{cfoBackPrompt("claude", why, ""), cfoBackPrompt("claude", why, "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed.")}},
+		{name: "on a new one when Claude Code wrote no transcript for it", isUnwritten: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Claude Code has written no transcript for its conversation a1b2c3d4-session, which it writes when its first turn begins.")}},
 		{name: "on a new one past the size a CFO resumes", isTooLarge: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Its last conversation is 21 MB, past the 20 MB a CFO resumes.")}},
 		{name: "not again when it already runs", isRunning: true},
 	} {
@@ -69,6 +73,18 @@ func TestTheComebackBringsTheCFOBackOnItsConversationOrANewOneAndTellsItWhy(t *t
 				}
 				if err := os.Truncate(transcript, cfoTranscriptLimit+1<<20); err != nil {
 					t.Fatal(err)
+				}
+			} else if !tc.isUnwritten {
+				claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
+			}
+			if tc.endsSettling {
+				settles := 0
+				f.runtime.settleCFO = func(context.Context, string, string) []string {
+					settles++
+					if settles == 1 {
+						f.cfoTerminalRuns = false
+					}
+					return nil
 				}
 			}
 

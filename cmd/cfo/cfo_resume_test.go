@@ -28,6 +28,32 @@ func recordConversation(t *testing.T, stateDir, harness, session, host string) {
 	}
 }
 
+// claudeTranscript writes Claude Code's transcript of session, a
+// conversation the CFO of the home rooted at root held, size bytes long,
+// under the test's own user home, as Claude Code writes it once the
+// conversation's first turn begins.
+func claudeTranscript(t *testing.T, root, session string, size int64) {
+	t.Helper()
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(strings.ToLower(userHome), strings.ToLower(os.TempDir())) {
+		t.Fatalf("the user home %s is not the test's own", userHome)
+	}
+	folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(root, "-"))
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(folder, session+".jsonl")
+	if err := os.WriteFile(transcript, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(transcript, size); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // noResumeWait makes the look at a resumed CFO immediate.
 func noResumeWait(t *testing.T) {
 	t.Helper()
@@ -69,6 +95,7 @@ func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
 			}
 			if tc.conversation != "" {
 				recordConversation(t, f.home.State, "claude", tc.conversation, supervisor.NativeCFOTerminal)
+				claudeTranscript(t, f.home.Root, tc.conversation, 1<<10)
 			}
 			var starts []start
 			started := func(_ home.Home, project, harness string, args []string, prompt string) error {
@@ -111,6 +138,7 @@ func TestReopenReportsTheConversationItActuallyCouldNotResume(t *testing.T) {
 				t.Fatal(err)
 			}
 			recordConversation(t, fixture.home.State, "claude", "current-session", supervisor.NativeCFOTerminal)
+			claudeTranscript(t, fixture.home.Root, "current-session", 1<<10)
 			if err := supervisor.RecordCFOConversationLeft(fixture.home.State, supervisor.CFOConversationLeft{Harness: "claude", Session: "older-session", Resume: []string{"--resume", "older-session"}}); err != nil {
 				t.Fatal(err)
 			}
@@ -151,6 +179,7 @@ func TestAClosedCFOComesBackOnItsConversation(t *testing.T) {
 	noResumeWait(t)
 	f := newSessionFixture(t)
 	recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+	claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
 
 	// Act
 	exit, stdout, stderr := f.launch()
@@ -179,6 +208,7 @@ func TestACFOWhoseConversationCannotBeResumedStartsANewOne(t *testing.T) {
 	f := newSessionFixture(t)
 	f.resumeEnds = true
 	recordConversation(t, f.home.State, "claude", "gone-session", supervisor.NativeCFOTerminal)
+	claudeTranscript(t, f.home.Root, "gone-session", 1<<10)
 
 	// Act
 	exit, stdout, stderr := f.launch()
@@ -213,6 +243,7 @@ func TestTheBoardNamesTheConversationAClosedCFOCouldNotResume(t *testing.T) {
 				t.Fatal(err)
 			}
 			recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+			claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
 
 			// Act
 			exit, _, stderr := f.launch()
@@ -237,6 +268,7 @@ func TestAResumedCFOThatEndsDuringStartupSettlingStartsANewConversation(t *testi
 			f := newSessionFixture(t)
 			f.agent = agent
 			recordConversation(t, f.home.State, agent, "old-conversation", supervisor.NativeCFOTerminal)
+			claudeTranscript(t, f.home.Root, "old-conversation", 1<<10)
 			settles := 0
 			isFreshRunning := false
 			f.runtime.settleCFO = func(context.Context, string, string) []string {

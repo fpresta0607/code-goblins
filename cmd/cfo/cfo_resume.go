@@ -47,8 +47,11 @@ func comeBack(h home.Home, agent string, resume []string, prompt string, start s
 // told of. A CFO that ran in this home before is told with its first
 // instruction that it is back because of why, and to take up the fleet's
 // work, so nobody has to type into it; a home's first CFO waits for the
-// Overlord. The caller holds the CFO's launch lock.
-func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stateDir, id string) bool) error {
+// Overlord. settle answers the startup dialogs of each CFO it starts, and a
+// resumed CFO whose terminal ends while they are answered did not hold
+// either: Claude Code 2.1.302 took 3.6 seconds to end on a conversation it
+// could not resume. The caller holds the CFO's launch lock.
+func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stateDir, id string) bool, settle func()) error {
 	resume, fresh := cfoResume(h, agent)
 	if fresh != "" {
 		fresh = "You start on a new conversation. " + fresh + "."
@@ -57,6 +60,10 @@ func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stat
 		held, err := comeBack(h, agent, resume, backPrompt(h, agent, why, ""), start, runs)
 		if err != nil {
 			return err
+		}
+		if held {
+			settle()
+			held = runs(h.State, supervisor.NativeCFOTerminal)
 		}
 		if held {
 			supervisor.ClearCFOConversationLeft(h.State)
@@ -73,6 +80,7 @@ func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stat
 			return fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
 		}
 	}
+	settle()
 	return nil
 }
 
@@ -106,7 +114,9 @@ func reopenCFO(h home.Home, why string, start startCFO, runs func(stateDir, id s
 	if err != nil {
 		return err
 	}
-	return bringCFOBack(h, agent, why, start, runs)
+	// The board opens the reopened CFO's terminal, where the Overlord answers
+	// what it asks.
+	return bringCFOBack(h, agent, why, start, runs, func() {})
 }
 
 // comebackCFO brings the home's CFO back by itself, as the supervisor does
@@ -129,10 +139,9 @@ func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime, why s
 	if err != nil {
 		return err
 	}
-	if err := bringCFOBack(h, agent, why, runtime.startNativeCFO, runtime.nativeTerminalRuns); err != nil {
+	if err := bringCFOBack(h, agent, why, runtime.startNativeCFO, runtime.nativeTerminalRuns, func() { runtime.settleCFO(ctx, h.State, agent) }); err != nil {
 		return err
 	}
-	runtime.settleCFO(ctx, h.State, agent)
 	if !runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		return errors.New("its native terminal ended during startup")
 	}
@@ -160,7 +169,14 @@ func cfoResume(h home.Home, agent string) (args []string, why string) {
 	}
 	switch agent {
 	case "claude":
-		if size := claudeTranscriptSize(h.Root, conversation.Session); size > cfoTranscriptLimit {
+		size, isWritten := claudeTranscriptSize(h.Root, conversation.Session)
+		switch {
+		case !isWritten:
+			// Claude Code writes a conversation's transcript as its first
+			// turn begins, and ends with code 1 on a --resume it finds none
+			// for, as a home's first CFO's is until the Overlord types into it.
+			return nil, fmt.Sprintf("Claude Code has written no transcript for its conversation %s, which it writes when its first turn begins", conversation.Session)
+		case size > cfoTranscriptLimit:
 			return nil, fmt.Sprintf("Its last conversation is %d MB, past the %d MB a CFO resumes", size>>20, cfoTranscriptLimit>>20)
 		}
 		return []string{"--resume", conversation.Session}, ""
@@ -184,15 +200,15 @@ func cfoResume(h home.Home, agent string) (args []string, why string) {
 var claudeProjectFolder = regexp.MustCompile(`[^A-Za-z0-9]`)
 
 // claudeTranscriptSize is the size of Claude Code's transcript of session,
-// a conversation it held in dir, or 0 when there is none to read.
-func claudeTranscriptSize(dir, session string) int64 {
+// a conversation it held in dir, and whether there is one to read.
+func claudeTranscriptSize(dir, session string) (int64, bool) {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	info, err := os.Stat(filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(dir, "-"), session+".jsonl"))
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return info.Size()
+	return info.Size(), true
 }

@@ -114,6 +114,7 @@ func TestGoblinsResumeBringsBackAClosedCFO(t *testing.T) {
 	noResumeWait(t)
 	f := newSessionFixture(t)
 	recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+	claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
 
 	// Act
 	exit, _, stderr := f.launch("resume")
@@ -158,6 +159,7 @@ func fakeClaudeHome(t *testing.T) home.Home {
 	}
 	copyFile(t, self, filepath.Join(bin, "claude.exe"))
 	t.Setenv("PATH", bin)
+	t.Setenv("USERPROFILE", t.TempDir())
 	h := home.Home{Root: t.TempDir()}
 	h.State = filepath.Join(h.Root, "state")
 	return h
@@ -178,6 +180,9 @@ func nativeCFORunning(t *testing.T, h home.Home, session string) host.Record {
 		t.Fatal(err)
 	}
 	registerRestartCFO(t, h, record, "claude", session)
+	// A CFO at work has begun a turn, so Claude Code has written its
+	// transcript.
+	claudeTranscript(t, h.Root, session, 1<<10)
 	return record
 }
 
