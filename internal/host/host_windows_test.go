@@ -1044,6 +1044,48 @@ func TestTheHostEndsWithItsTerminal(t *testing.T) {
 	}
 }
 
+// The host records how its terminal's program ended, and the record outlasts
+// the host's: the program's own exit code when it exited by itself, and that
+// a viewer closed it when one did.
+func TestTheHostRecordsHowItsTerminalEnded(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		end        func(t *testing.T, v *viewer)
+		wantCode   uint32
+		wantClosed bool
+	}{
+		{name: "exited by itself", end: func(t *testing.T, v *viewer) { typeLine(t, v, "exit 3") }, wantCode: 3},
+		{name: "closed by a viewer", end: func(t *testing.T, v *viewer) {
+			if err := v.CloseTerminal(); err != nil {
+				t.Fatalf("CloseTerminal: %v", err)
+			}
+		}, wantClosed: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			stateDir, record := launch(t)
+			v := connect(t, record)
+			v.waitFor(t, "ready")
+
+			// Act
+			testCase.end(t, v)
+			v.waitForExit(t)
+			if !exited(record.HostPID) {
+				t.Fatal("the host is still running after its terminal ended")
+			}
+
+			// Assert
+			end, err := ReadEnd(stateDir, "g1")
+			if err != nil {
+				t.Fatalf("ReadEnd: %v", err)
+			}
+			if end.ChildPID != record.ChildPID || !end.ChildStart.Equal(record.ChildStart) || end.Closed != testCase.wantClosed || !testCase.wantClosed && end.Code != testCase.wantCode {
+				t.Errorf("end = %+v, want program %d started %s, closed %v, code %d", end, record.ChildPID, record.ChildStart, testCase.wantClosed, testCase.wantCode)
+			}
+		})
+	}
+}
+
 // A viewer sees everything the terminal's process printed before it exited,
 // the pseudo console's closing sequence included, then its exit code.
 func TestTheViewerSeesTheTerminalsLastOutput(t *testing.T) {

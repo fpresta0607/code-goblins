@@ -1038,6 +1038,9 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 		if d.Runs[i].CFOUnwoken != 0 {
 			return true, "still waiting for you to restart the CFO"
 		}
+		if d.Runs[i].CFOStopped {
+			return true, "still waiting for you to reopen the CFO"
+		}
 		return true, "still waiting for you to run it"
 	case "credential":
 		i := slices.IndexFunc(d.Credentials, func(c CredentialRequest) bool { return c.ID == id })

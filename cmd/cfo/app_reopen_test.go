@@ -62,9 +62,10 @@ func TestAppLaunchReopensTheConfiguredCFOAndKeepsTheBoardReachable(t *testing.T)
 				}
 				if testCase.conversation != "" {
 					recordConversation(t, fixture.home.State, testCase.agent, testCase.conversation, supervisor.NativeCFOTerminal)
+					claudeTranscript(t, fixture.home.Root, testCase.conversation, 1<<10)
 				}
 				if testCase.isStartFailure {
-					fixture.runtime.startNativeCFO = func(home.Home, string, string, []string) error {
+					fixture.runtime.startNativeCFO = func(home.Home, string, string, []string, string) error {
 						return errors.New("fixture start failed")
 					}
 				}

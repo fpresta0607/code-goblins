@@ -121,7 +121,7 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, slices.Concat(args, screen))...)
+		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, slices.Concat(args, screen), "")...)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 func acquireCFOLaunch(ctx context.Context, stateDir string) error {
@@ -20,7 +21,7 @@ func acquireCFOLaunch(ctx context.Context, stateDir string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, err := lock.AcquireExclusiveNamed(stateDir, cfoLaunchLock)
+		_, err := lock.AcquireExclusiveNamed(stateDir, supervisor.CFOLaunchLock)
 		if err == nil || !errors.Is(err, lock.ErrHeld) {
 			return err
 		}
