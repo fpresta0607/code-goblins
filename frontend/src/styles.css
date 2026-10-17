@@ -1095,6 +1095,18 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .inbox-history li.unfolded .history-detail { grid-area: detail; margin-top: 0; }
 .history-detail { display: grid; margin-top: 4px; }
 .history-detail[hidden] { display: none; }
+/* A card whose values are stored unfolds its steps and its values, each
+   already stored, with no field to change one. Its steps are not History
+   rows, so they drop the row's box. */
+.history-stored { display: grid; gap: 8px; margin-top: 6px; }
+.inbox-history .history-stored li { display: list-item; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.history-stored-values { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.inbox-history .history-stored-values li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.history-stored-values li > :first-child { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+.history-stored-state { display: inline-flex; align-items: center; gap: 6px; color: var(--mint); font-weight: 700; }
+.history-stored-state .icon { width: 14px; height: 14px; }
+.history-stored-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.history-stored-note { display: inline-flex; align-items: center; gap: 8px; }
 .history-actions { display: flex; align-items: center; gap: 4px; }
 .inbox-history .history-actions .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .history-open svg { width: 16px; height: 16px; color: var(--muted); }

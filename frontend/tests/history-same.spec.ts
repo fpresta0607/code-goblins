@@ -10,7 +10,7 @@ async function history(page: Page) {
   await page.locator(".command-center-menu > summary").click();
   const panel = page.locator(".command-center-updates");
   await panel.getByText("History").click();
-  return { panel, rows: panel.locator(".inbox-history li") };
+  return { panel, rows: panel.locator(".inbox-history .inbox-list > li") };
 }
 
 // reopens records each card the board asks the supervisor to bring back, and
@@ -31,6 +31,7 @@ const MARKS: [string, RegExp][] = [
   ["Move the sign-in screen out of test mode", /^Closed\./],
   ["Turn on time sensitive notifications", /^You answered: The box was already ticked$/],
   ["Paste APNS_PRIVATE_KEY for sample-app", /^Saved APNS_PRIVATE_KEY/],
+  ["Enter deploy channel for sample-app", /^Sent DEPLOY_CHANNEL/],
   ["Accept the new developer terms", /^Closed\./],
   ["Merge the release pull request?", /^You answered$/],
   ["Add the DNS records for the docs site", /^You wrote: Added both records$/],
@@ -147,6 +148,7 @@ test("bringing a card back sends once and waits for its new generation", async (
 
 for (const [text, why] of [
   ["Paste APNS_PRIVATE_KEY for sample-app", "Its values are stored"],
+  ["Enter deploy channel for sample-app", "Its values are stored"],
   ["Accept the new developer terms", "It expired"],
   ["Add the DNS records for the docs site", "A page or a wait stays as it closed"],
   ["Publish release v0.5.2", "A command that ran stays as it ran"],
@@ -170,3 +172,59 @@ for (const [text, why] of [
     expect(posted).toHaveLength(0);
   });
 }
+
+for (const { text, steps, values } of [
+  { text: "Paste APNS_PRIVATE_KEY for sample-app", steps: ["Open developer.example.com/account/keys", "Download the .p8 key"], values: [["APNS_PRIVATE_KEY", "Already stored"]] },
+  { text: "Enter deploy channel for sample-app", steps: ["Pick the channel the team reads"], values: [["Deploy channel", "Already sent to Hank - Key Keeper"]] },
+] as const) {
+  test(`the caret on a card whose values are stored opens its steps, each value already stored, with nothing to change it: ${text}`, async ({ page }) => {
+    // Arrange
+    const posted = await reopens(page);
+    const { rows } = await history(page);
+    const row = rows.filter({ hasText: text });
+    const detail = row.locator(".history-detail");
+    await expect(detail).toBeHidden();
+
+    // Act
+    await row.locator(".history-open").click();
+
+    // Assert
+    await expect(detail).toBeVisible();
+    await expect(detail.getByRole("list", { name: "How to get them" }).getByRole("listitem")).toHaveText([...steps]);
+    const shown = detail.getByRole("list", { name: "Its values" });
+    for (const [name, said] of values) await expect(shown, name).toContainText(name + said);
+    await expect(detail.locator("input, textarea, [contenteditable]")).toHaveCount(0);
+    await expect(detail.getByRole("button")).toHaveCount(1);
+    await expect(detail.getByRole("button")).toHaveAccessibleName("Something else?");
+    await expect(row.locator(".history-change")).toHaveAttribute("aria-disabled", "true");
+    expect(await row.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+    await page.locator(".command-center-updates").screenshot({ path: test.info().outputPath("history-stored-open.png"), animations: "disabled" });
+    expect(posted).toHaveLength(0);
+  });
+}
+
+test("Something else? on a card whose values are stored sends his words to its asker", async ({ page }) => {
+  // Arrange
+  const sent: Record<string, unknown>[] = [];
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    sent.push(body);
+    await route.fulfill({ status: 202, json: { ...body, status: "queued" } });
+  });
+  const { rows } = await history(page);
+  const row = rows.filter({ hasText: "Paste APNS_PRIVATE_KEY for sample-app" });
+  await row.locator(".history-open").click();
+
+  // Act
+  await row.getByRole("button", { name: "Something else?" }).click();
+  const note = page.getByRole("dialog", { name: "Something else?" });
+  await note.getByRole("textbox").fill("Use the key from the team account instead");
+  await note.getByRole("button", { name: "Send" }).click();
+
+  // Assert
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ kind: "message", task_id: "push-settings", generation: "", text: "About your card cred-4444444444444444 (The push key for the gateways), whose values are stored: Use the key from the team account instead" });
+  await expect(note).toBeHidden();
+  await expect(row.locator(".history-stored .click-feedback")).toHaveText("Sent to Hank - Key Keeper.");
+  await expect(row.locator(".history-detail")).toBeVisible();
+});
