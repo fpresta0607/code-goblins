@@ -1,7 +1,13 @@
-.remote-access-setting { display: grid; gap: 8px; min-width: 0; }
-.remote-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.remote-access-heading > button { flex: none; white-space: nowrap; }
+.remote-access-setting { display: grid; justify-items: start; gap: 10px; min-width: 0; }
 .remote-access-setting p { margin: 0; overflow-wrap: anywhere; }
-.remote-access-setting .copy-value { min-width: 0; max-width: 100%; }
+.remote-access-setting .copy-value { justify-self: stretch; min-width: 0; max-width: 100%; }
 .remote-access-setting .copy-value code { white-space: normal; overflow-wrap: anywhere; }
-.remote-access-help { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+/* A setting that belongs to the Tailscale switch sits under it, indented. */
+.remote-access-option { margin-left: 18px; padding-left: 12px; border-left: 1px solid var(--glass-border); }
+.setting-switch-row { display: grid; justify-items: start; gap: 4px; min-width: 0; }
+.setting-switch-line { display: flex; align-items: center; gap: 8px; }
+.setting-switch-mark { display: inline-flex; flex: none; }
+.setting-switch-mark .icon { width: 18px; height: 18px; }
+.setting-switch-mark.ok { color: var(--accent-green); }
+.setting-switch-mark.problem { color: var(--amber); }
+.setting-switch-note { padding-left: 12px; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }

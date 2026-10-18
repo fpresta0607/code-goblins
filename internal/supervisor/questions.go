@@ -80,6 +80,9 @@ type Question struct {
 	// raises declares whether it follows it (Review.Follows). It is empty for
 	// a goblin's question, whose Task names it.
 	ForTask string `json:"for_task,omitempty"`
+	// Mail is a message the question gives him to send himself, such as an
+	// email, which his card copies with one click.
+	Mail *Mail `json:"mail,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -110,11 +113,11 @@ func validQuestion(q Question) error {
 			return errors.New("a review image must be an absolute, clean path")
 		}
 	}
-	return nil
+	return mailProblem(q.Mail)
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && a.ForTask == b.ForTask && slices.Equal(a.Images, b.Images)
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && a.ForTask == b.ForTask && slices.Equal(a.Images, b.Images) && sameMail(a.Mail, b.Mail)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane
@@ -186,8 +189,9 @@ func goblinPipeCaller(stateDir, taskID string, pid int, connected time.Time) err
 // detail is the notify as the goblin wrote it: the queue holds record's
 // one-line form, and the question keeps its own line breaks. page is the link
 // of the goblin's page AFK mode asks of the CFO as this question, and empty
-// for any other question.
-func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page string, images []string) error {
+// for any other question. mail is a message the question gives him to send,
+// or nil.
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page string, images []string, mail *Mail) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -199,7 +203,7 @@ func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page str
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page, Mail: mail}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
@@ -1001,14 +1005,15 @@ func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
 // forTask, when set, is the goblin task whose decision the question puts to
-// the Overlord, which the fleet must know.
-func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string) error {
+// the Overlord, which the fleet must know. mail is a message the question
+// gives him to send, or nil.
+func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string, mail *Mail) error {
 	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
 	}
 	defer release()
-	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", ForTask: forTask}
+	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", ForTask: forTask, Mail: mail}
 	if err := validQuestion(q); err != nil {
 		return err
 	}

@@ -230,3 +230,42 @@ func TestAuthRequestChecksItsEnvFileBeforeFiling(t *testing.T) {
 		})
 	}
 }
+
+// A step card can carry a message he sends himself, read once from
+// --message-file, so his card copies the email instead of naming its file. A
+// card whose step is that message alone needs no page, step or name, and a
+// message holding a key is refused before anything is filed, never repeated.
+func TestAuthRequestCarriesAMessageFromItsFile(t *testing.T) {
+	key := "sk" + "_live_" + "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	for name, c := range map[string]struct {
+		message string
+		code    int
+		says    string
+	}{
+		"an email to send":    {"To: support@iproyal.com\nSubject: Refund for order 4412\n\nPlease refund order 4412.\n", 1, "registered CFO"},
+		"an email with a key": {"To: support@iproyal.com\n\nMy key is " + key + "\n", 2, "--message-file word 4 of the message's body looks like a credential value"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			root := useScratchHome(t)
+			message := filepath.Join(root, "refund.txt")
+			if err := os.WriteFile(message, []byte(c.message), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			code, stdout, stderr := runCLI(t, "request", "--project", "throwaway", "--why", "Send the IPRoyal refund email", "--message-file", message)
+
+			// Assert
+			if code != c.code || !strings.Contains(stderr, c.says) {
+				t.Fatalf("cfo auth request = %d %q, want %d saying %q", code, stderr, c.code, c.says)
+			}
+			if strings.Contains(stdout+stderr, key) {
+				t.Fatal("the refusal repeats the key")
+			}
+			if _, err := os.Stat(filepath.Join(root, "state", "credential-requests-inbox")); !os.IsNotExist(err) {
+				t.Fatal("a request no CFO filed reached the inbox")
+			}
+		})
+	}
+}

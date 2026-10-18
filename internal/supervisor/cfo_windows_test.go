@@ -197,7 +197,7 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "", ""); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

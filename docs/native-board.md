@@ -1379,6 +1379,7 @@ The Supreme Overlord Command Center labels supplied choices A/B/C and always off
 The box for a written answer has a microphone at its bottom right corner, and Ctrl+Shift+Space held anywhere in its card, as on the Other just chosen, dictates into the box and puts the caret there: until 15 October 2026 only the box itself heard the keys, and choosing Other leaves the keyboard on the choice, so a dictation held there was never typed.
 A question, the CFO's or a goblin's, is shown as body text at a readable line length rather than as a heading: a blank line starts a paragraph, a line that starts with `- ` is a bullet, text between `**two asterisks**` is bold, an http or https address is an underlined link that opens in the default browser (punctuation ending its sentence is not part of it, and any other scheme stays text), and everything else, markup included, is shown exactly as written; no HTML is ever interpreted.
 So a question leads with one short sentence that is the actual question, puts its details on `- ` lines and bolds only the verdict or the blocking item.
+`--message-file <file>`, on `cfo question` or a goblin's `--blocked` question with choices, gives the question a message he sends himself, such as an email, which the question holds as `mail` and its card shows under its text as a [step card](#step-cards) does.
 The inbox and history list each question on at most two lines, with the marks dropped.
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
@@ -1396,6 +1397,12 @@ A snapshot carries the items as they are when it is sent, not as they were when 
 The Command Center shows one item at a time as a stack, a question, a review item, a run item or a credential request, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
 A card's own action row holds Back, its place such as 2 of 4, and Next, which leaves the item as it is and shows the next, on the left while more than one item waits, and its answer on the right.
 Closing keeps every item for later.
+Each local file or folder path a card names is a link, in a step card's reason and steps, a question's text, and a run card's title and the folder it runs in.
+A path is a drive letter, a colon and a separator, then everything up to a space or a character no Windows path holds, less the punctuation that ends a sentence, or a whole backticked value that is such a path, spaces and all.
+In the desktop window a click sends `POST /api/cards/open-path` with the card's `kind` (`credential`, `question`, `review` or `run`), its `id` and the `path`.
+The supervisor finds that card again and starts File Explorer at the path, with a file selected in its folder or a folder opened itself, only when the card's own text names exactly that path, the path is on a drive of this PC, holds no comma and exists.
+Anything else is refused and starts nothing, so the browser never names a path, page or command of its own.
+In a plain browser, where File Explorer cannot open on his PC, the link copies the path instead, as its tip says.
 Every open item also has a way out at the bottom, beside its decision buttons, as he asked on 2026-10-15, never at its top:
 
 - A card with no choices or answer box of its own, a command to run, a goblin's wait with no page, or a credential or step card, has **Skip** and a **pencil**.
@@ -1727,6 +1734,7 @@ The board never opens a path from a wait's text, only the link the goblin gave o
 Every item runs its script with nothing between it and its terminal, so a sign-in, `cfo attach` or anything else that needs a real terminal works on the card; `--interactive`, which once asked for that, is gone.
 A goblin hands him a command with `cfo notify <task-id> --waiting-on overlord "<why>" --run <file>` (or on a `--blocked` question): a `.ps1` file runs in Windows PowerShell and a `.sh` file in Git Bash, in the goblin's worktree, never elevated, and the file is read before anything is recorded.
 A wait that carries a command is that run card alone, named for the goblin (`<goblin> asks you to run this`), with the goblin's words as its title; a question keeps its own card beside it.
+A command can carry a message he sends himself, from `cfo run-request --message-file <path>` or a goblin's `--message-file` beside `--run`, which the run item holds as `mail` and its card shows under the command as a [step card](#step-cards) does; on a `--blocked` question with choices the message goes on the question's card instead.
 The goblin's notify leaves the command in `state/goblin-runs-inbox`, and the supervisor takes from there only what can be a live goblin's own item: it names a task whose running goblin has that identity, its ID is `run-<task>-<notify>`, and it never asks for administrator rights; its folder is set to the goblin's worktree, whatever the record says, and anything else is refused, said once among the board's issues, and removed.
 The CFO's own run items still reach the board only over the supervisor's pipe, and the folder they once came through stays unread.
 When the command ends the goblin, not the CFO, is told that he ran it and its exit code; a goblin's command nobody ran is withdrawn once its goblin reports, after it, done, failed or a newer wait on him, is replaced or is gone, as its wait would be, and reads Withdrawn.
@@ -1895,6 +1903,10 @@ cfo auth request --project acme-shop --task shop-signup --why "Sign in to the sh
 - A secret NAME goes into the vault as above, and a `--plain` NAME is a value that goes back to the asker: the card gives it a plain field, refuses anything shaped like a key in it, keeps it in the board's record for the asker's wait and never in the snapshot, which names it under `received` once it arrived.
 - Each input may carry a label of a few words, at most 60 characters, which the card shows above its name and its heading uses.
 - A card that asks for no input has a Done button, `POST /api/credentials/close` with `"action": "done"`, and its heading is what it is for.
+- `--message-file <file>` puts a message he sends himself on the card, such as an email, read once when the card is filed: the file's optional `To:` line (an email address, or an https page with no credentials, query or fragment) and `Subject:` line, a blank line, then a body of at most 4000 characters.
+  A word of the subject or body shaped like a key is refused without being repeated, as in a step, and an assignment is judged by its value.
+  The record carries it as `mail`, with `to`, `subject` and `body`, and the card shows the address with its copy button or the page as a link, the subject, and the body in a box, with **Copy email**, which copies the body exactly, and **Copy subject** when it has one.
+  A card whose step is only sending that message needs no page, step or input.
 - A goblin's step card is its wait on the Overlord: a `cfo notify --waiting-on overlord` without a page while a card the goblin filed itself is open opens no second item, and the notify names the card and tells the goblin to wait on it in the background with `cfo auth request --wait-on <card> --task <id>`, which ends when the card closes.
   The board reads the goblin as waiting until it reports again, as for a wait on a run card.
   Done on the card, his or the goblin's, its inputs arriving, or his answer from Something else?, also closes as answered each plain wait of that goblin opened while the card was open, so nothing asks him for the step again; a wait opened before the card, or on a page, stays its own item.

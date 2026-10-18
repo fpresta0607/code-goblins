@@ -28,9 +28,9 @@ import (
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin, hidden when typed at a console)
-       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--env-file <file>] [--plain NAME]... [--label NAME="<few words>"]... [--window] [--wait] [NAME...]
-           (one Command Center card for a step only the Overlord can take: the page to open, its steps, and only
-           the inputs he enters, each NAME a secret for the vault and each --plain NAME a value back to you)
+       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--message-file <file>] [--env-file <file>] [--plain NAME]... [--label NAME="<few words>"]... [--window] [--wait] [NAME...]
+           (one Command Center card for a step only the Overlord can take: the page to open, its steps, a message he
+           sends himself, and only the inputs he enters, each NAME a secret for the vault and each --plain NAME a value back to you)
        cfo auth request --wait-on <card> [--task <id>]   wait on a card you filed, again
        cfo auth request --done <card> [--task <id>]   close your card once you see the step done
        cfo auth request --withdraw <card> [--task <id>] --reason "<why>"   take back a card nobody needs
@@ -434,6 +434,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		labels[name] = label
 		return nil
 	})
+	messageFile := flags.String("message-file", "", messageFileUsage)
 	envFile := flags.String("env-file", "", "a gitignored env file at the root of the project's checkout, such as .env.docker.local, where each value is also set")
 	isWindow := flags.Bool("window", false, "the step happens in your own browser session: the card's button shows its window to him, at --link")
 	isWait := flags.Bool("wait", false, "wait on the card and print what came of it the moment it closes")
@@ -447,7 +448,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 2
 	}
 	if card := cmp.Or(*waitOn, *done, *withdraw, *reopen); card != "" {
-		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
+		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || *messageFile != "" || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
 		modes := len(slices.DeleteFunc([]string{*waitOn, *done, *withdraw, *reopen}, func(id string) bool { return id == "" }))
 		switch {
 		case isFiling || modes > 1:
@@ -500,6 +501,12 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	card := supervisor.CredentialRequest{Task: *task, Names: names, Plain: plain, Why: *why, Link: *link, Steps: steps, EnvFile: *envFile, Window: *isWindow}
 	if len(labels) > 0 {
 		card.Labels = labels
+	}
+	if *messageFile != "" {
+		if card.Mail, err = supervisor.ReadMail(*messageFile); err != nil {
+			fmt.Fprintf(stderr, "cfo auth request: --message-file %v\n", err)
+			return 2
+		}
 	}
 	request, err := credentialRequest(runtime, *project, card)
 	if err != nil {

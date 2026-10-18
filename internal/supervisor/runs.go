@@ -114,12 +114,16 @@ type Run struct {
 	// stopped bringing back a CFO that kept ending, or could not bring it
 	// back, and offers him Reopen.
 	CFOStopped bool `json:"cfo_stopped,omitempty"`
+	// Mail is a message the item gives him to send himself, such as an
+	// email, which his card copies with one click.
+	Mail *Mail `json:"mail,omitempty"`
 }
 
-// RunRequest is what cfo run-request asks for; CommandFile is read once.
+// RunRequest is what cfo run-request asks for; CommandFile and MessageFile
+// are each read once.
 type RunRequest struct {
-	ID, Title, Shell, Cwd, CommandFile string
-	Admin                              bool
+	ID, Title, Shell, Cwd, CommandFile, MessageFile string
+	Admin                                           bool
 }
 
 // RunLauncher starts a run item in a terminal the supervisor hosts, which the
@@ -173,11 +177,11 @@ func validRun(r Run) error {
 	case r.CreatedAt.IsZero() || r.CreatedAt.After(time.Now().Add(5*time.Minute)):
 		return errors.New("a run item needs its creation time")
 	}
-	return nil
+	return mailProblem(r.Mail)
 }
 
 func sameRun(a, b Run) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd && sameMail(a.Mail, b.Mail)
 }
 
 // runDir holds one item's script and what its run leaves behind. Its name is
@@ -203,10 +207,10 @@ func runDigest(data []byte) string {
 }
 
 // PublishRun hands a command for the Overlord to run to the supervisor over
-// its named pipe. It reads the command file once. The supervisor proves the
-// calling process runs under the registered primary CFO and writes the script
-// file Run executes itself, so nothing written straight into the state
-// directory ever reaches the board.
+// its named pipe. It reads the command file, and any message file, once. The
+// supervisor proves the calling process runs under the registered primary
+// CFO and writes the script file Run executes itself, so nothing written
+// straight into the state directory ever reaches the board.
 func PublishRun(h home.Home, req RunRequest) error {
 	command, err := ReadRunCommand(req.CommandFile)
 	if err != nil {
@@ -215,7 +219,13 @@ func PublishRun(h home.Home, req RunRequest) error {
 	if err := CheckRunCommand(req.Shell, command); err != nil {
 		return err
 	}
-	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
+	var mail *Mail
+	if req.MessageFile != "" {
+		if mail, err = ReadMail(req.MessageFile); err != nil {
+			return err
+		}
+	}
+	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command, Mail: mail})
 }
 
 // WithdrawRun takes a run item nobody ran off the board for the registered
@@ -242,6 +252,7 @@ type runPipeRequest struct {
 	Admin      bool               `json:"admin"`
 	Cwd        string             `json:"cwd"`
 	Command    string             `json:"command"`
+	Mail       *Mail              `json:"mail,omitempty"`
 	Question   *Question          `json:"question,omitempty"`
 	Review     *Review            `json:"review,omitempty"`
 	Answer     *cfoAnswer         `json:"answer,omitempty"`
@@ -289,7 +300,7 @@ func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequ
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), Mail: req.Mail}
 	if err := validRun(r); err != nil {
 		return err
 	}

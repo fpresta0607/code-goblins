@@ -1,61 +1,206 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, servePages, test, type Page } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
-const OFF = { enabled: false, ready: false, scrawl_ready: false };
-const ON = { enabled: true, ready: true, url: URL, login: "owner@example.com", scrawl_ready: false };
+const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
+const OFF = { enabled: false, ready: false, tailscale: "ready", scrawl: false };
+const ON = { enabled: true, ready: true, url: URL, login: "owner@example.com", scrawl: false };
+const SCRAWL_ON = { ...ON, scrawl: true, scrawl_state: "on" };
+const BYPASSED = { ...ON, scrawl_state: "bypassed", scrawl_issue: "Your own Tailscale route serves Scrawl to your tailnet without the owner check. Remove it in Tailscale, then turn Scrawl reviews on.", scrawl_fix: "tailscale serve --https=4388 off" };
 
-async function open(page: Page, fail = false) {
+type Status = Record<string, unknown>;
+
+// open shows the CFO's Task panel's Remote access section, as this PC sees
+// the board or, with origin, as a phone sees the private board. The
+// supervisor is played by one status that each press moves on, and a press
+// can be slowed, during which a read answers what it read before the press.
+async function open(page: Page, first: Status, { fail = false, origin = "", slow = false } = {}) {
   const actions: unknown[] = [];
-  let status: typeof OFF | typeof ON = OFF;
+  let status = first;
+  let before: Status | null = null;
   await holdStream(page, { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo", cfo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo" }] });
   await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
-  await page.route("**/api/remote", (route) => {
-    if (route.request().method() === "POST") {
-      const body: { on?: boolean; scrawl?: boolean } = route.request().postDataJSON();
-      actions.push(body);
-      expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
-      if (fail) return route.fulfill({ status: 409, json: { error: "Connect Tailscale on this PC before enabling remote access." } });
-      status = body.scrawl ? { ...ON, scrawl_ready: true } : body.on ? ON : OFF;
-    }
+  await page.route("**/api/remote", async (route) => {
+    if (route.request().method() !== "POST") return route.fulfill({ json: before ?? status });
+    const body: { on?: boolean; scrawl?: boolean } = route.request().postDataJSON();
+    actions.push(body);
+    expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
+    if (fail) return route.fulfill({ status: 409, json: { error: "Tailscale is not running on this PC; start Tailscale and sign in" } });
+    before = slow ? status : null;
+    status = body.scrawl === undefined ? body.on ? ON : OFF : body.scrawl ? SCRAWL_ON : ON;
+    if (slow) await new Promise((resolve) => setTimeout(resolve, 1500));
+    before = null;
     return route.fulfill({ json: status });
   });
-  await page.goto("/");
+  if (origin) {
+    await servePages(page.context(), origin);
+    await page.goto(origin + "/");
+  } else await page.goto("/");
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
   await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await page.locator(".disclosure.remote-access > summary").click();
-  return { actions, panel: page.getByRole("region", { name: "Remote access" }) };
+  return { actions, panel: page.getByRole("region", { name: "Remote access" }), setStatus: (next: Status) => { status = next; } };
 }
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-test("the CFO task panel enables private phone access, copies its link and turns it off", async ({ page }, testInfo) => {
-  const { actions, panel } = await open(page);
-  await expect(panel.getByRole("button", { name: "Enable", exact: true })).toBeVisible();
-  for (const [name, href] of [["For iPhone", "https://tailscale.com/download/ios"], ["For Android", "https://tailscale.com/download/android"]]) await expect(panel.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
-  await panel.getByRole("button", { name: "Enable", exact: true }).click();
-  await expect(panel.getByText("Private access is ready.")).toBeVisible();
-  await expect(panel.getByRole("link", { name: "Open private board" })).toHaveAttribute("href", URL);
+test("a signed-in Tailscale turns on with its switch, keeps its link, and Scrawl reviews switch under it", async ({ page }, testInfo) => {
+  // Arrange
+  const { actions, panel } = await open(page, OFF);
+  const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+  await expect(tailscale).toHaveAttribute("aria-checked", "false");
+  await expect(tailscale).toBeEnabled();
+
+  // Act: turn Tailscale on.
+  await tailscale.click();
+
+  // Assert: on, with a green check and the private link to copy, and
+  // nothing else to read.
+  await expect(tailscale).toHaveAttribute("aria-checked", "true");
+  await expect(panel.getByRole("img", { name: "Tailscale works", exact: true })).toBeVisible();
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { document.documentElement.dataset.copied = text; } } });
   });
   await panel.getByRole("button", { name: "Copy " + URL }).click();
   await expect(page.locator("html")).toHaveAttribute("data-copied", URL);
-  await expect(panel.getByText(/Add to Home Screen/)).toBeVisible();
-  await panel.getByRole("button", { name: "Set up Scrawl", exact: true }).click();
-  await expect(panel.getByText("Private reviews are ready. Open a review from this board.")).toBeVisible();
-  await panel.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(panel.getByText("Private reviews are ready. Open a review from this board.")).toBeVisible();
+  await expect(panel.getByRole("link")).toHaveCount(1);
+  await expect(panel.getByRole("link", { name: URL, exact: true })).toHaveAttribute("href", URL);
+  await expect(panel.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+  await expect(panel.locator("p")).toHaveCount(0);
+
+  // Act and assert: Scrawl reviews, indented under Tailscale, on and off.
+  const scrawl = panel.locator(".remote-access-option").getByRole("switch", { name: "Scrawl reviews", exact: true });
+  await scrawl.click();
+  await expect(scrawl).toHaveAttribute("aria-checked", "true");
+  await expect(panel.getByRole("img", { name: "Scrawl reviews works", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await panel.screenshot({ path: testInfo.outputPath("remote-access-phone.png") });
-  await panel.getByRole("button", { name: "Turn off", exact: true }).click();
-  await expect(panel.getByRole("button", { name: "Enable", exact: true })).toBeVisible();
-  await expect(panel.getByRole("link", { name: "Open private board" })).toHaveCount(0);
-  expect(actions).toEqual([{ on: true }, { scrawl: true }, { on: false }]);
+  await scrawl.click();
+  await expect(scrawl).toHaveAttribute("aria-checked", "false");
+  await expect(panel.getByRole("img", { name: "Scrawl reviews works", exact: true })).toHaveCount(0);
+
+  // Act and assert: Tailscale off takes its link and Scrawl reviews with it.
+  await tailscale.click();
+  await expect(tailscale).toHaveAttribute("aria-checked", "false");
+  await expect(panel.getByRole("button", { name: "Copy " + URL })).toHaveCount(0);
+  await expect(panel.getByRole("switch", { name: "Scrawl reviews" })).toHaveCount(0);
+  expect(actions).toEqual([{ on: true }, { scrawl: true }, { scrawl: false }, { on: false }]);
 });
 
-test("setup failures name the next step without pretending remote access is ready", async ({ page }) => {
-  const { panel } = await open(page, true);
-  await panel.getByRole("button", { name: "Enable", exact: true }).click();
-  await expect(panel.locator(".click-feedback")).toHaveText("Connect Tailscale on this PC before enabling remote access.");
-  await expect(panel.getByRole("link", { name: "Open private board" })).toHaveCount(0);
+for (const [tailscale, note, isOffered, fix] of [
+  ["missing", "Not installed", false, "winget install --exact --id Tailscale.Tailscale"],
+  ["stopped", "Not running", false, ""],
+  ["signed_out", "Signed out", false, ""],
+  ["disconnected", "Disconnected", false, ""],
+  ["unsuitable", "Tagged or no MagicDNS", false, ""],
+  ["no_https", "HTTPS not approved", true, SERVE],
+] as const) {
+  test(`Tailscale ${tailscale.replace("_", " ")} keeps the switch off with a few words, and on this PC the command that mends it`, async ({ page }) => {
+    // Arrange and act
+    const { panel } = await open(page, { ...OFF, tailscale, tailscale_issue: "the supervisor's full reason", ...(fix ? { fix } : {}) });
+
+    // Assert
+    const toggle = panel.getByRole("switch", { name: "Tailscale", exact: true });
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toHaveAccessibleDescription(note);
+    if (isOffered) await expect(toggle).toBeEnabled(); else await expect(toggle).toBeDisabled();
+    await expect(panel.getByRole("button", { name: /^Copy / })).toHaveCount(fix ? 1 : 0);
+    if (fix) await expect(panel.getByRole("button", { name: "Copy " + fix, exact: true })).toBeVisible();
+    await expect(panel.getByRole("link")).toHaveCount(0);
+    await expect(panel.getByText("the supervisor's full reason")).toHaveCount(0);
+  });
+}
+
+test("settings that cannot be read leave the switch off with an amber mark that says so", async ({ page }) => {
+  // Arrange and act
+  const { panel } = await open(page, { enabled: false, ready: false, scrawl: false, attention: "settings", issue: "remote access settings cannot be read; run cfo remote off to revoke access" });
+
+  // Assert
+  const toggle = panel.getByRole("switch", { name: "Tailscale", exact: true });
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAccessibleDescription("Settings unreadable");
+  await expect(panel.getByRole("img", { name: "remote access settings cannot be read; run cfo remote off to revoke access", exact: true })).toBeVisible();
+});
+
+test("Scrawl reviews say what is wrong with an amber mark and a few words, and on this PC the command that mends it", async ({ page }) => {
+  // Arrange and act
+  const { panel } = await open(page, BYPASSED);
+
+  // Assert
+  const scrawl = panel.getByRole("switch", { name: "Scrawl reviews", exact: true });
+  await expect(scrawl).toHaveAttribute("aria-checked", "false");
+  await expect(scrawl).toHaveAccessibleDescription("Direct route");
+  const mark = panel.getByRole("img", { name: BYPASSED.scrawl_issue, exact: true });
+  await expect(mark).toBeVisible();
+  await mark.focus();
+  await expect(mark).toBeFocused();
+  await expect(panel.locator(".remote-access-option").getByRole("button", { name: "Copy " + BYPASSED.scrawl_fix, exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /Set up/ })).toHaveCount(0);
+  await expect(panel.getByText(BYPASSED.scrawl_issue)).toHaveCount(0);
+});
+
+test("a phone on the private board turns Scrawl reviews off but never on, and is shown no commands", async ({ page }) => {
+  // Arrange and act
+  const { panel, setStatus } = await open(page, { ...SCRAWL_ON, scrawl_fix: "tailscale serve --https=4388 off" }, { origin: URL });
+
+  // Assert
+  const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+  const scrawl = panel.getByRole("switch", { name: "Scrawl reviews", exact: true });
+  await expect(tailscale).toBeEnabled();
+  await expect(scrawl).toBeEnabled();
+  await expect(panel.getByRole("button", { name: /^Copy tailscale/ })).toHaveCount(0);
+  await scrawl.click();
+  await expect(scrawl).toHaveAttribute("aria-checked", "false");
+  await expect(scrawl).toBeDisabled();
+  setStatus(OFF);
+  await tailscale.click();
+  await expect(tailscale).toHaveAttribute("aria-checked", "false");
+  await expect(tailscale).toBeDisabled();
+});
+
+for (const comeBack of ["focus", "visibilitychange"] as const) {
+  test(`Tailscale signed in while the section is open is offered when he comes back to the board (${comeBack})`, async ({ page }) => {
+    // Arrange
+    const { panel, setStatus } = await open(page, { ...OFF, tailscale: "signed_out", tailscale_issue: "Tailscale is signed out on this PC; open Tailscale and sign in" });
+    const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+    await expect(tailscale).toBeDisabled();
+
+    // Act: he signs in to Tailscale and comes back to the board.
+    setStatus(OFF);
+    await page.evaluate((event) => (event === "focus" ? window : document).dispatchEvent(new Event(event)), comeBack);
+
+    // Assert
+    await expect(tailscale).toBeEnabled();
+    await expect(tailscale).not.toHaveAccessibleDescription("Signed out");
+  });
+}
+
+test("coming back to the board while a switch turns never undoes the turn", async ({ page }) => {
+  // Arrange
+  const { panel } = await open(page, OFF, { slow: true });
+  const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+
+  // Act: he presses, and the window takes the focus while the supervisor
+  // still works on it.
+  await tailscale.click();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  // Assert
+  await expect(tailscale).toHaveAttribute("aria-checked", "true");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(tailscale).toHaveAttribute("aria-checked", "true");
+});
+
+test("a switch that cannot turn on stays off and says why for a moment", async ({ page }) => {
+  // Arrange
+  const { panel } = await open(page, OFF, { fail: true });
+  const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+
+  // Act
+  await tailscale.click();
+
+  // Assert
+  await expect(panel.locator(".click-feedback")).toHaveText("Tailscale is not running on this PC.");
+  await expect(tailscale).toHaveAttribute("aria-checked", "false");
+  await expect(tailscale).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Copy " + URL })).toHaveCount(0);
 });

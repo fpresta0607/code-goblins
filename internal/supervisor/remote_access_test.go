@@ -3,6 +3,9 @@ package supervisor
 import (
 	"context"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +13,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 )
+
+const boardRoute = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"pc.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
 
 type remoteCommands struct {
 	config string
@@ -36,6 +41,8 @@ func (c *remoteCommands) Run(ctx context.Context, r execx.Request) (execx.Result
 		c.config = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"pc.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
 	case "serve --https=4311 off":
 		c.config = "{}"
+	case "serve --https=4312 off":
+		c.config = boardRoute
 	default:
 		return execx.Result{ExitCode: 1}, nil
 	}
@@ -96,5 +103,86 @@ func TestRemoteOffFinishesProxyCleanupAfterItsRequestIsRevoked(t *testing.T) {
 	gate.ServeHTTP(w, r)
 	if w.Code != 200 || commands.config != "{}" {
 		t.Fatalf("cleanup interrupted by revocation: %d %s config=%s", w.Code, w.Body.String(), commands.config)
+	}
+}
+
+// Scrawl reviews have their own switch: a phone may turn them off, as it may
+// turn remote access off, but only the board on this PC turns them on, and a
+// request names one switch.
+func TestScrawlSwitchTurnsOffFromAPhoneAndOnOnlyOnThisPC(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	manager := &remoteaccess.Manager{State: h.State, Target: "http://127.0.0.1:4310", Commands: &remoteCommands{}}
+	if _, err := manager.Enable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Instance: "instance", Options: Options{RemoteAccess: manager}, subscribers: map[chan struct{}]struct{}{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gate := remoteaccess.NewGate(ctx, manager, NewHTTP(service, "127.0.0.1:4310", nil))
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{`{"scrawl":true}`, 403},
+		{`{"scrawl":false}`, 200},
+		{`{"on":true,"scrawl":false}`, 400},
+		{`{}`, 400},
+	} {
+		r := httptest.NewRequest("POST", "https://pc.example.ts.net:4311/api/remote", strings.NewReader(tc.body))
+		r.RemoteAddr = "127.0.0.1:55432"
+		r.Header.Set("Origin", "https://pc.example.ts.net:4311")
+		r.Header.Set("Tailscale-User-Login", "owner@example.com")
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-CFO-Token", "instance")
+		w := httptest.NewRecorder()
+
+		// Act
+		gate.ServeHTTP(w, r)
+
+		// Assert
+		if w.Code != tc.want {
+			t.Fatalf("%s from a phone: %d %s, want %d", tc.body, w.Code, w.Body.String(), tc.want)
+		}
+	}
+}
+
+// Scrawl off from a phone revokes that phone's own request with the rest,
+// and still finishes removing Scrawl's route after it, as remote access off
+// does.
+func TestScrawlOffFromAPhoneFinishesAfterItsRequestIsRevoked(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	commands := &remoteCommands{config: `{"TCP":{"4311":{"HTTPS":true},"4312":{"HTTPS":true}},"Web":{"pc.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}},"pc.example.ts.net:4312":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`}
+	manager := &remoteaccess.Manager{State: h.State, Target: "http://127.0.0.1:4310", Commands: commands}
+	settings := `{"enabled":true,"origin":"https://pc.example.ts.net:4311","login":"owner@example.com","target":"http://127.0.0.1:4310","scrawl":true,"scrawl_target":"http://127.0.0.1:4387","scrawl_state":` + strconv.Quote(t.TempDir()) + `}`
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "remote-access.json"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands.slow = true
+	service := &Service{Store: store, Instance: "instance", Options: Options{RemoteAccess: manager}, subscribers: map[chan struct{}]struct{}{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gate := remoteaccess.NewGate(ctx, manager, NewHTTP(service, "127.0.0.1:4310", nil))
+	r := httptest.NewRequest("POST", "https://pc.example.ts.net:4311/api/remote", strings.NewReader(`{"scrawl":false}`))
+	r.RemoteAddr = "127.0.0.1:55432"
+	r.Header.Set("Origin", "https://pc.example.ts.net:4311")
+	r.Header.Set("Tailscale-User-Login", "owner@example.com")
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-CFO-Token", "instance")
+	w := httptest.NewRecorder()
+
+	// Act
+	gate.ServeHTTP(w, r)
+
+	// Assert
+	if w.Code != 200 || commands.config != boardRoute {
+		t.Fatalf("Scrawl off interrupted by its own revocation: %d %s config=%s", w.Code, w.Body.String(), commands.config)
+	}
+	if saved, err := remoteaccess.Read(h.State); err != nil || !saved.Enabled || saved.Scrawl || saved.ScrawlTarget != "" {
+		t.Fatal("Scrawl's record not released or the board's lost", saved, err)
 	}
 }

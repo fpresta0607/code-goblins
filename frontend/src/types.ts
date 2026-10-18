@@ -452,7 +452,13 @@ export interface Question {
   // change_id is his board action changing the CFO's answer to his own, and
   // replaced_answer the CFO's choice it replaced once the goblin has his.
   answered_away: boolean; change_id: string; replaced_answer: string;
+  // mail is a message the question gives him to send himself, null for none.
+  mail: Mail | null;
 }
+// A message a card gives the Overlord to send himself, such as an email:
+// where it goes, an email address or an https page ("" when the card does not
+// say), its subject ("" for none) and its body, which his card copies whole.
+export interface Mail { to: string; subject: string; body: string }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
 export interface Review {
@@ -508,6 +514,8 @@ export interface Run {
   // a CFO that kept ending, or could not bring it back, and offers him Reopen
   // the CFO.
   cfo_stopped: boolean;
+  // mail is a message the item gives him to send himself, null for none.
+  mail: Mail | null;
 }
 // A newer release of Code Goblins, as the Update item offers it: the version
 // this board runs and the one it installs, when that was published, a few
@@ -560,6 +568,8 @@ export interface CredentialRequest {
   created_at: string; expires_at: string; closed_at: string;
   // fetch is what the card offers to fetch from a reviewed key page, null for none.
   fetch: CredentialFetch | null;
+  // mail is a message the card gives him to send himself, null for none.
+  mail: Mail | null;
 }
 // What a request's card offers to fetch: the names a reviewed key page
 // reads, by provider and the login a fetch reads with, a fetch running now
@@ -702,6 +712,11 @@ function parseRuntime(value: unknown): RuntimeEvidence | undefined {
 function parseHarnessUpdate(update: Record<string, unknown>): HarnessUpdate {
   return { harness: string(update.harness), line: update.line === undefined ? "" : string(update.line), installed: update.installed === undefined ? "" : string(update.installed) };
 }
+function parseMail(value: unknown): Mail | null {
+  if (value == null) return null;
+  const m = object(value);
+  return { to: string(m.to), subject: string(m.subject), body: string(m.body) };
+}
 function parseCredentialRequest(value: unknown): CredentialRequest {
   const c = object(value);
   const services: Record<string, string[]> = {};
@@ -720,6 +735,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), fetched: strings(c.fetched), written: strings(c.written), reason: string(c.reason),
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
     fetch: c.fetch == null ? null : (() => { const f = object(c.fetch); return { provider: string(f.provider), login: string(f.login), names: strings(f.names), state: string(f.state), reason: string(f.reason) }; })(),
+    mail: parseMail(c.mail),
   };
 }
 function parseAfkHeld(value: unknown): AfkHeld {
@@ -742,7 +758,7 @@ function itemLists(v: Record<string, unknown>) {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), answered_in: string(q.answered_in),
-        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), for_task: string(q.for_task) };
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), for_task: string(q.for_task), mail: parseMail(q.mail) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
@@ -761,7 +777,7 @@ function itemLists(v: Record<string, unknown>) {
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
         task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken), cfo_stopped: r.cfo_stopped === undefined ? false : boolean(r.cfo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
-          notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
+          notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)), mail: parseMail(r.mail) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     browser_signins: array(v.browser_signins).map((value): BrowserSignIn => {
