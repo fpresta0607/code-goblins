@@ -4,6 +4,7 @@ package supervisor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -486,8 +487,14 @@ func (s *Store) Queue(a Action) (Action, error) {
 // evaluation of its task is queued or running. It is the second of two
 // checks: the reconcile's snapshot catches an evaluation that finishes while
 // the reconcile reads, and this one, under the store lock, catches one queued
-// since the snapshot.
-func (s *Store) queueUnlessEvaluating(a Action) error {
+// since the snapshot. Its request ID names the minute and everything the
+// evaluation carries: two reconciles can fall in one minute, after a restart
+// or a slow cycle, and the second asks for the same evaluation only when it
+// saw the same session event and generation, and otherwise for a new one,
+// never for another under the first one's ID.
+func (s *Store) queueUnlessEvaluating(a Action, now time.Time) error {
+	sum := sha256.Sum256([]byte(a.Session + "\n" + a.EventID + "\n" + a.Generation))
+	a.ID = fmt.Sprintf("reconcile-%s-%d-%x", a.TaskID, now.Unix()/60, sum[:8])
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if evaluationPending(s.db.Actions, a.TaskID) {

@@ -457,6 +457,77 @@ func TestReconcileNeverQueuesAnEvaluationBehindOnePending(t *testing.T) {
 	}
 }
 
+// Two reconciles can fall in one minute: a supervisor that restarts
+// reconciles at once, and a slow recovery cycle can be followed by a quick
+// one. A task that changed between them is evaluated again as it is now,
+// where its evaluation reused the minute's request ID and the store refused
+// it as another action's (issue #1086). An unchanged task is evaluated once.
+func TestReconcileTwiceInOneMinuteEvaluatesATaskThatChanged(t *testing.T) {
+	accept := func(kind string) func(*testing.T, *Store, home.Home) {
+		return func(t *testing.T, store *Store, h home.Home) {
+			if err := store.Accept(event(t, h, kind, "s1", kind, time.Now())); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	nothing := func(*testing.T, *Store, home.Home) {}
+	cases := []struct {
+		name          string
+		before, after func(*testing.T, *Store, home.Home)
+		want          int
+	}{
+		{name: "unchanged", before: nothing, after: nothing, want: 1},
+		{name: "its first hook event", before: nothing, after: accept("SessionStart"), want: 2},
+		{name: "a newer hook event", before: accept("SessionStart"), after: accept("UserPromptSubmit"), want: 2},
+		{name: "respawned", before: nothing, after: func(t *testing.T, _ *Store, h home.Home) {
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.SpawnGen = "g2"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+		}, want: 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			service := &Service{Store: store}
+			minute := time.Now().Truncate(time.Minute)
+			tc.before(t, store, h)
+			if err := service.reconcileTasks(minute.Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
+				return Evaluation{Phase: "review", Reason: "Review and test evidence missing"}, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			tc.after(t, store, h)
+			// Act
+			err := service.reconcileTasks(minute.Add(50 * time.Second))
+			// Assert
+			if err != nil {
+				t.Fatalf("second reconcile in the minute: %v", err)
+			}
+			d := store.Snapshot()
+			if len(d.Actions) != tc.want {
+				t.Fatalf("actions = %+v, want %d evaluations", d.Actions, tc.want)
+			}
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			last, session := d.Actions[len(d.Actions)-1], d.TaskSessions["task-1"]
+			if last.Session != session || last.EventID != d.Sessions[session].LastEventID || last.Generation != meta.SpawnGen {
+				t.Fatalf("last evaluation = %+v, want the task as it is now", last)
+			}
+		})
+	}
+}
+
 // Reading a goblin's worktree must never rewrite its index: git status
 // refreshes a stale index under an optional lock, which can fail a git
 // command the goblin runs at the same moment.
