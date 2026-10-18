@@ -117,7 +117,7 @@ for (const width of [1440, 390]) {
       expect(status.text).toBe("Paused for memory");
       expect(status.color).not.toBe(AMBER);
       expect(dot).not.toBe(AMBER);
-      await expect(pausedSection(page).locator(".card-title")).toHaveText(["Sid - Memory Keeper", "Otis - Ledger Clerk"]);
+      await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Sid - Memory Keeper"]);
     });
   });
 }

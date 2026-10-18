@@ -175,7 +175,8 @@ test("past ten goblins In progress still shows every card, with its paused tasks
   await page.setViewportSize({ width: 2400, height: 1100 });
   const working = Array.from({ length: 12 }, (_, index) => task("working-" + (index + 1), "working"));
   await open(page, [...working, task("paused-one", "paused")]);
-  await expect(inProgress(page).locator("[data-sort-id]")).toHaveCount(12);
+  // The working list's cards; the Paused group under it drags its own.
+  await expect(inProgress(page).locator(".task-cards.ranked").first().locator("[data-sort-id]")).toHaveCount(12);
   await expect(inProgress(page).locator(".pager")).toHaveCount(0);
   const last = (await inProgress(page).locator("[data-sort-id='working-12']").boundingBox())!;
   const paused = (await inProgress(page).getByRole("region", { name: "Paused", exact: true }).boundingBox())!;
