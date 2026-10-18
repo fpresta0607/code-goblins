@@ -268,7 +268,8 @@ func EndedPage(page string) error {
 // goblin's question while AFK mode is on, once for the item: a notify that
 // wakes the CFO with the item's title, the page's link and the choices the
 // page declares, and the question on the board, which is the CFO's to answer
-// and never waits on the Overlord. The item's images, which his card would
+// and never waits on the Overlord, though his own answer on the page, which
+// the supervisor watches, answers it too. The item's images, which his card would
 // show, are named for the CFO, which answers in his place; the goblin writes
 // no status line, as for any item.
 func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []string) error {
@@ -298,7 +299,7 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		return err
 	}
-	return SurfaceNotify(h.State, taskID, record, detail, link, nil, nil)
+	return SurfaceNotify(h.State, taskID, record, detail, link, page, nil, nil)
 }
 
 // ErrPageHeld refuses an item whose page another reporter's open item
