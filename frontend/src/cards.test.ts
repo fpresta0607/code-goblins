@@ -44,14 +44,19 @@ for (const [name, at, want] of [
 
 test("a card date's tip names its whole date and time", () => {
   // Arrange
-  const at = new Date(2026, 9, 14, 19, 20);
+  const at = new Date(2026, 9, 14, 19, 58);
+  const fields: Intl.DateTimeFormatOptions[] = [{ weekday: "short" }, { year: "numeric" }, { month: "short" }, { day: "numeric" }, { hour: "numeric" }, { minute: "2-digit" }];
 
   // Act
   const tip = fullDate(at);
 
   // Assert
-  assert.equal(tip, at.toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }));
-  assert.match(tip, /2026/);
+  for (const field of fields) {
+    const [type] = Object.keys(field);
+    const part = new Intl.DateTimeFormat(undefined, field).formatToParts(at).find((each) => each.type === type);
+    assert.ok(part, `${type} formats on its own`);
+    assert.ok(tip.includes(part.value), `${tip} names its ${type}, ${part.value}`);
+  }
 });
 
 test("a clock without a start shows nothing rather than a guess", () => {

@@ -402,8 +402,8 @@ export interface Snapshot {
   processors: Processors | null;
   gpu: Gpu | null;
   afk: Afk;
-  // projects names who else works in each collaborative project, by the
-  // project name tasks carry.
+  // projects names each live GitHub project's repository and the people
+  // active there, by the project name tasks carry.
   projects: ProjectPeople[];
   // release is a newer published release, or any where this board was built
   // from a clone; null when there is none or the check is off.

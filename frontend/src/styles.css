@@ -1146,7 +1146,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    mark beside it opens the repository; a press anywhere else on the line
    opens the card's panel. */
 .task-card-shell > .card-repo { grid-area: repo; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0 0 56px; color: var(--muted); font-size: 1rem; line-height: 1.4; }
-.ranked-item .task-card-shell > .card-repo { margin-left: 90px; }
+.numbered .ranked-item .task-card-shell > .card-repo { margin-left: 90px; }
 .card-repo-link { position: relative; z-index: 1; display: inline-flex; flex: none; width: 18px; height: 18px; }
 .card-repo-link svg { width: 18px; height: 18px; fill: currentColor; }
 .card-repo-link:hover, .card-repo-link:focus-visible { color: var(--bone); }
