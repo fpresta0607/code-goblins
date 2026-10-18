@@ -15,6 +15,7 @@ const instructions = "# northwind\n\n" +
 // An instruction file that names a command the repository no longer has
 // sends every agent that reads it down a path that fails.
 func TestAnInstructionCommandThatIsNotTrueIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"AGENTS.md":             instructions,
@@ -41,6 +42,7 @@ func TestAnInstructionCommandThatIsNotTrueIsReported(t *testing.T) {
 // The commands that are there are listed with their kind, which is what a
 // reader runs or dry-runs to prove them, and a deploy is marked as never run.
 func TestInstructionCommandsThatAreThereAreListedForProofAndADeployIsNeverRun(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"CLAUDE.md":             "Build: `npm ci` and `npm run build` in `frontend`, then `go build ./cmd/app`.\nDeploy with `flyctl deploy --remote-only`.\n",
@@ -69,6 +71,7 @@ func TestInstructionCommandsThatAreThereAreListedForProofAndADeployIsNeverRun(t 
 // a name, and a plain code block a directory tree. None of those is a
 // command of the project, and a block marked as shell is.
 func TestProseAndListingsInAnInstructionFileAreNotCommands(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"AGENTS.md": "The card shows `installing its dependencies first`, and the drive is made with `Format-Volume -DevDrive`.\n" +
@@ -92,6 +95,7 @@ func TestProseAndListingsInAnInstructionFileAreNotCommands(t *testing.T) {
 
 // A repository with neither file gives an agent nothing to follow.
 func TestARepositoryWithNoInstructionFileIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 
@@ -111,6 +115,7 @@ func TestARepositoryWithNoInstructionFileIsReported(t *testing.T) {
 // branch can reach ever held it, and it is still listed, on a line of its
 // own.
 func TestAMadeUpExamplePathInAnInstructionFileIsNotAMissingFile(t *testing.T) {
+	t.Parallel()
 	for _, example := range []string{
 		"npx tsx --test tests/budgeting/someFile.test.ts",
 		"python tests/test_example.py",
@@ -118,6 +123,7 @@ func TestAMadeUpExamplePathInAnInstructionFileIsNotAMissingFile(t *testing.T) {
 		"go test ./internal/foo/...",
 	} {
 		t.Run(example, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{
 				"CLAUDE.md":                        "To run a single test file: `" + example + "`\n",
@@ -142,6 +148,7 @@ func TestAMadeUpExamplePathInAnInstructionFileIsNotAMissingFile(t *testing.T) {
 // repository once held and lost, and one whose name is no placeholder, are
 // both still a high finding.
 func TestAnExampleNameDoesNotHideAFileThatIsReallyMissing(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, command, missing string
 		onceHeld               bool
@@ -151,6 +158,7 @@ func TestAnExampleNameDoesNotHideAFileThatIsReallyMissing(t *testing.T) {
 		{"a placeholder folder above a real name", "python example/billing_test.py", "example/billing_test.py", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			tracked := map[string]string{"CLAUDE.md": "Run `" + test.command + "`.\n"}
 			if test.onceHeld {
@@ -181,6 +189,7 @@ func TestAnExampleNameDoesNotHideAFileThatIsReallyMissing(t *testing.T) {
 // commands to prove by running. One that names a file the repository does
 // not have is still a command that cannot run as written.
 func TestAnInstallCommandIsListedApartFromTheCommandsToProve(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"CLAUDE.md": "CI runs `npm ci`, `npx playwright install --with-deps --only-shell chromium` and `npm run test:ci`.\n" +

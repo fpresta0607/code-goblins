@@ -13,6 +13,7 @@ const twoServices = `{"project":"northwind","services":[
 // A service the manifest declares and nothing in the repository names is
 // injected into every goblin's terminal for no reader.
 func TestAConnectorDeclaredAndUsedNowhereIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"app/pay.py":       "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n",
@@ -39,6 +40,7 @@ func TestAConnectorDeclaredAndUsedNowhereIsReported(t *testing.T) {
 // A settings class reads a variable through a lower-case field, so a name
 // counts as used however its letters are cased, and under an alias.
 func TestAConnectorReadThroughALowerCaseFieldOrAnAliasIsUsed(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"app/config.py": "class Settings(BaseSettings):\n    resend_api_key: str = \"\"\n",
@@ -61,6 +63,7 @@ func TestAConnectorReadThroughALowerCaseFieldOrAnAliasIsUsed(t *testing.T) {
 // A credential the code reads and no service declares is one no goblin's
 // terminal carries and no preflight ever checked.
 func TestAConnectorUsedAndUndeclaredIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"app/pay.py":         "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n",
@@ -92,6 +95,7 @@ func TestAConnectorUsedAndUndeclaredIsReported(t *testing.T) {
 // An MCP connector authenticates with the credential its entry names, and a
 // goblin receives it only when a service declares that credential.
 func TestAnMCPConnectorWhoseCredentialNoServiceDeclaresIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".mcp.json": `{"mcpServers":{
 		"docs":{"type":"http","url":"https://mcp.example.com","headers":{"Authorization":"Bearer ${DOCS_MCP_TOKEN}"}},
@@ -115,6 +119,7 @@ func TestAnMCPConnectorWhoseCredentialNoServiceDeclaresIsReported(t *testing.T) 
 // With no manifest a spawn injects nothing and preflights nothing, and every
 // credential the code reads is undeclared.
 func TestAProjectWithNoAuthManifestIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"app/pay.py": "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n"})
 
@@ -131,6 +136,7 @@ func TestAProjectWithNoAuthManifestIsReported(t *testing.T) {
 }
 
 func TestAnInvalidAuthManifestIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("auth.json", `{"project":"northwind","services":[{"name":"stripe","method":"vault"}]}`)
@@ -149,6 +155,7 @@ func TestAnInvalidAuthManifestIsReported(t *testing.T) {
 // The line that says what was examined is there whatever was found, so a
 // search that stopped reading does not read as a clean project.
 func TestConnectorsThatAgreePassAndSayWhatWasExamined(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"app/pay.py":  "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\nmail = os.environ.get(\"RESEND_API_KEY\")\n",
@@ -193,6 +200,7 @@ const usedThroughTools = `{"project":"northwind","services":[
 // a note says what else uses a service. Only a service that nothing reads
 // and whose entry says nothing is reported.
 func TestAServiceTheManifestNamesAUserForIsNotUnused(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"app/pay.py": "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n"})
 	f.manifest("auth.json", usedThroughTools)
@@ -220,6 +228,7 @@ func TestAServiceTheManifestNamesAUserForIsNotUnused(t *testing.T) {
 // kept for one project and dropped for the next by whether its code happens
 // to name the variable.
 func TestTheDraftKeepsEveryServiceTheCheckCountsAsUsed(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"app/pay.py": "import os\nkey = os.environ[\"STRIPE_SECRET_KEY\"]\n"})
 	f.manifest("auth.json", usedThroughTools)
@@ -242,6 +251,7 @@ func TestTheDraftKeepsEveryServiceTheCheckCountsAsUsed(t *testing.T) {
 // credential the fleet should declare, and the line that says what was
 // examined names both, so what was left out is seen.
 func TestANameOnlyAWorkflowReadsOrAPublishableNameIsNotUndeclared(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".github/workflows/release.yml": "jobs:\n  sign:\n    runs-on: windows-latest\n    steps:\n      - run: signtool sign /p $env:WINDOWS_CERTIFICATE_PASSWORD app.exe\n      - run: node -e \"console.log(process.env.SIGNING_TOKEN)\"\n",
@@ -272,8 +282,10 @@ func TestANameOnlyAWorkflowReadsOrAPublishableNameIsNotUndeclared(t *testing.T) 
 // without the leading dot was not read as an example, so the line said "0
 // env examples" and the names in it were never read.
 func TestAnEnvTemplateNamedWithoutTheLeadingDotIsReadAsAnExample(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"env.template", "env.example", ".env-example", "example.env", "web/env.sample"} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{name: "BRAVE_API_KEY=\nPORT=8000\n"})
 			f.manifest("auth.json", `{"project":"northwind","services":[]}`)
@@ -293,6 +305,7 @@ func TestAnEnvTemplateNamedWithoutTheLeadingDotIsReadAsAnExample(t *testing.T) {
 
 // A file that only has env in its name is no env file.
 func TestAFileThatOnlyHasEnvInItsNameIsNoEnvFile(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"src/env.ts": "export const BRAVE_API_KEY = ''\n", "environment.yml": "name: app\n", "env.example.md": "BRAVE_API_KEY=\n"})
 

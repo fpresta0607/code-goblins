@@ -21,6 +21,7 @@ func envFixture(t *testing.T, env string) fixture {
 // were passed over. A value under a credential's name, in a file git does
 // not publish, is a credential unless it reads as a placeholder.
 func TestAPlainValueUnderACredentialsNameIsACredential(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct{ name, variable, value string }{
 		{"a short password", "ADMIN_BASIC_PASSWORD", "hunter2"},
 		{"a secret made of plain words", "CRON_SECRET", "nightly-sweep-two"},
@@ -30,6 +31,7 @@ func TestAPlainValueUnderACredentialsNameIsACredential(t *testing.T) {
 		{"access codes", "PILOT_ACCESS_CODES", "alpha7,bravo9"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := envFixture(t, test.variable+"="+test.value+"\nPORT=8000\n")
 
@@ -50,6 +52,7 @@ func TestAPlainValueUnderACredentialsNameIsACredential(t *testing.T) {
 // all the same, as a value the rules passed over, so a reader can see what
 // the count left out.
 func TestAPlaceholderUnderACredentialsNameIsPassedOverAndNamed(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := envFixture(t, "RESEND_API_KEY=your-key-here\nADMIN_PASSWORD=changeme\nDB_PASSWORD=postgres\nCRON_SECRET=<set me>\nOPENAI_API_KEY=\n")
 
@@ -70,6 +73,7 @@ func TestAPlaceholderUnderACredentialsNameIsPassedOverAndNamed(t *testing.T) {
 // only points at another host is named as passed over, since the rule
 // cannot say what answers there.
 func TestAnAddressIsJudgedByWhatItCarriesAndWhereItPoints(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, line string
 		reason     string
@@ -81,6 +85,7 @@ func TestAnAddressIsJudgedByWhatItCarriesAndWhereItPoints(t *testing.T) {
 		{"a login inside an address on this machine", "QUEUE_URL=amqp://guest:hunter2hunter2@localhost:5672/", "", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			variable, _, _ := strings.Cut(test.line, "=")
 			f := envFixture(t, test.line+"\n")
@@ -115,6 +120,7 @@ func TestAnAddressIsJudgedByWhatItCarriesAndWhereItPoints(t *testing.T) {
 // it was never shown beside the service key that opens it. It is no
 // credential alone, and it is named beside a key of the same service.
 func TestAPublicAddressIsNamedBesideTheKeyThatOpensIt(t *testing.T) {
+	t.Parallel()
 	const address = "NEXT_PUBLIC_SUPABASE_URL=https://abcdefghijklmnopqrst.supabase.example.co\n"
 	for _, test := range []struct {
 		name, key string
@@ -125,6 +131,7 @@ func TestAPublicAddressIsNamedBesideTheKeyThatOpensIt(t *testing.T) {
 		{"beside the key of another service", "OPENAI_API_KEY=sk-proj-" + strings.Repeat("a1B2", 8), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := envFixture(t, address+test.key+"\n")
 
@@ -150,6 +157,7 @@ func TestAPublicAddressIsNamedBesideTheKeyThatOpensIt(t *testing.T) {
 // as, and PLAID_ENV was not among them. A switch is known by the word its
 // name ends in, and it says production under a public name too.
 func TestAnEnvironmentSwitchIsKnownByTheWordItsNameEndsIn(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		line       string
 		production bool
@@ -164,6 +172,7 @@ func TestAnEnvironmentSwitchIsKnownByTheWordItsNameEndsIn(t *testing.T) {
 		{"PRODUCTION_NOTES=live", false},
 	} {
 		t.Run(test.line, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			variable, _, _ := strings.Cut(test.line, "=")
 			f := envFixture(t, test.line+"\n")
@@ -189,6 +198,7 @@ func TestAnEnvironmentSwitchIsKnownByTheWordItsNameEndsIn(t *testing.T) {
 // line says its count is a floor, and the line that says what was examined
 // names each variable whose value was passed over, under why.
 func TestTheCountOfProductionValuesSaysItIsAFloorAndNamesWhatWasPassedOver(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := envFixture(t, "DATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n"+
 		"SESSION_SALT=q7Lm2Xc9Rt4Vb8Kn3Zp6Wd1Hs5Jf0Gy\n"+
@@ -222,11 +232,13 @@ func TestTheCountOfProductionValuesSaysItIsAFloorAndNamesWhatWasPassedOver(t *te
 // environment set to production is nothing to rotate, so neither makes a
 // committed demo file a critical finding again.
 func TestATrackedEnvFileIsNotCriticalForAPlainValueOrAnEnvironmentSwitch(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct{ name, content string }{
 		{"plain text under a credential's name", "PLAID_SECRET=demo-secret-for-local\nPORT=8000\n"},
 		{"an environment set to production", "NODE_ENV=production\nPORT=8000\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".env.demo": test.content})
 
@@ -245,6 +257,7 @@ func TestATrackedEnvFileIsNotCriticalForAPlainValueOrAnEnvironmentSwitch(t *test
 
 // A tracked env file that holds a real key is still the worst of it.
 func TestATrackedEnvFileThatHoldsARealKeyIsStillCritical(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".env.demo": "OPENAI_API_KEY=sk-proj-" + strings.Repeat("a1B2", 8) + "\n"})
 
@@ -262,6 +275,7 @@ func TestATrackedEnvFileThatHoldsARealKeyIsStillCritical(t *testing.T) {
 // A name the code reads and no service declares is a credential by the same
 // words, so a mail password under SMTP_PASS is one the fleet does not carry.
 func TestACredentialNamedByAWordTheCheckDidNotKnowIsOneTheCodeReads(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"src/mail.ts": "const pass = process.env.SMTP_PASS\nconst codes = process.env.PILOT_ACCESS_CODES\nconst level = process.env.ZIP_CODES\n"})
 	f.manifest("auth.json", `{"project":"northwind","services":[]}`)

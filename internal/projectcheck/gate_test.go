@@ -13,6 +13,7 @@ const workflow = "on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n
 // A gate command that does not exist fails its step on every run, or leaves
 // an agent to choose what runs instead.
 func TestAGateCommandThatDoesNotExistIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml": "commands:\n  test: \"python scripts/gate_test.py\"\n  lint: \"nosuchlinter .\"\ngates:\n  - name: tests-kept\n    after: lint\n    command: \"cfo gate tests-kept\"\n",
@@ -34,6 +35,7 @@ func TestAGateCommandThatDoesNotExistIsReported(t *testing.T) {
 }
 
 func TestAGateWhoseCommandsExistPasses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml":         "commands:\n  test: \"python scripts/gate_test.py\"\ngates:\n  - name: tests-kept\n    after: lint\n    command: \"cfo gate tests-kept\"\n",
@@ -59,6 +61,7 @@ func TestAGateWhoseCommandsExistPasses(t *testing.T) {
 // A package script is a command of its own: the gate names it, and it is
 // real only when a package file defines it where the command runs.
 func TestAGateCommandNamingAPackageScriptIsCheckedAgainstThePackageFile(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, command string
 		missing       bool
@@ -69,6 +72,7 @@ func TestAGateCommandNamingAPackageScriptIsCheckedAgainstThePackageFile(t *testi
 		{"defined only in another folder", "npm --prefix web run test:gate", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{
 				".no-mistakes.yaml": "commands:\n  test: \"" + test.command + "\"\n",
@@ -95,6 +99,7 @@ func TestAGateCommandNamingAPackageScriptIsCheckedAgainstThePackageFile(t *testi
 // was a medium that said an agent chooses every step, which is what a gate
 // started any other way does. The answer it quotes is the pipeline's own.
 func TestARepositoryWithNoGateFileIsOneAGatesStartRefuses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 
@@ -113,6 +118,7 @@ func TestARepositoryWithNoGateFileIsOneAGatesStartRefuses(t *testing.T) {
 // A gate file that names no test command leaves the test step to an agent,
 // which is how a gate once booted a live backend to "run tests".
 func TestAGateWithNoTestCommandIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".no-mistakes.yaml": "auto_fix:\n  review: 0\n"})
 
@@ -129,6 +135,7 @@ func TestAGateWithNoTestCommandIsReported(t *testing.T) {
 // The gate's ci step waits for a workflow run, so a repository with no
 // workflow holds every gate run there.
 func TestARepositoryWithNoWorkflowIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 
@@ -145,6 +152,7 @@ func TestARepositoryWithNoWorkflowIsReported(t *testing.T) {
 // CI is the check of what the gate ran, so a test runner the gate uses and
 // no workflow runs is a result nobody checks again.
 func TestAGateWhoseTestRunnerNoWorkflowRunsIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml":        "commands:\n  test: \"python scripts/gate_test.py\"\n",
@@ -167,6 +175,7 @@ func TestAGateWhoseTestRunnerNoWorkflowRunsIsReported(t *testing.T) {
 }
 
 func TestAGateWhoseTestRunnersCIRunsPasses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml":        "commands:\n  test: \"pytest -q\"\n",
@@ -195,6 +204,7 @@ const (
 // having happened. The verdict is the pipeline's own: the check asks the
 // code that refuses the run.
 func TestAnAgentPinnedInTheGateFileIsReadAgainstTheHomesPolicy(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, policy, pin string
 		check             string
@@ -208,6 +218,7 @@ func TestAnAgentPinnedInTheGateFileIsReadAgainstTheHomesPolicy(t *testing.T) {
 		{"a pin and a policy the loader refuses", `{"version":9}`, "agent: [claude]\n", "gate-agent-unjudged", Low, []string{"claude", "pipeline.json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".no-mistakes.yaml": test.pin + "commands:\n  test: \"pytest -q\"\n"})
 			options := f.options("pytest")
@@ -236,6 +247,7 @@ func TestAnAgentPinnedInTheGateFileIsReadAgainstTheHomesPolicy(t *testing.T) {
 
 // A gate file that pins no agent has nothing to refuse, and says nothing.
 func TestAGateFileThatPinsNoAgentHasNoAgentLine(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 	options := f.options("pytest")
@@ -257,6 +269,7 @@ func TestAGateFileThatPinsNoAgentHasNoAgentLine(t *testing.T) {
 // the agent and none of these, which are the rest of what that start asks
 // of the file.
 func TestWhatAGatesStartAsksOfTheGateFileIsReadAgainstTheHomesPolicy(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, policy, sets string
 		check              string
@@ -271,6 +284,7 @@ func TestWhatAGatesStartAsksOfTheGateFileIsReadAgainstTheHomesPolicy(t *testing.
 		{"counts and no policy to ask", "", "auto_fix:\n  test: 3\n", "gate-limits-unjudged", Low, []string{"auto_fix", "pipeline.json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".no-mistakes.yaml": test.sets + "commands:\n  test: \"pytest -q\"\n"})
 			options := f.options("pytest")
