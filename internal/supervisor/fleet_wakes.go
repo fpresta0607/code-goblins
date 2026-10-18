@@ -623,7 +623,13 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
-		trainErr := s.runTrain(ctx, pollRunner, w, repo, listed)
+		// A refusal one of these reads met holds the train as it holds the
+		// next polls: on 2026-10-17 the hold refused the train's read of the
+		// account gh works as, which counted as a failing read (#1085).
+		var trainErr error
+		if !currentTime().Before(w.BackOff[repo]) {
+			trainErr = s.runTrain(ctx, pollRunner, w, repo, listed)
+		}
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
