@@ -205,3 +205,21 @@ test("a goblin's wait that follows no decision is its own card beside the decisi
   await expect(waitingList(page).locator("li")).toHaveCount(2);
   await expect(waitingList(page)).toContainText("Waiting for the Overlord's answer on the parity tool sizing");
 });
+
+// While the wait follows the CFO's question for the goblin, the decision is
+// what she waits on: her panel finds the question by the goblin it decides
+// for, so its Answer stays and opens that decision.
+test("a goblin's panel offers Answer on the CFO's question for her, and Answer opens it", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  const question = { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build them", "End her task here"] };
+  await boardAsked(page, { questions: [question], reviews: [{ ...followUp, follows: question.id }] });
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("main", { name: "Board" }).getByRole("button", { name: /^Wanda - API Ace ,/ }).click();
+
+  // Act
+  await page.locator(".goblin-panel .panel-header").getByRole("button", { name: "Answer: " + question.text }).click();
+
+  // Assert
+  await expect(card(page).getByRole("form", { name: question.text })).toBeVisible();
+});
