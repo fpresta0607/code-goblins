@@ -940,6 +940,13 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A switch starts the codex its validation found on PATH, so the one this
+	// test's adapter stands for is put there. It never runs.
+	stub := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stub, "codex.cmd"), []byte("@exit /b 1\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 	switchRunner := &pipelineSwitchRunner{statusReady: make(chan struct{}), statusRelease: make(chan struct{})}
 	// No host command is given, so the switch publishes the new harness and
 	// then cannot start it; starting it is not what this test is about.
