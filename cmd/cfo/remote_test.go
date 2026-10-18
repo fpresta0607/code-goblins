@@ -71,7 +71,7 @@ func (d doctorTailscale) Run(_ context.Context, r execx.Request) (execx.Result, 
 func TestDoctorReportsRemoteAccessWithoutNamingTheTailnet(t *testing.T) {
 	const route = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"pc.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
 	const on = `{"enabled":true,"origin":"https://pc.example.ts.net:4311","login":"owner@example.com","target":"http://127.0.0.1:4310"}`
-	const left = `{"enabled":false,"origin":"https://pc.example.ts.net:4311","login":"owner@example.com","target":"http://127.0.0.1:4310"}`
+	const reserved = `{"enabled":false,"origin":"https://pc.example.ts.net:4311","login":"owner@example.com","target":"http://127.0.0.1:4310"}`
 	for _, tc := range []struct {
 		name     string
 		settings string
@@ -81,7 +81,7 @@ func TestDoctorReportsRemoteAccessWithoutNamingTheTailnet(t *testing.T) {
 		{"never turned on", "", doctorTailscale{isStopped: true}, "off; to use the board from a phone"},
 		{"on and ready", on, doctorTailscale{serve: route}, "on and ready; cfo remote status shows its link"},
 		{"on with Tailscale stopped", on, doctorTailscale{isStopped: true}, "on, but not ready: Tailscale is not running on this PC"},
-		{"off with its route left", left, doctorTailscale{serve: route}, "off, but its Tailscale route may remain; run cfo remote off on this PC"},
+		{"off with its route reserved", reserved, doctorTailscale{serve: route}, "an earlier change left its Tailscale route reserved: run cfo remote on to finish turning it on, or cfo remote off to remove it"},
 		{"settings unreadable", "{", doctorTailscale{}, "settings unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
