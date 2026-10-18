@@ -1192,7 +1192,15 @@ The board's tab shows the goblin mark, from `/favicon.svg` with 16 and 32 px PNG
 Its theme color is the #03050a base, so a browser that tints its bar, such as Chrome on Android, blends into the board.
 The supervisor serves a web app manifest at `/manifest.webmanifest` as `application/manifest+json`: Code Goblins, standalone, in the base color, with 192 and 512 px icons and a maskable 512 px icon, so Chrome and Edge offer Install Code Goblins and open the board in a window of its own with no tabs or address bar.
 Added to an iPhone's or iPad's Home Screen from Safari, including over the private Tailscale link, the board is an app named Code Goblins that opens without Safari's bars, with its icon at 120, 152, 167 and 180 px, the sizes iOS and iPadOS ask for.
-While an installed board is open, its icon carries the same count as the title where the browser badges installed apps, as Chrome and Edge do, and an iPhone does once the app's notifications are allowed; nothing updates it while the app is closed.
+While an installed board is open, its icon carries the same count as the title where the browser badges installed apps, as Chrome and Edge do, and an iPhone does once the app's notifications are allowed.
+In his phone's Home Screen app, opened from the private board, the Remote access section has an **App badge** switch where the browser pushes (CFO decision 1008918); the board on the PC has none, since the desktop window and the page tell what waits there.
+Turning it on asks for notifications in the app's own words, the system's prompt naming Code Goblins, and only then: the phone app never shows the board's ask for Windows notifications, and claims no alert from the board on the PC.
+It subscribes the app to the supervisor's pushes, and the app tells the supervisor of its subscription again each time it opens, subscribing again if the board's key changed.
+The supervisor then pushes each item newly waiting on the Overlord, in the words the desktop window notifies it, with how many wait, so the icon's count rises and the item shows as a notification while the app is closed; tapping it brings the app up.
+A count that falls is corrected when the app opens, never by a push, since iOS changes a badge only with a notification (CFO decision 1008953).
+It pushes nothing else, nothing under AFK mode, nothing for what already waited when the badge turned on, and nothing for a goblin's question the CFO left, which counts but, as on the page, never alerts.
+The pushes go through the browser's own push service (Apple's for an iPhone), encrypted so only the app reads them (RFC 8291), padded to one size, and signed with the board's VAPID key (RFC 8292), which `push.json` in the state folder keeps, readable by its owner alone, with each subscribed app; the supervisor sends only to Apple's, Google's, Mozilla's or Microsoft's push service, and forgets an app its service dropped.
+Turning the switch off unsubscribes the app, and turning remote access off forgets every app at once, as for a phone he lost.
 The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`, the smaller Home Screen icons from the 180 px one; render them again whenever the mark changes.
 
 ### The desktop window

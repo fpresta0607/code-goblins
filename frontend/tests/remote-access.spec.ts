@@ -2,6 +2,9 @@ import { expect, servePages, test, type Page } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
 const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
+// The board's push key, the RFC 8291 example's application server key.
+const SERVER_KEY = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
+const APP = { endpoint: "https://web.push.apple.com/QGuQyavXutnMH", keys: { p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", auth: "BTBZMqHH6r4Tts7J_aSIgg" } };
 const OFF = { enabled: false, ready: false, tailscale: "ready", scrawl: false };
 const ON = { enabled: true, ready: true, url: URL, login: "owner@example.com", scrawl: false };
 const SCRAWL_ON = { ...ON, scrawl: true, scrawl_state: "on" };
@@ -36,6 +39,11 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
   }, JSON.stringify(BOARD));
   await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
   await page.route("**/api/remote/machines", (route) => route.fulfill({ json: { machines } }));
+  const pushes: unknown[] = [];
+  await page.route("**/api/push", (route) => {
+    if (route.request().method() === "POST") pushes.push(route.request().postDataJSON());
+    return route.fulfill({ json: { key: SERVER_KEY } });
+  });
   await page.route("**/api/remote", async (route) => {
     if (route.request().method() !== "POST") {
       reads.count++;
@@ -60,7 +68,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
   await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await page.locator(".disclosure.remote-access > summary").click();
   const push = (snapshot: Status) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, ...snapshot }));
-  return { actions, reads, push, panel: page.getByRole("region", { name: "Remote access" }), setStatus: (next: Status) => { status = next; } };
+  return { actions, reads, push, pushes, panel: page.getByRole("region", { name: "Remote access" }), setStatus: (next: Status) => { status = next; } };
 }
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -335,4 +343,127 @@ test("a switch that cannot turn on stays off and says why for a moment", async (
   await expect(tailscale).toHaveAttribute("aria-checked", "false");
   await expect(tailscale).toBeVisible();
   await expect(panel.getByRole("button", { name: "Copy " + URL })).toHaveCount(0);
+});
+
+// The board added to a Home Screen, on a browser that pushes, played by the
+// test: its notification prompt answers with answer, it may already be
+// subscribed, with the key heldKey, and what the badge asks of it is kept in
+// window.badgeCalls.
+async function installedApp(page: Page, { answer = "granted", isSubscribed = false, heldKey = SERVER_KEY }: { answer?: NotificationPermission; isSubscribed?: boolean; heldKey?: string } = {}) {
+  await page.addInitScript(({ answer, isSubscribed, app, heldKey }) => {
+    const calls: string[] = [];
+    const key = Uint8Array.from(atob(heldKey.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
+    const made = { endpoint: app.endpoint, options: { applicationServerKey: key.buffer }, toJSON: () => ({ ...app, expirationTime: null }), unsubscribe: async () => { calls.push("unsubscribe"); subscription = null; return true; } };
+    let subscription: typeof made | null = isSubscribed ? made : null;
+    let permission: NotificationPermission = isSubscribed ? "granted" : "default";
+    const registration = { pushManager: {
+      getSubscription: async () => subscription,
+      subscribe: async (options: { applicationServerKey: Uint8Array }) => { calls.push("subscribe with a " + options.applicationServerKey.byteLength + "-byte key"); subscription = made; return made; },
+    } };
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async (url: string) => { calls.push("register " + url); return registration; }, ready: Promise.resolve(registration), getRegistration: async () => registration } });
+    Object.defineProperty(window, "Notification", { configurable: true, value: { get permission() { return permission; }, requestPermission: async () => { calls.push("ask"); permission = answer; return answer; } } });
+    const media = window.matchMedia.bind(window);
+    window.matchMedia = (query: string) => query === "(display-mode: standalone)" ? { ...media(query), matches: true } : media(query);
+    Object.assign(window, { badgeCalls: calls });
+  }, { answer, isSubscribed, app: APP, heldKey });
+}
+
+const badgeCalls = (page: Page) => page.evaluate(() => (window as unknown as { badgeCalls: string[] }).badgeCalls);
+
+// CFO decision 1008918: the app's badge stays current while the app is
+// closed, asking for notifications in the app's own words only when he turns
+// it on.
+test("in the Home Screen app, the App badge asks for notifications only when he turns it on, and subscribes the app until he turns it off", async ({ page }) => {
+  // Arrange
+  await installedApp(page);
+  const { panel, pushes } = await open(page, ON, { origin: URL });
+  const badge = page.getByRole("switch", { name: "App badge", exact: true });
+  await expect(badge).toHaveAttribute("aria-checked", "false");
+  expect(await badgeCalls(page)).toEqual([]);
+
+  // Act: on.
+  await badge.click();
+
+  // Assert
+  await expect(badge).toHaveAttribute("aria-checked", "true");
+  expect(await badgeCalls(page)).toEqual(["ask", "register /push-worker.js", "subscribe with a 65-byte key"]);
+  expect(pushes).toEqual([{ subscribe: APP }]);
+
+  // Act and assert: off.
+  await badge.click();
+  await expect(badge).toHaveAttribute("aria-checked", "false");
+  expect(pushes).toEqual([{ subscribe: APP }, { unsubscribe: APP.endpoint }]);
+  expect(await badgeCalls(page)).toContain("unsubscribe");
+  await expect(panel.getByRole("switch", { name: "Tailscale", exact: true })).toBeVisible();
+});
+
+test("an app whose notifications he refuses keeps the badge off and says where to allow them", async ({ page }) => {
+  // Arrange
+  await installedApp(page, { answer: "denied" });
+  const { pushes } = await open(page, ON, { origin: URL });
+  const badge = page.getByRole("switch", { name: "App badge", exact: true });
+
+  // Act
+  await badge.click();
+
+  // Assert
+  await expect(page.locator(".app-badge-setting .click-feedback")).toHaveText("Allow notifications for Code Goblins in Settings.");
+  await expect(badge).toHaveAttribute("aria-checked", "false");
+  expect(pushes).toEqual([]);
+  expect(await badgeCalls(page)).toEqual(["ask"]);
+});
+
+// An app still subscribed tells the board again as it opens, which may have
+// forgotten it, and one subscribed with a key the board no longer signs
+// with subscribes again with the board's.
+for (const [name, heldKey, calls] of [
+  ["with the board's key", SERVER_KEY, []],
+  ["with an earlier key", APP.keys.p256dh, ["unsubscribe", "subscribe with a 65-byte key"]],
+] as const) {
+  test(`an app still subscribed ${name} shows the badge on and tells the board as it opens`, async ({ page }) => {
+    // Arrange and act
+    await installedApp(page, { isSubscribed: true, heldKey });
+    const { pushes } = await open(page, ON, { origin: URL });
+
+    // Assert
+    await expect(page.getByRole("switch", { name: "App badge", exact: true })).toHaveAttribute("aria-checked", "true");
+    await expect.poll(() => pushes).toEqual([{ subscribe: APP }]);
+    expect(await badgeCalls(page)).toEqual(calls);
+  });
+}
+
+// His phone's app never asks for Windows notifications: the App badge alone
+// asks, when he turns it on. The board in a phone's browser tab still does.
+for (const [where, isInstalled, asks] of [["the Home Screen app", true, 0], ["a phone's browser tab", false, 1]] as const) {
+  test(`${where} on a new item ${asks ? "asks" : "does not ask"} for Windows notifications`, async ({ page }) => {
+    // Arrange: notifications not yet asked for, as on a new phone.
+    if (isInstalled) await installedApp(page);
+    else await page.addInitScript(() => Object.defineProperty(window, "Notification", { configurable: true, value: { permission: "default", requestPermission: async () => "default" } }));
+    const { push } = await open(page, ON, { origin: URL });
+
+    // Act
+    await push({ revision: 2, questions: [{ id: "cfo-question-1", identity: "c".repeat(64), text: "Ship it?", status: "pending", created_at: new Date().toISOString() }] });
+
+    // Assert
+    await expect(page.getByRole("group", { name: "Windows notifications" })).toHaveCount(asks);
+  });
+}
+
+test("an app added to the PC's own board has no App badge", async ({ page }) => {
+  // Arrange and act
+  await installedApp(page);
+  const { panel } = await open(page, ON);
+
+  // Assert
+  await expect(panel.getByRole("switch", { name: "Tailscale", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "App badge" })).toHaveCount(0);
+});
+
+test("the board in a browser tab, not added to a Home Screen, has no App badge", async ({ page }) => {
+  // Arrange and act
+  const { panel } = await open(page, ON, { origin: URL });
+
+  // Assert
+  await expect(panel.getByRole("switch", { name: "Tailscale", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "App badge" })).toHaveCount(0);
 });
