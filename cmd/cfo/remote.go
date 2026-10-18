@@ -76,10 +76,16 @@ func runRemote(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 1
 		}
 	} else {
-		status = m.Status(ctx)
+		status = m.Detect(ctx, m.Status(ctx))
 	}
 	if !status.Enabled {
 		fmt.Fprintln(stdout, "Remote board access is off. Run cfo remote on on this PC to enable it.")
+		if status.TailscaleIssue != "" {
+			fmt.Fprintln(stdout, status.TailscaleIssue)
+		}
+		if status.Fix != "" {
+			fmt.Fprintln(stdout, "To mend it, run:", status.Fix)
+		}
 	} else {
 		fmt.Fprintf(stdout, "Private board: %s\nAllowed Tailscale account: %s\n", status.URL, status.Login)
 		if !boardRunning {
@@ -128,7 +134,7 @@ func remoteAccessLine(ctx context.Context, m *remoteaccess.Manager, isBoardRunni
 	case !s.Enabled && s.URL != "":
 		return "off; an earlier change left its Tailscale route reserved: run cfo remote on to finish turning it on, or cfo remote off to remove it"
 	case !s.Enabled:
-		return "off; to use the board from a phone, connect Tailscale on this PC and the phone, then press Enable in the CFO's Task panel under Remote access, or run cfo remote on (see docs/remote-access.md)"
+		return "off; to use the board from a phone, connect Tailscale on this PC and the phone, then turn the Tailscale switch on in the CFO's Task panel under Remote access, or run cfo remote on (see docs/remote-access.md)"
 	case !isBoardRunning:
 		return "on, but the board is stopped; start Code Goblins on this PC"
 	case !s.Ready:

@@ -1,52 +1,92 @@
-import { useState } from "react";
-import { message, request, useResource } from "./api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { message, request } from "./api";
 import { boolean, object, string } from "./types";
 import { CopyValue } from "./CopyValue";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
-import { Disclosure } from "./Disclosure";
+import { SettingSwitch } from "./setting-switch";
 import "./remote-access.css";
+
+// A few words for what needs him, by the supervisor's names: what this PC's
+// Tailscale lacks, what is wrong while remote access is on, and what is
+// wrong with Scrawl reviews.
+const TAILSCALE_NOTES: Record<string, string> = {
+  missing: "Not installed", stopped: "Not running", signed_out: "Signed out", disconnected: "Disconnected", unsuitable: "Tagged or no MagicDNS", unavailable: "Not answering", no_https: "HTTPS not approved",
+  settings: "Settings unreadable", board_moved: "Board moved", account_changed: "Account changed", funnel: "Funnel on", route_missing: "Route missing", start_at_login: "Start at login off",
+};
+const SCRAWL_NOTES: Record<string, string> = { bypassed: "Direct route", exposed: "Not private", foreign: "Other server", outdated: "Update Scrawl", unrouted: "Needs setup" };
+
+type Status = ReturnType<typeof parse>;
 
 function parse(value: unknown) {
   const v = object(value);
-  return { enabled: boolean(v.enabled), ready: boolean(v.ready), url: v.url ? string(v.url) : "", login: v.login ? string(v.login) : "", issue: v.issue ? string(v.issue) : "", scrawlReady: v.scrawl_ready === undefined ? false : boolean(v.scrawl_ready), scrawlIssue: v.scrawl_issue ? string(v.scrawl_issue) : "" };
+  const text = (field: unknown) => field ? string(field) : "";
+  return { enabled: boolean(v.enabled), ready: boolean(v.ready), url: text(v.url), issue: text(v.issue), attention: text(v.attention), tailscale: text(v.tailscale), tailscaleIssue: text(v.tailscale_issue), fix: text(v.fix), scrawl: v.scrawl === undefined ? false : boolean(v.scrawl), scrawlState: text(v.scrawl_state), scrawlIssue: text(v.scrawl_issue), scrawlFix: text(v.scrawl_fix) };
 }
 
+// Remote access is one switch, Tailscale, offered once the supervisor reads
+// this PC's Tailscale as signed in. On, it shows the private link and,
+// indented under it as a setting of its own, Scrawl reviews' switch. Each
+// switch says how it stands with a mark and what needs him in a few words,
+// and on this PC the command that mends it sits under it to copy.
 export function RemoteAccessSetting({ instance }: { instance: string }) {
-  const resource = useResource("/api/remote", parse);
-  const [changed, setChanged] = useState<ReturnType<typeof parse>>();
-  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<Status>();
+  const [failed, setFailed] = useState(false);
+  const [pending, setPending] = useState<"" | "tailscale" | "scrawl">("");
   const [feedback, showFeedback] = useClickFeedback();
-  const status = changed ?? resource.data;
   const local = location.hostname === "127.0.0.1" || location.hostname === "[::1]";
-  const refresh = () => { setChanged(undefined); resource.reload(); };
-  const change = async (input: { on: boolean } | { scrawl: true }) => {
-    setBusy(true);
+  // Each read and press takes the next turn, and an answer is shown only
+  // while its turn is the latest, so a read begun before a press never
+  // undoes what the press did.
+  const turn = useRef(0);
+  const pressing = useRef(false);
+  const read = useCallback(() => {
+    const mine = ++turn.current;
+    void request("/api/remote").then((value) => {
+      if (mine !== turn.current) return;
+      setStatus(parse(value));
+      setFailed(false);
+    }).catch(() => { if (mine === turn.current) setFailed(true); });
+  }, []);
+  // Tailscale is read again whenever he comes back to the board, as from
+  // installing it or signing in, since nothing else tells the board.
+  useEffect(() => {
+    read();
+    const again = () => { if (!document.hidden && !pressing.current) read(); };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => { window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); };
+  }, [read]);
+  const change = async (input: { on: boolean } | { scrawl: boolean }) => {
+    const mine = ++turn.current;
+    pressing.current = true;
+    setPending("on" in input ? "tailscale" : "scrawl");
     try {
-      setChanged(parse(await request("/api/remote", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(input) })));
-    } catch (error: unknown) { showFeedback(message(error)); setChanged(undefined); resource.reload(); }
-    finally { setBusy(false); }
+      const next = parse(await request("/api/remote", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(input) }));
+      if (mine === turn.current) setStatus(next);
+    } catch (error: unknown) { showFeedback(message(error)); read(); }
+    finally { pressing.current = false; setPending(""); }
   };
+  if (!status) return <section className="remote-access-setting" aria-label="Remote access">
+    {failed ? <span className="plain-status">Unavailable</span> : <p role="status">Checking remote access…</p>}
+  </section>;
+  const canTurnOn = local && !status.attention && (status.tailscale === "ready" || status.tailscale === "no_https");
+  const scrawlWrong = status.scrawlState !== "" && status.scrawlState !== "on";
   return <section className="remote-access-setting" aria-label="Remote access">
-    <div className="remote-access-heading"><strong>Tailscale</strong>
-      {status && (status.enabled || local) && <button className="secondary" disabled={busy || !instance} onClick={() => void change({ on: !status.enabled })}>{busy ? "Updating…" : status.enabled ? "Turn off" : "Enable"}</button>}
-    </div>
-    {status ? <>
-      <p>{status.enabled ? status.ready ? "Private access is ready." : "Remote access needs attention." : "Open this board and the CFO terminal from your phone over Tailscale."}</p>
-      {status.enabled && status.url && <><CopyValue value={status.url} /><a href={status.url} target="_blank" rel="noreferrer">Open private board</a></>}
-      {status.enabled && <p className="muted">Connect Tailscale on your phone as {status.login}, then open the link in its browser. Add to Home Screen keeps it handy. Keep this PC awake and online.</p>}
-      {!status.enabled && local && <p className="muted">Enable also turns on Start at login so the board returns after Windows sign-in.</p>}
-      {status.issue && <p role="status">{status.issue}</p>}
-      {status.enabled && <>
-        <div className="remote-access-heading"><strong>Scrawl reviews</strong>{local && <button className="secondary" disabled={busy || !status.ready} onClick={() => void change({ scrawl: true })}>Set up Scrawl</button>}</div>
-        <p>{status.scrawlReady ? "Private reviews are ready. Open a review from this board." : status.scrawlIssue || "Set up Scrawl on this PC to open reviews from your phone."}</p>
-        {local && !status.scrawlReady && <p className="muted">Setup restarts Scrawl privately. Saved sessions and queued feedback stay. Open review pages reconnect.</p>}
-        {local && <p className="muted">After an upgrade, restart or resume older CFO and goblin terminal sessions through Code Goblins before relying on private Scrawl launches.</p>}
-      </>}
-    </> : !resource.error && <p role="status">Checking remote access…</p>}
+    <SettingSwitch label="Tailscale" on={status.enabled} pending={pending === "tailscale"} disabled={pending !== "" || !instance || !status.enabled && !canTurnOn}
+      tip={status.enabled ? "Turn remote access off" : canTurnOn ? "Turn remote access on" : status.tailscaleIssue || status.issue}
+      mark={status.enabled ? status.ready && !status.attention ? "ok" : "problem" : status.attention ? "problem" : undefined} markTip={status.issue}
+      note={TAILSCALE_NOTES[status.attention || (status.enabled ? "" : status.tailscale)]}
+      onPress={() => void change({ on: !status.enabled })} />
+    {local && !status.enabled && status.fix && <CopyValue value={status.fix} />}
+    {status.enabled && status.url && <CopyValue value={status.url} />}
+    {status.enabled && <div className="remote-access-option">
+      <SettingSwitch label="Scrawl reviews" on={status.scrawl} pending={pending === "scrawl"} disabled={pending !== "" || !instance || !status.ready || !status.scrawl && !local}
+        tip={status.scrawl ? "Turn Scrawl reviews off" : "Turn Scrawl reviews on"}
+        mark={scrawlWrong ? "problem" : status.scrawl && status.scrawlState === "on" ? "ok" : undefined} markTip={status.scrawlIssue}
+        note={SCRAWL_NOTES[status.scrawlState]}
+        onPress={() => void change({ scrawl: !status.scrawl })} />
+      {local && status.scrawlFix && <CopyValue value={status.scrawlFix} />}
+    </div>}
     <ClickFeedback text={feedback} />
-    {resource.error && <span className="plain-status">Unavailable</span>}
-    <div className="remote-access-help"><button className="secondary" disabled={busy} onClick={refresh}>Refresh</button><a href="https://tailscale.com/download/windows" target="_blank" rel="noreferrer">Get Tailscale for PC</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noreferrer">For iPhone</a><a href="https://tailscale.com/download/android" target="_blank" rel="noreferrer">For Android</a><a href="https://tailscale.com/docs/how-to/set-up-https-certificates" target="_blank" rel="noreferrer">HTTPS setup</a></div>
-    <p className="muted">Connect the Tailscale app on each device with the same account. Your device’s VPN stays in Tailscale.</p>
-    {local && <Disclosure kind="remote-https" title="Approve HTTPS on this PC"><p>In an Administrator PowerShell, run the command below and follow Tailscale’s approval link. Then press Enable again.</p><CopyValue value={"tailscale serve --bg --https=4311 " + location.origin} /></Disclosure>}
   </section>;
 }

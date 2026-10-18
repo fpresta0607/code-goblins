@@ -187,12 +187,13 @@ cd code-goblins
 ```
 
 It does everything the one-line install does, with the clone's build in place of the download.
-no-mistakes, the gate every goblin's work passes, comes from the release `install.ps1` pins, downloaded from its GitHub release page with a bounded retry and installed only when it matches that release's `checksums.txt`.
-Rerunning either install updates an older no-mistakes to the pinned release, once no gate is running.
+no-mistakes, the gate every goblin's work passes, is the build of its fork that `install.ps1` pins, which each release builds, signs and publishes beside its own programs; the install downloads it from its own release with a bounded retry, installs it only when it matches that release's `SHA256SUMS`, and checks that it takes what the fleet's gate gives it.
+`install.cmd -Dev` builds the same commit from source.
+Rerunning either install replaces a no-mistakes that cannot gate as the pinned build does, an older one or an upstream release, once no gate is running.
 
-A release says in its notes whether its programs are code-signed; until Code Goblins has a signing identity they are not, and the install checks each download against the release's `SHA256SUMS`.
+A release says in its notes whether its programs are code-signed; every release from v0.5.2 on is signed by SIQstack LLC, and the install checks each download against the release's `SHA256SUMS` and that publisher's signature.
 The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
-A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
+A signed `cfo.exe` saved from a browser names SIQstack LLC as its publisher, and SmartScreen can still stop it with "Windows protected your PC" until enough people have run it; Smart App Control, where it is on, blocks only the unsigned ones of v0.4.0 to v0.5.1.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
 
 Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
@@ -229,6 +230,7 @@ Tick **Remove these too**, or run `goblins uninstall --remove-work`, to remove t
 
 It leaves the tools the install fetched, which other programs may use, and names each one: Git, the GitHub CLI, Claude Code, Codex, pi, no-mistakes and the npm tools, with the skills, PATH entries and folders they came with.
 Tick **Remove these too**, or run `goblins uninstall --remove-tools`, to remove them with their own installers.
+no-mistakes then goes with its daemon stopped first and its startup task, and with `~\.no-mistakes` when the install made it; one that was there before stays yours.
 The install records what it fetched, so the uninstall removes exactly that and never a tool you had before.
 
 Each removal is read back, and the uninstall ends by checking that nothing of Code Goblins is left.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -141,6 +142,11 @@ type scrawlCommands struct {
 	starts  int
 	stops   int
 	failOff bool
+	// isOffIgnored stands for a Tailscale whose route outlives its off.
+	isOffIgnored bool
+	// offStarted, when set, hears Scrawl's off begin, which then waits for
+	// offRelease.
+	offStarted, offRelease chan struct{}
 }
 
 func (f *scrawlCommands) Run(ctx context.Context, r execx.Request) (execx.Result, error) {
@@ -152,6 +158,13 @@ func (f *scrawlCommands) Run(ctx context.Context, r execx.Request) (execx.Result
 	if strings.Contains(call, "--https=4312") || call == "serve --https=4311 off" {
 		if f.failOff && call == "serve --https=4312 off" {
 			return execx.Result{ExitCode: 1}, nil
+		}
+		if f.offStarted != nil && call == "serve --https=4312 off" {
+			close(f.offStarted)
+			<-f.offRelease
+		}
+		if f.isOffIgnored && strings.HasSuffix(call, " off") {
+			return execx.Result{}, nil
 		}
 		var config map[string]map[string]any
 		_ = json.Unmarshal([]byte(f.config), &config)
@@ -299,22 +312,263 @@ func TestScrawlOpaqueSandboxAssetsKeepIdentityAndAPIBoundaries(t *testing.T) {
 	}
 }
 
+// A route of the owner's own straight to Scrawl is found however it is
+// written, never adopted, and named with the command that removes it where
+// one does: none for a route inside a Tailscale service.
 func TestDirectScrawlServeRouteIsNotAdoptedOrCalledPrivate(t *testing.T) {
 	m, c, _ := scrawlFixture(t, http.NotFoundHandler())
+	forward := strings.TrimPrefix(c.ScrawlTarget, "http://")
+	for _, tc := range []struct{ name, config, fix string }{
+		{"an HTTPS proxy", `{"TCP":{"4388":{"HTTPS":true}},"Web":{"home.example.ts.net:4388":{"Handlers":{"/":{"Proxy":"` + c.ScrawlTarget + `"}}}}}`, "tailscale serve --https=4388 off"},
+		{"an HTTP proxy", `{"TCP":{"4389":{"HTTP":true}},"Web":{"home.example.ts.net:4389":{"Handlers":{"/":{"Proxy":"` + c.ScrawlTarget + `"}}}}}`, "tailscale serve --http=4389 off"},
+		{"a TCP forward", `{"TCP":{"4388":{"TCPForward":"` + forward + `"}}}`, "tailscale serve --tcp=4388 off"},
+		{"a TCP forward inside a service", `{"Services":{"svc:test":{"TCP":{"4388":{"TCPForward":"` + forward + `"}}}}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var serving serveConfig
+			if err := json.Unmarshal([]byte(tc.config), &serving); err != nil {
+				t.Fatal(err)
+			}
+			if isDirect, fix := directScrawlRoute(serving, c); !isDirect || fix != tc.fix {
+				t.Fatalf("direct route %v, fix %q; want found, fix %q", isDirect, fix, tc.fix)
+			}
+			state, issue, fix := m.scrawlStatus(context.Background(), c, serving)
+			if state != "bypassed" || !strings.Contains(issue, "without the owner check") || fix != tc.fix {
+				t.Fatal(state, issue, fix)
+			}
+		})
+	}
+}
+
+// Scrawl reviews show their state in one word: on, or what is wrong. A
+// stopped Scrawl is on, since the next review starts it again, and a route
+// of the owner's own straight to Scrawl shows even while reviews are off,
+// set up or never set up.
+func TestScrawlStateIsOneWordOnOrWhatIsWrong(t *testing.T) {
+	const own = `{"TCP":{"4312":{"HTTPS":true}},"Web":{"home.example.ts.net:4312":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
+	direct := func(target string) string {
+		return `{"Web":{"home.example.ts.net:4388":{"Handlers":{"/":{"Proxy":"` + target + `"}}}}}`
+	}
+	for _, tc := range []struct {
+		name    string
+		arrange func(t *testing.T, c *Config, unsafe *atomic.Bool) string
+		want    string
+	}{
+		{"healthy", func(*testing.T, *Config, *atomic.Bool) string { return own }, "on"},
+		{"stopped", func(t *testing.T, c *Config, _ *atomic.Bool) string {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.ScrawlTarget = "http://" + listener.Addr().String()
+			_ = listener.Close()
+			return own
+		}, "on"},
+		{"another server", func(t *testing.T, c *Config, _ *atomic.Bool) string { c.ScrawlState = t.TempDir(); return own }, "foreign"},
+		{"a listener that does not answer as Scrawl", func(t *testing.T, c *Config, _ *atomic.Bool) string {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = listener.Close() })
+			go func() {
+				for {
+					conn, err := listener.Accept()
+					if err != nil {
+						return
+					}
+					_ = conn.Close()
+				}
+			}()
+			c.ScrawlTarget = "http://" + listener.Addr().String()
+			return own
+		}, "foreign"},
+		{"listening beyond this PC", func(_ *testing.T, _ *Config, unsafe *atomic.Bool) string { unsafe.Store(true); return own }, "exposed"},
+		{"its route missing", func(*testing.T, *Config, *atomic.Bool) string { return "{}" }, "unrouted"},
+		{"off", func(_ *testing.T, c *Config, _ *atomic.Bool) string { c.Scrawl = false; return "{}" }, ""},
+		{"off beside the owner's direct route", func(_ *testing.T, c *Config, _ *atomic.Bool) string { c.Scrawl = false; return direct(c.ScrawlTarget) }, "bypassed"},
+		{"never set up beside the owner's direct route", func(t *testing.T, c *Config, _ *atomic.Bool) string {
+			u, _ := url.Parse(c.ScrawlTarget)
+			t.Setenv("LAVISH_AXI_PORT", u.Port())
+			target := c.ScrawlTarget
+			c.Scrawl, c.ScrawlTarget, c.ScrawlState = false, "", ""
+			return direct(target)
+		}, "bypassed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m, c, unsafe := scrawlFixture(t, http.NotFoundHandler())
+			var serving serveConfig
+			if err := json.Unmarshal([]byte(tc.arrange(t, &c, unsafe)), &serving); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			state, issue, _ := m.scrawlStatus(context.Background(), c, serving)
+
+			// Assert
+			if state != tc.want || (state == "on") == (issue != "") {
+				t.Fatalf("state %q (%q), want %q, with a reason unless it is on", state, issue, tc.want)
+			}
+		})
+	}
+}
+
+// Turning Scrawl reviews off removes only Scrawl's own route, keeps the
+// board's, and the gate stops passing Scrawl's host at once.
+func TestScrawlOffRemovesOnlyItsRouteAndKeepsTheBoards(t *testing.T) {
+	// Arrange
+	m, c, _ := scrawlFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "review") }))
+	u, _ := url.Parse(c.ScrawlTarget)
+	t.Setenv("LAVISH_AXI_PORT", u.Port())
+	t.Setenv("LAVISH_AXI_STATE_DIR", c.ScrawlState)
+	f := &scrawlCommands{fakeTailscale: fakeTailscale{config: ownProxy}, unsafe: &atomic.Bool{}}
+	m.Commands, m.Starter = f, f
+	if _, err := m.EnableScrawl(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s, err := m.DisableScrawl(context.Background())
+
+	// Assert
+	if err != nil || !s.Enabled || !s.Ready || s.Scrawl || s.ScrawlReady {
+		t.Fatal(s, err)
+	}
+	if saved, err := Read(m.State); err != nil || !saved.Enabled || saved.Scrawl || saved.ScrawlTarget != "" || saved.ScrawlState != "" {
+		t.Fatal("Scrawl's ownership not released or the board's lost", saved, err)
+	}
 	var serving serveConfig
-	_ = json.Unmarshal([]byte(`{"Web":{"home.example.ts.net:4388":{"Handlers":{"/":{"Proxy":"`+c.ScrawlTarget+`"}}}}}`), &serving)
-	for _, raw := range []string{`{"TCP":{"4388":{"TCPForward":"` + strings.TrimPrefix(c.ScrawlTarget, "http://") + `"}}}`, `{"Services":{"svc:test":{"TCP":{"4388":{"TCPForward":"` + strings.TrimPrefix(c.ScrawlTarget, "http://") + `"}}}}}`} {
-		var forwarding serveConfig
-		_ = json.Unmarshal([]byte(raw), &forwarding)
-		if !directScrawlProxy(forwarding, c) {
-			t.Fatal("TCP bypass missed")
-		}
+	_ = json.Unmarshal([]byte(f.config), &serving)
+	if portOwner(serving, c) != "own" || portOwner(serving, c.scrawlRoute()) != "" {
+		t.Fatal("routes after Scrawl off", f.config)
 	}
-	if !directScrawlProxy(serving, c) {
-		t.Fatal("direct proxy missed")
+	gate := NewGate(context.Background(), m, http.NotFoundHandler())
+	r := httptest.NewRequest("GET", c.scrawlRoute().Origin+"/session/abc", nil)
+	r.RemoteAddr = "127.0.0.1:52345"
+	r.Header.Set("Tailscale-User-Login", c.Login)
+	w := httptest.NewRecorder()
+	gate.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("Scrawl's host still passes after Scrawl off: %d", w.Code)
 	}
-	ready, issue := m.scrawlStatus(context.Background(), c, serving)
-	if ready || !strings.Contains(issue, "bypasses") {
-		t.Fatal(ready, issue)
+}
+
+// A route on port 4312 that is no longer Scrawl's own is never removed;
+// reviews are still off, and Scrawl keeps its ownership record, so the
+// uninstall still knows the port it once owned.
+func TestScrawlOffLeavesAnotherRouteOnItsPort(t *testing.T) {
+	// Arrange
+	m, c, _ := scrawlFixture(t, http.NotFoundHandler())
+	foreign := `{"TCP":{"4311":{"HTTPS":true},"4312":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}},"home.example.ts.net:4312":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9999"}}}}}`
+	f := &scrawlCommands{fakeTailscale: fakeTailscale{config: foreign}, unsafe: &atomic.Bool{}}
+	m.Commands = f
+
+	// Act
+	_, err := m.DisableScrawl(context.Background())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "left unchanged") {
+		t.Fatalf("another route on 4312: %v", err)
+	}
+	if f.config != foreign {
+		t.Fatal("another route was changed", f.config)
+	}
+	if saved, _ := Read(m.State); saved.Scrawl || saved.ScrawlTarget != c.ScrawlTarget {
+		t.Fatal("reviews not off or ownership lost", saved)
+	}
+}
+
+// A Scrawl off that cannot finish leaves reviews off for phones and keeps
+// Scrawl's ownership record, so a later off or the uninstall can still
+// remove exactly its route.
+func TestScrawlOffThatCannotFinishKeepsItsRecord(t *testing.T) {
+	const both = `{"TCP":{"4311":{"HTTPS":true},"4312":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}},"home.example.ts.net:4312":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
+	for _, tc := range []struct {
+		name     string
+		commands *scrawlCommands
+		want     string
+	}{
+		{"Tailscale unreadable", &scrawlCommands{fakeTailscale: fakeTailscale{config: both, fail: true}}, "needs Tailscale"},
+		{"its off refused", &scrawlCommands{fakeTailscale: fakeTailscale{config: both}, failOff: true}, "could not be removed"},
+		{"its route still there after its off", &scrawlCommands{fakeTailscale: fakeTailscale{config: both}, isOffIgnored: true}, "still reports port 4312"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m, c, _ := scrawlFixture(t, http.NotFoundHandler())
+			tc.commands.unsafe = &atomic.Bool{}
+			m.Commands = tc.commands
+
+			// Act
+			_, err := m.DisableScrawl(context.Background())
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("Scrawl off: %v, want it to say %q", err, tc.want)
+			}
+			if saved, err := Read(m.State); err != nil || saved.Scrawl || !saved.Enabled || saved.ScrawlTarget != c.ScrawlTarget || saved.ScrawlState != c.ScrawlState {
+				t.Fatal("reviews not off, the board's access lost, or Scrawl's record lost", saved, err)
+			}
+		})
+	}
+}
+
+// With no Scrawl ever set up, turning reviews off asks Tailscale nothing.
+func TestScrawlOffWithNothingSetUpChangesNothing(t *testing.T) {
+	// Arrange
+	f := &fakeTailscale{config: ownProxy}
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: f}
+	if err := write(m.State, testConfig()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s, err := m.DisableScrawl(context.Background())
+
+	// Assert
+	if err != nil || !s.Enabled || s.Scrawl {
+		t.Fatal(s, err)
+	}
+	if slices.ContainsFunc(f.calls, func(call string) bool { return strings.HasSuffix(call, " off") }) {
+		t.Fatal("removed a route while nothing was set up", f.calls)
+	}
+}
+
+// A phone loses Scrawl reviews the moment they turn off, before their route
+// is gone: the gate reads the record at each request.
+func TestScrawlOffRefusesPhonesBeforeItsRouteIsGone(t *testing.T) {
+	// Arrange
+	m, c, _ := scrawlFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "review") }))
+	const both = `{"TCP":{"4311":{"HTTPS":true},"4312":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}},"home.example.ts.net:4312":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
+	f := &scrawlCommands{fakeTailscale: fakeTailscale{config: both}, unsafe: &atomic.Bool{}, offStarted: make(chan struct{}), offRelease: make(chan struct{})}
+	m.Commands = f
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gate := NewGate(ctx, m, http.NotFoundHandler())
+	review := func() int {
+		r := httptest.NewRequest("GET", c.scrawlRoute().Origin+"/session/abc", nil)
+		r.RemoteAddr = "127.0.0.1:52345"
+		r.Header.Set("Tailscale-User-Login", c.Login)
+		w := httptest.NewRecorder()
+		gate.ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := review(); code != http.StatusOK {
+		t.Fatalf("a review before Scrawl off: %d", code)
+	}
+	done := make(chan error, 1)
+
+	// Act
+	go func() { _, err := m.DisableScrawl(context.Background()); done <- err }()
+	<-f.offStarted
+	during := review()
+	close(f.offRelease)
+
+	// Assert
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if during != http.StatusForbidden {
+		t.Fatalf("a review while Scrawl's route was still up: %d, want it refused", during)
 	}
 }
