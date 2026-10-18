@@ -953,7 +953,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if evaluationPending(d.Actions, task) {
 			continue
 		}
-		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}, now); err != nil {
 			return err
 		}
 	}
@@ -979,7 +979,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if record, err := state.ReadLifecycle(s.Store.Home.State, task); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 			continue
 		}
-		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}, now); err != nil {
 			return err
 		}
 	}
