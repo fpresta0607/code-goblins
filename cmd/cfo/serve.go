@@ -240,6 +240,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		RemoteAccess:     remoteSetting,
+		Push:             &http.Client{Timeout: 15 * time.Second},
 		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,

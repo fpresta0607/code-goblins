@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -51,7 +52,10 @@ type ProgressReader interface {
 }
 
 type Options struct {
-	RemoteAccess   *remoteaccess.Manager
+	RemoteAccess *remoteaccess.Manager
+	// Push sends the app badge's pushes to the push services browsers
+	// subscribe through; nil turns the app badge off.
+	Push           *http.Client
 	Example        bool
 	CFO            *CFOConnection
 	Gate           ProgressReader
@@ -188,15 +192,16 @@ type Service struct {
 	// awaitedPulls holds the state the scheduler last read of each pull
 	// request a queued row waits on: OPEN, CLOSED or MERGED.
 	awaitedPulls map[string]string
-	// historyErr is what the last history refresh met, and cfoWakeErr and
-	// fleetErr what every typed CFO wake and every fleet wake reading met
-	// since the last recovery cycle; the loop reports them with its next
-	// recovery cycle. ciUnreadable is why each watched repository's CI
+	// historyErr is what the last history refresh met, and cfoWakeErr,
+	// fleetErr and pushErr what every typed CFO wake, every fleet wake
+	// reading and every app badge push met since the last recovery cycle; the
+	// loop reports them with its next recovery cycle. ciUnreadable is why each watched repository's CI
 	// cannot be read, as of the last fleet reading; publish joins it into
 	// whatever it publishes for as long as the failure lasts.
 	historyErr   error
 	cfoWakeErr   error
 	fleetErr     error
+	pushErr      error
 	ciUnreadable error
 	// errorLines holds when each line of the supervisor's own errors was last
 	// met, errorsUntold the new ones no wake has told the CFO of yet, and
@@ -255,6 +260,8 @@ type Service struct {
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
+	// pushMu guards the app badge's push keys and apps (pushFile).
+	pushMu sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
 	// starts guards starting, the task a Start is running cfo spawn for,
@@ -537,6 +544,14 @@ func (s *Service) run(ctx context.Context) {
 		s.keepFleetWakes(ctx, fleetWatchEvery)
 	}()
 	defer func() { s.cancel(); <-fleetDone }()
+	pushDone := make(chan struct{})
+	go func() {
+		defer close(pushDone)
+		if s.Options.Push != nil {
+			s.keepPushing(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-pushDone }()
 	ticketsDone := make(chan struct{})
 	go func() {
 		defer close(ticketsDone)
@@ -756,8 +771,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.checkRegistration()
 		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
-		s.cfoWakeErr, s.fleetErr = nil, nil
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.pushErr)
+		s.cfoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
