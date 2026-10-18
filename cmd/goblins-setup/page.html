@@ -48,6 +48,7 @@
   .facts div + div { border-top: 1px solid var(--hairline); }
   .facts dt { color: var(--muted); }
   .facts dd { margin: 0; }
+  #dev-drive-note { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
   .choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
   .choice input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green); }
   .choice small { display: block; margin-top: 1px; color: var(--muted); font-size: 12.5px; }
@@ -160,6 +161,7 @@
     devDriveOffered = plan.dev_drive_offer;
     text("dev-drive-explain", (plan.dev_drive_explain || "") + " Each step that needs you comes to the board's Command Center.");
     text("dev-drive-note", plan.dev_drive_note || "");
+    document.getElementById("dev-drive-note").title = plan.dev_drive_note || "";
     document.getElementById("dev-drive-offer").hidden = !devDriveOffered;
     document.getElementById("dev-drive-note").hidden = !plan.dev_drive_note;
     document.getElementById("dev-drive-row").hidden = !devDriveOffered && !plan.dev_drive_note;

@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // Every screen of the setup's page fits the window at 100, 125, 150 and 200
@@ -40,20 +41,33 @@ func TestEveryScreenFitsTheWindowAtEachScale(t *testing.T) {
 	noDevDrive.DevDriveOffer = false
 	kept := fresh
 	kept.Folder, kept.Update, kept.Note = `D:\Projects\code-goblins`, true, keptNote
-	cannot := noDevDrive
-	cannot.DevDriveNote = "This PC cannot have a Dev Drive: it needs Windows 11 build 22621 or later and 50 GB free on a fixed drive, and this one has 31 GB free."
+	// The notes saying why there is no Dev Drive are the setup's own: on
+	// Windows 10, and where Defender could not be read, which carries the
+	// whole of PowerShell's error record.
+	windows10 := devdrive.Machine{Build: 19045, Revision: 6456, Defender: true, SystemDrive: "C:", SystemFree: 374 << 30}
+	defenderUnread := devdrive.Machine{Build: 26200, Revision: 9457, SystemDrive: "C:", SystemFree: 374 << 30,
+		DefenderUnread: "Get-MpComputerStatus: Get-MpComputerStatus : A general error occurred that is not covered by a more specific error code.\r\n" +
+			"At line:1 char:2\r\n" +
+			"+ (Get-MpComputerStatus).RealTimeProtectionEnabled\r\n" +
+			"+  ~~~~~~~~~~~~~~~~~~~~\r\n" +
+			"    + CategoryInfo          : NotSpecified: (MSFT_MpComputerStatus:ROOT\\Microsoft\\...pComputerStatus) [Get-MpComputerStatus], CimException\r\n" +
+			"    + FullyQualifiedErrorId : HRESULT 0x800106ba,Get-MpComputerStatus"}
+	onWindows10, withDefenderUnread := fresh, fresh
+	onWindows10.DevDriveOffer, onWindows10.DevDriveNote = devDriveOffer(windows10, home.DevDriveConfig{}, fresh.Folder)
+	withDefenderUnread.DevDriveOffer, withDefenderUnread.DevDriveNote = devDriveOffer(defenderUnread, home.DevDriveConfig{}, fresh.Folder)
 	log := strings.Repeat("install  chrome-devtools-axi  npm.cmd install -g chrome-devtools-axi@0.1.39 --no-audit --no-fund\n", 40)
-	screens := map[string]string{
-		"the plan with the Dev Drive offer":         call("setupPlan", fresh),
-		"the plan with no Dev Drive row":            call("setupPlan", noDevDrive),
-		"the update of a home kept where it is":     call("setupPlan", kept),
-		"the plan saying why there is no Dev Drive": call("setupPlan", cannot),
-		"the install under way":                     call("setupPlan", fresh) + call("setupStarted") + call("setupStep", 3) + call("setupDoing", "Installing the GitHub CLI"),
-		"a failed install with its details shown": call("setupPlan", fresh) + call("setupStarted") + call("setupStep", 3) +
-			call("setupFailed", "Code Goblins could not be set up: the home's state folder could not be written; free some disk space, then try again.", log) +
-			`document.getElementById("show-details").click();`,
-		"the install done with a note": call("setupPlan", fresh) + call("setupStarted") +
-			call("setupNote", "These could not be installed, so only what needs them is left out: codex, pi, chrome-devtools-axi skill. The log says why.") + call("setupDone"),
+	screens := map[string][]string{
+		"the plan with the Dev Drive offer":           {pageCall("setupPlan", fresh)},
+		"the plan with no Dev Drive row":              {pageCall("setupPlan", noDevDrive)},
+		"the update of a home kept where it is":       {pageCall("setupPlan", kept)},
+		"the plan saying Windows 10 has no Dev Drive": {pageCall("setupPlan", onWindows10)},
+		"the plan saying Defender could not be read":  {pageCall("setupPlan", withDefenderUnread)},
+		"the install under way":                       {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupStep", 3), pageCall("setupDoing", "Installing the GitHub CLI")},
+		"a failed install with its details shown": {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupStep", 3),
+			pageCall("setupFailed", "Code Goblins could not be set up: the home's state folder could not be written; free some disk space, then try again.", log),
+			`document.getElementById("show-details").click()`},
+		"the install done with a note": {pageCall("setupPlan", fresh), pageCall("setupStarted"),
+			pageCall("setupNote", "These could not be installed, so only what needs them is left out: codex, pi, chrome-devtools-axi skill. The log says why."), pageCall("setupDone")},
 	}
 
 	for _, dpi := range []uint32{96, 120, 144, 192} {
@@ -61,7 +75,7 @@ func TestEveryScreenFitsTheWindowAtEachScale(t *testing.T) {
 		for name, script := range screens {
 			t.Run(fmt.Sprintf("%s at %d percent", name, dpi*100/96), func(t *testing.T) {
 				// Act
-				problems := page.show(t, width, height, float64(dpi)/96, script)
+				problems := page.show(t, width, height, float64(dpi)/96, strings.Join(script, ";"))
 
 				// Assert
 				for _, problem := range problems {
@@ -88,17 +102,6 @@ func clientSize(t *testing.T, dpi uint32) (int, int) {
 	width := math.Round(windowWidth*scale) - float64(frame.Right-frame.Left)
 	height := math.Round(windowHeight*scale) - float64(frame.Bottom-frame.Top)
 	return int(width / scale), int(height / scale)
-}
-
-// call is a call of one of the page's functions, as the setup program makes
-// it, with each argument as JSON.
-func call(function string, arguments ...any) string {
-	texts := make([]string, len(arguments))
-	for i, argument := range arguments {
-		text, _ := json.Marshal(argument)
-		texts[i] = string(text)
-	}
-	return function + "(" + strings.Join(texts, ",") + ");"
 }
 
 // setupPage is page.html open in a headless Chrome.
@@ -242,7 +245,7 @@ func (p setupPage) show(t *testing.T, width, height int, scale float64, script s
 	for p.evaluate(t, ctx, `!window.shownBefore && document.readyState === "complete" && typeof setupPlan === "function"`) != true {
 		time.Sleep(50 * time.Millisecond)
 	}
-	p.evaluate(t, ctx, script+" true")
+	p.evaluate(t, ctx, script+"; true")
 	var problems []string
 	for _, problem := range p.evaluate(t, ctx, fits).([]any) {
 		problems = append(problems, problem.(string))

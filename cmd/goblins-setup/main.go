@@ -72,12 +72,7 @@ func main() {
 	var window *application.WebviewWindow
 	var app *application.App
 	call := func(function string, arguments ...any) {
-		texts := make([]string, len(arguments))
-		for i, argument := range arguments {
-			text, _ := json.Marshal(argument)
-			texts[i] = string(text)
-		}
-		window.ExecJS(function + "(" + strings.Join(texts, ",") + ")")
+		window.ExecJS(pageCall(function, arguments...))
 	}
 	install := func() {
 		if !busy.TryLock() {
@@ -160,4 +155,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// pageCall is the script that calls function, one of the page's, with each
+// argument as JSON.
+func pageCall(function string, arguments ...any) string {
+	texts := make([]string, len(arguments))
+	for i, argument := range arguments {
+		text, _ := json.Marshal(argument)
+		texts[i] = string(text)
+	}
+	return function + "(" + strings.Join(texts, ",") + ")"
 }
