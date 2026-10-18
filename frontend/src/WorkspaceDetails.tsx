@@ -10,6 +10,7 @@ import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
 import { DevDriveSetting } from "./dev-drive-setting";
 import { isCfoRestartOffered, RestartCfoButton } from "./restart-cfo-button";
+import { RemoteAccessSetting } from "./remote-access-setting";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -47,6 +48,7 @@ export function WorkspaceDetails({ task, node, runs, snapshot, onRepair }: { tas
       </>}
       {isCfo && snapshot.dev_drive && <DevDriveSetting drive={snapshot.dev_drive} instance={snapshot.instance} />}
     </Disclosure>
+    {isCfo && !snapshot.example && <Disclosure kind="remote-access" title="Remote access"><RemoteAccessSetting instance={snapshot.instance} /></Disclosure>}
     <Disclosure kind="harness" title="Harness">
       {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={snapshot.instance} /> : <>
         {!(isCfo && isCfoRestartOffered(snapshot)) && <ul className="connection-list" aria-label="Harness and model">

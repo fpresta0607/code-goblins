@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -723,7 +724,7 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 		env = append(env, names[upper]+"="+value)
 	}
 	sort.Strings(env)
-	return env
+	return remoteaccess.LocalScrawlEnvironment(env)
 }
 
 // hasNativeVariable reports whether env, a native host environment, sets name

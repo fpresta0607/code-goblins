@@ -1,6 +1,10 @@
 # Native supervisor and board
 
 `cfo serve` runs one native Go supervisor and serves the embedded React/TypeScript board on `http://127.0.0.1:4310`.
+
+The optional [Remote access setting](remote-access.md) in the CFO's Task panel
+shares that same board and its existing terminals with the owner's phone over
+Tailscale HTTPS. It is off by default and leaves the listener on loopback.
 Use `--listen 127.0.0.1:0` for an ephemeral port; the command prints its actual URL.
 Node, Vite, Docker, and a browser are not runtime dependencies of the supervisor.
 Docker remains an optional project environment managed by the existing worktree profiles.
@@ -449,9 +453,9 @@ What a pause could not do, such as a handoff it did not save, is never in the pa
 A goblin paused for its own pull request, which the board shows under test, says only what it did.
 Under Working and any failure the header shows no sentence, at the Overlord's word on 2026-10-05 ("dont need text under working", "dont need text under pause fialed") and 2026-10-08 ("everything error wise goes to cfo"); that sentence is the first line behind Details, the same at every width, and a failure keeps Open the log, which opens and shows Activity.
 For any other task, Details under the sentence shows the report or the supervisor's problems exactly as written; a read that fails shows Retry, and the CFO hears what could not be read.
-The Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
+A goblin's Terminal view header is compact and headed as the CFO's is: its picture, its name and title, its task id and one status line, with no task description and no buttons, since its Task view holds them and the live screen shows the latest output (the Overlord, 2026-10-17: "If they exist on the task panel, we don't need them in the terminal header").
 In both views the goblin's name keeps to one line and its task to at most two, each shown in full in its tip once cut short, and no word breaks.
-Its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
+In the Task view its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
 The Task view holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened; the Terminal view is that goblin's live native terminal, edge to edge.
 The Task view opens with one action row under the header, the task's own controls as labelled buttons, the only place they are: Start and Remove for a queued task, and Pause and Stop for a task that has started, or Resume and Stop for a paused one; a waiting goblin offers no Resume, and a completed one none of them.
 A queued task is edited in its header, where its task line under the goblin's name carries a small pencil with the tip Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.

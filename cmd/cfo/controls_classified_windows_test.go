@@ -35,6 +35,7 @@ var staysAtNormal = map[string]string{
 	"afk":               "a switch and a log nothing waits on",
 	"auth":              "runs each service's own sign-in check",
 	"connection-repair": "runs a sign-in",
+	"remote":            "runs Tailscale setup and status checks, which can wait for connection or HTTPS consent",
 	"project":           "reads a whole checkout",
 	"route":             "prints a routing decision",
 	"verify":            "runs a project's checks, which are work",

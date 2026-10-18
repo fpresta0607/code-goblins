@@ -1,3 +1,4 @@
+import { scrawlLink } from "./scrawl-link";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Review, Snapshot } from "./types";
 import { deliveryMark } from "./feedback";
@@ -72,8 +73,8 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       {pending && hasBox && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip="Clear it without answering" onClick={onClear}><Icon name="close" /></button>}
       {pending && !hasBox && <SkipWithNote asker={review.task ? asker : "the CFO"} task={review.task} instance={snapshot.instance} disabled={!connected || draft.sending} onSkip={onClear} onAnswer={onAnswer} />}
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
-      {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={target.url} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
-      {review.lavish && !status && <a className="primary button-link open-page" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}
+      {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={scrawlLink(target.url)} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
+      {review.lavish && !status && <a className="primary button-link open-page" href={scrawlLink(review.lavish)} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}
       {answersHere && <button className="primary send-decision" type="submit" disabled={!connected || !draft.written.trim() || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send answer"}</button>}
     </div>
   </form>;

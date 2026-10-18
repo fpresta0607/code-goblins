@@ -1,0 +1,447 @@
+// Package remoteaccess shares the loopback board through owner-only Tailscale
+// Serve. It never opens a network listener or enables Funnel.
+package remoteaccess
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+)
+
+const Port = 4311
+const ScrawlPort = 4312
+const configFile = "remote-access.json"
+
+// Config keeps the exact endpoint this home owns, including while disabled so
+// a failed Serve cleanup can be retried without touching anyone else's route.
+type Config struct {
+	Enabled      bool   `json:"enabled"`
+	Origin       string `json:"origin"`
+	Login        string `json:"login"`
+	Target       string `json:"target"`
+	Scrawl       bool   `json:"scrawl,omitempty"`
+	ScrawlTarget string `json:"scrawl_target,omitempty"`
+	ScrawlState  string `json:"scrawl_state,omitempty"`
+}
+
+func (c Config) validate() error {
+	u, err := url.Parse(c.Origin)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || u.Port() != strconv.Itoa(Port) || !tailName(u.Hostname()) || c.Origin != "https://"+u.Host {
+		return errors.New("remote access needs this PC's exact Tailscale HTTPS name on port 4311")
+	}
+	if strings.TrimSpace(c.Login) == "" || len(c.Login) > 320 || strings.ContainsAny(c.Login, "\r\n") {
+		return errors.New("remote access has no valid Tailscale owner")
+	}
+	if c.ScrawlTarget != "" {
+		if err := validateTarget(c.ScrawlTarget); err != nil {
+			return err
+		}
+		if !filepath.IsAbs(c.ScrawlState) {
+			return errors.New("Scrawl needs an absolute state directory")
+		}
+	} else if c.Scrawl || c.ScrawlState != "" {
+		return errors.New("Scrawl settings are incomplete")
+	}
+	return validateTarget(c.Target)
+}
+
+func tailName(name string) bool {
+	if !strings.HasSuffix(name, ".ts.net") || len(name) > 253 || len(strings.Split(name, ".")) < 4 {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, r := range label {
+			if r != '-' && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validateTarget(target string) error {
+	u, err := url.Parse(target)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("remote access requires a numeric loopback board address")
+	}
+	ip := net.ParseIP(u.Hostname())
+	port, err := strconv.Atoi(u.Port())
+	if ip == nil || !ip.IsLoopback() || err != nil || port < 1 || port > 65535 {
+		return errors.New("remote access requires a numeric loopback board address")
+	}
+	return nil
+}
+
+func Read(state string) (Config, error) {
+	data, err := fsx.ReadFile(filepath.Join(state, configFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return Config{}, nil
+	}
+	if err != nil {
+		return Config{}, err
+	}
+	var c Config
+	if err := json.Unmarshal(data, &c); err != nil {
+		return Config{}, errors.New("remote access settings cannot be read; run cfo remote off to revoke access")
+	}
+	if c != (Config{}) {
+		if err := c.validate(); err != nil {
+			return Config{}, err
+		}
+	}
+	return c, nil
+}
+
+func write(state string, c Config) error {
+	if c != (Config{}) {
+		if err := c.validate(); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(state, 0700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(filepath.Join(state, configFile), append(data, '\n'))
+}
+
+// Manager changes only its dedicated HTTPS port, after checking every handler
+// on that port. The mutex also serializes board requests in one supervisor.
+type Manager struct {
+	State        string
+	Target       string
+	Commands     execx.Runner
+	StartAtLogin func() error
+	// Acquire serializes changes across CLI and supervisor processes. The
+	// Windows command layer supplies the home's existing exclusive lock.
+	Acquire  func() (func(), error)
+	mu       sync.Mutex
+	scrawlMu sync.Mutex
+	Starter  execx.Starter
+}
+
+type Status struct {
+	Enabled     bool   `json:"enabled"`
+	Ready       bool   `json:"ready"`
+	URL         string `json:"url,omitempty"`
+	Login       string `json:"login,omitempty"`
+	Issue       string `json:"issue,omitempty"`
+	ScrawlReady bool   `json:"scrawl_ready"`
+	ScrawlIssue string `json:"scrawl_issue,omitempty"`
+}
+
+func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
+	runner := m.Commands
+	if runner == nil {
+		runner = execx.OSRunner{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	result, err := runner.Run(ctx, execx.Request{Name: "tailscale", Args: args})
+	if err != nil {
+		return nil, fmt.Errorf("Tailscale is unavailable: %w; install and connect Tailscale on this PC", err)
+	}
+	if result.ExitCode != 0 {
+		// Never echo CLI output: it can contain login or HTTPS consent links.
+		return nil, errors.New("Tailscale refused the request; in an Administrator terminal, check tailscale status and tailscale serve --help, then enable HTTPS in your tailnet")
+	}
+	return result.Stdout, nil
+}
+
+func (m *Manager) identity(ctx context.Context) (string, string, error) {
+	data, err := m.command(ctx, "status", "--json")
+	if err != nil {
+		return "", "", err
+	}
+	var status struct {
+		BackendState string
+		Self         *struct {
+			DNSName string
+			UserID  json.Number
+			Tags    []string
+		}
+		User map[string]struct{ LoginName string }
+	}
+	if json.Unmarshal(data, &status) != nil || status.BackendState != "Running" || status.Self == nil {
+		return "", "", errors.New("connect Tailscale on this PC before enabling remote access")
+	}
+	name := strings.TrimSuffix(strings.ToLower(status.Self.DNSName), ".")
+	login := status.User[status.Self.UserID.String()].LoginName
+	if !tailName(name) || login == "" || len(status.Self.Tags) != 0 {
+		return "", "", errors.New("remote access needs an untagged PC signed in to your Tailscale account, with MagicDNS and HTTPS enabled")
+	}
+	return "https://" + net.JoinHostPort(name, strconv.Itoa(Port)), login, nil
+}
+
+type serveConfig struct {
+	TCP map[string]json.RawMessage
+	Web map[string]struct {
+		Handlers map[string]struct {
+			Proxy string
+			Path  string
+			Text  string
+		}
+	}
+	AllowFunnel map[string]bool
+	Foreground  map[string]json.RawMessage
+	Services    map[string]json.RawMessage
+}
+
+func (m *Manager) serving(ctx context.Context) (serveConfig, error) {
+	data, err := m.command(ctx, "serve", "status", "--json")
+	if err != nil {
+		return serveConfig{}, err
+	}
+	var config serveConfig
+	if json.Unmarshal(data, &config) != nil {
+		return serveConfig{}, errors.New("Tailscale Serve status could not be read; its routes were left unchanged")
+	}
+	return config, nil
+}
+
+// portOwner is empty for a free port, own for our exact root proxy, and other
+// for anything else. Unknown TCP modes and foreground configurations fail closed.
+func portOwner(s serveConfig, c Config) string {
+	u, err := url.Parse(c.Origin)
+	if err != nil {
+		return "other"
+	}
+	port := u.Port()
+	host := strings.TrimPrefix(c.Origin, "https://")
+	occupied := false
+	if raw, ok := s.TCP[port]; ok {
+		occupied = true
+		var mode map[string]json.RawMessage
+		if json.Unmarshal(raw, &mode) != nil || len(mode) != 1 || string(mode["HTTPS"]) != "true" {
+			return "other"
+		}
+	}
+	for _, foreground := range s.Foreground {
+		var nested serveConfig
+		if json.Unmarshal(foreground, &nested) != nil || portOwner(nested, c) != "" {
+			return "other"
+		}
+	}
+	matched := false
+	_, hasTCP := s.TCP[port]
+	for key, web := range s.Web {
+		_, p, err := net.SplitHostPort(key)
+		if err != nil {
+			return "other"
+		}
+		if p != port {
+			continue
+		}
+		occupied = true
+		handler, ok := web.Handlers["/"]
+		if key != host || len(web.Handlers) != 1 || !ok || handler.Proxy != c.Target || handler.Path != "" || handler.Text != "" {
+			return "other"
+		}
+		matched = true
+	}
+	if !occupied {
+		return ""
+	}
+	if !matched || !hasTCP {
+		return "other"
+	}
+	return "own"
+}
+
+func (m *Manager) Status(ctx context.Context) Status {
+	c, err := Read(m.State)
+	if err != nil {
+		return Status{Issue: err.Error()}
+	}
+	s := Status{Enabled: c.Enabled, URL: c.Origin, Login: c.Login}
+	if !c.Enabled {
+		return s
+	}
+	if c.Target != m.Target {
+		s.Issue = "The board address changed. Run cfo remote on again on this PC."
+		return s
+	}
+	origin, login, err := m.identity(ctx)
+	if err != nil {
+		s.Issue = err.Error()
+		return s
+	}
+	if origin != c.Origin || login != c.Login {
+		s.Issue = "The Tailscale account or device name changed. Enable remote access again on this PC."
+		return s
+	}
+	config, err := m.serving(ctx)
+	if err != nil {
+		s.Issue = err.Error()
+		return s
+	}
+	if config.AllowFunnel[strings.TrimPrefix(c.Origin, "https://")] {
+		s.Issue = "Funnel is enabled on the remote port. Run cfo remote off, then on; public requests are refused."
+		return s
+	}
+	if portOwner(config, c) != "own" {
+		s.Issue = "The private proxy is missing or changed. Run cfo remote on on this PC."
+		return s
+	}
+	s.Ready = true
+	s.ScrawlReady, s.ScrawlIssue = m.scrawlStatus(ctx, c, config)
+	return s
+}
+
+func (m *Manager) Enable(ctx context.Context) (Status, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := os.MkdirAll(m.State, 0700); err != nil {
+		return Status{}, err
+	}
+	release, err := m.acquire()
+	if err != nil {
+		return Status{}, fmt.Errorf("remote access is already being changed: %w", err)
+	}
+	defer release()
+	if err := validateTarget(m.Target); err != nil {
+		return Status{}, err
+	}
+	previous, err := Read(m.State)
+	if err != nil {
+		return Status{}, err
+	}
+	origin, login, err := m.identity(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	c := Config{Enabled: true, Origin: origin, Login: login, Target: m.Target}
+	if previous.Origin == origin && previous.Target == m.Target && previous.Login == login {
+		c.Scrawl, c.ScrawlTarget, c.ScrawlState = previous.Scrawl, previous.ScrawlTarget, previous.ScrawlState
+	} else if previous.ScrawlTarget != "" {
+		return Status{}, errors.New("turn remote access off before changing its address or account")
+	}
+	if err := c.validate(); err != nil {
+		return Status{}, err
+	}
+	config, err := m.serving(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	owner := portOwner(config, c)
+	if owner != "" && (previous.Origin == "" || portOwner(config, previous) != "own") {
+		return Status{}, errors.New("Tailscale port 4311 already serves something else; its routes were left unchanged")
+	}
+	// Reserve this exact route while access is still off. If HTTPS consent
+	// needs the user's terminal, the same route can be adopted on the retry.
+	c.Enabled = false
+	if err := write(m.State, c); err != nil {
+		return Status{}, err
+	}
+	if _, err := m.command(ctx, "serve", "--bg", "--https=4311", m.Target); err != nil {
+		return Status{}, fmt.Errorf("remote access is off: %w. In an Administrator terminal run tailscale serve --bg --https=4311 %s and follow its HTTPS approval link, then run cfo remote on again", err, m.Target)
+	}
+	config, err = m.serving(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	if portOwner(config, c) != "own" || config.AllowFunnel[strings.TrimPrefix(c.Origin, "https://")] {
+		return Status{}, errors.New("the private Tailscale proxy did not verify; remote access was not enabled")
+	}
+	c.Enabled = true
+	if err := write(m.State, c); err != nil {
+		return Status{}, err
+	}
+	s := Status{Enabled: true, Ready: true, URL: c.Origin, Login: c.Login}
+	s.ScrawlReady, s.ScrawlIssue = m.scrawlStatus(ctx, c, config)
+	if m.StartAtLogin != nil {
+		if err := m.StartAtLogin(); err != nil {
+			s.Issue = "Remote access is on, but Start at login could not be enabled: " + err.Error()
+		}
+	}
+	return s, nil
+}
+
+func (m *Manager) Disable(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := os.MkdirAll(m.State, 0700); err != nil {
+		return err
+	}
+	release, err := m.acquire()
+	if err != nil {
+		return fmt.Errorf("remote access is already being changed: %w", err)
+	}
+	defer release()
+	c, readErr := Read(m.State)
+	c.Enabled = false
+	// Revoke first, even if Tailscale is stopped, settings are corrupt, or the
+	// route now belongs to another application. Existing streams are canceled.
+	if readErr != nil {
+		// The gate already fails closed on unreadable settings. Keep the
+		// damaged ownership record so uninstall cannot erase the home while
+		// background routes whose ownership is unknown remain behind.
+		return errors.New("remote access is revoked; its settings are unreadable. Review Tailscale ports 4311 and 4312 and repair the settings before uninstalling")
+	}
+	if err := write(m.State, c); err != nil {
+		return err
+	}
+	if c.Origin == "" {
+		return nil
+	}
+	config, err := m.serving(ctx)
+	if err != nil {
+		return fmt.Errorf("remote access is revoked; proxy cleanup needs Tailscale: %w", err)
+	}
+	routes := []Config{c}
+	if c.ScrawlTarget != "" {
+		routes = append(routes, c.scrawlRoute())
+	}
+	var cleanup []error
+	for _, route := range routes {
+		u, _ := url.Parse(route.Origin)
+		switch portOwner(config, route) {
+		case "":
+			continue
+		case "other":
+			cleanup = append(cleanup, fmt.Errorf("remote access is revoked; port %s now serves something else and was left unchanged", u.Port()))
+			continue
+		}
+		if _, err := m.command(ctx, "serve", "--https="+u.Port(), "off"); err != nil {
+			cleanup = append(cleanup, err)
+			continue
+		}
+		after, err := m.serving(ctx)
+		if err != nil {
+			cleanup = append(cleanup, err)
+			continue
+		}
+		if portOwner(after, route) != "" {
+			cleanup = append(cleanup, fmt.Errorf("remote access is revoked; Tailscale still reports port %s", u.Port()))
+		}
+	}
+	if err := errors.Join(cleanup...); err != nil {
+		return err
+	}
+	return write(m.State, Config{})
+}
+
+func (m *Manager) acquire() (func(), error) {
+	if m.Acquire != nil {
+		return m.Acquire()
+	}
+	return func() {}, nil
+}
