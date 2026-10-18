@@ -233,10 +233,10 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 					}
 				}
 			}()
-			waitForMarker := func(marker string, limit time.Duration) time.Duration {
+			waitForMarker := func(marker string) time.Duration {
 				t.Helper()
 				started := time.Now()
-				timer := time.NewTimer(limit)
+				timer := time.NewTimer(time.Minute)
 				defer timer.Stop()
 				var pending string
 				for {
@@ -259,18 +259,18 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 						} else {
 							t.Logf("native input progress:\n%s", progress)
 						}
-						t.Fatalf("no %q within %s; last output %q", marker, limit, pending)
+						t.Fatalf("no %q within a minute; last output %q", marker, pending)
 					}
 				}
 			}
-			waitForMarker("latency-ready", 15*time.Second)
+			waitForMarker("latency-ready")
 			var samples []time.Duration
 			for sequence := 1; sequence <= 40; sequence++ {
 				started := time.Now()
 				if _, err := console.Write([]byte("a")); err != nil {
 					t.Fatal(err)
 				}
-				waitForMarker(fmt.Sprintf("key-%04d", sequence), 5*time.Second)
+				waitForMarker(fmt.Sprintf("key-%04d", sequence))
 				samples = append(samples, time.Since(started))
 			}
 			summary, err := keyLatency(samples)
@@ -283,9 +283,10 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 			if _, err := console.Write([]byte("!" + payload)); err != nil {
 				t.Fatal(err)
 			}
-			waitForMarker(fmt.Sprintf("burst-%x", sha256.Sum256([]byte(payload))), 5*time.Second)
+			waitForMarker(fmt.Sprintf("burst-%x", sha256.Sum256([]byte(payload))))
 			elapsed := time.Since(started)
 			t.Logf("ordered 2000-character burst=%s", elapsed)
+			// stall-accepted: it measures how fast the console takes a 2,000-character burst, a latency no bound that outlasts a stall can judge.
 			if elapsed > 2*time.Second {
 				t.Errorf("ordered burst took %s, want at most 2s", elapsed)
 			}

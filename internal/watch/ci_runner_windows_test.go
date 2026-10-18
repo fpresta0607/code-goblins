@@ -121,7 +121,7 @@ func TestTheWatcherAsksTheRunnerWhileItRuns(t *testing.T) {
 		stopServing()
 		<-served
 	}()
-	eventually(t, 5*time.Second, "the runner answering", func() bool {
+	eventually(t, time.Minute, "the runner answering", func() bool {
 		return cirunner.Ask(context.Background(), cfg.CIRunnerPipe, cirunner.Request{Kind: cirunner.AskStatus}, func(cirunner.Reply) {}) == nil
 	})
 	returned := make(chan error, 1)
@@ -135,17 +135,17 @@ func TestTheWatcherAsksTheRunnerWhileItRuns(t *testing.T) {
 	// Assert
 	select {
 	case <-github.asked:
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 		t.Error("the watcher never asked the runner whether a job waits")
 	}
-	eventually(t, 10*time.Second, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
+	eventually(t, time.Minute, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
 	askForTheLock(t, dir, startServeStandIn(t))
 	select {
 	case err := <-returned:
 		if err != nil {
 			t.Errorf("Run = %v; want it to yield quietly", err)
 		}
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the watcher kept running")
 	}
 }

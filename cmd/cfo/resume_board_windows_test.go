@@ -131,7 +131,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 	server.Config.Handler = handler
 	server.Start()
 	defer server.Close()
-	streamContext, cancelStream := context.WithTimeout(t.Context(), 3*time.Second)
+	streamContext, cancelStream := context.WithTimeout(t.Context(), time.Minute)
 	defer cancelStream()
 	streamRequest, err := http.NewRequestWithContext(streamContext, "GET", server.URL+"/api/events", nil)
 	if err != nil {
@@ -234,7 +234,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 
 func awaitResumeBoard(t *testing.T, board *supervisor.Service, id string) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		snapshot, err := board.Snapshot()
 		if err != nil {

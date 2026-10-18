@@ -508,7 +508,7 @@ func TestCredentialExpiryWaitsForASaveInFlight(t *testing.T) {
 	select {
 	case <-expired:
 		finishedDuringSave = true
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond): // stall-accepted: the expiry is meant to stay blocked on the save, so a stall only makes the wait longer.
 	}
 	now := time.Now().UTC()
 	_, recordErr := b.service.Store.updateCredential(b.request.ID, func(r *CredentialRequest) {
@@ -519,7 +519,7 @@ func TestCredentialExpiryWaitsForASaveInFlight(t *testing.T) {
 	if !finishedDuringSave {
 		select {
 		case expireErr = <-expired:
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal("expiry never finished once the save released the request")
 		}
 	}
@@ -711,7 +711,7 @@ func TestCredentialValueReachesNoRecordSnapshotOrStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	published, _ := json.Marshal(snapshot)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	streamRequest, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 	stream, err := http.DefaultClient.Do(streamRequest)

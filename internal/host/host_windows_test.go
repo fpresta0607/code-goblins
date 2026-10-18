@@ -99,7 +99,7 @@ func echoChild() {
 			select {
 			case <-interrupts:
 				fmt.Println("interrupted")
-			case <-time.After(15 * time.Second):
+			case <-time.After(time.Minute):
 				fmt.Println("no interrupt")
 			}
 		case strings.HasPrefix(line, "wait-file "):
@@ -121,7 +121,7 @@ func echoChild() {
 				}
 				if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
 					if windows.TerminateProcess(process, 1) == nil {
-						_, _ = windows.WaitForSingleObject(process, 10000)
+						_, _ = windows.WaitForSingleObject(process, 60000)
 						ended++
 					}
 					_ = windows.CloseHandle(process)
@@ -181,7 +181,8 @@ func echoChild() {
 			os.Exit(code)
 		case line == "stream":
 			// Numbered lines for two seconds, as a busy program prints.
-			for i, until := 0, time.Now().Add(2*time.Second); time.Now().Before(until); i++ {
+			// stall-accepted: a stall that ends the stream early still leaves the first lines a test waits for.
+			for i, until := 0, time.Now().Add(2*time.Second); i <= 10 || time.Now().Before(until); i++ {
 				fmt.Printf("line %06d %s\n", i, strings.Repeat("s", 60))
 				time.Sleep(time.Millisecond)
 			}
@@ -297,7 +298,7 @@ func end(pid int) {
 	}
 	defer windows.CloseHandle(handle)
 	_ = windows.TerminateProcess(handle, 1)
-	_, _ = windows.WaitForSingleObject(handle, 10000)
+	_, _ = windows.WaitForSingleObject(handle, 60000)
 }
 
 // running reports whether pid is a process that has not ended.
@@ -311,14 +312,14 @@ func running(pid int) bool {
 	return event == uint32(windows.WAIT_TIMEOUT)
 }
 
-// exited reports whether pid has ended within ten seconds.
+// exited reports whether pid has ended within thirty seconds.
 func exited(pid int) bool {
 	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return true
 	}
 	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 10000)
+	event, _ := windows.WaitForSingleObject(handle, 30000)
 	return event == windows.WAIT_OBJECT_0
 }
 
@@ -363,11 +364,11 @@ func (v *viewer) show(event Event) {
 }
 
 // waitFor reads events until the screen matches pattern, and returns the
-// match. It fails after 15 seconds even while no event arrives.
+// match. It fails after a minute even while no event arrives.
 func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 	t.Helper()
 	expression := regexp.MustCompile(pattern)
-	_ = v.pipe.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = v.pipe.SetReadDeadline(time.Now().Add(time.Minute))
 	defer v.pipe.SetReadDeadline(time.Time{})
 	for {
 		if match := expression.FindStringSubmatch(v.screen.String()); match != nil {
@@ -903,7 +904,7 @@ func TestAViewerThatFallsBehindDuringABurstStillReceivesIt(t *testing.T) {
 	v.waitFor(t, "ready")
 
 	typeLine(t, v, "spill")
-	for deadline := time.Now().Add(15 * time.Second); !strings.Contains(replay(t, record), "spilled"); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(replay(t, record), "spilled"); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the spill never reached the host's history")
 		}
@@ -1215,8 +1216,8 @@ func TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread(t *testing.T) 
 			if !open || isUnread != want {
 				t.Fatalf("the viewer that asked was told unread=%t (open %t), want %t", isUnread, open, want)
 			}
-		case <-time.After(15 * time.Second):
-			t.Fatalf("the viewer that asked was not told unread=%t within 15s", want)
+		case <-time.After(time.Minute):
+			t.Fatalf("the viewer that asked was not told unread=%t within a minute", want)
 		}
 	}
 	await(true)

@@ -570,7 +570,7 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			b := stepCard(t, test.change)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			type outcome struct {
 				request CredentialRequest
@@ -596,6 +596,7 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 			if got.request.State != test.state {
 				t.Fatalf("the wait ended on %+v, want %s", got.request, test.state)
 			}
+			// stall-accepted: it times the wait, and the slow path it rules out, the look every two seconds whatever the record's stamp says, is too short for a longer bound to tell apart.
 			if waited := got.at.Sub(pressed); waited > time.Second {
 				t.Fatalf("the wait ended %s after the press, want within a second", waited)
 			}
@@ -611,7 +612,7 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 func TestWaitingOnACardTheBoardNeverTookEnds(t *testing.T) {
 	// Arrange
 	_, h := testStore(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act

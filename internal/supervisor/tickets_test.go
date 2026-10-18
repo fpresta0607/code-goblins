@@ -622,7 +622,7 @@ func TestKeepTicketsFollowsTheBoardsOwnTasksAndWritesOncePerChange(t *testing.T)
 		defer close(done)
 		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
 	}()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -855,7 +855,7 @@ func TestKeepTicketsTellsTheBoardWhenATicketOrThePeopleChange(t *testing.T) {
 	select {
 	case <-told:
 		isTold = true
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 	}
 	cancel()
 	<-done

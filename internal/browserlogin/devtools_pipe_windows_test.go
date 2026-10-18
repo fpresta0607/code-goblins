@@ -42,7 +42,7 @@ func TestPrivateDevToolsPipeMatchesRepliesAndRejectsMalformedResults(t *testing.
 				}
 				fmt.Fprintf(replies, "{\"id\":99999,\"result\":{}}\x00{\"id\":%d,%s}\x00", message.ID, test.reply)
 			}()
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 
 			err := pipe.call(ctx, "Browser.getVersion", nil, nil)
@@ -101,7 +101,7 @@ func TestPrivateDevToolsPipeCancellationInterruptsABlockedWrite(t *testing.T) {
 	pipe := newDevToolsPipe(output, input)
 	defer pipe.close()
 	defer replies.Close()
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	answer := make(chan error, 1)
 	go func() {
@@ -113,7 +113,7 @@ func TestPrivateDevToolsPipeCancellationInterruptsABlockedWrite(t *testing.T) {
 		if err == nil {
 			t.Fatal("a cancelled write passed")
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("cancellation did not interrupt the blocked pipe write")
 	}
 }
@@ -157,14 +157,14 @@ func TestACallerThatGivesUpBeforeItsWriteLeavesThePipeToTheOthers(t *testing.T) 
 					fmt.Fprintf(replies, "{\"id\":%d,\"result\":{}}\x00", message.ID)
 				}
 			}()
-			live, cancelLive := context.WithTimeout(t.Context(), 10*time.Second)
+			live, cancelLive := context.WithTimeout(t.Context(), time.Minute)
 			defer cancelLive()
 			written := make(chan error, 1)
 			if test.isBehindWrite {
 				go func() { written <- pipe.call(live, "Browser.getVersion", nil, nil) }()
 				select {
 				case <-writes:
-				case <-time.After(5 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("the first command never started its write")
 				}
 			} else {
@@ -236,7 +236,7 @@ func TestAClosedPipeSaysWhatClosedIt(t *testing.T) {
 			defer commands.Close()
 			defer replies.Close()
 			go io.Copy(io.Discard, commands)
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -285,7 +285,7 @@ func TestOnlyACallWrittenBeforeThePipeClosedSaysTheBrowserTookIt(t *testing.T) {
 				io.WriteString(replies, "not json\x00")
 				<-pipe.done
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 
 			// Act

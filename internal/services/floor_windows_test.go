@@ -190,7 +190,7 @@ func TestABuildUnderTheFloorEndsOnlyItsOwnProcesses(t *testing.T) {
 	if len(build) != 2 {
 		t.Fatalf("the build started %v, want compose up and its build step", build)
 	}
-	for deadline := time.Now().Add(10 * time.Second); (build[0].isRunning() || build[1].isRunning()) && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); (build[0].isRunning() || build[1].isRunning()) && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 	}
 	for index, each := range build {
 		if each.isRunning() {

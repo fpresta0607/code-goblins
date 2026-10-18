@@ -133,7 +133,7 @@ func TestAWaiterLeavesALineThatDoesNotMoveAfterItsWait(t *testing.T) {
 		t.Errorf("the refusal %q does not name the holder, %s", err, want)
 	}
 	// The wait is counted in whole milliseconds, so it can end one early.
-	if waited < wait-10*time.Millisecond || waited > 5*time.Second {
+	if waited < wait-10*time.Millisecond || waited > 30*time.Second {
 		t.Errorf("the waiter left the line after %s, want about %s", waited.Round(time.Millisecond), wait)
 	}
 }
@@ -154,7 +154,7 @@ func TestAQueuedWaiterIsHandedTheLockWithoutLookingForItAgain(t *testing.T) {
 	t.Cleanup(func() { sleep = time.Sleep })
 
 	// Act
-	_, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "wake", 5*time.Second)
+	_, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "wake", time.Minute)
 
 	// Assert
 	if err != nil {

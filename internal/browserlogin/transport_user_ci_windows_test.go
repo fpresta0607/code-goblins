@@ -130,7 +130,7 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 	defer windows.CloseHandle(child.Process)
 	defer func() {
 		windows.TerminateProcess(child.Process, 1)
-		if event, err := windows.WaitForSingleObject(child.Process, 10000); err != nil || event != windows.WAIT_OBJECT_0 {
+		if event, err := windows.WaitForSingleObject(child.Process, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 			t.Errorf("the owned second-user probe did not end: %v", err)
 		}
 	}()
@@ -239,6 +239,7 @@ func TestAChromeSlowToAnswerItsFirstCookieStillAnswersItsOwner(t *testing.T) {
 	}
 	held := time.Now()
 	resumed := make(chan uintptr, 1)
+	// stall-accepted: the test means this hold to run out, and the check after it reads the same clock.
 	time.AfterFunc(hold, func() {
 		status, _, _ := ntResumeProcess.Call(uintptr(service))
 		windows.CloseHandle(service)

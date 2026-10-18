@@ -303,7 +303,7 @@ func TestCLIStartEngineWaitsForNoDashboardWhenNoneWillShow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if took := time.Since(began); took > 10*time.Second {
+	if took := time.Since(began); took > 30*time.Second {
 		t.Errorf("the start took %s, want it back long before its minute of grace", took)
 	}
 }

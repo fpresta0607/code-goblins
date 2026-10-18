@@ -74,7 +74,7 @@ func TestAWarmedEngineNobodyUsesIsEndedWhenIdle(t *testing.T) {
 	// Assert
 	select {
 	case <-loaded.exited:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the warmed engine was never ended")
 	}
 }

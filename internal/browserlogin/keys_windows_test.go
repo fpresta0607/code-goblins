@@ -110,7 +110,7 @@ var standInRecipeKeys = []keypages.Key{
 // once it finished loading.
 func openPages(t *testing.T, address string) map[string]string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	tabs, err := pages(ctx, address)
 	if err != nil {

@@ -25,7 +25,7 @@ func (c *remoteCommands) Run(ctx context.Context, r execx.Request) (execx.Result
 			select {
 			case <-ctx.Done():
 				return execx.Result{}, ctx.Err()
-			case <-time.After(1200 * time.Millisecond):
+			case <-time.After(1200 * time.Millisecond): // stall-accepted: the stand-in's slow step, which a stall can only end before the revocation lands, and a cleanup that finishes passes either way.
 			}
 		}
 		if c.config == "" {

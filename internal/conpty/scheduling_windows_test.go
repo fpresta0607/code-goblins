@@ -46,7 +46,7 @@ func assertInteractiveScheduling(t *testing.T, process windows.Handle) {
 // notifications schedule a process a wrapper starts asynchronously.
 func waitInteractiveScheduling(t *testing.T, process windows.Handle) {
 	t.Helper()
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		if isInteractive(t, process) {
 			return
 		}

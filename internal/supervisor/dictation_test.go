@@ -301,7 +301,7 @@ func TestADownloadThatStallsIsGivenUpSoTheNextDictationCanTryAgain(t *testing.T)
 }
 
 func TestANetworkTimeoutInsideTheLimitKeepsTheFetchsOwnWords(t *testing.T) {
-	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out inside the dial.
 	defer cancel()
 	// Hold the dial before connect so a refusal cannot race its deadline.
 	dialer := net.Dialer{ControlContext: func(connectionContext context.Context, _, _ string, _ syscall.RawConn) error {

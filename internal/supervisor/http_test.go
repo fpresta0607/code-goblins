@@ -272,7 +272,7 @@ func TestTheEventStreamNamesTheBoardBuild(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 

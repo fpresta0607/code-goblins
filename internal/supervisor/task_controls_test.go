@@ -79,7 +79,7 @@ func TestBoardLifecycleCallsTheCLIAndRefusesStaleGeneration(t *testing.T) {
 	if response := taskControlRequest(handler, "/api/tasks/lifecycle", input); response.Code != 202 {
 		t.Fatalf("pause=%d %s", response.Code, response.Body)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		handler.Service.starts.Lock()
 		waiting := handler.Service.changing[meta.ID] != ""
@@ -190,7 +190,7 @@ func TestSuccessfulCLIActionClearsAnEarlierBoardFailure(t *testing.T) {
 			if response.Code != 202 {
 				t.Fatalf("pause=%d %s", response.Code, response.Body)
 			}
-			deadline := time.Now().Add(3 * time.Second)
+			deadline := time.Now().Add(time.Minute)
 			for time.Now().Before(deadline) {
 				handler.Service.starts.Lock()
 				_, isFailed := handler.Service.changeErrors[meta.ID]
@@ -333,7 +333,7 @@ func TestBoardFailureFollowsItsOwnResumeButNotALaterSuccessfulAction(t *testing.
 			if response.Code != 202 {
 				t.Fatalf("resume=%d %s", response.Code, response.Body)
 			}
-			deadline := time.Now().Add(3 * time.Second)
+			deadline := time.Now().Add(time.Minute)
 			for time.Now().Before(deadline) {
 				handler.Service.starts.Lock()
 				_, isFailed := handler.Service.changeErrors["task"]
@@ -378,7 +378,7 @@ func TestQueuedStopShowsFailureAfterWritingItsLifecycle(t *testing.T) {
 	if response.Code != 202 {
 		t.Fatalf("stop=%d %s", response.Code, response.Body)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		handler.Service.starts.Lock()
 		_, isFailed := handler.Service.changeErrors[queued.Row.ID]
@@ -422,7 +422,10 @@ func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigaby
 				t.Fatal(err)
 			}
 			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "retry-resume", "action": "resume"})
-			calls := awaitCalls(t, spawner, 1)
+			calls := awaitRecorded(t, spawner, 1)
+			if test.isRun {
+				calls = awaitCalls(t, spawner, 1)
+			}
 			if response.Code != 202 || test.isRun != (len(calls) == 1) {
 				t.Fatalf("resume=%d %s, cfo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}
@@ -457,7 +460,10 @@ func TestBoardResumeWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing
 			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "resume-1", "action": "resume"})
 
 			// Assert
-			calls := awaitCalls(t, spawner, 1)
+			calls := awaitRecorded(t, spawner, 1)
+			if test.isRun {
+				calls = awaitCalls(t, spawner, 1)
+			}
 			if response.Code != 202 || test.isRun != (len(calls) == 1) {
 				t.Fatalf("resume = %d %s, cfo ran %v, want it taken and run at once %v", response.Code, response.Body, calls, test.isRun)
 			}

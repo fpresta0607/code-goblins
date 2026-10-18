@@ -47,7 +47,7 @@ func TestHeavyLineIsFreeOnlyWithOneSlotAndNoRunInIt(t *testing.T) {
 				}()
 				t.Cleanup(func() { cancel(); <-ended })
 				// A run stands in line a moment before its card names it.
-				for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 					if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 && waiting[0].Who == "cfo verify fast of task t1" {
 						return
 					}

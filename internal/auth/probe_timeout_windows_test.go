@@ -105,7 +105,7 @@ func TestATimedOutProbeEndsTheCLIBehindItsShim(t *testing.T) {
 	if !strings.Contains(status.Detail, "stand-in-user") {
 		t.Errorf("detail = %q, want what the CLI printed before the probe ran out of time", status.Detail)
 	}
-	if event, err := windows.WaitForSingleObject(cli, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(cli, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Errorf("the CLI behind the shim still runs after its probe ran out of time (wait = %#x, %v)", event, err)
 	}
 }
@@ -131,7 +131,7 @@ func openStandInCLI(t *testing.T, pidFile string) windows.Handle {
 		}
 		t.Cleanup(func() {
 			_ = windows.TerminateProcess(cli, 1)
-			_, _ = windows.WaitForSingleObject(cli, 5000)
+			_, _ = windows.WaitForSingleObject(cli, 60000)
 			_ = windows.CloseHandle(cli)
 		})
 		return cli

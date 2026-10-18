@@ -257,7 +257,7 @@ const holdFailedExit = 7
 
 // holdWait bounds how long the seam waits to hold an alias: Windows can keep
 // a candidate's image held for a moment after its process exits.
-const holdWait = 10 * time.Second
+const holdWait = time.Minute
 
 // holdExclusively opens path with no sharing, trying again until wait runs
 // out while another handle still has it, and returns the handle it holds.
@@ -299,7 +299,7 @@ func startLateServe(h home.Home) {
 		close(exited)
 	}()
 	_ = os.WriteFile(filepath.Join(h.State, lateServeFile), []byte(strconv.Itoa(late.Process.Pid)), 0o600)
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		select {
 		case <-exited:
 			return

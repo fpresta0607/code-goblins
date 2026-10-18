@@ -231,7 +231,7 @@ func TestReconciliationAfterSessionEndAndReadyUntilTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := event(t, h, "SessionStart", "ended", "", time.Now())
-	end := event(t, h, "SessionEnd", "ended", "turn", time.Now().Add(time.Millisecond))
+	end := event(t, h, "SessionEnd", "ended", "turn", time.Now().Add(time.Millisecond)) // stall-accepted: the event's timestamp, a millisecond after its start, which no wait compares with the clock.
 	if err := store.Accept(start); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 		t.Fatal("duplicate controller admitted")
 	}
 	start := event(t, h, "SessionStart", "background", "", time.Now())
-	stop := event(t, h, "Stop", "background", "turn", time.Now().Add(time.Millisecond))
+	stop := event(t, h, "Stop", "background", "turn", time.Now().Add(time.Millisecond)) // stall-accepted: the event's timestamp, a millisecond after its start, which no wait compares with the clock.
 	for _, e := range []nativehook.Event{start, stop} {
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)

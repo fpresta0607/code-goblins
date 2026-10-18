@@ -69,13 +69,13 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		arguments, err := os.ReadFile(filepath.Join(h.Root, "switch-arguments.txt"))
 		if err == nil && len(arguments) > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the initial CFO recorded no arguments within 10s")
+			t.Fatal("the initial CFO recorded no arguments within a minute")
 		}
 	}
 	before, err := host.ReadRecord(h.State, supervisor.NativeCFOTerminal)

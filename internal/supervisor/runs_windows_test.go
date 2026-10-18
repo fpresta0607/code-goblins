@@ -174,7 +174,7 @@ func TestRunRequestExecutesACommandFileWithOrWithoutAUtf8BOM(t *testing.T) {
 				t.Fatal(err)
 			}
 			run := store.Snapshot().Runs[0]
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			program := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(runDir(h.State, run), "command.ps1"))
 			program.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}

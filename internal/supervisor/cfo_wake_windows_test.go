@@ -233,7 +233,7 @@ func TestAnUnprovenWakeLineReachesTheBoardOnce(t *testing.T) {
 		if covered != 1 {
 			t.Errorf("the line was typed with records covered up to %d, want 1", covered)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("no wake line was typed")
 	}
 	time.Sleep(100 * time.Millisecond)

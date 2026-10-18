@@ -105,6 +105,7 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 			closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal)
 		}
 		t.Fatalf("first-run Start returned while another start held the lock: %v", err)
+	// stall-accepted: nothing is meant to finish while the lock is held, and the start's own wait for it is 30 s, so a stall only makes this wait longer.
 	case <-time.After(200 * time.Millisecond):
 	}
 	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
@@ -123,7 +124,7 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("first-run Start did not finish after the launch lock was released")
 	}
 

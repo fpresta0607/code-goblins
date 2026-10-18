@@ -75,7 +75,7 @@ func TestAGoblinsReportReachesAnOpenBoardWithinASecondAtTheLiveFleetsSize(t *tes
 	for quiet := false; !quiet; {
 		select {
 		case <-snapshots:
-		case <-time.After(3 * time.Second):
+		case <-time.After(3 * time.Second): // stall-accepted: a stall that ends this wait early only lets the first report meet the supervisor's start, and each report after it is timed afresh.
 			quiet = true
 		}
 	}
@@ -138,9 +138,11 @@ func TestAReportLeavesTheBoardsErrorAsItWas(t *testing.T) {
 	// while, and returns the revision it stopped at.
 	settled := func(quiet time.Duration) uint64 {
 		revision := s.Revision()
-		for since := time.Now(); time.Since(since) < quiet; time.Sleep(20 * time.Millisecond) {
+		for unchanged := time.Duration(0); unchanged < quiet; {
+			time.Sleep(20 * time.Millisecond)
+			unchanged += 20 * time.Millisecond
 			if now := s.Revision(); now != revision {
-				revision, since = now, time.Now()
+				revision, unchanged = now, 0
 			}
 		}
 		return revision
@@ -153,7 +155,7 @@ func TestAReportLeavesTheBoardsErrorAsItWas(t *testing.T) {
 	Reported(h.State)
 
 	// Assert: once the supervisor has done all the report makes it do.
-	for deadline := time.Now().Add(5 * time.Second); s.Revision() == before; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); s.Revision() == before; time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the report told the boards nothing")
 		}

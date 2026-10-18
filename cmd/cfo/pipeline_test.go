@@ -845,7 +845,7 @@ func TestPipelineMigrationRacingPRCheckPreservesBothUpdates(t *testing.T) {
 	go func() {
 		done <- runPRCheck([]string{"task", "https://example.test/pull/1"}, &stdout, &stderr)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if _, err := os.Stat(ready); err == nil {
 			break

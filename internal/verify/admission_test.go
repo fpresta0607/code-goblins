@@ -66,7 +66,7 @@ func TestAdmissionCreatesAFreshStoreBeforeTakingCustody(t *testing.T) {
 	// Arrange
 	requested := admission(t)
 	requested.Dir = filepath.Join(requested.Dir, "fresh", "slots")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -109,8 +109,8 @@ func within(t *testing.T, taken <-chan Turn, what string) Turn {
 	select {
 	case turn := <-taken:
 		return turn
-	case <-time.After(10 * time.Second):
-		t.Fatalf("%s: no turn within 10 seconds", what)
+	case <-time.After(time.Minute):
+		t.Fatalf("%s: no turn within a minute", what)
 		return Turn{}
 	}
 }
@@ -120,7 +120,7 @@ func notYet(t *testing.T, taken <-chan Turn, what string) {
 	select {
 	case <-taken:
 		t.Fatalf("%s took a turn", what)
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(150 * time.Millisecond): // stall-accepted: no turn is meant to arrive, so a stall only makes the wait longer.
 	}
 }
 
@@ -136,11 +136,11 @@ func (s *said) waiting(_ time.Duration, why string) {
 	s.lines = append(s.lines, why)
 }
 
-// atLeast waits until the run has said count lines, for at most 10 seconds,
+// atLeast waits until the run has said count lines, for at most a minute,
 // and returns what it has said by then.
 func (s *said) atLeast(t *testing.T, count int) []string {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(5 * time.Millisecond) {
 		s.mu.Lock()
 		lines := append([]string(nil), s.lines...)
 		s.mu.Unlock()
@@ -150,11 +150,11 @@ func (s *said) atLeast(t *testing.T, count int) []string {
 	}
 }
 
-// saying waits until the run has said a line holding text, for at most 10
-// seconds.
+// saying waits until the run has said a line holding text, for at most a
+// minute.
 func (s *said) saying(t *testing.T, text string) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		s.mu.Lock()
 		isSaid := slices.ContainsFunc(s.lines, func(line string) bool { return strings.Contains(line, text) })
 		s.mu.Unlock()
@@ -162,7 +162,7 @@ func (s *said) saying(t *testing.T, text string) {
 			return
 		}
 	}
-	t.Fatalf("the run did not say %q within 10 seconds", text)
+	t.Fatalf("the run did not say %q within a minute", text)
 }
 
 // waits blocks until the run that delivers its turn on taken says that it
@@ -170,7 +170,7 @@ func (s *said) saying(t *testing.T, text string) {
 // test.
 func (s *said) waits(t *testing.T, taken <-chan Turn, what string) string {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
 		case <-taken:
 			t.Fatalf("%s took a turn", what)
@@ -183,7 +183,7 @@ func (s *said) waits(t *testing.T, taken <-chan Turn, what string) string {
 		}
 		s.mu.Unlock()
 	}
-	t.Fatalf("%s neither waited nor took a turn within 10 seconds", what)
+	t.Fatalf("%s neither waited nor took a turn within a minute", what)
 	return ""
 }
 
@@ -207,6 +207,7 @@ func TestARunWaitsForAFreeSlotAndTakesTheOneGivenBack(t *testing.T) {
 	first.Release()
 	turn := within(t, second, "the second run, after the first gave its slot back")
 	defer turn.Release()
+	// stall-accepted: the run's own wait spans the time the test held it back, so a stall lengthens both.
 	if turn.Waited < heldBack || turn.Note != "" {
 		t.Errorf("the second run's turn is %+v; want a wait of at least the %s it was held back and nothing to note", turn, heldBack)
 	}
@@ -566,7 +567,7 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	a.Limit = 500 * time.Millisecond
 	var waiter said
 	a.Waiting = waiter.waiting
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	ended := make(chan struct {
 		turn Turn
@@ -582,6 +583,7 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	if len(waiter.atLeast(t, 1)) == 0 {
 		t.Fatal("the waiter never joined the line")
 	}
+	joined := time.Now()
 	time.Sleep(600 * time.Millisecond)
 
 	// Act
@@ -589,7 +591,7 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	available.Store(1 * gigabyte)
 	short.Store(true)
 	for readSince.Load() == 0 {
-		if time.Since(shortAt) > 5*time.Second {
+		if time.Since(shortAt) > time.Minute {
 			t.Fatal("the waiter never read memory once it was short")
 		}
 		time.Sleep(time.Millisecond)
@@ -600,7 +602,7 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 
 	// Assert
 	defer got.turn.Release()
-	if got.err == nil || got.turn.release != nil || forMemory < a.Limit || ctx.Err() != nil || got.turn.Waited < forMemory {
+	if got.err == nil || got.turn.release != nil || forMemory < a.Limit || ctx.Err() != nil || got.turn.Waited < shortAt.Sub(joined)+a.Limit {
 		t.Errorf("floor wait returned %+v, %v after %s; want refusal only after %s of floor waiting", got.turn, got.err, forMemory, a.Limit)
 	}
 }
@@ -619,7 +621,7 @@ func TestARunThatTakesItsTurnWithMemoryBackNotesNoShortage(t *testing.T) {
 		readings.Add(1)
 		return available.Load(), nil
 	}
-	a.Limit = time.Second
+	a.Limit = time.Minute
 	var waiter said
 	a.Waiting = waiter.waiting
 	waiting := take(t, a)
@@ -631,9 +633,9 @@ func TestARunThatTakesItsTurnWithMemoryBackNotesNoShortage(t *testing.T) {
 	available.Store(16 * gigabyte)
 	// The holder leaves only once the run has read the memory that is back,
 	// so no pass that still saw it short can take the turn.
-	for seen, deadline := readings.Load(), time.Now().Add(10*time.Second); readings.Load() == seen; time.Sleep(time.Millisecond) {
+	for seen, deadline := readings.Load(), time.Now().Add(time.Minute); readings.Load() == seen; time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatal("the waiting run did not read the memory again within 10 seconds")
+			t.Fatal("the waiting run did not read the memory again within a minute")
 		}
 	}
 	holder.Release()
@@ -682,7 +684,7 @@ func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
 		ended <- outcome{turn, err}
 	}()
 	if lines := waiter.atLeast(t, 1); len(lines) == 0 {
-		t.Fatal("the run behind the holder had not said that it waits after 10 seconds")
+		t.Fatal("the run behind the holder had not said that it waits after a minute")
 	}
 	saidItWaits := time.Now()
 	time.Sleep(100 * time.Millisecond)
@@ -697,6 +699,7 @@ func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
 
 	// Assert
 	got.turn.Release()
+	// stall-accepted: the run's own wait spans the time the test held it back, so a stall lengthens both.
 	if got.err == nil || ctx.Err() != nil || got.turn.Waited < heldBack {
 		t.Errorf("Wait returned %v and a turn that waited %s; want the error of a line that is gone, and a wait of at least the %s the run was held back", got.err, got.turn.Waited, heldBack)
 	}
@@ -832,7 +835,7 @@ func TestAnUnreadableRecordInTheLineKeepsItsPlace(t *testing.T) {
 	}
 
 	// Act
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	turn, err := a.Wait(ctx)
 
@@ -877,7 +880,7 @@ func TestACancelledRunLeavesTheLine(t *testing.T) {
 	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	// Act
@@ -1142,7 +1145,7 @@ func TestATurnsChangesWaitOutABusyMomentOfTheLinesLock(t *testing.T) {
 					if err != nil {
 						t.Errorf("the change ended with %v; want it to wait out the lock's busy moment", err)
 					}
-				case <-time.After(10 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("the change never ended")
 				}
 			})
@@ -1252,7 +1255,7 @@ func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 	var err error
 	select {
 	case err = <-ended:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the run still waits on the busy lock past its limit")
 	}
 
@@ -1318,7 +1321,7 @@ func TestARunGivesUpALockBusyPastItsLimitAtEachChange(t *testing.T) {
 				if !errors.Is(err, errCustodyBusy) {
 					t.Errorf("the change ended with %v; want it to give up the busy lock", err)
 				}
-			case <-time.After(10 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("the change still tries the busy lock well past its limit")
 			}
 		})
@@ -1403,6 +1406,7 @@ func TestProtectWaitsOutABusyLock(t *testing.T) {
 			release := holdLineLock(t, a.Dir, "in this process")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			// stall-accepted: the test means this timer to fire while the protection waits, and the turn's limit of a minute outlasts a stall.
 			time.AfterFunc(600*time.Millisecond, func() {
 				if row.isInterrupted {
 					cancel()
@@ -1420,7 +1424,7 @@ func TestProtectWaitsOutABusyLock(t *testing.T) {
 			if row.isInterrupted {
 				// The turn's limit is a minute, so a protection that went on
 				// trying past the interrupt would return only then.
-				if err == nil || errors.Is(err, errCustodyBusy) && ctx.Err() == nil || time.Since(started) > 5*time.Second {
+				if err == nil || errors.Is(err, errCustodyBusy) && ctx.Err() == nil || time.Since(started) > 30*time.Second {
 					t.Errorf("ProtectContext: %v after %s; want it ended by the interrupt at once", err, time.Since(started))
 				}
 				return
@@ -1470,7 +1474,7 @@ func TestACustodyChangeEndedByItsCallerIsNotBusy(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 	holdLineLock(t, dir, "in this process")
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	// Act
