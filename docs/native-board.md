@@ -2089,7 +2089,7 @@ The adversary this proof names is an agent that follows its contract and tries t
 A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
 
 The board's own switch, `POST /api/afk` with `{"on": true}` or `{"on": false}`, is proven of the program that shows the board.
-The endpoint first refuses a body it cannot read, then a request that is not the board's own page on this PC: one whose peer is not this machine, or one a proxy handled, as a board shared through Tailscale serve is.
+The endpoint first refuses a body it cannot read, then a request that is not the board's own page on this PC: one whose peer is not this machine, or one a proxy handled, as a board shared through Tailscale serve is, except an off from his private board (below).
 It then asks Windows which process owns the other end of the connection (`GetExtendedTcpTable`), which for a browser is the browser's own network process, and reads that process as it reads a pipe's caller: its environment and its ancestry, with the same refusals of an agent's in the same order.
 The program that is his is the one just under the desktop, and where the parents stop short of the desktop the last one still running, since a program outlives what opened it.
 From that program down to the process that holds the connection the supervisor reads what each one is, and refuses a browser another program can drive: one started with `--remote-debugging-port`, `--remote-debugging-pipe`, `--enable-automation` or `--headless`, or with Firefox's `-marionette`, as a test's browser and a headless one are.
@@ -2124,6 +2124,16 @@ Off while it is already off answers as off, and a switch that cannot be read ans
 A switch that fails after the board was proven his answers 409 with one sentence, and the CFO is told why in the same wake.
 The adversary is the same one, at the board: an agent that follows its contract and tries the switch from a browser it started, through a proxy or from another machine.
 An agent that drives the Overlord's own running browser or window through his desktop is his to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
+
+His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch off and never on (CFO decision 1008966).
+He can always switch AFK mode, and on 2026-10-18 his off there was refused.
+Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and an off it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.
+Those are Tailscale's headers, and an agent on this PC can forge them, sending them itself or through a Serve route of its own it adds for a moment, so nothing proves the private board his.
+A forged off ends his stretch early, with its report and his cards, and tells the CFO he is back, so the fleet's decisions wait for him again; it hands no one his authority.
+On hands the CFO his authority, so on stays on a board on the PC proven as above, or his terminal.
+An on through the gate is refused with the sentence every board is shown, and the CFO is told it came through the private board.
+Another user of his tailnet, a request without Tailscale's identity and another proxy never pass the gate.
+On the private board the switch is disabled while AFK mode is off, with no tip.
 
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.

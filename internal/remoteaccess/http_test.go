@@ -95,6 +95,40 @@ func TestGateAuthenticatesEveryRequestBeforeTheBoard(t *testing.T) {
 	}
 }
 
+// The gate marks what it admitted as the owner's, through his private
+// connection, where no client can reach: in the request's context. The
+// board's own page on this PC passes unmarked.
+func TestTheGateMarksOnlyWhatItAdmittedAsTheOwners(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		request    func() *http.Request
+		isAdmitted bool
+	}{
+		{"the owner through his private connection", func() *http.Request { return remoteRequest("POST", "/api/afk") }, true},
+		{"the board's own page on this PC", func() *http.Request {
+			r := httptest.NewRequest("POST", testConfig().Target+"/api/afk", nil)
+			r.RemoteAddr = "127.0.0.1:52345"
+			return r
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			reached, isAdmitted := false, false
+			g, _ := testGate(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reached, isAdmitted = true, Admitted(r)
+			}))
+
+			// Act
+			g.ServeHTTP(httptest.NewRecorder(), tc.request())
+
+			// Assert
+			if !reached || isAdmitted != tc.isAdmitted {
+				t.Errorf("reached the board %t, admitted %t, want it reached and admitted %t", reached, isAdmitted, tc.isAdmitted)
+			}
+		})
+	}
+}
+
 func TestGateKeepsMutationTokensAndRechecksPersistentRevocation(t *testing.T) {
 	g, m := testGate(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The real board still performs this check after translation.
