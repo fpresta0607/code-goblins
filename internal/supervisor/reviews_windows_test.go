@@ -96,9 +96,9 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 	for name, test := range map[string]struct {
 		link, wantPage string
 	}{
-		"a session lavish-axi keeps":   {link: "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
+		"a session lavish-axi keeps":   {link: "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
 		"the same session on loopback": {link: "http://127.0.0.1:4387/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
-		"a session it does not keep":   {link: "https://sermon.tailcc4238.ts.net:4388/session/0000000000000000"},
+		"a session it does not keep":   {link: "https://pc.example.ts.net:4388/session/0000000000000000"},
 		"a link to no session":         {link: "https://example.com/plan"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -137,7 +137,7 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 // page the CFO's review holds would take it from the CFO. The goblin's own
 // review of its page is still its own.
 func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
-	const link = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b"
+	const link = "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b"
 	const page = `C:\scratch\task-1\review\index.html`
 	wait := func(h home.Home) error {
 		return PublishWait(h, "task-1", 7, "pick a layout on the page", link, page, "", "")
@@ -200,6 +200,41 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 			}
 			if len(got) != 2 || got[1].ID != "layout-review" || got[1].Task != "task-1" || got[1].LavishPage != page {
 				t.Fatalf("reviews = %+v, want the goblin's wait and its own review of the page", got)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-10-17 about 22:10Z, opened a review card the CFO had just
+// published and got Scrawl's "Session ended. Return to your agent to
+// continue.": its page's session had ended a minute before. A review given
+// the link of a session that has ended is refused, recording nothing, with a
+// line naming --reopen.
+func TestAReviewOfAnEndedScrawlSessionIsRefusedNamingReopen(t *testing.T) {
+	for _, endedBy := range []string{"user", "agent"} {
+		t.Run(endedBy, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"ad6519f76542da4e":{"key":"ad6519f76542da4e","file":"C:\\scratch\\site\\mockup.html","status":"ended","ended_by":"` + endedBy + `"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := PublishReview(h, meta.ID, "itascaunity-site-real-photos", "The site with real photos", "https://pc.example.ts.net:4388/session/ad6519f76542da4e", "", nil)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "has ended") || !strings.Contains(err.Error(), "--reopen") {
+				t.Fatalf("a review of an ended session = %v, want it refused naming --reopen", err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Reviews; len(got) != 0 {
+				t.Fatalf("reviews = %+v, want nothing recorded", got)
 			}
 		})
 	}
@@ -310,6 +345,46 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews")); err != nil || len(entries) != 1 {
 		t.Fatalf("state/reviews holds %d directories, want only the recorded item's: %v", len(entries), err)
+	}
+}
+
+// His Send and End closes an item, and a reporter that published it again
+// under its ID, as a goblin rerunning cfo review --reopen did, was told it was
+// published while no card appeared. A republish of an item that is no longer
+// open is refused, naming a new --id, and recording nothing; a republish of
+// an open item is still that same item.
+func TestARepublishOfAClosedItemIsRefusedNamingANewID(t *testing.T) {
+	for _, state := range []string{"open", "answered", "withdrawn"} {
+		t.Run(state, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			if err := PublishReview(h, meta.ID, "mockup-review-1", "Look at the mockup", "", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			store.db.Reviews[0].State = state
+			err := store.save()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err = PublishReview(h, meta.ID, "mockup-review-1", "Look at the mockup", "", "", nil)
+
+			// Assert
+			isRefused := state != "open"
+			if isRefused != (err != nil) || isRefused && !strings.Contains(err.Error(), "new --id") {
+				t.Fatalf("republishing the %s item = %v, want refused naming a new --id: %t", state, err, isRefused)
+			}
+			if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
+				t.Fatalf("the republish left %d inbox records", len(entries))
+			}
+		})
 	}
 }
 

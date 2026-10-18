@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,14 +14,16 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // Receipts have their own journal: valid grouped Scrawl feedback can exceed
-// the board database's size bound. Terminal intent and holds commit together.
+// the board database's size bound. Each page's answers wait in it in the
+// order he sent them, and none is told before the one ahead of it.
 type pageReceiptState struct {
-	Answers       []pageAnswer      `json:"answers"`
-	DeliveryHolds map[string]string `json:"delivery_holds,omitempty"`
+	Answers []pageAnswer `json:"answers"`
 }
 
 func (r pageReceiptState) clone() pageReceiptState {
@@ -31,7 +32,6 @@ func (r pageReceiptState) clone() pageReceiptState {
 		r.Answers[i].Poll.Prompts = slices.Clone(r.Answers[i].Poll.Prompts)
 		r.Answers[i].Item.ImageSums = slices.Clone(r.Answers[i].Item.ImageSums)
 	}
-	r.DeliveryHolds = maps.Clone(r.DeliveryHolds)
 	return r
 }
 
@@ -80,12 +80,6 @@ func (s *Store) keepPageAnswer(answer pageAnswer) error {
 		receipts.Answers = append(receipts.Answers, answer)
 	} else {
 		receipts.Answers[index] = answer
-	}
-	if answer.Status == "uncertain" {
-		if receipts.DeliveryHolds == nil {
-			receipts.DeliveryHolds = map[string]string{}
-		}
-		receipts.DeliveryHolds[pageKey(answer.Item.LavishPage)] = answer.Item.Identity
 	}
 	return s.savePageReceipts(receipts)
 }
@@ -166,7 +160,9 @@ func (s *Service) tellPage(ctx context.Context, key string) {
 			}
 			s.pagesMu.Unlock()
 			if err := s.tellAnswer(ctx, answers[index]); err != nil {
-				s.publish(err)
+				if !errors.Is(err, errPageAnswerWaits) {
+					s.publish(err)
+				}
 				s.pagesMu.Lock()
 				delete(s.pageTellers, key)
 				s.pagesMu.Unlock()
@@ -176,47 +172,120 @@ func (s *Service) tellPage(ctx context.Context, key string) {
 	}()
 }
 
+// errPageAnswerWaits says a page's next answer waits: for its goblin's
+// terminal to be back, as after a pause, or for the record its goblin's
+// harness keeps to show the goblin took it. The answers behind it wait
+// with it, so none overtakes it, and the supervisor's next cycle tries again.
+var errPageAnswerWaits = errors.New("the page's next answer waits for its goblin")
+
+// pageAwaitLimit is how long an answer typed into a goblin's terminal is
+// waited on for the goblin's record to show it taken, which a goblin in one
+// long tool call does only when the call ends, before the CFO is told to
+// look and the page's next answer goes.
+const pageAwaitLimit = 10 * time.Minute
+
+// tellAnswer passes one answer on, the first its page has waiting. A
+// goblin's answer goes to the task's goblin as it runs now, after a pause's
+// resume too. One whose goblin's terminal took nothing, as when it was paused
+// or between sessions, waits to be sent again; one typed into the terminal,
+// whose delivery the screen did not confirm or the supervisor stopped in the
+// middle of, is never typed again: it waits until the goblin's record shows
+// it taken. Only one that record never shows within pageAwaitLimit reaches
+// the CFO with what to check. A supervisor that is stopping leaves each
+// answer still to tell as the journal holds it, for its next start.
 func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 	r := answer.Item
-	if answer.Status == "sending" {
-		answer.Status = "uncertain"
+	if answer.Status != "notifying" && ctx.Err() != nil {
+		return errPageAnswerWaits
 	}
 	if answer.Status != "notifying" {
 		if !answer.IsPageEnd {
 			text, detail, delivered, reason, deliveredReason, queued := s.pageMessage(answer)
-			isHeld := false
-			if identity, found := s.Store.pageReceiptsSnapshot().DeliveryHolds[pageKey(r.LavishPage)]; found && identity == r.Identity {
-				isHeld = true
+			meta, metaErr := state.ReadTaskMeta(s.Store.Home.State, r.Task)
+			isLive := r.Task != "" && metaErr == nil && s.Options.CFO != nil
+			queuedReason := ""
+			if answer.IsAnswer {
+				queuedReason = "You answered on its page; your answer is queued for the goblin's next tool call."
 			}
-			if answer.Status == "uncertain" {
-				if err := s.Store.keepPageAnswer(answer); err != nil {
-					return err
-				}
-				detail += "; supervisor stopped during delivery; inspect the task before sending this or later feedback again"
-			} else if isHeld {
-				detail += "; an earlier delivery on this page is uncertain; inspect and relay this feedback in order"
-			} else if r.Task != "" && s.Store.taskStands(r.Task) && s.Options.CFO != nil && ctx.Err() == nil {
-				answer.Status = "sending"
-				if err := s.Store.keepPageAnswer(answer); err != nil {
-					return err
-				}
-				_, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
-				if err == nil {
-					detail, reason = delivered, deliveredReason
-				} else if errors.Is(err, fleet.ErrQueuedForToolCall) {
-					detail = queued
-					if answer.IsAnswer {
-						reason = "You answered on its page; your answer is queued for the goblin's next tool call."
+			isTyped := answer.Status == "sending" || answer.Status == "awaiting"
+			isTaken := isTyped && metaErr == nil && NativeTook(ctx, meta, goblinLine(text), answer.SentAt)
+			switch {
+			case isTaken:
+				detail, reason = delivered, deliveredReason
+			case isTyped && metaErr == nil && (ctx.Err() != nil || time.Since(answer.SentAt) < pageAwaitLimit):
+				if answer.Status == "sending" {
+					answer.Status = "awaiting"
+					if err := s.Store.keepPageAnswer(answer); err != nil {
+						return err
 					}
-				} else {
+				}
+				return errPageAnswerWaits
+			case isTyped:
+				at := ""
+				if !answer.SentAt.IsZero() {
+					at = " at " + answer.SentAt.Format(time.RFC3339)
+				}
+				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with cfo peek %s whether it waits there before relaying it", r.Task, at, r.Task)
+			case isLive:
+				// A terminal changing hands takes no note, as it takes no board
+				// message: a resume types its own instruction into it, and a
+				// pause ends it. Only a change its controller still runs counts,
+				// since one cut short leaves its record behind.
+				record, err := state.ReadLifecycle(s.Store.Home.State, r.Task)
+				if err != nil && !errors.Is(err, os.ErrNotExist) {
 					s.publish(err)
-					if !errors.Is(err, ErrRejected) {
-						answer.Status = "uncertain"
-						if saveErr := s.Store.keepPageAnswer(answer); saveErr != nil {
-							return saveErr
-						}
-						detail += "; terminal delivery is uncertain; inspect the task before sending this or later feedback again"
+				}
+				isChanging := err == nil && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping") && record.SuppressesMonitoring(s.Store.Home.State)
+				s.starts.Lock()
+				isRelaunched := s.starting == r.Task || s.changing[r.Task] != ""
+				s.starts.Unlock()
+				if isChanging || isRelaunched {
+					return errPageAnswerWaits
+				}
+				if terminal, err := host.ReadRecord(s.Options.CFO.State, r.Task); (err != nil || !host.Running(terminal)) && meta.Backend == "native" {
+					return errPageAnswerWaits
+				}
+				answer.Status, answer.SentAt = "sending", time.Now().UTC()
+				if err := s.Store.keepPageAnswer(answer); err != nil {
+					return err
+				}
+				_, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+				// A task that reuses the id began after the note was written,
+				// by the generation it was first spawned on, which a relaunch
+				// does not move; a task an older build spawned records none.
+				isReused := meta.FirstGen != "" && spawnTime(meta.FirstGen).After(r.CreatedAt)
+				if current := goblinIdentity(meta); errors.Is(err, ErrRejected) && current != r.Identity && !isReused {
+					// Its goblin came back in a new session, as a pause's
+					// resume brings it, and the page is still its own. A
+					// refusal typed nothing, so it is sent again.
+					_, err = s.Options.CFO.SendGoblin(ctx, r.Task, current, text)
+				}
+				switch {
+				case err == nil:
+					detail, reason = delivered, deliveredReason
+				case errors.Is(err, fleet.ErrQueuedForToolCall):
+					detail, reason = queued, queuedReason
+				case errors.Is(err, fleet.ErrNotTyped):
+					answer.Status, answer.SentAt = "queued", time.Time{}
+					if saveErr := s.Store.keepPageAnswer(answer); saveErr != nil {
+						return saveErr
 					}
+					return errPageAnswerWaits
+				case errors.Is(err, ErrRejected) && isReused:
+					saved, saveErr := s.savePageAnswer(answer)
+					feedback := "his feedback is in " + saved
+					if saveErr != nil {
+						feedback = fmt.Sprintf("his feedback could not be saved (%v)", saveErr)
+					}
+					detail = "the Overlord wrote on the page " + r.LavishPage + " of an earlier task " + r.Task + ", cleaned up since; " + r.Task + " is now a later task under the same id, so it was not passed on; " + feedback + ", act on it"
+				case errors.Is(err, ErrRejected):
+					s.publish(err)
+				default:
+					answer.Status = "awaiting"
+					if saveErr := s.Store.keepPageAnswer(answer); saveErr != nil {
+						return saveErr
+					}
+					return errPageAnswerWaits
 				}
 			}
 			answer.Detail, answer.Reason = detail, reason

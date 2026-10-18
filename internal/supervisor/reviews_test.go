@@ -22,7 +22,7 @@ func openReview(id, task string, sums ...string) Review {
 func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	sum := strings.Repeat("0", 64)
 	tailnet := openReview("mockups-review-1", "task-1", sum)
-	tailnet.Lavish = "http://sermon.tailcc4238.ts.net:4387/session/f26e"
+	tailnet.Lavish = "http://pc.example.ts.net:4387/session/f26e"
 	if err := validReview(tailnet); err != nil {
 		t.Fatal(err)
 	}

@@ -13,9 +13,10 @@ owner account. No personal hostname, account or key is included in the build.
 2. Open Code Goblins on the PC. Open the **CFO** panel, choose **Task**, expand
    **Remote access**, and press **Enable**.
 3. Copy the private HTTPS link shown there. On the phone, connect Tailscale and
-   open the link in Safari or another browser. Open the CFO terminal to control
-   the existing session. On an iPhone, Safari's **Share → Add to Home Screen**
-   saves the board beside your apps.
+   open the link in its browser. Open the CFO terminal to control the existing
+   session. To keep the board beside your apps, use Safari's **Share → Add to
+   Home Screen** on an iPhone, or Chrome's menu **→ Add to Home screen** on
+   Android.
 
 The panel checks the signed-in owner and reads back the exact private proxy
 before calling it ready. It does not connect the phone's VPN; Tailscale handles
@@ -32,7 +33,8 @@ Tailscale before enabling this feature.
 
 Use the panel's **Refresh** after connecting Tailscale or approving HTTPS.
 The official [Windows download](https://tailscale.com/download/windows),
-[iPhone download](https://tailscale.com/download/ios), and
+[iPhone download](https://tailscale.com/download/ios),
+[Android download](https://tailscale.com/download/android), and
 [HTTPS setup](https://tailscale.com/docs/how-to/set-up-https-certificates)
 links are also in the setting. HTTPS certificates require the tailnet's DNS
 settings and permissions; the first Serve command can print the exact approval
@@ -91,8 +93,8 @@ background proxy and the saved owner setting survive restarts; the board and
 its sessions return after Windows sign-in. The PC must be awake, online,
 signed in, and connected to Tailscale. This does not change power settings,
 Windows sign-in policy, router ports or the firewall, and cannot wake a powered
-off PC. Closing Safari or disconnecting the phone leaves the CFO and workers
-running.
+off PC. Closing the phone's browser or disconnecting the phone leaves the CFO
+and workers running.
 
 The setting also has **Turn off**, which revokes remote requests immediately
 and closes existing remote streams within one second. It detaches their views;
@@ -114,6 +116,15 @@ cfo remote off
 reports whether the board and Start at login are running. If the PC's Tailscale
 name, account or board address changes, enable again on the PC. `off` revokes
 access even when Tailscale is stopped, then reports any remaining proxy cleanup.
+`on` and `off` are refused in a goblin's or a gate agent's terminal: only you,
+or the CFO on your word, turn remote access on or off. `cfo doctor` reports it
+in one `remote access:` line, off, ready or what it needs, without naming your
+tailnet or account.
+
+A board started before Tailscale was installed finds Tailscale where its
+installer puts it. Without Tailscale, Enable says it is not installed; with
+Tailscale stopped, signed out or disconnected, it says which. The board and
+Scrawl keep working on this PC either way.
 
 ## Security boundary
 

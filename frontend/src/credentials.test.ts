@@ -95,7 +95,7 @@ test("a card offers to fetch the keys a reviewed page reads, saying where from a
 
 test("values are typed only on the board on this PC", () => {
   for (const host of ["127.0.0.1", "localhost", "[::1]"]) assert.equal(onThisMachine(host), true, host);
-  for (const host of ["sermon.tailcc4238.ts.net", "100.101.102.103", "goblins.local", "board.localhost"]) assert.equal(onThisMachine(host), false, host);
+  for (const host of ["pc.example.ts.net", "100.101.102.103", "goblins.local", "board.localhost"]) assert.equal(onThisMachine(host), false, host);
 });
 
 test("a new request alerts once, naming who asks and what, and opens its card", () => {

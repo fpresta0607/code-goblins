@@ -13,7 +13,7 @@ import { doneCards, expect, openItem, recordDoneCards, test, type BrowserContext
 // snapshot themselves, so nothing reloads the board.
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
 
-const PAGE = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b";
+const PAGE = "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b";
 const TITLE = "Before and after pictures of the Orchestration canvas, now showing only goblins in progress";
 const greta = { id: "cg-canvas-live-only", title: "Canvas shows only live goblins", goblin_name: "Greta", goblin_title: "Canvas Captain", project: "code-goblins", phase: "working", generation: "g1", verified: false };
 const wanda = { id: "pd-mcp-only", title: "Retire the web routes", goblin_name: "Wanda", goblin_title: "API Ace", project: "precisiondocs", phase: "waiting", generation: "g1", verified: false };
@@ -115,6 +115,33 @@ for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CFO
     const row = page.locator(".inbox-history li").filter({ hasText: who.review.title });
     await row.getByRole("button", { name: /^Open: / }).click();
     await expect(row).toContainText("You wrote: Looks right. Ship it.");
+  });
+}
+
+// The Overlord, 2026-10-17 about 22:10Z, opened a review card whose page's
+// session had ended and got Scrawl's "Session ended". A card whose page ends
+// while it is open closes itself and leaves Waiting on you, so it never opens
+// an ended page.
+for (const ended of [
+  { name: "he ended", closed: { state: "cleared", reason: "You ended the review on its page." } },
+  { name: "an agent ended", closed: { state: "withdrawn", reason: "An agent ended the review on its page; the CFO was told." } },
+]) {
+  test(`a Scrawl card whose page ${ended.name} while it is open closes itself`, async ({ page, context }) => {
+    // Arrange
+    await standInStream(context);
+    await boardAsked(page, { reviews: [cfoReview] });
+    await openItem(page, cfoReview.title);
+    await expect(card(page).getByRole("heading", { name: cfoReview.title })).toBeVisible();
+    await recordDoneCards(page);
+
+    // Act
+    await send(page, asking({ reviews: [{ ...cfoReview, ...ended.closed, updated_at: "2026-10-17T22:09:00Z" }] }, 3));
+
+    // Assert
+    await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed/));
+    await expect(card(page)).toBeHidden();
+    await expect(badge(page)).toHaveAccessibleName("Command Center");
+    await expect(card(page).getByRole("link", { name: /^Open review/ })).toHaveCount(0);
   });
 }
 

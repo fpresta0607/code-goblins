@@ -9,11 +9,11 @@
     "internal/supervisor",
     "internal/testguard"
   ],
-  "alone_packages": ["internal/browserlogin", "internal/supervisor"],
+  "alone_packages": ["cmd/goblins-setup", "internal/browserlogin", "internal/supervisor"],
   "guards": [
     {
       "package": ".",
-      "why": "its tests read every link of the contract, the workflows and the shipped skills"
+      "why": "its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name"
     },
     {
       "package": "cmd/cfo",

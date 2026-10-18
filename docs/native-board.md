@@ -801,7 +801,7 @@ The host holds such an ending back for up to 100 ms: the next input takes it on 
 
 The board draws a native terminal with xterm at the panel's size: the view measures the cell xterm drew and fits the columns and rows the panel holds with an even inset of at least 10 px, and sends them as the resize, so the program and the view agree on the size.
 The spare width is split between left and right, the bottom keeps the same space, so the last row, the input line, sits that far from the panel's bottom, and the spare height, under a row, goes above the grid; no space is kept for a scroll bar, since none is drawn.
-xterm draws with its WebGL renderer, and with its DOM renderer where WebGL is unavailable or its context is lost.
+xterm draws with its WebGL renderer, and with its DOM renderer in WebKit, the engine of every browser on an iPhone and of Safari, where that renderer drew nothing (in Playwright's WebKit; the Overlord's iPhone showed black terminals), and where WebGL is unavailable or its context is lost.
 The font starts at 20 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
 Holding the right mouse button and turning the wheel steps it the same way, up to grow and down to shrink, a step a notch, with a smooth wheel's small turns adding up to one.
 The wheel then neither scrolls the terminal nor reaches its program, and the menu that would open when the button comes up does not, so its Paste is never offered, while a right click that never turned the wheel does what it always did.
@@ -887,7 +887,7 @@ The microphone then stays open while the board has the focus, and the worklet ke
 It closes when the window loses the focus or the page is hidden, and once 30 minutes pass with no dictation, and the next press opens it again.
 So the first press after the board takes the focus loses what is said while the microphone opens: on this PC, with Chromium's stand-in microphone, a median of 5 ms in the desktop window and 155 ms in a browser, at most 0.42 s, and a real microphone adds the time it takes to start.
 A microphone opened before any press would show as in use whenever the board had the focus, before anyone dictated, which is why it waits for the first press (the CFO's decision of 11 October 2026).
-The audio context the worklet runs in is made while the page is idle, before the first press needs it, and runs while the microphone is open.
+The audio context the worklet runs in is made while the page is idle, before the first press needs it, and runs while the microphone is open; Safari has no idle callback, so there it is made a second after the view, and a browser without Web Audio makes none.
 Until 11 October 2026 the bubble said it listened only once the first samples arrived, 0.1 to 0.7 s after the press on this PC, because every press opened the microphone again and the bars built a second audio context of their own, which held the page still for up to 0.27 s.
 Until 9 October 2026 the context was suspended at every release and the bubble said it listened as soon as the microphone was open, 0.4 to 0.7 s before a busy PC had the context running again, so a short dictation recorded nothing and was told as "Nothing was heard."
 A recognizer that has not begun to listen five seconds after the microphone opened ends the hold, and the CFO is told.
@@ -1561,7 +1561,12 @@ A poll that fails inside those two seconds is asked once more at once, so a Scra
 His answer is one that ends the review with Send & End (an empty Send & End approves as shown) or picks an option the page declared.
 Every open item naming the page closes the moment the poll reads his answer, and the boards are told at once, so the Command Center shows it done within a second of his sending it, before anyone is told it, and his answer is saved whole under `state/reviews/feedback/`.
 His answer then reaches a goblin by itself, beside the poll, so the next poll never waits on a goblin's terminal: the supervisor types it into the goblin's own terminal, as a board answer reaches it, and the CFO's `review` wake, retried until the queue takes it, says the goblin has it.
-Only when the goblin cannot take it, such as one that restarted, does the wake ask the CFO to relay it, and the CFO's own page wakes the CFO to act on it.
+Only when the goblin cannot take it, such as one whose task ended, does the wake ask the CFO to relay it, and the CFO's own page wakes the CFO to act on it.
+Everything he sends on a page reaches its goblin once, in the order he sent it, and nothing is told before what he sent ahead of it (the Overlord, 2026-10-17: "Make sure that even if I hit send and then I Type another message and then hit send and end. The message that was previously sent gets communicated."):
+- What its goblin's terminal took nothing of, since the goblin was paused or between sessions and its terminal was not there, waits with what follows it and is typed once the terminal is back, into the session a pause's resume brings.
+- What was typed into the terminal and not confirmed by its screen, or what the supervisor stopped in the middle of typing, is never typed again: it waits until the record the goblin's harness keeps of its conversation shows it taken, and is passed on as the goblin's then.
+- Only what that record has not shown taken ten minutes after it was typed reaches the CFO, saying when it was typed and to check with `cfo peek` whether it waits in the goblin's composer, and the page's next message goes.
+Until 2026-10-17 the first delivery the supervisor could not confirm, such as one to a goblin between sessions, was called uncertain and every later message on that page went to the CFO instead of the goblin, for good.
 An answer that does not end the review leaves the page watched until he ends it, so what he sends after it still reaches the goblin as a note on its page.
 The review ended with no answer, or a page that cannot be polled three times running, reaches the CFO as a `review` wake in the same way, and then every open item naming the page closes.
 What he sends on the page without ending the review that answers nothing, with nothing more within two seconds, is a revision: the goblin gets the revision in its own terminal with how to send its next version, the CFO is told, the item waits on the next version (`revising_since`) and leaves Waiting on you, and the next poll answers him in the page's conversation panel: Revision received, the goblin (or the CFO, for its own page) makes the next version, which replaces this page.
@@ -1650,6 +1655,7 @@ The refusal names that item and its reporter and says his answer on that page re
 A reporter's newer item for its own page is still allowed, as a wait's next version of its page is.
 An item whose page the supervisor watches is answered on that page: it finishes the moment the Overlord sends or ends the review there, a goblin's item and the CFO's alike, and History keeps what he wrote, as You wrote: after who has it; or he closes it with Clear.
 No Scrawl card has a box for words, watched or not.
+No card opens an ended page: `cfo review` refuses a page whose review session has ended, whether he or an agent ended it, by its link or by its HTML file, recording nothing, with a line naming `--reopen`, which opens it again with lavish-axi's own `--reopen` only when he asked for another look, as a new item under a new `--id`, since publishing an item that has closed again is refused rather than reported published with no card shown; and a card whose page ends while it is open closes itself, as Closed, since the supervisor closes every open item of a page whose review ended (the Overlord, 2026-10-17, who opened a card the CFO had just published and got Scrawl's "Session ended. Return to your agent to continue.").
 A page's card shows the page's own words as its body, the page and one Open review button instead of choices, since he answers on the page, and no line that explains how: a closed review window (`window_closed_at`) and a revision (`revising_since`) change nothing on it, since its one button opens the page again.
 A goblin's question is never a page's card, whatever page its goblin has open: the question is the CFO's to answer, as every goblin's question is, and a goblin's newer question supersedes its older pending one, so one card shows.
 A page and a question close apart: his answer on the page or his Clear of its card closes only that page's items, leaving the goblin's question pending and its notify unanswered, and an answer to the question closes the question and only the waits its goblin declared to follow it (`cfo notify --follows`), never the page.
@@ -2231,6 +2237,7 @@ npm run typecheck
 npm run lint
 npm test
 npx playwright install chromium --only-shell
+npx playwright install webkit
 npm run test:browser
 npm run build
 cd ..
@@ -2242,6 +2249,7 @@ Vite generates `internal/boardweb/dist/board`, which git ignores; do not edit or
 See [Development](../README.md#development) for the requirements before installing a source build.
 `npm run test:browser` first builds the board and every page under `frontend/tests/fixtures`, bundled as the shipped board is, into a folder of that run's own under the system's temporary folder, and the browser tests read those files, answering each request themselves.
 No web server runs behind them: the pages are given the origin `http://127.0.0.1:1`, this machine as the board is really served, on a port the browser refuses to connect to, so no test waits on a port or opens a connection the machine can refuse, and a request a test does not answer itself fails at once.
+`tests/iphone-terminal.spec.ts` runs in WebKit, the engine of every browser on an iPhone, at an iPhone's size and under the private board's https address, since WebKit refuses port 1 even to a page a test answers; it takes the idle callback away itself, counts the WebGL contexts the page asks for, and fails on any error the page throws, so an API Safari lacks that the terminal's path reaches, and that Playwright's WebKit lacks too, shows there before it blanks the Overlord's phone.
 Outside CI every browser test waits, before it starts, while less than 5 GB of memory is free, and fails saying so after a minute: Windows takes about half a minute to release a test's browser process after the test ends, each still holding about 150 MB, so a fast run holds gigabytes on a machine the fleet shares; on a machine short of memory, run one spec at a time.
 One unit test, `src/dev-server.test.ts`, starts the dev server on a port the machine picks and loads the board's page and entry module from it, so development mode stays tested.
 The board's HTML template and the placeholder page are pinned to LF in `.gitattributes`: Vite preserves the template's newlines, so a build on Windows embeds the same bytes as one anywhere else.

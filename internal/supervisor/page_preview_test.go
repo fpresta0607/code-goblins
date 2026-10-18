@@ -97,12 +97,12 @@ func TestAPagePreviewIsRefusedWithoutAPageOrAReviewServerThatAnswers(t *testing.
 
 func TestAPageExportIsAskedOnlyOfTheReviewServerItsLinkNames(t *testing.T) {
 	for link, want := range map[string]string{
-		"http://127.0.0.1:4387/session/f2ae435ad55a056c":                 "http://127.0.0.1:4387/api/f2ae435ad55a056c/export",
-		"https://sermon.tailcc4238.ts.net:4388/session/8f05d03ec7af3ec6": "https://sermon.tailcc4238.ts.net:4388/api/8f05d03ec7af3ec6/export",
-		"http://127.0.0.1:4387/artifact/f2ae435ad55a056c":                "",
-		"http://127.0.0.1:4387/session/../api/sessions":                  "",
-		"file:///C:/pages/page.html":                                     "",
-		"http://someone@127.0.0.1:4387/session/f2ae435ad55a056c":         "",
+		"http://127.0.0.1:4387/session/f2ae435ad55a056c":          "http://127.0.0.1:4387/api/f2ae435ad55a056c/export",
+		"https://pc.example.ts.net:4388/session/8f05d03ec7af3ec6": "https://pc.example.ts.net:4388/api/8f05d03ec7af3ec6/export",
+		"http://127.0.0.1:4387/artifact/f2ae435ad55a056c":         "",
+		"http://127.0.0.1:4387/session/../api/sessions":           "",
+		"file:///C:/pages/page.html":                              "",
+		"http://someone@127.0.0.1:4387/session/f2ae435ad55a056c":  "",
 	} {
 		got, err := pageExportURL(link)
 		if want == "" && err == nil || want != "" && (err != nil || got != want) {

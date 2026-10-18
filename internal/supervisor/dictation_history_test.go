@@ -131,7 +131,7 @@ func TestRecentDictationsAreReadAndKeptOnlyByTheBoardsOwnPageOnThisMachine(t *te
 	// A board reached by another name, as one shared over a tailnet is,
 	// reads none of them.
 	store, _ := testStore(t)
-	shared := NewHTTP(&Service{Store: store, Instance: "test-instance"}, "goblins.tailnet.ts.net:443", nil)
+	shared := NewHTTP(&Service{Store: store, Instance: "test-instance"}, "goblins.example.ts.net:443", nil)
 	if response := recentDictations(shared, "", nil); response.Code != http.StatusForbidden {
 		t.Fatalf("a shared board answered %d %s", response.Code, response.Body)
 	}

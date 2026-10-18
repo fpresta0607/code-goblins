@@ -85,7 +85,7 @@ test("routine updates and what was already there alert nothing", () => {
 test("a goblin waiting on the Overlord says so once, and a review item asks for review", () => {
   // The supervisor titles a wait as the Command Center's card heads it, with
   // the page it names, so the alert says what the goblin waits for, once.
-  const page = "http://sermon.tail.ts.net:4387/session/0f5b";
+  const page = "http://pc.example.ts.net:4387/session/0f5b";
   const waiting = { ...review("waiting-a-3"), title: "Waiting on you: Sign in to GitHub (page " + page + ")", lavish: page };
   const [wait, plan] = boardAlerts(snapshot({}), snapshot({ reviews: [waiting, review("plan")] }));
   assert.equal(wait.text, "Goblin a is waiting on you: Sign in to GitHub");

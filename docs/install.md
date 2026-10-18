@@ -26,7 +26,8 @@ When something stops the install, it says in one sentence what happened and what
 Closing the setup ends the install, and running it again finishes it.
 The install asks nothing: the app's first-run page starts the CFO and records [your projects folder](#your-projects-folder).
 
-The setup draws at your display's own scale, so its text is sharp at 100, 150 or 200 percent.
+The setup draws at your display's own scale, so its text is sharp at 100, 125, 150 or 200 percent.
+Every page fits its window at each of those scales, with Cancel and Install at the bottom and nothing to scroll.
 
 ### Which home it installs
 
