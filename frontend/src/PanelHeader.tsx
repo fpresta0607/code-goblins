@@ -30,7 +30,11 @@ import { TaskAdjustment } from "./task-adjustment";
 // Details; a failure links to the task's log. The name and the task take the
 // room first, the name on one line and the task on at most two, and the
 // buttons stay beside them only while all fit on one row, else they take a
-// row of their own under them. The CFO drawn without a task has
+// row of their own under them. A goblin's Terminal view heads as the CFO's
+// does, with its picture, its name and title, its task id and one status
+// line, and no description and no buttons, which its Task view holds (the
+// Overlord, 2026-10-17: "If they exist on the task panel, we don't need them
+// in the terminal header"). The CFO drawn without a task has
 // no worktree to open; its header carries Restart right below its name on
 // its Task view, the AFK toggle beside its status, with Update before it
 // while an update of the CFO's harness waits, and under them what a press of
@@ -48,7 +52,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
-  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? taskName(task) : "";
+  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? compact ? task.id : taskName(task) : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
   const helped = owner && task.parent ? snapshot.tasks.find((other) => other.id === task.parent) : undefined;
@@ -101,7 +105,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       </div>
       {/* A finished task's checks and deploy are in its panel alone, so its
           links show there too; only a live one opens its folder. */}
-      {owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">
+      {!compact && owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">
         {!!task.generation && <>
           <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
           <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>

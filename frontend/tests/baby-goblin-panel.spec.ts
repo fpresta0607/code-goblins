@@ -102,7 +102,8 @@ test("clicking a helper goblin opens that helper's own panel", async ({ page }) 
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await baby(page, "Pip - Rail Fitter").click();
   await expect(title(page)).toHaveText("Pip - Rail Fitter");
-  await expect(page.locator(".panel-goblin-task")).toHaveText("Fit the phone rails");
+  // Its Terminal view names its task by its id.
+  await expect(page.locator(".panel-goblin-task")).toHaveText("helper-one");
 });
 
 test("clicking two other baby goblins shows each one's own output under its name and task, never its goblin's terminal", async ({ page }) => {
