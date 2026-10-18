@@ -149,9 +149,14 @@ func openSetupPage(t *testing.T) setupPage {
 		if _, err := tree.TerminateAndWait(ctx); err != nil {
 			t.Error(err)
 		}
-		if preferences, err := os.ReadFile(filepath.Join(profile, "Default", "Preferences")); err != nil {
+		var preferences struct {
+			AccountInfo []json.RawMessage `json:"account_info"`
+		}
+		if source, err := os.ReadFile(filepath.Join(profile, "Default", "Preferences")); err != nil {
 			t.Error(err)
-		} else if strings.Contains(string(preferences), `"account_info":[{`) {
+		} else if err := json.Unmarshal(source, &preferences); err != nil {
+			t.Errorf("the headless Chrome's profile preferences could not be read: %v", err)
+		} else if len(preferences.AccountInfo) > 0 {
 			t.Error("the headless Chrome's profile was signed in to an account")
 		}
 		if err := fsx.RemoveAllWithin(profile, time.Minute); err != nil {
