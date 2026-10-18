@@ -1,4 +1,5 @@
 import type { CIDuration, PauseCondition, Task, Wait } from "./types.ts";
+import { cardDate } from "./cards.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
 // the supervisor write for the fleet, with state words, semicolon chains,
@@ -130,10 +131,14 @@ export function teardownSentence(labels: string[]): string {
 // A title read inside a sentence starts with a small article.
 const inSentence = (title: string) => title.replace(/^(?:A|An|The)\b/, (article) => article.toLowerCase());
 
+// A resume or start time reads as a card's date does.
 function when(at: string): string {
   const date = new Date(at);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "its set time";
+  return Number.isFinite(date.getTime()) ? cardDate(date, Date.now()) : "its set time";
 }
+
+// A resume time inside a sentence: at a time today, on a weekday or a date.
+const atOrOn = (at: string) => (new Date(at).toDateString() === new Date().toDateString() ? "at " : "on ") + when(at);
 
 // pausedWithParent is the parent a helper was paused with, which resumes the
 // helper once it runs again, or nothing for any other task.
@@ -151,13 +156,13 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(goblinName(parent)) + " runs again.";
   switch (pause?.reason) {
     case "memory": return byItself + "once 5 GB of memory is free.";
-    case "allowance": return byItself + "when the allowance resets, " + when(pause.until) + ".";
+    case "allowance": return byItself + "when the allowance resets " + atOrOn(pause.until) + ".";
     case "question": return byItself + "when you answer its question.";
     case "ci": return byItself + "when its CI run finishes.";
     case "deploy": return byItself + "when its deploy finishes.";
     case "dependency": {
       if (kind === "pr") return byItself + "when " + plainText(target).replace(/\.$/, "") + " merges.";
-      if (kind === "date") return byItself + "on " + when(target) + ".";
+      if (kind === "date") return byItself + atOrOn(target) + ".";
       const awaited = tasks.find((candidate) => candidate.id === target);
       return byItself + "when " + (awaited ? inSentence(goblinName(awaited)) : "the task it waits on") + " finishes.";
     }

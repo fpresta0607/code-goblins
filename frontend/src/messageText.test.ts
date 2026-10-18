@@ -45,6 +45,27 @@ test("a line of plain text links its addresses and nothing else", () => {
   assert.equal(shown, 'Answered: **done** at <a class="message-link" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer">https://github.com/example/board/pull/412</a>');
 });
 
+test("phone prose, backticks and History validate Scrawl links while local rendering keeps them local", () => {
+  const review = "http://127.0.0.1:4387/session/existing?mode=notes#answer";
+  const before = Object.getOwnPropertyDescriptor(globalThis, "location");
+  try {
+    for (const [protocol, hostname, href] of [
+      ["http:", "127.0.0.1", review],
+      ["https:", "pc.example.ts.net", "/api/remote/scrawl-link?url=" + encodeURIComponent(review)],
+    ]) {
+      Object.defineProperty(globalThis, "location", { configurable: true, value: { protocol, hostname } });
+      const link = `<a class="message-link" href="${href}" target="_blank" rel="noreferrer">${review}</a>`;
+      assert.equal(html("Review " + review), `<p>Review ${link}</p>`);
+      assert.equal(html("Review `" + review + "`"), `<p>Review ${link}</p>`);
+      assert.equal(renderToStaticMarkup(linkedText("Answered on " + review)), "Answered on " + link);
+      assert.equal(html("https://example.org/session/review"), '<p><a class="message-link" href="https://example.org/session/review" target="_blank" rel="noreferrer">https://example.org/session/review</a></p>');
+    }
+  } finally {
+    if (before) Object.defineProperty(globalThis, "location", before);
+    else Reflect.deleteProperty(globalThis, "location");
+  }
+});
+
 test("a blank line starts a new paragraph and a single line break is kept inside one", () => {
   assert.equal(html("Which layout?\n\nThe grid keeps cards aligned.\nThe list reads faster."), "<p>Which layout?</p><p>The grid keeps cards aligned.\nThe list reads faster.</p>");
   assert.equal(html("\n\n  Only text  \n\n\n"), "<p>Only text</p>");

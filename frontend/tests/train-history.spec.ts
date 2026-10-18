@@ -326,6 +326,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
         await expect(card(page, name).locator(".hosted-checks")).toHaveCount(0);
         await card(page, name).locator(".task-card").click();
+        await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
         await expect(page.locator(".goblin-panel .panel-header .hosted-checks")).toHaveAttribute("aria-label", /^Landed: /);
       }
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model"]);
@@ -353,6 +354,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       const abe = column(page, "In progress").locator(".task-card-shell").filter({ hasText: "Abe - Screen Painter" });
       await expect(abe.locator(".hosted-checks")).toHaveCount(0);
       await abe.locator(".task-card").click();
+      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       const chip = page.locator(".goblin-panel .panel-header a.hosted-checks");
       await expect(chip).toHaveAttribute("aria-label", /^Merging main to fix a conflict: /);
       await expect(chip).toHaveAttribute("href", TRAIN_PR);

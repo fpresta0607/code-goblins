@@ -384,8 +384,8 @@ test.describe("in en-US at UTC", () => {
     // Act
     await murray.screenshot({ path: testInfo.outputPath("murray.png") });
     const row = await murray.evaluate((shell) => {
-      const parts = [...shell.querySelectorAll(":scope > .card-clock, :scope > .card-icons > *")];
-      const kinds = parts.map((part) => ["card-clock", "card-ticket", "card-pr", "card-harness"].find((kind) => part.classList.contains(kind)) || part.className);
+      const parts = [...shell.querySelectorAll(":scope > .card-repo, :scope > .card-clock, :scope > .card-icons > *")];
+      const kinds = parts.map((part) => ["card-repo", "card-clock", "card-ticket", "card-pr", "card-harness"].find((kind) => part.classList.contains(kind)) || part.className);
       const boxes = parts.map((part) => part.getBoundingClientRect()), overlaps: string[] = [];
       for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
         const a = boxes[i], b = boxes[j];
@@ -395,9 +395,12 @@ test.describe("in en-US at UTC", () => {
     });
 
     // Assert
-    await expect(murray.locator(".card-clock time")).toHaveText("9/28");
+    // The Overlord, 2026-10-17: "why do resume dates need to be so long and
+    // typed out". Two days back reads as its weekday, the whole date in its tip.
+    await expect(murray.locator(".card-clock time")).toHaveText("Mon");
+    await expect(murray.locator(".card-clock time")).toHaveAttribute("data-tip", "Mon, Sep 28, 2026, 7:22 PM");
     await expect(finished.locator(".card-clock time")).toHaveText("9:15 AM");
-    expect(row.kinds).toEqual(["card-clock", "card-ticket", "card-pr", "card-harness"]);
+    expect(row.kinds).toEqual(["card-repo", "card-clock", "card-ticket", "card-pr", "card-harness"]);
     expect(row.overlaps).toEqual([]);
   });
 });

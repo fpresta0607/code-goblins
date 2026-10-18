@@ -100,7 +100,7 @@ func typeWhileBursts(t *testing.T, spells string, gap, span time.Duration) []sai
 }
 
 // awaitUnread returns what the console next says of unread key presses,
-// failing the test when it says nothing within ten seconds.
+// failing the test when it says nothing within a minute.
 func awaitUnread(t *testing.T, said <-chan bool, want bool) {
 	t.Helper()
 	select {
@@ -108,8 +108,8 @@ func awaitUnread(t *testing.T, said <-chan bool, want bool) {
 		if isUnread != want {
 			t.Fatalf("the console said unread=%t, want %t", isUnread, want)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatalf("the console did not say unread=%t within 10s", want)
+	case <-time.After(time.Minute):
+		t.Fatalf("the console did not say unread=%t within a minute", want)
 	}
 }
 
@@ -152,7 +152,7 @@ func TestKeysAProgramReadsAtOnceAreNeverSaidUnread(t *testing.T) {
 	select {
 	case isUnread := <-said:
 		t.Fatalf("the console said unread=%t of keys its program read at once", isUnread)
-	case <-time.After(2 * unreadAfter):
+	case <-time.After(2 * unreadAfter): // stall-accepted: nothing is meant to be said, so a stall only makes the wait longer.
 	}
 }
 
@@ -176,7 +176,7 @@ func TestInputThatIsNoKeyPressIsNeverSaidUnread(t *testing.T) {
 	select {
 	case isUnread := <-said:
 		t.Fatalf("the console said unread=%t of a focus report and a resize", isUnread)
-	case <-time.After(3 * unreadAfter):
+	case <-time.After(3 * unreadAfter): // stall-accepted: nothing is meant to be said, so a stall only makes the wait longer.
 	}
 }
 
@@ -188,6 +188,7 @@ func TestInputThatIsNoKeyPressIsNeverSaidUnread(t *testing.T) {
 // key of the run: it said keys sat unread of keys none of which had waited
 // 300 ms. Its wait is the oldest unread key's own.
 func TestKeysABurstyProgramReadsWithinItsSpellsAreNeverSaidUnread(t *testing.T) {
+	// stall-accepted: the span is how long the test types and is meant to run out; a stall while it types can still hold a key past unreadAfter, which no bound in the test can prevent.
 	said := typeWhileBursts(t, "250", 50*time.Millisecond, 3*time.Second)
 
 	if len(said) > 0 {
@@ -202,6 +203,7 @@ func TestKeysABurstyProgramReadsWithinItsSpellsAreNeverSaidUnread(t *testing.T) 
 // waited unreadAfter, so it stays away at least that long.
 func TestKeysThatWaitAreSaidUnreadSteadily(t *testing.T) {
 	// Some spells keep keys past unreadAfter and most just short of it.
+	// stall-accepted: the span is how long the test types and is meant to run out; a stall while it types can still hold a key past unreadAfter, which no bound in the test can prevent.
 	said := typeWhileBursts(t, "1300,450,450,450", 180*time.Millisecond, 8*time.Second)
 
 	const steady = time.Second
@@ -303,6 +305,7 @@ func TestTheWaitTheWakerReadsIsTheOldestUnreadKeysOwn(t *testing.T) {
 
 			// Act
 			for _, look := range testCase.looks {
+				// stall-accepted: a made-up time each look is said to be taken at, which no wait compares with the clock.
 				if line := keys.look(start.Add(look.at), look.unread, look.isPart); line != "" {
 					got[look.at] = line
 				}

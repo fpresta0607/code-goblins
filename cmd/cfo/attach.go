@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -436,5 +437,5 @@ func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRo
 	for _, pin := range pinned {
 		env = append(env, pin[0]+"="+pin[1])
 	}
-	return env
+	return remoteaccess.LocalScrawlEnvironment(env)
 }

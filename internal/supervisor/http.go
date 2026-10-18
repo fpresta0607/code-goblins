@@ -232,6 +232,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.reportBoardError(w, r)
 	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
 		h.setStartAtLogin(w, r)
+	case r.URL.Path == "/api/remote/scrawl-link" && r.Method == "GET":
+		h.remoteScrawlLink(w, r)
+	case r.URL.Path == "/api/remote" && (r.Method == "GET" || r.Method == "POST"):
+		h.remoteAccess(w, r)
 	case r.URL.Path == "/api/dev-drive" && r.Method == "POST":
 		h.setDevDrive(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":

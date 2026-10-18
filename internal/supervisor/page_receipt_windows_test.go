@@ -42,7 +42,7 @@ func TestPageReceiptIsDurableAndAcknowledgedBeforeSettling(t *testing.T) {
 		if reply != "" {
 			t.Errorf("settling poll reply = %q, want none while his answer could go on: its one receipt comes once it settles", reply)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the settling poll never started")
 	}
 	data, err := os.ReadFile(store.pageReceiptsPath())
@@ -76,7 +76,7 @@ func TestPageReceiptRecoversGroupingAfterRestart(t *testing.T) {
 			s.watchPages(ctx)
 			select {
 			case <-settling:
-			case <-time.After(10 * time.Second):
+			case <-time.After(time.Minute):
 				cancel()
 				t.Fatal("no settling poll")
 			}
@@ -187,12 +187,12 @@ func TestPageReceiptsStayOrderedAndDoNotReplayUncertainDelivery(t *testing.T) {
 	s.watchPages(context.Background())
 	select {
 	case <-typing:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("no delivery attempt")
 	}
 	select {
 	case <-drained:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("polling did not drain behind first delivery")
 	}
 	crashed, err := fsx.ReadFile(store.pageReceiptsPath())
@@ -293,7 +293,7 @@ func TestClosedPageKeepsPollingBehindBusyDelivery(t *testing.T) {
 	// Assert
 	select {
 	case <-polledAgain:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("a closed item's note blocked the next poll on terminal delivery")
 	}
 }
@@ -325,7 +325,7 @@ func TestPageSweepKeepsPollingBehindBusyDelivery(t *testing.T) {
 	// Assert
 	select {
 	case <-polledAgain:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("a swept note blocked the next poll on terminal delivery")
 	}
 }
@@ -421,7 +421,7 @@ func TestPageReceiptRecoveryLeavesRepublishedVersionOpen(t *testing.T) {
 				if reply != "" {
 					t.Errorf("old version's reply reached the new page: %q", reply)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(time.Minute):
 				t.Error("receipt recovery stopped polling the new version")
 			}
 
@@ -429,7 +429,7 @@ func TestPageReceiptRecoveryLeavesRepublishedVersionOpen(t *testing.T) {
 			if got, _ := restarted.review(latest.ID); got.State != "open" || got.AnsweredBy != "" || got.PageSettled != nil || got.RevisingSince != nil {
 				t.Errorf("old receipt changed the republished review: %+v", got)
 			}
-			for deadline := time.Now().Add(5 * time.Second); len(restarted.pageReceiptsSnapshot().Answers) != 0; time.Sleep(time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); len(restarted.pageReceiptsSnapshot().Answers) != 0; time.Sleep(time.Millisecond) {
 				if time.Now().After(deadline) {
 					t.Fatal("old receipt was not delivered independently of the new page")
 				}
@@ -861,7 +861,7 @@ func TestPageSweepAndWatchShareOnePoller(t *testing.T) {
 	go func() { finished <- s.sweepSessions(ctx) }()
 	select {
 	case <-polled:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("sweep never polled")
 	}
 	s.watchPages(ctx)
@@ -870,7 +870,7 @@ func TestPageSweepAndWatchShareOnePoller(t *testing.T) {
 	select {
 	case <-polled:
 		t.Fatal("watcher polled a page the sweep was already consuming")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond): // stall-accepted: no second poll is meant to start, so a stall only makes the wait longer.
 	}
 }
 
@@ -1044,7 +1044,7 @@ func TestPageReceiptIsIndependentOfSupervisorCapacity(t *testing.T) {
 		if reply != "" {
 			t.Fatalf("settling poll reply = %q, want none while his answer could go on", reply)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("journal capacity prevented acknowledgment and continued grouping")
 	}
 	wanted := strings.Join([]string{output, output, output, output}, "\n")

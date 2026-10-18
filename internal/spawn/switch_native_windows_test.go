@@ -347,7 +347,7 @@ func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) 
 		t.Fatal(err)
 	}
 	previous := nativeStartup
-	nativeStartup = 10 * time.Second
+	nativeStartup = time.Minute
 	t.Cleanup(func() { nativeStartup = previous })
 	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
 		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },

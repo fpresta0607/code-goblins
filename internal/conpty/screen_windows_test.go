@@ -65,7 +65,7 @@ func TestAnAnswerTooLateForOneReadNeverAnswersTheNext(t *testing.T) {
 	fmt.Fprintln(answers, `screen 1 {"rows":["too late"]}`)
 	read := make(chan []string, 1)
 	go func() {
-		rows, err := w.screen(10 * time.Second)
+		rows, err := w.screen(time.Minute)
 		if err != nil {
 			t.Errorf("the second read: %v", err)
 		}
@@ -98,7 +98,7 @@ func TestAReadWaitingWhenTheWakerEndsFailsAtOnce(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "has ended") {
 			t.Errorf("the read = %v, want an error saying the waker has ended", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("the read still waits after the waker ended")
 	}
 	if _, err := w.screen(time.Minute); err == nil || !strings.Contains(err.Error(), "has ended") {
@@ -111,7 +111,7 @@ func TestAScreenTheWakerCouldNotReadIsAnError(t *testing.T) {
 	w, asks, answers := standInWaker(t)
 	read := make(chan error, 1)
 	go func() {
-		rows, err := w.screen(10 * time.Second)
+		rows, err := w.screen(time.Minute)
 		if rows != nil {
 			err = fmt.Errorf("rows %q with %w", rows, err)
 		}
@@ -136,7 +136,7 @@ func TestTheWakerAnswersReadsThatAskAtOnce(t *testing.T) {
 
 	for range cap(reads) {
 		go func() {
-			rows, err := console.Screen(10 * time.Second)
+			rows, err := console.Screen(time.Minute)
 			if err == nil && (len(rows) != 25 || len(rows[0]) != 80 || strings.TrimRight(rows[2], " ") != "got hello goblin") {
 				err = fmt.Errorf("read %d rows: %q", len(rows), rows)
 			}
@@ -159,7 +159,7 @@ func TestThisBuildAnswersTheScreenReadOfAnOlderHost(t *testing.T) {
 	console, s := startChild(t, Spec{Cols: 80, Rows: 25})
 	typeLine(t, console, "hello goblin")
 	s.waitFor(t, "got hello goblin")
-	want, err := console.Screen(10 * time.Second)
+	want, err := console.Screen(time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

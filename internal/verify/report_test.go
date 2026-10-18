@@ -181,7 +181,7 @@ func TestFinishKeepsTheReportsWrittenLastWhenALaterRunFinishes(t *testing.T) {
 	var others []string
 	for minute := range keptReports - 1 {
 		path := run(t, "code-goblins", started.Add(time.Duration(minute)*time.Minute), "0123456789abcdef")
-		written := time.Now().Add(time.Duration(minute)*time.Minute - time.Hour)
+		written := time.Now().Add(time.Duration(minute)*time.Minute - time.Hour) // stall-accepted: a report's written time set most of an hour in the past, which no wait compares with the clock.
 		if err := os.Chtimes(path, written, written); err != nil {
 			t.Fatal(err)
 		}

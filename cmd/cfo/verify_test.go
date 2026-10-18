@@ -267,7 +267,7 @@ func TestVerifyWaitsItsTurnBehindAnotherHeavyRun(t *testing.T) {
 
 	// Act
 	go func() { exited <- runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime) }()
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "waiting for its turn") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(stderr.String(), "waiting for its turn") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 	}
 	said := stderr.String()
 	whileWaiting := savedResults(t, saved)
@@ -277,7 +277,7 @@ func TestVerifyWaitsItsTurnBehindAnotherHeavyRun(t *testing.T) {
 	var exit int
 	select {
 	case exit = <-exited:
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the tier did not run once the turn was free")
 	}
 
@@ -674,7 +674,7 @@ func TestVerifyTakesAPassKeptWhileItWaited(t *testing.T) {
 
 			// Act
 			go func() { exited <- runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime) }()
-			for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "waiting for its turn") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); !strings.Contains(stderr.String(), "waiting for its turn") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			}
 			if row.change != nil {
 				h, err := runtime.resolveHome()

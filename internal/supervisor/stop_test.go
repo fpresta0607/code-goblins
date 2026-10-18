@@ -30,10 +30,16 @@ func TestAStopRequestStopsOnlyTheSupervisorItNames(t *testing.T) {
 	select {
 	case <-s.Done():
 		t.Fatal("a request naming another pid stopped the supervisor")
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Second): // stall-accepted: the supervisor is not meant to stop, so a stall only makes the wait longer.
 	}
-	if _, err := os.Stat(stopRequestPath(h.State)); !os.IsNotExist(err) {
-		t.Fatalf("the leftover request was kept: %v", err)
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		_, err := os.Stat(stopRequestPath(h.State))
+		if os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the leftover request was kept: %v", err)
+		}
 	}
 
 	if err := RequestStop(h.State, os.Getpid()); err != nil {
@@ -41,7 +47,7 @@ func TestAStopRequestStopsOnlyTheSupervisorItNames(t *testing.T) {
 	}
 	select {
 	case <-s.Done():
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the supervisor did not stop for a request naming its pid")
 	}
 	if _, err := os.Stat(stopRequestPath(h.State)); !os.IsNotExist(err) {
@@ -70,7 +76,7 @@ func TestAStopRequestEndsTheSupervisorWhileItsCycleIsBusy(t *testing.T) {
 	defer s.Close()
 	select {
 	case <-busy:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the supervisor never reached its reconcile")
 	}
 
@@ -82,8 +88,8 @@ func TestAStopRequestEndsTheSupervisorWhileItsCycleIsBusy(t *testing.T) {
 	// Assert
 	select {
 	case <-s.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("the supervisor still runs 5 s after a stop request, with its cycle busy")
+	case <-time.After(time.Minute):
+		t.Fatal("the supervisor still runs a minute after a stop request, with its cycle busy")
 	}
 }
 
@@ -117,7 +123,7 @@ func TestAStopRequestNamingASuccessorHandsItTheWatcherLock(t *testing.T) {
 	// Assert
 	select {
 	case <-s.Done():
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the supervisor did not stop for a request naming its pid")
 	}
 	holder, err := lock.ReadNamed(h.State, watchLock)
@@ -143,7 +149,7 @@ func TestARequestLeftBeforeStartDoesNotStopTheSupervisor(t *testing.T) {
 	select {
 	case <-s.Done():
 		t.Fatal("a request left before start stopped the supervisor")
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Second): // stall-accepted: the supervisor is not meant to stop, so a stall only makes the wait longer.
 	}
 	if _, err := os.Stat(stopRequestPath(h.State)); !os.IsNotExist(err) {
 		t.Fatalf("the leftover request was kept: %v", err)

@@ -297,6 +297,7 @@ func TestEveryWakeReachesTheCFOOnceWhileADozenSessionsFireTheirHooks(t *testing.
 				// their pace, since one that waits out a whole
 				// acknowledgement on a machine this loaded can pass its
 				// five seconds.
+				// stall-accepted: running out only files the next notify, which the next drain takes, so a stall cannot fail the test.
 				case <-time.After(max(100*time.Millisecond, 3*time.Since(started))):
 				}
 			}

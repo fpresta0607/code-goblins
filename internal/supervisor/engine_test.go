@@ -263,7 +263,7 @@ func TestDeferredEngineSwitchWaitsForTheTurnAndGateThenSwitchesOnce(t *testing.T
 	if err := s.applyEngineChoices(context.Background(), now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(spawner.recorded()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -374,7 +374,7 @@ func TestCompletedSnapshotKeepsRecordedEngineThroughStoppedLifecycle(t *testing.
 
 func waitEngineChange(t *testing.T, service *Service, id string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		service.starts.Lock()
 		isChanging := service.changing[id] != ""
@@ -418,6 +418,7 @@ func TestDeferredEngineContinuesOtherTasksAndRequiresFreshIdleEvidenceAfterError
 		t.Fatal(err)
 	}
 	gate.err = errors.New("gate cannot be read")
+	// stall-accepted: a time handed to the engine pass, which compares it only with the times it was handed before.
 	if err := service.applyEngineChoices(context.Background(), now.Add(time.Second)); err != nil {
 		t.Fatalf("gate error reached the board: %v", err)
 	}
@@ -425,9 +426,11 @@ func TestDeferredEngineContinuesOtherTasksAndRequiresFreshIdleEvidenceAfterError
 		t.Fatalf("gate error card = %q, pending %+v", card.ActionError, card.PendingEngine)
 	}
 	gate.err = nil
+	// stall-accepted: a time handed to the engine pass, which compares it only with the times it was handed before.
 	if err := service.applyEngineChoices(context.Background(), now.Add(2*time.Second)); err != nil || len(spawner.recorded()) != 0 {
 		t.Fatalf("stale idle evidence switched = %v, %+v", err, spawner.recorded())
 	}
+	// stall-accepted: a time handed to the engine pass, which compares it only with the times it was handed before.
 	if err := service.applyEngineChoices(context.Background(), now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -482,6 +485,7 @@ func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOn
 	now := time.Now()
 
 	for _, elapsed := range []time.Duration{0, time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second} {
+		// stall-accepted: each is a time handed to the engine pass, which compares it only with the times it was handed before.
 		if err := service.applyEngineChoices(context.Background(), now.Add(elapsed)); err != nil {
 			t.Fatalf("engine choice failure reached the board: %v", err)
 		}
@@ -556,6 +560,7 @@ func TestDeferredEngineIdleReadFailureClearsAfterRecoveryOrCancel(t *testing.T) 
 				}
 			} else {
 				readErr = nil
+				// stall-accepted: a time handed to the engine pass, which compares it only with the times it was handed before.
 				if err := service.applyEngineChoices(context.Background(), now.Add(time.Second)); err != nil {
 					t.Fatal(err)
 				}

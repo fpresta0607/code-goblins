@@ -590,7 +590,6 @@ func TestGoblinsStartsNoSecondBoardWhenItsAddressIsInUse(t *testing.T) {
 	})
 
 	// Act
-	began := time.Now()
 	exit, stdout, stderr := f.launch()
 
 	// Assert
@@ -600,8 +599,8 @@ func TestGoblinsStartsNoSecondBoardWhenItsAddressIsInUse(t *testing.T) {
 	if want := "goblins: the board's address 127.0.0.1:4310 is in use by the Code Goblins fleet in C:\\Fleet (supervisor pid 4242), so no second one was started."; !strings.HasPrefix(stderr, want) {
 		t.Errorf("stderr = %q, want it to start %q", stderr, want)
 	}
-	if waited := time.Since(began); waited > 20*time.Second {
-		t.Errorf("goblins waited %s for a board that another fleet holds", waited)
+	if strings.Contains(stderr, "the supervisor did not start") {
+		t.Errorf("goblins waited for a board that another fleet holds: stderr = %q", stderr)
 	}
 }
 

@@ -34,7 +34,7 @@ func TestNativeCFOLeavesAnUnreadyComposerUntouched(t *testing.T) {
 			connection := &CFOConnection{State: stateDir, ReadScreen: func(host.Record) ([]string, error) {
 				return scenario.screen, scenario.readErr
 			}}
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -323,11 +323,16 @@ func TestNativeCFOProvesAcceptanceAcrossTheDialogAndPasteBoundary(t *testing.T) 
 			// Arrange
 			stateDir := t.TempDir()
 			terminal := nativeCFOComposer(t, stateDir, mode)
-			// A dialog's first key waits two seconds for it to settle, and a
-			// stuck offer is left only when this context ends, so the budget
-			// leaves a loaded machine time to send its one Escape.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
+			if mode == "daybreak-stuck" {
+				// A dialog's first key waits two seconds for it to settle, and a
+				// stuck offer is left only when this context ends, so the budget
+				// leaves a loaded machine time to send its one Escape.
+				// stall-accepted: the test means this context to run out on the stuck offer.
+				ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+			}
 
 			// Act
 			result, err := (&CFOConnection{State: stateDir}).Send(ctx, registrationIdentity(t, stateDir), "Reply received")
@@ -359,7 +364,7 @@ func TestNativeCFOCannotCallAnAnswerSentWhileItRemainsInTheIdleComposer(t *testi
 	// Arrange
 	stateDir := t.TempDir()
 	terminal := nativeCFOComposer(t, stateDir, "ignored-enter")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act

@@ -1,0 +1,7 @@
+.remote-access-setting { display: grid; gap: 8px; min-width: 0; }
+.remote-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.remote-access-heading > button { flex: none; white-space: nowrap; }
+.remote-access-setting p { margin: 0; overflow-wrap: anywhere; }
+.remote-access-setting .copy-value { min-width: 0; max-width: 100%; }
+.remote-access-setting .copy-value code { white-space: normal; overflow-wrap: anywhere; }
+.remote-access-help { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }

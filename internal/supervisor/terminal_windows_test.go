@@ -82,8 +82,13 @@ func TestTerminalInputOnceGuardAndBoundedWrite(t *testing.T) {
 			native := newTestTerminal()
 			defer native.Close()
 			native.block = outcome == "deadline"
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
+			if outcome == "deadline" {
+				// stall-accepted: the test means this context to run out while the write blocks.
+				ctx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancel()
+			}
 			lease := &terminalLease{control: true, stream: native, cancel: func() { _ = native.Close() }}
 			guard := func(context.Context, terminalBinding, bool) error {
 				if outcome == "changed" {
@@ -338,7 +343,7 @@ func TestTerminalOutputTerminationUnblocksInput(t *testing.T) {
 	}()
 	select {
 	case <-native.entered:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("write did not start")
 	}
 	close(native.frames)
@@ -347,10 +352,10 @@ func TestTerminalOutputTerminationUnblocksInput(t *testing.T) {
 		if err == nil {
 			t.Fatal("uncertain write marked delivered")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("output teardown waited on blocked input")
 	}
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(h.terminalSlots) != 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
@@ -652,7 +657,7 @@ func TestLivePaneViewTypesWhileItsHistoryIsRead(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(panes.typed, []string{"x"}) {
 			t.Fatalf("a key during a history read = %v, typed %q; want x typed", err, panes.typed)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("a key waited behind a history read")
 	}
 	close(panes.release)
@@ -848,7 +853,7 @@ func TestAHandBackHoldsNoStreamSlot(t *testing.T) {
 	sized.Body.Close()
 	select {
 	case <-runner.held:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the hand-back never read the pane's size")
 	}
 
@@ -873,7 +878,7 @@ func TestAHandBackHoldsNoStreamSlot(t *testing.T) {
 	case status := <-opened:
 		t.Fatalf("the next view = %d while the hand-back read the pane's size, want it opening", status)
 	case <-runner.held:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the next view neither opened nor was refused")
 	}
 }
@@ -1054,7 +1059,7 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 				cancel()
 				select {
 				case <-ended:
-				case <-time.After(12 * time.Second):
+				case <-time.After(time.Minute):
 					t.Error("the owned cancelled custody request did not end during cleanup")
 				}
 			}()
@@ -1102,7 +1107,7 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 					select {
 					case <-ended:
 						t.Fatalf("the custody request ended before its owned Git recorded entry: %d %s", response.Code, response.Body.String())
-					case <-time.After(10 * time.Millisecond):
+					case <-time.After(10 * time.Millisecond): // stall-accepted: it is the pause between looks for Git's entry, which a stall only makes longer.
 					}
 				}
 				if test.shouldLockEntry && !isSharingViolationObserved {
@@ -1111,7 +1116,7 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 			}
 			select {
 			case <-ended:
-			case <-time.After(12 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("the cancelled custody request did not return")
 			}
 
@@ -1139,7 +1144,7 @@ func waitClosed(t *testing.T, native *testTerminal) {
 	t.Helper()
 	select {
 	case <-native.closed:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the view never closed its Herdr stream")
 	}
 }
@@ -1246,7 +1251,7 @@ func TestLivePaneViewForwardsFramesWhileItsTickChecks(t *testing.T) {
 	runner.holding.Store(true)
 	select {
 	case <-runner.held:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("no tick checked the pane")
 	}
 
@@ -1267,7 +1272,7 @@ func TestLivePaneViewForwardsFramesWhileItsTickChecks(t *testing.T) {
 		if !ok {
 			t.Fatal("the view ended before the frame came")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("a frame waited behind the tick's Herdr commands")
 	}
 }

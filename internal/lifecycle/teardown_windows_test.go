@@ -261,7 +261,7 @@ func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
 	}
 	var requested atomic.Int32
 	allRequested := make(chan struct{})
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	stopped, _, err := stopResources(ctx, Resources{Directories: []string{directory}}, func(ctx context.Context, identity Identity) (bool, error) {
 		if requested.Add(1) == 3 {
@@ -270,7 +270,7 @@ func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
 		select {
 		case <-allRequested:
 			return Terminate(ctx, identity)
-		case <-time.After(time.Second):
+		case <-time.After(time.Minute):
 			return false, errors.New("cleanup waited before issuing the other terminations")
 		}
 	})

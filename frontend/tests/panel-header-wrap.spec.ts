@@ -109,15 +109,17 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
           const report = await page.evaluate(headerReport);
           await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`panel-${view.toLowerCase()}-${pane}-${viewport.width}.png`) });
 
-          // Assert
-          expect(report.buttons).toEqual(BUTTONS);
+          // Assert: the Terminal view carries no buttons since 2026-10-17;
+          // they are the Task view's.
+          expect(report.buttons).toEqual(view === "Task" ? BUTTONS : []);
           expect(report.broken).toEqual([]);
           expect(report.nameLines).toBe(1);
           expect(report.titleLines).toBeLessThanOrEqual(2);
           expect(report.besideOrUnder).toBe(true);
           expect(report.underAt).toBe(0);
-          // The words take the header's width, less the portrait beside them.
-          expect(report.textWidth).toBeGreaterThan(report.headerWidth * .5);
+          // The task's words take the header's width, less the portrait
+          // beside them; the Terminal view names the task by its short id.
+          if (view === "Task") expect(report.textWidth).toBeGreaterThan(report.headerWidth * .5);
           expect(report.pageScroll).toBe(0);
         });
       }
@@ -132,6 +134,7 @@ test("a name and a title cut short show in full in their tips", async ({ page })
   const name = "Merge Maestro of the Connector Release Notes";
   const title = "What's new in PrecisionDocs for the connector changes, with the release notes for every connector shipped this week and the steps each one needs";
   await open(page, 360, { ...BERNIE, goblin_title: name, title });
+  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   const header = page.locator(".panel-header");
 
   // Act

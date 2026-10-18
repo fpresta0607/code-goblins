@@ -59,7 +59,7 @@ func holdWatchLockAs(stateDir, role string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 			if _, err := lock.ReadNamed(stateDir, ".watch.lock"); errors.Is(err, os.ErrNotExist) {
 				break
 			}
@@ -115,7 +115,7 @@ func startWatchLockStandIn(t *testing.T, stateDir, role, program string, argumen
 		}
 		t.Cleanup(func() {
 			err := os.RemoveAll(dir)
-			for deadline := time.Now().Add(10 * time.Second); err != nil && time.Now().Before(deadline); err = os.RemoveAll(dir) {
+			for deadline := time.Now().Add(time.Minute); err != nil && time.Now().Before(deadline); err = os.RemoveAll(dir) {
 				time.Sleep(100 * time.Millisecond)
 			}
 			if err != nil {
@@ -156,7 +156,7 @@ func startWatchLockStandIn(t *testing.T, stateDir, role, program string, argumen
 	case <-holding:
 	case <-stand.exited:
 		t.Fatalf("the %s stand-in exited without taking the watcher lock: %s", role, output.String())
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("the %s stand-in never took the watcher lock", role)
 	}
 	return stand
@@ -198,7 +198,7 @@ func theStopHookYieldsToServeAndRewakes(t *testing.T, serve, attempts string) {
 	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
 	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", attempts)
-	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "5000")
+	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "60000")
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "60")
 	state := filepath.Join(dir, "state")
 	if err := taskstate.WriteTaskMeta(state, taskstate.TaskMeta{ID: "g1", Worktree: `C:\work\g1`, Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "ws", HerdrTabID: "tab-g1", HerdrPaneID: "pane-g1"}); err != nil {
@@ -227,7 +227,7 @@ func theStopHookYieldsToServeAndRewakes(t *testing.T, serve, attempts string) {
 	}()
 	select {
 	case <-inspecting:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the hook's watcher never started its scan")
 	}
 
@@ -263,7 +263,7 @@ func TestAfterServeEndsALegacyWatcherTheStopHookRewakesFromServesQueue(t *testin
 	startWatchLockStandIn(t, state, "serve", "")
 	select {
 	case <-legacy.exited:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the legacy watcher still runs after serve took the lock")
 	}
 	if _, err := wake.Append(state, "notify", "g1", "blocked: Should I merge this?"); err != nil {

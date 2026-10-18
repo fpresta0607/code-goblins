@@ -184,7 +184,7 @@ func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 			_, h, _ := asTheCFO(t)
 			var pipe *os.File
 			var err error
-			for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(25 * time.Millisecond) {
 				pipe, err = os.OpenFile(runPipeName(h.State), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
 				if err == nil || !errors.Is(err, errorPipeBusy) && !errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
 					break

@@ -19,9 +19,10 @@ const pause = (until: string, minutes: number) => ({ phase: "paused", action: "p
 const LONG = "Teach the board to read every harness's own session record instead of its screen, for the waiting and working status";
 const SNAPSHOT = {
   healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+  projects: [{ name: "code-goblins", repository: "fpresta0607/code-goblins", contributors: [] }],
   tasks: [
     goblin("cg-benny", "Benny", "AFK Ace", "Show what needs you while AFK", { pr: REPO + "/pull/1031", ticket: { number: 1013, url: REPO + "/issues/1013", state: "open" } }),
-    goblin("cg-kip", "Kip", "Helper", "Help Benny with the AFK page", { parent: "cg-benny", since: ago(12) }),
+    goblin("cg-kip", "Kip", "Helper", "Help Benny with the AFK page", { parent: "cg-benny", since: ago(12), project: "local-tools" }),
     goblin("cg-otis", "Otis", "Ledger Clerk", "Sync the ledger", { phase: "paused", at: ago(48), lifecycle: pause("task:cg-benny", 48) }),
     goblin("cg-wade", "Wade", "Waiter", "Wait on a long task", { phase: "paused", at: ago(40), lifecycle: pause("task:cg-long", 40) }),
     { id: "cg-long", title: LONG, project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, since: ago(30) },
@@ -205,4 +206,30 @@ test("a goblin's long name and title wrap onto another line instead of being cut
   expect(lines).toBeGreaterThan(1);
   expect(await title.evaluate((element) => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBe(true);
   await row.screenshot({ path: testInfo.outputPath("long-name.png") });
+});
+
+// The Overlord, 2026-10-17: a GitHub icon beside the project line that opens
+// that repository's root on GitHub. A project whose origin is not on GitHub
+// has none, and the rest of the line still opens the card's panel.
+test("a goblin's project line opens its repository on GitHub, and a project with no GitHub remote has no mark", async ({ page }, testInfo) => {
+  // Arrange
+  await open(page);
+  await page.getByRole("button", { name: "Close panel" }).click();
+  const row = card(page, "Benny - AFK Ace"), link = row.locator(".card-repo a");
+
+  // Act
+  await link.hover();
+  const tip = await page.getByRole("tooltip").textContent();
+  await row.screenshot({ path: testInfo.outputPath("project-link.png") });
+  const line = (await box(row.locator(".card-repo")))!;
+  await page.mouse.click(line.x + 4, line.y + line.height / 2);
+
+  // Assert
+  await expect(link).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("aria-label", "Open fpresta0607/code-goblins on GitHub");
+  expect(tip).toBe("fpresta0607/code-goblins");
+  await expect(card(page, "Kip - Helper").locator(".card-repo")).toHaveText("local-tools");
+  await expect(card(page, "Kip - Helper").locator(".card-repo a")).toHaveCount(0);
+  await expect(page.locator("#panel-title")).toHaveText("Benny - AFK Ace");
 });

@@ -213,6 +213,7 @@ func TestEndJobMemberEndsOnlyTheProcessItListed(t *testing.T) {
 	isEnded := endJobMember(job, reused)
 
 	// Assert
+	// stall-accepted: the process is meant to be left running, so running out is the passing path and a stall only makes the wait longer.
 	if event, err := windows.WaitForSingleObject(process, 500); isEnded || err != nil || event != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatalf("ended = %v, wait = %d, %v; want a process that started at another time left running", isEnded, event, err)
 	}
@@ -267,7 +268,7 @@ func TestEndJobEndsAJobThatCountsAProcessStillExiting(t *testing.T) {
 	if err != nil || len(spared) != 0 || len(ended) != 1 || ended[0].PID != member.Process.Pid {
 		t.Fatalf("EndJob = %+v, %+v, %v; want the member it lists ended and no error", ended, spared, err)
 	}
-	if event, err := windows.WaitForSingleObject(process, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(process, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Fatalf("the member still runs after the job's end: %d, %v", event, err)
 	}
 }

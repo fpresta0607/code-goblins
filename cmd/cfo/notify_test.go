@@ -376,6 +376,7 @@ func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
 			if exit := runNotify([]string{"g1", "--blocked", "Which store? options: Postgres | SQLite"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 				t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 			}
+			// stall-accepted: it times the call, and the waits it rules out, such as the wake queue's five-second lock, are too short for a longer bound to tell apart.
 			if elapsed := time.Since(start); elapsed > 5*time.Second {
 				t.Errorf("cfo notify took %v, want it back at once", elapsed)
 			}
@@ -428,11 +429,13 @@ func TestNotifyTellsTheRunningSupervisorWhichTellsItsBoardsAtOnce(t *testing.T) 
 			t.Cleanup(board.Close)
 			started := time.Now()
 			before := board.Revision()
+			// stall-accepted: nothing is meant to change while it waits, so a stall can end it early but cannot fail the test, and the check below skips a run a stall slowed.
 			for quiet := time.Now(); time.Since(quiet) < 2*time.Second; time.Sleep(50 * time.Millisecond) {
 				if now := board.Revision(); now != before {
 					before, quiet = now, time.Now()
 				}
 			}
+			// stall-accepted: running out skips the test rather than failing it.
 			if since := time.Since(started); since > 8*time.Second {
 				t.Skipf("the supervisor took %s to go quiet, too near its refresh to tell a report from it", since.Round(time.Second))
 			}
@@ -444,6 +447,7 @@ func TestNotifyTellsTheRunningSupervisorWhichTellsItsBoardsAtOnce(t *testing.T) 
 			}
 
 			// Assert
+			// stall-accepted: it times the report, and the wait it rules out is the board's own refresh, due within 15 s, which a bound of 30 s would let pass.
 			for deadline := time.Now().Add(3 * time.Second); board.Revision() == before; time.Sleep(20 * time.Millisecond) {
 				if time.Now().After(deadline) {
 					t.Fatal("the supervisor told its boards nothing within three seconds of the report")

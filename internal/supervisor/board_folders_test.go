@@ -169,7 +169,7 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 	response, err := http.DefaultClient.Do(request)
@@ -352,7 +352,7 @@ func TestTicketsKeepMovingWhileTheNativeInboxIsUnreadable(t *testing.T) {
 		defer close(done)
 		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -388,7 +388,7 @@ func repairInboxFromTheTicketLoop(t *testing.T, service *Service, github *fakeTi
 		defer close(done)
 		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}

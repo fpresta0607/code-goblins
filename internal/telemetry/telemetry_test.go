@@ -175,7 +175,7 @@ func (blockingRunner) Run(ctx context.Context, _ execx.Request) (execx.Result, e
 }
 
 func TestSpeedTableTimesOutWhenSQLite3Hangs(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	querier := Querier{Commands: blockingRunner{}, DBPath: fakeDB(t)}
 

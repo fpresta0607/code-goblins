@@ -62,7 +62,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 		_ = host.Run(dir, host.Spec{ID: "cfo", Args: []string{shell, "/d", "/q", "/k"}, Cols: 80, Rows: 24})
 	}()
 	var record host.Record
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if record, err = host.ReadRecord(dir, "cfo"); err == nil {
 			break
 		}
@@ -77,7 +77,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})

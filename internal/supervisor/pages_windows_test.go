@@ -506,7 +506,7 @@ func TestALaterPageIsWatchedBesideTheFirst(t *testing.T) {
 		s.watchPages(ctx)
 	}
 	var got []string
-	for deadline := time.After(5 * time.Second); len(got) < 2; {
+	for deadline := time.After(time.Minute); len(got) < 2; {
 		select {
 		case file := <-polled:
 			got = append(got, file)
@@ -562,7 +562,7 @@ func TestARetiredGoblinsPageStopsItsPollerAfterThePollUnderWay(t *testing.T) {
 	// Assert
 	select {
 	case <-stopped:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the poller of a retired goblin's page is still running")
 	}
 	if len(polled) != 0 {
@@ -619,7 +619,7 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	}}}
 
 	s.watchPages(context.Background())
-	for deadline := time.Now().Add(10 * time.Second); published(s) < 3; time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); published(s) < 3; time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the wake queue was never asked again after refusing the CFO's wake")
 		}
@@ -629,7 +629,7 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	}
 	// The poller keeps reading the refused queue, and Windows refuses to
 	// remove a directory another handle has open, so the removal is retried.
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Millisecond) {
 		err := os.Remove(ack)
 		if err == nil {
 			break
@@ -799,7 +799,7 @@ func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
 	// Act
 	s.watchPages(ctx)
 	<-replied
-	for deadline := time.Now().Add(15 * time.Second); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the CFO was never told of the revision")
 		}

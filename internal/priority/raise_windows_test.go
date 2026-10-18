@@ -16,10 +16,10 @@ import (
 // ends.
 func threadsOf(t *testing.T, pid int) []windows.Handle {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
 		if threads := openThreads(t, pid); len(threads) >= 2 || time.Now().After(deadline) {
 			if len(threads) < 2 {
-				t.Fatalf("process %d runs %d threads after 10 s, want two at least", pid, len(threads))
+				t.Fatalf("process %d runs %d threads after a minute, want two at least", pid, len(threads))
 			}
 			return threads
 		}

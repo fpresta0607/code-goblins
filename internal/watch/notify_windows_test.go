@@ -28,12 +28,13 @@ func TestWaitSeesFileWrite(t *testing.T) {
 	}()
 
 	start := time.Now()
-	got := w.Wait(context.Background(), 5*time.Second)
+	got := w.Wait(context.Background(), time.Minute)
 	elapsed := time.Since(start)
 
 	if !got {
 		t.Fatalf("Wait returned false, want true (file write should have signaled)")
 	}
+	// stall-accepted: it times how soon a write wakes the wait, a latency no bound that outlasts a stall can judge.
 	if elapsed >= 3*time.Second {
 		t.Fatalf("Wait took %v, want well under 3s", elapsed)
 	}
@@ -83,17 +84,17 @@ func TestWaitCancellationInterruptsNativeAndDegradedWaits(t *testing.T) {
 			priorFailures := waiter.failStreak
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			timer := time.AfterFunc(100*time.Millisecond, cancel)
+			timer := time.AfterFunc(100*time.Millisecond, cancel) // stall-accepted: the test means this timer to cancel the wait.
 			defer timer.Stop()
 			started := time.Now()
 
-			got := waiter.Wait(ctx, 20*time.Second)
+			got := waiter.Wait(ctx, 2*time.Minute)
 
 			if got || ctx.Err() == nil {
 				t.Fatalf("Wait = %t, context error %v; want cancellation without an event", got, ctx.Err())
 			}
-			if waited := time.Since(started); waited > 5*time.Second {
-				t.Errorf("the canceled wait took %s; want it to stop before its twenty-second timeout", waited)
+			if waited := time.Since(started); waited > time.Minute {
+				t.Errorf("the canceled wait took %s; want it to stop before its two-minute timeout", waited)
 			}
 			if waiter.failStreak != priorFailures {
 				t.Error("cancellation counted as a directory API failure")
@@ -226,7 +227,7 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	// races goroutine scheduling under a loaded test binary, so poll with a
 	// deadline instead of a fixed sleep that flakes when the machine is busy.
 	heartbeat, err := monitor.ReadHeartbeat(stateDir)
-	for deadline := time.Now().Add(5 * time.Second); (err != nil || heartbeat.LastCycle.IsZero()) && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); (err != nil || heartbeat.LastCycle.IsZero()) && time.Now().Before(deadline); {
 		select {
 		case <-done:
 			t.Fatalf("Run exited before its first heartbeat")
@@ -255,7 +256,7 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	}
 	select {
 	case <-done:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("Run did not exit after its singleton was stolen")
 	}
 

@@ -33,7 +33,7 @@ func heldFile(t *testing.T) (string, *os.File) {
 }
 
 // linesUntil reads file's lines up to the first that starts with last, and
-// fails the test if that line has not come within ten seconds.
+// fails the test if that line has not come within a minute.
 func linesUntil(t *testing.T, file *os.File, last string) string {
 	t.Helper()
 	read := make(chan string, 1)
@@ -50,8 +50,8 @@ func linesUntil(t *testing.T, file *os.File, last string) string {
 	select {
 	case lines := <-read:
 		return lines
-	case <-time.After(10 * time.Second):
-		t.Fatalf("no line that starts %q was written within 10s", last)
+	case <-time.After(time.Minute):
+		t.Fatalf("no line that starts %q was written within a minute", last)
 		return ""
 	}
 }
@@ -91,7 +91,7 @@ func TestConsoleLatencyRecordsInputBeforeItsResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	isReceiptObserved := false
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		progress, err := os.ReadFile(progressPath)
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
@@ -115,7 +115,7 @@ func TestConsoleLatencyRecordsInputBeforeItsResponse(t *testing.T) {
 	}
 	marker := fmt.Sprintf("burst-%x", sha256.Sum256([]byte(payload)))
 	isResponseObserved := false
-	for deadline := started.Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	for deadline := started.Add(time.Minute); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		output.mu.Lock()
 		isResponseObserved = strings.Contains(output.text.String(), marker)
 		output.mu.Unlock()
@@ -123,6 +123,7 @@ func TestConsoleLatencyRecordsInputBeforeItsResponse(t *testing.T) {
 			break
 		}
 	}
+	// stall-accepted: it measures how fast the console takes a 2,000-character burst, a latency no bound that outlasts a stall can judge.
 	if !isResponseObserved || time.Since(started) > 2*time.Second {
 		t.Fatal("ordered native burst response missed its latency bound")
 	}

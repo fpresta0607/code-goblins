@@ -24,7 +24,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 				t.Setenv("CFO_HOME", t.TempDir())
 				t.Setenv("CFO_STATE_OVERRIDE", t.TempDir())
 				t.Setenv("CFO_PROJECTS_ROOT", t.TempDir())
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 				type selection struct {
 					path string
@@ -45,7 +45,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					}
 					return 1
 				})
-				for deadline := time.Now().Add(8 * time.Second); dialog == 0 && time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+				for deadline := time.Now().Add(time.Minute); dialog == 0 && time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
 					user32.NewProc("EnumDesktopWindows").Call(desktop, callback, 0)
 				}
 				if dialog == 0 {
@@ -53,7 +53,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					select {
 					case got := <-result:
 						t.Fatalf("no visible folder picker on the hidden desktop: %v", got.err)
-					case <-time.After(5 * time.Second):
+					case <-time.After(time.Minute):
 						t.Fatal("folder picker neither appeared nor stopped after cancellation")
 					}
 				}
@@ -93,7 +93,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					if action == "cancel" && got.path != "" {
 						t.Fatalf("cancel selected %q", got.path)
 					}
-				case <-time.After(5 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("folder picker did not close")
 				}
 			})

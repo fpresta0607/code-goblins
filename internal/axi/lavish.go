@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 )
 
 // Lavish invokes lavish-axi, the Overlord's review surface, to open a page
@@ -135,7 +136,7 @@ func (l Lavish) request(args ...string) (execx.Request, error) {
 	if err != nil {
 		return execx.Request{}, fmt.Errorf("axi: lavish-axi has no folder to run in: %w", err)
 	}
-	return execx.Request{Dir: profile, Name: "lavish-axi", Args: args}, nil
+	return execx.Request{Dir: profile, Name: "lavish-axi", Args: args, Env: remoteaccess.LocalScrawlEnvironment(os.Environ())}, nil
 }
 
 // PageSession is one review session lavish-axi keeps: its key, which its

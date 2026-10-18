@@ -109,7 +109,7 @@ func TestATaskDiffBaseCutOffByItsDeadlineSaysSo(t *testing.T) {
 		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, filepath.Join(bin, "git.exe")) {
 			t.Fatalf("git resolves to %q, %v; want the stand-in", found, err)
 		}
-		during, cancel := context.WithTimeout(context.Background(), time.Second)
+		during, cancel := context.WithTimeout(context.Background(), time.Second) // stall-accepted: the test means this context to run out while the stand-in git never answers.
 		defer cancel()
 
 		_, err = (Git{}).base(during, dir)
@@ -156,7 +156,7 @@ func TestARetainedBaseCutOffByItsDeadlineSaysSo(t *testing.T) {
 		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, filepath.Join(bin, "git.exe")) {
 			t.Fatalf("git resolves to %q, %v; want the stand-in", found, err)
 		}
-		during, cancel := context.WithTimeout(context.Background(), time.Second)
+		during, cancel := context.WithTimeout(context.Background(), time.Second) // stall-accepted: the test means this context to run out while the stand-in git never answers.
 		defer cancel()
 
 		_, err = (Git{Base: retained}).base(during, dir)

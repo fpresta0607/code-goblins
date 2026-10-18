@@ -131,10 +131,10 @@ test.describe("in his window", () => {
     // Act
     await select(page, "Sid - Memory Keeper");
     const panelStatus = await read(header(page).locator(".panel-status"));
-    const panelChip = await read(header(page).locator("a.hosted-checks"));
     const paneTitle = await ended(page).locator("h2").textContent();
     const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
     if (await pill.count()) await pill.click();
+    const panelChip = await read(header(page).locator("a.hosted-checks"));
     await header(page).locator(".raw-details > summary").click();
     const details = await header(page).locator(".raw-details-text").innerText();
     const controls = await page.locator(".goblin-panel").getByRole("group", { name: "Controls for Keep the memory floor" }).getByRole("button").allTextContents();
@@ -168,6 +168,7 @@ test.describe("in his window", () => {
     await open(page);
 
     await select(page, "Mae - Bug Hunter");
+    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
 
     await expect(header(page).locator(".panel-status")).toHaveText("Testing");
     await expect(header(page).locator("a.hosted-checks")).toHaveAttribute("href", RUN);
