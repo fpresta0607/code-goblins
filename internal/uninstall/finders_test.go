@@ -397,6 +397,94 @@ func TestRemovingAnNpmToolLeavesNoCommandAndNoEmptyScope(t *testing.T) {
 	}
 }
 
+// stopRecorder remembers each command as recordingRunner does, whether a
+// program and its state folder were both still there when its daemon was
+// asked to stop, and whether it was asked with its update check off.
+type stopRecorder struct {
+	recordingRunner
+	program, state    string
+	isStopped         bool
+	isEachThereAtStop bool
+	isUpdateCheckOff  bool
+}
+
+func (r *stopRecorder) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == r.program && strings.Join(request.Args, " ") == "daemon stop" {
+		isProgramThere, _ := there(r.program)
+		isStateThere, _ := there(r.state)
+		r.isStopped, r.isEachThereAtStop = true, isProgramThere && isStateThere
+		r.isUpdateCheckOff = slices.Contains(request.Env, "NO_MISTAKES_NO_UPDATE_CHECK=1")
+	}
+	return r.recordingRunner.Run(ctx, request)
+}
+
+// no-mistakes, which the install puts in a folder of its own from its
+// release, goes with its daemon stopped first, while the program and its
+// state are still there, since the daemon holds both, and its startup task
+// goes too. The stop runs no update check, which no-mistakes would run as a
+// program of its own in the background, holding the program and writing its
+// state again. Its state folder, ~\.no-mistakes, goes with it when the
+// install made it; one that was there before the install is the person's,
+// which the uninstall never names and leaves.
+func TestRemovingNoMistakesStopsItsDaemonFirstAndTakesTheStateTheInstallMade(t *testing.T) {
+	for name, test := range map[string]struct {
+		isStateTheInstalls bool
+		want               string
+	}{
+		"the install made its state": {isStateTheInstalls: true, want: "remove no-mistakes\nremove no-mistakes's startup task\nremove a place of the tools' own, .no-mistakes"},
+		"its state was there before": {want: "remove no-mistakes\nremove no-mistakes's startup task"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			m := testMachine(t)
+			folder := filepath.Join(m.LocalAppData, "no-mistakes")
+			program := filepath.Join(folder, "no-mistakes.exe")
+			state := filepath.Join(m.Profile, ".no-mistakes")
+			write(t, program, "x")
+			write(t, filepath.Join(state, "state.sqlite"), "x")
+			runner := &stopRecorder{recordingRunner: recordingRunner{out: "\"\\no-mistakes-daemon-db0341fa\",\"N/A\",\"Ready\"\r\n"}, program: program, state: state}
+			m.Commands = runner
+			fetched := Fetched{Tools: []FetchedTool{{Name: "no-mistakes", Kind: "release"}}}
+			if test.isStateTheInstalls {
+				fetched.Places = []string{state}
+			}
+			record, _ := json.Marshal(fetched)
+			write(t, filepath.Join(m.Home.State, FetchedFile), string(record))
+			left, leftErr := m.tools(context.Background(), Choices{})
+			removed, removedErr := m.tools(context.Background(), Choices{RemoveTools: true})
+			if leftErr != nil || removedErr != nil {
+				t.Fatal(leftErr, removedErr)
+			}
+
+			// Act
+			doAll(t, removed)
+
+			// Assert
+			if got := whats(removed); got != test.want {
+				t.Errorf("with the choice the plan has\n%s\nwant\n%s", got, test.want)
+			}
+			if got, want := whats(left), strings.ReplaceAll(test.want, "remove ", "leave "); got != want {
+				t.Errorf("by default the plan has\n%s\nwant\n%s", got, want)
+			}
+			if !runner.isStopped || !runner.isEachThereAtStop || !runner.isUpdateCheckOff {
+				t.Errorf("its daemon was asked to stop: %v, while the program and its state were there: %v, with its update check off: %v; want all three", runner.isStopped, runner.isEachThereAtStop, runner.isUpdateCheckOff)
+			}
+			if _, err := os.Stat(folder); !os.IsNotExist(err) {
+				t.Errorf("no-mistakes' folder is still there: %v", err)
+			}
+			if !slices.ContainsFunc(runner.asked, func(asked []string) bool {
+				return strings.Join(asked, " ") == `schtasks /delete /tn \no-mistakes-daemon-db0341fa /f`
+			}) {
+				t.Errorf("ran %v, want its startup task deleted", runner.asked)
+			}
+			_, stateErr := os.Stat(state)
+			if isGone := os.IsNotExist(stateErr); isGone != test.isStateTheInstalls {
+				t.Errorf("~\\.no-mistakes is gone: %v (%v), want %v", isGone, stateErr, test.isStateTheInstalls)
+			}
+		})
+	}
+}
+
 // No word the uninstall says has a semicolon or a dash between its clauses.
 func TestTheWordsHaveNoSemicolonAndNoDash(t *testing.T) {
 	// Arrange

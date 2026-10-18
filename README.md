@@ -230,6 +230,7 @@ Tick **Remove these too**, or run `goblins uninstall --remove-work`, to remove t
 
 It leaves the tools the install fetched, which other programs may use, and names each one: Git, the GitHub CLI, Claude Code, Codex, pi, no-mistakes and the npm tools, with the skills, PATH entries and folders they came with.
 Tick **Remove these too**, or run `goblins uninstall --remove-tools`, to remove them with their own installers.
+no-mistakes then goes with its daemon stopped first and its startup task, and with `~\.no-mistakes` when the install made it; one that was there before stays yours.
 The install records what it fetched, so the uninstall removes exactly that and never a tool you had before.
 
 Each removal is read back, and the uninstall ends by checking that nothing of Code Goblins is left.

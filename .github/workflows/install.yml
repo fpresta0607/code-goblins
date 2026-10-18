@@ -222,6 +222,10 @@ jobs:
           # npm keeps the tools it installs globally where it is told,
           # outside the profile on a runner, so the snapshots read it too.
           $npmPrefix = (npm prefix --global) | Select-Object -Last 1
+          # The install takes a ~\.no-mistakes it finds for the person's
+          # own, which the uninstall keeps, so the comparison proves what the
+          # uninstall does with it only on a profile that has none yet.
+          if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".no-mistakes")) { throw "~\.no-mistakes is there before the install, so the uninstall would keep it as the person's and the comparison would prove nothing of it." }
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git") --also $npmPrefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install with the one-line command
@@ -462,6 +466,10 @@ jobs:
           # npm keeps the tools it installs globally where it is told,
           # outside the profile on a runner, so the snapshots read it too.
           $npmPrefix = (npm prefix --global) | Select-Object -Last 1
+          # The install takes a ~\.no-mistakes it finds for the person's
+          # own, which the uninstall keeps, so the comparison proves what the
+          # uninstall does with it only on a profile that has none yet.
+          if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".no-mistakes")) { throw "~\.no-mistakes is there before the install, so the uninstall would keep it as the person's and the comparison would prove nothing of it." }
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git") --also $npmPrefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install from the clone

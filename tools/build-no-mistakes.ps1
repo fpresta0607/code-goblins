@@ -77,11 +77,21 @@ finally {
 }
 
 # The build reports the pinned version, and takes a gate's intent from a
-# file and a launch selection, as the install checks it.
-$said = & { $ErrorActionPreference = "Continue"; & $Destination --version 2>$null } | Out-String
-if ($said -notmatch "(?m)^no-mistakes version v$([regex]::Escape($version))(\s|$)") { throw "the built no-mistakes says '$($said.Trim())', want v$version." }
-$help = & { $ErrorActionPreference = "Continue"; & $Destination help axi run 2>$null } | Out-String
-foreach ($flag in "--intent-file", "--launch-assertion") {
-    if (-not $help.Contains($flag)) { throw "the built no-mistakes' axi run has no $flag, which the fleet's gate needs." }
+# file and a launch selection, as the install checks it. It is checked with
+# its update check off: no-mistakes runs that check as a program of its own
+# left in the background, which writes ~\.no-mistakes, and on a runner an
+# install that follows the build would take that folder for the person's.
+$updateCheck = $env:NO_MISTAKES_NO_UPDATE_CHECK
+$env:NO_MISTAKES_NO_UPDATE_CHECK = "1"
+try {
+    $said = & { $ErrorActionPreference = "Continue"; & $Destination --version 2>$null } | Out-String
+    if ($said -notmatch "(?m)^no-mistakes version v$([regex]::Escape($version))(\s|$)") { throw "the built no-mistakes says '$($said.Trim())', want v$version." }
+    $help = & { $ErrorActionPreference = "Continue"; & $Destination help axi run 2>$null } | Out-String
+    foreach ($flag in "--intent-file", "--launch-assertion") {
+        if (-not $help.Contains($flag)) { throw "the built no-mistakes' axi run has no $flag, which the fleet's gate needs." }
+    }
+}
+finally {
+    $env:NO_MISTAKES_NO_UPDATE_CHECK = $updateCheck
 }
 Write-Host "Built no-mistakes v$version from $repository at $commit into $Destination"
