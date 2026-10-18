@@ -33,11 +33,11 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Item{
-		{"question:q1@2026-10-01T12:00:00Z", "CFO", "The CFO asks: Which plan?", false},
-		{"review:r1@2026-10-01T12:01:00Z", "Open the shop", "Open the shop wants your review: Pick a layout", false},
-		{"run:u1@2026-10-01T12:02:00Z", "CFO", "A command waits for you to run it: Install the tool", false},
-		{"credential:c1@2026-10-01T12:06:00Z", "Open the shop", "Open the shop asks for credentials for shop", false},
-		{"credential:c3@2026-10-01T12:07:00Z", "Open the shop", "Open the shop needs you for a step: Create the shop's test account", false},
+		{"question:q1@2026-10-01T12:00:00Z", "CFO", "The CFO asks: Which plan?", false, false},
+		{"review:r1@2026-10-01T12:01:00Z", "Open the shop", "Open the shop wants your review: Pick a layout", false, false},
+		{"run:u1@2026-10-01T12:02:00Z", "CFO", "A command waits for you to run it: Install the tool", false, false},
+		{"credential:c1@2026-10-01T12:06:00Z", "Open the shop", "Open the shop asks for credentials for shop", false, false},
+		{"credential:c3@2026-10-01T12:07:00Z", "Open the shop", "Open the shop needs you for a step: Create the shop's test account", false, false},
 	}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)
@@ -57,23 +57,23 @@ func TestEachItemIsNotifiedInItsAskersWordsOnOnePlainLine(t *testing.T) {
 		want Item
 	}{
 		"the CFO's question, its marks dropped and its details left out": {`"questions":[{"id":"q1","text":"Ship **now**?\n\n- details","status":"pending","created_at":"T"}]`,
-			Item{"question:q1@T", "CFO", "The CFO asks: Ship now?", false}},
+			Item{"question:q1@T", "CFO", "The CFO asks: Ship now?", false, false}},
 		"a question that opens with a table of values": {`"questions":[{"id":"q1","text":"| Type | Name |\n| --- | --- |\n| CNAME | ` + "`mcp`" + ` |\nMay I add these records?","status":"pending","created_at":"T"}]`,
-			Item{"question:q1@T", "CFO", "The CFO asks: May I add these records?", false}},
+			Item{"question:q1@T", "CFO", "The CFO asks: May I add these records?", false, false}},
 		"a question whose lead is a bullet": {`"questions":[{"id":"q1","text":"- Pick **one** of ` + "`a`" + ` or ` + "`b`" + `\n- details","status":"pending","created_at":"T"}]`,
-			Item{"question:q1@T", "CFO", "The CFO asks: Pick one of a or b", false}},
+			Item{"question:q1@T", "CFO", "The CFO asks: Pick one of a or b", false, false}},
 		"a goblin's wait, with a table and its page": {`"reviews":[{"id":"waiting-shop-4","task":"shop","state":"open","created_at":"T","lavish":"` + page + `","title":"Waiting on you: Add the DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | ` + "`mcp`" + ` |\nthen tell me (page ` + page + `)"}]`,
-			Item{"review:waiting-shop-4@T", "Open the shop", "Open the shop is waiting on you: Add the DNS records in Cloudflare then tell me", false}},
+			Item{"review:waiting-shop-4@T", "Open the shop", "Open the shop is waiting on you: Add the DNS records in Cloudflare then tell me", false, false}},
 		"a goblin no longer on the board": {`"reviews":[{"id":"r1","task":"gone","state":"open","created_at":"T","title":"Review the plan"}]`,
-			Item{"review:r1@T", "gone", "gone wants your review: Review the plan", false}},
+			Item{"review:r1@T", "gone", "gone wants your review: Review the plan", false, false}},
 		"a goblin whose title is a whole sentence": {`"reviews":[{"id":"r1","task":"long","state":"open","created_at":"T","title":"Review the plan"}]`,
-			Item{"review:r1@T", strings.TrimSpace(longTitle), "Answers are never lost Answers are never lost Answers are n… wants your review: Review the plan", false}},
+			Item{"review:r1@T", strings.TrimSpace(longTitle), "Answers are never lost Answers are never lost Answers are n… wants your review: Review the plan", false, false}},
 		"a goblin's command to run": {`"runs":[{"id":"u1","task":"shop","state":"ready","created_at":"T","title":"Sign in to **GitHub**"}]`,
-			Item{"run:u1@T", "Open the shop", "Open the shop asks you to run a command: Sign in to GitHub", false}},
+			Item{"run:u1@T", "Open the shop", "Open the shop asks you to run a command: Sign in to GitHub", false, false}},
 		"a new release": {`"runs":[{"id":"update-v0.6.0","state":"ready","created_at":"T","title":"Update","update":{"from":"v0.5.1","to":"v0.6.0"}}]`,
-			Item{"run:update-v0.6.0@T", "Code Goblins", "Code Goblins v0.6.0 is ready: update from v0.5.1", false}},
+			Item{"run:update-v0.6.0@T", "Code Goblins", "Code Goblins v0.6.0 is ready: update from v0.5.1", false, false}},
 		"a question past what a notification says": {`"questions":[{"id":"q1","text":"Ship it? ` + strings.Repeat("x", 300) + `","status":"pending","created_at":"T"}]`,
-			Item{"question:q1@T", "CFO", "The CFO asks: Ship it? " + strings.Repeat("x", 136) + "…", false}},
+			Item{"question:q1@T", "CFO", "The CFO asks: Ship it? " + strings.Repeat("x", 136) + "…", false, false}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			snapshot := `{"instance":"i-1","tasks":[{"id":"shop","title":"Open the shop; Claude Code"},{"id":"long","title":"` + longTitle + `"}],` + test.item + `}`
@@ -89,9 +89,10 @@ func TestEachItemIsNotifiedInItsAskersWordsOnOnePlainLine(t *testing.T) {
 
 // What waits on him is what the board's page counts: a goblin's question once
 // the CFO has left it ten minutes, quiet as the page never alerts it, not
-// before; not a page he sent a revision on; not a goblin's wait that follows
-// a decision still pending, though one whose decision closed waits; and a
-// browser sign-in under way, not one done.
+// before; a page he sent a revision on and a goblin's wait that follows a
+// decision still pending only as open, neither counted nor alerted, though a
+// wait whose decision closed waits; and a browser sign-in under way, not one
+// done.
 func TestItemsAreWhatTheBoardsPageCounts(t *testing.T) {
 	snapshot := `{"at":"2026-10-18T12:20:00Z","tasks":[{"id":"shop","title":"Open the shop"}],
 		"questions":[{"id":"notify-shop-1","text":"Which port?","status":"pending","task":"shop","created_at":"2026-10-18T12:05:00Z"},
@@ -106,10 +107,12 @@ func TestItemsAreWhatTheBoardsPageCounts(t *testing.T) {
 	_, items, err := Items([]byte(snapshot))
 
 	want := []Item{
-		{"question:notify-shop-1@2026-10-18T12:05:00Z", "Open the shop", "Open the shop asks: Which port?", true},
-		{"question:cfo-question-3@2026-10-18T12:16:00Z", "CFO", "The CFO asks: Ship it?", false},
-		{"review:r5@T", "Open the shop", "Open the shop wants your review: Review the plan", false},
-		{"browser-signin:b1@T", "Open the shop", "Open the shop asks: Sign in to GitHub for shop", false},
+		{"question:notify-shop-1@2026-10-18T12:05:00Z", "Open the shop", "Open the shop asks: Which port?", true, false},
+		{"question:cfo-question-3@2026-10-18T12:16:00Z", "CFO", "The CFO asks: Ship it?", false, false},
+		{"review:r1@T", "Open the shop", "Open the shop wants your review: Pick a layout", true, true},
+		{"review:r4@T", "Open the shop", "Open the shop wants your review: Add the DNS records", true, true},
+		{"review:r5@T", "Open the shop", "Open the shop wants your review: Review the plan", false, false},
+		{"browser-signin:b1@T", "Open the shop", "Open the shop asks: Sign in to GitHub for shop", false, false},
 	}
 	if err != nil || !slices.Equal(items, want) {
 		t.Errorf("Items = %+v, %v; want %+v", items, err, want)

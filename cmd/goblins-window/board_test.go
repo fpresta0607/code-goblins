@@ -148,6 +148,36 @@ func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	}
 }
 
+// A goblin's wait that follows a decision is the decision's, so it is never
+// told, not even once the decision closes without an answer, as when he
+// dismisses it: the wait was open all along, and the page alerts nothing
+// already open.
+func TestAWaitWhoseDecisionClosesIsNotNew(t *testing.T) {
+	// Arrange
+	var mu sync.Mutex
+	wait := `{"id":"waiting-olive-4","title":"Add the DNS records","state":"open","task":"olive","follows":"q1","created_at":"T2"}`
+	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which domain?","status":"pending","created_at":"T1"}],"reviews":[` + wait + `]}`
+	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_, _ = w.Write([]byte(snapshot))
+	}))
+	defer board.Close()
+	watcher := &Watcher{}
+	watcher.New(board.URL)
+
+	// Act
+	mu.Lock()
+	snapshot = `{"instance":"i-1","questions":[{"id":"q1","text":"Which domain?","status":"failed","created_at":"T1"}],"reviews":[` + wait + `]}`
+	mu.Unlock()
+	fresh, _ := watcher.New(board.URL)
+
+	// Assert
+	if len(fresh) != 0 {
+		t.Errorf("after the decision closed, the window told %+v, want nothing", fresh)
+	}
+}
+
 // At login Windows runs the window alone where goblins started it, which opens
 // the app through that goblins with no terminal. A window started on its own
 // has no such goblins, so it starts itself on the same board, in the tray.

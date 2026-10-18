@@ -349,13 +349,13 @@ test("a switch that cannot turn on stays off and says why for a moment", async (
 // test: its notification prompt answers with answer, it may already be
 // subscribed, with the key heldKey, and what the badge asks of it is kept in
 // window.badgeCalls.
-async function installedApp(page: Page, { answer = "granted", isSubscribed = false, heldKey = SERVER_KEY }: { answer?: NotificationPermission; isSubscribed?: boolean; heldKey?: string } = {}) {
-  await page.addInitScript(({ answer, isSubscribed, app, heldKey }) => {
+async function installedApp(page: Page, { answer = "granted", isSubscribed = false, heldKey = SERVER_KEY, isRevoked = false }: { answer?: NotificationPermission; isSubscribed?: boolean; heldKey?: string; isRevoked?: boolean } = {}) {
+  await page.addInitScript(({ answer, isSubscribed, app, heldKey, isRevoked }) => {
     const calls: string[] = [];
     const key = Uint8Array.from(atob(heldKey.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
     const made = { endpoint: app.endpoint, options: { applicationServerKey: key.buffer }, toJSON: () => ({ ...app, expirationTime: null }), unsubscribe: async () => { calls.push("unsubscribe"); subscription = null; return true; } };
     let subscription: typeof made | null = isSubscribed ? made : null;
-    let permission: NotificationPermission = isSubscribed ? "granted" : "default";
+    let permission: NotificationPermission = isRevoked ? "denied" : isSubscribed ? "granted" : "default";
     const registration = { pushManager: {
       getSubscription: async () => subscription,
       subscribe: async (options: { applicationServerKey: Uint8Array }) => { calls.push("subscribe with a " + options.applicationServerKey.byteLength + "-byte key"); subscription = made; return made; },
@@ -365,12 +365,12 @@ async function installedApp(page: Page, { answer = "granted", isSubscribed = fal
     const media = window.matchMedia.bind(window);
     window.matchMedia = (query: string) => query === "(display-mode: standalone)" ? { ...media(query), matches: true } : media(query);
     Object.assign(window, { badgeCalls: calls });
-  }, { answer, isSubscribed, app: APP, heldKey });
+  }, { answer, isSubscribed, app: APP, heldKey, isRevoked });
 }
 
 const badgeCalls = (page: Page) => page.evaluate(() => (window as unknown as { badgeCalls: string[] }).badgeCalls);
 
-// CFO decision 1008918: the app's badge stays current while the app is
+// CFO decision 1008918: the app's badge counts each new item while the app is
 // closed, asking for notifications in the app's own words only when he turns
 // it on.
 test("in the Home Screen app, the App badge asks for notifications only when he turns it on, and subscribes the app until he turns it off", async ({ page }) => {
@@ -414,21 +414,23 @@ test("an app whose notifications he refuses keeps the badge off and says where t
 });
 
 // An app still subscribed tells the board again as it opens, which may have
-// forgotten it, and one subscribed with a key the board no longer signs
-// with subscribes again with the board's.
-for (const [name, heldKey, calls] of [
-  ["with the board's key", SERVER_KEY, []],
-  ["with an earlier key", APP.keys.p256dh, ["unsubscribe", "subscribe with a 65-byte key"]],
+// forgotten it; one subscribed with a key the board no longer signs with
+// subscribes again with the board's, and one whose notifications he turned
+// off in Settings ends its badge.
+for (const [name, options, told, calls, isOn] of [
+  ["with the board's key", { heldKey: SERVER_KEY }, [{ subscribe: APP }], [], "true"],
+  ["with an earlier key", { heldKey: APP.keys.p256dh }, [{ unsubscribe: APP.endpoint }, { subscribe: APP }], ["unsubscribe", "subscribe with a 65-byte key"], "true"],
+  ["whose notifications were turned off", { isRevoked: true }, [{ unsubscribe: APP.endpoint }], ["unsubscribe"], "false"],
 ] as const) {
-  test(`an app still subscribed ${name} shows the badge on and tells the board as it opens`, async ({ page }) => {
+  test(`an app still subscribed ${name} tells the board as it opens`, async ({ page }) => {
     // Arrange and act
-    await installedApp(page, { isSubscribed: true, heldKey });
+    await installedApp(page, { isSubscribed: true, ...options });
     const { pushes } = await open(page, ON, { origin: URL });
 
     // Assert
-    await expect(page.getByRole("switch", { name: "App badge", exact: true })).toHaveAttribute("aria-checked", "true");
-    await expect.poll(() => pushes).toEqual([{ subscribe: APP }]);
+    await expect.poll(() => pushes).toEqual(told);
     expect(await badgeCalls(page)).toEqual(calls);
+    await expect(page.getByRole("switch", { name: "App badge", exact: true })).toHaveAttribute("aria-checked", isOn);
   });
 }
 

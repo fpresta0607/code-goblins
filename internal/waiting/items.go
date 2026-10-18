@@ -18,21 +18,24 @@ const cfoQuietAfter = 10 * time.Minute
 // alert's key as the board's page names it, the item's id with the
 // publishing it stands for, so the page and the window raise one
 // notification for it; who asks; and what it asks, on one plain line.
-// IsQuiet marks one the page counts but never alerts: a goblin's question
-// the CFO has left.
+// IsQuiet marks one the page never alerts: a goblin's question the CFO has
+// left, which it counts, and an item open but not waiting on him, which
+// IsOpenOnly marks and it does not count, so that once it waits on him it is
+// not new.
 type Item struct {
-	ID      string
-	Asker   string
-	Text    string
-	IsQuiet bool
+	ID         string
+	Asker      string
+	Text       string
+	IsQuiet    bool
+	IsOpenOnly bool
 }
 
 // Items lists what a board snapshot holds that asks the Overlord
 // something, which is what the board's page counts and alerts, each in the
 // asker's words as the page says it: a pending question; an open review item,
-// unless he sent a revision on its page, which waits on its goblin, or it is
-// a goblin's wait that follows a decision still pending, which the decision
-// stands for; a command ready or running that no credential card or Remote
+// open only when he sent a revision on its page, which waits on its goblin,
+// or it is a goblin's wait that follows a decision still pending, which the
+// decision stands for; a command ready or running that no credential card or Remote
 // access setting opened, since that terminal shows there; an open request for
 // credentials, by its project alone, so the credential names stay out of a
 // notification; and a browser sign-in under way. A question that names a
@@ -122,9 +125,10 @@ func Items(snapshot []byte) (string, []Item, error) {
 		items = append(items, question)
 	}
 	for _, r := range view.Reviews {
-		if r.State != "open" || r.RevisingSince != nil || r.Follows != "" && pending[r.Follows] {
+		if r.State != "open" {
 			continue
 		}
+		review := item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" wants your review: "+plain(r.Title))
 		// A goblin's wait on him reads as its reason, without the queue's
 		// prefix or its page's link.
 		if r.Task != "" && strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
@@ -132,10 +136,11 @@ func Items(snapshot []byte) (string, []Item, error) {
 			if r.Lavish != "" {
 				reason = strings.Replace(reason, " (page "+r.Lavish+")", "", 1)
 			}
-			items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" is waiting on you: "+plain(reason)))
-			continue
+			review = item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" is waiting on you: "+plain(reason))
 		}
-		items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" wants your review: "+plain(r.Title)))
+		review.IsOpenOnly = r.RevisingSince != nil || r.Follows != "" && pending[r.Follows]
+		review.IsQuiet = review.IsOpenOnly
+		items = append(items, review)
 	}
 	for _, r := range view.Runs {
 		if r.State != "ready" && r.State != "running" || r.CredentialRequest != "" || r.RemoteFix != "" {

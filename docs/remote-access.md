@@ -184,9 +184,9 @@ its web app manifest over HTTPS on port 4311, through that machine's own gate,
 and reads only whether it names Code Goblins; it never proxies another machine's
 board. With the App badge on, the supervisor also sends each new Command Center
 item and the count to the browser's push service, encrypted so only the
-subscribed app reads them, and to no other server. Only the phone app on the
-private board turns the badge on, and turning remote access off forgets every
-app at once.
+subscribed app reads them, and to no other server. The board on a PC turns no
+app's badge on, and turning remote access off forgets every app at once; as
+everywhere, a program already running on the PC is inside this boundary.
 
 The gate checks browser Origin before translating it to the local board and
 retains the existing mutation and terminal WebSocket token checks. Forwarding

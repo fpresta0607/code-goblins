@@ -27,11 +27,17 @@ export const boardKey = async () => fromBase64Url(string(object(await request("/
 // renewAppBadge tells the supervisor again of an app still subscribed, as it
 // opens, since the supervisor may have forgotten it; one subscribed with a key
 // the board no longer signs with, whose pushes would never arrive, subscribes
-// again with the board's key.
+// again with the board's key. Notifications he turned off in Settings end the
+// badge, so the supervisor stops pushing to it.
 export async function renewAppBadge(instance: string): Promise<void> {
   const registration = await navigator.serviceWorker.getRegistration("/");
   const subscription = await registration?.pushManager.getSubscription();
-  if (!registration || !subscription || Notification.permission !== "granted") return;
+  if (!registration || !subscription) return;
+  if (Notification.permission !== "granted") {
+    await postPush(instance, { unsubscribe: subscription.endpoint });
+    await subscription.unsubscribe();
+    return;
+  }
   const key = await boardKey();
   const held = subscription.options.applicationServerKey;
   if (held && held.byteLength === key.length && new Uint8Array(held).every((byte, i) => byte === key[i])) {
@@ -39,6 +45,7 @@ export async function renewAppBadge(instance: string): Promise<void> {
     await postPush(instance, { subscribe: { endpoint, keys } });
     return;
   }
+  await postPush(instance, { unsubscribe: subscription.endpoint });
   await subscription.unsubscribe();
   await subscribeApp(instance, registration, key);
 }

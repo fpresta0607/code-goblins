@@ -389,8 +389,9 @@ func phoneBoard(t *testing.T) (*Service, *HTTP, http.Handler) {
 
 // He turns the badge on from his Home Screen app on his phone: the board
 // gives the key the app subscribes with, keeps the app's subscription once
-// however often it is sent, and forgets it when he turns the badge off, from
-// the phone or this PC. The board on this PC turns no app's badge on.
+// however often it is sent, changing nothing when the app tells it again as
+// it opens, and forgets it when he turns the badge off, from the phone or
+// this PC. The board on this PC turns no app's badge on.
 func TestTheAppBadgeKeepsAPhoneUntilItIsTurnedOff(t *testing.T) {
 	// Arrange
 	s, board, gate := phoneBoard(t)
@@ -398,7 +399,9 @@ func TestTheAppBadgeKeepsAPhoneUntilItIsTurnedOff(t *testing.T) {
 	// Act
 	key := fromPhone(gate, "GET", "")
 	first := fromPhone(gate, "POST", appBody(phoneEndpoint, browserPublic, browserAuth))
+	before := s.Revision()
 	again := fromPhone(gate, "POST", appBody(phoneEndpoint, browserPublic, browserAuth))
+	changes := s.Revision() - before
 	kept := keptApps(t, s)
 	fromThisPC := postPush(board, appBody("https://fcm.googleapis.com/fcm/send/abc", browserPublic, browserAuth))
 	off := postPush(board, `{"unsubscribe":"`+phoneEndpoint+`"}`)
@@ -408,8 +411,8 @@ func TestTheAppBadgeKeepsAPhoneUntilItIsTurnedOff(t *testing.T) {
 	if key.Code != 200 || json.Unmarshal(key.Body.Bytes(), &answer) != nil || len(answer.Key) != 87 {
 		t.Fatalf("GET /api/push = %d %s, want the board's public key", key.Code, key.Body)
 	}
-	if first.Code != 200 || again.Code != 200 || len(kept) != 1 || kept[0] != phone {
-		t.Fatalf("turning it on = %d, %d; kept %+v; want the phone kept once", first.Code, again.Code, kept)
+	if first.Code != 200 || again.Code != 200 || len(kept) != 1 || kept[0] != phone || changes != 0 {
+		t.Fatalf("turning it on = %d, %d; kept %+v; the board changed %d times on the second; want the phone kept once and nothing changed again", first.Code, again.Code, kept, changes)
 	}
 	if fromThisPC.Code != http.StatusForbidden || off.Code != 200 || len(keptApps(t, s)) != 0 {
 		t.Errorf("from this PC = %d, off = %d, apps %+v; want this PC refused and the phone forgotten", fromThisPC.Code, off.Code, keptApps(t, s))

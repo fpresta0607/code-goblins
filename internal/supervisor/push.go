@@ -67,14 +67,24 @@ func (s *Service) readPush() (pushRecord, error) {
 	return record, nil
 }
 
-// writePush keeps record, which holds a private key, for its owner alone.
-// The caller holds pushMu.
+// writePush keeps record, which holds a private key, for its owner alone: the
+// file is restricted to its owner while still empty, then filled, and then
+// replaces pushFile whole, so the key is never readable to others nor left
+// half written. The caller holds pushMu.
 func (s *Service) writePush(record pushRecord) error {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	return auth.WriteSecretFile(filepath.Join(s.Store.Home.State, pushFile), string(data))
+	path := filepath.Join(s.Store.Home.State, pushFile)
+	staged := path + ".new"
+	if err := auth.WriteSecretFile(staged, ""); err != nil {
+		return err
+	}
+	if err := os.WriteFile(staged, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(staged, path)
 }
 
 // pushKeys is the board's VAPID key pair, made and kept the first time an
@@ -171,6 +181,11 @@ func (h *HTTP) push(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// An app telling the board again as it opens changes nothing kept.
+		if slices.Contains(record.Apps, app) {
+			respond(w, http.StatusOK, answer)
+			return
+		}
 		record.Apps = append(slices.DeleteFunc(record.Apps, func(kept webpush.Subscription) bool { return kept.Endpoint == app.Endpoint }), app)
 		record.Apps = record.Apps[max(0, len(record.Apps)-maxPushApps):]
 	}
@@ -236,12 +251,18 @@ func (s *Service) pushNew(ctx context.Context, seen map[string]bool) (map[string
 		return nil, s.forgetPushApps(func(webpush.Subscription) bool { return true })
 	}
 	// What waits is read from the store's memory, at once; the snapshot, which
-	// names the goblins that ask, is read only for something new to push.
+	// names the goblins that ask, is read only for something new to push, and
+	// what it holds is seen too, as what arrived while it was read is pushed
+	// now.
 	items, _ := s.Items()
 	data, err := json.Marshal(struct {
-		Items
-		At time.Time `json:"at"`
-	}{items, time.Now().UTC()})
+		Questions      []Question          `json:"questions"`
+		Reviews        []Review            `json:"reviews"`
+		Runs           []Run               `json:"runs"`
+		Credentials    []CredentialRequest `json:"credentials"`
+		BrowserSignIns []BrowserSignIn     `json:"browser_signins"`
+		At             time.Time           `json:"at"`
+	}{items.Questions, items.Reviews, items.Runs, items.Credentials, items.BrowserSignIns, time.Now().UTC()})
 	if err != nil {
 		return seen, err
 	}
@@ -253,7 +274,7 @@ func (s *Service) pushNew(ctx context.Context, seen map[string]bool) (map[string
 	isNew := false
 	for _, item := range waits {
 		current[item.ID] = true
-		isNew = isNew || seen != nil && !seen[item.ID]
+		isNew = isNew || seen != nil && !seen[item.ID] && !item.IsQuiet
 	}
 	if !isNew || s.afkOn() {
 		return current, nil
@@ -267,6 +288,13 @@ func (s *Service) pushNew(ctx context.Context, seen map[string]bool) (map[string
 	}
 	if err != nil {
 		return seen, err
+	}
+	count := 0
+	for _, item := range waits {
+		current[item.ID] = true
+		if !item.IsOpenOnly {
+			count++
+		}
 	}
 	s.pushMu.Lock()
 	keys, err := webpush.ParseKeys(record.Keys)
@@ -298,7 +326,7 @@ func (s *Service) pushNew(ctx context.Context, seen map[string]bool) (map[string
 			Body  string `json:"body"`
 			Count int    `json:"count"`
 			Tag   string `json:"tag"`
-		}{title, item.Text, len(waits), item.ID})
+		}{title, item.Text, count, item.ID})
 		if err != nil {
 			return current, err
 		}
