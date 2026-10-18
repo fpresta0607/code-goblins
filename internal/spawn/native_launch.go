@@ -600,17 +600,19 @@ func (s Service) readNativeScreen(ctx context.Context, record host.Record) ([]st
 	}
 }
 
-// nativeProgram is the command line a native terminal starts the harness with.
-// A harness installed as a script shim names it as its Executable and runs
-// through cmd /c, which finds it in the user environment the host runs with.
-// Any other must be a program: one found only as a script shim is refused.
+// nativeProgram is the command line a native terminal starts the harness with:
+// the program this process's PATH finds, where the spawn validated it, started
+// by its path, so the terminal, whose PATH is the user's, never starts another
+// (#1075). A harness installed as a script shim names it as its Executable and
+// runs through cmd /c. Any other must be a program: one found only as a script
+// shim is refused.
 func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
-	if launch.Executable != "" {
-		return cmdProgram(launch.Executable, launch.Args...)
-	}
-	path, err := exec.LookPath(string(kind))
+	path, err := exec.LookPath(cmp.Or(launch.Executable, string(kind)))
 	if err != nil {
 		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
+	}
+	if launch.Executable != "" {
+		return cmdProgram(path, launch.Args...)
 	}
 	if !strings.EqualFold(filepath.Ext(path), ".exe") {
 		return nil, fmt.Errorf("spawn: %s resolves to %s, which a native terminal cannot start without a shell", kind, path)
