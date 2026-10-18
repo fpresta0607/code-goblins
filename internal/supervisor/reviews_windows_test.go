@@ -131,18 +131,31 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 }
 
 // A page another reporter's open item already shows is refused, recording
-// nothing: his answer there closes only that reporter's item, so the CFO's
-// review of the page a goblin waits on him with would take his answer from
-// the goblin. The goblin's own review of its page is still its own.
+// nothing, whichever comes second: his answer there reaches only the reporter
+// whose item stands for it, so the CFO's review of the page a goblin waits on
+// him with would take his answer from the goblin, and a goblin's wait on the
+// page the CFO's review holds would take it from the CFO. The goblin's own
+// review of its page is still its own.
 func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 	const link = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b"
+	const page = `C:\scratch\task-1\review\index.html`
+	wait := func(h home.Home) error {
+		return PublishWait(h, "task-1", 7, "pick a layout on the page", link, page, "")
+	}
+	review := func(reporter, file string) func(home.Home) error {
+		return func(h home.Home) error {
+			return PublishReview(h, reporter, "layout-review", "Look at the layouts", link, file, nil)
+		}
+	}
 	for name, test := range map[string]struct {
-		reporter, page string
-		isRefused      bool
+		first, second    func(home.Home) error
+		holder, reporter string
+		isRefused        bool
 	}{
-		"the CFO's review of its Scrawl link":     {reporter: "", isRefused: true},
-		"the CFO's review of its file":            {reporter: "", page: `C:\SCRATCH\task-1\review\index.html`, isRefused: true},
-		"the goblin's own review of its own page": {reporter: "task-1"},
+		"the CFO's review of a goblin's wait page by its Scrawl link": {first: wait, second: review("", ""), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
+		"the CFO's review of a goblin's wait page by its file":        {first: wait, second: review("", `C:\SCRATCH\task-1\review\index.html`), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
+		"the goblin's own review of its own page":                     {first: wait, second: review("task-1", ""), holder: "waiting-task-1-7"},
+		"the goblin's wait on the page the CFO's review holds":        {first: review("", ""), second: wait, holder: "layout-review", reporter: "the CFO", isRefused: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -151,14 +164,14 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 			servePipe(t, store, cfo)
 			t.Setenv("CFO_SESSION_ID", "actual-primary")
 			t.Setenv("CFO_SESSION_HARNESS", "codex")
-			meta, _, _, _ := goblinFixture(t, store)
+			goblinFixture(t, store)
 			lavish := t.TempDir()
 			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
 			stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":"C:\\scratch\\task-1\\review\\index.html","status":"opened"}}}`
 			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishWait(h, meta.ID, 7, "pick a layout on the page", link, `C:\scratch\task-1\review\index.html`, ""); err != nil {
+			if err := test.first(h); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -166,7 +179,7 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 			}
 
 			// Act
-			err := PublishReview(h, test.reporter, "layout-review", "Look at the layouts", link, test.page, nil)
+			err := test.second(h)
 
 			// Assert
 			if ingestErr := store.ingestReviews(); ingestErr != nil {
@@ -174,18 +187,18 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 			}
 			got := store.Snapshot().Reviews
 			if test.isRefused {
-				if err == nil || !strings.Contains(err.Error(), "task-1's open item waiting-task-1-7") {
-					t.Fatalf("PublishReview = %v, want refused naming the goblin's wait waiting-task-1-7", err)
+				if !errors.Is(err, ErrPageHeld) || !strings.Contains(err.Error(), test.reporter+"'s item "+test.holder) || !strings.Contains(err.Error(), "reaches "+test.reporter) {
+					t.Fatalf("the second publication = %v, want refused naming %s's item %s, which his answer on the page reaches", err, test.reporter, test.holder)
 				}
-				if len(got) != 1 || got[0].ID != "waiting-task-1-7" {
-					t.Fatalf("reviews = %+v, want only the goblin's wait recorded", got)
+				if len(got) != 1 || got[0].ID != test.holder {
+					t.Fatalf("reviews = %+v, want only %s recorded", got, test.holder)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(got) != 2 || got[1].ID != "layout-review" || got[1].Task != meta.ID || got[1].LavishPage != `C:\scratch\task-1\review\index.html` {
+			if len(got) != 2 || got[1].ID != "layout-review" || got[1].Task != "task-1" || got[1].LavishPage != page {
 				t.Fatalf("reviews = %+v, want the goblin's wait and its own review of the page", got)
 			}
 		})

@@ -376,6 +376,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		// Its step card is the wait.
 	case verb == "waiting on overlord":
 		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link); err != nil {
+			if errors.Is(err, supervisor.ErrPageHeld) {
+				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v); the CFO has the wait, so wait on the CFO for his answer\n", err)
+				return 1
+			}
 			if page != "" {
 				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
 				return 1

@@ -179,9 +179,7 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback; a Scrawl link given
-// without its page is polled on the page lavish-axi serves there. A page
-// another reporter's open item already shows is refused: that item closes
-// when he answers there, and his answer goes to one reporter only. While AFK
+// without its page is polled on the page lavish-axi serves there. While AFK
 // mode is on a goblin's item with a page is that goblin's question to the CFO
 // instead, which answers it in his place.
 func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
@@ -192,21 +190,6 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 		var err error
 		if page, err = servedPage(lavish); err != nil {
 			return err
-		}
-	}
-	if page != "" {
-		reviews, err := reportedReviews(h.State)
-		if err != nil {
-			return err
-		}
-		if i := slices.IndexFunc(reviews, func(r Review) bool {
-			return r.State == "open" && r.Task != taskID && r.LavishPage != "" && pageKey(r.LavishPage) == pageKey(page)
-		}); i >= 0 {
-			reporter := "the CFO"
-			if reviews[i].Task != "" {
-				reporter = reviews[i].Task
-			}
-			return fmt.Errorf("that page is already in %s's open item %s, which closes when he answers on that page, so there is nothing to publish", reporter, reviews[i].ID)
 		}
 	}
 	if switched, err := afk.Read(h.State); taskID != "" && lavish != "" && err == nil && switched.On {
@@ -281,11 +264,42 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 	return SurfaceNotify(h.State, taskID, record, detail, link, nil)
 }
 
+// ErrPageHeld refuses an item whose page another reporter's open item
+// already shows: his answer on a page reaches the one reporter whose item
+// stands for it, so a second reporter's item would take it from the first.
+var ErrPageHeld = errors.New("another reporter's open item already shows that page")
+
+// refuseHeldPage refuses item r while another reporter's open item, the CFO's
+// or another goblin's, shows r's page. A reporter's own newer item for its
+// own page is its own. The caller holds the publish lock, so no other report
+// records the page between this check and r's record.
+func refuseHeldPage(stateDir string, r Review) error {
+	if r.LavishPage == "" {
+		return nil
+	}
+	reviews, err := reportedReviews(stateDir)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(reviews, func(held Review) bool {
+		return held.State == "open" && held.Task != r.Task && held.LavishPage != "" && pageKey(held.LavishPage) == pageKey(r.LavishPage)
+	})
+	if i < 0 {
+		return nil
+	}
+	reporter := "the CFO"
+	if reviews[i].Task != "" {
+		reporter = reviews[i].Task
+	}
+	return fmt.Errorf("%w: %s's item %s, and his answer on that page reaches %s, so there is nothing to publish", ErrPageHeld, reporter, reviews[i].ID, reporter)
+}
+
 // publishItem records r for its reporter, proven the way reviewReporter does.
 // stage fills in what r copies into dir and says whether it copied anything;
 // the copies move beside the item's record only once the item is new. placed,
 // when set, runs once they are in their own folder, before the item is
-// recorded, such as to open the page they hold.
+// recorded, such as to open the page they hold. A page another reporter's
+// open item shows is refused before anything is staged.
 func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool, error), placed func(r *Review, dir string) error) error {
 	identity, release, err := reviewReporter(h, r.Task)
 	if err != nil {
@@ -303,6 +317,9 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	}
 	defer unlock()
 	if err := reviewInboxRoom(h.State); err != nil {
+		return err
+	}
+	if err := refuseHeldPage(h.State, r); err != nil {
 		return err
 	}
 	staged := filepath.Join(h.State, "reviews", ".staged")
@@ -1113,6 +1130,9 @@ func publishVersion(h home.Home, r Review) error {
 		return err
 	}
 	defer unlock()
+	if err := refuseHeldPage(h.State, r); err != nil {
+		return err
+	}
 	return recordReview(h.State, r)
 }
 

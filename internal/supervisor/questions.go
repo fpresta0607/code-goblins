@@ -76,9 +76,9 @@ type Question struct {
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
 	// ForTask names the goblin whose decision the CFO's own question puts
-	// to the Overlord, so the board shows that goblin's wait on him for it
-	// under the question. It is empty for a goblin's question, whose Task
-	// names it.
+	// to the Overlord, so the board hides that goblin's wait on him for it
+	// rather than show it as a card of its own. It is empty for a goblin's
+	// question, whose Task names it.
 	ForTask string `json:"for_task,omitempty"`
 }
 

@@ -143,13 +143,16 @@ for (const shown of [
 // The Overlord, 2026-10-17 about 18:20Z, at "Wanda - API Ace is waiting on you"
 // with only Back, Next, an X and a pencil: "These follow-ups should not be
 // notifications in the Command Center, that can be removed. But the initial
-// one is critical, and should still stay."
+// one is critical, and should still stay." The CFO's question's answer reaches
+// the goblin only through the CFO, so the follow-up stays gone once he answers
+// it; the goblin's own question's answer reaches it at once, so its wait comes
+// back as its own card.
 const followUp = { id: "waiting-pd-mcp-only-1008309", identity: "w".repeat(64), task: wanda.id, title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing. Both cuts are live, nothing is in flight, and I start nothing new meanwhile.", state: "open", created_at: "2026-10-17T18:16:11Z", updated_at: "2026-10-17T18:16:11Z" };
 for (const decision of [
-  { name: "the CFO's question for the goblin", kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
-  { name: "the goblin's own question the CFO left to him", kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the CFO's question for the goblin", after: "answering it clears both", isWaitBack: false, kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the goblin's own question the CFO left to him", after: "once he answers it the wait comes back as its own card", isWaitBack: true, kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
 ]) {
-  test(`a goblin's wait beside ${decision.name} shows only the decision, and answering it clears both`, async ({ page, context }) => {
+  test(`a goblin's wait beside ${decision.name} shows only the decision, and ${decision.after}`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
     const posted: Record<string, unknown>[] = [];
@@ -174,6 +177,11 @@ for (const decision of [
     // Assert
     expect(rows).toHaveLength(1);
     expect(rows[0]).toContain(decision.question.text.slice(0, 30));
+    if (decision.isWaitBack) {
+      await expect(card(page)).toContainText("Waiting for the Overlord's answer on the parity tool sizing");
+      await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+      return;
+    }
     await expect(card(page)).toBeHidden();
     await expect(badge(page)).toHaveAccessibleName("Command Center");
     await expect(bar(page)).toContainText("All quiet");

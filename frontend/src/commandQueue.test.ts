@@ -95,7 +95,10 @@ test("a goblin's question the CFO has left for ten minutes waits on the Overlord
 // initial one is critical, and should still stay." A goblin's wait on him
 // that opens nothing follows the decision card for its task, the CFO's
 // question for it or its own question with choices: it never waits on him
-// while that decision is open, nor once the decision it followed is answered.
+// while that decision is open. Once answered, the CFO's question still keeps
+// the follow-up raised after it was asked, since the goblin hears its answer
+// only through the CFO, while the goblin's own question, whose answer reaches
+// the goblin at once, brings its wait back.
 test("a goblin's follow-up wait never waits on the Overlord beside the decision it follows", () => {
   const page = "http://127.0.0.1:4387/session/plan";
   const wait = (id: string, created: string, extra: Record<string, unknown> = {}) => review(id, "pd-mcp-only", created, "open", { title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing", ...extra });
@@ -106,9 +109,11 @@ test("a goblin's follow-up wait never waits on the Overlord beside the decision 
     ["the CFO's open question for the goblin shows alone", "2026-10-17T18:17:00Z", [decision], [followUp], ["question:pd-connector-parity"]],
     ["the goblin's own question with choices, left to him, shows alone", "2026-10-17T18:30:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z")], [followUp], ["question:notify-pd-mcp-only-8"]],
     ["while the CFO still has the goblin's question, its follow-up waits on nobody", "2026-10-17T18:17:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z")], [followUp], []],
-    ["answered, the decision takes its follow-up with it", "2026-10-17T18:19:00Z", [answered], [followUp], []],
-    ["a decision whose answer is on its way takes it too", "2026-10-17T18:19:00Z", [{ ...answered, status: "queued", answered_at: "" }], [followUp], []],
-    ["a wait raised before the decision waits again once it is answered", "2026-10-17T18:19:00Z", [answered], [wait("waiting-pd-mcp-only-7", "2026-10-17T18:00:00Z")], ["review:waiting-pd-mcp-only-7"]],
+    ["the CFO's answered question for the goblin still takes the follow-up raised after it was asked", "2026-10-17T18:19:00Z", [answered], [followUp], []],
+    ["the CFO's question whose answer is on its way takes it too", "2026-10-17T18:19:00Z", [{ ...answered, status: "queued", answered_at: "" }], [followUp], []],
+    ["the goblin's own answered question brings its wait back", "2026-10-17T18:19:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z", "succeeded", { answer_id: "a-1", answered_by: "overlord", answered_at: "2026-10-17T18:18:59Z" })], [followUp], ["review:waiting-pd-mcp-only-9"]],
+    ["the goblin's own question whose answer is on its way brings its wait back too", "2026-10-17T18:19:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z", "queued", { answer_id: "a-1" })], [followUp], ["review:waiting-pd-mcp-only-9"]],
+    ["a wait raised before the CFO's question waits again once it is answered", "2026-10-17T18:19:00Z", [answered], [wait("waiting-pd-mcp-only-7", "2026-10-17T18:00:00Z")], ["review:waiting-pd-mcp-only-7"]],
     ["a wait raised after the answer is a new one", "2026-10-17T18:21:00Z", [answered], [wait("waiting-pd-mcp-only-10", "2026-10-17T18:20:00Z")], ["review:waiting-pd-mcp-only-10"]],
     ["a wait with a page to open is never a follow-up", "2026-10-17T18:17:00Z", [decision], [wait("waiting-pd-mcp-only-9", "2026-10-17T18:16:11Z", { lavish: page })], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
     ["another goblin's decision leaves the wait alone", "2026-10-17T18:17:00Z", [{ ...decision, for_task: "billing" }], [followUp], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],

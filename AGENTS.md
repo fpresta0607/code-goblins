@@ -1008,7 +1008,7 @@ Under the rule before this one, whoever ran the hooks first held the home: that 
 
 The registered primary CFO in any supported harness (Claude Code, Codex, Pi) must publish deliberate user questions with `cfo question --id <stable-id> --text "<question>" --option "<choice>" --recommend "<exact-choice>"`.
 Repeat `--option` for actual choices; omit `--recommend` when no choice is recommended.
-When the question puts a goblin's decision to him, add `--for <task>`: that goblin's wait on him for it then shows under the question, never as a second card with nothing to decide.
+When the question puts a goblin's decision to him, add `--for <task>`: that goblin's wait on him for it is then hidden while the question waits and, once he answers it, stays hidden, since the goblin hears his answer through you; it is never shown as a card of its own, and nothing draws it under the question.
 While [AFK mode](#afk-mode) is on `cfo question` refuses: nothing is asked of him then.
 Write every question to the Overlord, the CFO's `--text` and a goblin's `--blocked` alike, to be read rather than scanned: lead with one short sentence that is the actual question, put the details on lines of their own that start with `- ` (a real line break, such as `` `n `` in PowerShell), and wrap only the verdict or the blocking item in `**two asterisks**`, never the whole question.
 The Command Center shows it as body text: a blank line starts a paragraph, a `- ` line is a bullet, `**text**` is bold, and anything else, markup included, is shown exactly as written.

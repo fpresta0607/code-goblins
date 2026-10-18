@@ -105,13 +105,16 @@ const decidesFor = (question: Question, task: string) => question.for_task === t
 // decision card for its task, which alone shows (the Overlord, 2026-10-17:
 // "These follow-ups should not be notifications in the Command Center ...
 // But the initial one is critical"): a wait that opens nothing, while that
-// decision is open, or once the decision it followed is answered. An answer
-// on its way that names no time yet is being given now.
+// decision is open. Once answered, only the CFO's question for the goblin
+// keeps the waits raised between its asking and its answer, since its answer
+// reaches the goblin only through the CFO; a goblin's own question's answer
+// reaches it at once, so its waits show again. An answer on its way that
+// names no time yet is being given now.
 export function followsDecision(review: Review, snapshot: Snapshot): boolean {
   if (!waitsOnOverlord(review) || waitTarget(review, snapshot)) return false;
   const raised = Date.parse(review.created_at);
   return (snapshot.questions || []).some((question) => decidesFor(question, review.task) && (question.status === "pending"
-    || questionOutcome(question) === "answered" && Date.parse(question.created_at) <= raised && (Date.parse(question.answered_at) || Infinity) >= raised));
+    || question.for_task === review.task && questionOutcome(question) === "answered" && Date.parse(question.created_at) <= raised && (Date.parse(question.answered_at) || Infinity) >= raised));
 }
 
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
