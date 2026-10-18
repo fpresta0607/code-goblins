@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -57,7 +57,7 @@ func legacyMachine(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, envFile, string(env))
-	t.Setenv(install.UserEnvFileVariable, envFile)
+	t.Setenv(installbase.UserEnvFileVariable, envFile)
 	t.Setenv("LOCALAPPDATA", local)
 	t.Setenv("APPDATA", filepath.Join(profile, "AppData", "Roaming"))
 	t.Setenv("USERPROFILE", profile)

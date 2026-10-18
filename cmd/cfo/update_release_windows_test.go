@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/update"
@@ -90,7 +90,7 @@ func (u *updateHome) updateFromRelease(server *releaseServer, installed string, 
 	cmd.Dir = u.root
 	cmd.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s",
 		"CFO_TEST_VERSION="+installed, release.APIVariable+"="+server.URL+"/latest",
-		install.UserEnvFileVariable+"="+environment,
+		installbase.UserEnvFileVariable+"="+environment,
 		"LOCALAPPDATA="+filepath.Join(machine, "Local"), "APPDATA="+filepath.Join(machine, "Roaming"),
 		"USERPROFILE="+filepath.Join(machine, "profile"), "HOME="+filepath.Join(machine, "profile"),
 		"CLAUDE_CONFIG_DIR="+filepath.Join(machine, "profile", ".claude"),
@@ -287,7 +287,7 @@ func TestAnUpdateFromAReleaseReportsAnIncompleteHomeRefresh(t *testing.T) {
 				if err := os.WriteFile(environment, values, 0o600); err != nil {
 					t.Fatal(err)
 				}
-				seams = append(seams, install.UserEnvFileVariable+"="+environment)
+				seams = append(seams, installbase.UserEnvFileVariable+"="+environment)
 			}
 
 			code, output := u.updateFromRelease(server, "v0.4.2", seams)

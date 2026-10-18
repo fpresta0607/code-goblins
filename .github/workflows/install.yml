@@ -27,6 +27,7 @@ on:
       - internal/voice/**
       - internal/home/**
       - internal/install/**
+      - internal/installbase/**
       - internal/nativehook/**
       - internal/doctor/**
       - internal/uninstall/**
@@ -54,6 +55,7 @@ on:
       - internal/voice/**
       - internal/home/**
       - internal/install/**
+      - internal/installbase/**
       - internal/nativehook/**
       - internal/doctor/**
       - internal/uninstall/**

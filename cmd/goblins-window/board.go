@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
@@ -314,11 +314,11 @@ func StartsAtLogin(command string) bool {
 // choice in the home at stateDir, as the board's switch does, so an install
 // keeps it.
 func keepStartAtLogin(command, stateDir string, on bool) error {
-	choice := install.StartAtLoginOff
+	choice := installbase.StartAtLoginOff
 	if on {
-		choice = install.StartAtLoginOn
+		choice = installbase.StartAtLoginOn
 	}
-	if err := install.WriteStartAtLogin(stateDir, choice); err != nil {
+	if err := installbase.WriteStartAtLogin(stateDir, choice); err != nil {
 		return err
 	}
 	return SetStartAtLogin(command, on)

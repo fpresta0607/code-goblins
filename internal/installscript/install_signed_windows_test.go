@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -327,7 +328,8 @@ func TestTheReleaseSignsChecksAndPublishesEveryProgramItLists(t *testing.T) {
 // build stamps neither a version nor the commit.
 func TestTheReleaseBuildsTheSetupWithNothingOfTheRelease(t *testing.T) {
 	// Arrange
-	script, _ := releaseStep(t, "Build")
+	stamping, _ := releaseStep(t, "Build")
+	script, _ := releaseStep(t, "Build the setup")
 
 	// Act
 	var build []string
@@ -339,7 +341,7 @@ func TestTheReleaseBuildsTheSetupWithNothingOfTheRelease(t *testing.T) {
 
 	// Assert
 	if build == nil {
-		t.Fatalf("the release's Build step builds no ./cmd/goblins-setup:\n%s", script)
+		t.Fatalf("the release's Build the setup step builds no ./cmd/goblins-setup:\n%s", script)
 	}
 	for _, flag := range []string{"-trimpath", "-buildvcs=false"} {
 		if !slices.Contains(build, flag) {
@@ -349,8 +351,41 @@ func TestTheReleaseBuildsTheSetupWithNothingOfTheRelease(t *testing.T) {
 	if command := strings.Join(build, " "); strings.Contains(command, "RELEASE_TAG") || strings.Contains(command, "main.tag") || strings.Contains(command, "github.sha") {
 		t.Errorf("the setup's build stamps something of the release in: %s", command)
 	}
-	if strings.Contains(script, "Push-Location cmd/goblins-setup") {
-		t.Errorf("the release stamps the setup's resources:\n%s", script)
+	if strings.Contains(stamping+script, "Push-Location cmd/goblins-setup") {
+		t.Errorf("the release stamps the setup's resources:\n%s\n%s", stamping, script)
+	}
+}
+
+// The setup builds with the Go release go.mod names, and every other program
+// with the newest one setup-go installs, so a new Go release changes the
+// setup's file only once go.mod is bumped to it, while cfo and the window
+// take each Go security fix as it ships. The setup's own step sets
+// GOTOOLCHAIN, which ends with that step, and no other part of the release
+// does.
+func TestTheReleaseBuildsTheSetupWithTheGoReleaseGoModNames(t *testing.T) {
+	// Arrange
+	goMod, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, _ := releaseStep(t, "Build the setup")
+
+	// Act
+	lines := strings.Split(script, "\n")
+	pin := slices.Index(lines, `$env:GOTOOLCHAIN = 'go' + (go list -m -f '{{.GoVersion}}')`)
+	build := slices.IndexFunc(lines, func(line string) bool {
+		return strings.HasPrefix(line, "go build ") && strings.HasSuffix(line, " ./cmd/goblins-setup")
+	})
+
+	// Assert
+	if pin < 0 || build < 0 || pin > build {
+		t.Errorf("the release's Build the setup step runs:\n%s\nwant GOTOOLCHAIN set to go.mod's Go release before it builds ./cmd/goblins-setup, so only a go.mod bump moves the setup to a new Go release", script)
+	}
+	if outside := strings.Count(releaseWorkflow(t), "GOTOOLCHAIN") - strings.Count(script, "GOTOOLCHAIN"); outside != 0 {
+		t.Errorf("release.yml names GOTOOLCHAIN %d times outside the setup's own step, want none: the other programs build with the newest Go release, which carries its security fixes", outside)
+	}
+	if !regexp.MustCompile(`(?m)^go [0-9]+\.[0-9]+\.[0-9]+\r?$`).Match(goMod) {
+		t.Errorf("go.mod's go line names no Go release such as go 1.26.5, which the setup's GOTOOLCHAIN must name:\n%s", goMod)
 	}
 }
 
