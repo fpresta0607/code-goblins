@@ -147,6 +147,9 @@ type scrawlCommands struct {
 	// offStarted, when set, hears Scrawl's off begin, which then waits for
 	// offRelease.
 	offStarted, offRelease chan struct{}
+	// serveWaits stands for a Scrawl serve that waits for approval until
+	// its context runs out.
+	serveWaits bool
 }
 
 func (f *scrawlCommands) Run(ctx context.Context, r execx.Request) (execx.Result, error) {
@@ -154,6 +157,9 @@ func (f *scrawlCommands) Run(ctx context.Context, r execx.Request) (execx.Result
 	if r.Name == "lavish-axi" && call == "stop" {
 		f.stops++
 		return execx.Result{}, nil
+	}
+	if f.serveWaits && strings.HasPrefix(call, "serve --bg --https=4312") {
+		return execx.Result{}, context.DeadlineExceeded
 	}
 	if strings.Contains(call, "--https=4312") || call == "serve --https=4311 off" {
 		if f.failOff && call == "serve --https=4312 off" {
@@ -573,5 +579,27 @@ func TestScrawlOffRefusesPhonesBeforeItsRouteIsGone(t *testing.T) {
 	}
 	if during != http.StatusForbidden {
 		t.Fatalf("a review while Scrawl's route was still up: %d, want it refused", during)
+	}
+}
+
+// Scrawl's serve, like the board's, can wait for Serve or HTTPS to be
+// approved, and its timeout names its command and says so.
+func TestScrawlServeTimeoutNamesItsCommandAndTheApproval(t *testing.T) {
+	// Arrange
+	m, c, _ := scrawlFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	u, _ := url.Parse(c.ScrawlTarget)
+	t.Setenv("LAVISH_AXI_PORT", u.Port())
+	t.Setenv("LAVISH_AXI_STATE_DIR", c.ScrawlState)
+	f := &scrawlCommands{fakeTailscale: fakeTailscale{config: ownProxy}, unsafe: &atomic.Bool{}, serveWaits: true}
+	m.Commands, m.Starter = f, f
+
+	// Act
+	_, err := m.EnableScrawl(context.Background())
+
+	// Assert
+	for _, want := range []string{"tailscale serve --bg --https=4312 http://127.0.0.1:4310 did not answer within 15 seconds", "approved for your tailnet"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Scrawl setup: %v, want %q", err, want)
+		}
 	}
 }

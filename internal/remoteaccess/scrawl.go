@@ -220,6 +220,9 @@ func (m *Manager) EnableScrawl(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	if _, err := m.command(ctx, "serve", "--bg", "--https=4312", m.Target); err != nil {
+		if errors.Is(err, errNoAnswer) {
+			err = fmt.Errorf("%w%s", err, approvalHint)
+		}
 		return Status{}, err
 	}
 	config, err = m.serving(ctx)
