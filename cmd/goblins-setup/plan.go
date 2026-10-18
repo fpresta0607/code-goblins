@@ -31,6 +31,10 @@ type Plan struct {
 	DevDriveExplain string `json:"dev_drive_explain"`
 }
 
+// keptNote is what the window says of a home already in use outside the
+// standard folder, which the install keeps where it is.
+const keptNote = "You already run Code Goblins from this folder, so it is updated there and your goblins and their work stay as they are."
+
 // findPlan is the plan for this machine.
 func findPlan() (Plan, error) {
 	local := os.Getenv("LOCALAPPDATA")
@@ -47,7 +51,7 @@ func findPlan() (Plan, error) {
 	}
 	plan := Plan{Folder: target.Root, Update: target.Update, StartAtLogin: choice != install.StartAtLoginOff}
 	if target.Kept {
-		plan.Note = "You already run Code Goblins from this folder, so it is updated there and your goblins and their work stay as they are."
+		plan.Note = keptNote
 	}
 	config, err := home.ReadDevDriveConfig(target.Root)
 	if err != nil {

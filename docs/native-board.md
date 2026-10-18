@@ -801,7 +801,7 @@ The host holds such an ending back for up to 100 ms: the next input takes it on 
 
 The board draws a native terminal with xterm at the panel's size: the view measures the cell xterm drew and fits the columns and rows the panel holds with an even inset of at least 10 px, and sends them as the resize, so the program and the view agree on the size.
 The spare width is split between left and right, the bottom keeps the same space, so the last row, the input line, sits that far from the panel's bottom, and the spare height, under a row, goes above the grid; no space is kept for a scroll bar, since none is drawn.
-xterm draws with its WebGL renderer, and with its DOM renderer where WebGL is unavailable or its context is lost.
+xterm draws with its WebGL renderer, and with its DOM renderer in WebKit, the engine of every browser on an iPhone and of Safari, where that renderer drew nothing (in Playwright's WebKit; the Overlord's iPhone showed black terminals), and where WebGL is unavailable or its context is lost.
 The font starts at 20 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
 Holding the right mouse button and turning the wheel steps it the same way, up to grow and down to shrink, a step a notch, with a smooth wheel's small turns adding up to one.
 The wheel then neither scrolls the terminal nor reaches its program, and the menu that would open when the button comes up does not, so its Paste is never offered, while a right click that never turned the wheel does what it always did.
@@ -887,7 +887,7 @@ The microphone then stays open while the board has the focus, and the worklet ke
 It closes when the window loses the focus or the page is hidden, and once 30 minutes pass with no dictation, and the next press opens it again.
 So the first press after the board takes the focus loses what is said while the microphone opens: on this PC, with Chromium's stand-in microphone, a median of 5 ms in the desktop window and 155 ms in a browser, at most 0.42 s, and a real microphone adds the time it takes to start.
 A microphone opened before any press would show as in use whenever the board had the focus, before anyone dictated, which is why it waits for the first press (the CFO's decision of 11 October 2026).
-The audio context the worklet runs in is made while the page is idle, before the first press needs it, and runs while the microphone is open.
+The audio context the worklet runs in is made while the page is idle, before the first press needs it, and runs while the microphone is open; Safari has no idle callback, so there it is made a second after the view, and a browser without Web Audio makes none.
 Until 11 October 2026 the bubble said it listened only once the first samples arrived, 0.1 to 0.7 s after the press on this PC, because every press opened the microphone again and the bars built a second audio context of their own, which held the page still for up to 0.27 s.
 Until 9 October 2026 the context was suspended at every release and the bubble said it listened as soon as the microphone was open, 0.4 to 0.7 s before a busy PC had the context running again, so a short dictation recorded nothing and was told as "Nothing was heard."
 A recognizer that has not begun to listen five seconds after the microphone opened ends the hold, and the CFO is told.
@@ -2249,6 +2249,7 @@ npm run typecheck
 npm run lint
 npm test
 npx playwright install chromium --only-shell
+npx playwright install webkit
 npm run test:browser
 npm run build
 cd ..
@@ -2260,6 +2261,7 @@ Vite generates `internal/boardweb/dist/board`, which git ignores; do not edit or
 See [Development](../README.md#development) for the requirements before installing a source build.
 `npm run test:browser` first builds the board and every page under `frontend/tests/fixtures`, bundled as the shipped board is, into a folder of that run's own under the system's temporary folder, and the browser tests read those files, answering each request themselves.
 No web server runs behind them: the pages are given the origin `http://127.0.0.1:1`, this machine as the board is really served, on a port the browser refuses to connect to, so no test waits on a port or opens a connection the machine can refuse, and a request a test does not answer itself fails at once.
+`tests/iphone-terminal.spec.ts` runs in WebKit, the engine of every browser on an iPhone, at an iPhone's size and under the private board's https address, since WebKit refuses port 1 even to a page a test answers; it takes the idle callback away itself, counts the WebGL contexts the page asks for, and fails on any error the page throws, so an API Safari lacks that the terminal's path reaches, and that Playwright's WebKit lacks too, shows there before it blanks the Overlord's phone.
 Outside CI every browser test waits, before it starts, while less than 5 GB of memory is free, and fails saying so after a minute: Windows takes about half a minute to release a test's browser process after the test ends, each still holding about 150 MB, so a fast run holds gigabytes on a machine the fleet shares; on a machine short of memory, run one spec at a time.
 One unit test, `src/dev-server.test.ts`, starts the dev server on a port the machine picks and loads the board's page and entry module from it, so development mode stays tested.
 The board's HTML template and the placeholder page are pinned to LF in `.gitattributes`: Vite preserves the template's newlines, so a build on Windows embeds the same bytes as one anywhere else.
