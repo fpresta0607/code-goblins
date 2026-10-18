@@ -5,9 +5,11 @@ import { createElement, Fragment, type ReactNode } from "react";
 // `code` for a value to enter somewhere, a blank line between paragraphs,
 // "- " at the start of a bullet line, and a Markdown pipe table (a header
 // row, a separator row of dashes, then its rows) for values that belong
-// together, such as DNS records. Everything else is text, so markup in a
-// message is shown, never run.
-export interface Span { text: string; bold: boolean; code?: true }
+// together, such as DNS records. An http or https address is a link (the
+// Overlord, 2026-10-17: "I should be able to click it as a hyperlink to
+// navigate to it"). Everything else is text, so markup in a message is shown,
+// never run.
+export interface Span { text: string; bold: boolean; code?: true; link?: true }
 export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][] } | { kind: "table"; header: Span[][]; rows: Span[][][] };
 
 // A mark opens only before text and closes only after it, so "5 ** 2" and a
@@ -18,6 +20,28 @@ const CODE = /`([^`\n]+)`/g;
 const BULLET = /^- /;
 const TABLE_ROW = /^\|.*\|$/;
 const TABLE_SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+$/;
+// An address ends at a space or a quote, and the punctuation that ends its
+// sentence after it is not its own.
+const WEB_LINK = /\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]/g;
+
+export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(value);
+
+// webLink opens an address in a new tab, which the desktop window hands to
+// his default browser.
+export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: address, target: "_blank", rel: "noreferrer" }, address);
+
+// Text with each address in it a link span of its own.
+function linkSpans(text: string, bold: boolean): Span[] {
+  const out: Span[] = [];
+  let at = 0;
+  for (const match of text.matchAll(WEB_LINK)) {
+    if (match.index > at) out.push({ text: text.slice(at, match.index), bold });
+    out.push({ text: match[0], bold, link: true });
+    at = match.index + match[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at), bold });
+  return out;
+}
 
 function spans(text: string): Span[] {
   const codes = [...text.matchAll(CODE)];
@@ -26,11 +50,11 @@ function spans(text: string): Span[] {
     for (const code of codes) {
       const end = code.index + code[0].length;
       if (end <= from || code.index >= to) continue;
-      if (code.index > from) out.push({ text: text.slice(from, code.index), bold });
+      if (code.index > from) out.push(...linkSpans(text.slice(from, code.index), bold));
       out.push({ text: code[1], bold, code: true });
       from = end;
     }
-    if (from < to) out.push({ text: text.slice(from, to), bold });
+    if (from < to) out.push(...linkSpans(text.slice(from, to), bold));
   };
   // Bold is looked for with each code value covered, so marks inside a value
   // stay its own and a bold phrase can run across one.
@@ -81,15 +105,15 @@ export function messageBlocks(text: string): Block[] {
 }
 
 // renderCode draws a code value, such as with a button that copies it; a
-// plain code element otherwise.
+// plain code element otherwise, or a link for an address.
 export type CodeRenderer = (value: string, key: number) => ReactNode;
-const plainCode: CodeRenderer = (value, key) => createElement("code", { key }, value);
+const plainCode: CodeRenderer = (value, key) => isWebLink(value) ? webLink(value, key) : createElement("code", { key }, value);
 
 // Neighbouring bold spans, such as the words around a code value, are one
 // bold phrase.
 function inline(parts: Span[], code: CodeRenderer): ReactNode[] {
   const out: ReactNode[] = [];
-  const piece = (at: number) => parts[at].code ? code(parts[at].text, at) : parts[at].text;
+  const piece = (at: number) => parts[at].code ? code(parts[at].text, at) : parts[at].link ? webLink(parts[at].text, at) : parts[at].text;
   for (let n = 0; n < parts.length; n++) {
     if (!parts[n].bold) { out.push(piece(n)); continue; }
     const start = n;
@@ -121,6 +145,9 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
 }
 
 export const inlineElements = (text: string, code: CodeRenderer = plainCode): ReactNode => createElement(Fragment, null, ...inline(spans(text), code));
+
+// Plain text, such as a History row's line, with each address in it a link.
+export const linkedText = (text: string): ReactNode => createElement(Fragment, null, ...inline(linkSpans(text, false), plainCode));
 
 // The message on one line, for a list row: marks dropped, each bullet a
 // sentence of its own, and a table left out, since its values only read in

@@ -10,7 +10,7 @@
 .message-table td { padding: 10px 14px; border-top: 1px solid var(--border); font-family: var(--font-mono); vertical-align: middle; }
 .message-table th + th, .message-table td + td { border-left: 1px solid var(--border); }
 .copy-value { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; vertical-align: middle; }
-.copy-value code { min-width: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.copy-value code, .copy-value .message-link { min-width: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .message-table .copy-value { display: flex; justify-content: space-between; }
 .message-table .copy-value code { min-width: 12ch; }
 .copy-value .icon-button { flex: none; }
