@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -197,4 +197,21 @@ test("a kept size outside 12 to 28 px, or none, draws at 20 px", (t) => {
     // Assert
     assert.equal(drawn, size, String(kept));
   }
+});
+
+test("every iPhone browser and Safari is WebKit, and Chromium and Firefox elsewhere are not", () => {
+  const agents: [string, string, boolean][] = [
+    ["Safari on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1", true],
+    ["Chrome on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/138.0.7204.156 Mobile/15E148 Safari/604.1", true],
+    ["Edge on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 EdgiOS/138.0.3351.83 Mobile/15E148 Safari/605.1.15", true],
+    ["Firefox on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/141.0 Mobile/15E148 Safari/605.1.15", true],
+    ["Safari on a Mac, as an iPad asks for desktop sites too", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15", true],
+    ["the board's window", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0", false],
+    ["Chrome on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36", false],
+    ["Chrome on Android", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", false],
+    ["Edge on Android", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 EdgA/141.0.0.0", false],
+    ["Playwright's Chromium, which runs the browser tests", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36", false],
+    ["Firefox on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0", false],
+  ];
+  for (const [name, agent, want] of agents) assert.equal(isWebKit(agent), want, name);
 });

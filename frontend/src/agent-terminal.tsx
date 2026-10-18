@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
 import { Terminal } from "@xterm/xterm"
-import { WebglAddon } from "@xterm/addon-webgl"
 import "@xterm/xterm/css/xterm.css"
 import { reportToCfo } from "./api"
 import { object, strings, type Task, type TreeNode } from "./types"
@@ -8,6 +7,7 @@ import { babyName } from "./fleet-tree"
 import { terminalDocument } from "./terminalDocument"
 import { FALLBACK_FONT, LINE_HEIGHT, PADDING, THEME } from "./terminalView"
 import { followFontSize, panelFit, storedFontSize } from "./terminalStream"
+import { drawOnGpu } from "./terminal-gpu"
 import { type AgentEntry, elapsed, parseAgentEntries, redraw, SPINNER_STEP_MS, transcriptRows, workingRow } from "./claude-transcript"
 import "./agent-terminal.css"
 
@@ -36,13 +36,7 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
       linkHandler: { activate: () => {} },
     })
     terminal.open(container)
-    try {
-      const gpu = new WebglAddon()
-      gpu.onContextLoss(() => gpu.dispose())
-      terminal.loadAddon(gpu)
-    } catch {
-      // No WebGL here: xterm keeps drawing with its DOM renderer.
-    }
+    drawOnGpu(terminal)
     terminal.write("\x1b[?25l")
     // fit sizes the grid to the panel as a goblin's terminal does (panelFit),
     // by its cells as xterm draws them, again whenever a font that loads or a
