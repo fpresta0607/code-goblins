@@ -31,7 +31,7 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
     <div className="afk-header">
       {leading}
       {afk.state === "off" && afk.page && <button className="icon-button raised" aria-label="Open your last AFK report" data-tip="Last AFK stretch" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /></button>}
-      <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} data-tip={tip} disabled={pending || afk.state === "off" && !canTurnOn} onClick={press}>
+      <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} data-tip={tip} disabled={pending || (afk.state === "off" && !canTurnOn)} onClick={press}>
         <span className="afk-toggle-label">AFK</span>
         {pending && <span className="card-start-spinner" aria-hidden="true" />}
         <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>

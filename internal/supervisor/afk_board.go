@@ -57,8 +57,10 @@ import (
 // it and his off there was refused. What proves that board his is Tailscale's
 // identity headers, and an agent on this PC can forge them, sending them
 // itself or through a Serve route of its own it adds for a moment. A forged
-// off only hands his decisions back to him. On hands the CFO his authority,
-// so it stays on a board on the PC proven as above, or his terminal.
+// off ends his stretch early and tells the CFO he is back, which holds the
+// fleet's decisions for him but hands no one his authority. On hands the CFO
+// his authority, so it stays on a board on the PC proven as above, or his
+// terminal.
 
 // hisBoard is a board proven the Overlord's own: the program he started that
 // shows it, the program the process that holds the connection runs, which is
@@ -286,9 +288,10 @@ const refusalWakeEvery = time.Minute
 // a program sending it again under a new process changes.
 var refusalNumbers = regexp.MustCompile(`[0-9]+`)
 
-// privateBoard is where an off from his private board is recorded as made: his
-// own, as Tailscale names him. An off forged on this PC is recorded the same.
-const privateBoard = "his own private board (as Tailscale names him)"
+// privateBoard is where an off from his private board is recorded as made,
+// with what proves it, for the CFO: his pages show only his private board. An
+// off forged on this PC is recorded the same.
+const privateBoard = "his own private board (by Tailscale's headers, which a program on this PC can forge)"
 
 // switchAFKFromBoard serves POST /api/afk: the board's AFK switch. The body is
 // read before anything is proven, so a body the endpoint does not take is

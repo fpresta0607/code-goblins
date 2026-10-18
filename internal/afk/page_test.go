@@ -105,9 +105,9 @@ func TestTheReturnPageWalksHimThroughTheStretch(t *testing.T) {
 // turns it off, or his terminal.
 func TestTheReturnPageSaysWhereHeSwitchedItInHisWords(t *testing.T) {
 	for from, want := range map[string]string{
-		"his own board (goblins-window.exe pid 4242)":    "from your board",
-		"his own private board (as Tailscale names him)": "from your private board",
-		"his own terminal (powershell.exe pid 5151)":     "from your terminal",
+		"his own board (goblins-window.exe pid 4242)":                                          "from your board",
+		"his own private board (by Tailscale's headers, which a program on this PC can forge)": "from your private board",
+		"his own terminal (powershell.exe pid 5151)":                                           "from your terminal",
 	} {
 		// Act
 		said := switchedForHim(from, "")

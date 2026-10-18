@@ -2119,9 +2119,10 @@ An agent that drives the Overlord's own running browser or window through his de
 
 His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch off and never on (CFO decision 1008966).
 He can always switch AFK mode, and on 2026-10-18 his off there was refused.
-Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and an off it admitted is recorded as from `his own private board (as Tailscale names him)`, which his pages show as your private board.
+Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and an off it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.
 Those are Tailscale's headers, and an agent on this PC can forge them, sending them itself or through a Serve route of its own it adds for a moment, so nothing proves the private board his.
-A forged off only hands his decisions back to him, and on hands the CFO his authority, so on stays on a board on the PC proven as above, or his terminal.
+A forged off ends his stretch early, with its report and his cards, and tells the CFO he is back, so the fleet's decisions wait for him again; it hands no one his authority.
+On hands the CFO his authority, so on stays on a board on the PC proven as above, or his terminal.
 An on through the gate is refused with the sentence every board is shown, and the CFO is told it came through the private board.
 Another user of his tailnet, a request without Tailscale's identity and another proxy never pass the gate.
 On the private board the switch is disabled while AFK mode is off, with no tip.

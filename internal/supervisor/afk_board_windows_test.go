@@ -429,7 +429,7 @@ func TestHisPrivateBoardTurnsAFKModeOffAndNeverOn(t *testing.T) {
 	if offCode != http.StatusOK || strings.TrimSpace(offBody) != `{"state":"off"}` || off.AFK.State != "off" {
 		t.Errorf("an off from his private board = %d %s with the snapshot %+v, want AFK mode off", offCode, offBody, off.AFK)
 	}
-	if switched, err := afk.Read(h.State); err != nil || switched.On || switched.EndedFrom != "his own private board (as Tailscale names him)" {
+	if switched, err := afk.Read(h.State); err != nil || switched.On || switched.EndedFrom != "his own private board (by Tailscale's headers, which a program on this PC can forge)" {
 		t.Errorf("the switch = %+v, %v, want off from his own private board", switched, err)
 	}
 	pending, err := wake.Pending(h.State)
