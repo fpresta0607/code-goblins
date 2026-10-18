@@ -17,7 +17,7 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	id := f.String("id", "", "stable ID for this CFO question")
 	text := f.String("text", "", "the question deliberately escalated to the user: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	recommended := f.String("recommend", "", "exact supplied choice to recommend; omit when there is no recommendation")
-	forTask := f.String("for", "", "the goblin's task ID when this puts that goblin's decision to the user; a wait on the user that goblin raises while this question waits then follows it: hidden while it waits and closed when it is answered, never a card of its own")
+	forTask := f.String("for", "", "the goblin's task ID when this puts that goblin's decision to the user; while this question waits, that goblin's waits on the user must declare whether they are this decision, and one it declares with cfo notify --follows <this question's ID> is hidden while this question waits and closed by its answer")
 	var options []string
 	f.Func("option", "one real choice; repeat for each choice; omit for written answers", func(value string) error { options = append(options, value); return nil })
 	if !parseFlags(f, args) {

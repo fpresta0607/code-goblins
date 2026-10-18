@@ -76,9 +76,9 @@ type Question struct {
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
 	// ForTask names the goblin whose decision the CFO's own question puts
-	// to the Overlord: a wait on him that goblin raises while the question is
-	// open follows it (Review.Follows). It is empty for a goblin's question,
-	// whose Task names it.
+	// to the Overlord: while the question is open, a wait on him that goblin
+	// raises declares whether it follows it (Review.Follows). It is empty for
+	// a goblin's question, whose Task names it.
 	ForTask string `json:"for_task,omitempty"`
 }
 
@@ -622,8 +622,9 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 }
 
 // recordAnswer tells the board which choice closed a goblin's question. It
-// closes only that question: the goblin's waits on the Overlord, such as a
-// sign-in only he can clear, stay his.
+// closes that question and only the waits the goblin declared to follow it
+// (cfo notify --follows): its other waits on the Overlord, such as a sign-in
+// only he can clear, stay his.
 func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
@@ -742,6 +743,63 @@ func readQuestion(stateDir, id string) (Question, error) {
 		return Question{}, errors.New("the question waiting in the inbox is unreadable")
 	}
 	return q, nil
+}
+
+// OpenDecisions lists the decisions open for goblin task: its own pending
+// question with choices and the CFO's pending questions for it (cfo question
+// --for), on the board's record or waiting in the inbox for the board to take
+// them. It only reads, as readQuestion does. The inbox is read first, as
+// reportedReview reads it, since the board records a question before it
+// removes the inbox copy, so one of the two reads always sees it.
+func OpenDecisions(stateDir, task string) ([]Question, error) {
+	dir := filepath.Join(stateDir, "questions-inbox")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	var questions []Question
+	for _, entry := range entries[:min(len(entries), maxQuestions)] {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			// The board took it meanwhile, and its record has it from now.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var q Question
+		if json.Unmarshal(data, &q) == nil {
+			questions = append(questions, q)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
+		if info.Size() > maxStateBytes {
+			return nil, errors.New("supervisor state exceeds its bound")
+		}
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		if err != nil {
+			return nil, err
+		}
+		var db Database
+		if err := json.Unmarshal(data, &db); err != nil {
+			return nil, errors.New("supervisor question history is unreadable")
+		}
+		for _, q := range db.Questions {
+			if i := slices.IndexFunc(questions, func(spooled Question) bool { return spooled.ID == q.ID }); i >= 0 {
+				questions[i] = q
+			} else {
+				questions = append(questions, q)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return slices.DeleteFunc(questions, func(q Question) bool {
+		return q.Status != "pending" || !(q.Task == task && len(q.Options) > 0 || q.ForTask == task)
+	}), nil
 }
 
 // ingestAnswers refuses every answer file in the old answer inbox, since the

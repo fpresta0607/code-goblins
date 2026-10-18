@@ -189,9 +189,9 @@ for (const decision of [
   });
 }
 
-// A wait the supervisor tied to no decision, such as one raised before the
-// goblin asked, is its own card beside the decision: the board never guesses
-// a follow-up from timing.
+// A wait that follows no decision, one the goblin declared --separate, or
+// raised with no decision open, is its own card beside the decision: the
+// board never guesses a follow-up from timing.
 test("a goblin's wait that follows no decision is its own card beside the decision", async ({ page, context }) => {
   // Arrange
   await standInStream(context);

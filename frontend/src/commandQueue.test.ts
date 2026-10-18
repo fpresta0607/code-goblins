@@ -90,10 +90,10 @@ test("a goblin's question the CFO has left for ten minutes waits on the Overlord
 // The Overlord, 2026-10-17, at "Wanda - API Ace is waiting on you" beside the
 // decision she waited for, with no decision button: "These follow-ups should
 // not be notifications in the Command Center, that can be removed. But the
-// initial one is critical, and should still stay." A goblin's wait the
-// supervisor tied to the decision open when it was raised, by that question's
-// ID, never waits on him while that question does; the supervisor closes it
-// when the question is answered, so an open wait is never hidden past it.
+// initial one is critical, and should still stay." A goblin's wait its goblin
+// declared to follow the open decision, by that question's ID, never waits on
+// him while that question does; the supervisor closes it when the question is
+// answered, so an open wait is never hidden past it.
 test("a goblin's follow-up wait never waits on the Overlord beside the open decision it follows", () => {
   const at = "2026-10-17T18:30:00Z";
   const wait = (follows: string) => review("waiting-pd-mcp-only-9", "pd-mcp-only", "2026-10-17T18:16:11Z", "open", { title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing", follows });

@@ -51,10 +51,10 @@ func TestClearingAPagesCardLeavesTheGoblinsQuestion(t *testing.T) {
 }
 
 // The Overlord's answer to a goblin's question on the board closes that
-// question and only the waits that follow it: the goblin's waits that do not,
-// one raised before the question and one that opens a link, stay open, since
-// such a wait, a sign-in only he can clear for one, is never settled by an
-// answer to a different question.
+// question and only the waits the goblin declared to follow it: its other
+// waits on him stay open, filed before the question or after it, since a wait
+// only he can clear, such as a sign-in, is never settled by an answer to a
+// different question.
 func TestABoardAnswerLeavesOpenTheWaitsThatDoNotFollowIt(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -71,7 +71,6 @@ func TestABoardAnswerLeavesOpenTheWaitsThatDoNotFollowIt(t *testing.T) {
 			earlier := openReview(fmt.Sprintf("waiting-%s-%d", meta.ID, q.Seq-1), meta.ID)
 			earlier.CreatedAt = q.CreatedAt.Add(-time.Minute)
 			later := openReview(fmt.Sprintf("waiting-%s-%d", meta.ID, q.Seq+5), meta.ID)
-			later.Link = "https://dashboard.stripe.com/login"
 			for _, r := range []Review{earlier, later} {
 				if err := store.acceptReview(r); err != nil {
 					t.Fatal(err)

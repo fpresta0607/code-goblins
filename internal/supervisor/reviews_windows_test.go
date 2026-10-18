@@ -140,7 +140,7 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 	const link = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b"
 	const page = `C:\scratch\task-1\review\index.html`
 	wait := func(h home.Home) error {
-		return PublishWait(h, "task-1", 7, "pick a layout on the page", link, page, "")
+		return PublishWait(h, "task-1", 7, "pick a layout on the page", link, page, "", "")
 	}
 	review := func(reporter, file string) func(home.Home) error {
 		return func(h home.Home) error {
@@ -559,7 +559,7 @@ func TestAWaitStaysOpenUntilHisAnswerHisDismissOrItsWithdraw(t *testing.T) {
 			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
+			if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", "", ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -604,7 +604,7 @@ func TestAWaitKeepsItsLinesAndTheLinkItGave(t *testing.T) {
 	link := "https://dash.cloudflare.com/precisiondocs/dns"
 
 	// Act
-	err := PublishWait(h, meta.ID, 7, why, "", "", link)
+	err := PublishWait(h, meta.ID, 7, why, "", "", link, "")
 	if err == nil {
 		err = store.ingestReviews()
 	}
@@ -694,10 +694,11 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	}
 }
 
-// The CFO's answer to a goblin's question closes only that question: the
-// goblin's waits on the Overlord stay open, filed before the question or
-// after it, and none is recorded as cleared, since a wait only he can clear,
-// such as a sign-in, is never settled by an answer to a different question.
+// The CFO's answer to a goblin's question closes that question and only the
+// waits the goblin declared to follow it: the goblin's other waits on the
+// Overlord stay open, filed before the question or after it, and none is
+// recorded as cleared, since a wait only he can clear, such as a sign-in, is
+// never settled by an answer to a different question.
 func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -712,16 +713,19 @@ func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	meta, record, _, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	ctx := context.Background()
-	if err := PublishWait(h, meta.ID, earlier.Seq, "log in to Stripe", "", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := PublishWait(h, meta.ID, record.Seq+1, "pick the store", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, earlier.Seq, "log in to Stripe", "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
 	surfaced(t, store, meta, record, connection)
+	if err := PublishWait(h, meta.ID, record.Seq+1, "sign in to the Stripe dashboard in the browser I opened", "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	if _, _, err := connection.AnswerGoblin(ctx, fmt.Sprint(record.Seq), "sqlite", ""); err != nil {
@@ -732,7 +736,11 @@ func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	}
 
 	// Assert
-	for _, got := range store.Snapshot().Reviews {
+	reviews := store.Snapshot().Reviews
+	if len(reviews) != 2 {
+		t.Fatalf("reviews = %+v, want both of the goblin's waits", reviews)
+	}
+	for _, got := range reviews {
 		if got.State != "open" {
 			t.Errorf("the goblin's wait %s after the CFO answered its question = %s (%q), want it open", got.ID, got.State, got.Reason)
 		}

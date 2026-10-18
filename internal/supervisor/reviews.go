@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -75,10 +76,11 @@ type Review struct {
 	// the only link its card opens.
 	Link string `json:"link,omitempty"`
 	// Follows is the decision a goblin's wait on him that opens nothing
-	// follows, by its question's ID: the question for its task that was open
-	// when the wait was raised, the CFO's for it (cfo question --for) or the
-	// goblin's own with choices. The board shows only that question while it
-	// is open, and its answer closes the wait.
+	// follows, by its question's ID, which the goblin declared as it raised
+	// the wait (cfo notify --follows): the CFO's question for its task (cfo
+	// question --for) or the goblin's own with choices. The board shows only
+	// that question while it is open, and its answer closes the wait. A wait
+	// that declares none is its own card, whatever is open.
 	Follows string `json:"follows,omitempty"`
 	// Document is a delivered file, copied beside the Scrawl page that shows
 	// it, which is the item's page.
@@ -137,6 +139,9 @@ func validReview(r Review) error {
 			return errors.New("a review's Scrawl page must be the absolute path of an HTML page, beside its link")
 		}
 	}
+	if r.Follows != "" && (r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") || r.Lavish != "" || r.Link != "" || len(r.Follows) < 8 || len(r.Follows) > 128 || strings.ContainsAny(r.Follows, "\x00\r\n")) {
+		return errors.New("only a goblin's wait that opens nothing follows a decision, named by its question's ID")
+	}
 	if r.Document != nil {
 		if len(r.ImageSums) > 0 || r.Link != "" {
 			return errors.New("a delivered file carries no images or link beside its Scrawl page")
@@ -152,7 +157,7 @@ func sameReview(a, b Review) bool {
 	if a.Document != nil || b.Document != nil {
 		return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Document != nil && b.Document != nil && *a.Document == *b.Document
 	}
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && slices.Equal(a.ImageSums, b.ImageSums)
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && a.Follows == b.Follows && slices.Equal(a.ImageSums, b.ImageSums)
 }
 
 // reviewImageDir holds one publication's copied images, named by position, or
@@ -747,8 +752,11 @@ func (s *Store) acceptReview(r Review) error {
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
 		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered, r.PageSettled = 0, "", "", "", false, nil
-		r.Follows = s.decisionFor(r)
 		s.db.Reviews = append(s.db.Reviews, r)
+		// A wait that follows a decision already answered was answered with it.
+		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == r.Follows }); r.Follows != "" && q >= 0 && isAnswered(s.db.Questions[q]) {
+			s.closeFollowUps(s.db.Questions[q], cmp.Or(s.db.Questions[q].AnsweredBy, "overlord"), time.Now().UTC())
+		}
 	case "withdrawn":
 		if i < 0 {
 			// Its publication still waits in the inbox while 128 are open.
@@ -1099,11 +1107,12 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // task is gone. It names the item waiting-<task>-<wake sequence>, which
 // holdsWait relies on.
 // why keeps the goblin's lines, so its card can show a table of values, and
-// link is the web link it gives as where he goes, if any. A wait on a page
-// the goblin already has open in an item is the page's next version, which
-// replaces that item rather than opening another.
-func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link string) error {
-	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link}
+// link is the web link it gives as where he goes, if any, and follows the ID
+// of the open decision the goblin declared the wait to be, if any. A wait on
+// a page the goblin already has open in an item is the page's next version,
+// which replaces that item rather than opening another.
+func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link, follows string) error {
+	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link, Follows: follows}
 	if page != "" {
 		reviews, err := reportedReviews(h.State)
 		if err != nil {
@@ -1182,32 +1191,9 @@ func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
 	}
 }
 
-// decisionFor is the decision goblin wait r follows when it is raised: the
-// newest question for its task still open that was asked before the wait,
-// the CFO's for it or the goblin's own with choices, for a wait that opens
-// nothing (no page, link or file the goblin delivered); else none. Both
-// times are the source's: a wait the goblin raised before the question,
-// though ingested after it, follows none. The caller holds the store lock.
-func (s *Store) decisionFor(r Review) string {
-	if r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") || r.Lavish != "" || r.Link != "" {
-		return ""
-	}
-	if slices.ContainsFunc(s.db.Reviews, func(other Review) bool { return other.State == "open" && other.Task == r.Task && other.Document != nil }) {
-		return ""
-	}
-	follows, newest := "", time.Time{}
-	for _, q := range s.db.Questions {
-		if q.Status == "pending" && (q.ForTask == r.Task || q.Task == r.Task && len(q.Options) > 0) && q.CreatedAt.Before(r.CreatedAt) && !q.CreatedAt.Before(newest) {
-			follows, newest = q.ID, q.CreatedAt
-		}
-	}
-	return follows
-}
-
 // closeFollowUps closes, as answered by who at at, every open wait that
-// follows question q, which has just been answered: the decision was what
-// each waited on, so none stays open behind it. The caller holds the store
-// lock.
+// follows question q, which has been answered: the decision was what each
+// waited on, so none stays open behind it. The caller holds the store lock.
 func (s *Store) closeFollowUps(q Question, who string, at time.Time) {
 	reason := "You answered the decision it waited on, " + q.ID + "."
 	if who == "cfo" {

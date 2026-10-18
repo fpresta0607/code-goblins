@@ -50,8 +50,9 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 
 // The CFO's question can name the goblin whose decision it puts to the
 // Overlord, as pd-mcp-only's parity sizing was on 2026-10-17, so a wait that
-// goblin raises while the question is open follows it. A task the fleet does
-// not know is refused, and so is the same ID published again for no goblin.
+// goblin raises while the question is open declares whether it follows it. A
+// task the fleet does not know is refused, and so is the same ID published
+// again for no goblin.
 func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -85,22 +86,42 @@ func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 // The Overlord, 2026-10-17, at "Wanda - API Ace is waiting on you" beside the
 // decision she waited for: "These follow-ups should not be notifications in
 // the Command Center ... But the initial one is critical". A goblin's wait on
-// him that opens nothing, raised while a decision for its task is open,
-// follows that decision by its question's ID, the CFO's question for the
-// goblin or the goblin's own with choices; a wait with a link, raised before
-// the decision though ingested after it, or raised with no decision open,
-// follows none.
-func TestAGoblinsWaitRaisedWhileItsDecisionIsOpenFollowsItByID(t *testing.T) {
+// him follows a decision only when the goblin declares it, by the question's
+// ID (cfo notify --follows), and nothing infers one: a wait that declares none
+// is its own card beside any decision open, the CFO's question for the goblin
+// or the goblin's own with choices, since a need he never sees stalls the
+// goblin and an extra card does not. A wait declared to follow a decision
+// already answered closes as it is taken in, answered with it, and one whose
+// decision he dismissed is its own card.
+func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
+	answerByCFO := func(t *testing.T, store *Store, q Question) {
+		if err := store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: q.Options[0], Answer: q.Options[0], At: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answerOnBoard := func(t *testing.T, store *Store, q Question) {
+		if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: q.Options[0], AnswerKind: "option"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dismiss := func(t *testing.T, store *Store, q Question) {
+		if _, err := store.Queue(Action{ID: "dismiss-1", Kind: "question_clear", QuestionID: q.ID, Generation: q.Identity}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for name, test := range map[string]struct {
-		cfoDecides, goblinAsks, isRaisedFirst bool
-		link                                  string
-		want                                  string
+		isCFOsQuestion, isDeclared bool
+		closeFirst                 func(*testing.T, *Store, Question)
+		wantState, wantReason      string
+		isHeld                     bool
 	}{
-		"the CFO's question for the goblin": {cfoDecides: true, want: "pd-connector-parity"},
-		"the goblin's own question":         {goblinAsks: true, want: "notify-task-1-"},
-		"a wait with a link":                {cfoDecides: true, link: "https://dashboard.stripe.com/login"},
-		"a wait raised before the decision": {cfoDecides: true, isRaisedFirst: true},
-		"no decision open":                  {},
+		"declared to follow the CFO's question for the goblin":   {isCFOsQuestion: true, isDeclared: true, wantState: "open"},
+		"declared to follow the goblin's own question":           {isDeclared: true, wantState: "open"},
+		"undeclared beside the CFO's question for the goblin":    {isCFOsQuestion: true, wantState: "open", isHeld: true},
+		"undeclared beside the goblin's own question":            {wantState: "open", isHeld: true},
+		"declared to follow a question the CFO already answered": {isDeclared: true, closeFirst: answerByCFO, wantState: "answered", wantReason: "The CFO answered the decision it waited on, "},
+		"declared to follow a question he already answered":      {isDeclared: true, closeFirst: answerOnBoard, wantState: "answered", wantReason: "You answered the decision it waited on, "},
+		"declared to follow a question he dismissed without one": {isCFOsQuestion: true, isDeclared: true, closeFirst: dismiss, wantState: "open", isHeld: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -108,30 +129,30 @@ func TestAGoblinsWaitRaisedWhileItsDecisionIsOpenFollowsItByID(t *testing.T) {
 			_, _, _, cfo := primaryFixture(t, store)
 			servePipe(t, store, cfo)
 			meta, record, _, connection := goblinFixture(t, store)
-			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: the parity sizing"); err != nil {
-				t.Fatal(err)
-			}
-			raise := func() {
-				if err := PublishWait(h, meta.ID, record.Seq+1, "Waiting for the Overlord's answer on the parity sizing", "", "", test.link); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if test.isRaisedFirst {
-				raise()
-			}
-			if test.cfoDecides {
+			var q Question
+			if test.isCFOsQuestion {
 				if err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID); err != nil {
 					t.Fatal(err)
 				}
 				if err := store.ingestQuestions(); err != nil {
 					t.Fatal(err)
 				}
+				q = store.Snapshot().Questions[0]
+			} else {
+				q = surfaced(t, store, meta, record, connection)
 			}
-			if test.goblinAsks {
-				surfaced(t, store, meta, record, connection)
+			if test.closeFirst != nil {
+				test.closeFirst(t, store, q)
 			}
-			if !test.isRaisedFirst {
-				raise()
+			follows := ""
+			if test.isDeclared {
+				follows = q.ID
+			}
+			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: the parity sizing"); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, record.Seq+1, "Waiting for the Overlord's answer on the parity sizing", "", "", "", follows); err != nil {
+				t.Fatal(err)
 			}
 
 			// Act
@@ -142,18 +163,23 @@ func TestAGoblinsWaitRaisedWhileItsDecisionIsOpenFollowsItByID(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := store.Snapshot().Reviews
-			if len(got) != 1 || !strings.HasPrefix(got[0].Follows, test.want) || test.want == "" && got[0].Follows != "" {
-				t.Fatalf("reviews = %+v, want the wait to follow %q", got, test.want)
+			if len(got) != 1 || got[0].Follows != follows || got[0].State != test.wantState || !strings.HasPrefix(got[0].Reason, test.wantReason) || test.wantReason != "" && !strings.Contains(got[0].Reason, q.ID) {
+				t.Fatalf("reviews = %+v, want the wait %s following %q, reason %q naming %s", got, test.wantState, follows, test.wantReason, q.ID)
+			}
+			isHeld := slices.ContainsFunc(waitingOnOverlord(store.Snapshot()), func(item heldItem) bool { return item.key() == "review:"+got[0].ID })
+			if isHeld != test.isHeld {
+				t.Errorf("the wait held for him = %t, want %t", isHeld, test.isHeld)
 			}
 		})
 	}
 }
 
-// Answering the decision a goblin's wait follows closes the wait at once, in
-// the same change that records the answer, whoever answers it: his answer
-// from the board, the CFO's, or the CFO's ack of the goblin's question once
-// it answered it another way. Nothing stays open behind an answered
-// decision for the board to hide, and a wait that follows nothing stays open.
+// Answering the decision a goblin declared its wait to follow closes the wait
+// at once, in the same change that records the answer, whoever answers it:
+// his answer from the board, the CFO's, or the CFO's ack of the goblin's
+// question once it answered it another way. Nothing stays open behind an
+// answered decision for the board to hide, and a wait that follows nothing
+// stays open.
 func TestAnsweringTheDecisionClosesTheWaitsThatFollowIt(t *testing.T) {
 	for name, answer := range map[string]func(t *testing.T, store *Store, q Question, connection *CFOConnection, seq int){
 		"his answer from the board": func(t *testing.T, store *Store, q Question, _ *CFOConnection, _ int) {
@@ -181,7 +207,7 @@ func TestAnsweringTheDecisionClosesTheWaitsThatFollowIt(t *testing.T) {
 			primaryFixture(t, store)
 			meta, record, _, connection := goblinFixture(t, store)
 			servePipe(t, store, connection)
-			if err := PublishWait(h, meta.ID, record.Seq-1, "sign in to Stripe", "", "", ""); err != nil {
+			if err := PublishWait(h, meta.ID, record.Seq-1, "sign in to Stripe", "", "", "", ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -191,7 +217,7 @@ func TestAnsweringTheDecisionClosesTheWaitsThatFollowIt(t *testing.T) {
 			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: the store"); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishWait(h, meta.ID, record.Seq+1, "Waiting for the Overlord's answer on the store", "", "", ""); err != nil {
+			if err := PublishWait(h, meta.ID, record.Seq+1, "Waiting for the Overlord's answer on the store", "", "", "", q.ID); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {

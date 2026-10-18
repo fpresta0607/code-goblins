@@ -102,10 +102,10 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
 // followsDecision says whether a goblin's wait on him follows a decision that
 // is still open, which alone shows (the Overlord, 2026-10-17: "These
 // follow-ups should not be notifications in the Command Center ... But the
-// initial one is critical"). The supervisor ties a wait to the decision open
-// for its task when the wait is raised, by its question's ID, and closes the
-// wait when that decision is answered, so nothing open is ever hidden past
-// its decision.
+// initial one is critical"). The goblin ties its wait to that decision by its
+// question's ID as it raises the wait (cfo notify --follows), and the
+// supervisor closes the wait when that decision is answered, so nothing open
+// is ever hidden past its decision.
 export const followsDecision = (review: Review, snapshot: Snapshot) => !!review.follows && (snapshot.questions || []).some((question) => question.id === review.follows && question.status === "pending");
 
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {

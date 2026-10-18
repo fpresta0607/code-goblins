@@ -388,7 +388,7 @@ func TestPageReceiptRecoveryLeavesRepublishedVersionOpen(t *testing.T) {
 			if err := store.keepPageAnswer(answer); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+			if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			restarted, err := Open(h)
@@ -459,7 +459,7 @@ func TestPageReceiptRecoveryDoesNotGroupAcrossVersions(t *testing.T) {
 	if err := store.keepPageAnswer(answer); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+	if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	restarted, err := Open(h)
@@ -505,7 +505,7 @@ func TestPageReceiptRecoveryDoesNotAnswerAReplacementQuestion(t *testing.T) {
 				t.Fatal(err)
 			}
 			if changed == "version" {
-				if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+				if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, "", ""); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -576,7 +576,7 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(h, meta.ID, record.Seq+20, "review the new version", pageLink, page, ""); err != nil {
+	if err := PublishWait(h, meta.ID, record.Seq+20, "review the new version", pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	restarted, err := Open(h)
@@ -730,7 +730,7 @@ func TestPagePollDoesNotApproveVersionPublishedWhilePolling(t *testing.T) {
 					return axi.PagePoll{Status: "feedback", Output: "Old note"}, nil
 				}
 				if polls == beforePublish+1 {
-					if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+					if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, "", ""); err != nil {
 						t.Error(err)
 					}
 					if err := store.ingestReviews(); err != nil {
@@ -770,7 +770,7 @@ func TestPageReceiptRecoveryStopsIfOldFeedbackCannotBeQueued(t *testing.T) {
 			if err := store.keepPageAnswer(answer); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, ""); err != nil {
+			if err := PublishWait(h, meta.ID, 9, "review the new version", pageLink, page, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			restarted, err := Open(h)
