@@ -12,6 +12,7 @@ import (
 // manifest. The project is named as its folder is spelled on disk, and the
 // names inside the home's files are compared without regard to case.
 func TestAProjectNamedInAnotherLetterCaseIsTheSameProject(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("project.json", `{"project":"NorthWind","verification":{"fast":[["go","vet","./..."]]}}`)

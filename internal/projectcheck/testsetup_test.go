@@ -17,6 +17,7 @@ const setupSource = "import os\n\nurl = os.environ[\"DATABASE_URL\"]\n"
 // test command loads before the tests, and a plain script that is the test
 // command. Each is read, through the package script a command runs.
 func TestATestSetupTheCheckHadNoNameForIsRead(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name    string
 		tracked map[string]string
@@ -63,6 +64,7 @@ func TestATestSetupTheCheckHadNoNameForIsRead(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			files := map[string]string{"src/db.py": setupSource}
 			for name, content := range test.tracked {
@@ -90,6 +92,7 @@ func TestATestSetupTheCheckHadNoNameForIsRead(t *testing.T) {
 // A file that only shares a name with a test setup is none: a pyproject.toml
 // with no pytest section says nothing of how tests start.
 func TestAProjectFileWithNoTestSectionIsNoTestSetup(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"src/db.py":         setupSource,
@@ -114,6 +117,7 @@ func TestAProjectFileWithNoTestSectionIsNoTestSetup(t *testing.T) {
 // "none this check knows", which reads as a setup the check could not find.
 // It now says what the test command starts and that such a suite has none.
 func TestASuiteWithNoSetupFileIsNamedAsOne(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, gate string
 		tracked    map[string]string
@@ -124,6 +128,7 @@ func TestASuiteWithNoSetupFileIsNamedAsOne(t *testing.T) {
 		{"go test", "go test ./...", nil, []string{"go test", "has no setup file"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			files := map[string]string{".no-mistakes.yaml": "commands:\n  test: \"" + test.gate + "\"\n"}
 			for name, content := range test.tracked {
@@ -147,6 +152,7 @@ func TestASuiteWithNoSetupFileIsNamedAsOne(t *testing.T) {
 // A test command the check can make nothing of still says so, so a setup it
 // could not find does not read as a suite that has none.
 func TestATestCommandOfNoKnownKindStillSaysNoSetupIsKnown(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".no-mistakes.yaml": "commands:\n  test: \"make check\"\n"})
 
@@ -161,8 +167,10 @@ func TestATestCommandOfNoKnownKindStillSaysNoSetupIsKnown(t *testing.T) {
 // node's own test runner was no runner the check knew, so the line said the
 // two could not be compared.
 func TestNodesOwnTestRunnerIsARunnerTheGateAndCIAreComparedBy(t *testing.T) {
+	t.Parallel()
 	for _, runner := range []string{"node --test", "tsx --test"} {
 		t.Run(runner, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{
 				".no-mistakes.yaml":        "commands:\n  test: \"" + runner + " tests/\"\n",
@@ -184,6 +192,7 @@ func TestNodesOwnTestRunnerIsARunnerTheGateAndCIAreComparedBy(t *testing.T) {
 // it reads. Only what a test command runs before or around the tests is
 // setup: the script an interpreter is handed, and the files it preloads.
 func TestATestFileATestCommandNamesIsNoTestSetup(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml": "commands:\n  test: \"npm test\"\n",
@@ -203,6 +212,7 @@ func TestATestFileATestCommandNamesIsNoTestSetup(t *testing.T) {
 // The script an interpreter is handed is what runs around the tests, and
 // what follows it on the line are that script's own arguments.
 func TestOnlyTheScriptATestCommandRunsIsReadAsItsSetup(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml":    "commands:\n  test: \"uv run --no-project scripts/gate_test.py tests/test_db.py\"\n",
@@ -231,6 +241,7 @@ func TestOnlyTheScriptATestCommandRunsIsReadAsItsSetup(t *testing.T) {
 // ends it with a comment. What its suite is gets said once for a runner,
 // with the commands that start it.
 func TestASuiteIsSaidOnceForARunnerWithTheCommandsThatStartIt(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"AGENTS.md": "Run `go test ./...` before a push.\n\n```bash\ngo test ./...          # the unit tests\ngo test -race ./...\n```\n",

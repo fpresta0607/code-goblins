@@ -25,6 +25,7 @@ func fetchedAt(t *testing.T, f fixture) time.Time {
 // check now says when the branch was fetched and asks the remote where it
 // is, by a read that changes nothing in the repository.
 func TestTheReadingSaysWhenItWasFetchedAndThatTheRemoteHasMoved(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n", "AGENTS.md": "Test with `pytest -q`.\n"})
 	f.origin()
@@ -75,6 +76,7 @@ func TestTheReadingSaysWhenItWasFetchedAndThatTheRemoteHasMoved(t *testing.T) {
 // A remote at the commit that was read is said too, so a reading that is
 // current does not look the same as one nobody compared.
 func TestAReadingTheRemoteAgreesWithSaysSo(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.origin()
@@ -102,6 +104,7 @@ func TestAReadingTheRemoteAgreesWithSaysSo(t *testing.T) {
 // hold the remote's address, which can hold a credential, so none of it is
 // printed.
 func TestARemoteThatDoesNotAnswerIsSaidAndItsAddressIsNotPrinted(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.origin()
@@ -125,6 +128,7 @@ func TestARemoteThatDoesNotAnswerIsSaidAndItsAddressIsNotPrinted(t *testing.T) {
 // A checkout with no remote has nothing to compare with, and its lines name
 // the folder's own commit with no fetch to speak of.
 func TestACheckoutWithNoRemoteSaysTheFoldersOwnCommitWasRead(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"AGENTS.md": "Test with `pytest -q`.\n"})
 
@@ -145,6 +149,7 @@ func TestACheckoutWithNoRemoteSaysTheFoldersOwnCommitWasRead(t *testing.T) {
 // home's other files. An area that needs the repository is said to be not
 // assessed, never passed.
 func TestAProjectWithNoCheckoutIsAFindingAndTheHomesFilesAreStillRead(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name  string
 		make  func(t *testing.T, folder string)
@@ -154,6 +159,7 @@ func TestAProjectWithNoCheckoutIsAFindingAndTheHomesFilesAreStillRead(t *testing
 		{"a folder that is no git checkout", func(t *testing.T, folder string) { writeFile(t, filepath.Join(folder, "README.md"), "leftover\n") }, "is not a git checkout"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, nil)
 			gone := filepath.Join(filepath.Dir(f.checkout), "southwind")
@@ -201,6 +207,7 @@ func TestAProjectWithNoCheckoutIsAFindingAndTheHomesFilesAreStillRead(t *testing
 // The name inside auth.json was compared with nothing. One that names
 // another project describes the wrong one, as a record that does.
 func TestAnAuthManifestNamingAnotherProjectIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("auth.json", `{"project":"southwind","services":[]}`)

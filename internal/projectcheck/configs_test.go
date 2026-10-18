@@ -8,6 +8,7 @@ import (
 // An env file git does not ignore is one `git add --all` away from the
 // repository's history, wherever in the checkout it sits.
 func TestAnEnvFileGitDoesNotIgnoreIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": "/.env\n", ".env.example": "PORT=\n"})
 	f.write(".env", "PORT=8000\n")
@@ -39,6 +40,7 @@ func TestAnEnvFileGitDoesNotIgnoreIsReported(t *testing.T) {
 // fact, and the worse one: git cannot ignore a file it tracks, and the
 // repository's history holds what the file held.
 func TestATrackedEnvFileHoldingACredentialIsCriticalAndSaysRotate(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".env": "PORT=8000\nDATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n"})
 
@@ -62,11 +64,13 @@ func TestATrackedEnvFileHoldingACredentialIsCriticalAndSaysRotate(t *testing.T) 
 // repository publishes, and in the folder, which is what the next commit
 // would publish. A folder that lags must not answer alone for either.
 func TestATrackedEnvFileIsReadAtTheDefaultBranchAndInTheFolder(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct{ name, first, second string }{
 		{"the default branch gained a credential the folder's copy lacks", "PORT=8000\n", "PORT=8000\nDATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n"},
 		{"the folder's copy holds a credential the default branch dropped", "PORT=8000\nDATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n", "PORT=8000\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".env.demo": test.first})
 			f.write(".env.demo", test.second)
@@ -91,8 +95,10 @@ func TestATrackedEnvFileIsReadAtTheDefaultBranchAndInTheFolder(t *testing.T) {
 // credentials the file never held. What a tracked env file holds decides, not
 // its name: with no credential in it, it is a low line that says so.
 func TestACommittedEnvFileThatHoldsNoCredentialIsLowAndNeverSaysRotate(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{".env.demo", ".env", "web/.env.development"} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{
 				name: "# Committed on purpose: the local demo stack.\nNEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321\nPORT=3000\nPLAID_ENV=sandbox\nPLAID_SECRET=demo-plaid-secret\n",
@@ -121,6 +127,7 @@ func TestACommittedEnvFileThatHoldsNoCredentialIsLowAndNeverSaysRotate(t *testin
 // A credential in a file git does not ignore is the worst of it, and the
 // report names the variable without ever repeating its value.
 func TestAnUnignoredEnvFileHoldingACredentialIsCriticalAndNeverPrintsIt(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	secret := "sk_live_" + strings.Repeat("a1B2", 8)
 	f := newFixture(t, nil)
@@ -141,6 +148,7 @@ func TestAnUnignoredEnvFileHoldingACredentialIsCriticalAndNeverPrintsIt(t *testi
 }
 
 func TestAProjectWhoseEnvFilesAreAllIgnoredPasses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": ".env*\n!.env.example\n", ".env.example": "PORT=\n"})
 	f.write(".env", "PORT=8000\n")
@@ -157,6 +165,7 @@ func TestAProjectWhoseEnvFilesAreAllIgnoredPasses(t *testing.T) {
 
 // A worktree manifest the loader refuses stops the project's next spawn.
 func TestAnInvalidWorktreeManifestIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("worktree.json", `{"project":"northwind","dependencies":{"strategy":"copy"}}`)
@@ -176,6 +185,7 @@ func TestAnInvalidWorktreeManifestIsReported(t *testing.T) {
 // the checkout, and what it installs with is a program this machine has
 // reading files the repository holds.
 func TestAWorktreeManifestThatDisagreesWithTheRepositoryIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"requirements.txt": "flask\n"})
 	f.write(".env", "PORT=8000\n")
@@ -201,6 +211,7 @@ func TestAWorktreeManifestThatDisagreesWithTheRepositoryIsReported(t *testing.T)
 }
 
 func TestAWorktreeManifestThatAgreesWithTheRepositoryPasses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"requirements.txt": "flask\n"})
 	f.write(".env", "PORT=8000\n")
@@ -218,6 +229,7 @@ func TestAWorktreeManifestThatAgreesWithTheRepositoryPasses(t *testing.T) {
 // A services manifest agrees with the repository when its compose file is
 // there, holds the services it names, and its check is a program that exists.
 func TestAServicesManifestThatDisagreesWithTheRepositoryIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"docker-compose.dev.yml": "services:\n  backend:\n    image: app\n  worker:\n    image: app\n"})
 	f.manifest("services.json", `{"project":"northwind","compose":"docker-compose.dev.yml","env_file":".env.docker.local","services":["backend","cache"],"check":["nosuchshell","-File","guard.ps1"],"memory_estimate_gb":2}`)
@@ -238,6 +250,7 @@ func TestAServicesManifestThatDisagreesWithTheRepositoryIsReported(t *testing.T)
 }
 
 func TestAServicesManifestNamingAMissingComposeFileIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("services.json", `{"project":"northwind","compose":"compose.yml","services":["backend"],"memory_estimate_gb":2}`)
@@ -256,6 +269,7 @@ func TestAServicesManifestNamingAMissingComposeFileIsReported(t *testing.T) {
 // An env file a local stack starts from can name production, and a services
 // manifest with no check starts the stack without anything having looked.
 func TestAServicesManifestWithAnEnvFileAndNoCheckIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"compose.yml": "services:\n  backend:\n    image: app\n"})
 	f.write(".env.docker.local", "PORT=8000\n")
@@ -274,6 +288,7 @@ func TestAServicesManifestWithAnEnvFileAndNoCheckIsReported(t *testing.T) {
 }
 
 func TestAServicesManifestThatAgreesWithTheRepositoryPasses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"compose.yml": "services:\n  backend:\n    image: app\n", "guard.ps1": "exit 0\n"})
 	f.write(".env.docker.local", "PORT=8000\n")
@@ -293,6 +308,7 @@ func TestAServicesManifestThatAgreesWithTheRepositoryPasses(t *testing.T) {
 // a worktree kept inside the checkout, and its env files are not this
 // project's to answer for.
 func TestEnvFilesOfARepositoryNestedInTheCheckoutAreNotExamined(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.write("clones/other/.git/HEAD", "ref: refs/heads/main\n")
@@ -313,6 +329,7 @@ func TestEnvFilesOfARepositoryNestedInTheCheckoutAreNotExamined(t *testing.T) {
 // checkout holds: a worktree is given an env file only when the manifest
 // names it.
 func TestAWorktreeManifestWithNoLinkSharesNothing(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": ".env*\n"})
 	f.write(".env", "PORT=8000\n")
@@ -328,6 +345,7 @@ func TestAWorktreeManifestWithNoLinkSharesNothing(t *testing.T) {
 }
 
 func TestAWorktreeManifestThatSharesNothingSaysSo(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("worktree.json", `{"project":"northwind","link":[]}`)

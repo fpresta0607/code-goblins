@@ -10,6 +10,7 @@ import (
 // folder that was fetched and never pulled answered for an older repository:
 // two false highs on one project, whose folder was 158 commits behind.
 func TestAPackageScriptIsLookedUpAtTheCommitItsCommandCameFrom(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"package.json": `{"scripts":{"old":"node old.js"}}`})
 	f.write("package.json", `{"scripts":{"type-check":"tsc --noEmit","test:cms":"node --test"}}`)
@@ -31,6 +32,7 @@ func TestAPackageScriptIsLookedUpAtTheCommitItsCommandCameFrom(t *testing.T) {
 // The other way round, a folder's own copy must not vouch for a script the
 // default branch does not have: a worktree is cut from the default branch.
 func TestAPackageScriptOnlyTheFoldersCopyDefinesIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml": "commands:\n  lint: \"npm run lint\"\n",
@@ -50,6 +52,7 @@ func TestAPackageScriptOnlyTheFoldersCopyDefinesIsReported(t *testing.T) {
 // the folder sits on tracks is not in a worktree, and a file the default
 // branch gained since the folder was last pulled is.
 func TestAFileACommandNamesIsJudgedByTheDefaultBranch(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"AGENTS.md":            "Check with `python scripts/old_check.py`, test with `python scripts/new_test.py` and `./scripts/test.sh --all`.\n",
@@ -78,6 +81,7 @@ func TestAFileACommandNamesIsJudgedByTheDefaultBranch(t *testing.T) {
 // What a command writes does not have to exist before it runs. The target of
 // go build -o was read as a package folder, which is half of a false high.
 func TestAFileACommandWritesIsNotOneThatMustExist(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct{ name, command string }{
 		{"the target of -o", "go build -o ./bin/app ./cmd/app"},
 		{"the target of a flag named for output", "npx esbuild src/app.ts --outfile dist/app.js"},
@@ -86,6 +90,7 @@ func TestAFileACommandWritesIsNotOneThatMustExist(t *testing.T) {
 		{"the destination of a copy", "cp scripts/hook.sh hooks/pre-commit.sh"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{
 				".no-mistakes.yaml":    "commands:\n  format: \"" + test.command + "\"\n",
@@ -107,12 +112,14 @@ func TestAFileACommandWritesIsNotOneThatMustExist(t *testing.T) {
 // The rule passes over what is written and nothing else: a package or a
 // script the same command reads is still reported when it is not there.
 func TestWhatACommandReadsBesideWhatItWritesIsStillReported(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct{ name, command, missing, written string }{
 		{"the package of go build -o", "go build -o ./bin/app ./cmd/gone", "cmd/gone", "bin/app"},
 		{"the script before a redirect", "node scripts/gone.mjs > src/generated.ts", "scripts/gone.mjs", "src/generated.ts"},
 		{"the source of a copy", "cp scripts/gone.sh hooks/pre-commit.sh", "scripts/gone.sh", "hooks/pre-commit.sh"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".no-mistakes.yaml": "commands:\n  format: \"" + test.command + "\"\n"})
 
@@ -135,6 +142,7 @@ func TestWhatACommandReadsBesideWhatItWritesIsStillReported(t *testing.T) {
 // environment, missing where he had not, and neither says what a goblin's
 // worktree will hold.
 func TestAFileGitDoesNotTrackIsJudgedByWhatAWorktreeWillHave(t *testing.T) {
+	t.Parallel()
 	const venv = ".venv/Scripts/python.exe scripts/pytest_changed.py"
 	const vitest = "node_modules/.bin/vitest.cmd run"
 	for _, test := range []struct {
@@ -157,6 +165,7 @@ func TestAFileGitDoesNotTrackIsJudgedByWhatAWorktreeWillHave(t *testing.T) {
 		{name: "a script only the folder holds", command: "python scripts/local_test.py", held: []string{"scripts/local_test.py"}, missing: "a worktree is not given it"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			tracked := map[string]string{"AGENTS.md": "Test with `" + test.command + "`.\n", "scripts/pytest_changed.py": "print('changed')\n", ".gitignore": ".venv/\nnode_modules/\nscripts/local_test.py\n"}
 			for name, content := range test.tracked {
@@ -188,6 +197,7 @@ func TestAFileGitDoesNotTrackIsJudgedByWhatAWorktreeWillHave(t *testing.T) {
 // The record's tiers are commands a worktree runs too, so a tier that
 // starts a program the install makes is found by the same rule.
 func TestARecordTierThatStartsAProgramTheInstallMakesIsFound(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"uv.lock": "version = 1\n", "scripts/gate_test.py": "print('gate')\n"})
 	f.manifest("project.json", `{"project":"northwind","verification":{"fast":[[".venv/Scripts/python.exe","scripts/gate_test.py"]]}}`)
