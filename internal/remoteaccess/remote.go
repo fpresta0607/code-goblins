@@ -207,6 +207,14 @@ func tailscaleStateOf(err error) string {
 	return "unavailable"
 }
 
+// errNoAnswer is a Tailscale command its 15 seconds ran out on.
+var errNoAnswer = errors.New("did not answer within 15 seconds")
+
+// approvalHint names why a first serve times out: on a tailnet that has not
+// approved Serve or HTTPS it prints the approval link and waits for it
+// without end. Only serve --bg waits so.
+const approvalHint = "; it may be waiting for Serve or HTTPS to be approved for your tailnet"
+
 // program is the Tailscale CLI. Its Windows installer puts it in Program
 // Files and adds that folder to the machine's PATH, which a board started
 // before the install does not have, so the folder is looked in too.
@@ -232,9 +240,7 @@ func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
 	case errors.Is(err, exec.ErrNotFound):
 		return nil, errNotInstalled
 	case errors.Is(err, context.DeadlineExceeded):
-		// A first serve on a tailnet that has not approved Serve or HTTPS
-		// prints the approval link and waits for it without end.
-		return nil, errors.New("Tailscale did not answer within 15 seconds; it may be waiting for Serve or HTTPS to be approved for your tailnet")
+		return nil, fmt.Errorf("tailscale %s %w", strings.Join(args, " "), errNoAnswer)
 	case err != nil:
 		return nil, fmt.Errorf("Tailscale could not be run: %w", err)
 	}
@@ -498,6 +504,9 @@ func (m *Manager) Enable(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	if _, err := m.command(ctx, "serve", "--bg", "--https=4311", m.Target); err != nil {
+		if errors.Is(err, errNoAnswer) {
+			err = fmt.Errorf("%w%s", err, approvalHint)
+		}
 		return Status{}, fmt.Errorf("remote access is off: %w. In an Administrator terminal run tailscale serve --bg --https=4311 %s and follow its HTTPS approval link, then run cfo remote on again", err, m.Target)
 	}
 	config, err = m.serving(ctx)
@@ -550,6 +559,9 @@ func (m *Manager) Disable(ctx context.Context) error {
 		return nil
 	}
 	config, err := m.serving(ctx)
+	if errors.Is(err, errRefused) {
+		return errors.New("remote access is revoked; Tailscale is not running on this PC, so its proxy is still there: start Tailscale, then run cfo remote off again")
+	}
 	if err != nil {
 		return fmt.Errorf("remote access is revoked; proxy cleanup needs Tailscale: %w", err)
 	}
