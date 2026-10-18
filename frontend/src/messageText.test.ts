@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { leadAndRest, messageBlocks, messageElements, plainMessage } from "./messageText.ts";
+import { leadAndRest, linkedText, messageBlocks, messageElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -18,6 +18,31 @@ test("markup and entities in a question are shown as text, never interpreted; on
   assert.equal(html('<img src=x onerror="alert(1)"> & **<b>bold?</b>**'), '<p>&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; <strong>&lt;b&gt;bold?&lt;/b&gt;</strong></p>');
   assert.equal(html("[link](javascript:alert(1)) `code` _em_"), "<p>[link](javascript:alert(1)) <code>code</code> _em_</p>");
   assert.equal(html("`<script>alert(1)</script>`"), "<p><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></p>");
+});
+
+for (const [name, text, want] of [
+  ["an https address", "Roll it at https://github.com/settings/tokens.", '<p>Roll it at <a class="message-link" href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">https://github.com/settings/tokens</a>.</p>'],
+  ["an http address in brackets", "(page http://127.0.0.1:4387/session/f26e)", '<p>(page <a class="message-link" href="http://127.0.0.1:4387/session/f26e" target="_blank" rel="noreferrer">http://127.0.0.1:4387/session/f26e</a>)</p>'],
+  ["a backticked address", "Open `https://github.com/settings/tokens`", '<p>Open <a class="message-link" href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">https://github.com/settings/tokens</a></p>'],
+  ["a bold address", "**https://example.com/a?b=1**", '<p><strong><a class="message-link" href="https://example.com/a?b=1" target="_blank" rel="noreferrer">https://example.com/a?b=1</a></strong></p>'],
+  ["other schemes", "ftp://example.com, javascript:alert(1) and file:///C:/x", "<p>ftp://example.com, javascript:alert(1) and file:///C:/x</p>"],
+  ["a quote ending an address", 'see "https://example.com/x" now', '<p>see &quot;<a class="message-link" href="https://example.com/x" target="_blank" rel="noreferrer">https://example.com/x</a>&quot; now</p>'],
+] as const) {
+  test(`${name} in a message is a link only when it is http or https`, () => {
+    // Arrange, act
+    const shown = html(text);
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}
+
+test("a line of plain text links its addresses and nothing else", () => {
+  // Arrange, act
+  const shown = renderToStaticMarkup(linkedText("Answered: **done** at https://github.com/example/board/pull/412"));
+
+  // Assert
+  assert.equal(shown, 'Answered: **done** at <a class="message-link" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer">https://github.com/example/board/pull/412</a>');
 });
 
 test("a blank line starts a new paragraph and a single line break is kept inside one", () => {
