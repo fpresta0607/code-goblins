@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -35,6 +36,15 @@ type scrawlHealth struct {
 
 var scrawlClient = &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
+// What can be wrong with the Scrawl server behind the private route, each a
+// state the Scrawl switch shows in a word (scrawlStatus). A stopped server
+// is not wrong: the first review a phone opens starts it again.
+var (
+	errScrawlStopped  = errors.New("Scrawl is stopped; it starts with the next review")
+	errScrawlForeign  = errors.New("the Scrawl port belongs to another or older server; update Scrawl and check LAVISH_AXI_PORT on this PC")
+	errScrawlOutdated = errors.New("Scrawl does not report its network listeners; update Scrawl on this PC")
+)
+
 func readScrawl(ctx context.Context, c Config) (scrawlHealth, error) {
 	r, err := http.NewRequestWithContext(ctx, "GET", c.ScrawlTarget+"/health", nil)
 	if err != nil {
@@ -42,12 +52,19 @@ func readScrawl(ctx context.Context, c Config) (scrawlHealth, error) {
 	}
 	response, err := scrawlClient.Do(r)
 	if err != nil {
-		return scrawlHealth{}, errors.New("Scrawl is stopped; open a review on this PC or choose Set up Scrawl")
+		// Nothing listening is a stopped Scrawl, which the next review starts;
+		// a listener that does not answer as Scrawl is some other server.
+		conn, dialErr := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", strings.TrimPrefix(c.ScrawlTarget, "http://"))
+		if dialErr != nil {
+			return scrawlHealth{}, errScrawlStopped
+		}
+		conn.Close()
+		return scrawlHealth{}, errScrawlForeign
 	}
 	defer response.Body.Close()
 	var h scrawlHealth
 	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 256<<10)).Decode(&h) != nil || h.App != "lavish-axi" || h.StateID == "" || !strings.EqualFold(filepath.Clean(h.StateDir), filepath.Clean(c.ScrawlState)) {
-		return scrawlHealth{}, errors.New("the Scrawl port belongs to another or older server; update Scrawl and check LAVISH_AXI_PORT on this PC")
+		return scrawlHealth{}, errScrawlForeign
 	}
 	return h, nil
 }
@@ -60,37 +77,53 @@ func privateScrawl(ctx context.Context, c Config) error {
 	link, err := url.Parse(h.LinkOrigin)
 	target, _ := url.Parse(c.ScrawlTarget)
 	if err != nil || link.Scheme != "http" || link.Port() != target.Port() || link.User != nil || link.Path != "" || link.RawQuery != "" || link.Fragment != "" || (link.Hostname() != "localhost" && (net.ParseIP(link.Hostname()) == nil || !net.ParseIP(link.Hostname()).IsLoopback())) {
-		return errors.New("Scrawl still advertises another network origin; choose Set up Scrawl to restart it privately")
+		return errors.New("Scrawl still advertises another network origin; turn Scrawl reviews off and on again on this PC to restart it privately")
 	}
 	for _, hosts := range [][]string{h.Hosts, h.RequestedHosts} {
 		if len(hosts) == 0 {
-			return errors.New("Scrawl does not report its network listeners; update Scrawl on this PC")
+			return errScrawlOutdated
 		}
 		for _, host := range hosts {
 			ip := net.ParseIP(host)
 			if ip == nil || !ip.IsLoopback() {
-				return errors.New("Scrawl also listens outside this PC; choose Set up Scrawl to restart it privately and preserve its sessions")
+				return errors.New("Scrawl also listens outside this PC; turn Scrawl reviews off and on again on this PC to restart it privately, keeping its sessions")
 			}
 		}
 	}
 	return nil
 }
 
-func (m *Manager) scrawlStatus(ctx context.Context, c Config, serving serveConfig) (bool, string) {
-	if !c.Scrawl {
-		return false, "Set up Scrawl to open reviews through the same private connection."
+// scrawlStatus is Scrawl reviews' state in a word (Status.ScrawlState), in
+// full, and the command that mends it where one does. A route of the owner's
+// own that serves Scrawl straight to the tailnet shows even while reviews are
+// off: Scrawl then answers phones, but without the owner check.
+func (m *Manager) scrawlStatus(ctx context.Context, c Config, serving serveConfig) (string, string, string) {
+	direct := c
+	if direct.ScrawlTarget == "" {
+		direct.ScrawlTarget, _, _ = scrawlSettings()
 	}
-	if directScrawlProxy(serving, c) {
-		return false, "An existing Tailscale route bypasses private Scrawl access. Remove that direct Scrawl route in Tailscale, then run Set up Scrawl again."
+	if direct.ScrawlTarget != "" {
+		if isDirect, fix := directScrawlRoute(serving, direct); isDirect {
+			return "bypassed", "Your own Tailscale route serves Scrawl to your tailnet without the owner check. Remove it in Tailscale, then turn Scrawl reviews on.", fix
+		}
+	}
+	if !c.Scrawl {
+		return "", "Turn Scrawl reviews on to open reviews through the same private connection.", ""
 	}
 	route := c.scrawlRoute()
 	if portOwner(serving, route) != "own" || serving.AllowFunnel[strings.TrimPrefix(route.Origin, "https://")] {
-		return false, "Scrawl's private proxy needs setup again on this PC."
+		return "unrouted", "Scrawl's private route is missing or changed; turn Scrawl reviews off and on again on this PC.", ""
 	}
-	if err := privateScrawl(ctx, c); err != nil {
-		return false, err.Error()
+	err := privateScrawl(ctx, c)
+	switch {
+	case err == nil, errors.Is(err, errScrawlStopped):
+		return "on", "", ""
+	case errors.Is(err, errScrawlForeign):
+		return "foreign", err.Error(), ""
+	case errors.Is(err, errScrawlOutdated):
+		return "outdated", err.Error(), ""
 	}
-	return true, ""
+	return "exposed", err.Error(), ""
 }
 
 // LocalScrawlEnvironment scopes the network policy to Code Goblins children.
@@ -146,11 +179,11 @@ func (m *Manager) EnableScrawl(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	if !c.Enabled || c.Target != m.Target {
-		return Status{}, errors.New("enable private board access first")
+		return Status{}, errors.New("turn Tailscale on first")
 	}
-	origin, login, err := m.identity(ctx)
-	if err != nil || origin != c.Origin || login != c.Login {
-		return Status{}, errors.New("check the PC's Tailscale account and enable private board access again")
+	me, err := m.identity(ctx)
+	if err != nil || me.origin != c.Origin || me.login != c.Login {
+		return Status{}, errors.New("check the PC's Tailscale account, then turn Tailscale off and on again")
 	}
 	previous := c
 	c.ScrawlTarget, c.ScrawlState, err = scrawlSettings()
@@ -164,8 +197,8 @@ func (m *Manager) EnableScrawl(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if directScrawlProxy(config, c) {
-		return Status{}, errors.New("an existing Tailscale route points directly at Scrawl; remove that route in Tailscale first, then choose Set up Scrawl and reopen older HTTPS reviews on this PC")
+	if isDirect, _ := directScrawlRoute(config, c); isDirect {
+		return Status{}, errors.New("your own Tailscale route serves Scrawl without the owner check; remove that route in Tailscale first, then turn Scrawl reviews on and reopen older HTTPS reviews on this PC")
 	}
 	route := c.scrawlRoute()
 	if owner := portOwner(config, route); owner != "" && (previous.ScrawlTarget == "" || portOwner(config, previous.scrawlRoute()) != "own") {
@@ -197,6 +230,55 @@ func (m *Manager) EnableScrawl(ctx context.Context) (Status, error) {
 	return m.Status(ctx), nil
 }
 
+// DisableScrawl turns Scrawl reviews off: phones lose them at once, Scrawl's
+// own route is removed and the board's is kept. Scrawl keeps running on this
+// PC, on loopback. A route on port 4312 that is not its own is left as it is.
+func (m *Manager) DisableScrawl(ctx context.Context) (Status, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	release, err := m.acquire()
+	if err != nil {
+		return Status{}, err
+	}
+	defer release()
+	c, err := Read(m.State)
+	if err != nil {
+		return Status{}, err
+	}
+	if c.ScrawlTarget == "" {
+		return m.Status(ctx), nil
+	}
+	c.Scrawl = false
+	if err := write(m.State, c); err != nil {
+		return Status{}, err
+	}
+	route := c.scrawlRoute()
+	config, err := m.serving(ctx)
+	if err != nil {
+		return Status{}, fmt.Errorf("Scrawl reviews are off; removing their route needs Tailscale: %w", err)
+	}
+	switch portOwner(config, route) {
+	case "other":
+		return Status{}, errors.New("Scrawl reviews are off; Tailscale port 4312 now serves something else and was left unchanged")
+	case "own":
+		if _, err := m.command(ctx, "serve", "--https=4312", "off"); err != nil {
+			return Status{}, fmt.Errorf("Scrawl reviews are off; their route could not be removed: %w", err)
+		}
+		after, err := m.serving(ctx)
+		if err != nil {
+			return Status{}, fmt.Errorf("Scrawl reviews are off; their route could not be read back: %w", err)
+		}
+		if portOwner(after, route) != "" {
+			return Status{}, errors.New("Scrawl reviews are off; Tailscale still reports port 4312")
+		}
+	}
+	c.ScrawlTarget, c.ScrawlState = "", ""
+	if err := write(m.State, c); err != nil {
+		return Status{}, err
+	}
+	return m.Status(ctx), nil
+}
+
 func (m *Manager) startScrawl(ctx context.Context, c Config, restart bool) error {
 	m.scrawlMu.Lock()
 	defer m.scrawlMu.Unlock()
@@ -212,7 +294,7 @@ func (m *Manager) startScrawl(ctx context.Context, c Config, restart bool) error
 			return healthErr
 		}
 	} else if !restart {
-		return errors.New("Scrawl's network settings changed; run Set up Scrawl on this PC")
+		return errors.New("Scrawl's network settings changed; turn Scrawl reviews off and on again on this PC")
 	}
 	env := LocalScrawlEnvironment(os.Environ())
 	env = append(env, "LAVISH_AXI_STATE_DIR="+c.ScrawlState, "LAVISH_AXI_PORT="+strings.TrimPrefix(c.ScrawlTarget, "http://127.0.0.1:"))
@@ -227,7 +309,7 @@ func (m *Manager) startScrawl(ctx context.Context, c Config, restart bool) error
 	if h.App != "" {
 		result, err := runner.Run(ctx, execx.Request{Name: "lavish-axi", Args: []string{"stop"}, Dir: profile, Env: env})
 		if err != nil || result.ExitCode != 0 {
-			return errors.New("Scrawl could not be restarted; run lavish-axi stop on this PC, then try Set up Scrawl again")
+			return errors.New("Scrawl could not be restarted; run lavish-axi stop on this PC, then turn Scrawl reviews on again")
 		}
 	}
 	starter := m.Starter
@@ -235,7 +317,7 @@ func (m *Manager) startScrawl(ctx context.Context, c Config, restart bool) error
 		starter = execx.OSRunner{}
 	}
 	if err := starter.Start(ctx, execx.Request{Name: "lavish-axi", Args: []string{"server"}, Dir: profile, Env: env}); err != nil {
-		return errors.New("install or update Scrawl with Code Goblins on this PC, then try Set up Scrawl again")
+		return errors.New("install or update Scrawl with Code Goblins on this PC, then turn Scrawl reviews on again")
 	}
 	deadline := time.NewTimer(8 * time.Second)
 	defer deadline.Stop()
@@ -301,7 +383,7 @@ func (m *Manager) serveScrawl(w http.ResponseWriter, r *http.Request, c Config) 
 func (m *Manager) ScrawlLink(ctx context.Context, raw string) (string, error) {
 	c, err := Read(m.State)
 	if err != nil || !c.Enabled || !c.Scrawl {
-		return "", errors.New("set up Scrawl in the CFO Task panel on this PC first")
+		return "", errors.New("turn Scrawl reviews on in the CFO Task panel on this PC first")
 	}
 	u, err := url.Parse(raw)
 	target, _ := url.Parse(c.ScrawlTarget)
@@ -337,34 +419,55 @@ func (m *Manager) ScrawlLink(ctx context.Context, raw string) (string, error) {
 	return u.String(), nil
 }
 
-// A direct Serve route would bypass the owner gate. It belongs to the user,
-// so setup diagnoses it and never silently takes over or removes that route.
-func directScrawlProxy(config serveConfig, c Config) bool {
+// directScrawlRoute finds a Serve route straight to Scrawl, which would
+// bypass the owner gate, and the command that removes it. The route is the
+// user's, so setup diagnoses it and never takes it over or removes it; the
+// command is for him to run, and there is none for a route inside a
+// foreground serve or a Tailscale service, which their own definitions hold.
+func directScrawlRoute(config serveConfig, c Config) (bool, string) {
 	target, _ := url.Parse(c.ScrawlTarget)
-	for _, raw := range config.TCP {
+	isLoopback := func(host string) bool {
+		ip := net.ParseIP(host)
+		return host == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	off := func(flag, port string) string {
+		if _, err := strconv.Atoi(port); err != nil {
+			return ""
+		}
+		return "tailscale serve --" + flag + "=" + port + " off"
+	}
+	for port, raw := range config.TCP {
 		var tcp struct{ TCPForward string }
 		if json.Unmarshal(raw, &tcp) == nil {
-			host, port, err := net.SplitHostPort(tcp.TCPForward)
-			if err == nil && port == target.Port() && (host == "localhost" || net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()) {
-				return true
+			host, forwarded, err := net.SplitHostPort(tcp.TCPForward)
+			if err == nil && forwarded == target.Port() && isLoopback(host) {
+				return true, off("tcp", port)
 			}
 		}
 	}
-	for _, web := range config.Web {
+	for key, web := range config.Web {
 		for _, handler := range web.Handlers {
 			u, err := url.Parse(handler.Proxy)
-			if err == nil && u.Scheme == "http" && u.Port() == target.Port() && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback()) {
-				return true
+			if err == nil && u.Scheme == "http" && u.Port() == target.Port() && isLoopback(u.Hostname()) {
+				_, port, _ := net.SplitHostPort(key)
+				var mode struct{ HTTP bool }
+				_ = json.Unmarshal(config.TCP[port], &mode)
+				if mode.HTTP {
+					return true, off("http", port)
+				}
+				return true, off("https", port)
 			}
 		}
 	}
 	for _, children := range []map[string]json.RawMessage{config.Foreground, config.Services} {
 		for _, raw := range children {
 			var child serveConfig
-			if json.Unmarshal(raw, &child) == nil && directScrawlProxy(child, c) {
-				return true
+			if json.Unmarshal(raw, &child) == nil {
+				if isDirect, _ := directScrawlRoute(child, c); isDirect {
+					return true, ""
+				}
 			}
 		}
 	}
-	return false
+	return false, ""
 }

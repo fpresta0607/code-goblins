@@ -140,17 +140,64 @@ type Manager struct {
 }
 
 type Status struct {
-	Enabled     bool   `json:"enabled"`
-	Ready       bool   `json:"ready"`
-	URL         string `json:"url,omitempty"`
-	Login       string `json:"login,omitempty"`
-	Issue       string `json:"issue,omitempty"`
+	Enabled bool   `json:"enabled"`
+	Ready   bool   `json:"ready"`
+	URL     string `json:"url,omitempty"`
+	Login   string `json:"login,omitempty"`
+	Issue   string `json:"issue,omitempty"`
+	// Attention is what Issue names, in a word: settings, when they cannot
+	// be read, and while remote access is on a state of its Tailscale
+	// (tailscaleStates), board_moved, account_changed, funnel,
+	// route_missing or start_at_login.
+	Attention string `json:"attention,omitempty"`
+	// Tailscale is, while remote access is off and only when Detect has read
+	// it, what this PC's Tailscale is for turning it on: ready; no_https,
+	// signed in on a tailnet that has not approved HTTPS; or what it lacks
+	// (tailscaleStates), which TailscaleIssue says in full.
+	Tailscale      string `json:"tailscale,omitempty"`
+	TailscaleIssue string `json:"tailscale_issue,omitempty"`
+	// Fix is the command that mends what Tailscale names, where one does.
+	Fix string `json:"fix,omitempty"`
+	// Scrawl is whether Scrawl reviews are on, and ScrawlState their state:
+	// on, or what is wrong (bypassed, exposed, foreign, outdated or
+	// unrouted), which ScrawlIssue says in full and ScrawlFix mends where a
+	// command does.
+	Scrawl      bool   `json:"scrawl"`
+	ScrawlState string `json:"scrawl_state,omitempty"`
 	ScrawlReady bool   `json:"scrawl_ready"`
 	ScrawlIssue string `json:"scrawl_issue,omitempty"`
+	ScrawlFix   string `json:"scrawl_fix,omitempty"`
 }
 
 // errRefused is a Tailscale command that ran and exited with an error.
 var errRefused = errors.New("Tailscale refused the request; in an Administrator terminal, check tailscale status and tailscale serve --help, then enable HTTPS in your tailnet")
+
+// What this PC's Tailscale can lack for remote access. errNotInstalled is a
+// Tailscale CLI found neither on PATH nor where its installer puts it.
+var (
+	errNotInstalled = errors.New("Tailscale is not installed on this PC; install it from https://tailscale.com/download and sign in")
+	errNotRunning   = errors.New("Tailscale is not running on this PC; start Tailscale and sign in")
+	errSignedOut    = errors.New("Tailscale is signed out on this PC; open Tailscale and sign in")
+	errDisconnected = errors.New("Tailscale is not connected on this PC; open Tailscale and connect")
+	errUnsuitable   = errors.New("remote access needs an untagged PC signed in to your Tailscale account, with MagicDNS and HTTPS enabled")
+)
+
+// tailscaleStates name each lack in a word, for Status.Tailscale and
+// Status.Attention; anything else that kept Tailscale from answering is
+// unavailable.
+var tailscaleStates = []struct {
+	err  error
+	name string
+}{{errNotInstalled, "missing"}, {errNotRunning, "stopped"}, {errSignedOut, "signed_out"}, {errDisconnected, "disconnected"}, {errUnsuitable, "unsuitable"}}
+
+func tailscaleStateOf(err error) string {
+	for _, state := range tailscaleStates {
+		if errors.Is(err, state.err) {
+			return state.name
+		}
+	}
+	return "unavailable"
+}
 
 // program is the Tailscale CLI. Its Windows installer puts it in Program
 // Files and adds that folder to the machine's PATH, which a board started
@@ -175,7 +222,7 @@ func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
 	result, err := runner.Run(ctx, execx.Request{Name: program(), Args: args})
 	switch {
 	case errors.Is(err, exec.ErrNotFound):
-		return nil, errors.New("Tailscale is not installed on this PC; install it from https://tailscale.com/download and sign in")
+		return nil, errNotInstalled
 	case errors.Is(err, context.DeadlineExceeded):
 		// A first serve on a tailnet that has not approved Serve or HTTPS
 		// prints the approval link and waits for it without end.
@@ -190,16 +237,25 @@ func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
 	return result.Stdout, nil
 }
 
-func (m *Manager) identity(ctx context.Context) (string, string, error) {
+// tailnetSelf is this PC as its Tailscale reports it: the board's private
+// origin, the signed-in owner, and whether the tailnet gives the PC the
+// HTTPS certificates Serve needs, which it does once HTTPS is approved.
+type tailnetSelf struct {
+	origin, login string
+	hasHTTPS      bool
+}
+
+func (m *Manager) identity(ctx context.Context) (tailnetSelf, error) {
 	data, err := m.command(ctx, "status", "--json")
 	if errors.Is(err, errRefused) {
-		return "", "", errors.New("Tailscale is not running on this PC; start Tailscale and sign in")
+		return tailnetSelf{}, errNotRunning
 	}
 	if err != nil {
-		return "", "", err
+		return tailnetSelf{}, err
 	}
 	var status struct {
 		BackendState string
+		CertDomains  []string
 		Self         *struct {
 			DNSName string
 			UserID  json.Number
@@ -210,16 +266,47 @@ func (m *Manager) identity(ctx context.Context) (string, string, error) {
 	err = json.Unmarshal(data, &status)
 	switch {
 	case err == nil && status.BackendState == "NeedsLogin":
-		return "", "", errors.New("Tailscale is signed out on this PC; open Tailscale and sign in")
+		return tailnetSelf{}, errSignedOut
 	case err != nil || status.BackendState != "Running" || status.Self == nil:
-		return "", "", errors.New("Tailscale is not connected on this PC; open Tailscale and connect")
+		return tailnetSelf{}, errDisconnected
 	}
 	name := strings.TrimSuffix(strings.ToLower(status.Self.DNSName), ".")
 	login := status.User[status.Self.UserID.String()].LoginName
 	if !tailName(name) || login == "" || len(status.Self.Tags) != 0 {
-		return "", "", errors.New("remote access needs an untagged PC signed in to your Tailscale account, with MagicDNS and HTTPS enabled")
+		return tailnetSelf{}, errUnsuitable
 	}
-	return "https://" + net.JoinHostPort(name, strconv.Itoa(Port)), login, nil
+	return tailnetSelf{origin: "https://" + net.JoinHostPort(name, strconv.Itoa(Port)), login: login, hasHTTPS: len(status.CertDomains) > 0}, nil
+}
+
+// Detect reads, while remote access is off, what this PC's Tailscale is for
+// turning it on (Status.Tailscale), and the command that mends it where one
+// does (Status.Fix): Tailscale's install, or the first serve, which asks for
+// Serve and HTTPS to be approved for the tailnet and whose route turning
+// remote access on then takes as its own. Status leaves this out, since
+// cfo doctor and others read it without needing it; the board's setting and
+// cfo remote status call it.
+func (m *Manager) Detect(ctx context.Context, s Status) Status {
+	if s.Enabled || s.Issue != "" {
+		return s
+	}
+	me, err := m.identity(ctx)
+	switch {
+	case err != nil:
+		s.Tailscale, s.TailscaleIssue = tailscaleStateOf(err), err.Error()
+	case !me.hasHTTPS:
+		s.Tailscale, s.TailscaleIssue = "no_https", "HTTPS is not approved for your tailnet; approve it in Tailscale, then turn remote access on"
+	default:
+		s.Tailscale = "ready"
+	}
+	switch {
+	case s.Tailscale == "missing":
+		s.Fix = "winget install --exact --id Tailscale.Tailscale"
+	case s.Tailscale == "no_https" || s.Tailscale == "ready" && s.URL != "":
+		// A route reserved by a turn-on that waited on approval, or a
+		// tailnet that has not approved HTTPS: the first serve asks.
+		s.Fix = "tailscale serve --bg --https=" + strconv.Itoa(Port) + " " + m.Target
+	}
+	return s
 }
 
 type serveConfig struct {
@@ -300,40 +387,41 @@ func portOwner(s serveConfig, c Config) string {
 func (m *Manager) Status(ctx context.Context) Status {
 	c, err := Read(m.State)
 	if err != nil {
-		return Status{Issue: err.Error()}
+		return Status{Issue: err.Error(), Attention: "settings"}
 	}
-	s := Status{Enabled: c.Enabled, URL: c.Origin, Login: c.Login}
+	s := Status{Enabled: c.Enabled, URL: c.Origin, Login: c.Login, Scrawl: c.Scrawl}
 	if !c.Enabled {
 		return s
 	}
 	if c.Target != m.Target {
-		s.Issue = "The board address changed. Run cfo remote on again on this PC."
+		s.Issue, s.Attention = "The board address changed. Turn remote access off and on again on this PC.", "board_moved"
 		return s
 	}
-	origin, login, err := m.identity(ctx)
+	me, err := m.identity(ctx)
 	if err != nil {
-		s.Issue = err.Error()
+		s.Issue, s.Attention = err.Error(), tailscaleStateOf(err)
 		return s
 	}
-	if origin != c.Origin || login != c.Login {
-		s.Issue = "The Tailscale account or device name changed. Enable remote access again on this PC."
+	if me.origin != c.Origin || me.login != c.Login {
+		s.Issue, s.Attention = "The Tailscale account or device name changed. Turn remote access off and on again on this PC.", "account_changed"
 		return s
 	}
 	config, err := m.serving(ctx)
 	if err != nil {
-		s.Issue = err.Error()
+		s.Issue, s.Attention = err.Error(), "unavailable"
 		return s
 	}
 	if config.AllowFunnel[strings.TrimPrefix(c.Origin, "https://")] {
-		s.Issue = "Funnel is enabled on the remote port. Run cfo remote off, then on; public requests are refused."
+		s.Issue, s.Attention = "Funnel is enabled on the remote port. Turn remote access off and on again; public requests are refused.", "funnel"
 		return s
 	}
 	if portOwner(config, c) != "own" {
-		s.Issue = "The private proxy is missing or changed. Run cfo remote on on this PC."
+		s.Issue, s.Attention = "The private proxy is missing or changed. Turn remote access off and on again on this PC.", "route_missing"
 		return s
 	}
 	s.Ready = true
-	s.ScrawlReady, s.ScrawlIssue = m.scrawlStatus(ctx, c, config)
+	s.ScrawlState, s.ScrawlIssue, s.ScrawlFix = m.scrawlStatus(ctx, c, config)
+	s.ScrawlReady = s.ScrawlState == "on"
 	return s
 }
 
@@ -355,12 +443,12 @@ func (m *Manager) Enable(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	origin, login, err := m.identity(ctx)
+	me, err := m.identity(ctx)
 	if err != nil {
 		return Status{}, err
 	}
-	c := Config{Enabled: true, Origin: origin, Login: login, Target: m.Target}
-	if previous.Origin == origin && previous.Target == m.Target && previous.Login == login {
+	c := Config{Enabled: true, Origin: me.origin, Login: me.login, Target: m.Target}
+	if previous.Origin == me.origin && previous.Target == m.Target && previous.Login == me.login {
 		c.Scrawl, c.ScrawlTarget, c.ScrawlState = previous.Scrawl, previous.ScrawlTarget, previous.ScrawlState
 	} else if previous.ScrawlTarget != "" {
 		return Status{}, errors.New("turn remote access off before changing its address or account")
@@ -372,8 +460,9 @@ func (m *Manager) Enable(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	owner := portOwner(config, c)
-	if owner != "" && (previous.Origin == "" || portOwner(config, previous) != "own") {
+	// A route that is exactly this one, as the first serve run by hand to
+	// get Serve and HTTPS approved leaves (Detect), is taken as its own.
+	if portOwner(config, c) == "other" && (previous.Origin == "" || portOwner(config, previous) != "own") {
 		return Status{}, errors.New("Tailscale port 4311 already serves something else; its routes were left unchanged")
 	}
 	// Reserve this exact route while access is still off. If HTTPS consent
@@ -396,11 +485,12 @@ func (m *Manager) Enable(ctx context.Context) (Status, error) {
 	if err := write(m.State, c); err != nil {
 		return Status{}, err
 	}
-	s := Status{Enabled: true, Ready: true, URL: c.Origin, Login: c.Login}
-	s.ScrawlReady, s.ScrawlIssue = m.scrawlStatus(ctx, c, config)
+	s := Status{Enabled: true, Ready: true, URL: c.Origin, Login: c.Login, Scrawl: c.Scrawl}
+	s.ScrawlState, s.ScrawlIssue, s.ScrawlFix = m.scrawlStatus(ctx, c, config)
+	s.ScrawlReady = s.ScrawlState == "on"
 	if m.StartAtLogin != nil {
 		if err := m.StartAtLogin(); err != nil {
-			s.Issue = "Remote access is on, but Start at login could not be enabled: " + err.Error()
+			s.Issue, s.Attention = "Remote access is on, but Start at login could not be enabled: "+err.Error(), "start_at_login"
 		}
 	}
 	return s, nil
