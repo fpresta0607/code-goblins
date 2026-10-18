@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -50,6 +51,14 @@ import (
 // browser or window through his desktop is his to the supervisor, as one that
 // writes state/afk.json itself is his user; AGENTS.md forbids both, and
 // nothing here stops either.
+//
+// His private board, which remote access's gate admitted, turns AFK mode off
+// and never on (CFO decision 1008966, 2026-10-18), since he can always switch
+// it and his off there was refused. What proves that board his is Tailscale's
+// identity headers, and an agent on this PC can forge them, sending them
+// itself or through a Serve route of its own it adds for a moment. A forged
+// off only hands his decisions back to him. On hands the CFO his authority,
+// so it stays on a board on the PC proven as above, or his terminal.
 
 // hisBoard is a board proven the Overlord's own: the program he started that
 // shows it, the program the process that holds the connection runs, which is
@@ -277,6 +286,10 @@ const refusalWakeEvery = time.Minute
 // a program sending it again under a new process changes.
 var refusalNumbers = regexp.MustCompile(`[0-9]+`)
 
+// privateBoard is where an off from his private board is recorded as made: his
+// own, as Tailscale names him. An off forged on this PC is recorded the same.
+const privateBoard = "his own private board (as Tailscale names him)"
+
 // switchAFKFromBoard serves POST /api/afk: the board's AFK switch. The body is
 // read before anything is proven, so a body the endpoint does not take is
 // refused as one whoever sent it.
@@ -293,7 +306,17 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Say whether AFK mode turns on or off")
 		return
 	}
-	from, err := h.Service.overlordsBoard(r, h.Host, asked, switchingBoard(*input.On))
+	who := switchingBoard(*input.On)
+	var from string
+	var err error
+	switch {
+	case !remoteaccess.Admitted(r):
+		from, err = h.Service.overlordsBoard(r, h.Host, asked, who)
+	case *input.On:
+		err = &boardRefusal{found: who.refuse("this press came through his private board, which turns AFK mode off and never on").Error(), say: who.say}
+	default:
+		from = privateBoard
+	}
 	if err != nil {
 		h.refuse(w, http.StatusForbidden, "afk", "A press of AFK mode's switch on a board was refused", "", err)
 		return

@@ -100,6 +100,25 @@ func TestTheReturnPageWalksHimThroughTheStretch(t *testing.T) {
 	}
 }
 
+// The return page says where he switched AFK mode in his own words, without
+// what the supervisor names for the CFO: his board, his private board, which
+// turns it off, or his terminal.
+func TestTheReturnPageSaysWhereHeSwitchedItInHisWords(t *testing.T) {
+	for from, want := range map[string]string{
+		"his own board (goblins-window.exe pid 4242)":    "from your board",
+		"his own private board (as Tailscale names him)": "from your private board",
+		"his own terminal (powershell.exe pid 5151)":     "from your terminal",
+	} {
+		// Act
+		said := switchedForHim(from, "")
+
+		// Assert
+		if said != want {
+			t.Errorf("switchedForHim(%q) = %q, want %q", from, said, want)
+		}
+	}
+}
+
 // Everything the report held is still on the page, a tap away: who switched
 // it, an item that waited on him and was settled, a goblin paused at a floor,
 // a step the CFO settled, a line it struck and what could not be read.

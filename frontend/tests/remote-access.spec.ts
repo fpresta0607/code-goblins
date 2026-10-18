@@ -289,6 +289,33 @@ test("a phone on the private board turns Scrawl reviews off but never on, and is
   await expect(tailscale).toBeDisabled();
 });
 
+// CFO decision 1008966: his private board turns AFK mode off and never on,
+// with no words for why, since on hands the CFO his authority and stays on
+// the PC.
+test("a phone on the private board turns AFK off but never on, and says nothing of it", async ({ page }) => {
+  // Arrange
+  const { push } = await open(page, ON, { origin: URL });
+  const asked: unknown[] = [];
+  await page.route("**/api/afk", (route) => {
+    asked.push(route.request().postDataJSON());
+    return route.fulfill({ json: { state: "off" } });
+  });
+  const afk = page.getByRole("switch", { name: "AFK mode" });
+
+  // Assert: off, it cannot be turned on and has no tip.
+  await expect(afk).toHaveAttribute("aria-checked", "false");
+  await expect(afk).toBeDisabled();
+  await expect(afk).not.toHaveAttribute("data-tip");
+
+  // Act: AFK mode turned on at the PC reaches the phone, and he turns it off.
+  await push({ afk: { state: "on", since: new Date().toISOString(), from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [] } });
+  await expect(afk).toBeEnabled();
+  await afk.click();
+
+  // Assert
+  await expect.poll(() => asked).toEqual([{ on: false }]);
+});
+
 for (const comeBack of ["focus", "visibilitychange"] as const) {
   test(`Tailscale signed in while the section is open is offered when he comes back to the board (${comeBack})`, async ({ page }) => {
     // Arrange

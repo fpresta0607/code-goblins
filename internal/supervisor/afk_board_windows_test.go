@@ -1,8 +1,10 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net"
 	"net/http"
@@ -20,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -353,6 +356,125 @@ func TestABoardThatIsNotHisIsRefusedAndChangesNothing(t *testing.T) {
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "under an agent harness (node.exe pid 4242)") {
 		t.Errorf("the CFO's queue = %+v, %v, want the one refusal, with what the supervisor found", pending, err)
+	}
+}
+
+// throughTheGate is s's board as remote access shares it, on, behind the gate
+// the board is served through.
+func throughTheGate(t *testing.T, s *Service) http.Handler {
+	t.Helper()
+	manager := &remoteaccess.Manager{State: s.Store.Home.State, Target: "http://127.0.0.1:4310", Commands: &remoteCommands{}}
+	if _, err := manager.Enable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return remoteaccess.NewGate(ctx, manager, NewHTTP(s, "127.0.0.1:4310", nil))
+}
+
+// pressOnHisPhone is a press of AFK mode's switch on his phone's private
+// board, as Tailscale Serve passes it to the board, with change made to it.
+func pressOnHisPhone(t *testing.T, board http.Handler, on bool, change func(*http.Request)) (int, string) {
+	t.Helper()
+	request := httptest.NewRequest("POST", "https://pc.example.ts.net:4311/api/afk", strings.NewReader(fmt.Sprintf(`{"on":%t}`, on)))
+	request.RemoteAddr = "127.0.0.1:55432"
+	request.Header.Set("Origin", "https://pc.example.ts.net:4311")
+	request.Header.Set("Tailscale-User-Login", "owner@example.com")
+	request.Header.Set("X-Forwarded-For", "100.64.0.7")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CFO-Token", "test-instance")
+	if change != nil {
+		change(request)
+	}
+	response := httptest.NewRecorder()
+	board.ServeHTTP(response, request)
+	return response.Code, response.Body.String()
+}
+
+// CFO decision 1008966, 2026-10-18: his press of the switch on his private
+// board, over his own tailnet, was refused, and he can always switch AFK
+// mode. Off is safe from anywhere, since a forged off only hands his
+// decisions back to him, and on hands the CFO his authority, which an agent on
+// this PC could take by forging the press. So the private board turns AFK
+// mode off and never on: an on is refused with the sentence every board is
+// shown and changes nothing, and the CFO is told it came through the private
+// board.
+func TestHisPrivateBoardTurnsAFKModeOffAndNeverOn(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := boardService(store)
+	holdReading(t, s, 40)
+	asOverlordsBoard(s)
+	board := throughTheGate(t, s)
+
+	// Act
+	onCode, onBody := pressOnHisPhone(t, board, true, nil)
+	afterOn, err := afk.Read(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := askTheBoard(t, s, "POST", "/api/afk", `{"on":true}`, nil); code != http.StatusOK {
+		t.Fatalf("POST on from his board on the PC = %d %s, want it on", code, body)
+	}
+	offCode, offBody := pressOnHisPhone(t, board, false, nil)
+	off, err := s.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if onCode != http.StatusForbidden || strings.TrimSpace(onBody) != `{"error":"Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell."}` || afterOn.On {
+		t.Errorf("an on from his private board = %d %s with the switch %+v, want it refused with the one sentence a board shows and nothing changed", onCode, onBody, afterOn)
+	}
+	if offCode != http.StatusOK || strings.TrimSpace(offBody) != `{"state":"off"}` || off.AFK.State != "off" {
+		t.Errorf("an off from his private board = %d %s with the snapshot %+v, want AFK mode off", offCode, offBody, off.AFK)
+	}
+	if switched, err := afk.Read(h.State); err != nil || switched.On || switched.EndedFrom != "his own private board (as Tailscale names him)" {
+		t.Errorf("the switch = %+v, %v, want off from his own private board", switched, err)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil || len(pending) != 3 || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "this press came through his private board, which turns AFK mode off and never on") || !strings.Contains(pending[1].Detail, "turned AFK mode on from his own board") || !strings.Contains(pending[2].Detail, "turned AFK mode off from his own private board") {
+		t.Errorf("the CFO's queue = %+v, %v, want the refused on, the on from his board on the PC and the off from his private board", pending, err)
+	}
+}
+
+// What turns AFK mode off from a private board is his login, for this PC's
+// private name, from the private origin, as the gate checks them: another
+// user of his tailnet, a request without Tailscale's identity and another
+// proxy, which reaches the board at its own address, are refused before the
+// board, and change nothing.
+func TestAnOffFromAnotherTailnetUserNoIdentityOrAnotherProxyIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		change  func(*http.Request)
+		refusal string
+	}{
+		{"another user of his tailnet", func(r *http.Request) { r.Header.Set("Tailscale-User-Login", "guest@example.com") }, "this Tailscale account is not allowed"},
+		{"a request without Tailscale's identity", func(r *http.Request) { r.Header.Del("Tailscale-User-Login") }, "this Tailscale account is not allowed"},
+		{"another proxy, at the board's own address", func(r *http.Request) { r.Host = "127.0.0.1:4310"; r.Header.Set("Origin", "http://127.0.0.1:4310") }, "Remote proxy must use its configured HTTPS hostname"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			s := boardService(store)
+			holdReading(t, s, 40)
+			if err := s.switchAFKAs("his own board (goblins-window.exe pid 4242)", "", true); err != nil {
+				t.Fatal(err)
+			}
+			board := throughTheGate(t, s)
+
+			// Act
+			code, body := pressOnHisPhone(t, board, false, c.change)
+
+			// Assert
+			switched, err := afk.Read(h.State)
+			if code != http.StatusForbidden || !strings.Contains(body, c.refusal) || err != nil || !switched.On {
+				t.Errorf("the off = %d %s with the switch %+v, %v, want the gate's refusal %q and AFK mode still on", code, body, switched, err, c.refusal)
+			}
+			if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 {
+				t.Errorf("the CFO's queue = %+v, %v, want only the on, with nothing of a press the gate refused", pending, err)
+			}
+		})
 	}
 }
 
