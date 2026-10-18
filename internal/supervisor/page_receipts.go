@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -190,36 +191,45 @@ const pageAwaitLimit = 10 * time.Minute
 // whose delivery the screen did not confirm or the supervisor stopped in the
 // middle of, is never typed again: it waits until the goblin's record shows
 // it taken. Only one that record never shows within pageAwaitLimit reaches
-// the CFO with what to check.
+// the CFO with what to check. A supervisor that is stopping leaves each
+// answer still to tell as the journal holds it, for its next start.
 func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 	r := answer.Item
-	if answer.Status == "sending" {
-		answer.Status = "awaiting"
+	if answer.Status != "notifying" && ctx.Err() != nil {
+		return errPageAnswerWaits
 	}
 	if answer.Status != "notifying" {
 		if !answer.IsPageEnd {
 			text, detail, delivered, reason, deliveredReason, queued := s.pageMessage(answer)
 			meta, metaErr := state.ReadTaskMeta(s.Store.Home.State, r.Task)
-			isLive := r.Task != "" && metaErr == nil && s.Options.CFO != nil && ctx.Err() == nil
+			isLive := r.Task != "" && metaErr == nil && s.Options.CFO != nil
 			queuedReason := ""
 			if answer.IsAnswer {
 				queuedReason = "You answered on its page; your answer is queued for the goblin's next tool call."
 			}
+			isTyped := answer.Status == "sending" || answer.Status == "awaiting"
+			isTaken := isTyped && metaErr == nil && NativeTook(ctx, meta, goblinLine(text), answer.SentAt)
 			switch {
-			case isLive && answer.Status == "awaiting":
-				isTaken := NativeTook(ctx, meta, goblinLine(text), answer.SentAt)
-				if !isTaken && time.Since(answer.SentAt) < pageAwaitLimit {
+			case isTaken:
+				detail, reason = delivered, deliveredReason
+			case isTyped && metaErr == nil && (ctx.Err() != nil || time.Since(answer.SentAt) < pageAwaitLimit):
+				if answer.Status == "sending" {
+					answer.Status = "awaiting"
 					if err := s.Store.keepPageAnswer(answer); err != nil {
 						return err
 					}
+				}
+				return errPageAnswerWaits
+			case isTyped:
+				at := ""
+				if !answer.SentAt.IsZero() {
+					at = " at " + answer.SentAt.Format(time.RFC3339)
+				}
+				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with cfo peek %s whether it waits there before relaying it", r.Task, at, r.Task)
+			case isLive:
+				if _, err := host.ReadRecord(s.Options.CFO.State, r.Task); err != nil && meta.Backend == "native" {
 					return errPageAnswerWaits
 				}
-				if isTaken {
-					detail, reason = delivered, deliveredReason
-				} else {
-					detail += fmt.Sprintf("; it was typed into %s's terminal at %s and the goblin's record has not shown it taken since: check with cfo peek %s whether it waits there before relaying it", r.Task, answer.SentAt.Format(time.RFC3339), r.Task)
-				}
-			case isLive:
 				answer.Status, answer.SentAt = "sending", time.Now().UTC()
 				if err := s.Store.keepPageAnswer(answer); err != nil {
 					return err
