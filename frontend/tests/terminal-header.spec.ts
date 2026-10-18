@@ -16,18 +16,20 @@ const FRANK = {
   goblin_name: "Frank", goblin_title: "Chat Captain", harness: "claude", model: "claude-opus-5-5", phase: "working", verified: false, generation: "s-ha-steward-reply-scroll", since: at,
   ticket: { number: 88, url: REPO + "/issues/88", state: "in progress" }, pr: REPO + "/pull/91",
 };
+const WANDA = { id: "ha-pantry-map", title: "The pantry map shows each shelf", project: "household-assistant", goblin_name: "Wanda", goblin_title: "Map Maker", harness: "claude", phase: "working", verified: false, generation: "s-ha-pantry-map", since: at };
 const pause = { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", at } };
 const STATES: [string, Record<string, unknown>, string, string][] = [
   ["working", {}, "Working", "working"],
   ["waiting on CI", { phase: "waiting", waiting_on: "ci" }, "Waiting on CI", "waiting"],
   ["waiting on the CFO", { phase: "waiting", waiting_on: "overlord" }, "Waiting on the CFO", "waiting"],
+  ["waiting on another goblin", { phase: "waiting", waiting_on: WANDA.id }, "Waiting on Wanda - Map Maker", "waiting"],
   ["paused", { phase: "paused", at, lifecycle: pause }, "Paused by you", "paused"],
   ["resuming", { phase: "resuming" }, "Resuming", "resuming"],
   ["done", { phase: "done", verified: true }, "Delivered", "done"],
 ];
 
 async function openTerminal(page: Page, goblin: Record<string, unknown>) {
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [goblin] });
+  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [goblin, WANDA] });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "Frank" }).click();
@@ -79,4 +81,15 @@ test("the Task view still names the task and holds VS Code, the folder, the tick
   await expect(header.locator(".panel-actions").getByRole("button", { name: "Open folder" })).toBeVisible();
   await expect(header.locator(".panel-actions a.ticket-link, .panel-actions a[href$='/issues/88']")).toHaveCount(1);
   await expect(header.locator(".panel-actions a[href='" + REPO + "/pull/91']")).toHaveCount(1);
+});
+
+test("the Task view of a goblin waiting on another goblin still links to that goblin from its status", async ({ page }) => {
+  // Arrange
+  await openTerminal(page, { ...FRANK, phase: "waiting", waiting_on: WANDA.id });
+
+  // Act
+  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+
+  // Assert
+  await expect(page.locator(".panel-header .panel-status").getByRole("button", { name: "Open Wanda - Map Maker, which this goblin is waiting on" })).toBeVisible();
 });
