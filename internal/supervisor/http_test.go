@@ -258,7 +258,9 @@ func TestTheBoardServesItsManifestAndPushWorkerAndNoOtherRootFile(t *testing.T) 
 	if kind := served.Header().Get("Content-Type"); kind != "application/manifest+json" {
 		t.Fatalf("the manifest is served as %q", kind)
 	}
-	if pushWorker.Code != http.StatusOK || pushWorker.Body.String() != worker || !strings.HasPrefix(pushWorker.Header().Get("Content-Type"), "text/javascript") {
+	// Windows names JavaScript's type by its registry, text/ or
+	// application/javascript, either of which a browser runs a worker as.
+	if kind := pushWorker.Header().Get("Content-Type"); pushWorker.Code != http.StatusOK || pushWorker.Body.String() != worker || !strings.HasPrefix(kind, "text/javascript") && !strings.HasPrefix(kind, "application/javascript") {
 		t.Fatalf("GET /push-worker.js = %d %q as %q, want the app badge's worker as JavaScript at the root it works from", pushWorker.Code, pushWorker.Body.String(), pushWorker.Header().Get("Content-Type"))
 	}
 	if other.Code != http.StatusNotFound {
