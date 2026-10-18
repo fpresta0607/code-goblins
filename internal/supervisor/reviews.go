@@ -179,7 +179,9 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback; a Scrawl link given
-// without its page is polled on the page lavish-axi serves there. While AFK
+// without its page is polled on the page lavish-axi serves there. A page
+// another reporter's open item already shows is refused: that item closes
+// when he answers there, and his answer goes to one reporter only. While AFK
 // mode is on a goblin's item with a page is that goblin's question to the CFO
 // instead, which answers it in his place.
 func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
@@ -190,6 +192,21 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 		var err error
 		if page, err = servedPage(lavish); err != nil {
 			return err
+		}
+	}
+	if page != "" {
+		reviews, err := reportedReviews(h.State)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(reviews, func(r Review) bool {
+			return r.State == "open" && r.Task != taskID && r.LavishPage != "" && pageKey(r.LavishPage) == pageKey(page)
+		}); i >= 0 {
+			reporter := "the CFO"
+			if reviews[i].Task != "" {
+				reporter = reviews[i].Task
+			}
+			return fmt.Errorf("that page is already in %s's open item %s, which closes when he answers on that page, so there is nothing to publish", reporter, reviews[i].ID)
 		}
 	}
 	if switched, err := afk.Read(h.State); taskID != "" && lavish != "" && err == nil && switched.On {

@@ -130,6 +130,68 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 	}
 }
 
+// A page another reporter's open item already shows is refused, recording
+// nothing: his answer there closes only that reporter's item, so the CFO's
+// review of the page a goblin waits on him with would take his answer from
+// the goblin. The goblin's own review of its page is still its own.
+func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
+	const link = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b"
+	for name, test := range map[string]struct {
+		reporter, page string
+		isRefused      bool
+	}{
+		"the CFO's review of its Scrawl link":     {reporter: "", isRefused: true},
+		"the CFO's review of its file":            {reporter: "", page: `C:\SCRATCH\task-1\review\index.html`, isRefused: true},
+		"the goblin's own review of its own page": {reporter: "task-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			_, _, _, cfo := primaryFixture(t, store)
+			servePipe(t, store, cfo)
+			t.Setenv("CFO_SESSION_ID", "actual-primary")
+			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			meta, _, _, _ := goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":"C:\\scratch\\task-1\\review\\index.html","status":"opened"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, 7, "pick a layout on the page", link, `C:\scratch\task-1\review\index.html`, ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := PublishReview(h, test.reporter, "layout-review", "Look at the layouts", link, test.page, nil)
+
+			// Assert
+			if ingestErr := store.ingestReviews(); ingestErr != nil {
+				t.Fatal(ingestErr)
+			}
+			got := store.Snapshot().Reviews
+			if test.isRefused {
+				if err == nil || !strings.Contains(err.Error(), "task-1's open item waiting-task-1-7") {
+					t.Fatalf("PublishReview = %v, want refused naming the goblin's wait waiting-task-1-7", err)
+				}
+				if len(got) != 1 || got[0].ID != "waiting-task-1-7" {
+					t.Fatalf("reviews = %+v, want only the goblin's wait recorded", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 2 || got[1].ID != "layout-review" || got[1].Task != meta.ID || got[1].LavishPage != `C:\scratch\task-1\review\index.html` {
+				t.Fatalf("reviews = %+v, want the goblin's wait and its own review of the page", got)
+			}
+		})
+	}
+}
+
 // Only the reporter that published an item can withdraw it, and its reason
 // is kept.
 func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {

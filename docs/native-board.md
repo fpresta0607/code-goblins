@@ -1432,7 +1432,8 @@ A click anywhere on an item's row, or on its button, opens that item's card in t
 A review he is asked to watch is a review item, never a presentation: [Nonblocking presentation notices](#nonblocking-presentation-notices) says how.
 A presentation without `--watch`, such as a goblin's own test walkthrough, stays off the Command Center; its task card still shows the browser it has open.
 A goblin's wait on him that opens nothing (no page, file or link) follows the decision card for its task, the CFO's question for that goblin (`cfo question --for <task>`) or the goblin's own question with choices: it shows nowhere and counts for nothing while that decision is open, nor once the decision it followed is answered, so he sees one card, the decision, and answering it clears both (the Overlord, 2026-10-17: "These follow-ups should not be notifications in the Command Center ... But the initial one is critical").
-A wait raised before the decision was asked, or one with something to open, stays its own card.
+A wait raised before the decision was asked is hidden too while the decision is open, and comes back as its own card once the decision is answered.
+A wait with something to open always stays its own card.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
@@ -1635,6 +1636,9 @@ Its card names its goblin by the goblin's name and title, never the task's title
 The page is drawn from `/api/reviews/<id>/preview`: the supervisor asks the review server its link names for the page's export (`/api/<key>/export` beside `/session/<key>`, which carries the page's own files inline and opens no review window) and serves it under `Content-Security-Policy: sandbox allow-scripts; frame-ancestors 'self'`, so the page's scripts run in an origin of their own and only the board can frame it, and the card draws it in a sandboxed frame, scaled down, that takes no clicks; a redirect from the review server is never followed.
 A page given only by its Scrawl link is watched on the page lavish-axi serves at that link, its `/session/<key>` on either of lavish-axi's addresses, as one given its HTML file is; a link to no session lavish-axi keeps shows no preview, and its card opens it from the same one button.
 Until 2026-10-17 a link was never watched, so the CFO's `cfo review --lavish <link>` cards stayed after he sent and ended the review on their pages.
+A review of a page another reporter's open item already shows, the CFO's or another goblin's, by its link or by its file, is refused and records nothing, since his answer on a page reaches one reporter only.
+The refusal names that item and its reporter, and says the item closes when he answers on that page, so there is nothing to publish.
+A goblin's newer item for its own page is still allowed.
 An item whose page the supervisor watches is answered on that page: it finishes the moment the Overlord sends or ends the review there, a goblin's item and the CFO's alike, and History keeps what he wrote, as You wrote: after who has it; or he closes it with Clear.
 No Scrawl card has a box for words, watched or not.
 A page's card shows the page's own words as its body, the page and one Open review button instead of choices, since he answers on the page, and no line that explains how: a closed review window (`window_closed_at`) and a revision (`revising_since`) change nothing on it, since its one button opens the page again.
