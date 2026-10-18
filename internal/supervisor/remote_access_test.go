@@ -24,7 +24,7 @@ type remoteCommands struct {
 func (c *remoteCommands) Run(ctx context.Context, r execx.Request) (execx.Result, error) {
 	switch strings.Join(r.Args, " ") {
 	case "status --json":
-		return execx.Result{Stdout: []byte(`{"BackendState":"Running","Self":{"DNSName":"pc.example.ts.net.","UserID":7},"User":{"7":{"LoginName":"owner@example.com"}}}`)}, nil
+		return execx.Result{Stdout: []byte(`{"BackendState":"Running","Self":{"DNSName":"pc.example.ts.net.","UserID":7},"Peer":{"k1":{"DNSName":"laptop.example.ts.net.","UserID":7,"Online":true}},"User":{"7":{"LoginName":"owner@example.com"}}}`)}, nil
 	case "serve status --json":
 		if c.slow {
 			select {
@@ -184,5 +184,33 @@ func TestScrawlOffFromAPhoneFinishesAfterItsRequestIsRevoked(t *testing.T) {
 	}
 	if saved, err := remoteaccess.Read(h.State); err != nil || !saved.Enabled || saved.Scrawl || saved.ScrawlTarget != "" {
 		t.Fatal("Scrawl's record not released or the board's lost", saved, err)
+	}
+}
+
+// The setting lists the machines whose boards answer on the owner's tailnet,
+// this PC first, as a phone reads it too; reading it changes nothing.
+func TestThePhoneReadsTheMachinesItCanConnectTo(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	manager := &remoteaccess.Manager{State: h.State, Target: "http://127.0.0.1:4310", Commands: &remoteCommands{}, Answers: func(_ context.Context, origin string) bool { return origin == "https://laptop.example.ts.net:4311" }}
+	if _, err := manager.Enable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Instance: "instance", Options: Options{RemoteAccess: manager}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gate := remoteaccess.NewGate(ctx, manager, NewHTTP(service, "127.0.0.1:4310", nil))
+	r := httptest.NewRequest("GET", "https://pc.example.ts.net:4311/api/remote/machines", nil)
+	r.RemoteAddr = "127.0.0.1:55432"
+	r.Header.Set("Tailscale-User-Login", "owner@example.com")
+	w := httptest.NewRecorder()
+
+	// Act
+	gate.ServeHTTP(w, r)
+
+	// Assert
+	want := `{"machines":[{"name":"pc","url":"https://pc.example.ts.net:4311","is_this":true},{"name":"laptop","url":"https://laptop.example.ts.net:4311","is_this":false}]}`
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != want {
+		t.Errorf("GET /api/remote/machines = %d %s, want %s", w.Code, w.Body, want)
 	}
 }

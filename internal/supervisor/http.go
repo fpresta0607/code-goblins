@@ -236,6 +236,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.setStartAtLogin(w, r)
 	case r.URL.Path == "/api/remote/scrawl-link" && r.Method == "GET":
 		h.remoteScrawlLink(w, r)
+	case r.URL.Path == "/api/remote/machines" && r.Method == "GET":
+		h.remoteMachines(w, r)
 	case r.URL.Path == "/api/remote" && (r.Method == "GET" || r.Method == "POST"):
 		h.remoteAccess(w, r)
 	case r.URL.Path == "/api/dev-drive" && r.Method == "POST":
