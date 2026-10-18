@@ -117,6 +117,8 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 }
 
 // A native task whose terminal has ended takes nothing, and says which task.
+// Text sent to it says nothing was typed, so a sender may send it again once
+// the terminal is back, as for a goblin paused or between sessions.
 func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 	service := Service{StateDir: t.TempDir()}
 	meta := state.TaskMeta{ID: "task-7", Window: "native", Harness: string(harness.Codex), Backend: "native"}
@@ -128,6 +130,9 @@ func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "native task task-7 has no running terminal") {
 			t.Errorf("%s = %v, want it refused naming the task", name, err)
 		}
+	}
+	if !errors.Is(textErr, fleet.ErrNotTyped) {
+		t.Errorf("text = %v, want it to say nothing was typed", textErr)
 	}
 }
 

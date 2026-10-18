@@ -74,3 +74,9 @@ func NormalizeKey(key string) (string, error) {
 // arrives is never interrupted, so a long one delays it. It is not evidence
 // the text was lost.
 var ErrQueuedForToolCall = errors.New("the agent was in a turn, so its harness holds the text and hands it over at its next tool call, once the call running now ends, or as the turn ends if it calls no tool first")
+
+// ErrNotTyped says a delivery reached no terminal: none was running, as for
+// a goblin paused or between sessions, or it could not be read or reached
+// before anything was typed. None of the text is there, so the same text
+// sent once the terminal is back arrives once.
+var ErrNotTyped = errors.New("nothing was typed")

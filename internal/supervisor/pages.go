@@ -55,6 +55,9 @@ type pageAnswer struct {
 	Reason     string       `json:"reason,omitempty"`
 	IsPageEnd  bool         `json:"is_page_end,omitempty"`
 	Closed     Review       `json:"closed,omitempty"`
+	// SentAt is when the answer was typed into its goblin's terminal, from
+	// when the record its harness keeps shows whether the goblin took it.
+	SentAt time.Time `json:"sent_at,omitempty"`
 }
 
 // watchPages keeps one poller for each page the supervisor watches: the
