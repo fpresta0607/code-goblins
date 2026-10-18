@@ -104,8 +104,11 @@ jobs:
         shell: pwsh
         run: |
           $env:GOTOOLCHAIN = 'go' + (go list -m -f '{{.GoVersion}}')
-          go version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = go env GOVERSION
+          if ($version -ne $env:GOTOOLCHAIN) {
+            throw "The setup would build with Go '$version', not $env:GOTOOLCHAIN, the Go release go.mod names."
+          }
+          Write-Host "The setup builds with $version, the Go release go.mod names."
           go build -trimpath -buildvcs=false -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # The no-mistakes the fleet's gate needs, the build install.ps1 pins,

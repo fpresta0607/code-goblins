@@ -381,8 +381,8 @@ func TestTheReleaseBuildsTheSetupWithTheGoReleaseGoModNames(t *testing.T) {
 	if pin < 0 || build < 0 || pin > build {
 		t.Errorf("the release's Build the setup step runs:\n%s\nwant GOTOOLCHAIN set to go.mod's Go release before it builds ./cmd/goblins-setup, so only a go.mod bump moves the setup to a new Go release", script)
 	}
-	if count := strings.Count(releaseWorkflow(t), "GOTOOLCHAIN"); count != 1 {
-		t.Errorf("release.yml names GOTOOLCHAIN %d times, want once, in the setup's own step: the other programs build with the newest Go release, which carries its security fixes", count)
+	if outside := strings.Count(releaseWorkflow(t), "GOTOOLCHAIN") - strings.Count(script, "GOTOOLCHAIN"); outside != 0 {
+		t.Errorf("release.yml names GOTOOLCHAIN %d times outside the setup's own step, want none: the other programs build with the newest Go release, which carries its security fixes", outside)
 	}
 	if !regexp.MustCompile(`(?m)^go [0-9]+\.[0-9]+\.[0-9]+\r?$`).Match(goMod) {
 		t.Errorf("go.mod's go line names no Go release such as go 1.26.5, which the setup's GOTOOLCHAIN must name:\n%s", goMod)
