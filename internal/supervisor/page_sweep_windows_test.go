@@ -361,7 +361,7 @@ func TestASweepTellsOfAPageItCannotReadOnlyOnceItKeepsFailing(t *testing.T) {
 		if isTimingOut {
 			return axi.PagePoll{}, fmt.Errorf("lavish-axi poll %s: %w", file, context.DeadlineExceeded)
 		}
-		return scrawl.poll(ctx, file, reply, wait)
+		return scrawl.poll(ctx, file, reply, wait) // stall-accepted: this fake's poll ignores the wait it is handed, so it holds no clock.
 	}
 
 	for sweep, step := range []struct{ isTimingOut, isTold bool }{{true, false}, {false, false}, {true, false}, {true, false}, {true, true}} {

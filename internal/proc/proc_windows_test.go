@@ -113,7 +113,7 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 	t.Cleanup(func() { _ = shell.Process.Kill(); _, _ = shell.Process.Wait() })
 
 	var ping Entry
-	for deadline := time.Now().Add(20 * time.Second); ping.PID == 0 && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); ping.PID == 0 && time.Now().Before(deadline); {
 		time.Sleep(250 * time.Millisecond)
 		jobbed, err := JobProcesses(shell.Process.Pid)
 		if err != nil {
@@ -153,7 +153,7 @@ func TestCPUTimeIsTheProcessorTimeUsedSinceStart(t *testing.T) {
 	if !ok {
 		t.Fatal("StartTime of this process failed")
 	}
-	deadline := time.Now().Add(50 * time.Millisecond)
+	deadline := time.Now().Add(50 * time.Millisecond) // stall-accepted: the test means this busy spell to run out, and one a stall cuts short still spends processor time.
 	for time.Now().Before(deadline) {
 	}
 

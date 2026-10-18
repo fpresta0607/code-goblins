@@ -72,7 +72,7 @@ func TestAdmissionKeepsALiveOverdueProcessInCustody(t *testing.T) {
 				}
 				defer second.Release()
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond) // stall-accepted: the test means this context to run out.
 			defer cancel()
 
 			// Act
@@ -154,7 +154,7 @@ func TestAdmissionFloorDeadlineDoesNotGrantATurn(t *testing.T) {
 	a := admission(t)
 	a.Available = func() (uint64, error) { return a.Floor - 1, nil }
 	a.Limit = 20 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -187,6 +187,7 @@ func TestAdmissionPreservesCorruptCustodyRegardlessOfAge(t *testing.T) {
 				if err := os.Chtimes(file, old, old); err != nil {
 					t.Fatal(err)
 				}
+				// stall-accepted: the wait behind a record in the line is meant to run out, and any error passes, so a stall cannot fail it.
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 
@@ -216,7 +217,7 @@ func TestAdmissionDoesNotTakeAnUnverifiableOverdueHolder(t *testing.T) {
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	// Act
@@ -398,7 +399,7 @@ func TestAdmissionCancellationPreservesTheHolderAndOtherWaiters(t *testing.T) {
 	go func() { turn, err := a.Wait(ctx); turn.Release(); ended <- err }()
 	select {
 	case <-joined:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("cancelled waiter did not join")
 	}
 	var survivor said
@@ -437,7 +438,7 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 				}
 				defer second.Release()
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			t.Cleanup(cancel)
 			type child struct {
 				process *exec.Cmd
@@ -484,7 +485,7 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 				output := make(chan string, 1)
 				go func() { line, _ := bufio.NewReader(stdout).ReadString('\n'); output <- strings.TrimSpace(line) }()
 				children = append(children, child{process, stdin, output, stderr})
-				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+				for deadline := time.Now().Add(time.Minute); ; time.Sleep(5 * time.Millisecond) {
 					_, waiting, err := Line(a.Dir)
 					if err == nil && len(waiting) == index+1 {
 						break
@@ -509,13 +510,13 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 				if line != "holding" {
 					t.Fatalf("first child: %s", line)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("first child did not take its turn")
 			}
 			select {
 			case line := <-children[1].output:
 				t.Fatalf("second child overtook the first: %s", line)
-			case <-time.After(250 * time.Millisecond):
+			case <-time.After(250 * time.Millisecond): // stall-accepted: no turn is meant to reach the second child, so a stall only makes the wait longer.
 			}
 			holding, waiting, err := Line(a.Dir)
 			if err != nil || len(holding) != capacity || holding[0].PID != children[0].process.Process.Pid || len(waiting) != 1 || waiting[0].PID != children[1].process.Process.Pid {
@@ -527,7 +528,7 @@ func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
 				if line != "holding" {
 					t.Fatalf("second child: %s", line)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("second child did not take its turn after release")
 			}
 			children[1].stdin.Close()

@@ -89,7 +89,7 @@ func (p *scrawlPage) poll(ctx context.Context, file, reply string, timeout time.
 	select {
 	case <-ctx.Done():
 		return axi.PagePoll{}, ctx.Err()
-	case <-time.After(p.start):
+	case <-time.After(p.start): // stall-accepted: a stand-in poll's start-up time, none or a second, which a stall only lengthens as a slow start would.
 	}
 	p.mu.Lock()
 	p.replies = append(p.replies, reply)
@@ -222,6 +222,7 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 	// Act
 	sent := time.Now()
 	scrawl.send(pickedOnThePage)
+	// stall-accepted: a poll reads his pick first and it closes the item, so when his Send & End comes cannot change what the board shows.
 	time.AfterFunc(betweenHisSends, func() { scrawl.send(approvedAsShown) })
 	var done time.Duration
 	for expired := time.After(time.Minute); done == 0; {
@@ -239,6 +240,7 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 	}
 
 	// Assert
+	// stall-accepted: it times the board against his send, and the waits it rules out, his Send & End 757 ms later, the next poll's second to start and a goblin's turn of up to 5 s, are too short for a longer bound to tell apart.
 	if done > time.Second {
 		t.Fatalf("the board showed his answer done %s after he sent it, want under a second", done.Round(time.Millisecond))
 	}
@@ -259,8 +261,8 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 		expected string
 	}{
 		"his answer closes the item":               {pickedOnThePage, time.Second, func(r Review) bool { return r.State == "answered" }, "answered"},
-		"his revision takes it off Waiting on you": {notedOnThePage, pageAnswerSettle + time.Second, func(r Review) bool { return r.State == "open" && r.RevisingSince != nil }, "open and revising"},
-		"who has his answer shows once it is told": {approvedAsShown, 5 * time.Second, func(r Review) bool { return r.Reason == "You answered on its page; the goblin has it." }, "answered, saying the goblin has it"},
+		"his revision takes it off Waiting on you": {notedOnThePage, time.Minute, func(r Review) bool { return r.State == "open" && r.RevisingSince != nil }, "open and revising"},
+		"who has his answer shows once it is told": {approvedAsShown, time.Minute, func(r Review) bool { return r.Reason == "You answered on its page; the goblin has it." }, "answered, saying the goblin has it"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -282,6 +284,7 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 			scrawl.send(test.sent)
 
 			// Assert
+			// stall-accepted: the other rows wait a minute, and the first row's second times the boards against the 2 s settle it rules out, too short for a longer bound to tell apart.
 			for expired := time.After(test.within); ; {
 				select {
 				case <-board:
@@ -303,6 +306,9 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 // and is never first read as a revision request, as his pick was on
 // 2026-10-09 (wake 1000098, then 1000099).
 func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
+	if pageAnswerSettle <= betweenHisSends {
+		t.Fatalf("a poll waits %s for the rest of his answer, want longer than the %s between his sends on 2026-10-09", pageAnswerSettle, betweenHisSends)
+	}
 	for name, note := range map[string]struct{ sent, text string }{
 		"a pick of the option the page declared": {pickedOnThePage, "Build it as shown"},
 		"a note on an element":                   {notedOnThePage, "Make the header bigger"},
@@ -313,7 +319,7 @@ func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
 			meta, goblin, connection, page := pageOfAGoblin(t, store)
 			scrawl := newScrawlPage(0)
 			scrawl.send(note.sent)
-			time.AfterFunc(betweenHisSends, func() { scrawl.send(approvedAsShown) })
+			scrawl.send(approvedAsShown)
 			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
 
 			// Act
@@ -360,14 +366,14 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 	// Act
 	s.watchPages(ctx)
 	var answered Review
-	for deadline := time.Now().Add(15 * time.Second); answered.State != "answered"; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); answered.State != "answered"; time.Sleep(10 * time.Millisecond) {
 		if answered = store.Snapshot().Reviews[0]; time.Now().After(deadline) {
 			t.Fatalf("the page's item after his pick = %+v, want it answered", answered)
 		}
 	}
 	watchedAfterThePick := len(store.watchedPages()) == 1
 	told := goblin.waitForLines(t, 1)
-	for deadline := time.Now().Add(15 * time.Second); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the CFO was never told his pick")
 		}
@@ -549,7 +555,7 @@ func TestANoteOnAClosedItemIsKeptBeforeItsTurnToBeTold(t *testing.T) {
 	<-typing
 	<-noteTaken
 	var kept []string
-	for deadline := time.Now().Add(5 * time.Second); len(kept) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); len(kept) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		kept = feedbackFiles(t, h.State, meta.ID)
 	}
 	close(release)

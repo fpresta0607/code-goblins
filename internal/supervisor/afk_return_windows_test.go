@@ -134,7 +134,7 @@ func TestTheReportWaitsForTheAFKSwitchToFinishWritingIt(t *testing.T) {
 		select {
 		case <-done:
 			t.Error("report request returned before the AFK switch finished writing it")
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond): // stall-accepted: the request is meant to stay blocked on the lock, so a stall only makes the wait longer.
 		}
 		if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("Welcome back"), 0o600); err != nil {
 			t.Error(err)
@@ -145,7 +145,7 @@ func TestTheReportWaitsForTheAFKSwitchToFinishWritingIt(t *testing.T) {
 		if response.Code != http.StatusOK || response.Body.String() != "Welcome back" {
 			t.Errorf("report = %d %q, want the completed report", response.Code, response.Body.String())
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("report did not load after the switch finished")
 	}
 }

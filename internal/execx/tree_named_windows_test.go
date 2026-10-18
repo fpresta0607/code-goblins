@@ -71,7 +71,7 @@ func TestEndNamedJobEndsATreeWhoseParentExitedFromAnotherHandle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -108,7 +108,7 @@ func TestEndNamedJobSparesNoMachineService(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = tree.End(); _ = service.Wait() })
 	held := standin.Hold(t, service.Process.Pid)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -118,7 +118,7 @@ func TestEndNamedJobSparesNoMachineService(t *testing.T) {
 	if err != nil || !isFound {
 		t.Fatalf("recovery's end = found %v, %v", isFound, err)
 	}
-	if event, err := windows.WaitForSingleObject(held, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(held, 60000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Fatal("recovery's end left the machine service running")
 	}
 }

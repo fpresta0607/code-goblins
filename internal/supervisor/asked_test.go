@@ -38,7 +38,7 @@ func cardOf(t *testing.T, handler *HTTP, id string) Task {
 // more for a call too many to show.
 func awaitCalls(t *testing.T, spawner *spawnRecorder, count int) [][]string {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(spawner.recorded()) < count && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -49,7 +49,7 @@ func awaitCalls(t *testing.T, spawner *spawnRecorder, count int) [][]string {
 // awaitSettled waits for every start and change the board runs to end.
 func awaitSettled(t *testing.T, s *Service) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		s.starts.Lock()
 		isBusy := s.starting != "" || len(s.changing) > 0
@@ -327,7 +327,7 @@ func TestTheBoardSeesAStartingGoblinsSessionTheMomentItIsRecorded(t *testing.T) 
 	// Act
 	<-recorded
 	var card Task
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if card = cardOf(t, handler, "next-task"); card.Generation != "" {
 			break
 		}
@@ -335,7 +335,7 @@ func TestTheBoardSeesAStartingGoblinsSessionTheMomentItIsRecorded(t *testing.T) 
 
 	// Assert
 	if card.Generation != "s1" {
-		t.Fatalf("card 3 seconds after its record = %+v, want its session shown while cfo spawn runs", card)
+		t.Fatalf("card a minute after its record = %+v, want its session shown while cfo spawn runs", card)
 	}
 }
 

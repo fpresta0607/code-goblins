@@ -99,12 +99,12 @@ func runFakeClaude(t *testing.T, f *cleanupFixture, screen string) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the native terminal's host did not end")
 		}
 	})
 	want := fakeClaudeScreens[screen][len(fakeClaudeScreens[screen])-1]
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
 		if record, err := host.ReadRecord(f.stateDir, "g1"); err == nil {
 			if rows, err := host.ReadScreen(record); err == nil && strings.Contains(host.ScreenTail(rows, 0), want) {
 				return

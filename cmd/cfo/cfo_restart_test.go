@@ -237,7 +237,7 @@ func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []strin
 	t.Helper()
 	hooks := "--settings\n" + filepath.Join(dir, "state", cfoSettingsFile)
 	isEmpty := false
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		raw, err := os.ReadFile(filepath.Join(dir, fakeClaudeArguments))
 		isEmpty = err == nil && len(raw) == 0
 		if err != nil || isEmpty {
@@ -254,7 +254,7 @@ func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []strin
 	if isEmpty {
 		t.Fatal("the CFO started with no arguments at all, want it to open with --settings and the file of its hooks")
 	}
-	t.Fatal("the CFO did not start again in native terminal cfo within 15s")
+	t.Fatal("the CFO did not start again in native terminal cfo within a minute")
 	return nil
 }
 

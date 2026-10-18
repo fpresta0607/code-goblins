@@ -23,7 +23,7 @@ func TestLavishPollChild(t *testing.T) {
 	if os.WriteFile(pidFile+".tmp", []byte(strconv.Itoa(os.Getpid())), 0o600) != nil || os.Rename(pidFile+".tmp", pidFile) != nil {
 		os.Exit(9)
 	}
-	time.Sleep(time.Minute)
+	time.Sleep(5 * time.Minute)
 	os.Exit(0)
 }
 
@@ -78,7 +78,7 @@ func TestACancelledLavishPollEndsItsWholeProcessTree(t *testing.T) {
 		polled <- err
 	}()
 	pid := 0
-	for deadline := time.Now().Add(10 * time.Second); pid == 0; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); pid == 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the stand-in poll never started its child")
 		}
@@ -104,7 +104,7 @@ func TestACancelledLavishPollEndsItsWholeProcessTree(t *testing.T) {
 
 	select {
 	case <-exited:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("the poll's child %d outlived the cancelled poll", pid)
 	}
 }

@@ -168,6 +168,7 @@ func TestScanHoldsTheNoChangeStreakWhileADecisionIsUnanswered(t *testing.T) {
 	if heartbeat.NoChangeStreak != 0 {
 		t.Fatalf("no_change_streak while unanswered = %d, want 0", heartbeat.NoChangeStreak)
 	}
+	// stall-accepted: two times the heartbeat record holds, both from a fake clock, not the runner's.
 	if backoff := heartbeat.NextDue.Sub(heartbeat.LastHeartbeat); backoff > service.heartbeat() {
 		t.Fatalf("heartbeat cadence while unanswered = %s, want no longer than the base %s", backoff, service.heartbeat())
 	}

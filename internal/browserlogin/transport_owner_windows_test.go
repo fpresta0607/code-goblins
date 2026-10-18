@@ -51,7 +51,7 @@ func TestDevToolsTransportProvesTheConnectingWindowsUser(t *testing.T) {
 			server.Listener = listener
 			server.Start()
 			defer server.Close()
-			client := &http.Client{Timeout: 5 * time.Second}
+			client := &http.Client{Timeout: time.Minute}
 
 			response, err := client.Get(server.URL + "/json/version")
 			if err != nil {

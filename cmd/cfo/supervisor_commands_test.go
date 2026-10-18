@@ -33,7 +33,7 @@ func stoppableBoard(t *testing.T, stateDir string, pid int) string {
 	stop := func() { once.Do(server.Close) }
 	t.Cleanup(stop)
 	go func() {
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			var request struct {
 				PID int `json:"pid"`
 			}

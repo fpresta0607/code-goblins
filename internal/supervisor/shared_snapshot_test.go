@@ -42,7 +42,7 @@ func awaitSnapshot(t *testing.T, snapshots <-chan struct{}, what string) {
 	t.Helper()
 	select {
 	case <-snapshots:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("no snapshot reached %s", what)
 	}
 }

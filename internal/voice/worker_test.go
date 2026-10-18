@@ -158,7 +158,7 @@ func loads(t *testing.T, voice *Voice) int {
 // waitForRun waits until the stand-in worker has been handed a sound.
 func waitForRun(t *testing.T, record string) engineRun {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		data, err := os.ReadFile(record)
 		var run engineRun
 		if err == nil && json.Unmarshal(data, &run) == nil {
@@ -426,7 +426,7 @@ func TestAnIdleEngineIsEndedAndTheNextDictationLoadsItAgain(t *testing.T) {
 	}
 	select {
 	case <-loaded.exited:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the idle engine was never ended")
 	}
 	if current(t, voice) != nil {

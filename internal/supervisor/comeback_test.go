@@ -124,7 +124,7 @@ func workingGoblin(t *testing.T, h home.Home, id string, started time.Time) stat
 // awaitComeback waits until no comeback step is under way.
 func awaitComeback(t *testing.T, service *Service) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		service.starts.Lock()
 		isBusy := service.isCFOComingBack || len(service.changing) > 0

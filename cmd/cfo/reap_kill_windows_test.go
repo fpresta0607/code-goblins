@@ -51,7 +51,7 @@ func TestKillTreeFixture(t *testing.T) {
 	default:
 		return
 	}
-	time.Sleep(time.Minute)
+	time.Sleep(5 * time.Minute)
 }
 
 // cfo reap --force and goblins stop --force end a process with everything
@@ -102,7 +102,7 @@ func TestKillTreeLeavesAMachineServiceUnderTheProcessRunning(t *testing.T) {
 			t.Fatalf("the fixture reported %v, want its service, own child and backend", started)
 		}
 	}
-	// Each fixture waits a minute, and nothing ends one before the kill
+	// Each fixture waits five minutes, and nothing ends one before the kill
 	// below, so each pid still names its fixture here.
 	held := map[string]windows.Handle{}
 	for name, pid := range started {
@@ -118,10 +118,10 @@ func TestKillTreeLeavesAMachineServiceUnderTheProcessRunning(t *testing.T) {
 	}
 	select {
 	case <-rootEnded:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Error("the process named still runs")
 	}
-	if killTreeRunning(held["own"]) {
+	if !killTreeEnded(held["own"]) {
 		t.Errorf("its own child, pid %d, still runs", started["own"])
 	}
 	time.Sleep(time.Second)
@@ -135,6 +135,13 @@ func TestKillTreeLeavesAMachineServiceUnderTheProcessRunning(t *testing.T) {
 // killTreeRunning reports whether process still runs, waiting up to two
 // seconds for it to end.
 func killTreeRunning(process windows.Handle) bool {
+	// stall-accepted: its callers check a process the kill must leave running, so running out is the passing path and a stall only makes the wait longer.
 	event, _ := windows.WaitForSingleObject(process, 2000)
 	return event == uint32(windows.WAIT_TIMEOUT)
+}
+
+// killTreeEnded reports whether process ends within a minute.
+func killTreeEnded(process windows.Handle) bool {
+	event, _ := windows.WaitForSingleObject(process, 60000)
+	return event == windows.WAIT_OBJECT_0
 }

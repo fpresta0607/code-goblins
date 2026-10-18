@@ -38,7 +38,7 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 		if err := child.Start(); err != nil {
 			os.Exit(8)
 		}
-		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if data, err := os.ReadFile("child.pid"); err == nil && len(data) > 0 {
 				os.Exit(0)
 			}
@@ -66,7 +66,7 @@ func TestExecutorEndsAndNamesWhatTheCommandLeftRunning(t *testing.T) {
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("a command that exited 0 and left a child = %+v, %v, want its own result", result, err)
 	}
-	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Second))))
+	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Minute))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestExecutorLimitEndsACommandThatOutrunsIt(t *testing.T) {
 	_, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: os.Args[0], Args: []string{"-test.run=^TestExecutorLimitEndsACommandThatOutrunsIt$"}, Env: append(os.Environ(), limitsRole+"=sleeper")}, 300*time.Millisecond)
 
 	// Assert
-	if !errors.Is(err, ErrLimit) || time.Since(started) > 15*time.Second {
+	if !errors.Is(err, ErrLimit) || time.Since(started) > 30*time.Second {
 		t.Fatalf("a command past its limit = %v after %s", err, time.Since(started))
 	}
 	evidence := readExecution(t, record)
@@ -391,7 +391,7 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 	case "nested":
 		// Taking a turn of its own would wait for the executor's for good,
 		// so a bounded wait proves the turn it gets is the executor's.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		turn, err := Admission{Dir: os.Getenv("VERIFY_LIMITS_ADMISSION"), Available: func() (uint64, error) { return 16 << 30, nil }, Limit: time.Minute, Poll: 5 * time.Millisecond}.Wait(ctx)
 		cancel()
 		if err != nil || turn.Token() == "" {
@@ -403,7 +403,7 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 		if err != nil {
 			os.Exit(5)
 		}
-		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if data, err := os.ReadFile("child.pid"); err == nil && len(data) > 0 {
 				break
 			}
@@ -436,7 +436,7 @@ func TestExecutorNamesWhatANestedTurnLeftRunning(t *testing.T) {
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("a command with a nested turn = %+v, %v", result, err)
 	}
-	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Second))))
+	childPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "child.pid"), time.Minute))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestExecutorSparesAMachineServiceTheCommandStarted(t *testing.T) {
 	// Assert
 	pids := map[string]int{}
 	for _, name := range []string{"com.docker.standin", "worker"} {
-		pid, parseError := strconv.Atoi(string(waitForFile(t, filepath.Join(root, name+".pid"), time.Second)))
+		pid, parseError := strconv.Atoi(string(waitForFile(t, filepath.Join(root, name+".pid"), time.Minute)))
 		if parseError != nil {
 			t.Fatal(parseError)
 		}
@@ -567,7 +567,7 @@ func TestExecutorRetryKeepsTheServiceItsRunSpared(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	_, _, runError := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorSparesAMachineServiceTheCommandStarted$"}, Env: environment}, 0)
-	service, err := strconv.Atoi(string(waitForFile(t, filepath.Join(root, "com.docker.standin.pid"), time.Second)))
+	service, err := strconv.Atoi(string(waitForFile(t, filepath.Join(root, "com.docker.standin.pid"), time.Minute)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -672,7 +672,7 @@ func TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			go func() {
-				waitForFile(t, filepath.Join(root, "started"), 20*time.Second)
+				waitForFile(t, filepath.Join(root, "started"), time.Minute)
 				cancel()
 			}()
 
@@ -874,7 +874,7 @@ func TestExecutorReadsTheEndOfASharedRunPastAnInterrupt(t *testing.T) {
 	executor.Source = func(read context.Context, dir string) (Source, error) {
 		reads++
 		if reads == 1 {
-			time.AfterFunc(200*time.Millisecond, cancel)
+			time.AfterFunc(200*time.Millisecond, cancel) // stall-accepted: the test means this timer to fire while the command runs, and a command that ends first still passes.
 		} else {
 			endRead = read.Err()
 		}

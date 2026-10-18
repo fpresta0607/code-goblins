@@ -27,7 +27,7 @@ func TestInventoryFindsADetachedProcessByWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	owned, err := Inventory(ctx, []string{directory}, nil, nil)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestTerminateChecksCreationTimeOnTheProcessHandle(t *testing.T) {
 	go func() { finished <- child.Wait() }()
 	select {
 	case <-finished:
-	case <-time.After(3 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("verified process did not stop")
 	}
 }
@@ -153,7 +153,7 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 					// during the call only once its handle is signaled.
 					err := child.Process.Kill()
 					if err == nil {
-						if event, waitErr := windows.WaitForSingleObject(handle, uint32((10 * time.Second).Milliseconds())); waitErr != nil || event != windows.WAIT_OBJECT_0 {
+						if event, waitErr := windows.WaitForSingleObject(handle, uint32((30 * time.Second).Milliseconds())); waitErr != nil || event != windows.WAIT_OBJECT_0 {
 							err = fmt.Errorf("the killed fixture did not exit: %d, %v", event, waitErr)
 						}
 					}
@@ -202,7 +202,7 @@ func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
 		children = append(children, child)
 		t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	stopped, _, err := StopResources(ctx, Resources{Directories: []string{directory}})
 	if err != nil || len(stopped) != 1 {
@@ -250,7 +250,7 @@ func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T
 		if line != "ready\n" {
 			t.Fatalf("mover did not start waiting for task exit: %q", line)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("mover did not become ready")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -263,7 +263,7 @@ func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T
 	go func() { finished <- mover.Wait() }()
 	select {
 	case <-finished:
-	case <-time.After(3 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("a process that moved into the task after the first sweep survived Stop: stopped=%v", stopped)
 	}
 }

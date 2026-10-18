@@ -228,7 +228,7 @@ func TestSpawnReadsTeammatesWorkBesideTheStart(t *testing.T) {
 	select {
 	case <-began:
 		isBesideTheRead = true
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 	}
 	close(release)
 	code := <-exited

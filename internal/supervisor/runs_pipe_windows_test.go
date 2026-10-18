@@ -128,7 +128,7 @@ func TestDescendsFromNeedsEachAncestorOlderThanItsChild(t *testing.T) {
 // sends nothing of its own.
 func dialRunPipe(t *testing.T, state string) *os.File {
 	t.Helper()
-	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(25 * time.Millisecond) {
 		conn, err := os.OpenFile(runPipeName(state), os.O_RDWR, 0)
 		if err == nil {
 			return conn
@@ -179,7 +179,7 @@ func TestRunPipeDropsAClientThatSendsNothing(t *testing.T) {
 		if err == nil {
 			t.Fatal("a client that sent nothing got a reply, want it disconnected")
 		}
-	case <-time.After(runReadTimeout + 5*time.Second):
+	case <-time.After(runReadTimeout + time.Minute):
 		t.Fatal("a client that sent nothing is still connected, want it disconnected")
 	}
 }
@@ -199,7 +199,7 @@ func TestRunPipeStopsPromptlyRightAfterAClientConnects(t *testing.T) {
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal("the run request listener did not stop after its context ended")
 		}
 		_ = conn.Close()

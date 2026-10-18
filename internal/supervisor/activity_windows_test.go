@@ -260,7 +260,7 @@ func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if _, err := os.Stat(filepath.Join(h.State, ".supervisor.json")); err == nil {
 			break
 		}
@@ -278,7 +278,7 @@ func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnTerminal(t *testing.T) {
 		t.Fatalf("a goblin spawned while serve runs could not present: %v", err)
 	}
 	var got BoardActivity
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if i := slices.IndexFunc(s.Store.Snapshot().Activity, func(x BoardActivity) bool { return x.ID == a.ID }); i >= 0 {
 			got = s.Store.Snapshot().Activity[i]
 			break

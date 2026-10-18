@@ -119,7 +119,7 @@ func TestCloseWindowAsksAWindowOnlyWhileItsOwnerOwnsIt(t *testing.T) {
 	pump()
 	isOpenAfterOther := windows.IsWindow(window)
 	asked, err := CloseWindow(Window{Handle: window, Owner: os.Getpid()})
-	for deadline := time.Now().Add(2 * time.Second); windows.IsWindow(window) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); windows.IsWindow(window) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		pump()
 	}
 

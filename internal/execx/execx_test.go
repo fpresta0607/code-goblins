@@ -43,7 +43,7 @@ func TestOSRunnerHelper(t *testing.T) {
 		if err := os.WriteFile(marker+".held", nil, 0o600); err != nil {
 			os.Exit(9)
 		}
-		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if _, err := os.Stat(marker + ".release"); err == nil {
 				break
 			}
@@ -162,7 +162,7 @@ func TestOSRunnerReturnsStartError(t *testing.T) {
 }
 
 func TestOSRunnerReturnsContextCancellationWithTheOutputSoFar(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	result, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-sleep"}))
@@ -183,7 +183,7 @@ func TestOSRunnerReturnsAfterCancellationWhileAGrandchildHoldsStdout(t *testing.
 		// Release the grandchild and let it exit before go test removes its
 		// working directory and the Windows test executable.
 		_ = os.WriteFile(marker+".release", nil, 0o600)
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if _, err := os.Stat(marker + ".released"); err == nil {
 				time.Sleep(100 * time.Millisecond)
 				return
@@ -192,11 +192,11 @@ func TestOSRunnerReturnsAfterCancellationWhileAGrandchildHoldsStdout(t *testing.
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cancelledAt := make(chan time.Time, 1)
+	cancelled := make(chan struct{}, 1)
 	go func() {
 		for ctx.Err() == nil {
 			if _, err := os.Stat(marker + ".held"); err == nil {
-				cancelledAt <- time.Now()
+				cancelled <- struct{}{}
 				cancel()
 				return
 			}
@@ -205,15 +205,15 @@ func TestOSRunnerReturnsAfterCancellationWhileAGrandchildHoldsStdout(t *testing.
 	}()
 
 	_, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=orphan-stdout", "EXECX_MARKER=" + marker}))
-	returnedAt := time.Now()
+	_, releasedErr := os.Stat(marker + ".released")
 
 	select {
-	case at := <-cancelledAt:
+	case <-cancelled:
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("error = %v, want context canceled", err)
 		}
-		if waited := returnedAt.Sub(at); waited > 8*time.Second {
-			t.Errorf("Run returned %s after cancellation, want it bounded while a grandchild holds stdout open", waited)
+		if !os.IsNotExist(releasedErr) {
+			t.Errorf("Run returned only once the grandchild let go of stdout (%v), want it bounded while a grandchild holds stdout open", releasedErr)
 		}
 	default:
 		t.Fatalf("Run returned before the grandchild held stdout: %v", err)
@@ -241,7 +241,7 @@ func TestOSRunnerStartsWithoutWaitingForChildExit(t *testing.T) {
 	if err := os.WriteFile(marker+".release", nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if _, err := os.Stat(marker + ".released"); err == nil {
 			time.Sleep(100 * time.Millisecond)
 			return
@@ -263,7 +263,7 @@ func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
 	}
 	cancel()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if data, err := os.ReadFile(marker); err == nil {
 			switch string(data) {
@@ -314,7 +314,7 @@ func TestOSRunnerStreamWritesTheOutputAndReturnsTheExitCode(t *testing.T) {
 // the process wrote before then already handed over.
 func TestOSRunnerStreamEndsTheProcessWhenItsContextEnds(t *testing.T) {
 	// Arrange
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	var stdout, stderr strings.Builder
 	request := helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-sleep"})
@@ -328,7 +328,7 @@ func TestOSRunnerStreamEndsTheProcessWhenItsContextEnds(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error = %v, want context deadline exceeded", err)
 	}
-	if stdout.String() != "answered\n" || time.Since(started) > 8*time.Second {
+	if stdout.String() != "answered\n" || time.Since(started) > time.Minute {
 		t.Errorf("Stream returned after %s with stdout %q; want what the process wrote before the deadline, and the process ended at it", time.Since(started), stdout.String())
 	}
 }

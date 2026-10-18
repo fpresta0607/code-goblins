@@ -107,12 +107,12 @@ func pauseNativeHandoff(t *testing.T, mode string) {
 			if err != nil {
 				t.Error(err)
 			}
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the scratch terminal host did not end")
 		}
 	})
 	screens, _ := harness.NativeScreens(harness.Codex)
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if record, err := host.ReadRecord(stateDir, meta.ID); err == nil {
 			if screen, err := host.ReadScreen(record); err == nil && screens.IsReady(screen) && screens.ComposerEmpty(screen) {
 				break

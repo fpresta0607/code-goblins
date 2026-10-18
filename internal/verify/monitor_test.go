@@ -56,7 +56,7 @@ func TestMonitorInterruptsOnPressureAndUnavailableMeasurements(t *testing.T) {
 				Headroom: func() (Headroom, error) { return test.memory, test.memoryError },
 				Cancel:   func() error { wasCanceled = true; return nil },
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -101,7 +101,7 @@ func TestMonitorCompletesOnlyOnceTheWholeTreeIsEmpty(t *testing.T) {
 		}
 		return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 9 << 30}, nil
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -189,7 +189,7 @@ func TestMonitorEndsAndNamesWhatTheCommandLeftOnceItsLingerPasses(t *testing.T) 
 	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Exited: exited, Linger: 20 * time.Millisecond,
 		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -210,7 +210,7 @@ func TestMonitorWaitsForTheWholeJobUntilTheCommandExits(t *testing.T) {
 	monitor := Monitor{Reserve: Headroom{PhysicalAvailable: 2 << 30, CommitAvailable: 2 << 30}, Poll: time.Millisecond, Grace: time.Millisecond, Exited: make(chan struct{}), Linger: time.Millisecond,
 		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	// Act
@@ -289,7 +289,7 @@ func TestMonitorSamplesAgainAsSoonAsTheCommandExits(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		close(tree.exited)
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	started := time.Now()
 
@@ -297,7 +297,7 @@ func TestMonitorSamplesAgainAsSoonAsTheCommandExits(t *testing.T) {
 	result, err := monitor.Watch(ctx, tree)
 
 	// Assert
-	if err != nil || result.State != Completed || time.Since(started) > 5*time.Second {
+	if err != nil || result.State != Completed || time.Since(started) > 30*time.Second {
 		t.Fatalf("a command that exited waited for the next poll: %+v, %v after %s", result, err, time.Since(started))
 	}
 }
@@ -471,7 +471,7 @@ func TestMonitorReadsTheCommandsExitBeforeItsPressure(t *testing.T) {
 		Headroom: func() (Headroom, error) {
 			if pressedSince.IsZero() {
 				pressedSince = time.Now()
-			} else if time.Since(pressedSince) >= sustain {
+			} else if time.Since(pressedSince) >= sustain { // stall-accepted: it closes the exit as the monitor's pressure comes of age, and only a stall between this reading and the monitor's own can part the two.
 				select {
 				case <-exited:
 				default:

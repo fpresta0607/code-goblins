@@ -135,7 +135,7 @@ func TestSocketRequestFailsWithoutItsOwnOkAnswer(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			socket := herdrtest.NewSocket(t)
 			socket.Answer = c.answer
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			err := Socket{pipe: `\\.\pipe\` + socket.Path}.SendText(ctx, "w1:p2", "x")
@@ -174,7 +174,7 @@ func TestSocketRefusesAStatusWithoutARunningServersSocket(t *testing.T) {
 
 // A socket no server listens on fails at once rather than hanging.
 func TestSocketWithoutAServerFails(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	err := Socket{pipe: `\\.\pipe\` + t.TempDir() + `\herdr.sock`}.SendText(ctx, "w1:p2", "x")

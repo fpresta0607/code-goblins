@@ -114,6 +114,7 @@ func TestSnapshotDatesEachSessionAndEachQueuedBrief(t *testing.T) {
 		t.Errorf("a running goblin with no worktree folder starts at %v, want its spawn at %v", since["running"], started)
 	}
 	if runtime.GOOS == "windows" {
+		// stall-accepted: a recorded time held under a limit that a stall only moves further off.
 		if since["switched"].Before(testStarted.Add(-5*time.Second)) || since["switched"].After(time.Now().Add(5*time.Second)) {
 			t.Errorf("a switched goblin's clock starts at %v, want its worktree's creation near %v, not its new spawn", since["switched"], testStarted)
 		}

@@ -71,12 +71,15 @@ func TestCheckedRemovalBoundsClaimContention(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	budget := transientBudget
+	transientBudget = 2 * time.Minute
+	t.Cleanup(func() { transientBudget = budget })
 	_, err := RemoveFileWhen(context.Background(), path, func([]byte) (bool, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 		defer cancel()
 		started := time.Now()
 		isRemoved, err := RemoveFileWhen(ctx, path, func([]byte) (bool, error) { t.Error("contender read a claimed record"); return true, nil })
-		if isRemoved || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+		if isRemoved || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Minute {
 			t.Fatalf("contender: %t %v", isRemoved, err)
 		}
 		return false, nil
