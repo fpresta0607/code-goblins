@@ -62,7 +62,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
     {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues, paths)}</div>
-      : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
+      : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues, paths)}</h3>}
     {lead && rest && <div className="question-body">{messageElements(rest, copyValues, paths)}</div>}
     {review.lavish && review.watched && <PagePreview src={"/api/reviews/" + encodeURIComponent(review.id) + "/preview"} />}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">

@@ -88,3 +88,48 @@ test("in a plain browser a path link copies the path, says so in its tip, and ne
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("listitem").first()).toHaveText("Read the refund notes in " + step.path + ".");
   expect(asked).toEqual([]);
 });
+
+// A wait's one line is its card's heading, and a path it names is a link
+// there too, as it is in the rest of a card's words.
+test("in the desktop window a path a wait names in its one line opens File Explorer", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
+  const sent: unknown[] = [];
+  await page.route("**/api/cards/open-path", async (route) => {
+    sent.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, json: { message: "Opened File Explorer." } });
+  });
+  await page.goto("/tests/fixtures/card-mail.html");
+  await page.getByRole("button", { name: "Open the wait", exact: true }).click();
+  const heading = page.getByRole("dialog").getByRole("heading", { level: 3 });
+
+  // Act
+  await heading.getByRole("button", { name: "Open " + CARDS[0].path + " in File Explorer" }).click();
+
+  // Assert
+  await expect.poll(() => sent).toEqual([{ kind: "review", id: "waiting-pd-proxy-primary-7", path: CARDS[0].path }]);
+});
+
+// A step's code value that is a path, spaces and all, keeps its button that
+// copies it, and its folder icon opens the whole path, never the part before
+// its first space.
+test("a step's code value that is a path keeps its copy button and its icon opens the whole path", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
+  const sent: unknown[] = [];
+  await page.route("**/api/cards/open-path", async (route) => {
+    sent.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, json: { message: "Opened File Explorer." } });
+  });
+  const desktop = CARDS[1].path;
+  const card = await openCard(page, CARDS[0].open);
+  const step = card.getByRole("list", { name: "What to do" }).getByRole("listitem").last();
+
+  // Act
+  await step.getByRole("button", { name: "Open " + desktop + " in File Explorer" }).click();
+
+  // Assert
+  await expect(step.getByRole("button", { name: "Copy " + desktop })).toBeVisible();
+  await expect(step.getByRole("button", { name: /^Open .* in File Explorer$/ })).toHaveCount(1);
+  await expect.poll(() => sent).toEqual([{ kind: "credential", id: CARDS[0].id, path: desktop }]);
+});

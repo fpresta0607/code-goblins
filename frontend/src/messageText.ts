@@ -112,24 +112,35 @@ export type CodeRenderer = (value: string, key: number) => ReactNode;
 const plainCode: CodeRenderer = (value, key) => isWebLink(value) ? webLink(value, key) : createElement("code", { key }, value);
 
 // renderPath draws a local file or folder path the text names, such as a
-// link that opens it in File Explorer.
-export type PathRenderer = (path: string, key: number) => ReactNode;
+// link that opens it in File Explorer; as an icon alone beside a code value,
+// which keeps its own button that copies it.
+export type PathRenderer = (path: string, key: number, isIcon?: boolean) => ReactNode;
 
 // A local file or folder path, found by the rules the supervisor opens one by
 // (internal/supervisor/card_paths.go): a drive letter, a colon and a
 // separator, then everything up to a space or a character no Windows path
-// holds, without the punctuation that ends a sentence; or a whole code value
-// that is such a path, spaces and all.
-const TEXT_PATH = /(?<![\w\\/])[A-Za-z]:[\\/][^\s<>"|?*:`]*/g;
+// holds, without the punctuation that ends a sentence (a closing bracket only
+// when the path opened none it closes); or a whole code value that is such a
+// path, spaces and all. A space is what Go's \s is, so both sides cut a path
+// in the same place.
+const TEXT_PATH = /(?<![\w\\/])[A-Za-z]:[\\/][^ \t\n\f\r<>"|?*:`]*/g;
 const CODE_PATH = /^[A-Za-z]:[\\/][^<>"|?*:`\n]*$/;
-const PATH_END = /[.,;!?)\]}']+$/;
+const PATH_END = ".,;!?)]}'";
+
+// trimPathEnd drops the punctuation that ends a sentence from a path found in
+// text, keeping a closing parenthesis the path itself opened.
+function trimPathEnd(path: string): string {
+  const count = (text: string, mark: string) => text.split(mark).length - 1;
+  while (path && PATH_END.includes(path.at(-1) ?? "") && !(path.endsWith(")") && count(path, "(") >= count(path, ")"))) path = path.slice(0, -1);
+  return path;
+}
 
 // Text as it reads, with each local path it names drawn by path.
 export function pathElements(text: string, path: PathRenderer): ReactNode[] {
   const out: ReactNode[] = [];
   let at = 0;
   for (const match of text.matchAll(TEXT_PATH)) {
-    const found = match[0].replace(PATH_END, "");
+    const found = trimPathEnd(match[0]);
     if (match.index > at) out.push(text.slice(at, match.index));
     out.push(path(found, out.length));
     at = match.index + found.length;
@@ -139,12 +150,13 @@ export function pathElements(text: string, path: PathRenderer): ReactNode[] {
 }
 
 // Neighbouring bold spans, such as the words around a code value, are one
-// bold phrase. With path, each local path is drawn by it, a code value that
-// is one included.
+// bold phrase. With path, each local path is drawn by it; a code value that
+// is one keeps its own button, which copies it, with the path's icon beside
+// it, since a command can start the way a path does.
 function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNode[] {
   const out: ReactNode[] = [];
   const piece = (at: number) => parts[at].code
-    ? path && CODE_PATH.test(parts[at].text) ? path(parts[at].text, at) : code(parts[at].text, at)
+    ? path && CODE_PATH.test(parts[at].text) ? createElement(Fragment, { key: at }, code(parts[at].text, 0), path(parts[at].text, 1, true)) : code(parts[at].text, at)
     : parts[at].link ? webLink(parts[at].text, at)
     : path ? createElement(Fragment, { key: at }, ...pathElements(parts[at].text, path)) : parts[at].text;
   for (let n = 0; n < parts.length; n++) {

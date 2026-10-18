@@ -13,7 +13,8 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
 import { CardMail } from "./card-mail";
-import { pathElements } from "./messageText";
+import { inlineElements } from "./messageText";
+import { copyValues } from "./CopyValue";
 import { PathLink, pathLinks, type PathCard } from "./path-link";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
@@ -48,7 +49,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       {run.admin && <span className="chip admin" data-tip="Runs as administrator"><Icon name="shield" />Admin</span>}
       <span className={"run-state delivery " + (mark.trouble ? "failed" : "succeeded")} role="status"><Icon name={mark.icon} />{failure ? "Failed" : mark.label}</span>
     </header>
-    <h3 id={"run-" + run.id}>{pathElements(run.title, pathLinks(card))}</h3>
+    <h3 id={"run-" + run.id}>{inlineElements(run.title, copyValues, pathLinks(card))}</h3>
     {failure && <p className="run-failure">{failure}</p>}
     <div className="run-command">
       <pre><code>{run.command}</code></pre>

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -39,8 +41,10 @@ type Mail struct {
 }
 
 // ReadMail reads a message file once: optional To: and Subject: lines, a
-// blank line, then the body. A file whose first lines are not those headers
-// is all body. It refuses what mailProblem refuses.
+// blank line, then the body. Blank lines before them and spaces on the blank
+// line are nothing; another email header, such as Cc:, is refused rather than
+// read as body, and a file whose first lines are not headers is all body. It
+// refuses what mailProblem refuses.
 func ReadMail(path string) (*Mail, error) {
 	f, err := fsx.Open(path)
 	if err != nil {
@@ -58,12 +62,19 @@ func ReadMail(path string) (*Mail, error) {
 		return nil, errors.New("the message file is not UTF-8 text")
 	}
 	text := strings.ReplaceAll(strings.TrimPrefix(string(data), "\ufeff"), "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
 	mail := Mail{}
-	if head, body, found := strings.Cut(text, "\n\n"); found {
+	if end := slices.IndexFunc(lines, func(line string) bool { return strings.TrimSpace(line) == "" }); end > 0 {
 		headers := map[string]string{}
-		for _, line := range strings.Split(head, "\n") {
+		for _, line := range lines[:end] {
 			key, value, isHeader := strings.Cut(line, ":")
 			key = strings.ToLower(strings.TrimSpace(key))
+			if isHeader && slices.Contains([]string{"cc", "bcc", "from", "reply-to"}, key) {
+				return nil, fmt.Errorf("the message file gives %s:, and only To: and Subject: are read from it", key)
+			}
 			if !isHeader || key != "to" && key != "subject" {
 				headers = nil
 				break
@@ -74,17 +85,21 @@ func ReadMail(path string) (*Mail, error) {
 			headers[key] = strings.TrimSpace(value)
 		}
 		if headers != nil {
-			mail.To, mail.Subject, text = headers["to"], headers["subject"], body
+			mail.To, mail.Subject, lines = headers["to"], headers["subject"], lines[end+1:]
 		}
 	}
+	text = strings.Join(lines, "\n")
 	mail.Body = strings.TrimSpace(text)
 	return &mail, mailProblem(&mail)
 }
 
 // mailProblem refuses a message without a body, one longer than its bounds,
 // one that goes anywhere but an email address or a plain https page, and one
-// holding a word shaped like a key. A word is split at an equals sign, so an
-// assignment is judged by its value, and no refusal repeats what it refused.
+// holding a word shaped like a key, its email address included. A word is
+// split at an equals sign, so an assignment is judged by its value; a web
+// address is judged by each part of its path and query, as a credential link
+// is, since its slashes are not random text; and no refusal repeats what it
+// refused.
 func mailProblem(m *Mail) error {
 	if m == nil {
 		return nil
@@ -97,15 +112,39 @@ func mailProblem(m *Mail) error {
 	case m.To != "" && !(len(m.To) <= 254 && mailAddress.MatchString(m.To)) && !(strings.HasPrefix(m.To, "https://") && validCredentialLink(m.To) == nil):
 		return errors.New("a message goes to an email address or an https page with no credentials, query or fragment")
 	}
-	for _, part := range []struct{ name, text string }{{"subject", m.Subject}, {"body", m.Body}} {
+	parts := []struct{ name, text string }{{"subject", m.Subject}, {"body", m.Body}}
+	if !strings.HasPrefix(m.To, "https://") {
+		parts = append(parts, struct{ name, text string }{"recipient", m.To})
+	}
+	for _, part := range parts {
 		words := strings.FieldsFunc(part.text, func(r rune) bool { return unicode.IsSpace(r) || r == '=' })
 		for index, word := range words {
-			if shape := auth.SecretShape(word); shape != "" {
+			if shape := wordShape(word); shape != "" {
 				return fmt.Errorf("word %d of the message's %s looks like a credential value: %s; a card never carries one", index+1, part.name, shape)
 			}
 		}
 	}
 	return nil
+}
+
+// wordShape is what makes a word of a message look like a credential value,
+// or nothing: a web address by each part of its path and each value of its
+// query, any other word whole.
+func wordShape(word string) string {
+	u, err := url.Parse(strings.Trim(word, "\"'`()[]{}<>,;:!?."))
+	if err != nil || u.Host == "" || u.Scheme != "https" && u.Scheme != "http" {
+		return auth.SecretShape(word)
+	}
+	pieces := strings.Split(u.Path, "/")
+	for _, values := range u.Query() {
+		pieces = append(pieces, values...)
+	}
+	for _, piece := range append(pieces, u.Fragment, u.User.String()) {
+		if shape := auth.SecretShape(piece); shape != "" {
+			return shape
+		}
+	}
+	return ""
 }
 
 // sameMail reports whether two cards carry the same message, or neither does.

@@ -150,7 +150,7 @@ func TestOpenCardPathRefusesANamedPathThatCannotOpen(t *testing.T) {
 	goneCode, goneBody := postCardPath(handler, cardPathBody(t, "credential", "cred-1111111111111111", file+".gone"))
 
 	// Assert
-	if commaCode != 400 || !strings.Contains(commaBody, "Only a path on a drive of this PC") || goneCode != 404 || !strings.Contains(goneBody, "Nothing is at that path now") {
+	if commaCode != 400 || !strings.Contains(commaBody, "A path holding a comma or a quote") || goneCode != 404 || !strings.Contains(goneBody, "Nothing is at that path now") {
 		t.Fatalf("comma = %d %s, gone = %d %s; want each refused for itself", commaCode, commaBody, goneCode, goneBody)
 	}
 	if len(starter.requests) != 0 {
@@ -158,14 +158,69 @@ func TestOpenCardPathRefusesANamedPathThatCannotOpen(t *testing.T) {
 	}
 }
 
+// A run card names the folder it runs in, which comes from its request and
+// not from text, so it is the one way a path that is no drive letter's can
+// reach the card's paths: a share, a device path or a drive's current
+// folder. None of them opens File Explorer.
+func TestOpenCardPathRefusesARunFolderOffTheDrivesOfThisPC(t *testing.T) {
+	for name, folder := range map[string]string{
+		"a network share":          `\\fileserver\share\pd proxy`,
+		"a device path":            `\\?\C:\pd proxy`,
+		"a drive's current folder": `C:pd proxy`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			handler, starter, _, _ := cardPathFixture(t)
+			store := handler.Service.Store
+			store.db.Runs[0].Cwd = folder
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			code, body := postCardPath(handler, cardPathBody(t, "run", "run-task-1-8", folder))
+
+			// Assert
+			if code != 400 || !strings.Contains(body, "Only a path on a drive of this PC") {
+				t.Fatalf("open = %d %s, want it refused as no drive's path", code, body)
+			}
+			if len(starter.requests) != 0 {
+				t.Fatalf("a refused folder started %+v", starter.requests)
+			}
+		})
+	}
+}
+
+// Windows reads a path whatever its letter case, so a link whose card wrote
+// the drive letter small opens the same file as one written large.
+func TestOpenCardPathOpensAPathNamedInAnotherCase(t *testing.T) {
+	// Arrange
+	handler, starter, file, _ := cardPathFixture(t)
+	store := handler.Service.Store
+	store.db.Credentials[0].Steps = []string{"Send the email in " + strings.ToLower(file[:1]) + file[1:] + "."}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, body := postCardPath(handler, cardPathBody(t, "credential", "cred-1111111111111111", strings.ToUpper(file[:1])+file[1:]))
+
+	// Assert
+	if code != 200 || len(starter.requests) != 1 {
+		t.Fatalf("open = %d %s, started %+v; want the file opened", code, body, starter.requests)
+	}
+}
+
 // The board finds a card's paths as its text shows them: up to a space, less
-// the punctuation that ends a sentence, or a whole code value.
+// the punctuation that ends a sentence, a closing bracket only when the path
+// opened none, or a whole code value.
 func TestNamedPathsFollowTheBoardsLinks(t *testing.T) {
 	for text, want := range map[string][]string{
 		`Steps point at C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md.`: {`C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md`},
 		"Open `C:\\Users\\fpres\\OneDrive - SIQstack\\Desktop` (on his PC)":           {`C:\Users\fpres\OneDrive`, `C:\Users\fpres\OneDrive - SIQstack\Desktop`},
 		`See (D:/CodeGoblins/scratch), then E:\notes, and https://example.com/C:\x`:   {`D:/CodeGoblins/scratch`, `E:\notes`},
 		`No path here: ratio 3:4 and a:b`:                                             nil,
+		`Install it in C:\apps\tool(v2), not (C:\apps\old).`:                          {`C:\apps\tool(v2)`, `C:\apps\old`},
 	} {
 		if got := namedPaths(text); !slices.Equal(got, want) {
 			t.Errorf("namedPaths(%q) = %q, want %q", text, got, want)

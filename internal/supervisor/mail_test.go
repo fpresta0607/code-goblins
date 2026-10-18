@@ -30,6 +30,14 @@ func TestReadMailTakesItsHeadersAndExactBody(t *testing.T) {
 			file: "Subject: Plan change\n\nPlease set plan=monthly on my account.\n",
 			want: Mail{Subject: "Plan change", Body: "Please set plan=monthly on my account."},
 		},
+		"headers after blank lines, with spaces on the blank line": {
+			file: "\n\nTo: support@iproyal.com\nSubject: Refund\n   \nPlease refund order 4412.\n",
+			want: Mail{To: "support@iproyal.com", Subject: "Refund", Body: "Please refund order 4412."},
+		},
+		"an order's page in the body": {
+			file: "Subject: Refund\n\nThe order is https://www.iproyal.com/en/orders/4412 and I want it refunded.\n",
+			want: Mail{Subject: "Refund", Body: "The order is https://www.iproyal.com/en/orders/4412 and I want it refunded."},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -66,6 +74,10 @@ func TestReadMailRefusesWithoutRepeatingAKey(t *testing.T) {
 		"two recipients":              {"To: a@iproyal.com\nTo: b@iproyal.com\n\nPlease refund it.\n", "gives to: twice"},
 		"a body past its bound":       {strings.Repeat("Please refund it. ", 300), "at most 4000 characters"},
 		"a control character in text": {"Please refund\x07 it.\n", "a message's body is text"},
+		"a copy to someone else":      {"To: a@iproyal.com\nCc: b@iproyal.com\n\nPlease refund it.\n", "only To: and Subject: are read"},
+		"a key in a page's path":      {"Subject: Refund\n\nSee https://example.com/keys/" + key + " for it.\n", "word 2 of the message's body looks like a credential value"},
+		"a key in a page's query":     {"Subject: Refund\n\nSee https://example.com/keys?id=" + key + "&x=1 for it.\n", "looks like a credential value"},
+		"a key as the recipient":      {"To: " + key + "@example.com\n\nPlease refund it.\n", "word 1 of the message's recipient"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

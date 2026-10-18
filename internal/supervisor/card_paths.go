@@ -19,8 +19,9 @@ import (
 // open the file explorer folder on my PC"). These are the board's rules for
 // finding one, which frontend/src/messageText.ts follows too: a drive letter,
 // a colon and a separator, then everything up to a space or a character no
-// Windows path holds, without the punctuation that ends a sentence; or a
-// whole code value that is such a path, spaces and all.
+// Windows path holds, without the punctuation that ends a sentence (a closing
+// bracket only when the path opened none it closes); or a whole code value
+// that is such a path, spaces and all.
 var (
 	textPath = regexp.MustCompile(`(?:^|[^\w\\/])([A-Za-z]:[\\/][^\s<>"|?*:` + "`" + `]*)`)
 	codeText = regexp.MustCompile("`([^`\n]+)`")
@@ -31,7 +32,7 @@ var (
 func namedPaths(text string) []string {
 	var paths []string
 	for _, match := range textPath.FindAllStringSubmatch(text, -1) {
-		paths = append(paths, strings.TrimRight(match[1], ".,;!?)]}'"))
+		paths = append(paths, trimPathEnd(match[1]))
 	}
 	for _, match := range codeText.FindAllStringSubmatch(text, -1) {
 		if codePath.MatchString(match[1]) {
@@ -39,6 +40,20 @@ func namedPaths(text string) []string {
 		}
 	}
 	return paths
+}
+
+// trimPathEnd drops the punctuation that ends a sentence from a path found in
+// text, keeping a closing parenthesis the path itself opened, as in
+// C:pp(v2).
+func trimPathEnd(path string) string {
+	for path != "" {
+		last := path[len(path)-1]
+		if !strings.ContainsRune(".,;!?)]}'", rune(last)) || last == ')' && strings.Count(path, "(") >= strings.Count(path, ")") {
+			return path
+		}
+		path = path[:len(path)-1]
+	}
+	return path
 }
 
 // cardPaths are the paths a card on the board names where its text makes
@@ -70,8 +85,10 @@ func cardPaths(d Database, kind, id string) ([]string, bool) {
 // openCardPath opens File Explorer at a file or folder a card names, with the
 // file selected, for the link the card's text makes of it. The browser names
 // the card and the path, and the path opens only when that card's own text
-// names it exactly and it exists on a drive of this PC: never a URL, a
-// network share or a command, and a file is only ever selected, never opened.
+// names it, letter case aside as Windows reads a path, and it exists on a
+// drive letter of this PC: never a URL, a UNC or device path or a command,
+// and a file is only ever selected, never opened. A drive letter mapped to a
+// share is a drive letter like any other.
 func (h *HTTP) openCardPath(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Kind string `json:"kind"`
@@ -87,12 +104,15 @@ func (h *HTTP) openCardPath(w http.ResponseWriter, r *http.Request) {
 	case !found:
 		apiError(w, http.StatusNotFound, "That card is no longer on the board.")
 		return
-	case !slices.Contains(paths, input.Path):
+	case !slices.ContainsFunc(paths, func(path string) bool { return strings.EqualFold(path, input.Path) }):
 		apiError(w, http.StatusBadRequest, "That card names no such path.")
 		return
-	// Explorer reads a comma as the end of an argument.
-	case len(filepath.VolumeName(input.Path)) != 2 || !filepath.IsAbs(input.Path) || strings.ContainsAny(input.Path, `,"`) || strings.ContainsFunc(input.Path, unicode.IsControl):
+	case len(filepath.VolumeName(input.Path)) != 2 || !filepath.IsAbs(input.Path) || strings.ContainsFunc(input.Path, unicode.IsControl):
 		apiError(w, http.StatusBadRequest, "Only a path on a drive of this PC opens in File Explorer.")
+		return
+	// Explorer reads a comma as the end of an argument.
+	case strings.ContainsAny(input.Path, `,"`):
+		apiError(w, http.StatusBadRequest, "A path holding a comma or a quote cannot open in File Explorer.")
 		return
 	}
 	target := filepath.Clean(input.Path)

@@ -15,7 +15,8 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
 import { CardMail } from "./card-mail";
-import { pathElements } from "./messageText";
+import { inlineElements } from "./messageText";
+import { copyValues } from "./CopyValue";
 import { pathLinks } from "./path-link";
 
 // The names the scope holds that the board wants him to confirm replacing,
@@ -183,13 +184,13 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span></p>
     <header className="credential-heading">
-      <h3 id={"credential-" + request.id} tabIndex={-1}>{pathElements(credentialHeading(request), paths)}</h3>
-      {request.why && inputs.length > 0 && <p className="credential-why">{pathElements(request.why, paths)}</p>}
+      <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>
+      {request.why && inputs.length > 0 && <p className="credential-why">{inlineElements(request.why, copyValues, paths)}</p>}
       {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
         {request.link && (request.window
           ? <li>Press Open the browser window below</li>
           : <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{wrappable(linkLabel(request.link), "/")}</span><Icon name="external" /></a></li>)}
-        {request.steps.map((step, index) => <li key={index}>{pathElements(stepText(step), paths)}</li>)}
+        {request.steps.map((step, index) => <li key={index}>{inlineElements(stepText(step), copyValues, paths)}</li>)}
       </ol>}
     </header>
     {request.mail && <CardMail mail={request.mail} />}
