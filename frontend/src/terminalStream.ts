@@ -150,3 +150,10 @@ export function closedReason(code: number, reason: string): string {
   if (!reason) return code === 1006 ? "The connection to the board dropped." : "The terminal view closed.";
   return typingHeldReason(reason);
 }
+
+// isWebKit says a browser draws with WebKit, as every browser on an iPhone
+// does: Safari, and Chrome, Edge and Firefox there too, whose agents name
+// WebKit and no Chromium version.
+export function isWebKit(userAgent: string): boolean {
+  return /AppleWebKit\//.test(userAgent) && !/(Chrome|Chromium|Edg)\//.test(userAgent);
+}

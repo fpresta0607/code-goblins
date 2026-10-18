@@ -1,5 +1,5 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
-import { WebglAddon } from "@xterm/addon-webgl";
+import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
 import { clipboardInput, terminalKey } from "./terminal-keys";
@@ -48,8 +48,8 @@ export interface ViewEvents {
 // TerminalView is one connection to a native terminal and the xterm that
 // draws it. It is staged, laid out but invisible, while it replays the host's
 // history and the repaint its first size asks for, so the panel never shows a
-// blank or half-drawn screen. It draws on the GPU where it can and writes a
-// whole redraw at a time.
+// blank or half-drawn screen. It draws on the GPU where it can (drawOnGpu) and
+// writes a whole redraw at a time.
 export class TerminalView {
   readonly element: HTMLDivElement;
   private readonly term: Terminal;
@@ -101,13 +101,7 @@ export class TerminalView {
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
     this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
     this.term.open(this.element);
-    try {
-      const gpu = new WebglAddon();
-      gpu.onContextLoss(() => gpu.dispose());
-      this.term.loadAddon(gpu);
-    } catch {
-      // No WebGL here: xterm keeps drawing with its DOM renderer.
-    }
+    drawOnGpu(this.term);
     this.term.textarea?.setAttribute("aria-label", "Terminal input");
     this.term.parser.registerOscHandler(52, () => true);
     this.pin = new PinnedLine(this.element);
