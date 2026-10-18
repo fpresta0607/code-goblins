@@ -1437,8 +1437,8 @@ The supervisor records the declared ID on the wait (`follows`) and infers none, 
 While that question is open the wait shows nowhere and counts for nothing, so he sees one card, the decision (the Overlord, 2026-10-17: "These follow-ups should not be notifications in the Command Center ... But the initial one is critical").
 The answer to that question closes the wait in the same change that records it, whoever gives it, his answer from the board or the CFO's, so answering the decision clears both and no open wait is ever hidden behind an answered one; a wait declared to follow a question already answered closes as the supervisor takes it in.
 The board hides by that ID alone, never by comparing times.
-Only a wait that opens nothing can follow a decision: one with a page, a link or a command declares `--separate`, and a wait whose decision closed without an answer, such as one he dismissed, is its own card.
-A wait with something to open always stays its own card.
+Only a wait that opens nothing can follow a decision: one with a page, a link, a file its goblin delivered or a command declares `--separate`, and a wait whose decision closed without an answer, such as one he dismissed, is its own card.
+A wait with something to open, a page, a link or a file its goblin delivered, always stays its own card.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
