@@ -1,4 +1,5 @@
 import { createElement, Fragment, type ReactNode } from "react";
+import { scrawlLink } from "./scrawl-link.ts";
 
 // A question or message as its asker wrote it, with the little structure the
 // question contract allows: **bold** for the verdict or the blocking item,
@@ -27,8 +28,9 @@ const WEB_LINK = /\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]/g;
 export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(value);
 
 // webLink opens an address in a new tab, which the desktop window hands to
-// his default browser.
-export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: address, target: "_blank", rel: "noreferrer" }, address);
+// his default browser. A phone validates a Scrawl session's private route;
+// the displayed and copied address stays as the asker wrote it.
+export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer" }, address);
 
 // Text with each address in it a link span of its own.
 function linkSpans(text: string, bold: boolean): Span[] {

@@ -36,6 +36,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/quota"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -50,6 +51,7 @@ type ProgressReader interface {
 }
 
 type Options struct {
+	RemoteAccess   *remoteaccess.Manager
 	Example        bool
 	CFO            *CFOConnection
 	Gate           ProgressReader

@@ -1,3 +1,4 @@
+import { scrawlLink } from "./scrawl-link";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Action, BoardActivity, Question, Snapshot } from "./types";
 import { deliveryMark, type Submission } from "./feedback";
@@ -48,7 +49,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
     <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues)}</div>
-    {review && <a className="icon-button raised pill-link open-inline" href={review.url} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
+    {review && <a className="icon-button raised pill-link open-inline" href={scrawlLink(review.url)} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
       {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View the image for " + choice.text + " full size"} onClick={() => onImage(index)}>
         {missing.has(choice.image) ? <span className="image-missing"><Icon name="images" /></span> : <img src={choice.image} alt="" onError={() => setMissing((prior) => new Set([...prior, choice.image]))} />}<span>{choice.text}</span>

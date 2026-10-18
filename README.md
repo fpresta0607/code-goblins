@@ -25,6 +25,10 @@
 
 ## Why Code Goblins
 
+Use the board on your phone through optional, owner-only Tailscale access.
+Open **CFO → Task → Remote access** to set it up, copy its private link or turn
+it off. Everything runs locally until you enable it. See [phone access](docs/remote-access.md).
+
 Most coding-agent tools make you manage more agents. Code Goblins is built to do the opposite.
 
 You talk to one supervisor: the **CFO**. The CFO decomposes the objective, dispatches specialized **goblins** in parallel, gives each worker an isolated git worktree, watches for failures and blocked work, switches harnesses when necessary, runs the delivery pipeline, and brings decisions back to you only when human judgment is actually required.
