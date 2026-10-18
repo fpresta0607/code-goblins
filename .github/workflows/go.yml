@@ -291,6 +291,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx playwright install chromium --only-shell
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # WebKit, which tests/iphone-terminal.spec.ts runs in, needs Media
+          # Foundation, which Windows Server leaves out.
+          Install-WindowsFeature Server-Media-Foundation | Out-Null
+          npx playwright install webkit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           # A test that fails runs once more (playwright.config.ts), and
