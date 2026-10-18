@@ -16,15 +16,17 @@ import (
 
 // scanner stands in for a virus scanner. It opens the file named name as soon
 // as the install has written it into one of its own folders in the temp
-// folder, once the install's record shows after where after is not empty,
-// without sharing it for deletion, as a scanner reading a file it just saw
-// holds it, and lets go once the record shows until, a line the install
-// writes only after it has tried to remove that folder. With no until it
-// holds the file until the install has ended.
+// folder, without sharing it for deletion, as a scanner reading a file it
+// just saw holds it, and lets go once the install's record shows until, a
+// line the install writes only after it has tried to remove that folder. With
+// no until it holds the file until the install has ended.
 type scanner struct {
 	name  string
-	after string
 	until string
+	// after, where it is not nil, closes once the scanner may look: it reads
+	// no record before then, since each read of the record can refuse the
+	// install's own write to it.
+	after <-chan struct{}
 
 	// holding closes once the file is held.
 	holding chan struct{}
@@ -47,8 +49,8 @@ const (
 	readEvery = 25 * time.Millisecond
 )
 
-func newScanner(name, after, until string) *scanner {
-	return &scanner{name: name, after: after, until: until, holding: make(chan struct{}), stop: make(chan struct{}), stopped: make(chan struct{})}
+func newScanner(name, until string) *scanner {
+	return &scanner{name: name, until: until, holding: make(chan struct{}), stop: make(chan struct{}), stopped: make(chan struct{})}
 }
 
 // start watches temp for the file and record for the line that lets it go.
@@ -68,8 +70,10 @@ func (s *scanner) start(temp, record string) {
 			default:
 			}
 			if held == nil {
-				if s.after != "" {
-					if recorded, _ := os.ReadFile(record); !strings.Contains(string(recorded), s.after) {
+				if s.after != nil {
+					select {
+					case <-s.after:
+					default:
 						time.Sleep(lookEvery)
 						continue
 					}
@@ -120,20 +124,23 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 	// holds that file, so the scanner holds it before the install can reach
 	// the folder's removal.
 	for name, held := range map[string]struct {
-		after, until string
-		wait         bool
+		until        string
+		isNoMistakes bool
 	}{
 		"the release's download":   {until: "download https://claude.ai/install.ps1"},
-		"the no-mistakes download": {after: "/no-mistakes.exe", until: "no-mistakes daemon start", wait: true},
+		"the no-mistakes download": {until: "no-mistakes daemon start", isNoMistakes: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			scan := newScanner("SHA256SUMS", held.after, held.until)
+			scan := newScanner("SHA256SUMS", held.until)
 			var ready <-chan struct{}
-			if held.wait {
+			if held.isNoMistakes {
 				ready = scan.holding
 			}
 			release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, ready)
+			if held.isNoMistakes {
+				scan.after = release.asked
+			}
 
 			// Act
 			run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
@@ -159,8 +166,9 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 // gone.
 func TestOneLineInstallNamesAFolderItCouldNotRemove(t *testing.T) {
 	// Arrange
-	scan := newScanner("SHA256SUMS", "/no-mistakes.exe", "")
+	scan := newScanner("SHA256SUMS", "")
 	release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, scan.holding)
+	scan.after = release.asked
 
 	// Act
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
@@ -194,7 +202,7 @@ func TestOneLineInstallThatStopsNamesAFolderItCouldNotRemove(t *testing.T) {
 	base := ServeRelease(t, standin.Bytes(t), fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("another build"))))
 	cmd, _, temp := StrippedCommand(t, base, map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
-	scan := newScanner("SHA256SUMS", "", "")
+	scan := newScanner("SHA256SUMS", "")
 	scan.start(temp, "")
 
 	// Act

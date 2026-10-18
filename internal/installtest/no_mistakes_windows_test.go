@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -66,6 +67,8 @@ type noMistakesRelease struct {
 	base string
 	// requests counts the requests for no-mistakes.exe.
 	requests *atomic.Int32
+	// asked closes when the install first asks for no-mistakes.exe.
+	asked <-chan struct{}
 }
 
 // serveNoMistakesRelease serves a release whose no-mistakes.exe is program
@@ -77,6 +80,8 @@ func serveNoMistakesRelease(t *testing.T, program []byte, failures int32, sums f
 	t.Helper()
 	cfo := standin.Bytes(t)
 	requests := &atomic.Int32{}
+	asked := make(chan struct{})
+	var askedOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/cfo.exe":
@@ -84,6 +89,7 @@ func serveNoMistakesRelease(t *testing.T, program []byte, failures int32, sums f
 		case "/SHA256SUMS":
 			_, _ = w.Write([]byte(sums(sha256.Sum256(cfo), sha256.Sum256(program))))
 		case "/no-mistakes.exe":
+			askedOnce.Do(func() { close(asked) })
 			if ready != nil {
 				select {
 				case <-ready:
@@ -100,7 +106,7 @@ func serveNoMistakesRelease(t *testing.T, program []byte, failures int32, sums f
 		}
 	}))
 	t.Cleanup(server.Close)
-	return noMistakesRelease{base: server.URL, requests: requests}
+	return noMistakesRelease{base: server.URL, requests: requests, asked: asked}
 }
 
 // publishedSums writes SHA256SUMS as a release publishes it.
