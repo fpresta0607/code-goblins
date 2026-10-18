@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -137,6 +138,13 @@ type Manager struct {
 	mu       sync.Mutex
 	scrawlMu sync.Mutex
 	Starter  execx.Starter
+	// Answers reports whether a Code Goblins board answers privately at an
+	// origin; nil asks it over HTTPS (answersAsBoard). machines is the list
+	// Machines last found, at machinesAt.
+	Answers    func(ctx context.Context, origin string) bool
+	machinesMu sync.Mutex
+	machines   []Machine
+	machinesAt time.Time
 }
 
 type Status struct {
@@ -237,12 +245,15 @@ func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
 	return result.Stdout, nil
 }
 
-// tailnetSelf is this PC as its Tailscale reports it: the board's private
-// origin, the signed-in owner, and whether the tailnet gives the PC the
-// HTTPS certificates Serve needs, which it does once HTTPS is approved.
+// tailnetSelf is this PC as its Tailscale reports it: its name on the
+// tailnet, the board's private origin, the signed-in owner, whether the
+// tailnet gives the PC the HTTPS certificates Serve needs, which it does once
+// HTTPS is approved, and the owner's other machines online in the same
+// tailnet, untagged, by name.
 type tailnetSelf struct {
-	origin, login string
-	hasHTTPS      bool
+	host, origin, login string
+	hasHTTPS            bool
+	peers               []string
 }
 
 func (m *Manager) identity(ctx context.Context) (tailnetSelf, error) {
@@ -261,6 +272,12 @@ func (m *Manager) identity(ctx context.Context) (tailnetSelf, error) {
 			UserID  json.Number
 			Tags    []string
 		}
+		Peer map[string]struct {
+			DNSName string
+			UserID  json.Number
+			Online  bool
+			Tags    []string
+		}
 		User map[string]struct{ LoginName string }
 	}
 	err = json.Unmarshal(data, &status)
@@ -275,7 +292,16 @@ func (m *Manager) identity(ctx context.Context) (tailnetSelf, error) {
 	if !tailName(name) || login == "" || len(status.Self.Tags) != 0 {
 		return tailnetSelf{}, errUnsuitable
 	}
-	return tailnetSelf{origin: "https://" + net.JoinHostPort(name, strconv.Itoa(Port)), login: login, hasHTTPS: len(status.CertDomains) > 0}, nil
+	_, tailnet, _ := strings.Cut(name, ".")
+	var peers []string
+	for _, peer := range status.Peer {
+		host := strings.TrimSuffix(strings.ToLower(peer.DNSName), ".")
+		if peer.Online && peer.UserID == status.Self.UserID && len(peer.Tags) == 0 && tailName(host) && strings.HasSuffix(host, "."+tailnet) {
+			peers = append(peers, host)
+		}
+	}
+	slices.Sort(peers)
+	return tailnetSelf{host: name, origin: "https://" + net.JoinHostPort(name, strconv.Itoa(Port)), login: login, hasHTTPS: len(status.CertDomains) > 0, peers: peers}, nil
 }
 
 // Detect reads, while remote access is off, what this PC's Tailscale is for

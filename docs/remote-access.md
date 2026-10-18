@@ -35,6 +35,18 @@ does not connect the phone's VPN; Tailscale handles that on each device. No
 developer checkout, Go installation or account-specific configuration is needed
 with a released build carrying this feature.
 
+With Code Goblins on more than one PC of yours, the private board on your phone
+lists them under the Tailscale switch: the machines in your tailnet under your
+own account, online and untagged, whose board answers over remote access, this
+one selected. Picking another opens that machine's private board, and Scrawl
+reviews opened there come from that machine. In a Home Screen app another
+machine's board opens over the app, as a link to another site does; add it to
+the Home Screen too to keep it beside your apps. The PC that lists them asks
+each one for its board on port 4311 at most twice a minute, so your Tailscale
+access rules must let it reach them, as they must let the phone. The board on a
+PC lists none: another machine's gate refuses a page that comes from it, so open
+that machine's private link in a browser instead.
+
 Tailscale may require one-time administrator permission or HTTPS approval; the
 switch then says HTTPS not approved, and under it the board shows the exact
 `tailscale serve --bg --https=4311 http://127.0.0.1:4310` command (the port
@@ -163,7 +175,11 @@ on port 4311 inside the tailnet, and Code Goblins accepts only the exact saved
 HTTPS host and the signed-in owner's identity supplied by that local proxy.
 Other tailnet users, shared-node guests, tagged devices, missing identities and
 public Funnel requests are refused. A Tailscale ACL still governs which of the
-owner's devices may reach the PC.
+owner's devices may reach the PC. To list the machines to pick from, the board
+asks each of the owner's own machines in the tailnet, online and untagged, for
+its web app manifest over HTTPS on port 4311, through that machine's own gate,
+and reads only whether it names Code Goblins; it never proxies another machine's
+board.
 
 The gate checks browser Origin before translating it to the local board and
 retains the existing mutation and terminal WebSocket token checks. Forwarding

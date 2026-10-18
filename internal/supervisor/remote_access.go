@@ -88,6 +88,20 @@ func (h *HTTP) remoteAccess(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, manager.Detect(ctx, manager.Status(ctx)))
 }
 
+// remoteMachines serves the machines on the owner's tailnet whose boards
+// answer, which the setting lists for him to pick the one the board and
+// Scrawl connect to.
+func (h *HTTP) remoteMachines(w http.ResponseWriter, r *http.Request) {
+	manager := h.Service.Options.RemoteAccess
+	if manager == nil {
+		apiError(w, http.StatusConflict, "Remote access is unavailable on this board")
+		return
+	}
+	respond(w, http.StatusOK, struct {
+		Machines []remoteaccess.Machine `json:"machines"`
+	}{manager.Machines(r.Context())})
+}
+
 func (h *HTTP) remoteScrawlLink(w http.ResponseWriter, r *http.Request) {
 	manager := h.Service.Options.RemoteAccess
 	if manager == nil {
