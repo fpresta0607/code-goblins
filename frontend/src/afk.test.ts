@@ -75,8 +75,9 @@ test("his first click or key after the CFO turned AFK mode on at his ask offers 
   for (const [name, value, lastTouch, now, want] of cases) assert.equal(offerFor(value, lastTouch, now), want, name);
 });
 
-test("who made a switch is said to the Overlord: his own board or terminal without the program and its process, or the CFO at his ask with his words", () => {
+test("who made a switch is said to the Overlord: his own board, private board or terminal without what the supervisor names for the CFO, or the CFO at his ask with his words", () => {
   assert.equal(switchedBy("his own board (goblins-window.exe pid 4242)", ""), "from your board");
+  assert.equal(switchedBy("his own private board (by Tailscale's headers, which a program on this PC can forge)", ""), "from your private board");
   assert.equal(switchedBy("his own terminal (powershell.exe pid 5151)", ""), "from your terminal");
   assert.equal(switchedBy("the board", ""), "from the board");
   assert.equal(switchedBy("", ""), "");

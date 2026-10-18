@@ -190,10 +190,13 @@ everywhere, a program already running on the PC is inside this boundary.
 
 The gate checks browser Origin before translating it to the local board and
 retains the existing mutation and terminal WebSocket token checks. Forwarding
-headers remain attached, so credential entry, AFK switches and other existing
-PC-only actions remain PC-only. The local process trust boundary is unchanged:
-this does not authenticate against a process already running on the PC. Do not
-point a different reverse proxy or Funnel at the board.
+headers remain attached, so credential entry, turning AFK mode on and other
+existing PC-only actions remain PC-only. AFK mode turns off from the private
+board, since an off, even a forged one, hands no one the owner's authority
+([native board guide](native-board.md#afk-mode)). The local process trust
+boundary is unchanged: this does not authenticate against a process already
+running on the PC. Do not point a different reverse proxy or Funnel at the
+board.
 
 Tailscale's [Serve documentation](https://tailscale.com/docs/features/tailscale-serve)
 describes the identity headers and loopback trust boundary; its
