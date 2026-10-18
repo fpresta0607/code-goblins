@@ -438,6 +438,9 @@ export interface Question {
   answered_option: string; answered_by: string; answered_at: string;
   // task names the goblin that asked; it is empty for the CFO's own question.
   task: string;
+  // for_task names the goblin whose decision the CFO's own question puts to
+  // him (cfo question --for); it is empty for a goblin's question.
+  for_task: string;
   // answered_in says where an answer given outside its card came from, such
   // as "chat".
   answered_in: string;
@@ -457,6 +460,11 @@ export interface Review {
   // link is the web link a goblin's wait gave as the place to go, the only
   // one its card opens.
   link: string;
+  // follows is the ID of the open decision a goblin's wait on him followed
+  // when it was raised, the CFO's question for its task or the goblin's own
+  // with choices: the board shows only that question while it is open, and
+  // its answer closes the wait.
+  follows: string;
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
@@ -734,11 +742,11 @@ function itemLists(v: Record<string, unknown>) {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), answered_in: string(q.answered_in),
-        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), for_task: string(q.for_task) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), follows: string(r.follows), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, download }) => ({ name: string(name), size: number(size), kind: string(kind), download: download === true }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         answered_by: string(r.answered_by), answered_in: string(r.answered_in), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),

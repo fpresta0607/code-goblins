@@ -20,16 +20,17 @@ import (
 //	cfo review --id <stable-id> --withdraw "<reason>" [--task <id>]
 //	cfo review --clear <stable-id> --reason "<why>"
 //
-// A Lavish page named by its HTML file is opened without a browser and polled
-// by the supervisor, so the Overlord's feedback on it reaches the CFO as a
-// review wake; nobody runs lavish-axi poll themselves.
+// A Lavish page named by its HTML file is opened without a browser, and one
+// named by its Scrawl link is the page lavish-axi serves there; the supervisor
+// polls either, so the Overlord's feedback on it reaches the CFO as a review
+// wake; nobody runs lavish-axi poll themselves.
 func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("review", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	id := f.String("id", "", "stable ID for this item: 8 to 128 letters, digits, dots, dashes or underscores")
 	task := f.String("task", "", "your task ID, run from your own pane; omit only from the registered primary CFO")
 	title := f.String("title", "", "what the Overlord should look at")
-	lavish := f.String("lavish", "", "the Scrawl page: its link, or its HTML file for the supervisor to poll")
+	lavish := f.String("lavish", "", "the Scrawl page the supervisor polls: its link, or its HTML file")
 	withdraw := f.String("withdraw", "", "withdraw your open item with this reason")
 	clear := f.String("clear", "", "as the registered primary CFO, clear any open item by its ID, such as a retired goblin's")
 	reason := f.String("reason", "", "why the item is cleared; kept on the item and in state/reviews.audit")

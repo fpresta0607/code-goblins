@@ -288,11 +288,12 @@ func together(first, then axi.PagePoll) axi.PagePoll {
 }
 
 // answeredOnPage closes the captured version and its older cards the moment
-// a poll reads his answer there, before anyone is told it, and nothing else:
-// a question its goblin asked stays its own. The boards are told at once:
-// the supervisor's cycle tells them only of what the cycle itself changed.
+// a poll reads his answer there, with what he wrote, before anyone is told
+// it, and nothing else: a question its goblin asked stays its own. The boards
+// are told at once: the supervisor's cycle tells them only of what the cycle
+// itself changed.
 func (s *Service) answeredOnPage(answer pageAnswer) {
-	if err := s.Store.closePage(answer.Item, Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived}); err != nil {
+	if err := s.Store.closePage(answer.Item, Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived, Answer: pageWords(answer.Poll)}); err != nil {
 		s.publish(err)
 	}
 	s.notify()
@@ -444,7 +445,7 @@ func (s *Store) closePage(item Review, closed Review) error {
 		if r.State != "open" || r.PageSettled != nil || !pageVersionIncludes(item, *r) {
 			continue
 		}
-		r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, at
+		r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.Answer, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, closed.Answer, at
 		if r.State == "cleared" {
 			s.auditClear(*r)
 		}
@@ -456,10 +457,16 @@ func (s *Store) closePage(item Review, closed Review) error {
 	return s.save()
 }
 
+// pageWords is what he wrote on a page in one poll's answer, his prompts one
+// to a line, bounded as an item's reason is.
+func pageWords(poll axi.PagePoll) string {
+	return bounded(strings.Join(poll.Prompts, "\n"), 2000)
+}
+
 // explainAnswer gives each item of the page key names that closed when he
 // answered there, and says only that, the reason that says who has his
-// answer, now that it was passed on.
-func (s *Store) explainAnswer(item Review, reason string) error {
+// answer, now that it was passed on, and all he wrote with it.
+func (s *Store) explainAnswer(item Review, reason, words string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
@@ -468,7 +475,7 @@ func (s *Store) explainAnswer(item Review, reason string) error {
 		if r.State != "answered" || r.Reason != pageAnswerReceived || !pageVersionIncludes(item, *r) {
 			continue
 		}
-		r.Reason, changed = reason, true
+		r.Reason, r.Answer, changed = reason, words, true
 	}
 	if !changed {
 		return nil

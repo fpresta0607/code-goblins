@@ -1101,6 +1101,280 @@ func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
 	}
 }
 
+// nativeGoblin records goblin id as a native task whose terminal is hosted in
+// stateDir with this test process as its program, so what the test runs is
+// proven to come from inside it and reaches the Command Center's inboxes.
+func nativeGoblin(t *testing.T, stateDir, id string) {
+	t.Helper()
+	worktree := t.TempDir()
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: id, SpawnGen: "gen-1", Project: worktree, Worktree: worktree, Backend: "native", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	hostThisProcess(t, stateDir, id)
+}
+
+// plantJSON writes value as JSON to path, making its folder.
+func plantJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitsInTheInbox returns the waits goblin g1 published for the Command
+// Center, which stay in the review inbox while no board takes them.
+func waitsInTheInbox(t *testing.T, stateDir string) []supervisor.Review {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(stateDir, "reviews-inbox"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var waits []supervisor.Review
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var published supervisor.Review
+		if err := json.Unmarshal(data, &published); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(published.ID, "waiting-g1-") {
+			waits = append(waits, published)
+		}
+	}
+	return waits
+}
+
+// decisionsForG1 are the two decisions that can be open for goblin g1, each
+// put where it is first seen: the goblin's own question with choices in the
+// question inbox, which the board has yet to take, and the CFO's question for
+// it (cfo question --for) on the board's record, where the CFO's pipe puts
+// it. Each returns the decision's ID and first line.
+var decisionsForG1 = map[string]func(t *testing.T, stateDir string) (string, string){
+	"the goblin's own question": func(t *testing.T, stateDir string) (string, string) {
+		q := supervisor.Question{ID: "notify-g1-3", Identity: strings.Repeat("g", 64), Text: "Which store?\n- Both are set up.", Options: []string{"SQLite", "Postgres"}, Status: "pending", Task: "g1", Generation: "gen-1", Seq: 3, CreatedAt: time.Now().UTC()}
+		plantJSON(t, filepath.Join(stateDir, "questions-inbox", "notify-g1-3.json"), q)
+		return q.ID, "Which store?"
+	},
+	"the CFO's question for it": func(t *testing.T, stateDir string) (string, string) {
+		q := supervisor.Question{ID: "pd-connector-parity", Identity: strings.Repeat("c", 64), Text: "Build the 63 parity tools?\n- She sized them at three days.", Options: []string{"Build them", "End her task"}, Status: "pending", ForTask: "g1", CreatedAt: time.Now().UTC()}
+		plantJSON(t, filepath.Join(stateDir, ".supervisor.json"), map[string]any{"questions": []supervisor.Question{q}})
+		return q.ID, "Build the 63 parity tools?"
+	},
+}
+
+// The CFO, 2026-10-17: a wait follows a decision only when the goblin
+// declares it, since a need the Overlord never sees stalls the goblin and an
+// extra card does not. While a decision for the goblin is open, a wait on him
+// that declares neither --follows nor --separate is refused, recording
+// nothing, and names each open decision by its ID and first line with both
+// flags; so is a --follows that names no open decision, both flags at once,
+// and --follows on a wait that opens a link, which is a card of its own.
+func TestNotifyWaitBesideAnOpenDecisionMustDeclareWhatItIs(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, c := range map[string]struct {
+			flags func(id string) []string
+			says  func(id, first string) []string
+		}{
+			"no declaration": {
+				flags: func(string) []string { return nil },
+				says:  func(id, first string) []string { return []string{id + ": " + first, "--follows <id>", "--separate"} },
+			},
+			"--follows naming no open decision": {
+				flags: func(string) []string { return []string{"--follows", "notify-g1-99"} },
+				says: func(id, first string) []string {
+					return []string{"--follows notify-g1-99 names no decision open for g1", id + ": " + first}
+				},
+			},
+			"--follows and --separate": {
+				flags: func(id string) []string { return []string{"--follows", id, "--separate"} },
+				says:  func(string, string) []string { return []string{"do not go together"} },
+			},
+			"--follows on a wait with a link": {
+				flags: func(id string) []string {
+					return []string{"--follows", id, "--link", "https://dashboard.stripe.com/login"}
+				},
+				says: func(string, string) []string { return []string{"give --separate instead"} },
+			},
+		} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				id, first := open(t, stateDir)
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Sign in to Stripe in the browser I opened"}, c.flags(id)...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				if exit != 2 {
+					t.Fatalf("exit=%d stderr=%q, want the wait refused", exit, stderr.String())
+				}
+				for _, said := range c.says(id, first) {
+					if !strings.Contains(stderr.String(), said) {
+						t.Errorf("stderr = %q, want it to say %q", stderr.String(), said)
+					}
+				}
+				if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+					t.Errorf("a refused wait recorded status %q", lines)
+				}
+				if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+					t.Errorf("a refused wait woke the CFO: %+v %v", records, err)
+				}
+				if waits := waitsInTheInbox(t, stateDir); len(waits) != 0 {
+					t.Errorf("a refused wait published %+v", waits)
+				}
+			})
+		}
+	}
+}
+
+// A wait declared to be the open decision is published following it by its
+// ID, so the board shows only the decision while it is open and its answer
+// closes the wait; one declared --separate follows none and is a card of its
+// own.
+func TestNotifyWaitPublishesWhatItDeclared(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, isFollowing := range map[string]bool{"--follows the decision": true, "--separate": false} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				nativeGoblin(t, stateDir, "g1")
+				id, _ := open(t, stateDir)
+				flags, want := []string{"--separate"}, ""
+				if isFollowing {
+					flags, want = []string{"--follows", id}, id
+				}
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store"}, flags...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				if exit != 0 || stderr.Len() != 0 {
+					t.Fatalf("exit=%d stderr=%q, want the wait taken", exit, stderr.String())
+				}
+				if waits := waitsInTheInbox(t, stateDir); len(waits) != 1 || waits[0].Follows != want {
+					t.Fatalf("published waits = %+v, want one following %q", waits, want)
+				}
+				if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: Waiting for your answer on the store" {
+					t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+				}
+			})
+		}
+	}
+}
+
+// The CFO, 2026-10-18: opening something means a page, a link or a file, so a
+// wait beside a file its goblin delivered opens that file, as its card does,
+// and is a card of its own. --follows is refused, recording nothing, and
+// names the file's item; --separate is taken.
+func TestNotifyWaitBesideADeliveredFileIsACardOfItsOwn(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, c := range map[string]struct {
+			flags     func(id string) []string
+			isRefused bool
+		}{
+			"--follows the decision": {flags: func(id string) []string { return []string{"--follows", id} }, isRefused: true},
+			"--separate":             {flags: func(string) []string { return []string{"--separate"} }},
+		} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				nativeGoblin(t, stateDir, "g1")
+				id, _ := open(t, stateDir)
+				now := time.Now().UTC()
+				file := supervisor.Review{ID: "g1-site-plan", Identity: strings.Repeat("g", 64), Task: "g1", Title: "The site plan", State: "open", Document: &supervisor.ReviewDocument{Name: "site-plan.pdf", Size: 2048, Sum: strings.Repeat("b", 64), Kind: "application/pdf"}, CreatedAt: now, UpdatedAt: now}
+				plantJSON(t, filepath.Join(stateDir, "reviews-inbox", file.ID+".open.json"), file)
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store"}, c.flags(id)...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				waits := waitsInTheInbox(t, stateDir)
+				records, err := wake.Pending(stateDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch {
+				case c.isRefused && (exit != 2 || !strings.Contains(stderr.String(), "your delivered file g1-site-plan is open") || !strings.Contains(stderr.String(), "give --separate")):
+					t.Fatalf("exit=%d stderr=%q, want --follows refused naming the delivered file", exit, stderr.String())
+				case c.isRefused && (len(waits) != 0 || len(records) != 0):
+					t.Fatalf("a refused wait published %+v and woke the CFO with %+v", waits, records)
+				case !c.isRefused && (exit != 0 || stderr.Len() != 0 || len(waits) != 1 || waits[0].Follows != ""):
+					t.Fatalf("exit=%d stderr=%q waits=%+v, want one wait of its own", exit, stderr.String(), waits)
+				}
+			})
+		}
+	}
+}
+
+// With no decision open a wait on the Overlord needs no declaration and is a
+// card of its own, as it is with --separate; --follows is refused, saying
+// none is open, and either flag on anything but a wait on him is refused.
+func TestNotifyWaitWithNoDecisionOpenIsACardOfItsOwn(t *testing.T) {
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"--follows with none open": {[]string{"g1", "--waiting-on", "overlord", "Sign in to Stripe", "--follows", "notify-g1-3"}, "and none is"},
+		"--follows on a question":  {[]string{"g1", "--blocked", "Which store? options: SQLite | Postgres", "--follows", "notify-g1-3"}, "go with --waiting-on overlord"},
+		"--separate on a CI wait":  {[]string{"g1", "--waiting-on", "ci", "PR 45 checks", "--separate"}, "go with --waiting-on overlord"},
+		"--separate on working":    {[]string{"g1", "--working", "fixing the lint step", "--separate"}, "go with --waiting-on overlord"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), c.says) {
+				t.Fatalf("exit=%d stderr=%q, want 2 saying %q", exit, stderr.String(), c.says)
+			}
+			if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+				t.Errorf("a refused notify recorded status %q", lines)
+			}
+			if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+				t.Errorf("a refused notify woke the CFO: %+v %v", records, err)
+			}
+		})
+	}
+	for name, flags := range map[string][]string{"no declaration": nil, "--separate": {"--separate"}} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			nativeGoblin(t, stateDir, "g1")
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Sign in to Stripe in the browser I opened"}, flags...), &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 0 || stderr.Len() != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the wait taken", exit, stderr.String())
+			}
+			if waits := waitsInTheInbox(t, stateDir); len(waits) != 1 || waits[0].Follows != "" {
+				t.Fatalf("published waits = %+v, want one card of its own", waits)
+			}
+		})
+	}
+}
+
 // A wait or a question can carry a command for the Overlord to run with one
 // click (his words, 2026-10-02: "run in powershell button"): --run names its
 // file, checked before anything is recorded, and the wake tells the CFO a

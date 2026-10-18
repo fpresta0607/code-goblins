@@ -249,7 +249,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 		return err
 	}
 	if answer.Reason != "" {
-		if err := s.Store.explainAnswer(r, answer.Reason); err != nil {
+		if err := s.Store.explainAnswer(r, answer.Reason, pageWords(answer.Poll)); err != nil {
 			return err
 		}
 	}

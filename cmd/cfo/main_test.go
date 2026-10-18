@@ -134,6 +134,13 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
+	// Nor does any test read the review sessions lavish-axi keeps on the
+	// machine the tests run on: their state folder is one that is not there,
+	// unless a test names one of its own.
+	if err := os.Setenv("LAVISH_AXI_STATE_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("no-lavish-state-%d", os.Getpid()))); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	// A build stand-in an update test installs runs as that build.
 	if code, ok := runStandInBuild(); ok {
 		os.Exit(code)

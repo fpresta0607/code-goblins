@@ -21,7 +21,11 @@ test("a goblin's wait with a page says its words once and opens the page from on
   await expect(card.locator('a[href="http://127.0.0.1:4387/session/f26e"]')).toHaveCount(1);
   await expect(card.getByRole("link", { name: "Open review" })).toHaveCount(1);
   await expect(card.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/waiting-pd-agent-context-7/preview");
-  await expect(card.getByRole("button", { name: "Something else?" })).toBeVisible();
+  // He answers on the page, so the card has no box for words (the Overlord,
+  // 2026-10-17: "There does not need to be a text box in when there is a
+  // scroll open review page involved").
+  await expect(card.getByRole("button", { name: "Something else?" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Skip this card" })).toBeVisible();
 });
 
 test("another review with a page opens it from one button and never names it Scrawl page", async ({ page }) => {

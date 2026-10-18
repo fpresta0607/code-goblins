@@ -75,6 +75,11 @@ type Question struct {
 	// the CFO as this question, so an answer to it is the answer to that page.
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
+	// ForTask names the goblin whose decision the CFO's own question puts
+	// to the Overlord: while the question is open, a wait on him that goblin
+	// raises declares whether it follows it (Review.Follows). It is empty for
+	// a goblin's question, whose Task names it.
+	ForTask string `json:"for_task,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -94,6 +99,9 @@ func validQuestion(q Question) error {
 	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
+	if q.ForTask != "" && (q.Task != "" || state.ValidTaskID(q.ForTask) != nil) {
+		return errors.New("only the CFO's own question names a goblin it decides for, by its task ID")
+	}
 	if len(q.Images) > 0 && (q.Task == "" || len(q.Images) != len(q.Options)) {
 		return errors.New("only a goblin's question takes images, one for each choice it offers")
 	}
@@ -106,7 +114,7 @@ func validQuestion(q Question) error {
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && slices.Equal(a.Images, b.Images)
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && a.ForTask == b.ForTask && slices.Equal(a.Images, b.Images)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane
@@ -614,8 +622,9 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 }
 
 // recordAnswer tells the board which choice closed a goblin's question. It
-// closes only that question: the goblin's waits on the Overlord, such as a
-// sign-in only he can clear, stay his.
+// closes that question and only the waits the goblin declared to follow it
+// (cfo notify --follows): its other waits on the Overlord, such as a sign-in
+// only he can clear, stay his.
 func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
@@ -736,6 +745,63 @@ func readQuestion(stateDir, id string) (Question, error) {
 	return q, nil
 }
 
+// OpenDecisions lists the decisions open for goblin task: its own pending
+// question with choices and the CFO's pending questions for it (cfo question
+// --for), on the board's record or waiting in the inbox for the board to take
+// them. It only reads, as readQuestion does. The inbox is read first, as
+// reportedReview reads it, since the board records a question before it
+// removes the inbox copy, so one of the two reads always sees it.
+func OpenDecisions(stateDir, task string) ([]Question, error) {
+	dir := filepath.Join(stateDir, "questions-inbox")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	var questions []Question
+	for _, entry := range entries[:min(len(entries), maxQuestions)] {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			// The board took it meanwhile, and its record has it from now.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var q Question
+		if json.Unmarshal(data, &q) == nil {
+			questions = append(questions, q)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
+		if info.Size() > maxStateBytes {
+			return nil, errors.New("supervisor state exceeds its bound")
+		}
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		if err != nil {
+			return nil, err
+		}
+		var db Database
+		if err := json.Unmarshal(data, &db); err != nil {
+			return nil, errors.New("supervisor question history is unreadable")
+		}
+		for _, q := range db.Questions {
+			if i := slices.IndexFunc(questions, func(spooled Question) bool { return spooled.ID == q.ID }); i >= 0 {
+				questions[i] = q
+			} else {
+				questions = append(questions, q)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return slices.DeleteFunc(questions, func(q Question) bool {
+		return q.Status != "pending" || !(q.Task == task && len(q.Options) > 0 || q.ForTask == task)
+	}), nil
+}
+
 // ingestAnswers refuses every answer file in the old answer inbox, since the
 // CFO's answers reach the board only over the supervisor's pipe and a file
 // there was written by some other process of this user, and records each
@@ -854,6 +920,7 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	} else {
 		s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	}
+	s.closeFollowUps(*q, q.AnsweredBy, at)
 	return nil
 }
 
@@ -933,15 +1000,22 @@ func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
-func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended string) error {
+// forTask, when set, is the goblin task whose decision the question puts to
+// the Overlord, which the fleet must know.
+func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string) error {
 	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
 	}
 	defer release()
-	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending"}
+	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", ForTask: forTask}
 	if err := validQuestion(q); err != nil {
 		return err
+	}
+	if forTask != "" {
+		if _, err := state.ReadTaskMeta(c.State, forTask); err != nil {
+			return fmt.Errorf("the question decides for %s, which the fleet does not know: %w", forTask, err)
+		}
 	}
 	return sendPipeRequest(c.State, runPipeRequest{Kind: "question", Question: &q})
 }
@@ -1210,6 +1284,7 @@ func (s *Store) supersedeQuestions() error {
 			at := time.Now().UTC()
 			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CFO.", "cfo", &at, switched.On
 			s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question.")
+			s.closeFollowUps(*q, "cfo", at)
 			changed = true
 		}
 	}

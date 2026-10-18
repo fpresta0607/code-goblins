@@ -76,7 +76,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   // What this goblin waits on the Overlord for: a question, a review item or
   // a credential request.
   // Runs are the CFO's own and never wait on a goblin's panel.
-  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.kind === "credential" ? item.request.task : item.kind === "browser-signin" ? item.signin.task : item.review.task) === task.id) : undefined;
+  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.for_task || item.question.task : item.kind === "credential" ? item.request.task : item.kind === "browser-signin" ? item.signin.task : item.review.task) === task.id) : undefined;
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
     setOpening(true);

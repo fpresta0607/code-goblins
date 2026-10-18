@@ -206,9 +206,9 @@ func TestLavishEndEndsThePagesSession(t *testing.T) {
 }
 
 // The sessions are read from lavish-axi's state file without running it, so
-// reading takes nothing from a page: each session's page, status, who ended
-// it and how many prompts wait on it undelivered, counted from the prompts
-// themselves when the count lags them. No state file is no sessions.
+// reading takes nothing from a page: each session's key, page, status, who
+// ended it and how many prompts wait on it undelivered, counted from the
+// prompts themselves when the count lags them. No state file is no sessions.
 func TestLavishSessionsReadsEverySessionWithoutTakingItsFeedback(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -229,7 +229,7 @@ func TestLavishSessionsReadsEverySessionWithoutTakingItsFeedback(t *testing.T) {
 	if noneErr != nil || len(none) != 0 {
 		t.Fatalf("Sessions without a state file = %+v, %v; want none", none, noneErr)
 	}
-	want := []PageSession{{File: `C:\work\a.html`, Status: "feedback", Pending: 2}, {File: `C:\work\b.html`, Status: "ended", EndedBy: "user"}}
+	want := []PageSession{{Key: "a1", File: `C:\work\a.html`, Status: "feedback", Pending: 2}, {Key: "b2", File: `C:\work\b.html`, Status: "ended", EndedBy: "user"}}
 	if err != nil || !slices.Equal(sessions, want) {
 		t.Fatalf("Sessions = %+v, %v; want %+v", sessions, err, want)
 	}
