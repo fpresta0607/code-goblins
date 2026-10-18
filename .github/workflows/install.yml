@@ -13,6 +13,7 @@ on:
     paths:
       - install.ps1
       - install.cmd
+      - tools/build-no-mistakes.ps1
       - home_files.go
       - cmd/cfo/install.go
       - cmd/cfo/launcher.go
@@ -39,6 +40,7 @@ on:
     paths:
       - install.ps1
       - install.cmd
+      - tools/build-no-mistakes.ps1
       - home_files.go
       - cmd/cfo/install.go
       - cmd/cfo/launcher.go
@@ -180,8 +182,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -o release/cfo.exe ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $hash = (Get-FileHash release/cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", "$hash  cfo.exe`n")
+          # The no-mistakes a release publishes beside cfo.exe, built from
+          # the commit install.ps1 pins, as the release builds it.
+          ./tools/build-no-mistakes.ps1 -Destination release/no-mistakes.exe
+          $lines = foreach ($file in 'cfo.exe', 'no-mistakes.exe') {
+            "$((Get-FileHash "release/$file" -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
+          }
+          [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", ($lines -join "`n") + "`n")
           # The setup program downloads the release's own install script.
           Copy-Item install.ps1 release/install.ps1
           Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" -WindowStyle Hidden
@@ -215,6 +222,10 @@ jobs:
           # npm keeps the tools it installs globally where it is told,
           # outside the profile on a runner, so the snapshots read it too.
           $npmPrefix = (npm prefix --global) | Select-Object -Last 1
+          # The install takes a ~\.no-mistakes it finds for the person's
+          # own, which the uninstall keeps, so the comparison proves what the
+          # uninstall does with it only on a profile that has none yet.
+          if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".no-mistakes")) { throw "~\.no-mistakes is there before the install, so the uninstall would keep it as the person's and the comparison would prove nothing of it." }
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git") --also $npmPrefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install with the one-line command
@@ -318,9 +329,10 @@ jobs:
           if (-not ($doctor -match "^dictation: ready: ")) { throw "goblins doctor does not report dictation ready: $($doctor -match '^dictation:')" }
           $parts = @(Get-ChildItem -LiteralPath (Join-Path $cfoHome "caches\voice") -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "verified.json") })
           if ($parts.Count -ne 2) { throw "caches\voice holds $($parts.Count) verified parts, want the engine and the model: $($parts.Name -join ', ')" }
-          # no-mistakes is the release this checkout's install.ps1 pins, where
-          # no-mistakes' own installer puts it; a published release's script
-          # may pin an earlier one. Only stdout holds the version: stderr may
+          # no-mistakes is the build this checkout's install.ps1 pins, where
+          # no-mistakes' own installer puts it, and its axi run takes what the
+          # fleet's gate gives it; a published release's script may pin an
+          # earlier one. Only stdout holds the version: stderr may
           # carry an update notice, which Windows PowerShell 5.1 would turn
           # into a terminating error under this step's Stop preference.
           $noMistakes = (Get-Command no-mistakes -ErrorAction Stop).Source
@@ -328,6 +340,10 @@ jobs:
           $pin = [regex]::Match((Get-Content -Raw install.ps1), '\$noMistakesVersion = "([^"]+)"').Groups[1].Value
           $version = & { $ErrorActionPreference = "Continue"; & no-mistakes --version 2>$null } | Out-String
           if ($env:REAL_RELEASE -ne "true" -and $version -notmatch "(?m)^no-mistakes version v$([regex]::Escape($pin))(\s|$)") { throw "no-mistakes --version prints '$($version.Trim())', want the pinned v$pin" }
+          $help = & { $ErrorActionPreference = "Continue"; & no-mistakes help axi run 2>$null } | Out-String
+          foreach ($flag in "--intent-file", "--launch-assertion") {
+            if ($env:REAL_RELEASE -ne "true" -and -not $help.Contains($flag)) { throw "no-mistakes axi run has no $flag, which the fleet's gate needs" }
+          }
           # The app the install opened, or its quick start where the release
           # ships no app, started the supervisor, so one runs within a minute,
           # and Code Goblins in the Start menu opens it again.
@@ -450,6 +466,10 @@ jobs:
           # npm keeps the tools it installs globally where it is told,
           # outside the profile on a runner, so the snapshots read it too.
           $npmPrefix = (npm prefix --global) | Select-Object -Last 1
+          # The install takes a ~\.no-mistakes it finds for the person's
+          # own, which the uninstall keeps, so the comparison proves what the
+          # uninstall does with it only on a profile that has none yet.
+          if (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".no-mistakes")) { throw "~\.no-mistakes is there before the install, so the uninstall would keep it as the person's and the comparison would prove nothing of it." }
           & "$env:RUNNER_TEMP\leftovers.exe" snapshot "$env:RUNNER_TEMP\leftovers-before.json" --content (Join-Path $project ".git") --also $npmPrefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install from the clone

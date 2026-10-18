@@ -56,7 +56,8 @@ func standInRelease(t *testing.T) string {
 // every tool the install looks for, so nothing installs onto this machine:
 // a script for each it runs as a command, the stand-in program as
 // claude.exe, which a native terminal needs, and as the managed no-mistakes,
-// which answers the version the script pins. The release's cfo.exe is the
+// which answers the version the script pins and takes what the fleet's gate
+// gives it, as the pinned build does. The release's cfo.exe is the
 // stand-in too, and its install puts it in the per-user home's bin under both
 // the binary's names, as cfo install does.
 func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd, string) {
@@ -85,6 +86,7 @@ func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd
 	bin := filepath.Join(local, "CodeGoblins", "bin")
 	cmd.Env = append(cmd.Env, standin.Env("",
 		standin.Rule{Args: "--version", Stdout: "no-mistakes version v" + string(pin[1]) + "\n"},
+		standin.Rule{Args: "help axi run", Stdout: "      --intent-file string\n      --launch-assertion string\n"},
 		standin.Rule{Args: "install", Prefix: true, CopyTo: []string{filepath.Join(bin, "cfo.exe"), filepath.Join(bin, "goblins.exe")}},
 	)...)
 	return cmd, temp

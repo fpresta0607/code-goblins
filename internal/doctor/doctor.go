@@ -58,7 +58,10 @@ var tools = []struct {
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
-	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
+	// The Code Goblins install puts in the build of the no-mistakes fork the
+	// fleet's gate needs; no-mistakes' own installer would put in an upstream
+	// release without its launch selection.
+	{name: "no-mistakes", hint: "rerun the Code Goblins install: irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
 	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.16", build: "codegoblins", presentation: true},
