@@ -446,7 +446,7 @@ The header switches between two views, one at a time, each with a contextual pan
 
 Every goblin gets a fun first name and a title that names its work, such as Vera - Voice Whisperer for long dictation, as soon as its task is queued, and keeps them when it starts.
 A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip while the pointer is on it and under its name in the panel, and the CFO calls it by that name.
-Each card shows that name, a queued task's included, or the task's short title while it has no goblin, its status, and its project on a muted line under it.
+Each card shows that name, a queued task's included, or the task's short title while it has no goblin, its status, and its project on a muted line under it, with GitHub's mark beside a project on GitHub, which opens its repository.
 The goblin's own words are in its panel.
 Each card carries the mark of the harness its goblin runs (Codex, Claude Code, pi, Kimi or a terminal for any other), and its tip names the harness, model and effort.
 The CFO's bar carries the mark of the harness the CFO runs, and its tip names the harness and its model.
@@ -500,7 +500,7 @@ None of this needs a setting: every home does it.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
 A queued row waits while its title line carries `blocked-by:` what it waits for, with ` - why` after it, and the supervisor starts it by itself once every wait cleared: `until 2026-10-10T00:00Z` a time, `memory 12 GB` free memory and commit, a task id that task delivering, or a GitHub pull request URL that pull request merging.
 A wait the supervisor cannot read, such as a word that names no task, keeps the row waiting and says why on its card, and so does one that can never clear, such as a task that stopped without delivering or a pull request closed without merging.
-A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**, with no line added.
+A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10**, with no line added.
 The why after it stays on the row, and the board does not show it.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.

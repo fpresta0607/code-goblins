@@ -16,14 +16,20 @@ export function clockText(since: string, now: number, kind: "running" | "waiting
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-// When a card's goblin paused or finished, or its train ended, kept short
-// (the Overlord, 2026-10-17: "we could just put 10/14 to keep it smaller"):
-// the time of day when that was today, else the month and day.
+// When a card's goblin paused, finished or resumes, or its train ended, kept
+// short (the Overlord, 2026-10-17: "why do resume dates need to be so long
+// and typed out, avoid overlap"): the time of day when that is today, the
+// weekday within six days of today either way, else the month and day.
 export function cardDate(at: Date, now: number): string {
-  return at.toDateString() === new Date(now).toDateString()
-    ? at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-    : at.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  const day = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const days = Math.round((day(at) - day(new Date(now))) / 86_400_000);
+  if (days === 0) return at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (Math.abs(days) <= 6) return at.toLocaleDateString(undefined, { weekday: "short" });
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+
+// The whole date and time a short card date stands for, for its tip.
+export const fullDate = (at: Date): string => at.toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // A goblin's description is cut to a few lines with Show more while it runs
 // past them; opened, it offers Show less.

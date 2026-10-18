@@ -1450,8 +1450,8 @@ type Snapshot struct {
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
-	// Projects names who else works in each collaborative project on the
-	// board.
+	// Projects names each live GitHub project's repository on the board and
+	// the people active there.
 	Projects []ProjectPeople `json:"projects"`
 	// Release is a newer published release of Code Goblins, or any on a
 	// board built from a clone, for the board's banner.

@@ -194,13 +194,13 @@ test("a paused goblin's panel adds no line under its status, and its Details say
       problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "its terminal ended, but the rest of its stop did not finish: context deadline exceeded"] }) });
   const cases: [string, Record<string, unknown>, RegExp][] = [
     ["memory", { reason: "memory" }, /^It resumes by itself once 5 GB of memory is free\.$/],
-    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets, Oct \d+, \d+:27 [AP]M\.$/],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets on Oct \d+\.$/],
     ["the Overlord", { reason: "overlord" }, /^It stays paused until you resume it\.$/],
     ["a question", { reason: "question", until: "q-7" }, /^It resumes by itself when you answer its question\.$/],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, /^It resumes by itself when Pause, Resume and Stop on the board finishes\.$/],
     ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, /^It resumes by itself when the task it waits on finishes\.$/],
     ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, /^It resumes by itself when PR #12 merges\.$/],
-    ["a time", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^It resumes by itself on Oct \d+, \d+:00 [AP]M\.$/],
+    ["a time", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^It resumes by itself on Oct \d+\.$/],
     ["CI", { reason: "ci", until: "pr:https://github.com/o/r/pull/12@" + "a".repeat(40) }, /^It resumes by itself when its CI run finishes\.$/],
     ["a deploy", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9@" + "a".repeat(40) }, /^It resumes by itself when its deploy finishes\.$/],
   ];
@@ -217,6 +217,28 @@ test("a paused goblin's panel adds no line under its status, and its Details say
     assert.ok(said.details[0].startsWith(did + " "), name + ": " + said.details[0]);
     assert.match(said.details[0].slice(did.length + 1), waits, name);
     assert.doesNotMatch(said.details[0], /;|deadline|handoff|did not finish|lifecycle|[A-Za-z]:\\/, name);
+  }
+});
+
+test("a paused goblin resumes at a time later today and on a weekday days away", (context) => {
+  // Arrange: Saturday, Oct 17, 2026 at noon, resuming at 7:20 PM today or
+  // on Tuesday, Oct 20.
+  context.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 9, 17, 12, 0) });
+  const today = new Date(2026, 9, 17, 19, 20).toISOString();
+  const tuesday = new Date(2026, 9, 20, 19, 20).toISOString();
+  const cases: [string, PauseCondition, string][] = [
+    ["a date later today", { reason: "dependency", until: "date:" + today, at: "" }, "It resumes by itself at 7:20 PM."],
+    ["a date days away", { reason: "dependency", until: "date:" + tuesday, at: "" }, "It resumes by itself on Tue."],
+    ["an allowance later today", { reason: "allowance", until: today, at: "" }, "It resumes by itself when the allowance resets at 7:20 PM."],
+    ["an allowance days away", { reason: "allowance", until: tuesday, at: "" }, "It resumes by itself when the allowance resets on Tue."],
+  ];
+
+  for (const [name, pause, sentence] of cases) {
+    // Act
+    const said = taskSummary(task({ phase: "paused", lifecycle: lifecycle({ pause }) }), []);
+
+    // Assert
+    assert.deepEqual(said.details, [sentence], name);
   }
 });
 
@@ -244,7 +266,7 @@ test("a paused card reads Paused and why in a few words, never Waiting", () => {
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, [], "Paused until Pause, Resume and Stop on the board delivers"],
     ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, [], "Paused until another task delivers"],
     ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, [], "Paused until PR #12 merges"],
-    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, [], /^Paused until Oct \d+, \d+:00 [AP]M$/],
+    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, [], /^Paused until Oct \d+$/],
     ["CI with the repository's runs", { reason: "ci", until: "pr:https://github.com/o/r/pull/12" + head }, durations, "Paused until CI finishes, usually 13 min"],
     ["CI with none measured", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + head }, [], "Paused until CI finishes"],
     ["a deploy with an even count of runs", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, durations, "Paused until its deploy finishes, usually 11 min"],
