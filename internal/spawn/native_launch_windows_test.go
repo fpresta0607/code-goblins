@@ -1385,9 +1385,10 @@ func TestAScreenReadThatFailsForAMomentIsReadAgain(t *testing.T) {
 	}
 }
 
-// A native terminal starts claude.exe itself, and codex and pi through cmd /c
-// with arguments cmd reads as plain text; a claude found only as a script shim,
-// or an argument cmd would interpret, is refused.
+// A native terminal starts claude.exe itself, and codex and pi by the path
+// PATH finds them at, through cmd /c with arguments cmd reads as plain text; a
+// claude found only as a script shim, or an argument cmd would interpret, is
+// refused.
 func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{"claude.cmd", "codex.cmd", "pi.cmd"} {
@@ -1400,8 +1401,8 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 		t.Errorf("claude as a script shim = %q, want refused", program)
 	}
 	program, err := nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}})
-	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}) {
-		t.Errorf("codex = %q, %v; want it through cmd /c", program, err)
+	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd"), "--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}) {
+		t.Errorf("codex = %q, %v; want the codex.cmd on PATH through cmd /c", program, err)
 	}
 	for _, arg := range []string{"a&b", `"quoted"`, "50%", "a|b"} {
 		if program, err := nativeProgram(harness.Pi, harness.Launch{Executable: "pi", Args: []string{arg}}); err == nil {
@@ -1410,10 +1411,10 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	}
 }
 
-// A harness installed as a script shim leaves finding its program to cmd, in
-// the user environment the host runs with, so one not on this process's PATH
-// still starts through cmd /c.
-func TestAShimHarnessIsNotLookedUpOnThisProcessPath(t *testing.T) {
+// A harness installed as a script shim that this process's PATH, where its
+// spawn validated it, does not find is refused, never left to the terminal's
+// PATH to find another.
+func TestAShimHarnessNotOnThisProcessPathIsRefused(t *testing.T) {
 	// Arrange
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
@@ -1422,8 +1423,52 @@ func TestAShimHarnessIsNotLookedUpOnThisProcessPath(t *testing.T) {
 	program, err := nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra"}})
 
 	// Assert
-	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra"}) {
-		t.Errorf("codex not on PATH = %q, %v; want it through cmd /c", program, err)
+	if err == nil {
+		t.Errorf("codex not on PATH = %q, want refused", program)
+	}
+}
+
+// On 2026-10-17 a rig proving Codex spawns with a stub codex first on its own
+// PATH started six real Codex sessions (#1075): the spawn validated the stub,
+// and its terminal ran cmd /c codex, which found the user's real codex on the
+// PATH of the user's environment the terminal starts from. A spawn starts the
+// codex it validated, the one first on its own PATH, whatever the terminal's
+// PATH finds.
+func TestANativeSpawnStartsTheHarnessItValidatedNotTheOneOnTheUsersPath(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	t.Setenv("CFO_CODEX_GUARD", "")
+	users := t.TempDir()
+	ran := filepath.Join(t.TempDir(), "users-codex-ran.txt")
+	writeFile(t, filepath.Join(users, "codex.cmd"), "@echo ran> \""+ran+"\"\r\n")
+	f.userEnv = slices.DeleteFunc(f.userEnv, func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "=")
+		return strings.EqualFold(name, "PATH")
+	})
+	f.userEnv = append(f.userEnv, "Path="+users)
+	// The premise: codex started by name in the user's environment is the
+	// user's own.
+	premise := exec.Command(os.Getenv("ComSpec"), "/d", "/c", "codex")
+	premise.Env = f.userEnv
+	if output, err := premise.CombinedOutput(); err != nil {
+		t.Fatalf("codex in the user's environment: %v: %s", err, output)
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatalf("codex in the user's environment is not the user's own: %v", err)
+	}
+
+	// Act
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	// Assert
+	if _, statErr := os.Stat(ran); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("the spawn started the codex on the user's PATH (%v)", statErr)
+	}
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if started := named(f.events(t), "env"); len(started) != 1 {
+		t.Errorf("the stub on the spawner's PATH started %d times, want once", len(started))
 	}
 }
 
