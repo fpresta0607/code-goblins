@@ -488,7 +488,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
 	default:
-		if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), pageURL, images, questionMail); err != nil {
+		if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), pageURL, page, images, questionMail); err != nil {
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 		}
 	}
