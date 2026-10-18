@@ -430,8 +430,10 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	}
 }
 
-// A supervisor that stops while it waits for the rest of his answer passes on
-// what he already sent: the poll consumed it, and Scrawl holds no other copy.
+// A supervisor that stops while it waits for the rest of his answer keeps
+// what he already sent: the poll consumed it and Scrawl holds no other copy,
+// so it stays in the receipts journal as the supervisor goes, never handed on
+// half-delivered, and its next start passes it on once.
 func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 	for name, test := range map[string]struct{ sent, told, text string }{
 		"his pick of the option the page declared": {pickedOnThePage, "answered on the page ", "Build it as shown"},
@@ -455,16 +457,23 @@ func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 			// Act
 			s.watchPages(ctx)
 			s.pageWork.Wait()
+			atStop, kept := reviewWakes(t, h.State, meta.ID), store.pageReceiptsSnapshot().Answers
+			next := &Service{Store: store, Options: Options{CFO: connection}}
+			next.tellPage(context.Background(), pageKey(page))
+			next.pageWork.Wait()
 
 			// Assert
+			if len(atStop) != 0 || len(kept) != 1 || !strings.Contains(kept[0].Poll.Output, test.text) {
+				t.Fatalf("as the supervisor stopped, wakes = %+v and receipts = %+v, want what he sent kept and nothing handed on", atStop, kept)
+			}
 			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, test.told+page) {
-				t.Fatalf("review wakes = %+v, want the CFO told once what he sent before the supervisor stopped", wakes)
+				t.Fatalf("review wakes = %+v, want the CFO told once, at the next start, what he sent before the supervisor stopped", wakes)
 			}
-			kept := feedbackFiles(t, h.State, "waiting-"+meta.ID+"-7")
-			if len(kept) != 1 {
-				t.Fatalf("feedback files = %q, want what he sent kept in one", kept)
+			files := feedbackFiles(t, h.State, "waiting-"+meta.ID+"-7")
+			if len(files) != 1 {
+				t.Fatalf("feedback files = %q, want what he sent kept in one", files)
 			}
-			if data, err := os.ReadFile(kept[0]); err != nil || !strings.Contains(string(data), test.text) {
+			if data, err := os.ReadFile(files[0]); err != nil || !strings.Contains(string(data), test.text) {
 				t.Errorf("the kept feedback = %q, %v, want what he sent: %q", data, err, test.text)
 			}
 		})
