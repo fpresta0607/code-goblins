@@ -86,8 +86,8 @@ test("Paused runs as its goblins resume, Next up on top, whatever order he left 
   await expect(page.locator(".task-board .next-chip")).toHaveCount(1);
   await expect(section.locator("[data-sort-id]").first().locator(".next-chip")).toHaveText("Next up");
   await expect(section.locator(".card-status-text")).toHaveText([
-    "Paused for memory", "Paused for memory", "Paused until Oct 17, 1:45 PM", "Paused for allowance", "Paused until Oct 17, 2:30 PM", "Paused until Oct 17, 2:30 PM",
-    "Paused until Oct 18, 8:00 AM", "Paused until wanda delivers", "Paused until PR #331 merges", "Paused until you answer", "Paused by you",
+    "Paused for memory", "Paused for memory", "Paused until 1:45 PM", "Paused for allowance", "Paused until 2:30 PM", "Paused until 2:30 PM",
+    "Paused until Sun", "Paused until wanda delivers", "Paused until PR #331 merges", "Paused until you answer", "Paused by you",
   ]);
   // No numbers: his words, "You don't need to put the numberings there".
   await expect(section.locator(".rank")).toHaveCount(0);
