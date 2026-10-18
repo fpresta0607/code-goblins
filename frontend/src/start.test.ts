@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, processorMarks, processorScale, processorState, queueBlock, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, processorMarks, processorScale, processorState, queueBlock, resumeOrder, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Gpu, type Memory, type Processors, type Snapshot, type Task } from "./types.ts";
 
@@ -192,6 +192,43 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
 
     // Assert
     assert.deepEqual(next, want, name);
+  }
+});
+
+// The Overlord, 2026-10-17: "make sure that the next up one is the top
+// priority of what will unpause", with the board he looked at, a goblin paused
+// until tomorrow on top and Next up near the bottom.
+test("the Paused group runs in resume order: Next up first, then by time, then what waits on others", () => {
+  // Arrange
+  const now = Date.parse("2026-10-17T18:00:00Z");
+  const paused = (id: string, reason: string, until: string, fields: Record<string, unknown> = {}) => ({ id, phase: "paused", generation: id + "-1", verified: false, ...fields,
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
+  const order = (tasks: Record<string, unknown>[], machine = memory(4.2)) => {
+    const snapshot = parseSnapshot({ healthy: true, memory: machine, tasks });
+    const group = snapshot.tasks.filter((task) => task.phase !== "working");
+    return { ids: resumeOrder(group, snapshot.tasks, now).map((task) => task.id), next: nextInOrder(snapshot, now)?.id };
+  };
+  const cases: [string, Record<string, unknown>[], string[]][] = [
+    ["the board he looked at", [
+      paused("wanda", "dependency", "date:2026-10-18T13:00:00Z"), paused("murray", "dependency", "task:wanda"),
+      paused("pearl", "dependency", "date:2026-10-17T19:30:00Z"), paused("duke", "dependency", "date:2026-10-17T19:30:00Z"),
+      paused("oona", "dependency", "date:2026-10-17T18:45:00Z"), paused("greta", "memory", ""), paused("dex", "memory", ""),
+    ], ["greta", "dex", "oona", "pearl", "duke", "wanda", "murray"]],
+    ["an allowance resets at its time", [paused("his", "overlord", ""), paused("late", "allowance", "2026-10-17T22:00:00Z"), paused("soon", "allowance", "2026-10-17T19:00:00Z")], ["soon", "late", "his"]],
+    ["a time that passed resumes with memory, in his order", [paused("memory", "memory", ""), paused("passed", "dependency", "date:2026-10-17T17:00:00Z")], ["memory", "passed"]],
+    ["pull requests, CI, his answer and his own Pause keep his order", [paused("pull", "dependency", "pr:https://github.com/o/r/pull/1"), paused("ci", "ci", "run:x"), paused("asks", "question", "q-1"), paused("yours", "overlord", "")], ["pull", "ci", "asks", "yours"]],
+    ["a goblin resuming and one he resumed come before Next up", [paused("greta", "memory", ""), paused("clicked", "overlord", "", { asked: true }), { id: "back", phase: "resuming", generation: "back-1", verified: false }], ["clicked", "back", "greta"]],
+    ["a helper whose parent runs again resumes with memory", [{ id: "parent", phase: "working", generation: "parent-1", verified: false }, paused("dated", "dependency", "date:2026-10-17T19:00:00Z"), { ...paused("helper", "overlord", ""), parent: "parent", lifecycle: { ...paused("helper", "overlord", "").lifecycle, with_parent: true } }], ["helper", "dated"]],
+    ["nothing paused", [], []],
+  ];
+
+  for (const [name, tasks, want] of cases) {
+    // Act
+    const { ids, next } = order(tasks);
+
+    // Assert
+    assert.deepEqual(ids, want, name);
+    if (ids[0] === "greta") assert.equal(next, "greta", name + ": Next up is the first paused card");
   }
 });
 
