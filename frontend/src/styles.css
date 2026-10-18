@@ -109,6 +109,8 @@ textarea { resize: vertical; line-height: 1.6; }
 ::placeholder { color: #869da9; }
 ::selection { background: rgba(16, 185, 129, 0.30); }
 a { color: var(--mint); text-decoration: none; }
+/* An address in a message reads as a link. */
+.message-link { text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 code, pre, .mono { font-family: var(--font-mono); }
 h1, h2, h3, p { margin: 0; }
 /* Pixelify Sans stays at 400: heavier weights close its C and G into O. */
