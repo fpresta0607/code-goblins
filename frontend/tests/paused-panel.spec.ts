@@ -80,7 +80,7 @@ const PAUSES: [string, { reason: string; until?: string } | undefined, string | 
   ["Cogsworth", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Paused until CI finishes"],
   ["Dross", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Paused until its deploy finishes"],
   ["Pip", { reason: "dependency", until: "pr:https://github.com/o/r/pull/331" }, "Paused until PR #331 merges"],
-  ["Datura", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^Paused until Oct \d+, \d+:00\s[AP]M$/],
+  ["Datura", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, "Paused until Sat"],
   ["Tansy", { reason: "dependency", until: "task:pd-whats-new" }, "Paused until Bernie delivers"],
 ];
 
@@ -131,7 +131,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       const cases: [string, string, string, RegExp][] = [
         ["Mabel", "Paused for memory", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
         ["Tansy", "Paused until Bernie delivers", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
-        ["Datura", "Paused until Oct ", did("Datura"), /^It resumes by itself on Oct \d+, \d+:00\s[AP]M\.$/],
+        ["Datura", "Paused until Sat", did("Datura"), /^It resumes by itself on Sat\.$/],
         ["Cogsworth", "Paused until CI finishes", did("Cogsworth"), /^It resumes by itself when its CI run finishes\.$/],
         ["Bernie", "Paused by you", "PR 1523 is green. Answering the two review notes on the connector page.", /^It stays paused until you resume it\.$/],
         ["Old", "Paused", did("Old"), /^It stays paused until you resume it\.$/],

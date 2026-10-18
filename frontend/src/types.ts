@@ -210,9 +210,10 @@ export interface Person { login: string; name: string; avatar_url: string }
 // Overlap is one piece of a teammate's open work, such as "PR #1446", that
 // changes the files a goblin's branch changes or names its area.
 export interface Overlap extends Person { what: string; url: string }
-// ProjectPeople are the people other than the Overlord, bots aside, who
-// committed to a project's default branch or opened a pull request in it in
-// the last 30 days, most recent first.
+// ProjectPeople is a project on the board whose origin is on GitHub: its
+// repository, and the people other than the Overlord, bots aside, who
+// committed to its default branch or opened a pull request in it in the last
+// 30 days, most recent first, none while only he works there.
 export interface ProjectPeople { name: string; repository: string; contributors: Person[] }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
@@ -401,8 +402,8 @@ export interface Snapshot {
   processors: Processors | null;
   gpu: Gpu | null;
   afk: Afk;
-  // projects names who else works in each collaborative project, by the
-  // project name tasks carry.
+  // projects names each live GitHub project's repository and the people
+  // active there, by the project name tasks carry.
   projects: ProjectPeople[];
   // release is a newer published release, or any where this board was built
   // from a clone; null when there is none or the check is off.

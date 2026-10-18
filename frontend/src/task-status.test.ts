@@ -41,7 +41,7 @@ test("a queued task reads Queued, with the queued dot, and waits in Tasks", () =
 test("a waiting row says what it waits for in a few words, at the queued dot", () => {
   // Arrange
   const until = "2026-10-10T00:00:00Z";
-  const starts = "Starts " + new Date(until).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const starts = "Starts " + new Date(until).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const nina = { id: "other-task", title: "Other work", phase: "working", generation: "g1", goblin_name: "Nina", goblin_title: "Bug Hunter", verified: false };
   const cases: [string, Record<string, unknown>[], string][] = [
     ["free memory", [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }], "Waits for 12 GB free"],
