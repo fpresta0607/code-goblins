@@ -18,3 +18,5 @@
 .remote-fix-command .copy-value { flex: 1 1 auto; }
 /* The machine the board and Scrawl connect to, under the Tailscale switch. */
 .remote-machines { max-width: 100%; }
+/* The app badge's switch, under Remote access in an installed app. */
+.app-badge-setting { display: grid; justify-items: start; gap: 6px; margin-top: 12px; }
