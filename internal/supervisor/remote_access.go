@@ -14,26 +14,28 @@ func (h *HTTP) remoteAccess(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusConflict, "Remote access is unavailable on this board")
 		return
 	}
+	// The setting offers the Tailscale switch by what this PC's Tailscale is,
+	// so every answer it reads while access is off says that (Detect).
 	if r.Method == "GET" {
-		respond(w, http.StatusOK, manager.Status(r.Context()))
+		respond(w, http.StatusOK, manager.Detect(r.Context(), manager.Status(r.Context())))
 		return
 	}
 	var input struct {
 		On     *bool `json:"on"`
-		Scrawl bool  `json:"scrawl"`
+		Scrawl *bool `json:"scrawl"`
 	}
-	if err := decodeBody(w, r, &input, 4096); err != nil || input.On == nil && !input.Scrawl || input.On != nil && input.Scrawl {
-		apiError(w, http.StatusBadRequest, "Say whether remote access should be on")
+	if err := decodeBody(w, r, &input, 4096); err != nil || (input.On == nil) == (input.Scrawl == nil) {
+		apiError(w, http.StatusBadRequest, "Say whether remote access or Scrawl reviews should be on")
 		return
 	}
-	if input.Scrawl || *input.On {
+	if input.Scrawl != nil && *input.Scrawl || input.On != nil && *input.On {
 		if offMachine(r, h.Host) != "" {
-			apiError(w, http.StatusForbidden, "Enable remote access from the board on this PC")
+			apiError(w, http.StatusForbidden, "Turn it on from the board on this PC")
 			return
 		}
 		var status remoteaccess.Status
 		var err error
-		if input.Scrawl {
+		if input.Scrawl != nil {
 			status, err = manager.EnableScrawl(r.Context())
 		} else {
 			status, err = manager.Enable(r.Context())
@@ -50,12 +52,22 @@ func (h *HTTP) remoteAccess(w http.ResponseWriter, r *http.Request) {
 	// proxy after that cancellation, with a separate strict deadline.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 45*time.Second)
 	defer cancel()
+	if input.Scrawl != nil {
+		status, err := manager.DisableScrawl(ctx)
+		if err != nil {
+			apiError(w, http.StatusConflict, err.Error())
+			return
+		}
+		h.Service.notify()
+		respond(w, http.StatusOK, status)
+		return
+	}
 	if err := manager.Disable(ctx); err != nil {
 		apiError(w, http.StatusConflict, err.Error())
 		return
 	}
 	h.Service.notify()
-	respond(w, http.StatusOK, manager.Status(ctx))
+	respond(w, http.StatusOK, manager.Detect(ctx, manager.Status(ctx)))
 }
 
 func (h *HTTP) remoteScrawlLink(w http.ResponseWriter, r *http.Request) {
