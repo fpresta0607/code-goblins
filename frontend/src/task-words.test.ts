@@ -194,7 +194,7 @@ test("a paused goblin's panel adds no line under its status, and its Details say
       problems: ["Stopping-point deadline reached or request failed; no new handoff was saved", "its terminal ended, but the rest of its stop did not finish: context deadline exceeded"] }) });
   const cases: [string, Record<string, unknown>, RegExp][] = [
     ["memory", { reason: "memory" }, /^It resumes by itself once 5 GB of memory is free\.$/],
-    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets, Oct \d+\.$/],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets on Oct \d+\.$/],
     ["the Overlord", { reason: "overlord" }, /^It stays paused until you resume it\.$/],
     ["a question", { reason: "question", until: "q-7" }, /^It resumes by itself when you answer its question\.$/],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, /^It resumes by itself when Pause, Resume and Stop on the board finishes\.$/],
@@ -217,6 +217,28 @@ test("a paused goblin's panel adds no line under its status, and its Details say
     assert.ok(said.details[0].startsWith(did + " "), name + ": " + said.details[0]);
     assert.match(said.details[0].slice(did.length + 1), waits, name);
     assert.doesNotMatch(said.details[0], /;|deadline|handoff|did not finish|lifecycle|[A-Za-z]:\\/, name);
+  }
+});
+
+test("a paused goblin resumes at a time later today and on a weekday days away", (context) => {
+  // Arrange: Saturday, Oct 17, 2026 at noon, resuming at 7:20 PM today or
+  // on Tuesday, Oct 20.
+  context.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 9, 17, 12, 0) });
+  const today = new Date(2026, 9, 17, 19, 20).toISOString();
+  const tuesday = new Date(2026, 9, 20, 19, 20).toISOString();
+  const cases: [string, PauseCondition, string][] = [
+    ["a date later today", { reason: "dependency", until: "date:" + today, at: "" }, "It resumes by itself at 7:20 PM."],
+    ["a date days away", { reason: "dependency", until: "date:" + tuesday, at: "" }, "It resumes by itself on Tue."],
+    ["an allowance later today", { reason: "allowance", until: today, at: "" }, "It resumes by itself when the allowance resets at 7:20 PM."],
+    ["an allowance days away", { reason: "allowance", until: tuesday, at: "" }, "It resumes by itself when the allowance resets on Tue."],
+  ];
+
+  for (const [name, pause, sentence] of cases) {
+    // Act
+    const said = taskSummary(task({ phase: "paused", lifecycle: lifecycle({ pause }) }), []);
+
+    // Assert
+    assert.deepEqual(said.details, [sentence], name);
   }
 });
 

@@ -137,6 +137,9 @@ function when(at: string): string {
   return Number.isFinite(date.getTime()) ? cardDate(date, Date.now()) : "its set time";
 }
 
+// A resume time inside a sentence: at a time today, on a weekday or a date.
+const atOrOn = (at: string) => (new Date(at).toDateString() === new Date().toDateString() ? "at " : "on ") + when(at);
+
 // pausedWithParent is the parent a helper was paused with, which resumes the
 // helper once it runs again, or nothing for any other task.
 export function pausedWithParent(task: Task, tasks: Task[]): Task | undefined {
@@ -153,13 +156,13 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(goblinName(parent)) + " runs again.";
   switch (pause?.reason) {
     case "memory": return byItself + "once 5 GB of memory is free.";
-    case "allowance": return byItself + "when the allowance resets, " + when(pause.until) + ".";
+    case "allowance": return byItself + "when the allowance resets " + atOrOn(pause.until) + ".";
     case "question": return byItself + "when you answer its question.";
     case "ci": return byItself + "when its CI run finishes.";
     case "deploy": return byItself + "when its deploy finishes.";
     case "dependency": {
       if (kind === "pr") return byItself + "when " + plainText(target).replace(/\.$/, "") + " merges.";
-      if (kind === "date") return byItself + "on " + when(target) + ".";
+      if (kind === "date") return byItself + atOrOn(target) + ".";
       const awaited = tasks.find((candidate) => candidate.id === target);
       return byItself + "when " + (awaited ? inSentence(goblinName(awaited)) : "the task it waits on") + " finishes.";
     }
