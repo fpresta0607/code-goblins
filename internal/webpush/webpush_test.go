@@ -1,11 +1,17 @@
 package webpush
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/ecdsa"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,56 +32,129 @@ func decoded(t *testing.T, value string) []byte {
 	return data
 }
 
-// RFC 8291 Appendix A: a push its encryption must reproduce exactly.
-const (
-	rfcPlaintext = "When I grow up, I want to be a watermelon"
-	rfcASPrivate = "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"
-	rfcUAPublic  = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"
-	rfcAuth      = "BTBZMqHH6r4Tts7J_aSIgg"
-	rfcSalt      = "DGv6ra1nlYgDCS1FRnbzlw"
-	rfcBody      = "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
-)
+// testBrowser is a browser's push keys, made for the run, so a test reads
+// what was pushed to it.
+type testBrowser struct {
+	private *ecdh.PrivateKey
+	auth    []byte
+}
 
-// A push is encrypted for the browser that subscribed as RFC 8291 says, so
-// only that browser can read it: the example in its appendix comes out byte
-// for byte.
-func TestAPushIsEncryptedAsRFC8291Says(t *testing.T) {
-	// Arrange
-	server, err := ecdh.P256().NewPrivateKey(decoded(t, rfcASPrivate))
+func newBrowser(t *testing.T) testBrowser {
+	t.Helper()
+	private, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
+	auth := make([]byte, 16)
+	_, _ = rand.Read(auth)
+	return testBrowser{private, auth}
+}
+
+// subscription is the browser's subscription at endpoint.
+func (b testBrowser) subscription(endpoint string) Subscription {
+	return Subscription{Endpoint: endpoint, P256dh: base64.RawURLEncoding.EncodeToString(b.private.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(b.auth)}
+}
+
+// read is a push's body as the browser reads it by RFC 8291 section 3.4,
+// written apart from encrypt, with HKDF made of HMAC as RFC 5869 says: the
+// salt, record size and server's one-time key from its header, the key and
+// nonce from those, and its payload up to the delimiter, with the padding
+// after it.
+func (b testBrowser) read(t *testing.T, body []byte) ([]byte, int) {
+	t.Helper()
+	if len(body) < 21+65+16 || int(body[20]) != 65 || binary.BigEndian.Uint32(body[16:20]) != 4096 {
+		t.Fatalf("a push of %d bytes has no RFC 8291 header with a 4096-byte record and a 65-byte key", len(body))
+	}
+	salt, serverKey, record := body[:16], body[21:86], body[86:]
+	server, err := ecdh.P256().NewPublicKey(serverKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := b.private.ECDH(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extract := func(salt, input []byte) []byte {
+		mac := hmac.New(sha256.New, salt)
+		mac.Write(input)
+		return mac.Sum(nil)
+	}
+	expand := func(key []byte, info string, size int) []byte {
+		mac := hmac.New(sha256.New, key)
+		mac.Write(append([]byte(info), 1))
+		return mac.Sum(nil)[:size]
+	}
+	input := expand(extract(b.auth, shared), "WebPush: info\x00"+string(b.private.PublicKey().Bytes())+string(serverKey), 32)
+	key := extract(salt, input)
+	block, err := aes.NewCipher(expand(key, "Content-Encoding: aes128gcm\x00", 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := gcm.Open(nil, expand(key, "Content-Encoding: nonce\x00", 12), record, nil)
+	if err != nil {
+		t.Fatalf("the push cannot be read with the browser's keys: %v", err)
+	}
+	end := len(bytes.TrimRight(plain, "\x00")) - 1
+	if end < 0 || plain[end] != 2 {
+		t.Fatalf("the push's record ends with no last-record delimiter")
+	}
+	return plain[:end], len(plain) - end - 1
+}
+
+// A push is encrypted for the browser that subscribed as RFC 8291 says, so
+// only that browser reads it, with its padding after the delimiter, and its
+// header names the salt and the server's one-time key.
+func TestAPushIsEncryptedAsRFC8291Says(t *testing.T) {
+	// Arrange
+	browser := newBrowser(t)
+	server, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	salt := make([]byte, 16)
+	_, _ = rand.Read(salt)
+	payload := []byte("When I grow up, I want to be a watermelon")
 
 	// Act
-	body, err := encrypt([]byte(rfcPlaintext), 0, decoded(t, rfcUAPublic), decoded(t, rfcAuth), server, decoded(t, rfcSalt))
+	body, err := encrypt(payload, 10, browser.private.PublicKey().Bytes(), browser.auth, server, salt)
 
 	// Assert
-	if err != nil || base64.RawURLEncoding.EncodeToString(body) != rfcBody {
-		t.Errorf("encrypt = %s, %v; want %s", base64.RawURLEncoding.EncodeToString(body), err, rfcBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, padding := browser.read(t, body)
+	if !bytes.Equal(read, payload) || padding != 10 || !bytes.Equal(body[:16], salt) || !bytes.Equal(body[21:86], server.PublicKey().Bytes()) || len(body) != 86+len(payload)+1+10+16 {
+		t.Errorf("the browser read %q with %d bytes of padding from a %d-byte push, want %q with 10", read, padding, len(body), payload)
 	}
 }
 
 // What cannot be a browser's subscription keys, or more than a push service
 // must take, 3993 bytes with padding (RFC 8291 section 4), is refused.
 func TestEncryptionRefusesWhatNoBrowserSent(t *testing.T) {
-	server, err := ecdh.P256().NewPrivateKey(decoded(t, rfcASPrivate))
+	browser := newBrowser(t)
+	server, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
+	salt := make([]byte, 16)
 	for name, c := range map[string]struct {
 		payload       []byte
 		padding       int
 		browser, auth []byte
 		isTaken       bool
 	}{
-		"a key that is no point":             {[]byte("hi"), 0, []byte("not a key"), decoded(t, rfcAuth), false},
-		"a short secret":                     {[]byte("hi"), 0, decoded(t, rfcUAPublic), []byte("short"), false},
-		"all a push service must take":       {make([]byte, 3000), 993, decoded(t, rfcUAPublic), decoded(t, rfcAuth), true},
-		"more than a push service must take": {make([]byte, 3000), 994, decoded(t, rfcUAPublic), decoded(t, rfcAuth), false},
+		"a key that is no point":             {[]byte("hi"), 0, []byte("not a key"), browser.auth, false},
+		"a short secret":                     {[]byte("hi"), 0, browser.private.PublicKey().Bytes(), []byte("short"), false},
+		"all a push service must take":       {make([]byte, 3000), 993, browser.private.PublicKey().Bytes(), browser.auth, true},
+		"more than a push service must take": {make([]byte, 3000), 994, browser.private.PublicKey().Bytes(), browser.auth, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			body, err := encrypt(c.payload, c.padding, c.browser, c.auth, server, decoded(t, rfcSalt))
+			body, err := encrypt(c.payload, c.padding, c.browser, c.auth, server, salt)
 
 			// Assert
 			if (err == nil) != c.isTaken || c.isTaken && len(body) != 4096 {
@@ -159,11 +238,6 @@ func TestTheServersKeysAreKeptAndNamedAsABrowserTakesThem(t *testing.T) {
 	}
 }
 
-// browser is a subscription made with the RFC example's browser keys.
-func browser(endpoint string) Subscription {
-	return Subscription{Endpoint: endpoint, P256dh: rfcUAPublic, Auth: rfcAuth}
-}
-
 // A push goes to the subscription's endpoint as RFC 8030 asks, encrypted,
 // padded to one size and authorized, with how long the service may hold it;
 // a subscription the service no longer has is told apart, so it can be
@@ -204,7 +278,8 @@ func TestSendDeliversAndTellsAGoneSubscription(t *testing.T) {
 			defer service.Close()
 
 			// Act
-			err = Send(context.Background(), service.Client(), keys, "https://example.com/contact", browser(service.URL+"/push/abc"), []byte(`{"count":2}`), time.Hour)
+			browser := newBrowser(t)
+			err = Send(context.Background(), service.Client(), keys, "https://example.com/contact", browser.subscription(service.URL+"/push/abc"), []byte(`{"count":2}`), time.Hour)
 
 			// Assert
 			if !errors.Is(err, c.want) || c.want == nil && err != nil || err != nil && (!strings.Contains(err.Error(), c.says) || strings.Contains(err.Error(), "/push/abc")) {
@@ -213,6 +288,9 @@ func TestSendDeliversAndTellsAGoneSubscription(t *testing.T) {
 			token, _, _ := strings.Cut(strings.TrimPrefix(got.Header.Get("Authorization"), "vapid t="), ", k=")
 			if requests != 1 || got.Method != "POST" || got.URL.Path != "/push/abc" || got.Header.Get("Content-Encoding") != "aes128gcm" || got.Header.Get("TTL") != "3600" || len(body) != 86+paddedSize+1+16 {
 				t.Errorf("%d requests, the last %s %s with %v and %d bytes, want one encrypted POST of %d bytes with a TTL of an hour", requests, got.Method, got.URL, got.Header, len(body), 86+paddedSize+1+16)
+			}
+			if read, padding := browser.read(t, body); string(read) != `{"count":2}` || padding != paddedSize-len(read) {
+				t.Errorf("the browser read %q with %d bytes of padding, want the payload padded to %d", read, padding, paddedSize)
 			}
 			if claims := signedBy(t, keys, token); claims["aud"] != service.URL {
 				t.Errorf("audience %v, want the push service's origin %s", claims["aud"], service.URL)

@@ -262,6 +262,11 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/manifest.webmanifest" {
 			w.Header().Set("Content-Type", "application/manifest+json")
 		}
+		// A browser registers a worker only as JavaScript, which Windows may
+		// name otherwise in its registry, such as text/plain.
+		if r.URL.Path == "/push-worker.js" {
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		}
 		if r.URL.Path == "/" {
 			data, err := fs.ReadFile(h.Assets, "index.html")
 			if err != nil {
