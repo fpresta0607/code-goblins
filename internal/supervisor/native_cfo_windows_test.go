@@ -275,37 +275,43 @@ func shimTerminal(t *testing.T, stateDir, name string) (hostedTerminal, host.Rec
 	return cfo, record
 }
 
-// Plain cfo register names no session, and it is how a Codex CFO that goblins
-// starts registers, by its first prompt. Codex gives every command it runs
-// its thread, so the registration records that as the CFO's conversation, and
-// a closed Codex CFO comes back on it. No other harness takes the thread for
-// its own: a pi CFO started from inside a Codex session inherits the variable.
-func TestACodexCFORegisteredByHandRecordsItsThreadAsItsConversation(t *testing.T) {
-	const thread = "019a2b3c-4d5e-7f60-8a9b-thread"
-	for name, want := range map[string]string{"codex": thread, "pi": ""} {
-		t.Run(name, func(t *testing.T) {
+// Plain cfo register names no session, and it is how a Codex or pi CFO that
+// goblins starts registers, by its first prompt. Each gives every command it
+// runs its own conversation, Codex its thread and pi its session, so the
+// registration records that as the CFO's conversation, and a closed CFO comes
+// back on it. No harness takes another's variable for its own: a pi CFO
+// started from inside a Codex session inherits the thread.
+func TestACFORegisteredByHandRecordsTheConversationItsHarnessNames(t *testing.T) {
+	const thread, session = "019a2b3c-4d5e-7f60-8a9b-thread", "019a2b3c-4d5e-7f60-8a9b-session"
+	for _, c := range []struct{ name, harness, piSession, want string }{
+		{"codex", "codex", session, thread},
+		{"pi", "pi", session, session},
+		{"pi with only an inherited Codex thread", "pi", "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
 			// Arrange
 			stateDir := t.TempDir()
 			t.Setenv("CODEX_THREAD_ID", thread)
-			cfo, record := shimTerminal(t, stateDir, name)
+			t.Setenv("PI_SESSION_ID", c.piSession)
+			cfo, record := shimTerminal(t, stateDir, c.harness)
 
 			// Act
 			cfo.typeLine(t, "register by hand")
 
 			// Assert
-			registered := fmt.Sprintf("registered %s pid %d in native terminal cfo", name, record.ChildPID)
+			registered := fmt.Sprintf("registered %s pid %d in native terminal cfo", c.harness, record.ChildPID)
 			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || lines[0] != registered {
 				t.Fatalf("the program recorded %q, want %q", lines, registered)
 			}
 			conversation, err := ReadCFOConversation(stateDir)
-			if want == "" {
+			if c.want == "" {
 				if !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("a %s CFO recorded the conversation %+v, %v; want none, since the thread is Codex's", name, conversation, err)
+					t.Fatalf("a %s CFO recorded the conversation %+v, %v; want none, since the thread is Codex's", c.harness, conversation, err)
 				}
 				return
 			}
-			if err != nil || conversation.Harness != name || conversation.Session != want || conversation.Host != "cfo" || conversation.PID != record.ChildPID {
-				t.Fatalf("conversation = %+v, %v; want the Codex thread %s recorded for native terminal cfo", conversation, err, want)
+			if err != nil || conversation.Harness != c.harness || conversation.Session != c.want || conversation.Host != "cfo" || conversation.PID != record.ChildPID {
+				t.Fatalf("conversation = %+v, %v; want the %s session %s recorded for native terminal cfo", conversation, err, c.harness, c.want)
 			}
 		})
 	}
