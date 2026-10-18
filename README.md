@@ -474,9 +474,15 @@ A move the board cannot save, such as one made while the CFO changed the queue, 
 
 The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and the 5 GB next-start mark.
 When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
-A line also warns when the kernel's paged pool passes 4 GB: Windows holds that memory, no goblin can use it, and restarting the PC frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
-In the same box, under memory, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
+Under memory, **Kernel pools** shows the memory Windows holds for drivers, which no goblin can use and only a restart of the PC frees once a driver leaks it, on a bar marked at 7.5 GB, the line measured on this PC past which free memory can no longer hold more than one goblin at a time.
+Its fill turns red past the line, and its tip names each pool and the pool tags that grew most since you signed in.
+Past the line the CFO's header shows **Restart PC**, on the board on this PC only, never on your private board.
+It asks once, then tells the CFO, has every working goblin write its handoff and pause until the PC has restarted, ends the machine's heavy runs, waits for the CFO's turn to end and restarts Windows.
+An app with unsaved work asks you before it closes.
+After you sign in, the CFO and the goblins come back by themselves.
+A goblin that does not pause stops the restart: a few words beside the button say so, and the CFO tells you why.
+In the same box, under the pools, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
 Under disk, **CPU free** shows how much of this PC's performance cores sat idle since the last reading, on a bar marked at the quarter the fleet waits for before it starts a goblin by itself: amber under the mark.
 Hover, focus or hold its bar for the cores by kind, how busy each kind is and the two apps using the processor most.
 Last in the box, **GPU free** shows how free the busiest graphics adapter is, and its bar's tip names each adapter, how busy it is and the app using most of it.
