@@ -16,3 +16,5 @@
 .remote-fix { display: grid; gap: 8px; justify-self: stretch; min-width: 0; }
 .remote-fix-command { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .remote-fix-command .copy-value { flex: 1 1 auto; }
+/* The machine the board and Scrawl connect to, under the Tailscale switch. */
+.remote-machines { max-width: 100%; }

@@ -15,8 +15,9 @@ const BOARD = { healthy: true, instance: "fixture", revision: 1, attention: [], 
 // the board or, with origin, as a phone sees the private board. The
 // supervisor is played by one status that each press but a fix moves on, and
 // a press can be slowed, during which a read answers what it read before the
-// press. The board's stream is the test's to move on with push.
-async function open(page: Page, first: Status, { fail = false, origin = "", slow = false } = {}) {
+// press. The board's stream is the test's to move on with push, and machines
+// are the machines on the tailnet whose boards answer.
+async function open(page: Page, first: Status, { fail = false, origin = "", slow = false, machines = [] as Status[] } = {}) {
   const actions: unknown[] = [];
   const reads = { count: 0 };
   let status = first;
@@ -34,6 +35,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
     Object.defineProperty(window, "EventSource", { value: LiveStream });
   }, JSON.stringify(BOARD));
   await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
+  await page.route("**/api/remote/machines", (route) => route.fulfill({ json: { machines } }));
   await page.route("**/api/remote", async (route) => {
     if (route.request().method() !== "POST") {
       reads.count++;
@@ -86,6 +88,7 @@ test("a signed-in Tailscale turns on with its switch, keeps its link, and Scrawl
   await expect(panel.getByRole("link", { name: URL, exact: true })).toHaveAttribute("href", URL);
   await expect(panel.getByRole("button", { name: "Refresh" })).toHaveCount(0);
   await expect(panel.locator("p")).toHaveCount(0);
+  await expect(panel.getByRole("combobox")).toHaveCount(0);
 
   // Act and assert: Scrawl reviews, indented under Tailscale, on and off.
   const scrawl = panel.locator(".remote-access-option").getByRole("switch", { name: "Scrawl reviews", exact: true });
@@ -191,6 +194,48 @@ test("a row's command that fails as it starts, before the board saw it run, stil
   await expect.poll(() => reads.count).toBeGreaterThan(readsBefore);
   await expect(panel.locator(".click-feedback")).toHaveText(/^Failed/);
 });
+
+// The Overlord, 2026-10-18: "with tailscale connection should we be able to
+// see and select the server we want to connect to".
+const LAPTOP = "https://laptop.example.ts.net:4311";
+const TWO_MACHINES = [{ name: "my-desktop", url: URL, is_this: true }, { name: "laptop", url: LAPTOP, is_this: false }];
+
+test("on a phone, with another machine of his on the tailnet, the Tailscale switch picks the one to connect to, this one by default", async ({ page }) => {
+  // Arrange: the laptop's board is asked for and has not opened yet.
+  const { panel } = await open(page, ON, { origin: URL, machines: TWO_MACHINES });
+  const opened: string[] = [];
+  await page.route(LAPTOP + "/", (route) => {
+    opened.push(route.request().url());
+    return route.abort("aborted");
+  });
+  const machine = panel.getByRole("combobox", { name: "Machine" });
+  await expect(machine).toHaveValue(URL);
+  await expect(machine.getByRole("option")).toHaveText(["my-desktop", "laptop"]);
+
+  // Act
+  await machine.selectOption({ label: "laptop" });
+
+  // Assert: the laptop's board is opened, and his pick holds meanwhile.
+  await expect.poll(() => opened).toEqual([LAPTOP + "/"]);
+  await expect(machine).toHaveValue(LAPTOP);
+  await expect(machine).toBeDisabled();
+});
+
+// Another machine's gate refuses a page that comes from the board on this PC,
+// and a phone with no other machine has nothing to pick.
+for (const [where, origin, machines] of [
+  ["the board on this PC", "", TWO_MACHINES],
+  ["a phone with only this PC", URL, TWO_MACHINES.slice(0, 1)],
+] as const) {
+  test(`${where} shows no machine to pick`, async ({ page }) => {
+    // Arrange and act
+    const { panel } = await open(page, ON, { origin, machines: [...machines] });
+
+    // Assert
+    await expect(panel.getByRole("switch", { name: "Tailscale", exact: true })).toBeVisible();
+    await expect(panel.getByRole("combobox")).toHaveCount(0);
+  });
+}
 
 test("settings that cannot be read leave the switch off with an amber mark that says so", async ({ page }) => {
   // Arrange and act
