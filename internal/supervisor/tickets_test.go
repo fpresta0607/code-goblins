@@ -679,7 +679,7 @@ func TestKeeperShowsOnlyTheActivePeopleInTheProjectsPanel(t *testing.T) {
 		want   []ProjectPeople
 	}{
 		{name: "a teammate who committed and one who only opened an issue", active: []tickets.Actor{teammate}, want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository, Contributors: []tickets.Actor{teammate}}}},
-		{name: "only a teammate who opened an issue"},
+		{name: "only a teammate who opened an issue", want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -726,7 +726,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 		{name: "a live task in a repository a teammate works in", isCollaborative: true, task: inProject(liveTask("working", "")), want: people},
 		{name: "a task whose ticket is already kept", isCollaborative: true, hasTicket: true, task: inProject(liveTask("working", "")), want: people},
 		{name: "a queued task", isCollaborative: true, task: inProject(liveTask("queued", "")), want: people},
-		{name: "a repository only the Overlord works in", task: inProject(liveTask("working", ""))},
+		{name: "a repository only the Overlord works in", task: inProject(liveTask("working", "")), want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository}}},
 		{name: "a finished task", isCollaborative: true, task: Task{ID: "finished:nw-sync", Project: "northwind-api", Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}},
 	}
 	for _, tc := range cases {
@@ -757,7 +757,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			if wantRemembered := len(tc.want) > 0; slices.Contains(remembered, teammate.Login) != wantRemembered {
+			if wantRemembered := tc.isCollaborative && !tc.task.Archived; slices.Contains(remembered, teammate.Login) != wantRemembered {
 				t.Fatalf("teammates remembered = %v, want %s remembered: %v", remembered, teammate.Login, wantRemembered)
 			}
 			wantReads := 1
@@ -793,8 +793,8 @@ func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
 	if len(whileDown) != 1 || !slices.Equal(whileDown[0].Contributors, []tickets.Actor{teammate}) {
 		t.Fatalf("people while GitHub is down = %+v, want the last ones read", whileDown)
 	}
-	if len(afterwards) != 0 {
-		t.Fatalf("people once only the Overlord works there = %+v, want none", afterwards)
+	if len(afterwards) != 1 || afterwards[0].Repository != ticketRepository || len(afterwards[0].Contributors) != 0 {
+		t.Fatalf("people once only the Overlord works there = %+v, want its repository alone, which its cards link to", afterwards)
 	}
 }
 

@@ -1,7 +1,7 @@
 import type { MergeTrain, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
-import { cardDate } from "./cards";
+import { cardDate, fullDate } from "./cards";
 import { carLook, carName, trainLook, trainSection } from "./merge-train";
 import { taskName } from "./task-words";
 import { personaFor, stablePersona } from "./workflow";
@@ -49,6 +49,6 @@ export function MergeTrainCard({ train, tasks, now, selected, onSelect }: { trai
         </li>;
       })}
     </ol>}
-    {Number.isFinite(at.getTime()) && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{train.finished ? "Finished" : "Started"} </span><time dateTime={when}>{cardDate(at, now)}</time></span>}
+    {Number.isFinite(at.getTime()) && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{train.finished ? "Finished" : "Started"} </span><time dateTime={when} data-tip={fullDate(at)}>{cardDate(at, now)}</time></span>}
   </section>;
 }

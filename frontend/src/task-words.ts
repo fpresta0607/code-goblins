@@ -1,4 +1,5 @@
 import type { CIDuration, PauseCondition, Task, Wait } from "./types.ts";
+import { cardDate } from "./cards.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
 // the supervisor write for the fleet, with state words, semicolon chains,
@@ -130,9 +131,10 @@ export function teardownSentence(labels: string[]): string {
 // A title read inside a sentence starts with a small article.
 const inSentence = (title: string) => title.replace(/^(?:A|An|The)\b/, (article) => article.toLowerCase());
 
+// A resume or start time reads as a card's date does.
 function when(at: string): string {
   const date = new Date(at);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "its set time";
+  return Number.isFinite(date.getTime()) ? cardDate(date, Date.now()) : "its set time";
 }
 
 // pausedWithParent is the parent a helper was paused with, which resumes the
