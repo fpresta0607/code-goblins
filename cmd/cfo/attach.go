@@ -285,6 +285,21 @@ func cfoScreenArguments(agent string) ([]string, error) {
 	return nil, nil
 }
 
+// cfoCompactArguments are the arguments that have a CFO's harness compact
+// within the CFO's window (install.CFOAutoCompactWindow), long before its
+// model's own fills: Codex's -c override of its auto-compact limit, at 90
+// percent of that window, as Codex limits a model's own window, which keeps
+// the lower of the two. A Claude Code CFO takes the window from its settings
+// file (cfoHookArguments), and pi has no setting for it: it compacts once its
+// context passes the model's window less compaction.reserveTokens, which also
+// sizes the summary it writes.
+func cfoCompactArguments(agent string) []string {
+	if agent != "codex" {
+		return nil
+	}
+	return []string{"-c", fmt.Sprintf("model_auto_compact_token_limit=%d", install.CFOAutoCompactWindow*9/10)}
+}
+
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
 // in project, in a host of its own that outlives this console, with args,
 // such as the arguments that resume a conversation, and prompt as its first
@@ -298,7 +313,7 @@ func startNativeCFO(h home.Home, project, harness string, args []string, prompt 
 	if err != nil {
 		return err
 	}
-	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, args, screen), prompt)...)
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, cfoCompactArguments(harness), args, screen), prompt)...)
 	if err != nil {
 		return err
 	}

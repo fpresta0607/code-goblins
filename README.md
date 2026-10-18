@@ -269,10 +269,10 @@ The board is only a view, so closing the browser stops nothing, and a supervisor
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
 It starts in its remembered harness, in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
 A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume`, Codex with `codex resume` and pi with `pi --session`, and it registers itself as before.
-A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi whose first reply never ended, since only then does pi write the session it resumes; `goblins` says which.
+A conversation that cannot be resumed starts a new one, and so does a Claude Code one whose context is past 400K tokens, since CFO sessions stay small and a CFO compacts within that, or one in pi whose first reply never ended, since only then does pi write the session it resumes; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 `goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
-It always restarts it: a conversation it cannot resume, such as one in pi that pi has not written yet, one past 20 MB or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.
+It always restarts it: a conversation it cannot resume, such as one in pi that pi has not written yet, one whose context is past 400K tokens or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.
 It leaves the CFO running only when it could not start it again, such as when the CFO's program is not on its PATH.
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
@@ -401,7 +401,7 @@ A restart or a sign-out ends all of those processes, and Code Goblins brings the
 The supervisor then brings back what the restart ended, in this order:
 
 1. The registered CFO, in its terminal, on the conversation it last ran, resumed by that conversation's id: Claude Code with `--resume <session>`, Codex with `codex resume <session>`.
-   A conversation past 20 MB, or one that cannot be resumed, is left as it is, and the CFO starts on a new one, as Restart the CFO does.
+   A conversation whose context is past 400K tokens, or one that cannot be resumed, is left as it is, and the CFO starts on a new one, as Restart the CFO does.
    Either way its first instruction says the machine restarted and to carry on, so you type nothing into it.
 2. Each goblin that was working and had not finished, in its own session, with the same harness, model and effort, one at a time.
    Each waits for room as a start does: memory and commit both at the 5 GB mark on two readings in a row, a minute apart, and a free goblin slot.

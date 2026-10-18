@@ -98,12 +98,28 @@ func NativeHooks(root, stateDir string) []Hook {
 	return hooks
 }
 
+// CFOAutoCompactWindow is the window, in tokens, the CFO compacts in. Claude
+// Code takes it as its autoCompactWindow setting, takes its 20K output
+// reserve off it and compacts 13K short of what is left, or at the percent of
+// that a CLAUDE_AUTOCOMPACT_PCT_OVERRIDE names where that is lower: at 342K
+// under the Overlord's override of 90, 367K without one. On the model's own
+// 1M window the CFO compacted at 882K, and a restart came first in its
+// conversation of 2026-10-18. Measured on the CFO's 16 ended conversations of
+// 2026-09-16 to 10-18: a compaction left it 68K to 96K tokens, and it grew by
+// at most 88K in one request and 368K in one hour, so 342K leaves it at least
+// 246K tokens between compactions, which no request fills: one compaction
+// every 40 minutes in its busiest hour, and every two to seven hours at the
+// pace of its days between compactions.
+const CFOAutoCompactWindow = 400_000
+
 // CFOSettings is the Claude Code settings document the CFO's terminal starts
-// with: the CFO's hooks and its native session hooks, and nothing else.
-// Claude Code adds what `--settings` names to the user's own settings, for
-// that session alone.
+// with: the CFO's hooks and its native session hooks, and its auto-compact
+// window. Claude Code adds what `--settings` names to the user's own
+// settings, for that session alone, and its window wins over one theirs set,
+// /autocompact's included; only CLAUDE_CODE_AUTO_COMPACT_WINDOW in the
+// environment beats it.
 func CFOSettings(root, stateDir string) ([]byte, error) {
-	file := &settingsFile{values: map[string]any{}}
+	file := &settingsFile{values: map[string]any{"autoCompactWindow": CFOAutoCompactWindow}}
 	if err := file.addHooks(append(Hooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
 	}

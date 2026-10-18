@@ -54,6 +54,8 @@ Hooks merge across every settings scope: managed settings, `--settings`, `.claud
 A `SessionStart` hook's output is injected into the session; output larger than 10,000 characters is saved to a file and only a preview of about 2 KB is injected.
 The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
 The CFO's hooks are in no settings file of the user: a Claude Code CFO's terminal starts with them, `claude --settings <home>\state\cfo-claude-settings.json`, which the start writes anew each time, and Claude Code adds that file's hooks to the user's own for that session alone.
+The same file sets `autoCompactWindow` to 400,000 tokens, which wins over a window the user's settings hold, one `/autocompact` saved included, so the CFO compacts at about 342K under a `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of 90, or 367K without one, rather than near its model's 1M; only `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment beats it.
+A Claude Code resume of a transcript past 5 MiB loads only what follows its last compaction, so a CFO comes back on its conversation by the context that resume loads, at most 400K tokens, whatever the transcript's size on disk.
 `cfo install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
 They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
