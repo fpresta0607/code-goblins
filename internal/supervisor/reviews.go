@@ -74,6 +74,12 @@ type Review struct {
 	// Link is the web link a goblin's wait gives as where the Overlord goes,
 	// the only link its card opens.
 	Link string `json:"link,omitempty"`
+	// Follows is the decision a goblin's wait on him that opens nothing
+	// follows, by its question's ID: the question for its task that was open
+	// when the wait was raised, the CFO's for it (cfo question --for) or the
+	// goblin's own with choices. The board shows only that question while it
+	// is open, and its answer closes the wait.
+	Follows string `json:"follows,omitempty"`
 	// Document is a delivered file, copied beside the Scrawl page that shows
 	// it, which is the item's page.
 	Document *ReviewDocument `json:"document,omitempty"`
@@ -741,6 +747,7 @@ func (s *Store) acceptReview(r Review) error {
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
 		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered, r.PageSettled = 0, "", "", "", false, nil
+		r.Follows = s.decisionFor(r)
 		s.db.Reviews = append(s.db.Reviews, r)
 	case "withdrawn":
 		if i < 0 {
@@ -1171,6 +1178,44 @@ func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
 	for i := range s.db.Reviews {
 		if r := &s.db.Reviews[i]; q.AsksPage != "" && r.State == "open" && r.Task == q.Task && r.Identity == q.Identity && r.Lavish == q.AsksPage && !r.CreatedAt.After(q.CreatedAt) {
 			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", by, "question", bounded(reason, 2000), time.Now().UTC()
+		}
+	}
+}
+
+// decisionFor is the decision goblin wait r follows when it is raised: the
+// newest question for its task still open that was asked before the wait,
+// the CFO's for it or the goblin's own with choices, for a wait that opens
+// nothing (no page, link or file the goblin delivered); else none. Both
+// times are the source's: a wait the goblin raised before the question,
+// though ingested after it, follows none. The caller holds the store lock.
+func (s *Store) decisionFor(r Review) string {
+	if r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") || r.Lavish != "" || r.Link != "" {
+		return ""
+	}
+	if slices.ContainsFunc(s.db.Reviews, func(other Review) bool { return other.State == "open" && other.Task == r.Task && other.Document != nil }) {
+		return ""
+	}
+	follows, newest := "", time.Time{}
+	for _, q := range s.db.Questions {
+		if q.Status == "pending" && (q.ForTask == r.Task || q.Task == r.Task && len(q.Options) > 0) && q.CreatedAt.Before(r.CreatedAt) && !q.CreatedAt.Before(newest) {
+			follows, newest = q.ID, q.CreatedAt
+		}
+	}
+	return follows
+}
+
+// closeFollowUps closes, as answered by who at at, every open wait that
+// follows question q, which has just been answered: the decision was what
+// each waited on, so none stays open behind it. The caller holds the store
+// lock.
+func (s *Store) closeFollowUps(q Question, who string, at time.Time) {
+	reason := "You answered the decision it waited on, " + q.ID + "."
+	if who == "cfo" {
+		reason = "The CFO answered the decision it waited on, " + q.ID + "."
+	}
+	for i := range s.db.Reviews {
+		if r := &s.db.Reviews[i]; r.State == "open" && r.Follows == q.ID {
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", who, "question", reason, at
 		}
 	}
 }

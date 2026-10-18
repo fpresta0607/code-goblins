@@ -143,16 +143,15 @@ for (const shown of [
 // The Overlord, 2026-10-17 about 18:20Z, at "Wanda - API Ace is waiting on you"
 // with only Back, Next, an X and a pencil: "These follow-ups should not be
 // notifications in the Command Center, that can be removed. But the initial
-// one is critical, and should still stay." The CFO's question's answer reaches
-// the goblin only through the CFO, so the follow-up stays gone once he answers
-// it; the goblin's own question's answer reaches it at once, so its wait comes
-// back as its own card.
+// one is critical, and should still stay." The supervisor ties the wait to
+// the decision open when it was raised and closes it with that decision's
+// answer, so answering the decision clears both, whichever kind it is.
 const followUp = { id: "waiting-pd-mcp-only-1008309", identity: "w".repeat(64), task: wanda.id, title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing. Both cuts are live, nothing is in flight, and I start nothing new meanwhile.", state: "open", created_at: "2026-10-17T18:16:11Z", updated_at: "2026-10-17T18:16:11Z" };
 for (const decision of [
-  { name: "the CFO's question for the goblin", after: "answering it clears both", isWaitBack: false, kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
-  { name: "the goblin's own question the CFO left to him", after: "once he answers it the wait comes back as its own card", isWaitBack: true, kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the CFO's question for the goblin", kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the goblin's own question the CFO left to him", kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
 ]) {
-  test(`a goblin's wait beside ${decision.name} shows only the decision, and ${decision.after}`, async ({ page, context }) => {
+  test(`a goblin's wait beside ${decision.name} shows only the decision, and answering it clears both`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
     const posted: Record<string, unknown>[] = [];
@@ -161,7 +160,8 @@ for (const decision of [
       posted.push(body);
       await route.fulfill({ status: 202, json: { ...body, status: "queued" } });
     });
-    await boardAsked(page, { questions: [decision.question], reviews: [followUp] });
+    const wait = { ...followUp, follows: decision.question.id };
+    await boardAsked(page, { questions: [decision.question], reviews: [wait] });
     await badge(page).click();
 
     // Act
@@ -172,21 +172,36 @@ for (const decision of [
     await card(page).getByText("Build all but the site plan editor", { exact: true }).click();
     await card(page).locator(".send-decision").click();
     await expect.poll(() => posted.map((body) => body.kind)).toEqual([decision.kind]);
-    await send(page, asking({ questions: [{ ...decision.question, status: "queued", answer_id: String(posted[0].id), answer: "Build all but the site plan editor", answer_kind: "option" }], reviews: [followUp] }, 3));
+    // The supervisor records his answer and closes the wait that followed it
+    // in the same change.
+    const closed = { ...wait, state: "answered", answered_by: "overlord", answered_in: "question", reason: "You answered the decision it waited on, " + decision.question.id + "." };
+    await send(page, asking({ questions: [{ ...decision.question, status: "queued", answer_id: String(posted[0].id), answer: "Build all but the site plan editor", answer_kind: "option" }], reviews: [closed] }, 3));
 
     // Assert
     expect(rows).toHaveLength(1);
     expect(rows[0]).toContain(decision.question.text.slice(0, 30));
-    if (decision.isWaitBack) {
-      await expect(card(page)).toContainText("Waiting for the Overlord's answer on the parity tool sizing");
-      await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
-      return;
-    }
     await expect(card(page)).toBeHidden();
     await expect(badge(page)).toHaveAccessibleName("Command Center");
     await expect(bar(page)).toContainText("All quiet");
     await badge(page).click();
     await expect(page.getByText("Nothing is waiting on you.")).toBeVisible();
-    await expect(page.getByText("Waiting for the Overlord's answer on the parity tool sizing")).toHaveCount(0);
+    await expect(page.locator(".command-center-updates section[aria-label='Waiting on you']")).not.toContainText("Waiting for the Overlord's answer on the parity tool sizing");
   });
 }
+
+// A wait the supervisor tied to no decision, such as one raised before the
+// goblin asked, is its own card beside the decision: the board never guesses
+// a follow-up from timing.
+test("a goblin's wait that follows no decision is its own card beside the decision", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  const question = { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build them", "End her task here"] };
+
+  // Act
+  await boardAsked(page, { questions: [question], reviews: [{ ...followUp, created_at: "2026-10-17T18:00:00Z" }] }, 2);
+  await badge(page).click();
+
+  // Assert
+  await expect(waitingList(page).locator("li")).toHaveCount(2);
+  await expect(waitingList(page)).toContainText("Waiting for the Overlord's answer on the parity tool sizing");
+});

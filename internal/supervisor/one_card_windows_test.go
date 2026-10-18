@@ -50,11 +50,12 @@ func TestClearingAPagesCardLeavesTheGoblinsQuestion(t *testing.T) {
 	}
 }
 
-// The Overlord's answer to a goblin's question on the board closes only that
-// question: the goblin's waits on him stay open, filed before the question or
-// after it, since a wait only he can clear, such as a sign-in, is never
-// settled by an answer to a different question.
-func TestABoardAnswerLeavesTheGoblinsWaitsOpen(t *testing.T) {
+// The Overlord's answer to a goblin's question on the board closes that
+// question and only the waits that follow it: the goblin's waits that do not,
+// one raised before the question and one that opens a link, stay open, since
+// such a wait, a sign-in only he can clear for one, is never settled by an
+// answer to a different question.
+func TestABoardAnswerLeavesOpenTheWaitsThatDoNotFollowIt(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		deliver Evaluation
@@ -67,8 +68,10 @@ func TestABoardAnswerLeavesTheGoblinsWaitsOpen(t *testing.T) {
 			store, _ := testStore(t)
 			meta, record, _, connection := goblinFixture(t, store)
 			q := surfaced(t, store, meta, record, connection)
-			earlier := openReview(fmt.Sprintf("waiting-%s-%d", meta.ID, q.Seq), meta.ID)
+			earlier := openReview(fmt.Sprintf("waiting-%s-%d", meta.ID, q.Seq-1), meta.ID)
+			earlier.CreatedAt = q.CreatedAt.Add(-time.Minute)
 			later := openReview(fmt.Sprintf("waiting-%s-%d", meta.ID, q.Seq+5), meta.ID)
+			later.Link = "https://dashboard.stripe.com/login"
 			for _, r := range []Review{earlier, later} {
 				if err := store.acceptReview(r); err != nil {
 					t.Fatal(err)

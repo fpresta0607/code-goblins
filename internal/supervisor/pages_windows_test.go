@@ -195,11 +195,12 @@ func TestTheCFOsAnswerClosesOnlyItsQuestion(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	meta, record, _ := askOnAPage(t, store)
+	q := store.Snapshot().Questions[0]
 	signIn := openReview(fmt.Sprintf("waiting-%s-%d", meta.ID, record.Seq-1), meta.ID)
+	signIn.CreatedAt = q.CreatedAt.Add(-time.Minute)
 	if err := store.acceptReview(signIn); err != nil {
 		t.Fatal(err)
 	}
-	q := store.Snapshot().Questions[0]
 
 	// Act
 	err := store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: "SQLite", Answer: "SQLite", At: time.Now().UTC()})

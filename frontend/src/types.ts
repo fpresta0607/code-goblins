@@ -459,6 +459,11 @@ export interface Review {
   // link is the web link a goblin's wait gave as the place to go, the only
   // one its card opens.
   link: string;
+  // follows is the ID of the open decision a goblin's wait on him followed
+  // when it was raised, the CFO's question for its task or the goblin's own
+  // with choices: the board shows only that question while it is open, and
+  // its answer closes the wait.
+  follows: string;
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
@@ -740,7 +745,7 @@ function itemLists(v: Record<string, unknown>) {
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), follows: string(r.follows), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, download }) => ({ name: string(name), size: number(size), kind: string(kind), download: download === true }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         answered_by: string(r.answered_by), answered_in: string(r.answered_in), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),

@@ -58,9 +58,7 @@ test("a goblin's question is the CFO's to answer: it never waits on the Overlord
       question("g-on-its-page", "billing", "2026-10-02T19:10:00Z")],
     reviews: [review("plan-billing", "billing", "2026-10-02T19:09:00Z"), review("waiting-billing-9", "billing", "2026-10-02T19:15:00Z", "open", { title: "Waiting on you: answer my question" })],
   });
-  // The wait follows the goblin's open question with choices, so it waits on
-  // nobody while that question does (the Overlord, 2026-10-17).
-  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:cfo-asks", "review:plan-billing"], "only what is for him waits");
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:cfo-asks", "review:plan-billing", "review:waiting-billing-9"], "only what is for him waits");
   assert.deepEqual([...openKeys(snapshot)].sort(), ["question:cfo-asks", "review:plan-billing", "review:waiting-billing-9"], "a goblin's question is never announced; its page made for his eyes is");
   assert.equal(newestItemOf(snapshot, "billing")?.key, "review:waiting-billing-9", "what its goblin has waiting on him is never its question to the CFO");
   assert.equal(waitTarget((snapshot.reviews || []).find((candidate) => candidate.id === "waiting-billing-9")!, snapshot), null, "a wait never opens a question that is the CFO's to answer");
@@ -92,34 +90,24 @@ test("a goblin's question the CFO has left for ten minutes waits on the Overlord
 // The Overlord, 2026-10-17, at "Wanda - API Ace is waiting on you" beside the
 // decision she waited for, with no decision button: "These follow-ups should
 // not be notifications in the Command Center, that can be removed. But the
-// initial one is critical, and should still stay." A goblin's wait on him
-// that opens nothing follows the decision card for its task, the CFO's
-// question for it or its own question with choices: it never waits on him
-// while that decision is open. Once answered, the CFO's question still keeps
-// the follow-up raised after it was asked, since the goblin hears its answer
-// only through the CFO, while the goblin's own question, whose answer reaches
-// the goblin at once, brings its wait back.
-test("a goblin's follow-up wait never waits on the Overlord beside the decision it follows", () => {
-  const page = "http://127.0.0.1:4387/session/plan";
-  const wait = (id: string, created: string, extra: Record<string, unknown> = {}) => review(id, "pd-mcp-only", created, "open", { title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing", ...extra });
+// initial one is critical, and should still stay." A goblin's wait the
+// supervisor tied to the decision open when it was raised, by that question's
+// ID, never waits on him while that question does; the supervisor closes it
+// when the question is answered, so an open wait is never hidden past it.
+test("a goblin's follow-up wait never waits on the Overlord beside the open decision it follows", () => {
+  const at = "2026-10-17T18:30:00Z";
+  const wait = (follows: string) => review("waiting-pd-mcp-only-9", "pd-mcp-only", "2026-10-17T18:16:11Z", "open", { title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing", follows });
   const decision = question("pd-connector-parity", "", "2026-10-17T18:16:04Z", "pending", { for_task: "pd-mcp-only" });
-  const answered = { ...decision, status: "succeeded", answer_id: "a-1", answered_by: "overlord", answered_at: "2026-10-17T18:18:59Z" };
-  const followUp = wait("waiting-pd-mcp-only-9", "2026-10-17T18:16:11Z");
-  const cases: [string, string, unknown[], unknown[], string[]][] = [
-    ["the CFO's open question for the goblin shows alone", "2026-10-17T18:17:00Z", [decision], [followUp], ["question:pd-connector-parity"]],
-    ["the goblin's own question with choices, left to him, shows alone", "2026-10-17T18:30:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z")], [followUp], ["question:notify-pd-mcp-only-8"]],
-    ["while the CFO still has the goblin's question, its follow-up waits on nobody", "2026-10-17T18:17:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z")], [followUp], []],
-    ["the CFO's answered question for the goblin still takes the follow-up raised after it was asked", "2026-10-17T18:19:00Z", [answered], [followUp], []],
-    ["the CFO's question whose answer is on its way takes it too", "2026-10-17T18:19:00Z", [{ ...answered, status: "queued", answered_at: "" }], [followUp], []],
-    ["the goblin's own answered question brings its wait back", "2026-10-17T18:19:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z", "succeeded", { answer_id: "a-1", answered_by: "overlord", answered_at: "2026-10-17T18:18:59Z" })], [followUp], ["review:waiting-pd-mcp-only-9"]],
-    ["the goblin's own question whose answer is on its way brings its wait back too", "2026-10-17T18:19:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z", "queued", { answer_id: "a-1" })], [followUp], ["review:waiting-pd-mcp-only-9"]],
-    ["a wait raised before the CFO's question waits again once it is answered", "2026-10-17T18:19:00Z", [answered], [wait("waiting-pd-mcp-only-7", "2026-10-17T18:00:00Z")], ["review:waiting-pd-mcp-only-7"]],
-    ["a wait raised after the answer is a new one", "2026-10-17T18:21:00Z", [answered], [wait("waiting-pd-mcp-only-10", "2026-10-17T18:20:00Z")], ["review:waiting-pd-mcp-only-10"]],
-    ["a wait with a page to open is never a follow-up", "2026-10-17T18:17:00Z", [decision], [wait("waiting-pd-mcp-only-9", "2026-10-17T18:16:11Z", { lavish: page })], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
-    ["another goblin's decision leaves the wait alone", "2026-10-17T18:17:00Z", [{ ...decision, for_task: "billing" }], [followUp], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
-    ["the goblin's own question without choices is no decision card", "2026-10-17T18:30:00Z", [question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z", "pending", { options: [] })], [followUp], ["question:notify-pd-mcp-only-8", "review:waiting-pd-mcp-only-9"]],
+  const ownQuestion = question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z");
+  const cases: [string, unknown[], unknown[], string[]][] = [
+    ["the CFO's open question for the goblin shows alone", [decision], [wait(decision.id)], ["question:pd-connector-parity"]],
+    ["the goblin's own open question, left to him, shows alone", [ownQuestion], [wait(ownQuestion.id)], ["question:notify-pd-mcp-only-8"]],
+    ["a wait that follows no decision is its own card beside one", [decision], [wait("")], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
+    ["a wait that follows another question is its own card", [decision], [wait("notify-pd-mcp-only-2")], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
+    ["once its decision is no longer open, a wait still open shows", [{ ...decision, status: "succeeded", answer_id: "a-1", answered_by: "overlord" }], [wait(decision.id)], ["review:waiting-pd-mcp-only-9"]],
+    ["the supervisor's close of it with the answer leaves nothing", [{ ...decision, status: "queued", answer_id: "a-1" }], [{ ...wait(decision.id), state: "answered", answered_by: "overlord", answered_in: "question" }], []],
   ];
-  for (const [name, at, questions, reviews, want] of cases) {
+  for (const [name, questions, reviews, want] of cases) {
     // Arrange
     const snapshot = parseSnapshot({ healthy: true, at, tasks: [{ id: "pd-mcp-only", phase: "waiting", generation: "g1", verified: false, archived: false, merged: false }], questions, reviews });
 
