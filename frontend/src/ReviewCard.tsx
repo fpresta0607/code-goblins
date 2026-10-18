@@ -23,8 +23,8 @@ export const reviewImages = (review: Review) => Array.from({ length: review.imag
 // box at all (the Overlord, 2026-10-17: "There does not need to be a text box
 // in when there is a scroll open review page involved"); one the supervisor
 // watches also shows itself, live and scaled down. A goblin waiting on the
-// Overlord is a status that opens what it waits on (its page, question, file
-// or link) from its one action button. Without a page it has Skip beside its
+// Overlord is a status that opens what it waits on (its page, file or link)
+// from its one action button. Without a page it has Skip beside its
 // button, telling the goblin to go on without it, and the pencil, which sends
 // his answer in words to the asker once. Anything else takes a written answer
 // that goes to the asker once, with Skip beside its Send.

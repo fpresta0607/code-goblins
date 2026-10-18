@@ -97,8 +97,6 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
   return null;
 }
 
-// A decision card for goblin task: the CFO's question for it (cfo question
-// --for), or the goblin's own question with choices.
 // followsDecision says whether a goblin's wait on him follows a decision that
 // is still open, which alone shows (the Overlord, 2026-10-17: "These
 // follow-ups should not be notifications in the Command Center ... But the

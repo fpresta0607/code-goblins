@@ -20,9 +20,10 @@ import (
 //	cfo review --id <stable-id> --withdraw "<reason>" [--task <id>]
 //	cfo review --clear <stable-id> --reason "<why>"
 //
-// A Lavish page named by its HTML file is opened without a browser and polled
-// by the supervisor, so the Overlord's feedback on it reaches the CFO as a
-// review wake; nobody runs lavish-axi poll themselves.
+// A Lavish page named by its HTML file is opened without a browser, and one
+// named by its Scrawl link is the page lavish-axi serves there; the supervisor
+// polls either, so the Overlord's feedback on it reaches the CFO as a review
+// wake; nobody runs lavish-axi poll themselves.
 func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("review", flag.ContinueOnError)
 	f.SetOutput(stderr)
