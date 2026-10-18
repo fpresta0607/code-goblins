@@ -101,6 +101,8 @@ type CredentialRequest struct {
 	Link   string            `json:"link,omitempty"`
 	// Steps say how to get the values, in order, for the card's header.
 	Steps []string `json:"steps,omitempty"`
+	// Mail is a message the card gives him to send himself, such as an email.
+	Mail *Mail `json:"mail,omitempty"`
 	// Window says the step happens inside the goblin's own browser session,
 	// which the card's button brings to him; WindowState is "" while the
 	// button is offered, "requested" once he pressed it and "open" once the
@@ -170,13 +172,17 @@ func (r CredentialRequest) clone() CredentialRequest {
 		fetch.Names = slices.Clone(r.Fetch.Names)
 		r.Fetch = &fetch
 	}
+	if r.Mail != nil {
+		mail := *r.Mail
+		r.Mail = &mail
+	}
 	return r
 }
 
 // sameCredentialRequest reports whether two filings ask the same thing, so a
 // retry of one changes nothing.
 func sameCredentialRequest(a, b CredentialRequest) bool {
-	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && slices.Equal(a.Plain, b.Plain) && maps.Equal(a.Labels, b.Labels) && a.Why == b.Why && a.Link == b.Link && slices.Equal(a.Steps, b.Steps) && a.Window == b.Window
+	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && slices.Equal(a.Plain, b.Plain) && maps.Equal(a.Labels, b.Labels) && a.Why == b.Why && a.Link == b.Link && slices.Equal(a.Steps, b.Steps) && sameMail(a.Mail, b.Mail) && a.Window == b.Window
 }
 
 // inputs are every name a request asks for: its secrets, then its plain
@@ -202,11 +208,12 @@ func validCredentialRequest(r CredentialRequest) error {
 }
 
 // CredentialRequestProblem refuses anything but names, their labels, a
-// reason, a page to open and the steps to take there. A card asks for at
-// least one input, gives a page or gives a step. A name, a label, a reason, a
-// link or a step shaped like a credential value is refused, and no refusal
-// repeats what it refused. A window is the goblin's own browser, so it needs
-// the goblin and the page to show in it.
+// reason, a page to open, the steps to take there and a message to send. A
+// card asks for at least one input, gives a page, a step or a message. A
+// name, a label, a reason, a link, a step or a message shaped like a
+// credential value is refused, and no refusal repeats what it refused. A
+// window is the goblin's own browser, so it needs the goblin and the page to
+// show in it.
 func CredentialRequestProblem(r CredentialRequest) error {
 	inputs := r.inputs()
 	switch {
@@ -224,8 +231,8 @@ func CredentialRequestProblem(r CredentialRequest) error {
 		return envFileNameProblem(r.EnvFile)
 	case len(inputs) > maxCredentialNames:
 		return fmt.Errorf("a credential request asks for at most %d names", maxCredentialNames)
-	case len(inputs) == 0 && r.Link == "" && len(r.Steps) == 0:
-		return errors.New("a card asks for a name, gives a page to open or gives a step")
+	case len(inputs) == 0 && r.Link == "" && len(r.Steps) == 0 && r.Mail == nil:
+		return errors.New("a card asks for a name, gives a page to open, a step or a message to send")
 	case r.Window && (r.Task == "" || r.Link == ""):
 		return errors.New("a card's window is its goblin's own browser, so it names the goblin's task and the page to show")
 	}
@@ -274,6 +281,9 @@ func CredentialRequestProblem(r CredentialRequest) error {
 				return fmt.Errorf("word %d of step %d looks like a credential value: %s", word+1, index+1, shape)
 			}
 		}
+	}
+	if err := mailProblem(r.Mail); err != nil {
+		return err
 	}
 	if r.Link != "" {
 		return validCredentialLink(r.Link)

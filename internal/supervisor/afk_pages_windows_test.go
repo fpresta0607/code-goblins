@@ -265,7 +265,7 @@ func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Store.ingestQuestions(); err != nil {

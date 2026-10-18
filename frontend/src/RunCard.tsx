@@ -12,12 +12,17 @@ import { RunTerminal } from "./run-terminal";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
+import { CardMail } from "./card-mail";
+import { inlineElements } from "./messageText";
+import { copyValues } from "./CopyValue";
+import { PathLink, pathLinks, type PathCard } from "./path-link";
 
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
-// is a goblin's own, why, the shell, the exact text that runs and where, and
-// one Run button that says where it runs, with Skip and the pencil beside
-// it for a command he will not run: the pencil sends his answer in words
-// instead. Run turns the card into the
+// is a goblin's own, why, the shell, the exact text that runs and where, each
+// local path it names a link that opens it, a message he sends himself with
+// Copy email, and one Run button that says where it runs, with Skip and the
+// pencil beside it for a command he will not run: the pencil sends his answer
+// in words instead. Run turns the card into the
 // command's own terminal, in place of the notice it once showed: he types
 // there and it completes by itself, Complete, or Failed with one line saying
 // why and who takes the next step, keeping the end of what its terminal
@@ -35,6 +40,7 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
   const failure = runFailure(run);
   const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CFO";
   const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
+  const card: PathCard = { kind: "run", id: run.id, instance };
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
     {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{asker}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
     <header className="run-head">
@@ -43,13 +49,14 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
       {run.admin && <span className="chip admin" data-tip="Runs as administrator"><Icon name="shield" />Admin</span>}
       <span className={"run-state delivery " + (mark.trouble ? "failed" : "succeeded")} role="status"><Icon name={mark.icon} />{failure ? "Failed" : mark.label}</span>
     </header>
-    <h3 id={"run-" + run.id}>{run.title}</h3>
+    <h3 id={"run-" + run.id}>{inlineElements(run.title, copyValues, pathLinks(card))}</h3>
     {failure && <p className="run-failure">{failure}</p>}
     <div className="run-command">
       <pre><code>{run.command}</code></pre>
       <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
-    {run.cwd && <p className="run-cwd"><Icon name="folder" /><span>{run.cwd}</span></p>}
+    {run.cwd && <p className="run-cwd"><PathLink path={run.cwd} card={card} /></p>}
+    {run.mail && <CardMail mail={run.mail} />}
     {run.reason && !mark.trouble && !mark.label.includes(run.reason) && <p className="muted">{run.reason}</p>}
     {running && (run.terminal
       ? <RunTerminal run={run} instance={instance} connected={connected} />

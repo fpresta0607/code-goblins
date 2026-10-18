@@ -14,6 +14,10 @@ import "./browser-signin-card.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
+import { CardMail } from "./card-mail";
+import { inlineElements } from "./messageText";
+import { copyValues } from "./CopyValue";
+import { pathLinks } from "./path-link";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
@@ -30,8 +34,10 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 
 // The card for a step only he can take: its header says how, as the page to
 // open, or the goblin's own browser window to bring to him, and the asker's
-// steps, numbered in order. Its table has a row for each input, by its label:
-// a field to paste each secret into, with a check once the value is in the
+// steps, numbered in order, each local path they name a link that opens it,
+// and a message he sends himself, with Copy email. Its table has a row for
+// each input, by its label: a field to paste each secret into, with a check
+// once the value is in the
 // project's vault, and a field for each plain value, which goes back to the
 // goblin. A card that asks for nothing has Done instead, and every open card
 // has Dismiss, which tells its goblin to go on without it. A pasted secret is
@@ -86,6 +92,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   };
   const ask = (names: string[], action: Confirm["action"], confirmed: string[]) => setConfirm({ names, action, confirmed });
   const warnings = (name: string, value: string) => valueWarnings(request.hints.find((hint) => hint.name === name), value);
+  const paths = pathLinks({ kind: "credential", id: request.id, instance: snapshot.instance });
 
   // store sends one row's value, the one pasted or the one its field holds.
   const store = async (name: string, replace: string[], pasted?: string) => {
@@ -177,15 +184,16 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span></p>
     <header className="credential-heading">
-      <h3 id={"credential-" + request.id} tabIndex={-1}>{credentialHeading(request)}</h3>
-      {request.why && inputs.length > 0 && <p className="credential-why">{request.why}</p>}
+      <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>
+      {request.why && inputs.length > 0 && <p className="credential-why">{inlineElements(request.why, copyValues, paths)}</p>}
       {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
         {request.link && (request.window
           ? <li>Press Open the browser window below</li>
           : <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{wrappable(linkLabel(request.link), "/")}</span><Icon name="external" /></a></li>)}
-        {request.steps.map((step, index) => <li key={index}>{stepText(step)}</li>)}
+        {request.steps.map((step, index) => <li key={index}>{inlineElements(stepText(step), copyValues, paths)}</li>)}
       </ol>}
     </header>
+    {request.mail && <CardMail mail={request.mail} />}
     {open && request.window && <div className="step-window">
       {local
         ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="external" />Open the browser window</button>

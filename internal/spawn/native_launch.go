@@ -366,7 +366,7 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
 	}
 	busy := screens.IsWorking(before)
 	submitted := time.Now()
@@ -453,7 +453,7 @@ func pressNativeEnter(record host.Record) error {
 func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) error {
 	client, err := host.Dial(record)
 	if err != nil {
-		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
+		return fmt.Errorf("spawn: type into native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, err)
 	}
 	defer client.Close()
 	if err := client.Input([]byte(instruction)); err != nil {

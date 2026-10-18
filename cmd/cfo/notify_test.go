@@ -1439,6 +1439,64 @@ func TestNotifyCarriesACommandForTheOverlordToRun(t *testing.T) {
 	}
 }
 
+// A question with choices, or a command, carries a message he sends himself
+// from --message-file. The message is read before anything is recorded, and
+// one that no card would show, or that holds a key, fails the notify.
+func TestNotifyCarriesAMessageOnlyOnACard(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "g1-h1", Parent: "g1", Mode: "local-only"}); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	key := "sk" + "_live_" + "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	message := write("refund.txt", "To: support@iproyal.com\nSubject: Refund for order 4412\n\nPlease refund order 4412.\n")
+	question := "Send the refund email? options: Send it (Recommended) | Hold it"
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"a message on a working report":      {[]string{"g1", "--working", "writing the email", "--message-file", message}, "--message-file goes with a --blocked question with choices or with --run"},
+		"a message on a question of no card": {[]string{"g1", "--blocked", "Send the refund email?", "--message-file", message}, "--message-file goes with a --blocked question with choices or with --run"},
+		"a message holding a key":            {[]string{"g1", "--blocked", question, "--message-file", write("key.txt", "My key is "+key+"\n")}, "looks like a credential value"},
+		"a helper's question to its parent":  {[]string{"g1-h1", "--blocked", question, "--message-file", message}, "goes to its parent g1's terminal"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), c.says) || strings.Contains(stderr.String(), key) {
+			t.Errorf("%s: exit=%d stderr=%q, want 2 naming %q and never the key", name, exit, stderr.String(), c.says)
+		}
+	}
+	for _, id := range []string{"g1", "g1-h1"} {
+		if lines, _ := state.TailStatus(stateDir, id, 1); len(lines) != 0 {
+			t.Fatalf("%s status = %q after refused notifies, want nothing recorded", id, lines)
+		}
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--blocked", question, "--message-file", message}, &stdout, &stderr, defaultCommandRuntime())
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || !strings.HasPrefix(records[0].Detail, "blocked: Send the refund email?") {
+		t.Fatalf("wake records = %+v %v, want the question", records, err)
+	}
+}
+
 // While AFK mode is on a goblin that reports a wait on the Overlord is told he
 // is away and to move to work that does not depend on it, so it does not sit
 // all night on something only he can do. While it is off the notify says

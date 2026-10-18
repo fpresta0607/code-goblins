@@ -26,7 +26,7 @@ func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMet
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: Sign in to GitHub so I can push"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishGoblinRun(store.Home, meta.ID, 7, "Sign in to GitHub so I can push", "powershell", command); err != nil {
+	if err := PublishGoblinRun(store.Home, meta.ID, 7, "Sign in to GitHub so I can push", "powershell", command, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestGoblinRuns(); err != nil {

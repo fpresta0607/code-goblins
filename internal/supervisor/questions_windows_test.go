@@ -23,7 +23,7 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	store, _ := testStore(t)
 	primary, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", ""); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -32,10 +32,10 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if len(store.Snapshot().Questions) != 1 {
 		t.Fatal("missing published question")
 	}
-	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, "", ""); err == nil {
+	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, "", "", nil); err == nil {
 		t.Fatal("conflicting durable ID published")
 	}
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", ""); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	primary.Process.PID = 1
@@ -43,7 +43,7 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, "", ""); err == nil {
+	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, "", "", nil); err == nil {
 		t.Fatal("non-CFO published a user modal")
 	}
 }
@@ -61,9 +61,9 @@ func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 	meta := makeNative(t, store.Home.State, "task-1")
 
 	// Act
-	err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID)
-	unknown := cfo.PublishQuestion("other-parity", "Build them?", []string{"Yes", "No"}, "", "no-such-task")
-	other := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", "")
+	err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil)
+	unknown := cfo.PublishQuestion("other-parity", "Build them?", []string{"Yes", "No"}, "", "no-such-task", nil)
+	other := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", "", nil)
 
 	// Assert
 	if err != nil {
@@ -133,7 +133,7 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 			meta, record, _, connection := goblinFixture(t, store)
 			var q Question
 			if test.isCFOsQuestion {
-				if err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID); err != nil {
+				if err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil); err != nil {
 					t.Fatal(err)
 				}
 				if err := store.ingestQuestions(); err != nil {
@@ -651,7 +651,7 @@ func goblinTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 // question the supervisor ingested.
 func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
 	t.Helper()
-	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -670,7 +670,7 @@ func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Recor
 func TestGoblinQuestionAnsweredOnceInItsOwnTerminal(t *testing.T) {
 	store, h := testStore(t)
 	meta, record, goblin, connection := goblinFixture(t, store)
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
@@ -728,7 +728,7 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 		t.Fatal(err)
 	}
 
-	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -830,19 +830,19 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, plain, plain.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, plain, plain.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := wake.Append(h.State, "notify", meta.ID, "failed: Tests fail. options: Retry (Recommended) | Abandon")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, failed, failed.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, failed, failed.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// The System process is live and never the ancestor of a test.
 	goblin.runs(t, 4)
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err == nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err == nil {
 		t.Fatal("a process outside the goblin's terminal surfaced its question")
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -1113,10 +1113,10 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 		t.Fatal(err)
 	}
 	connectionB := &CFOConnection{State: h.State}
-	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, metaB.ID, recordB, recordB.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, metaB.ID, recordB, recordB.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
