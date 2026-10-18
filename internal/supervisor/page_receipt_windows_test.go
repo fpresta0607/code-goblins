@@ -2,8 +2,11 @@ package supervisor
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -137,7 +140,7 @@ func TestPageReceiptRecoversGroupingAfterRestart(t *testing.T) {
 	}
 }
 
-func TestPageReceiptsStayOrderedAndDoNotReplayUncertainDelivery(t *testing.T) {
+func TestPageReceiptsStayOrderedAndNeverRetypeADeliveryTheSupervisorStoppedDuring(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	meta, _, connection, _ := pageOfAGoblin(t, store)
@@ -227,34 +230,38 @@ func TestPageReceiptsStayOrderedAndDoNotReplayUncertainDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	typedFirst := sent[0]
 	sent = nil
+	conversations := useConversations(t)
 	scrawl.send(scrawlEnded)
 	recovered := &Service{Store: restarted, Options: Options{CFO: connection, PollPage: scrawl.poll}}
 	recovered.watchPages(context.Background())
 	recovered.pageWork.Wait()
 	recovered.watchPages(context.Background())
 	recovered.pageWork.Wait()
-	if len(sent) != 0 {
-		t.Errorf("replayed uncertain delivery or overtook it: %q", sent)
+	// The supervisor stopped while typing the first, so it is never typed
+	// again, and nothing overtakes it until the goblin's record shows it
+	// taken; then the rest follow in order.
+	if len(sent) != 0 || len(reviewWakes(t, recoveryHome.State, meta.ID)) != 0 {
+		t.Fatalf("before the goblin's record shows the first, sent %q and woke %d times, want nothing", sent, len(reviewWakes(t, recoveryHome.State, meta.ID)))
+	}
+	recoveredMeta, err := state.ReadTaskMeta(recoveryHome.State, meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	takenInRecord(t, conversations, recoveredMeta.Harness, "", recoveredMeta.Worktree, typedFirst)
+	recovered.watchPages(context.Background())
+	recovered.pageWork.Wait()
+	if len(sent) != 2 || !strings.Contains(sent[0], ": second") || !strings.Contains(sent[1], ": third") {
+		t.Errorf("after the record shows the first, sent = %q, want second then third, once each", sent)
 	}
 	wakes := reviewWakes(t, recoveryHome.State, meta.ID)
 	if len(wakes) != 3 {
 		t.Fatalf("recovery wakes = %+v, want three ordered receipts", wakes)
 	}
 	for i, word := range []string{"first", "second", "third"} {
-		if !strings.Contains(wakes[i].Detail, "inspect") {
-			t.Errorf("wake %d = %q, want explicit uncertainty", i, wakes[i].Detail)
-		}
-		files := feedbackFiles(t, recoveryHome.State, meta.ID)
-		hasFeedback := false
-		for _, file := range files {
-			if strings.Contains(wakes[i].Detail, file) {
-				data, err := os.ReadFile(file)
-				hasFeedback = err == nil && string(data) == word
-			}
-		}
-		if !hasFeedback {
-			t.Errorf("wake %d does not name saved %q feedback: %s", i, word, wakes[i].Detail)
+		if strings.Contains(wakes[i].Detail, "inspect") || strings.Contains(wakes[i].Detail, "uncertain") || !strings.Contains(wakes[i].Detail, "task-1 has it: "+word) {
+			t.Errorf("wake %d = %q, want the goblin to have %q with no uncertainty", i, wakes[i].Detail, word)
 		}
 	}
 }
@@ -810,6 +817,243 @@ func TestPageReceiptRecoveryStopsIfOldFeedbackCannotBeQueued(t *testing.T) {
 				t.Errorf("unqueued receipt was lost: %+v", pending)
 			}
 		})
+	}
+}
+
+// pageNotes keeps one note he sent on goblin page item r for each word, in
+// order, waiting to be passed on, and returns how one supervisor cycle tells
+// them.
+func pageNotes(t *testing.T, s *Service, r Review, words ...string) func() {
+	t.Helper()
+	r.State = "answered"
+	for _, word := range words {
+		if err := s.Store.keepPageAnswer(pageAnswer{ID: "note-" + word, Item: r, Poll: axi.PagePoll{Status: "feedback", Prompts: []string{word}, Output: word}, Status: "queued"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func() {
+		s.tellPage(context.Background(), pageKey(r.LavishPage))
+		s.pageWork.Wait()
+	}
+}
+
+// The Overlord, 2026-10-17 about 20:35Z: "Make sure that even if I hit send
+// and then I Type another message and then hit send and end. The message
+// that was previously sent gets communicated." That day a note on
+// itascaunity-site's page met its goblin between sessions, whose terminal's
+// pipe was gone, was called uncertain, and kept every later note on the page
+// from the goblin for good. A note its goblin's terminal took nothing of
+// waits, with those behind it, and each reaches the goblin once, in order,
+// when it is back, in the new session a pause's resume brings it.
+func TestPageNotesWaitForAGoblinBetweenSessionsAndArriveOnceInOrder(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first", "second", "third")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	isAway, tries := true, 0
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		tries++
+		if isAway {
+			return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, fleet.ErrNotTyped)
+		}
+		typed = append(typed, text)
+		return nil
+	}
+
+	// Act: two cycles while it is away, then it comes back in a new session.
+	cycle()
+	cycle()
+	awayTries, awayWakes := tries, len(reviewWakes(t, h.State, meta.ID))
+	meta.SpawnGen = "g2"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	isAway = false
+	cycle()
+
+	// Assert
+	if awayTries != 2 || awayWakes != 0 {
+		t.Errorf("while away it was tried %d times and woke the CFO %d times, want the first note tried once a cycle and no wake", awayTries, awayWakes)
+	}
+	if len(typed) != 3 {
+		t.Fatalf("typed = %q, want the three notes once each", typed)
+	}
+	wakes := reviewWakes(t, h.State, meta.ID)
+	for i, word := range []string{"first", "second", "third"} {
+		if !strings.Contains(typed[i], ": "+word) {
+			t.Errorf("note %d typed = %q, want %s", i, typed[i], word)
+		}
+		if i >= len(wakes) || !strings.Contains(wakes[i].Detail, meta.ID+" has it: "+word) {
+			t.Errorf("wake %d = %+v, want %s to have %q", i, wakes, meta.ID, word)
+		}
+	}
+	if left := store.pageReceiptsSnapshot().Answers; len(left) != 0 {
+		t.Errorf("receipts still hold %+v", left)
+	}
+}
+
+// His case, 2026-10-17: he sends A on the page, sends B while the goblin
+// works on A, then sends and ends with C. The goblin gets A, B and C in that
+// order, each once, and his card closes with C, whether the goblin was in a
+// turn or paused when B came.
+func TestHisNotesAndSendAndEndReachTheGoblinInOrderBusyOrPaused(t *testing.T) {
+	for name, away := range map[string]error{"in a turn": fleet.ErrQueuedForToolCall, "paused": fleet.ErrNotTyped} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			_, _, connection, _ := pageOfAGoblin(t, store)
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			var mu sync.Mutex
+			var typed []string
+			isAway := false
+			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string) error {
+				mu.Lock()
+				defer mu.Unlock()
+				if isAway && errors.Is(away, fleet.ErrNotTyped) {
+					return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, away)
+				}
+				typed = append(typed, text)
+				if isAway {
+					return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", meta.ID, away)
+				}
+				return nil
+			}
+			seen := func() []string {
+				mu.Lock()
+				defer mu.Unlock()
+				return slices.Clone(typed)
+			}
+			note := func(word string, isEnd bool) string {
+				ended := ""
+				if isEnd {
+					ended = "  session_ended: true\n  ended_by: user\n"
+				}
+				return "session:\n  status: feedback\n" + ended + "prompts[1]{uid,prompt,selector,tag,text}:\n  \"\"," + word + ",\"\",message,Freeform message\n"
+			}
+			scrawl := newScrawlPage(0)
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(func() { cancel(); s.pageWork.Wait() })
+			until := func(what string, done func() bool) {
+				for deadline := time.Now().Add(15 * time.Second); !done(); time.Sleep(50 * time.Millisecond) {
+					if time.Now().After(deadline) {
+						t.Fatalf("%s did not happen; typed %q", what, seen())
+					}
+					s.watchPages(ctx)
+				}
+			}
+
+			// Act
+			s.watchPages(ctx)
+			scrawl.send(note("Note A", false))
+			until("A typed", func() bool { return len(seen()) == 1 })
+			mu.Lock()
+			isAway = true
+			mu.Unlock()
+			scrawl.send(note("Note B", false))
+			until("B passed on", func() bool {
+				for _, answer := range store.pageReceiptsSnapshot().Answers {
+					if answer.Status == "queued" && strings.Contains(answer.Poll.Output, "Note B") {
+						return true
+					}
+				}
+				return len(seen()) == 2
+			})
+			mu.Lock()
+			isAway = false
+			mu.Unlock()
+			scrawl.send(note("Note C", true))
+			until("C typed", func() bool { return len(seen()) == 3 })
+
+			// Assert
+			got := seen()
+			for i, word := range []string{"Note A", "Note B", "Note C"} {
+				if !strings.Contains(got[i], word) {
+					t.Errorf("typed %d = %q, want %s, in order and once", i, got[i], word)
+				}
+			}
+			until("his card closed", func() bool { return store.Snapshot().Reviews[0].State == "answered" })
+		})
+	}
+}
+
+// A note typed into its goblin's terminal whose screen never showed it taken
+// is never typed again: it waits, with those behind it, until the record its
+// goblin's harness keeps shows it taken, and then the rest follow.
+func TestAPageNoteTypedButUnconfirmedWaitsForTheGoblinsRecord(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, h := testStore(t)
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first", "second", "third")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		typed = append(typed, text)
+		if len(typed) == 1 {
+			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction", meta.ID)
+		}
+		return nil
+	}
+
+	// Act
+	cycle()
+	cycle()
+	before, wakesBefore := len(typed), len(reviewWakes(t, h.State, meta.ID))
+	takenInRecord(t, records, meta.Harness, "", meta.Worktree, typed[0])
+	cycle()
+
+	// Assert
+	if before != 1 || wakesBefore != 0 {
+		t.Errorf("before the record showed it, typed %d notes and woke %d times, want the first typed once and no wake", before, wakesBefore)
+	}
+	if len(typed) != 3 || !strings.Contains(typed[1], ": second") || !strings.Contains(typed[2], ": third") {
+		t.Fatalf("typed = %q, want first once, then second and third", typed)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 3 || !strings.Contains(wakes[0].Detail, meta.ID+" has it: first") {
+		t.Errorf("wakes = %+v, want three, the first saying the goblin has it", wakes)
+	}
+}
+
+// One its goblin's record never shows taken within pageAwaitLimit reaches the
+// CFO with what to check, and the page's next note goes.
+func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCFOAndTheNextGoes(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, h := testStore(t)
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	r := store.Snapshot().Reviews[0]
+	r.State = "answered"
+	if err := store.keepPageAnswer(pageAnswer{ID: "note-first", Item: r, Poll: axi.PagePoll{Status: "feedback", Prompts: []string{"first"}, Output: "first"}, Status: "awaiting", SentAt: time.Now().UTC().Add(-pageAwaitLimit - time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	cycle := pageNotes(t, s, r, "second")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		typed = append(typed, text)
+		return nil
+	}
+
+	// Act
+	cycle()
+
+	// Assert
+	if len(typed) != 1 || !strings.Contains(typed[0], ": second") {
+		t.Errorf("typed = %q, want only the second note", typed)
+	}
+	wakes := reviewWakes(t, h.State, meta.ID)
+	if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "cfo peek "+meta.ID) || !strings.Contains(wakes[1].Detail, meta.ID+" has it: second") {
+		t.Errorf("wakes = %+v, want the first handed to the CFO with what to check, then the second delivered", wakes)
 	}
 }
 
