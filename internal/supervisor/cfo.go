@@ -117,9 +117,16 @@ func Register(stateDir, harness, session string) (string, error) {
 		return "", err
 	}
 	// Plain cfo register names no session. Codex gives every command it runs
-	// its thread, which is the conversation a closed Codex CFO comes back on.
-	if session == "" && primary.Agent == "codex" {
-		session = os.Getenv("CODEX_THREAD_ID")
+	// its thread, and pi 0.85.1 its session, which is the conversation a closed
+	// CFO comes back on. Each reads only its own, since a CFO started inside
+	// another harness's session inherits that one's.
+	if session == "" {
+		switch primary.Agent {
+		case "codex":
+			session = os.Getenv("CODEX_THREAD_ID")
+		case "pi":
+			session = os.Getenv("PI_SESSION_ID")
+		}
 	}
 	// Custody is taken last, so a refused registration changes nothing.
 	if _, _, err := custody.Take(stateDir, ancestry[harnessAt].PID, session, "cfo register"); err != nil {
