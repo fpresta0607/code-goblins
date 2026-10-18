@@ -127,6 +127,10 @@
       "why": "the frontend's own checks cover it, and Go embeds only its build under internal/boardweb/dist"
     },
     {
+      "paths": ["tools/build-no-mistakes.ps1"],
+      "why": "the release and install workflows run it on GitHub's runners, where it fetches and builds a program, and the install workflow proves the build it makes"
+    },
+    {
       "paths": ["tests/**"],
       "why": "acceptance scripts and their fixtures that no Go test reads"
     }

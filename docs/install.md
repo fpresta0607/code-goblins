@@ -56,11 +56,12 @@ In order, it:
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
    The home keeps the choice in `state\start-at-login`, so an update keeps it, and the board's switch and the tray's item change the same setting.
-4. Installs each missing tool the fleet drives: git and gh with winget, Claude Code with its own installer, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
+4. Installs each missing tool the fleet drives: git and gh with winget, for you alone, so neither asks for administrator rights, Claude Code with its own installer, no-mistakes from the release the install script came with, and Codex, pi and the axi tools with npm, which needs Node.js.
    Each npm package is installed at the exact version `install.ps1` pins, so a new release upstream reaches an install only once it is pinned there.
-   no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
-   The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
-   It installs no-mistakes only when the archive matches `checksums.txt`, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH and starts the no-mistakes daemon.
+   no-mistakes is the gate every goblin's work passes, so every machine runs the one build `install.ps1` pins: a commit of the fork whose `axi run` takes a gate's intent from a file and the launch selection every gate gives it ([What v6 needs](pipeline.md#what-v6-needs)).
+   Each release builds that commit with `tools\build-no-mistakes.ps1`, signs it as it signs its own programs, and publishes it as `no-mistakes.exe`, with the licences of what it compiles in as `no-mistakes-NOTICES`, so the install downloads no unsigned program for it, and never asks GitHub's API, whose limit for anonymous callers failed installs on shared machines.
+   It installs no-mistakes only when the program matches the release's `SHA256SUMS` and, for a signed release, carries its publisher's signature, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH, starts the no-mistakes daemon, and checks that its `axi run` has `--intent-file` and `--launch-assertion`.
+   `install.cmd -Dev`, in a clone, which has no release, builds the pinned commit with `tools\build-no-mistakes.ps1` instead.
    A download that fails is tried twice more, a few seconds apart; if all three attempts fail, the install says why, goes on with the rest, and names no-mistakes among the installs that did not complete.
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
    When npm's copy still comes first on your PATH, the closing note names claude, and the log has the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
@@ -72,6 +73,7 @@ In order, it:
 7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 483 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    The model is Parakeet TDT 0.6B v2 by NVIDIA ([nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), converted to ONNX and quantized to int8 by the [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, whose release the install downloads unchanged.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
+   It needs none of the tools, so it runs out of sight from the start of step 4, beside them, and the install waits for it once they are in: on a GitHub runner it took 76 s of a fresh install's 298.
    A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
 8. Adds matching **Code Goblins** shortcuts to your Start menu and your desktop.
    The desktop shortcut follows Windows' desktop folder, including OneDrive redirection.
@@ -100,7 +102,7 @@ When it adopts the standalone copy's existing Start at login entry, that entry r
 ### What it leaves in your temp folder
 
 The install keeps one file in your temp folder, its log, `CodeGoblinsInstall.log`, which its last line names.
-Everything else it makes there it removes: the release it downloads, the no-mistakes archive, each installer it saves to a file, and the folder the setup downloads the install script to.
+Everything else it makes there it removes: the release it downloads, the no-mistakes download, the files dictation's setup prints to, each installer it saves to a file, and the folder the setup downloads the install script to.
 A virus scanner can still be reading a file it just saw, and Windows keeps a program for a moment after it ran, so a removal that fails at first is tried again as the install ends, for up to ten seconds.
 A folder that is still held then never fails the install.
 One `Note:` line names it, and it is safe to delete.
@@ -140,10 +142,11 @@ Later runs skip what is already set up: with the remembered agent ready they go 
 `goblins resume` restarts a running CFO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does; then, as after a reboot, it brings back every goblin whose terminal ended and lists which came back and which need a hand.
 A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.
 
-A no-mistakes older than the release `install.ps1` pins is updated to it the same way, and a newer one is kept.
-The install downloads and verifies the pinned release first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
+A no-mistakes that cannot gate as the pinned build does is replaced with it the same way: one older than the build `install.ps1` pins, and one whose `axi run` has no `--intent-file` or no `--launch-assertion`, as no upstream release has.
+A later build of the same fork is kept.
+The install downloads and verifies the pinned build first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
 no-mistakes refuses to stop its daemon while a gate runs; the install then leaves the older no-mistakes as it is and says to rerun it once no gate runs.
-The install only ever updates the no-mistakes in `%LOCALAPPDATA%\no-mistakes`: an older one that comes first on PATH from anywhere else is left alone, and the install names its path and says to run `no-mistakes update` or remove it.
+The install only ever replaces the no-mistakes in `%LOCALAPPDATA%\no-mistakes`: one that comes first on PATH from anywhere else and cannot gate is left alone, and the install names its path and why, and says to remove it or put `%LOCALAPPDATA%\no-mistakes` before it.
 So when a Code Goblins release moves the pin forward, rerunning the install is how a machine moves to the no-mistakes it names.
 
 ## Updating
@@ -186,16 +189,18 @@ Rerunning the install still updates the tools it pins, such as no-mistakes, whic
 ## On a fresh PC
 
 A release says at the top of its notes whether its programs are code-signed, and by whom.
+Every release from v0.5.2 on is signed by SIQstack LLC, through Azure Artifact Signing, with a timestamp, and so is the no-mistakes it publishes; v0.4.0 to v0.5.1 are not.
 A signed release signs its `install.ps1` too, with the same certificate.
 The one-line install runs the script as text, where the signature is a block of comment lines at its end and changes nothing the script does.
-Until Code Goblins has a signing identity they are not: such a release says that it is unsigned, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
+An unsigned release says so, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
 A signed release's `install.ps1` names its publisher, and refuses a download that publisher did not sign.
 Windows knows an unsigned program only as an unknown program from an unknown publisher.
 Each program's file properties (right-click, Properties, Details) name the product Code Goblins and its version, and none asks for administrator rights.
 
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
-- **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
+- **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it.
+  A signed setup names SIQstack LLC as its publisher, but Windows still judges a program few people have run yet by its reputation, which builds over weeks of downloads: until then the browser can say it "isn't commonly downloaded", and SmartScreen can stop it once with "Windows protected your PC", as it does an unsigned one with an Unknown publisher.
   Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
   Then **More info**, **Run anyway** runs it.
   The install script checks the programs it installs against the newest release's `SHA256SUMS`.

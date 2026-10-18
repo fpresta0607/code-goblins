@@ -22,7 +22,7 @@ var textFlags = []string{"--intent", "--instructions", "--body", "--comment", "-
 // textOnCommandLines are the places a fleet program still names such a flag,
 // each with why its text cannot go by a file or standard input.
 var textOnCommandLines = map[string]string{
-	"internal/pipeline/intent.go --intent":       "a no-mistakes before 1.86.0 has no --intent-file, and install.ps1 pins 1.75.1",
+	"internal/pipeline/intent.go --intent":       "a no-mistakes before 1.86.0 has no --intent-file, and a machine an earlier install set up may still run one",
 	"internal/pipeline/driver.go --instructions": "no-mistakes takes a response's instructions on its command line only",
 	"internal/train/finish.go --comment":         "gh pr close takes its comment on its command line only, and the comment is one line the train writes",
 }

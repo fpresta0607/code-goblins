@@ -16,12 +16,14 @@ import (
 
 // scanner stands in for a virus scanner. It opens the file named name as soon
 // as the install has written it into one of its own folders in the temp
-// folder, without sharing it for deletion, as a scanner reading a file it
-// just saw holds it, and lets go once the install's record shows until, a
-// line the install writes only after it has tried to remove that folder. With
-// no until it holds the file until the install has ended.
+// folder, once the install's record shows after where after is not empty,
+// without sharing it for deletion, as a scanner reading a file it just saw
+// holds it, and lets go once the record shows until, a line the install
+// writes only after it has tried to remove that folder. With no until it
+// holds the file until the install has ended.
 type scanner struct {
 	name  string
+	after string
 	until string
 
 	// holding closes once the file is held.
@@ -45,8 +47,8 @@ const (
 	readEvery = 25 * time.Millisecond
 )
 
-func newScanner(name, until string) *scanner {
-	return &scanner{name: name, until: until, holding: make(chan struct{}), stop: make(chan struct{}), stopped: make(chan struct{})}
+func newScanner(name, after, until string) *scanner {
+	return &scanner{name: name, after: after, until: until, holding: make(chan struct{}), stop: make(chan struct{}), stopped: make(chan struct{})}
 }
 
 // start watches temp for the file and record for the line that lets it go.
@@ -66,6 +68,12 @@ func (s *scanner) start(temp, record string) {
 			default:
 			}
 			if held == nil {
+				if s.after != "" {
+					if recorded, _ := os.ReadFile(record); !strings.Contains(string(recorded), s.after) {
+						time.Sleep(lookEvery)
+						continue
+					}
+				}
 				// os.Open shares a file for reading and writing, so the
 				// install goes on using it, and not for deletion.
 				if found, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*", s.name)); len(found) > 0 {
@@ -94,19 +102,6 @@ func (s *scanner) letGo() {
 	<-s.stopped
 }
 
-// sumsOnceHeld is publishedSums, answered only once scan holds its file. The
-// install asks for checksums.txt after it has saved the archive, so a scanner
-// of the archive holds it before the install can reach its removal.
-func sumsOnceHeld(scan *scanner) func(string, [32]byte) string {
-	return func(archive string, sum [32]byte) string {
-		select {
-		case <-scan.holding:
-		case <-time.After(30 * time.Second):
-		}
-		return publishedSums(archive, sum)
-	}
-}
-
 // couldNotRemove matches the one line that names what the install could not
 // remove from the temp folder.
 var couldNotRemove = regexp.MustCompile(`(?m)^Note: The install could not remove its temporary files, which another program still holds\. Delete them when you like: (.*)$`)
@@ -120,18 +115,28 @@ var couldNotRemove = regexp.MustCompile(`(?m)^Note: The install could not remove
 // one of the two folders a stand-in install reaches, until the install has
 // tried to remove the folder and gone on.
 func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
-	version := pinnedNoMistakes(t)
-	for name, held := range map[string]struct{ file, until string }{
-		"the release's download":   {"SHA256SUMS", "download https://claude.ai/install.ps1"},
-		"the no-mistakes download": {"no-mistakes-v" + version + "-windows-amd64.zip", "no-mistakes daemon start"},
+	// The no-mistakes download holds its own SHA256SUMS once the install asks
+	// for no-mistakes.exe, which the release answers only once the scanner
+	// holds that file, so the scanner holds it before the install can reach
+	// the folder's removal.
+	for name, held := range map[string]struct {
+		after, until string
+		wait         bool
+	}{
+		"the release's download":   {until: "download https://claude.ai/install.ps1"},
+		"the no-mistakes download": {after: "/no-mistakes.exe", until: "no-mistakes daemon start", wait: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			scan := newScanner(held.file, held.until)
-			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, sumsOnceHeld(scan))
+			scan := newScanner("SHA256SUMS", held.after, held.until)
+			var ready <-chan struct{}
+			if held.wait {
+				ready = scan.holding
+			}
+			release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, ready)
 
 			// Act
-			run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{scanner: scan})
+			run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
 
 			// Assert
 			if scan.path == "" || !scan.sawUntil {
@@ -154,11 +159,11 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 // gone.
 func TestOneLineInstallNamesAFolderItCouldNotRemove(t *testing.T) {
 	// Arrange
-	scan := newScanner("no-mistakes-v"+pinnedNoMistakes(t)+"-windows-amd64.zip", "")
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, sumsOnceHeld(scan))
+	scan := newScanner("SHA256SUMS", "/no-mistakes.exe", "")
+	release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, scan.holding)
 
 	// Act
-	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{scanner: scan})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
 
 	// Assert
 	if scan.path == "" {
@@ -189,7 +194,7 @@ func TestOneLineInstallThatStopsNamesAFolderItCouldNotRemove(t *testing.T) {
 	base := ServeRelease(t, standin.Bytes(t), fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("another build"))))
 	cmd, _, temp := StrippedCommand(t, base, map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
-	scan := newScanner("SHA256SUMS", "")
+	scan := newScanner("SHA256SUMS", "", "")
 	scan.start(temp, "")
 
 	// Act

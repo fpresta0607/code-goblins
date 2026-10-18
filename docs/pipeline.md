@@ -96,7 +96,8 @@ A task frozen before the fallback was named takes it with `cfo pipeline migrate 
 
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
-The installer pins the upstream release 1.75.1, which has no launch assertion at all, so the checked-in `config/pipeline.json` stays at v5 and a fresh install gates as before.
+The install puts in the build of that fork `install.ps1` pins, commit `bcbb444`, the head of its pull request 9, which carries pull requests 4 and 5, and each release builds and signs it beside its own programs.
+The checked-in `config/pipeline.json` stays at v5, so a fresh install gates as before until the policy moves to v6.
 no-mistakes proves Codex and Claude Code selections only, so a pi goblin has no gate under v6: `cfo spawn` refuses a pi task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to pi.
 
 A cycle means one repair followed by another review, after the initial review.

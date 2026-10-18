@@ -30,10 +30,10 @@ func homeCfo(t *testing.T) func(local string) {
 // that build has set the home up, and says so in its one plain line.
 func TestOneLineInstallSetsDictationUpWithTheHomesBuild(t *testing.T) {
 	// Arrange
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, publishedSums)
+	release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, nil)
 
 	// Act
-	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{seed: homeCfo(t)})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{seed: homeCfo(t)})
 
 	// Assert
 	installed := strings.Index(run.record, "cfo install\r\n")
@@ -57,10 +57,10 @@ func TestOneLineInstallSetsDictationUpWithTheHomesBuild(t *testing.T) {
 // as it always could.
 func TestOneLineInstallEndsWellWhenDictationCannotBeSetUp(t *testing.T) {
 	// Arrange
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, publishedSums)
+	release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, nil)
 
 	// Act
-	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{seed: homeCfo(t), rules: []standin.Rule{{Args: "dictation setup", Exit: 1}}})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{seed: homeCfo(t), rules: []standin.Rule{{Args: "dictation setup", Exit: 1}}})
 
 	// Assert
 	if !strings.Contains(run.record, "cfo dictation setup\r\n") {

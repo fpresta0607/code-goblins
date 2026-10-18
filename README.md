@@ -187,10 +187,11 @@ cd code-goblins
 ```
 
 It does everything the one-line install does, with the clone's build in place of the download.
-no-mistakes, the gate every goblin's work passes, comes from the release `install.ps1` pins, downloaded from its GitHub release page with a bounded retry and installed only when it matches that release's `checksums.txt`.
-Rerunning either install updates an older no-mistakes to the pinned release, once no gate is running.
+no-mistakes, the gate every goblin's work passes, is the build of its fork that `install.ps1` pins, which each release builds, signs and publishes beside its own programs; the install downloads it from its own release with a bounded retry, installs it only when it matches that release's `SHA256SUMS`, and checks that it takes what the fleet's gate gives it.
+`install.cmd -Dev` builds the same commit from source.
+Rerunning either install replaces a no-mistakes that cannot gate as the pinned build does, an older one or an upstream release, once no gate is running.
 
-A release says in its notes whether its programs are code-signed; until Code Goblins has a signing identity they are not, and the install checks each download against the release's `SHA256SUMS`.
+A release says in its notes whether its programs are code-signed; every release from v0.5.2 on is signed by SIQstack LLC, and the install checks each download against the release's `SHA256SUMS` and that publisher's signature.
 The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
 A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.

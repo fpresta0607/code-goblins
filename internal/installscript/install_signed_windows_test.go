@@ -3,6 +3,8 @@ package installscript
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -128,5 +130,64 @@ func TestTheInstallRunsTheSameWithASignatureAtItsEnd(t *testing.T) {
 			}
 			assertNothingInstalled(t, local, temp)
 		})
+	}
+}
+
+// Every program the release lists in SHA256SUMS is one its build job built
+// and handed over, and one it signs, checks the signature of, scans and
+// publishes: the install refuses a program its release's publisher did not
+// sign. no-mistakes is among them, built by tools/build-no-mistakes.ps1 as
+// install.ps1 pins it, and published with the licences of what it compiles in.
+func TestTheReleaseSignsChecksAndPublishesEveryProgramItLists(t *testing.T) {
+	// Arrange
+	sums, _ := releaseStep(t, "Checksum")
+	verify, _ := releaseStep(t, "Verify the signatures")
+	scan, _ := releaseStep(t, "Scan with Microsoft Defender")
+	_, afterSign := releaseStep(t, "Sign")
+	sign, _, _ := strings.Cut(afterSign, "\n      - ")
+	_, afterPublish := releaseStep(t, "Publish release")
+	publish, _, _ := strings.Cut(afterPublish, "\n      - ")
+	_, afterBuild := releaseStep(t, "Build no-mistakes")
+	build, _, _ := strings.Cut(afterBuild, "\n      - ")
+	upload, _, _ := strings.Cut(afterBuild, "\n      - name:")
+	upload = upload[strings.Index(upload, "uses: actions/upload-artifact@"):]
+
+	// Act
+	list := regexp.MustCompile(`foreach \(\$file in ([^)]*)\)`).FindStringSubmatch(sums)
+	if list == nil {
+		t.Fatalf("the Checksum step names no list of programs:\n%s", sums)
+	}
+	var programs []string
+	for _, match := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(list[1], -1) {
+		programs = append(programs, match[1])
+	}
+
+	// Assert
+	if !slices.Contains(programs, "no-mistakes.exe") {
+		t.Errorf("the release lists %q, want no-mistakes.exe among them", programs)
+	}
+	if !strings.HasSuffix(build, "run: ./tools/build-no-mistakes.ps1 -Destination no-mistakes.exe -Notices no-mistakes-NOTICES") {
+		t.Errorf("the build job builds no-mistakes with:\n%s\nwant tools/build-no-mistakes.ps1 and its notices", build)
+	}
+	for _, program := range programs {
+		if !strings.Contains(upload, "            "+program+"\n") {
+			t.Errorf("the build job does not hand over %s", program)
+		}
+		if !strings.Contains(sign, `${{ github.workspace }}\`+program+"\n") {
+			t.Errorf("the release does not sign %s", program)
+		}
+		for name, step := range map[string]string{"Verify the signatures": verify, "Scan with Microsoft Defender": scan} {
+			if !strings.Contains(step, "'"+program+"'") {
+				t.Errorf("the %s step leaves out %s", name, program)
+			}
+		}
+		if !strings.Contains(publish, "            "+program+"\n") {
+			t.Errorf("the release does not publish %s", program)
+		}
+	}
+	for _, file := range []string{"no-mistakes-NOTICES"} {
+		if !strings.Contains(upload, "            "+file+"\n") || !strings.Contains(publish, "            "+file+"\n") {
+			t.Errorf("the release does not hand over and publish %s", file)
+		}
 	}
 }

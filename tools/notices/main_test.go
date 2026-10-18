@@ -141,6 +141,19 @@ func TestGoComponentsFailsForAModuleWithNoLicenceFile(t *testing.T) {
 	}
 }
 
+func TestGoComponentsTakesTheStatedLicenceOfAModuleThatShipsNoFile(t *testing.T) {
+	bare := writeFiles(t, map[string]string{"README.md": "## License\n\nMIT"})
+
+	s, problems, err := goComponents(t.TempDir(), []module{{Path: "github.com/mattn/go-localereader", Version: "v0.0.1", Dir: bare}})
+
+	if err != nil || len(problems) != 0 {
+		t.Fatalf("err = %v, problems = %q; want the stated licence taken", err, problems)
+	}
+	if got := s.components[0]; got.licence != "MIT" || !strings.HasPrefix(got.text, "Copyright (c) Yasuhiro Matsumoto") {
+		t.Errorf("component = %s under %s, want the stated MIT licence with its author's copyright", got.name, got.licence)
+	}
+}
+
 func TestNPMComponentsListsOnlyBundledPackagesAndRefusesCopyleftOnes(t *testing.T) {
 	frontend := writeFiles(t, map[string]string{
 		"package-lock.json": `{"lockfileVersion":3,"packages":{
@@ -241,7 +254,7 @@ func TestAssetComponentsSkipCopiesOfListedLicences(t *testing.T) {
 }
 
 func TestRenderListsEveryComponentAndEachTextOnce(t *testing.T) {
-	notices := render([]section{
+	notices := render(releaseIntro, []section{
 		{heading: "Go", components: []component{{name: "Go standard library", licence: "BSD-3-Clause", text: bsd3Text}, {name: "golang.org/x/sys v0.48.0", licence: "BSD-3-Clause", text: bsd3Text}}},
 		{heading: "npm"},
 		{heading: "Assets", components: []component{{name: "assets/nunito-OFL.txt", licence: "OFL-1.1", text: oflText}}},
@@ -257,6 +270,41 @@ func TestRenderListsEveryComponentAndEachTextOnce(t *testing.T) {
 	}
 	if strings.Contains(notices, "npm:") {
 		t.Error("an empty section still has its heading")
+	}
+}
+
+// A program a release ships beside its own, built from a module of its own,
+// gets notices of its own: its licence first, then the Go standard library
+// and every module compiled into it, and a copyleft licence of its own is
+// refused with nothing written.
+func TestRunProgramListsTheProgramsOwnLicenceAndRefusesCopyleft(t *testing.T) {
+	for name, licence := range map[string]string{"MIT": mitText, "GPL": gplText} {
+		t.Run(name, func(t *testing.T) {
+			dir := writeFiles(t, map[string]string{
+				"go.mod":           "module example.com/tool\n\ngo 1.21\n",
+				"cmd/tool/main.go": "package main\n\nfunc main() {}\n",
+				"LICENSE":          licence,
+			})
+			out := filepath.Join(t.TempDir(), "tool-NOTICES")
+
+			err := runProgram(dir, "./cmd/tool", out)
+
+			written, readErr := os.ReadFile(out)
+			if name == "GPL" {
+				if err == nil || !strings.Contains(err.Error(), "example.com/tool: copyleft") || readErr == nil {
+					t.Fatalf("err = %v, file written: %v; want example.com/tool refused as copyleft and nothing written", err, readErr == nil)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range []string{"  example.com/tool: MIT [1]\n", "  Go standard library: BSD-3-Clause [2]\n", "A Code Goblins release ships example.com/tool"} {
+				if !strings.Contains(string(written), line) {
+					t.Errorf("notices leave out %q:\n%s", line, written)
+				}
+			}
+		})
 	}
 }
 
