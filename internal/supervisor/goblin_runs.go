@@ -36,14 +36,14 @@ func goblinRunID(taskID string, seq int) string { return fmt.Sprintf("run-%s-%d"
 // PublishGoblinRun hands the command of goblin taskID's notify seq to the
 // supervisor from the goblin's own process, proven the way its questions are.
 // title says why he should run it, and the command runs in the goblin's
-// worktree.
-func PublishGoblinRun(h home.Home, taskID string, seq int, title, shell, command string) error {
+// worktree. mail is a message the card gives him to send, or nil.
+func PublishGoblinRun(h home.Home, taskID string, seq int, title, shell, command string, mail *Mail) error {
 	meta, err := goblinAsker(h.State, taskID)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
-	r := Run{ID: goblinRunID(taskID, seq), Identity: goblinIdentity(meta), Task: taskID, Title: title, Shell: shell, Command: command, Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: goblinRunID(taskID, seq), Identity: goblinIdentity(meta), Task: taskID, Title: title, Shell: shell, Command: command, Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), Mail: mail}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func goblinRun(stateDir string, claimed Run) (Run, error) {
 	case claimed.Admin:
 		return Run{}, errors.New("a goblin's command never runs as administrator")
 	}
-	r := Run{ID: claimed.ID, Identity: claimed.Identity, Task: claimed.Task, Title: claimed.Title, Shell: claimed.Shell, Command: claimed.Command, Cwd: meta.Worktree, State: "ready", CreatedAt: claimed.CreatedAt}
+	r := Run{ID: claimed.ID, Identity: claimed.Identity, Task: claimed.Task, Title: claimed.Title, Shell: claimed.Shell, Command: claimed.Command, Cwd: meta.Worktree, State: "ready", CreatedAt: claimed.CreatedAt, Mail: claimed.Mail}
 	return r, validRun(r)
 }
 

@@ -13,6 +13,8 @@ import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { DictatedAnswer } from "./dictated-answer";
+import { CardMail } from "./card-mail";
+import { pathLinks } from "./path-link";
 
 // sentAt is when he sent the draft's change of an answer, and unsent says a
 // dropped connection kept the supervisor from taking it, so it goes again
@@ -20,10 +22,11 @@ import { DictatedAnswer } from "./dictated-answer";
 export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action; sentAt?: string; unsent?: boolean }
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
 
-// One question: who asks and how long they have waited, the choices with the
-// recommendation first, Other for a written answer, its own Send, and Skip
-// beside it for one he answered elsewhere or no longer needs, which tells a
-// goblin that asked to go on without it.
+// One question: who asks and how long they have waited, its text with each
+// local path it names a link that opens it, a message he sends himself with
+// Copy email, the choices with the recommendation first, Other for a written
+// answer, its own Send, and Skip beside it for one he answered elsewhere or no
+// longer needs, which tells a goblin that asked to go on without it.
 export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
@@ -48,7 +51,8 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
-    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues)}</div>
+    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues, pathLinks({ kind: "question", id: question.id, instance: snapshot.instance }))}</div>
+    {question.mail && <CardMail mail={question.mail} />}
     {review && <a className="icon-button raised pill-link open-inline" href={scrawlLink(review.url)} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
       {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View the image for " + choice.text + " full size"} onClick={() => onImage(index)}>

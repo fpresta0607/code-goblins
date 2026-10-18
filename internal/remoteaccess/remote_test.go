@@ -25,6 +25,9 @@ type fakeTailscale struct {
 	// serveWaits stands for a serve that waits for Serve or HTTPS to be
 	// approved for the tailnet until its context runs out.
 	serveWaits bool
+	// isWithoutHTTPS stands for a tailnet that has not approved HTTPS, which
+	// gives the PC no certificate domains.
+	isWithoutHTTPS bool
 }
 
 const ownProxy = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
@@ -41,7 +44,11 @@ func (f *fakeTailscale) Run(ctx context.Context, r execx.Request) (execx.Result,
 	}
 	switch call {
 	case "status --json":
-		return execx.Result{Stdout: []byte(`{"BackendState":"` + cmp.Or(f.backend, "Running") + `","Self":{"DNSName":"home.example.ts.net.","UserID":123,"TailscaleIPs":["100.64.5.6","fd7a:115c:a1e0::123"]},"User":{"123":{"LoginName":"owner@example.com"}}}`)}, nil
+		certDomains := `["home.example.ts.net"]`
+		if f.isWithoutHTTPS {
+			certDomains = `null`
+		}
+		return execx.Result{Stdout: []byte(`{"BackendState":"` + cmp.Or(f.backend, "Running") + `","CertDomains":` + certDomains + `,"Self":{"DNSName":"home.example.ts.net.","UserID":123,"TailscaleIPs":["100.64.5.6","fd7a:115c:a1e0::123"]},"User":{"123":{"LoginName":"owner@example.com"}}}`)}, nil
 	case "serve status --json":
 		if f.config == "" {
 			return execx.Result{Stdout: []byte("{}")}, nil
@@ -222,7 +229,7 @@ func TestWithoutTailscaleEnableAndStatusSayItIsNotInstalled(t *testing.T) {
 		t.Fatal("a failed enable saved settings", c, err)
 	}
 	if s := m.Status(context.Background()); s.Enabled || s.Issue != "" {
-		t.Fatal("off reads Tailscale or reports a problem", s)
+		t.Fatal("an off home reports a problem", s)
 	}
 
 	// A home that turned it on before Tailscale was removed says why it is
@@ -328,5 +335,143 @@ func TestTailscaleNotConnectedSaysWhatIsMissing(t *testing.T) {
 				t.Errorf("status: %+v, want %q", s, tc.want)
 			}
 		})
+	}
+}
+
+// With remote access off, the board reads by itself what this PC's
+// Tailscale is, so its switch can be offered or say what is missing, with the
+// command that mends it where one does. It never reports that as a problem
+// of remote access, and Status alone, which cfo doctor reads, asks
+// Tailscale nothing while access is off.
+func TestOffDetectReadsWhatTailscaleIsForTurningOn(t *testing.T) {
+	const serve = "tailscale serve --bg --https=4311 http://127.0.0.1:4310"
+	for _, tc := range []struct {
+		name      string
+		commands  *fakeTailscale
+		reserved  bool
+		want      string
+		wantIssue string
+		wantFix   string
+	}{
+		{"not installed", nil, false, "missing", "Tailscale is not installed on this PC", "winget install --exact --id Tailscale.Tailscale"},
+		{"service stopped", &fakeTailscale{fail: true}, false, "stopped", "Tailscale is not running on this PC", ""},
+		{"signed out", &fakeTailscale{backend: "NeedsLogin"}, false, "signed_out", "Tailscale is signed out on this PC", ""},
+		{"disconnected", &fakeTailscale{backend: "Stopped"}, false, "disconnected", "Tailscale is not connected on this PC", ""},
+		{"HTTPS not approved", &fakeTailscale{isWithoutHTTPS: true}, false, "no_https", "HTTPS is not approved for your tailnet", serve},
+		{"signed in with HTTPS", &fakeTailscale{}, false, "ready", "", ""},
+		{"a route a turn-on reserved while it waited on approval", &fakeTailscale{}, true, "ready", "", serve},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("ProgramFiles", t.TempDir())
+			m := &Manager{State: t.TempDir(), Target: testConfig().Target}
+			if tc.commands != nil {
+				m.Commands = tc.commands
+			}
+			if tc.reserved {
+				reserved := testConfig()
+				reserved.Enabled = false
+				if err := write(m.State, reserved); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			plain := m.Status(context.Background())
+			s := m.Detect(context.Background(), plain)
+
+			// Assert
+			if tc.commands != nil && len(tc.commands.calls) != 1 {
+				t.Fatalf("Status and Detect asked Tailscale %q, want only Detect's one status", tc.commands.calls)
+			}
+			if plain.Tailscale != "" || s.Enabled || s.Issue != "" || s.Attention != "" || s.Tailscale != tc.want || !strings.Contains(s.TailscaleIssue, tc.wantIssue) || tc.wantIssue == "" && s.TailscaleIssue != "" || s.Fix != tc.wantFix {
+				t.Fatalf("status %+v, want Tailscale %q saying %q with fix %q, and no issue", s, tc.want, tc.wantIssue, tc.wantFix)
+			}
+		})
+	}
+}
+
+// The board reads these names; a rename here would leave its switches dark.
+func TestStatusKeepsTheNamesTheBoardReads(t *testing.T) {
+	// Arrange
+	s := Status{Enabled: true, Ready: true, URL: "u", Login: "l", Issue: "i", Attention: "a", Tailscale: "t", TailscaleIssue: "ti", Fix: "f", Scrawl: true, ScrawlState: "s", ScrawlReady: true, ScrawlIssue: "si", ScrawlFix: "sf"}
+
+	// Act
+	data, err := json.Marshal(s)
+	var names map[string]any
+	if err == nil {
+		err = json.Unmarshal(data, &names)
+	}
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"enabled", "ready", "url", "issue", "attention", "tailscale", "tailscale_issue", "fix", "scrawl", "scrawl_state", "scrawl_issue", "scrawl_fix"} {
+		if _, ok := names[name]; !ok {
+			t.Errorf("Status has no %q for the board", name)
+		}
+	}
+}
+
+// While remote access is on, what needs him is named in a word beside the
+// sentence, so the board shows a few words and never a cut sentence.
+func TestOnStatusNamesWhatNeedsHimInAWord(t *testing.T) {
+	funnel := `{"TCP":{"4311":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}},"AllowFunnel":{"home.example.ts.net:4311":true}}`
+	for _, tc := range []struct {
+		name     string
+		target   string
+		settings string
+		commands *fakeTailscale
+		want     string
+	}{
+		{"settings unreadable", testConfig().Target, "{", &fakeTailscale{}, "settings"},
+		{"board moved", "http://127.0.0.1:4399", "", &fakeTailscale{config: ownProxy}, "board_moved"},
+		{"Tailscale stopped", testConfig().Target, "", &fakeTailscale{fail: true}, "stopped"},
+		{"Funnel on", testConfig().Target, "", &fakeTailscale{config: funnel}, "funnel"},
+		{"route gone", testConfig().Target, "", &fakeTailscale{}, "route_missing"},
+		{"ready", testConfig().Target, "", &fakeTailscale{config: ownProxy}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := &Manager{State: t.TempDir(), Target: tc.target, Commands: tc.commands}
+			if err := write(m.State, testConfig()); err != nil {
+				t.Fatal(err)
+			}
+			if tc.settings != "" {
+				if err := os.WriteFile(filepath.Join(m.State, configFile), []byte(tc.settings), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			s := m.Status(context.Background())
+
+			// Assert
+			if s.Attention != tc.want || (tc.want == "") != (s.Issue == "") {
+				t.Fatalf("status %+v, want attention %q with its sentence", s, tc.want)
+			}
+		})
+	}
+}
+
+// The first serve run by hand to get Serve and HTTPS approved leaves exactly
+// this route with no record of it; turning remote access on takes it as its
+// own rather than refusing a port that only it serves.
+func TestTurningOnAdoptsTheExactRouteTheFirstServeLeft(t *testing.T) {
+	// Arrange
+	f := &fakeTailscale{config: ownProxy}
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: f}
+
+	// Act
+	s, err := m.Enable(context.Background())
+
+	// Assert
+	if err != nil || !s.Ready {
+		t.Fatal(s, err)
+	}
+	if c, err := Read(m.State); err != nil || !c.Enabled {
+		t.Fatal("the route was not taken as its own", c, err)
 	}
 }

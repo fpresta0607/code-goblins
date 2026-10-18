@@ -15,6 +15,7 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { DictatedAnswer } from "./dictated-answer";
 import { SkipWithNote } from "./skip-with-note";
+import { pathLinks } from "./path-link";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
 
@@ -56,11 +57,13 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   // details, a table of values to enter, or a closing line follow it. Words
   // that open with a table have no lead line and are all body.
   const { lead, rest } = leadAndRest(status ? waitReason(review) : review.title);
+  // Each local path its words name opens in File Explorer.
+  const paths = pathLinks({ kind: "review", id: review.id, instance: snapshot.instance });
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
-    {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues)}</div>
-      : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
-    {lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
+    {!lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(rest, copyValues, paths)}</div>
+      : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues, paths)}</h3>}
+    {lead && rest && <div className="question-body">{messageElements(rest, copyValues, paths)}</div>}
     {review.lavish && review.watched && <PagePreview src={"/api/reviews/" + encodeURIComponent(review.id) + "/preview"} />}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>

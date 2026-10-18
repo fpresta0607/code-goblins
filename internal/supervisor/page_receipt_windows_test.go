@@ -583,7 +583,7 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := PublishWait(h, meta.ID, record.Seq+20, "review the new version", pageLink, page, "", ""); err != nil {
@@ -689,7 +689,7 @@ func TestPageReceiptRecoveryAnswersNoQuestion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+				if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
 					t.Fatal(err)
 				}
 				wantedWake = record

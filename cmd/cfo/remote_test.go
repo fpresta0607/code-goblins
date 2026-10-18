@@ -21,6 +21,8 @@ func TestRemoteOnAndOffAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
 			// Arrange
 			asTheCFO(t)
 			t.Setenv(variable[0], variable[1])
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("ProgramFiles", t.TempDir())
 			h := testHome(t)
 			deps := testCommandRuntimeForHome(h)
 
@@ -39,7 +41,7 @@ func TestRemoteOnAndOffAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
 				t.Fatalf("a refused change touched the home's state: %v", err)
 			}
 			var stdout bytes.Buffer
-			if exit := runWithRuntime([]string{"remote", "status"}, &stdout, &bytes.Buffer{}, deps); exit != 0 || !strings.Contains(stdout.String(), "Remote board access is off") {
+			if exit := runWithRuntime([]string{"remote", "status"}, &stdout, &bytes.Buffer{}, deps); exit != 0 || !strings.Contains(stdout.String(), "Remote board access is off") || !strings.Contains(stdout.String(), "Tailscale is not installed on this PC") || !strings.Contains(stdout.String(), "To mend it, run: winget install --exact --id Tailscale.Tailscale") {
 				t.Fatalf("status: exit %d, stdout %q; want it allowed", exit, stdout.String())
 			}
 		})
