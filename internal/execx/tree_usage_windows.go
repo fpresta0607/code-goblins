@@ -26,7 +26,22 @@ var (
 	usageKernel           = windows.NewLazySystemDLL("kernel32.dll")
 	isProcessInUsageJob   = usageKernel.NewProc("IsProcessInJob")
 	getProcessMemoryUsage = usageKernel.NewProc("K32GetProcessMemoryInfo")
+	queryJobInformation   = usageKernel.NewProc("QueryInformationJobObject")
 )
+
+// queryJob reads one class of the job's information into what information
+// points to. It calls through LazyProc.Call, whose pointer arguments the
+// compiler keeps on the heap (go:uintptrescapes).
+// windows.QueryInformationJobObject takes the buffer as a bare uintptr, so a
+// buffer its caller declares stays on the stack, and a stack that grows or
+// shrinks on the way to the system call moves it: Windows then wrote where
+// the buffer had been, and the read returned nothing (issue 1060).
+func queryJob(job windows.Handle, class uint32, information unsafe.Pointer, size uintptr) error {
+	if ok, _, err := queryJobInformation.Call(uintptr(job), uintptr(class), uintptr(information), size, 0); ok == 0 {
+		return err
+	}
+	return nil
+}
 
 type jobAccounting struct {
 	UserTime, KernelTime, PeriodUserTime, PeriodKernelTime           int64
@@ -48,12 +63,12 @@ var (
 	queryJobMemory = func(job windows.Handle) (jobMemoryUsage, error) {
 		var memory jobMemoryUsage
 		const jobObjectMemoryUsageInformation = 28
-		err := windows.QueryInformationJobObject(job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&memory)), uint32(unsafe.Sizeof(memory)), nil)
+		err := queryJob(job, jobObjectMemoryUsageInformation, unsafe.Pointer(&memory), unsafe.Sizeof(memory))
 		return memory, err
 	}
 	queryJobPeak = func(job windows.Handle) (uint64, error) {
 		var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-		err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil)
+		err := queryJob(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits))
 		return uint64(limits.PeakJobMemoryUsed), err
 	}
 )
@@ -85,8 +100,9 @@ func (t *Tree) Usage() (TreeUsage, error) {
 // jobUsage reads the job's accounting and memory until the read can be so,
 // for at most jobMemoryLimit, past which the job is unreadable. A read cannot
 // be so with no commitment while a member runs, with no peak once a process
-// ran, or with a peak under one read before, since a peak never falls:
-// Windows was seen to return nothing for both with a member running.
+// ran, or with a peak under one read before, since a peak never falls: a
+// read once returned nothing for both with a member running, as a buffer the
+// stack moved away from reads (queryJob).
 func (t *Tree) jobUsage() (TreeUsage, error) {
 	if t.isDone {
 		return TreeUsage{}, errors.New("execx: job accounting is closed")
@@ -112,7 +128,7 @@ func (t *Tree) jobUsage() (TreeUsage, error) {
 // cannot be so, or nothing. The peak is the higher of the two Windows keeps.
 func (t *Tree) readJob() (TreeUsage, string, error) {
 	var accounting jobAccounting
-	if err := windows.QueryInformationJobObject(t.job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+	if err := queryJob(t.job, windows.JobObjectBasicAccountingInformation, unsafe.Pointer(&accounting), unsafe.Sizeof(accounting)); err != nil {
 		return TreeUsage{}, "", fmt.Errorf("execx: read job accounting: %w", err)
 	}
 	memory, err := queryJobMemory(t.job)
