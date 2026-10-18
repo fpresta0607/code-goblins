@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { message, request } from "./api";
+import { message, reportToCfo, request } from "./api";
 import { object, parseAction, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -23,7 +23,7 @@ import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
 import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
-import { countedTitle } from "./arrivals";
+import { countedTitle, showBadge } from "./arrivals";
 import { DoneCard } from "./DoneCard";
 import { HistoryMark } from "./history-mark";
 import { HistoryStoredCard } from "./history-stored-card";
@@ -144,8 +144,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const watching = presentations.filter((event) => event.watch);
   const needing = waiting.length + watching.length;
   const baseTitle = useRef(document.title);
-  useEffect(() => { document.title = countedTitle(baseTitle.current, needing); }, [needing]);
-  useEffect(() => () => { document.title = baseTitle.current; }, []);
+  useEffect(() => {
+    document.title = countedTitle(baseTitle.current, needing);
+    showBadge(needing)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
+  }, [needing]);
+  useEffect(() => () => {
+    document.title = baseTitle.current;
+    showBadge(0)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
+  }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
     // A focus on an item he already answered or cleared, as from a
