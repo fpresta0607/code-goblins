@@ -543,9 +543,12 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
-While a process exits, Windows can count a job's member it no longer lists, for as long as the exit takes, so `internal/proc.JobProcessIDs` returns the list with how many more members the job counts than it lists.
-No reader bounds that: as a headless Chrome was ended its job counted one more process than it listed for up to 474 ms, and a browser run pinned to four busy processors kept the two apart for over 250 ms, which once ended its run (issue 1025).
-A sample takes the list as it is, and an end that spares a machine service, which goes by the list to show that nothing else still runs, lets the job's handle close only once the job counts nothing beyond the list, within the end's own deadline.
+Windows lists no process that a job nested in a job is ending, from the moment that end begins until the process is done, and counts it either no more or for as long as its threads take to end, so `internal/proc.JobProcessIDs` returns the list with how many more members the job counts than it lists.
+A headless Chrome puts most of its processes each in a job of its own, which ends them once the browser has ended: such a process left its browser's job's list with up to 21 threads not yet ended and was done up to 2.5 s later, while the job counted it beyond the list for up to 474 ms or not at all, and a browser run pinned to four busy processors kept the count above the list for over 250 ms, which once ended its run (issues 1025 and 1066).
+A process that exits, ends itself, or is ended by its handle or by the job it runs in stays listed until it has ended.
+A sample takes the list as it is.
+An end that spares a machine service goes by what the job holds to show that nothing else still runs, so it also reads the machine's processes for the job's members the list leaves out: `internal/proc.EndJob`, which `End`, `EndAndWait`, a terminal's close and a browser login's end use, is done only once those have ended too, within the end's own deadline, and a goblin's stop ends them as it ends any other process in its terminal's job.
+`EndAndWait` also lets the job's handle close only once the job counts nothing beyond the list.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
 Recovery uses `TerminateAndWait`, which spares nothing.
