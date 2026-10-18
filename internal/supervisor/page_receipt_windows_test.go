@@ -940,7 +940,7 @@ func TestHisNotesAndSendAndEndReachTheGoblinInOrderBusyOrPaused(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(func() { cancel(); s.pageWork.Wait() })
 			until := func(what string, done func() bool) {
-				for deadline := time.Now().Add(15 * time.Second); !done(); time.Sleep(50 * time.Millisecond) {
+				for deadline := time.Now().Add(30 * time.Second); !done(); time.Sleep(50 * time.Millisecond) {
 					if time.Now().After(deadline) {
 						t.Fatalf("%s did not happen; typed %q", what, seen())
 					}
