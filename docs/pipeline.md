@@ -65,6 +65,7 @@ A no-mistakes build that cannot apply a selection refuses the launch before it t
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
 Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
+It runs `axi sync --recover` first only when the paused run holds gate commits it never pushed, since no-mistakes refuses that recovery for a run whose head is its push binding, and for one whose goblin then pushed follow-up commits over that head; such a run is restarted from the branch as its goblin left it.
 It holds to the driver's checks as well.
 A resume whose replacement run cannot be given its agents, such as one coming back on pi, starts no run and says why.
 A paused task frozen before v6 restarts its run only while the machine config still matches its policy, and is otherwise refused with the `cfo pipeline migrate <id>` that clears it, as `cfo pipeline run` refuses it.
