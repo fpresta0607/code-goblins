@@ -234,14 +234,24 @@ func servedPage(link string) (string, error) {
 // RefuseEndedPage refuses a review of the HTML file page while the review
 // session lavish-axi keeps for it has ended, whoever ended it, as servedPage
 // refuses one given by its link: lavish-axi would open again, uninvited, a
-// page whose review an agent ended.
+// page whose review an agent ended. lavish-axi keeps the file's real path, so
+// the session is found by the file it names, not by how page spells it, which
+// may be through a junction or by an 8.3 short name.
 func RefuseEndedPage(page string) error {
 	sessions, err := (axi.Lavish{}).Sessions()
 	if err != nil {
 		return err
 	}
+	given, err := os.Stat(page)
+	if err != nil {
+		return err
+	}
 	if slices.ContainsFunc(sessions, func(session axi.PageSession) bool {
-		return session.Status == "ended" && pageKey(session.File) == pageKey(page)
+		if session.Status != "ended" {
+			return false
+		}
+		kept, err := os.Stat(session.File)
+		return err == nil && os.SameFile(kept, given)
 	}) {
 		return EndedPage(page)
 	}
