@@ -68,7 +68,7 @@ func TestGoblinsResumeSaysTheRestartedCFOStartedANewConversation(t *testing.T) {
 	f := newSessionFixture(t)
 	f.nativeCFO = supervisor.NativeCFOTerminal
 	f.restartSession = "a1b2c3d4-session"
-	f.restartFresh = "Its last conversation is 33 MB, past the 20 MB a CFO resumes, so the CFO starts a new one."
+	f.restartFresh = "Its last conversation holds 802K tokens of context, past the 400K a CFO resumes, so the CFO starts a new one."
 
 	// Act
 	exit, stdout, stderr := f.launch("resume")
@@ -360,8 +360,8 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 
 // The Overlord, 2026-10-09, after Restart the CFO refused with "The CFO could
 // not be restarted: Its last conversation is 33…": "this makes no sense".
-// Restart always restarts the CFO: a conversation past the size a CFO resumes
-// is left as it is, and the CFO starts again in its terminal on a new one,
+// Restart always restarts the CFO: a conversation past the context a CFO
+// resumes is left as it is, and the CFO starts again in its terminal on a new one,
 // which takes the home's digest as a CFO reopened after a close does, and
 // says why.
 func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
@@ -371,17 +371,7 @@ func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
 	t.Setenv("USERPROFILE", userHome)
 	before := nativeCFORunning(t, h, "large-session")
 	recordConversationOf(t, h.State, before, "claude", "large-session")
-	folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(h.Root, "-"))
-	if err := os.MkdirAll(folder, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	transcript := filepath.Join(folder, "large-session.jsonl")
-	if err := os.WriteFile(transcript, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Truncate(transcript, 33<<20); err != nil {
-		t.Fatal(err)
-	}
+	writeClaudeTranscript(t, h.Root, "large-session", requestLine(6, 2_300, 800_000, 4))
 	if err := os.Remove(filepath.Join(h.Root, fakeClaudeArguments)); err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +380,7 @@ func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
 	conversation, fresh, err := restartCFO(h, "")
 
 	// Assert
-	if err != nil || conversation.Session != "large-session" || fresh != "Its last conversation is 33 MB, past the 20 MB a CFO resumes, so the CFO starts a new one." {
+	if err != nil || conversation.Session != "large-session" || fresh != "Its last conversation holds 802K tokens of context, past the 400K a CFO resumes, so the CFO starts a new one." {
 		t.Fatalf("restartCFO = %+v, %q, %v; want the CFO restarted on a new conversation, with why", conversation, fresh, err)
 	}
 	if _, alive := proc.StartTime(before.ChildPID); alive {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,8 +32,8 @@ func recordConversation(t *testing.T, stateDir, harness, session, host string) {
 // claudeTranscript writes Claude Code's transcript of session, a
 // conversation the CFO of the home rooted at root held, size bytes long,
 // under the test's own user home, as Claude Code writes it once the
-// conversation's first turn begins.
-func claudeTranscript(t *testing.T, root, session string, size int64) {
+// conversation's first turn begins, and returns its path.
+func claudeTranscript(t *testing.T, root, session string, size int64) string {
 	t.Helper()
 	userHome, err := os.UserHomeDir()
 	if err != nil {
@@ -52,6 +53,7 @@ func claudeTranscript(t *testing.T, root, session string, size int64) {
 	if err := os.Truncate(transcript, size); err != nil {
 		t.Fatal(err)
 	}
+	return transcript
 }
 
 // noResumeWait makes the look at a resumed CFO immediate.
@@ -424,39 +426,128 @@ func TestAPiCFOComesBackOnItsOwnSessionOncePiHasWrittenIt(t *testing.T) {
 	}
 }
 
-// A conversation past the size a CFO resumes is not resumed: the Overlord's
-// rule keeps CFO sessions small, so the CFO starts a new one and says why.
-func TestACFOWhoseConversationIsTooLargeStartsANewOne(t *testing.T) {
-	// Arrange
-	noResumeWait(t)
-	f := newSessionFixture(t)
-	userHome := t.TempDir()
-	t.Setenv("USERPROFILE", userHome)
-	recordConversation(t, f.home.State, "claude", "large-session", supervisor.NativeCFOTerminal)
-	folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(f.home.Root, "-"))
-	if err := os.MkdirAll(folder, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	transcript := filepath.Join(folder, "large-session.jsonl")
-	if err := os.WriteFile(transcript, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Truncate(transcript, cfoTranscriptLimit+1<<20); err != nil {
-		t.Fatal(err)
-	}
+// requestLine is a line of a Claude Code transcript that records one request
+// of the conversation and the tokens it carried.
+func requestLine(input, cacheCreation, cacheRead, output int) string {
+	return fmt.Sprintf(`{"parentUuid":"p","isSidechain":false,"type":"assistant","message":{"id":"msg_%d","role":"assistant","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}}}`, cacheRead, input, cacheCreation, cacheRead, output)
+}
 
-	// Act
-	exit, stdout, stderr := f.launch()
+// compactionLine is the line a Claude Code compaction leaves in a transcript,
+// with the tokens it left the conversation.
+func compactionLine(post int) string {
+	return fmt.Sprintf(`{"parentUuid":null,"isSidechain":false,"type":"system","subtype":"compact_boundary","content":"Conversation compacted","compactMetadata":{"trigger":"auto","preTokens":882109,"postTokens":%d}}`, post)
+}
 
-	// Assert
-	if exit != 0 || !slices.Equal(f.nativeArgs, []string{""}) {
-		t.Fatalf("exit=%d nativeArgs=%q stderr=%q, want a new conversation in its native terminal and no resume", exit, f.nativeArgs, stderr)
+// requestRecordLine is the record Claude Code keeps of a request beside the
+// conversation, which a resume never sends the model, size bytes long: such
+// records were 94 percent of a CFO transcript's bytes.
+func requestRecordLine(size int) string {
+	return `{"type":"api-request","params":{"safeguards":["` + strings.Repeat("x", size) + `"]}}`
+}
+
+// writeClaudeTranscript writes Claude Code's transcript of session, a
+// conversation the CFO of the home rooted at root held, as lines, under the
+// test's own user home.
+func writeClaudeTranscript(t *testing.T, root, session string, lines ...string) {
+	t.Helper()
+	if err := os.WriteFile(claudeTranscript(t, root, session, 0), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "Its last conversation is 21 MB, past the 20 MB a CFO resumes, so the CFO starts a new one.") {
-		t.Errorf("stdout = %q, want why the conversation was not resumed", stdout)
+}
+
+// A Claude Code CFO resumes a conversation by the context the resume loads,
+// which Claude Code takes from its last compaction on, and not by its
+// transcript's size on disk, which keeps every line from before: a compacted
+// conversation past 20 MB resumes, and one whose last request carried more
+// than the 400K window the CFO compacts in starts a new conversation, told
+// why. Until 2026-10 one past 20 MB on disk never resumed, so a CFO that
+// compacted could not either.
+func TestACFOResumesItsConversationByTheContextTheResumeLoads(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		lines    []string
+		wantArgs []string
+		wantSaid string
+	}{
+		{
+			name:     "a compacted one past 20 MB on disk",
+			lines:    []string{requestLine(1, 2, 882_000, 3), requestRecordLine(21 << 20), compactionLine(19_459), requestLine(6, 1_200, 84_065, 400)},
+			wantArgs: []string{"--resume large-session"},
+			wantSaid: "CFO        back as Claude Code on its conversation large-session, in native terminal cfo",
+		},
+		{
+			name:     "a new one in place of one past the window",
+			lines:    []string{requestLine(6, 2_300, 800_000, 4)},
+			wantArgs: []string{""},
+			wantSaid: "Its last conversation holds 802K tokens of context, past the 400K a CFO resumes, so the CFO starts a new one.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			t.Setenv("USERPROFILE", t.TempDir())
+			recordConversation(t, f.home.State, "claude", "large-session", supervisor.NativeCFOTerminal)
+			writeClaudeTranscript(t, f.home.Root, "large-session", tc.lines...)
+
+			// Act
+			exit, stdout, stderr := f.launch()
+
+			// Assert
+			if exit != 0 || !slices.Equal(f.nativeArgs, tc.wantArgs) {
+				t.Fatalf("exit=%d nativeArgs=%q stderr=%q, want native args %q", exit, f.nativeArgs, stderr, tc.wantArgs)
+			}
+			if !strings.Contains(stdout, tc.wantSaid) {
+				t.Errorf("stdout = %q, want %q", stdout, tc.wantSaid)
+			}
+		})
 	}
-	if len(f.nativePrompts) != 1 || !strings.Contains(f.nativePrompts[0], "Its last conversation is 21 MB, past the 20 MB a CFO resumes") {
-		t.Errorf("the CFO was told %q, want why it is on a new conversation", f.nativePrompts)
+}
+
+// The context a resume of a Claude Code conversation loads is what its last
+// request carried, or what its last compaction left where no request
+// followed it; a subagent's request, a reply Claude Code wrote itself with no
+// request behind it, and everything before the last compaction do not count.
+func TestTheContextAClaudeCodeResumeLoads(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		lines         []string
+		wantContext   int64
+		wantIsWritten bool
+	}{
+		{name: "no transcript"},
+		{name: "a first turn not yet answered", lines: []string{`{"type":"user","message":{"role":"user","content":"hello"}}`}, wantIsWritten: true},
+		{name: "the last request", lines: []string{requestLine(1, 2, 300, 4), requestLine(10, 20, 3_000, 40)}, wantContext: 3_070, wantIsWritten: true},
+		{name: "a compaction no request followed", lines: []string{requestLine(1, 2, 882_000, 3), compactionLine(15_745)}, wantContext: 15_745, wantIsWritten: true},
+		{name: "a request after the last compaction", lines: []string{requestLine(1, 2, 882_000, 3), compactionLine(15_745), requestLine(5, 5, 69_500, 8), requestRecordLine(1 << 10)}, wantContext: 69_518, wantIsWritten: true},
+		{
+			name: "not a subagent's request or a reply with no request",
+			lines: []string{
+				requestLine(1, 2, 90_000, 3),
+				strings.Replace(requestLine(1, 2, 700_000, 3), `"isSidechain":false`, `"isSidechain":true`, 1),
+				`{"type":"assistant","isSidechain":false,"message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`,
+			},
+			wantContext:   90_006,
+			wantIsWritten: true,
+		},
+		{name: "a request before a record longer than a read", lines: []string{requestLine(1, 2, 120_000, 3), requestRecordLine(3 << 20)}, wantContext: 120_006, wantIsWritten: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("USERPROFILE", t.TempDir())
+			root := t.TempDir()
+			if tc.lines != nil {
+				writeClaudeTranscript(t, root, "a1b2c3d4-session", tc.lines...)
+			}
+
+			// Act
+			context, isWritten := claudeTranscriptContext(root, "a1b2c3d4-session")
+
+			// Assert
+			if context != tc.wantContext || isWritten != tc.wantIsWritten {
+				t.Errorf("claudeTranscriptContext = %d, %v; want %d, %v", context, isWritten, tc.wantContext, tc.wantIsWritten)
+			}
+		})
 	}
 }
 

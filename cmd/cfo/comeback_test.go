@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -45,7 +44,7 @@ func TestTheComebackBringsTheCFOBackOnItsConversationOrANewOneAndTellsItWhy(t *t
 		{name: "on a new one when the resumed terminal does not hold", resumeEnds: true, wantArgs: []string{"--resume a1b2c3d4-session", ""}, wantPrompts: []string{cfoBackPrompt("claude", why, ""), cfoBackPrompt("claude", why, "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed.")}},
 		{name: "on a new one when the resumed terminal ends while its dialogs are answered", endsSettling: true, wantArgs: []string{"--resume a1b2c3d4-session", ""}, wantPrompts: []string{cfoBackPrompt("claude", why, ""), cfoBackPrompt("claude", why, "You start on a new conversation. Your conversation a1b2c3d4-session could not be resumed.")}},
 		{name: "on a new one when Claude Code wrote no transcript for it", isUnwritten: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Claude Code has written no transcript for its conversation a1b2c3d4-session, which it writes when its first turn begins.")}},
-		{name: "on a new one past the size a CFO resumes", isTooLarge: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Its last conversation is 21 MB, past the 20 MB a CFO resumes.")}},
+		{name: "on a new one past the context a CFO resumes", isTooLarge: true, wantArgs: []string{""}, wantPrompts: []string{cfoBackPrompt("claude", why, "You start on a new conversation. Its last conversation holds 802K tokens of context, past the 400K a CFO resumes.")}},
 		{name: "not again when it already runs", isRunning: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,17 +62,7 @@ func TestTheComebackBringsTheCFOBackOnItsConversationOrANewOneAndTellsItWhy(t *t
 			userHome := t.TempDir()
 			t.Setenv("USERPROFILE", userHome)
 			if tc.isTooLarge {
-				folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(f.home.Root, "-"))
-				if err := os.MkdirAll(folder, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				transcript := filepath.Join(folder, "a1b2c3d4-session.jsonl")
-				if err := os.WriteFile(transcript, nil, 0o600); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Truncate(transcript, cfoTranscriptLimit+1<<20); err != nil {
-					t.Fatal(err)
-				}
+				writeClaudeTranscript(t, f.home.Root, "a1b2c3d4-session", requestLine(6, 2_300, 800_000, 4))
 			} else if !tc.isUnwritten {
 				claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
 			}

@@ -905,7 +905,7 @@ A pull request a train found broken stays off trains until its head changes.
   The scheduler's queued starts and paused goblins' automatic resumes wait; a Start or Resume the Overlord presses on the board, or a `cfo spawn` you choose, is still allowed.
   Do not bring those goblins back by hand: a goblin that cannot come back stays stopped with the reason on its card and wakes you once as a `check` wake naming `cfo switch <id> --harness <its harness>`, which brings it back once the cause is fixed.
 - **Your terminal ending unasked brings you back by itself.**
-  When your terminal ends in this sign-in while nobody asked it to stop, as when your harness crashes or ends itself after an update, `cfo serve` brings you back within about ten seconds (8 to 12 in a live proof), on the harness you ran, as Restart the CFO would: on your conversation where it is small enough, and on a new one where it is past 20 MB, Claude Code wrote no transcript for it, or it does not resume.
+  When your terminal ends in this sign-in while nobody asked it to stop, as when your harness crashes or ends itself after an update, `cfo serve` brings you back within about ten seconds (8 to 12 in a live proof), on the harness you ran, as Restart the CFO would: on your conversation where it is small enough, and on a new one where its context is past the 400K tokens you compact within, Claude Code wrote no transcript for it, or it does not resume.
   Your first instruction then says you are the CFO started again, why, and on which conversation, and to read the digest, drain your wakes and carry on with the fleet; nobody types it.
   Every start that brings back a CFO that ran in the home before carries such an instruction: this one, the comeback after a restart, the board's Reopen, Restart the CFO and its Update, and `goblins`; a home's first CFO waits for the Overlord as before.
   An end somebody asked for stays: a terminal closed through its host, as Restart, a harness switch and the uninstall close it, and a harness that exited with code 0, as its own exit does.
@@ -963,6 +963,7 @@ Git keeps every checkout in the worktree's own reflog, so a goblin that goes on 
 One session on the machine is the CFO's own: the agent that native terminal `cfo` of this home runs.
 `goblins`, the board's first-run page, Reopen, Restart, the comeback after a restart and the comeback after the CFO's terminal ended unasked each start the CFO in that terminal, in the home, and nothing starts it anywhere else, on a first run, with the desktop app or with `goblins` in a terminal alone.
 Each of those starts hands a Claude Code CFO its hooks (`claude --settings`, the file `state\cfo-claude-settings.json`, written anew at every start), so the hooks are this terminal's alone and no other Claude Code session on the machine runs one.
+The same file gives Claude Code a 400K-token auto-compact window, so you compact at about 342K tokens, long before your model's 1M window fills; a Codex CFO starts with Codex's own compaction limit at 360K, and pi has no setting for one.
 `cfo install` puts `cfo` on PATH, so every session can run every command, and only this one session is the CFO's.
 A machine a build before 2026-10 installed still holds the hooks in the user's settings, where every session runs them and each leaves on its environment, until an install takes them out.
 

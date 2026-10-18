@@ -63,10 +63,10 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 	} {
 		t.Run(test.harness, func(t *testing.T) {
 			// Act
-			prompt := cfoBackPrompt(test.harness, "its terminal ended with exit code 1", "You start on a new conversation. Its last conversation is 404 MB, past the 20 MB a CFO resumes.")
+			prompt := cfoBackPrompt(test.harness, "its terminal ended with exit code 1", "You start on a new conversation. Its last conversation holds 802K tokens of context, past the 400K a CFO resumes.")
 
 			// Assert
-			for _, want := range []string{"You are the CFO of this Code Goblins home, started again because its terminal ended with exit code 1.", "Its last conversation is 404 MB", "not from the Overlord", "Run cfo drain", "carry on with the fleet without waiting for the Overlord"} {
+			for _, want := range []string{"You are the CFO of this Code Goblins home, started again because its terminal ended with exit code 1.", "Its last conversation holds 802K tokens of context", "not from the Overlord", "Run cfo drain", "carry on with the fleet without waiting for the Overlord"} {
 				if !strings.Contains(prompt, want) {
 					t.Errorf("cfoBackPrompt(%s) = %q, want it to say %q", test.harness, prompt, want)
 				}
@@ -161,7 +161,7 @@ func TestEveryFirstInstructionOfACFOStartedAgainIsInWordsCmdLeavesAlone(t *testi
 	}
 	freshes := []string{
 		"",
-		"You start on a new conversation. Its last conversation is 404 MB, past the 20 MB a CFO resumes.",
+		"You start on a new conversation. Its last conversation holds 802K tokens of context, past the 400K a CFO resumes.",
 		"You start on a new conversation. Your conversation 0f3c9a2e-5b1d-4c7e-9a8b-2d6e4f1a3b5c could not be resumed.",
 		"You start on a new conversation. pi has written no file for its conversation a1b2, which it writes when its first reply ends.",
 		"The CFO starts a new conversation in codex because its harness changed.",

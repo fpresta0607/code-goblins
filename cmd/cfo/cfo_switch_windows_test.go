@@ -172,7 +172,7 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	for index, harness := range []string{"codex", "pi", "codex"} {
 		want := harness + "-standin "
 		if harness == "codex" {
-			want += strings.Join(append(codexHooks, "-c", "tui.copy_on_select=always"), " ") + " "
+			want += strings.Join(slices.Concat(codexHooks, cfoCompactArguments("codex"), []string{"-c", "tui.copy_on_select=always"}), " ") + " "
 		}
 		if harness == "pi" {
 			want += "--tui-mode fullscreen "
