@@ -110,10 +110,80 @@ func TestReviewCommandOpensTheLavishPageItIsGiven(t *testing.T) {
 
 // The Overlord, 2026-10-17 about 22:10Z, opened a review card whose page's
 // session had ended a minute before and got Scrawl's "Session ended". A
-// review of a session that has ended is refused with a line naming --reopen,
-// and --reopen opens that session's page again with lavish-axi's own
-// --reopen before the item is published with the address it returns.
+// review of a session that has ended, whoever ended it, is refused by its
+// link or by its HTML file with a line naming --reopen, before lavish-axi
+// runs, since lavish-axi plainly opens again a page an agent ended; and
+// --reopen opens that session's page again with lavish-axi's own --reopen
+// before the item is published with the address it returns.
 func TestReviewCommandRefusesAnEndedPageUnlessToldToReopenIt(t *testing.T) {
+	for _, endedBy := range []string{"user", "agent"} {
+		for _, given := range []string{"link", "file"} {
+			t.Run(endedBy+" ended, given by its "+given, func(t *testing.T) {
+				// Arrange
+				dir := t.TempDir()
+				h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+				if err := os.MkdirAll(h.State, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
+				page := filepath.Join(dir, "mockup.html")
+				if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				lavish := t.TempDir()
+				t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+				stored := `{"sessions":{"ad6519f76542da4e":{"key":"ad6519f76542da4e","file":` + strconv.Quote(page) + `,"status":"ended","ended_by":"` + endedBy + `"}}}`
+				if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args := filepath.Join(dir, "lavish-args.txt")
+				bin := t.TempDir()
+				script := "@echo off\r\necho %* > \"" + args + "\"\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/b7e0c1d2a3f40516\"\r\necho   status: opened\r\n"
+				if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+				named := map[string]string{"link": "https://sermon.tailcc4238.ts.net:4388/session/ad6519f76542da4e", "file": page}[given]
+				review := func(extra ...string) (int, string) {
+					var stdout, stderr bytes.Buffer
+					exit := runReview(append([]string{"--id", "site-real-photos-1", "--task", "g1", "--title", "The site with real photos", "--lavish", named}, extra...), &stdout, &stderr, runtime)
+					return exit, stderr.String()
+				}
+
+				// Act
+				refusedExit, refused := review()
+				_, ranBefore := os.Stat(args)
+				inboxBefore, _ := os.ReadDir(filepath.Join(h.State, "reviews-inbox"))
+				reopenedExit, reopened := review("--reopen")
+
+				// Assert
+				if refusedExit != 1 || !strings.Contains(refused, "has ended") || !strings.Contains(refused, "--reopen") {
+					t.Errorf("a review of an ended session: exit=%d stderr=%q, want it refused naming --reopen", refusedExit, refused)
+				}
+				if ranBefore == nil {
+					t.Error("the refused review ran lavish-axi")
+				}
+				if len(inboxBefore) != 0 {
+					t.Errorf("the refused review left %d inbox records", len(inboxBefore))
+				}
+				// g1 is no goblin, so publishing refuses it; reaching that
+				// refusal means the page was opened again first.
+				if reopenedExit != 1 || !strings.Contains(reopened, "no live record") {
+					t.Fatalf("--reopen: exit=%d stderr=%q, want the page opened again and then g1 refused", reopenedExit, reopened)
+				}
+				if data, err := os.ReadFile(args); err != nil || strings.TrimSpace(string(data)) != page+" --no-open --reopen" {
+					t.Fatalf("lavish-axi ran with %q (%v), want %q", data, err, page+" --no-open --reopen")
+				}
+			})
+		}
+	}
+}
+
+// lavish-axi answers a page whose review the Overlord ended, given by its
+// HTML file without --reopen, with the session's address and the status
+// user-ended, exiting 0: that page is refused too, recording nothing, with a
+// line naming --reopen, though no state it keeps said so beforehand.
+func TestReviewCommandRefusesAPageLavishAxiSaysHeEnded(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
@@ -125,44 +195,24 @@ func TestReviewCommandRefusesAnEndedPageUnlessToldToReopenIt(t *testing.T) {
 	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lavish := t.TempDir()
-	t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
-	stored := `{"sessions":{"ad6519f76542da4e":{"key":"ad6519f76542da4e","file":` + strconv.Quote(page) + `,"status":"ended","ended_by":"user"}}}`
-	if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	args := filepath.Join(dir, "lavish-args.txt")
+	t.Setenv("LAVISH_AXI_STATE_DIR", t.TempDir())
 	bin := t.TempDir()
-	script := "@echo off\r\necho %* > \"" + args + "\"\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/b7e0c1d2a3f40516\"\r\necho   status: opened\r\n"
+	script := "@echo off\r\necho session:\r\necho   file: \"" + strings.ReplaceAll(page, `\`, `\\`) + "\"\r\necho   url: \"http://127.0.0.1:4387/session/ad6519f76542da4e\"\r\necho   status: user-ended\r\necho next_step: \"The user explicitly ended this Lavish Editor session from the browser.\"\r\n"
 	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
-	review := func(extra ...string) (int, string) {
-		var stdout, stderr bytes.Buffer
-		exit := runReview(append([]string{"--id", "site-real-photos-1", "--task", "g1", "--title", "The site with real photos", "--lavish", "https://sermon.tailcc4238.ts.net:4388/session/ad6519f76542da4e"}, extra...), &stdout, &stderr, runtime)
-		return exit, stderr.String()
-	}
 
 	// Act
-	refusedExit, refused := review()
-	_, ranBefore := os.Stat(args)
-	reopenedExit, reopened := review("--reopen")
+	var stdout, stderr bytes.Buffer
+	exit := runReview([]string{"--id", "site-real-photos-1", "--task", "g1", "--title", "The site with real photos", "--lavish", page}, &stdout, &stderr, runtime)
 
 	// Assert
-	if refusedExit != 1 || !strings.Contains(refused, "has ended") || !strings.Contains(refused, "--reopen") {
-		t.Errorf("a review of an ended session: exit=%d stderr=%q, want it refused naming --reopen", refusedExit, refused)
+	if exit != 1 || !strings.Contains(stderr.String(), "has ended") || !strings.Contains(stderr.String(), "--reopen") {
+		t.Fatalf("exit=%d stderr=%q, want the ended page refused naming --reopen before anything is published", exit, stderr.String())
 	}
-	if ranBefore == nil {
-		t.Error("the refused review ran lavish-axi")
-	}
-	// g1 is no goblin, so publishing refuses it; reaching that refusal means
-	// the page was opened again first.
-	if reopenedExit != 1 || !strings.Contains(reopened, "no live record") {
-		t.Fatalf("--reopen: exit=%d stderr=%q, want the page opened again and then g1 refused", reopenedExit, reopened)
-	}
-	if data, err := os.ReadFile(args); err != nil || strings.TrimSpace(string(data)) != page+" --no-open --reopen" {
-		t.Fatalf("lavish-axi ran with %q (%v), want %q", data, err, page+" --no-open --reopen")
+	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
+		t.Fatalf("the refused review left %d inbox records", len(entries))
 	}
 }
 

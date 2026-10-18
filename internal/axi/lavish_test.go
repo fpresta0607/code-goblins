@@ -2,6 +2,7 @@ package axi
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -47,6 +48,14 @@ const (
 		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
 		"  \"1\",Use tabs for each section,\"script[data-lavish-choices]\",choice,Which layout should the settings page use?\n" +
 		"next_step: \"Apply the requested changes.\"\n"
+	// The Code Goblins build 0.1.79-codegoblins.16 prints this, exiting 0,
+	// when it is asked without --reopen to open a page whose review the
+	// Overlord ended (its createUserEndedOpenOutput).
+	lavishUserEnded = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  url: \"http://127.0.0.1:4387/session/c42fd9a0de5ec55d\"\n" +
+		"  status: user-ended\n" +
+		"next_step: \"The user explicitly ended this Lavish Editor session from the browser, so `lavish-axi C:\\\\work\\\\.lavish\\\\plan.html` did not reopen it.\"\n"
 	lavishEndedByAgent = "session:\n" +
 		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
 		"  status: ended\n" +
@@ -73,6 +82,22 @@ func TestLavishOpenReturnsThePageAddressWithoutABrowser(t *testing.T) {
 		t.Fatalf("Open = %q, %v; want the session url", url, err)
 	}
 	assertLavishRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open"}})
+}
+
+// lavish-axi answers a page whose review the Overlord ended with that
+// session's address, as a success: Open refuses it, naming the address, so
+// no card opens a page that says the review ended.
+func TestLavishOpenRefusesAPageWhoseReviewHeEnded(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{result: execx.Result{Stdout: []byte(lavishUserEnded)}}
+
+	// Act
+	url, err := (Lavish{Commands: runner}).Open(context.Background(), `C:\work\.lavish\plan.html`)
+
+	// Assert
+	if !errors.Is(err, ErrSessionEnded) || url != "" || !strings.Contains(err.Error(), "http://127.0.0.1:4387/session/c42fd9a0de5ec55d") {
+		t.Fatalf("Open = %q, %v; want ErrSessionEnded naming the session's address", url, err)
+	}
 }
 
 // lavish-axi refuses to open again a page whose review the Overlord ended,
@@ -266,7 +291,7 @@ func TestLavishSessionAtFindsTheSessionALinkNames(t *testing.T) {
 		"http://127.0.0.1:4387/session/1a4d8f434fcca24b":                 true,
 		"http://127.0.0.1:4387/session/0000000000000000":                 false,
 		"http://127.0.0.1:4387/session/1a4d8f434fcca24b/export":          false,
-		"https://example.com/plan":                                        false,
+		"https://example.com/plan":                                       false,
 	} {
 		// Act
 		session, found, err := (Lavish{}).SessionAt(link)

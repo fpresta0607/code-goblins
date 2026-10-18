@@ -222,13 +222,36 @@ func servedPage(link string) (string, error) {
 		return "", err
 	}
 	if session.Status == "ended" {
-		return "", fmt.Errorf("the Scrawl session at %s has ended, so its card would open a page that says so; open its page again with cfo review --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", link)
+		return "", EndedPage(link)
 	}
 	extension := strings.ToLower(filepath.Ext(session.File))
 	if !filepath.IsAbs(session.File) || filepath.Clean(session.File) != session.File || extension != ".html" && extension != ".htm" {
 		return "", nil
 	}
 	return session.File, nil
+}
+
+// RefuseEndedPage refuses a review of the HTML file page while the review
+// session lavish-axi keeps for it has ended, whoever ended it, as servedPage
+// refuses one given by its link: lavish-axi would open again, uninvited, a
+// page whose review an agent ended.
+func RefuseEndedPage(page string) error {
+	sessions, err := (axi.Lavish{}).Sessions()
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(sessions, func(session axi.PageSession) bool {
+		return session.Status == "ended" && pageKey(session.File) == pageKey(page)
+	}) {
+		return EndedPage(page)
+	}
+	return nil
+}
+
+// EndedPage refuses a review of page, its Scrawl link or its HTML file, whose
+// review session has ended: its card would open a page that says so.
+func EndedPage(page string) error {
+	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with cfo review --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
 }
 
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the

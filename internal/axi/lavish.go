@@ -56,15 +56,21 @@ type PageChange struct {
 	Answer   string
 }
 
+// ErrSessionEnded refuses to open a page whose review the Overlord ended,
+// which lavish-axi reports as the session's address with the status
+// user-ended, exiting 0.
+var ErrSessionEnded = errors.New("axi: the page's review session has ended")
+
 // Open opens or resumes the page's review session without opening a browser,
-// and returns the page's address. lavish-axi refuses a page whose review the
-// Overlord ended.
+// and returns the page's address. lavish-axi opens again a page whose review
+// an agent ended, but not one whose review the Overlord ended: that is
+// ErrSessionEnded.
 func (l Lavish) Open(ctx context.Context, file string) (string, error) {
 	return l.open(ctx, file, "--no-open")
 }
 
-// Reopen is Open for a page whose review the Overlord ended, which only his
-// asking for another look warrants.
+// Reopen is Open that also opens again a page whose review the Overlord
+// ended, which only his asking for another look warrants.
 func (l Lavish) Reopen(ctx context.Context, file string) (string, error) {
 	return l.open(ctx, file, "--no-open", "--reopen")
 }
@@ -79,9 +85,13 @@ func (l Lavish) open(ctx context.Context, file string, flags ...string) (string,
 	if err != nil {
 		return "", err
 	}
-	url := sessionField(string(result.Stdout), "url")
+	output := string(result.Stdout)
+	url := sessionField(output, "url")
 	if url == "" {
 		return "", errors.New("axi: lavish-axi reported no address for " + file)
+	}
+	if sessionField(output, "status") == "user-ended" {
+		return "", fmt.Errorf("%w at %s", ErrSessionEnded, url)
 	}
 	return url, nil
 }

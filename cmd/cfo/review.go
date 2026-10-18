@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,8 +25,10 @@ import (
 // named by its Scrawl link is the page lavish-axi serves there; the supervisor
 // polls either, so the Overlord's feedback on it reaches the CFO as a review
 // wake; nobody runs lavish-axi poll themselves. A page whose review session
-// has ended is refused, since its card would open a page that says so, unless
-// --reopen opens it again, which only his asking for another look warrants.
+// has ended, whoever ended it, is refused by its link or by its HTML file,
+// recording nothing, since its card would open a page that says so, unless
+// --reopen opens it again with lavish-axi's own --reopen, which only his
+// asking for another look warrants.
 func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("review", flag.ContinueOnError)
 	f.SetOutput(stderr)
@@ -93,6 +96,12 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintf(stderr, "cfo review: --lavish takes a link or an HTML page: %v\n", err)
 			return 2
 		}
+		if !*reopen {
+			if err := supervisor.RefuseEndedPage(page); err != nil {
+				fmt.Fprintln(stderr, "cfo review: "+err.Error())
+				return 1
+			}
+		}
 	case *reopen:
 		session, found, err := (axi.Lavish{}).SessionAt(*lavish)
 		if err != nil {
@@ -107,15 +116,19 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	if page != "" {
 		lavishAxi := axi.Lavish{Commands: execx.OSRunner{}}
-		open, advice := lavishAxi.Open, "; if the Overlord ended its review there and asked for another look, add --reopen"
+		open := lavishAxi.Open
 		if *reopen {
-			open, advice = lavishAxi.Reopen, ""
+			open = lavishAxi.Reopen
 		}
 		openCtx, openCancel := context.WithTimeout(context.Background(), pageOpenTimeout)
 		*lavish, err = open(openCtx, page)
 		openCancel()
+		if errors.Is(err, axi.ErrSessionEnded) {
+			fmt.Fprintln(stderr, "cfo review: "+supervisor.EndedPage(page).Error())
+			return 1
+		}
 		if err != nil {
-			fmt.Fprintf(stderr, "cfo review: lavish-axi cannot show %s (%v)%s\n", page, err, advice)
+			fmt.Fprintf(stderr, "cfo review: lavish-axi cannot show %s (%v)\n", page, err)
 			return 1
 		}
 	}
