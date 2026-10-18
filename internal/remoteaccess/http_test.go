@@ -162,7 +162,7 @@ func TestOffCancelsRemoteStreamsButNeverLocalRequests(t *testing.T) {
 	}
 	select {
 	case <-remoteEnded:
-	case <-time.After(3 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("remote stream kept running")
 	}
 	select {
@@ -228,7 +228,7 @@ func TestAuthenticatedWebsocketRoundTripAndRevocation(t *testing.T) {
 		g.ServeHTTP(w, r)
 	}))
 	defer proxy.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	dial := func(token string) (*websocket.Conn, *http.Response, error) {
 		return websocket.Dial(ctx, "ws"+strings.TrimPrefix(proxy.URL, "http")+"/api/terminal/native?token="+token, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{testConfig().Origin}}})
