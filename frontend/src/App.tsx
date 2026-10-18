@@ -22,6 +22,7 @@ import { useSwitchKeys } from "./useSwitchKeys";
 import { missingPageAction, unsentComment, updateAction } from "./boardUpdate";
 import { boardPage, usePageMissing } from "./board-page";
 import { useWindowMove } from "./useWindowMove";
+import { useAppBadgeRenewal } from "./use-app-badge-renewal";
 import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
@@ -186,6 +187,7 @@ export function App() {
   // The desktop window moves onto the program an update installed once
   // this page is idle.
   useWindowMove(snapshot?.instance || "", connected, useCallback(() => answering(hasUnsent), [hasUnsent]));
+  useAppBadgeRenewal(snapshot?.instance || "");
   const effects = useActivity(snapshot, connected);
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   // A goblin opens on its Terminal view, unless the caller asks for a view
