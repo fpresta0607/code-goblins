@@ -208,7 +208,8 @@ test("a goblin's wait that follows no decision is its own card beside the decisi
 
 // While the wait follows the CFO's question for the goblin, the decision is
 // what she waits on: her panel finds the question by the goblin it decides
-// for, so its Answer stays and opens that decision.
+// for, so its Answer stays and opens that decision. Answer sits in her Task
+// view, since her Terminal view heads with no buttons.
 test("a goblin's panel offers Answer on the CFO's question for her, and Answer opens it", async ({ page, context }) => {
   // Arrange
   await standInStream(context);
@@ -216,6 +217,7 @@ test("a goblin's panel offers Answer on the CFO's question for her, and Answer o
   await boardAsked(page, { questions: [question], reviews: [{ ...followUp, follows: question.id }] });
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await page.getByRole("main", { name: "Board" }).getByRole("button", { name: /^Wanda - API Ace ,/ }).click();
+  await page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task", exact: true }).click();
 
   // Act
   await page.locator(".goblin-panel .panel-header").getByRole("button", { name: "Answer: " + question.text }).click();
