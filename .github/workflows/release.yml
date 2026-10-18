@@ -87,17 +87,26 @@ jobs:
           # browser menu on a right click.
           go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The setup carries nothing of the release: no version stamped into
-          # its resources or code and no commit, so while its code is the same
-          # each release builds it to the same file, which the publish job
-          # then replaces with the last release's signed copy. It names the
-          # release it installs from the install script it downloads. See
-          # docs/install.md for setup compatibility and download behavior.
-          go build -trimpath -buildvcs=false -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The desktop CI runner's service, which ci-runner-install.ps1
           # installs on a machine whose Overlord asks for it.
           go build -trimpath -o cg-ci-runner.exe ./cmd/cg-ci-runner
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The setup carries nothing of the release: no version stamped into its
+      # resources or code and no commit, so while its code is the same each
+      # release builds it to the same file, which the publish job then
+      # replaces with the last release's signed copy. It builds with the Go
+      # release go.mod names, not the newest one setup-go installs for the
+      # other programs, so a new Go release changes it only once go.mod is
+      # bumped to it. It names the release it installs from the install
+      # script it downloads. See docs/install.md for setup compatibility and
+      # download behavior.
+      - name: Build the setup
+        shell: pwsh
+        run: |
+          $env:GOTOOLCHAIN = 'go' + (go list -m -f '{{.GoVersion}}')
+          go version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -buildvcs=false -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # The no-mistakes the fleet's gate needs, the build install.ps1 pins,
       # which the install takes from this release once this release signs it,

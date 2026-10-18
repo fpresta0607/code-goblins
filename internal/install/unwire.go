@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // The pieces of Uninstall an uninstall of the whole machine runs one at a
@@ -63,10 +64,10 @@ func (s Service) RemoveStartAtLoginEntry() error {
 // projects root.
 func (s Service) EnvironmentWired() ([]string, error) {
 	var wired []string
-	if current, set, err := s.Env.Get(homeVariable); err != nil {
+	if current, set, err := s.Env.Get(installbase.HomeVariable); err != nil {
 		return nil, err
-	} else if set && sameDirectory(current, s.Root) {
-		wired = append(wired, homeVariable)
+	} else if set && installbase.SameDirectory(current, s.Root) {
+		wired = append(wired, installbase.HomeVariable)
 	}
 	raw, _, err := s.Env.Get(pathVariable)
 	if err != nil {

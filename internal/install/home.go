@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // markerText explains home.InstalledMarker to whoever finds it. After it,
@@ -34,11 +35,11 @@ const markerText = "This folder is a Code Goblins CFO home, which cfo install or
 // first on PATH, and leave its fleet's state unreachable. Once cfo home move
 // has carried the state away, the install takes over.
 func (s Service) formerHome() (string, error) {
-	current, set, err := s.Env.Get(homeVariable)
+	current, set, err := s.Env.Get(installbase.HomeVariable)
 	if err != nil {
 		return "", err
 	}
-	if !set || sameDirectory(current, s.Root) {
+	if !set || installbase.SameDirectory(current, s.Root) {
 		return "", nil
 	}
 	if info, err := os.Stat(filepath.Join(current, "state")); err != nil || !info.IsDir() {
@@ -373,7 +374,7 @@ const windowPicture = "goblins-window.png"
 // home: one shipped or built beside its binary, which it copies into bin. An
 // install run from the home's own bin only keeps the window there.
 func (s Service) suppliesWindow() bool {
-	if s.Contract == nil || s.Binary == "" || sameDirectory(filepath.Dir(s.Binary), s.bin()) {
+	if s.Contract == nil || s.Binary == "" || installbase.SameDirectory(filepath.Dir(s.Binary), s.bin()) {
 		return false
 	}
 	_, err := os.Stat(filepath.Join(filepath.Dir(s.Binary), windowName))
@@ -386,7 +387,7 @@ func (s Service) suppliesWindow() bool {
 // window removes the earlier copy once it stops running; one that retained a
 // window keeps the earlier copy and its entry. A home with no window keeps it.
 func (s Service) adoptEarlierWindow(report *reporter) error {
-	if s.EarlierWindow == "" || sameDirectory(s.EarlierWindow, s.Root) {
+	if s.EarlierWindow == "" || installbase.SameDirectory(s.EarlierWindow, s.Root) {
 		return nil
 	}
 	if _, err := os.Stat(s.EarlierWindow); err != nil {

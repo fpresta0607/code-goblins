@@ -9,6 +9,8 @@ import (
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // An install makes Windows start Code Goblins at login, in the tray, unless
@@ -23,9 +25,9 @@ func TestInstallStartsCodeGoblinsAtLoginUnlessItWasTurnedOff(t *testing.T) {
 		wantKept     string
 	}{
 		"on by default":                  {isOn: true},
-		"turned off in the home":         {kept: StartAtLoginOff, wantKept: StartAtLoginOff},
-		"turned off at this install":     {chosen: StartAtLoginOff, wantKept: StartAtLoginOff},
-		"turned on again at the install": {kept: StartAtLoginOff, chosen: StartAtLoginOn, isOn: true, wantKept: StartAtLoginOn},
+		"turned off in the home":         {kept: installbase.StartAtLoginOff, wantKept: installbase.StartAtLoginOff},
+		"turned off at this install":     {chosen: installbase.StartAtLoginOff, wantKept: installbase.StartAtLoginOff},
+		"turned on again at the install": {kept: installbase.StartAtLoginOff, chosen: installbase.StartAtLoginOn, isOn: true, wantKept: installbase.StartAtLoginOn},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -41,7 +43,7 @@ func TestInstallStartsCodeGoblinsAtLoginUnlessItWasTurnedOff(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(f.root, "state"), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if err := WriteStartAtLogin(filepath.Join(f.root, "state"), test.kept); err != nil {
+				if err := installbase.WriteStartAtLogin(filepath.Join(f.root, "state"), test.kept); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -61,7 +63,7 @@ func TestInstallStartsCodeGoblinsAtLoginUnlessItWasTurnedOff(t *testing.T) {
 			if !test.isOn && !strings.Contains(output, "off, as chosen") {
 				t.Errorf("the install does not say Start at login is off:\n%s", output)
 			}
-			if kept, err := ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || kept != test.wantKept {
+			if kept, err := installbase.ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || kept != test.wantKept {
 				t.Errorf("the home keeps the choice %q (%v), want %q", kept, err, test.wantKept)
 			}
 		})
@@ -73,13 +75,13 @@ func TestInstallStartsCodeGoblinsAtLoginUnlessItWasTurnedOff(t *testing.T) {
 func TestInstallKeepsTheChoiceOfStartAtLoginWhereThereAreNoEntries(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
-	f.service.StartAtLogin = StartAtLoginOff
+	f.service.StartAtLogin = installbase.StartAtLoginOff
 
 	// Act
 	f.install()
 
 	// Assert
-	if kept, err := ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || kept != StartAtLoginOff {
+	if kept, err := installbase.ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || kept != installbase.StartAtLoginOff {
 		t.Errorf("the home keeps the choice %q (%v), want off", kept, err)
 	}
 }
@@ -113,7 +115,7 @@ func TestSetStartsAtLoginKeepsCompatibleCommandsAndRestoresTheLauncher(t *testin
 				if _, _, err := key.GetStringValue(startAtLoginValue); !errors.Is(err, registry.ErrNotExist) {
 					t.Fatalf("Start at login entry after turning off: %v, want absent", err)
 				}
-				if choice, err := ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || choice != StartAtLoginOff {
+				if choice, err := installbase.ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || choice != installbase.StartAtLoginOff {
 					t.Fatalf("choice after turning off %q, error %v", choice, err)
 				}
 			}
@@ -128,7 +130,7 @@ func TestSetStartsAtLoginKeepsCompatibleCommandsAndRestoresTheLauncher(t *testin
 			if got, _, err := key.GetStringValue(startAtLoginValue); err != nil || got != want {
 				t.Errorf("Start at login runs %q, error %v, want %q", got, err, want)
 			}
-			if choice, err := ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || choice != StartAtLoginOn {
+			if choice, err := installbase.ReadStartAtLogin(filepath.Join(f.root, "state")); err != nil || choice != installbase.StartAtLoginOn {
 				t.Errorf("choice after turning on %q, error %v", choice, err)
 			}
 		})

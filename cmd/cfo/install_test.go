@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // Install wires in the per-user home wherever it runs, a checkout included,
@@ -24,7 +24,7 @@ func TestInstallTargetIsThePerUserHomeWhereverItRunsUnlessAHomeIsInUse(t *testin
 	local := t.TempDir()
 	t.Setenv("LOCALAPPDATA", local)
 	environment := filepath.Join(t.TempDir(), "user-env.json")
-	t.Setenv(install.UserEnvFileVariable, environment)
+	t.Setenv(installbase.UserEnvFileVariable, environment)
 	stale := t.TempDir()
 	if err := os.WriteFile(environment, []byte(`{"CFO_HOME": `+strconv.Quote(stale)+`}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func installOnAScratchMachine(t *testing.T, dir string, args ...string) (root, p
 		}
 	}
 	envFile = filepath.Join(machine, "user-env.json")
-	t.Setenv(install.UserEnvFileVariable, envFile)
+	t.Setenv(installbase.UserEnvFileVariable, envFile)
 	t.Setenv("LOCALAPPDATA", local)
 	t.Setenv("APPDATA", filepath.Join(profile, "AppData", "Roaming"))
 	t.Setenv("USERPROFILE", profile)
@@ -169,7 +169,7 @@ func TestInstallRefusesABuildWithoutItsBoard(t *testing.T) {
 	t.Cleanup(func() { boardBuilt = func() bool { return true } })
 	local := t.TempDir()
 	t.Setenv("LOCALAPPDATA", local)
-	t.Setenv(install.UserEnvFileVariable, filepath.Join(t.TempDir(), "user-env.json"))
+	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(t.TempDir(), "user-env.json"))
 
 	// Act
 	var stdout, stderr bytes.Buffer

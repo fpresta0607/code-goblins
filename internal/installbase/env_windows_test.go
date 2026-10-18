@@ -1,6 +1,6 @@
 //go:build windows
 
-package install
+package installbase
 
 import (
 	"context"

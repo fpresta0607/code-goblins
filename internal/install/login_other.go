@@ -5,6 +5,8 @@ package install
 import (
 	"errors"
 	"path/filepath"
+
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // StartAtLoginKey has no counterpart off Windows, where there is no desktop
@@ -24,7 +26,7 @@ func (s Service) keepStartAtLogin(*reporter) error {
 	if s.StartAtLogin == "" {
 		return nil
 	}
-	return WriteStartAtLogin(filepath.Join(s.Root, "state"), s.StartAtLogin)
+	return installbase.WriteStartAtLogin(filepath.Join(s.Root, "state"), s.StartAtLogin)
 }
 
 // StartsAtLogin says Start at login is a Windows setting.
@@ -36,7 +38,7 @@ func (s Service) StartsAtLogin() (bool, string, error) {
 // off Windows.
 func (s Service) SetStartsAtLogin(on bool) error {
 	if !on {
-		return WriteStartAtLogin(filepath.Join(s.Root, "state"), StartAtLoginOff)
+		return installbase.WriteStartAtLogin(filepath.Join(s.Root, "state"), installbase.StartAtLoginOff)
 	}
 	return errors.New("Start at login is a Windows setting")
 }

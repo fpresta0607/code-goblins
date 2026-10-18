@@ -206,6 +206,9 @@ The setup's say its product version is "the newest release", since it carries no
 - **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it.
   A signed setup names SIQstack LLC as its publisher, but Windows still judges a program few people have run yet by its reputation, which builds over weeks of downloads: until then the browser can say it "isn't commonly downloaded", and SmartScreen can stop it once with "Windows protected your PC", as it does an unsigned one with an Unknown publisher.
   So a release whose setup has the last release's code publishes the last release's signed setup again, and every download adds to the reputation of one file rather than starting a new one.
+  The setup links only a few small packages of this repository, and a test fails when it links another, since each package it links is a way its file changes.
+  It builds with the Go release that `go.mod`'s `go` line names, always a full release such as `go 1.26.5`, while every other program builds with the newest Go release and its security fixes.
+  Bumping that line is the one way the setup moves to a new Go release, and it makes a new setup file once.
   Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
   Then **More info**, **Run anyway** runs it.
   The install script checks the programs it installs against the newest release's `SHA256SUMS`.

@@ -1,4 +1,4 @@
-package install
+package installbase
 
 import (
 	"os"
@@ -40,7 +40,9 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 		"a checkout made the home, CFO_HOME naming it": {
 			checkout: []string{"AGENTS.md", "cmd/cfo/", "state/", "data/", ".worktrees/", "cfo.exe"},
 			cfoHome:  "checkout",
-			want:     func(_, checkout string) Target { return Target{Root: checkout, Update: true, Kept: true, Checkout: true} },
+			want: func(_, checkout string) Target {
+				return Target{Root: checkout, Update: true, Kept: true, Checkout: true}
+			},
 		},
 		"a home of its own outside the standard folder, CFO_HOME naming it": {
 			checkout: []string{home.InstalledMarker, "AGENTS.md", "state/", "bin/"},
@@ -62,15 +64,22 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 			values := map[string]string{}
 			switch test.cfoHome {
 			case "standard":
-				values[homeVariable] = standard
+				values[HomeVariable] = standard
 			case "standard, upper case with a trailing slash":
-				values[homeVariable] = strings.ToUpper(standard) + `\`
+				values[HomeVariable] = strings.ToUpper(standard) + `\`
 			case "checkout":
-				values[homeVariable] = checkout
+				values[HomeVariable] = checkout
+			}
+
+			env := fileEnvStore{path: filepath.Join(t.TempDir(), "user-env.json")}
+			for name, value := range values {
+				if err := env.Set(name, value); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			// Act
-			got, err := FindTarget(newFakeEnv(values), standard)
+			got, err := FindTarget(env, standard)
 
 			// Assert
 			if err != nil {
