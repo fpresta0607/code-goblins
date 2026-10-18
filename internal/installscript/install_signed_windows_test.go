@@ -378,11 +378,17 @@ func signedLike(code byte, checksum uint32, signature string) []byte {
 // A release whose setup has the last release's code publishes the last
 // release's signed setup again, the file people already downloaded and
 // SmartScreen already knows, though each signing writes other bytes; one whose
-// setup's code changed, or that finds no earlier release, publishes its own.
-// The step's own script runs, in each PowerShell, against files that look like
-// programs to it alone.
+// setup's code changed, whose last setup is unsigned, which the check of every
+// signature would refuse, or that finds no earlier release, publishes its own.
+// The step comes between the signing and that check, so the copy is checked
+// as the release's own setup would be. The step's own script runs, in each
+// PowerShell, against files that look like programs to it alone.
 func TestTheReleasePublishesTheLastSetupAgainWhileItsCodeIsTheSame(t *testing.T) {
-	script, _ := releaseStep(t, "Publish the last setup again while its code is the same")
+	_, afterSign := releaseStep(t, "Sign")
+	script, afterStep := releaseStep(t, "Publish the last setup again while its code is the same")
+	if !strings.Contains(afterSign, "      - name: Publish the last setup again while its code is the same\n") || !strings.Contains(afterStep, "      - name: Verify the signatures\n") {
+		t.Fatal("want the setup signed, then the last release's published again in its place, then every signature verified")
+	}
 	built := signedLike(0xAA, 0x1111, "this release's signature")
 	for name, test := range map[string]struct {
 		// last is the last release's setup, nil where there is no release.
@@ -391,6 +397,7 @@ func TestTheReleasePublishesTheLastSetupAgainWhileItsCodeIsTheSame(t *testing.T)
 	}{
 		"the same code signed again": {last: signedLike(0xAA, 0x2222, "the last release's longer signature"), isLastAgain: true},
 		"code that changed":          {last: signedLike(0xBB, 0x2222, "the last release's longer signature")},
+		"the same code unsigned":     {last: signedLike(0xAA, 0, "")},
 		"no earlier release":         {},
 	} {
 		for _, shell := range installtest.OneLineShells(t) {

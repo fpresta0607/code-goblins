@@ -208,8 +208,9 @@ jobs:
       # starting over with each release. The two are compared without the
       # bytes signing writes, the header's checksum and certificate entry and
       # the signature at the end, which differ with each signing. The copy is
-      # checked below with the rest; a release with no earlier setup, or one
-      # that cannot download it, publishes its own.
+      # checked below with the rest; a release with no earlier setup, one that
+      # cannot download it, or one whose last setup is unsigned, which that
+      # check would refuse, publishes its own.
       - name: Publish the last setup again while its code is the same
         if: steps.signing.outputs.signed == 'true'
         shell: pwsh
@@ -223,7 +224,8 @@ jobs:
             $checksum = $optional + 64
             $certificateEntry = $optional + 144
             $end = [BitConverter]::ToInt32($bytes, $certificateEntry)
-            if ($end -le 0) { $end = $bytes.Length }
+            # A program with no certificate table is unsigned.
+            if ($end -le 0) { return $null }
             $sha = [Security.Cryptography.SHA256]::Create()
             [void]$sha.TransformBlock($bytes, 0, $checksum, $null, 0)
             [void]$sha.TransformBlock($bytes, $checksum + 4, $certificateEntry - $checksum - 4, $null, 0)
@@ -238,7 +240,11 @@ jobs:
             exit 0
           }
           $previous = Join-Path $last "CodeGoblinsSetup.exe"
-          if ((Get-UnsignedHash $previous) -eq (Get-UnsignedHash "CodeGoblinsSetup.exe")) {
+          $lastHash = Get-UnsignedHash $previous
+          if (-not $lastHash) {
+            Write-Host "The last release's setup is unsigned, so this release publishes its own."
+          }
+          elseif ($lastHash -eq (Get-UnsignedHash "CodeGoblinsSetup.exe")) {
             Copy-Item -LiteralPath $previous -Destination "CodeGoblinsSetup.exe" -Force
             Write-Host "The setup's code is the last release's, so this release publishes that signed setup again."
           }

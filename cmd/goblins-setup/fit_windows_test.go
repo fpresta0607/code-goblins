@@ -64,6 +64,7 @@ func TestEveryScreenFitsTheWindowAtEachScale(t *testing.T) {
 		"the plan saying Defender could not be read":  {pageCall("setupPlan", withDefenderUnread)},
 		"the install under way":                       {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"), pageCall("setupStep", 3), pageCall("setupDoing", "Installing the GitHub CLI")},
 		"the update of a kept home under way":         {pageCall("setupPlan", kept), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"), pageCall("setupStep", 3), pageCall("setupDoing", "Installing the GitHub CLI")},
+		"the update of a kept home done":              {pageCall("setupPlan", kept), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"), pageCall("setupDone")},
 		"a failed install with its details shown": {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupStep", 3),
 			pageCall("setupFailed", "Code Goblins could not be set up: the home's state folder could not be written; free some disk space, then try again.", log),
 			`document.getElementById("show-details").click()`},
