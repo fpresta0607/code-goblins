@@ -302,8 +302,9 @@ func TestAnAppNoPushServiceKeepsIsForgottenUnsent(t *testing.T) {
 }
 
 // A board nobody turned the badge on keeps no key and asks nothing, and a
-// push file that cannot be read is reported once, in the next recovery
-// cycle, without waking the board again: the loop never feeds itself.
+// push file that cannot be read waits to be reported with the next recovery
+// cycle: a change's pushes change nothing on the board themselves, so the
+// sender never wakes itself.
 func TestTheSenderRestsWhenThereIsNothingToPush(t *testing.T) {
 	for name, file := range map[string]string{"no app ever": "", "an unreadable push file": "{not json"} {
 		t.Run(name, func(t *testing.T) {
@@ -316,19 +317,15 @@ func TestTheSenderRestsWhenThereIsNothingToPush(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			ctx, cancel := context.WithCancel(context.Background())
-			done := make(chan struct{})
-			go func() { defer close(done); s.keepPushing(ctx) }()
-			defer func() { cancel(); <-done }()
+			askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
 			before := s.Revision()
 
 			// Act
-			askOverlord(t, s, "cfo-question-1", "Which layout should I keep?")
-			time.Sleep(300 * time.Millisecond) // stall-accepted: the time a loop that fed itself would spin through thousands of changes.
+			s.pushChange(context.Background(), nil)
 
 			// Assert
-			if changes := s.Revision() - before; changes > 1 {
-				t.Errorf("one board change made %d", changes)
+			if changes := s.Revision() - before; changes != 0 {
+				t.Errorf("one change's pushes changed the board %d times, want none", changes)
 			}
 			_, err := os.Stat(filepath.Join(h.State, pushFile))
 			s.mu.Lock()

@@ -197,15 +197,22 @@ func (s *Service) keepPushing(ctx context.Context) {
 			return
 		case <-changes:
 		}
-		var err error
-		if seen, err = s.pushNew(ctx, seen); err != nil {
-			s.mu.Lock()
-			if s.pushErr == nil || !strings.Contains(s.pushErr.Error(), err.Error()) {
-				s.pushErr = errors.Join(s.pushErr, fmt.Errorf("the app badge: %w", err))
-			}
-			s.mu.Unlock()
-		}
+		seen = s.pushChange(ctx, seen)
 	}
+}
+
+// pushChange is one change's pushes. What it meets waits in pushErr, and it
+// changes nothing on the board itself, so it never wakes keepPushing again.
+func (s *Service) pushChange(ctx context.Context, seen map[string]bool) map[string]bool {
+	seen, err := s.pushNew(ctx, seen)
+	if err != nil {
+		s.mu.Lock()
+		if s.pushErr == nil || !strings.Contains(s.pushErr.Error(), err.Error()) {
+			s.pushErr = errors.Join(s.pushErr, fmt.Errorf("the app badge: %w", err))
+		}
+		s.mu.Unlock()
+	}
+	return seen
 }
 
 // pushNew pushes what waits on the Overlord that seen did not hold, and
