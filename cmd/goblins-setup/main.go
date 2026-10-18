@@ -43,6 +43,14 @@ var goblin []byte
 // it gives way to the app.
 const shownEnd = 3 * time.Second
 
+// windowWidth and windowHeight are the window's size in device-independent
+// pixels, the same at every display scale, and every screen of its page fits
+// the client area Windows gives a window of this size.
+const (
+	windowWidth  = 720
+	windowHeight = 500
+)
+
 func main() {
 	plan, err := findPlan()
 	if err != nil {
@@ -132,8 +140,8 @@ func main() {
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Code Goblins Setup",
 		HTML:   strings.Replace(page, `src="goblin.png"`, `src="data:image/png;base64,`+base64.StdEncoding.EncodeToString(goblin)+`"`, 1),
-		Width:  720,
-		Height: 500,
+		Width:  windowWidth,
+		Height: windowHeight,
 		// The board's own dark ground, so the window never flashes white.
 		BackgroundColour: application.NewRGB(0x03, 0x05, 0x0a),
 		Windows:          application.WindowsWindow{Theme: application.Dark},
