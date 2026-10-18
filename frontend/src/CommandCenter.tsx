@@ -17,7 +17,7 @@ import { credentialAsk, credentialFinish, onThisMachine } from "./credentials";
 import { BrowserSignInCard } from "./browser-signin-card";
 import { signInHeading, signInOutcome } from "./browser-signins";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
-import { plainMessage } from "./messageText";
+import { linkedText, plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
@@ -435,8 +435,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             return <li key={candidate.key} className={isUnfolded ? "unfolded" : undefined}>
               <HistoryMark icon={who === "you" ? "crown" : who === "away" ? "moon" : who === "cfo" || candidate.kind === "credential" && candidate.request.state === "answered" ? "comment" : mark.icon} tone={mark.tone} label={label} />
               <span className="inbox-text">
-                <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
-                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}
+                <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{linkedText(textOf(candidate))}</span></span>
+                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{linkedText(settledLabel(candidate, snapshot.actions))}</small>{reason && <small className="answer-reason">{linkedText(reason)}</small>}
                   {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
