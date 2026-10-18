@@ -527,3 +527,37 @@ test("the CFO's bar names only a goblin's question his Command Center shows him,
   supervisor.accept();
   await expect.poll(() => supervisor.posted.map((body) => [body.kind, body.question_id])).toEqual([["goblin_answer", olive.id]]);
 });
+
+// The Overlord, 2026-10-18, after Send and end on Kenny's page on local host:
+// "we should get an immediate result in my command center that it's cleared
+// and that question no longer shows." A goblin's question asked on its Scrawl
+// page, which the CFO left long enough that it waits on him, leaves Waiting on
+// you within a second of the supervisor reading his answer on the page, on
+// local host or the tailnet, and its open card finishes with his answer.
+for (const [where, link] of [["local host", "http://127.0.0.1:4387/session/030284fb3915be1f"], ["the tailnet", "https://pc.example.ts.net:4388/session/030284fb3915be1f"]]) {
+  test(`his Send and end on a goblin's page on ${where} takes its question off Waiting on you within a second`, async ({ page, context }) => {
+    // Arrange
+    await standInStream(context);
+    await announcer(context);
+    const ASKED = "Approve the three mockups (page " + link + ")";
+    const asked = { ...question, id: "notify-cg-probe-1000231", task: "cg-probe", generation: "g1", seq: 1000231, text: ASKED, options: ["Build it as shown", "Change it"], recommended: "Build it as shown" };
+    const at = "2026-10-02T11:11:00Z";
+    await page.goto("/");
+    await send(page, "snapshot", quiet);
+    await send(page, "snapshot", { ...asking({ questions: [asked] }), at });
+    await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+    await openCard(page, ASKED);
+    await recordDoneCards(page);
+
+    // Act
+    const sent = Date.now();
+    await send(page, "snapshot", { ...asking({ questions: [{ ...asked, status: "succeeded", message: "You answered on its page.", answer: "Build it as shown", answer_kind: "option", answered_option: "Build it as shown", answered_by: "overlord", answered_in: "page", answered_at: at }] }, 3), at });
+    await expect(badge(page)).toHaveAccessibleName("Command Center", { timeout: 1000 });
+    const gone = Date.now() - sent;
+
+    // Assert
+    expect(gone).toBeLessThan(1000);
+    await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining("You answered on its page: Build it as shown"));
+    await expectGone(page, ASKED);
+  });
+}

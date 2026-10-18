@@ -651,7 +651,7 @@ func goblinTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 // question the supervisor ingested.
 func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
 	t.Helper()
-	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
+	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -670,7 +670,7 @@ func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Recor
 func TestGoblinQuestionAnsweredOnceInItsOwnTerminal(t *testing.T) {
 	store, h := testStore(t)
 	meta, record, goblin, connection := goblinFixture(t, store)
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
@@ -728,7 +728,7 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 		t.Fatal(err)
 	}
 
-	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", nil, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -830,19 +830,19 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, plain, plain.Detail, "", nil, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, plain, plain.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := wake.Append(h.State, "notify", meta.ID, "failed: Tests fail. options: Retry (Recommended) | Abandon")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, failed, failed.Detail, "", nil, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, failed, failed.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// The System process is live and never the ancestor of a test.
 	goblin.runs(t, 4)
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil, nil); err == nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", nil, nil); err == nil {
 		t.Fatal("a process outside the goblin's terminal surfaced its question")
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -1113,10 +1113,10 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 		t.Fatal(err)
 	}
 	connectionB := &CFOConnection{State: h.State}
-	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", nil, nil); err != nil {
+	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, metaB.ID, recordB, recordB.Detail, "", nil, nil); err != nil {
+	if err := SurfaceNotify(h.State, metaB.ID, recordB, recordB.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

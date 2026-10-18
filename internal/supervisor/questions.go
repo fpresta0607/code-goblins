@@ -75,6 +75,11 @@ type Question struct {
 	// the CFO as this question, so an answer to it is the answer to that page.
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
+	// AsksPageFile is that page's HTML file, which the supervisor polls until
+	// the review on it settles, at PageSettled, so his answer on the page
+	// answers the question at once.
+	AsksPageFile string     `json:"asks_page_file,omitempty"`
+	PageSettled  *time.Time `json:"page_settled,omitempty"`
 	// ForTask names the goblin whose decision the CFO's own question puts
 	// to the Overlord: while the question is open, a wait on him that goblin
 	// raises declares whether it follows it (Review.Follows). It is empty for
@@ -88,6 +93,12 @@ type Question struct {
 func validQuestion(q Question) error {
 	if len(q.ID) < 8 || len(q.ID) > 128 || strings.ContainsAny(q.ID, "\x00\r\n") || len(q.Identity) != 64 || strings.TrimSpace(q.Text) == "" || len(q.Text) > 4000 || len(q.Options) > 8 || q.CreatedAt.IsZero() || q.CreatedAt.After(time.Now().Add(5*time.Minute)) {
 		return errors.New("question requires an ID, registered CFO identity, timestamp, bounded text and at most eight choices")
+	}
+	if q.AsksPageFile != "" {
+		extension := strings.ToLower(filepath.Ext(q.AsksPageFile))
+		if q.AsksPage == "" || !filepath.IsAbs(q.AsksPageFile) || filepath.Clean(q.AsksPageFile) != q.AsksPageFile || extension != ".html" && extension != ".htm" {
+			return errors.New("a question's page file is the absolute HTML file of the page it asks")
+		}
 	}
 	seen := map[string]bool{}
 	for _, option := range q.Options {
@@ -189,9 +200,10 @@ func goblinPipeCaller(stateDir, taskID string, pid int, connected time.Time) err
 // detail is the notify as the goblin wrote it: the queue holds record's
 // one-line form, and the question keeps its own line breaks. page is the link
 // of the goblin's page AFK mode asks of the CFO as this question, and empty
-// for any other question. mail is a message the question gives him to send,
-// or nil.
-func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page string, images []string, mail *Mail) error {
+// for any other question, and pageFile is its HTML file, which the supervisor
+// polls for his answer on it, or empty when lavish-axi named none. mail is a
+// message the question gives him to send, or nil.
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page, pageFile string, images []string, mail *Mail) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -203,7 +215,7 @@ func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page str
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page, Mail: mail}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page, AsksPageFile: pageFile, Mail: mail}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
@@ -1143,12 +1155,16 @@ func (s *Store) admitQuestion(q Question) error {
 		// A question that closed without an answer stays listed until the
 		// Overlord clears it, or until it is the oldest superseded one while
 		// 128 are held: a new question is never refused because closed ones
-		// were not cleared. A pending question is never dropped.
+		// were not cleared. A pending question is never dropped, nor one whose
+		// page is still watched, as an item's is not.
+		isWatched := func(old Question) bool {
+			return old.AsksPageFile != "" && old.PageSettled == nil && s.taskStands(old.Task)
+		}
 		index := slices.IndexFunc(s.db.Questions, func(old Question) bool {
-			return old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed"
+			return (old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed") && !isWatched(old)
 		})
 		if index < 0 {
-			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" })
+			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" && !isWatched(old) })
 		}
 		if index < 0 {
 			return ErrDeferred

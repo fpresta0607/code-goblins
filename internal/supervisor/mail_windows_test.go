@@ -19,7 +19,7 @@ func TestAGoblinsQuestionAndCommandCarryItsMessageToTheBoard(t *testing.T) {
 	mail := Mail{To: "support@iproyal.com", Subject: "Refund for order 4412", Body: "Hello,\n\nPlease refund order 4412.\n\nThanks"}
 
 	// Act
-	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", nil, &mail); err != nil {
+	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", "", nil, &mail); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
