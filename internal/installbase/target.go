@@ -1,4 +1,4 @@
-package install
+package installbase
 
 import (
 	"os"
@@ -28,11 +28,11 @@ type Target struct {
 // standard folder. A CFO_HOME naming a folder with no fleet in it is stale,
 // and the install takes the machine over from it.
 func FindTarget(env EnvStore, standard string) (Target, error) {
-	current, set, err := env.Get(homeVariable)
+	current, set, err := env.Get(HomeVariable)
 	if err != nil {
 		return Target{}, err
 	}
-	if set && !sameDirectory(current, standard) && isDir(filepath.Join(current, "state")) {
+	if set && !SameDirectory(current, standard) && isDir(filepath.Join(current, "state")) {
 		root := filepath.Clean(current)
 		return Target{Root: root, Update: true, Kept: true, Checkout: isCheckout(root)}, nil
 	}

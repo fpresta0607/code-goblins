@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // recordingRunner answers every command with out and remembers each.
@@ -270,8 +271,8 @@ func TestToolsTheInstallFetchedAreLeftUnlessThePersonChoseToRemoveThem(t *testin
 	m := testMachine(t)
 	runner := &recordingRunner{}
 	m.Commands = runner
-	t.Setenv(install.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
-	m.Install.Env = install.NewEnvStore(execx.OSRunner{})
+	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
+	m.Install.Env = installbase.NewEnvStore(execx.OSRunner{})
 	skill := filepath.Join(m.Profile, ".claude", "skills", "gh-axi")
 	write(t, filepath.Join(skill, "SKILL.md"), "x")
 	write(t, filepath.Join(m.AppData, "npm", "node_modules", "@openai", "codex", "package.json"), "{}")
@@ -578,8 +579,8 @@ func TestAHomeInACheckoutNamesOnlyItsOwnFolders(t *testing.T) {
 			// Arrange
 			m := testMachine(t)
 			m.Checkout = tc.isCheckout
-			t.Setenv(install.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
-			m.Install.Env = install.NewEnvStore(execx.OSRunner{})
+			t.Setenv(installbase.UserEnvFileVariable, filepath.Join(t.TempDir(), "env.json"))
+			m.Install.Env = installbase.NewEnvStore(execx.OSRunner{})
 			write(t, filepath.Join(m.Home.Root, "bin", "cfo.exe"), "abc")
 			write(t, filepath.Join(m.Home.Root, "worktrees", "g1", "x"), "abc")
 			write(t, filepath.Join(m.Home.Root, "data", "backlog.md"), "abc")
