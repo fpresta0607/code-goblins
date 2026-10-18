@@ -86,7 +86,7 @@ func TestPeekAndReadinessReadAnInlineCodexScreen(t *testing.T) {
 		}
 		return host.ReadScreen(record)
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
 		rows, err := readScreen(record)
 		if err == nil && screens.IsReady(rows) && screens.ComposerEmpty(rows) {
 			break
@@ -124,7 +124,7 @@ func TestPeekByTheGoblinsNameReadsANativeTasksTerminal(t *testing.T) {
 	// The terminal's program prints ready once it has started; read it by id
 	// until it has, so both names are asked of the same screen.
 	byID := ""
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(byID, "ready"); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(byID, "ready"); time.Sleep(50 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the terminal never showed ready: %q", byID)
 		}

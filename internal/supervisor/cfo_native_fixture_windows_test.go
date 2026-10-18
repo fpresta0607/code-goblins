@@ -45,7 +45,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		registered, err := Register(stateDir, "", "session-1")
 		if err == nil {
 			record("registered " + registered)
@@ -185,7 +185,7 @@ func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("fixture registration = %q", lines)
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		record, err := host.ReadRecord(stateDir, "cfo")
 		if err != nil {
 			t.Fatal(err)

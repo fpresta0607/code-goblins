@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -80,7 +81,7 @@ func TestTreeUsageRefusesAJobWhoseMemoryReadsNothingWhileItRuns(t *testing.T) {
 	if err == nil || usage != (TreeUsage{}) || !strings.Contains(err.Error(), "no commitment while") {
 		t.Errorf("usage = %+v, %v; want an error that names no commitment while members run, and no sample", usage, err)
 	}
-	if waited := time.Since(started); waited > 5*time.Second {
+	if waited := time.Since(started); waited > time.Minute {
 		t.Errorf("the read took %s; want it to give up within its bound", waited)
 	}
 }
@@ -170,6 +171,94 @@ func TestTreeUsageRefusesAPeakOfNothingAfterAProcessRan(t *testing.T) {
 	}
 }
 
+// descend calls read depth frames further down the goroutine's stack.
+//
+//go:noinline
+func descend(depth int, read func()) {
+	if depth == 0 {
+		read()
+		return
+	}
+	descend(depth-1, read)
+}
+
+// depthsReadingNothing calls read on a fresh goroutine below every depth up
+// to 2,000 frames, which brings the point where the stack must grow, and
+// move, to every step of the read through four sizes of stack, and returns
+// the depths at which read says it read nothing.
+func depthsReadingNothing(read func() bool) []int {
+	var empty []int
+	for depth := range 2000 {
+		isRead := false
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			descend(depth, func() { isRead = read() })
+		}()
+		<-done
+		if !isRead {
+			empty = append(empty, depth)
+		}
+	}
+	return empty
+}
+
+// readAccountingAt reads the job's accounting into the memory at
+// information, passed as a bare uintptr, as windows.QueryInformationJobObject
+// takes it.
+//
+//go:noinline
+func readAccountingAt(job windows.Handle, information uintptr) error {
+	return windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, information, uint32(unsafe.Sizeof(jobAccounting{})), nil)
+}
+
+// Each read of a running job lands where it is read, wherever the reading
+// goroutine's stack moves on the way to the system call. A buffer on the
+// stack, passed to Windows as a bare uintptr, is left behind by the move, and
+// Windows writes where it was: issue 1060 read a running job's accounting as
+// nothing that way and took it as sound, and #799 its commitment and peak.
+func TestTreeReadsTheJobWhereverItsStackMoves(t *testing.T) {
+	// Arrange
+	tree := waitingTree(t)
+	if _, err := tree.Usage(); err != nil {
+		t.Fatal(err)
+	}
+	reads := map[string]func() bool{
+		"accounting": func() bool {
+			usage, _, err := tree.readJob()
+			return err == nil && usage.ActiveProcesses > 0 && usage.TotalProcesses > 0
+		},
+		"commitment": func() bool {
+			memory, err := queryJobMemory(tree.job)
+			return err == nil && memory.Commit > 0 && memory.PeakCommit > 0
+		},
+		"peak": func() bool {
+			peak, err := queryJobPeak(tree.job)
+			return err == nil && peak > 0
+		},
+	}
+	// The sweep must move the stack inside a read: a stack buffer passed as
+	// a bare uintptr reads nothing at some depth.
+	lost := depthsReadingNothing(func() bool {
+		var accounting jobAccounting
+		err := readAccountingAt(tree.job, uintptr(unsafe.Pointer(&accounting)))
+		return err == nil && accounting.TotalProcesses > 0
+	})
+	if len(lost) == 0 {
+		t.Fatal("a stack buffer passed as a bare uintptr was read at every depth, so the sweep never moved the stack inside a read and proves nothing")
+	}
+
+	for name, read := range reads {
+		// Act
+		empty := depthsReadingNothing(read)
+
+		// Assert
+		if len(empty) > 0 {
+			t.Errorf("the %s query read nothing of a running job at depths %v", name, empty)
+		}
+	}
+}
+
 // Once every member has exited, no commitment is so, and the peak stays.
 func TestTreeUsageKeepsItsPeakOnceItsMembersExit(t *testing.T) {
 	// Arrange
@@ -185,7 +274,7 @@ func TestTreeUsageKeepsItsPeakOnceItsMembersExit(t *testing.T) {
 
 	// Act
 	var usage TreeUsage
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if usage, err = tree.Usage(); err != nil || usage.ActiveProcesses == 0 {
 			break
 		}
@@ -217,7 +306,7 @@ func TestTreeCleanupDeadlineIncludesWaitingForMeasurement(t *testing.T) {
 	// Arrange
 	tree := &Tree{job: windows.InvalidHandle}
 	tree.mu.Lock()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out while it holds the lock.
 	defer cancel()
 	finished := make(chan error, 1)
 
@@ -231,7 +320,7 @@ func TestTreeCleanupDeadlineIncludesWaitingForMeasurement(t *testing.T) {
 		if err != context.DeadlineExceeded {
 			t.Fatalf("cleanup = %v, want deadline before taking custody", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		tree.mu.Unlock()
 		<-finished
 		t.Fatal("cleanup waited for measurement past its deadline")

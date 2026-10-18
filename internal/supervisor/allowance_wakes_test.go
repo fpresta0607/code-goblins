@@ -23,6 +23,7 @@ func runningGoblin(t *testing.T, h home.Home, id, harness string) {
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
+	// stall-accepted: a record's start time, compared only with this process's start, never by a wait.
 	data, err := json.Marshal(host.Record{ID: id, HostPID: os.Getpid(), Started: time.Now().Add(time.Second), Pipe: "fixture", Token: "fixture"})
 	if err != nil {
 		t.Fatal(err)

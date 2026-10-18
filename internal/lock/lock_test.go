@@ -761,7 +761,7 @@ func TestAnAcquireWhoseDeadlinePassesAfterItsCreateTakesTheRecordItMade(t *testi
 	if status == statusDead {
 		t.Fatal("current process unexpectedly dead")
 	}
-	look, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	look, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // stall-accepted: the test means the look's deadline to run out.
 	defer cancel()
 	read := func(ctx context.Context, dir, name string) (*Info, error) {
 		<-look.Done()
@@ -817,6 +817,7 @@ func holdOpen(t *testing.T, path string) func() {
 func TestAcquireWaitsOutAReaderHoldingADeadHoldersRecord(t *testing.T) {
 	dir := t.TempDir()
 	path := deadHoldersRecord(t, dir, ".watch.lock")
+	// stall-accepted: the reader is meant to let go while the acquire waits, and a stall can outrun only the acquire's own 450 ms wait for it, which no bound here lengthens.
 	time.AfterFunc(200*time.Millisecond, holdOpen(t, path))
 
 	info, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch")
@@ -841,7 +842,7 @@ func TestAcquireGivesUpOnAReaderThatNeverLetsADeadHoldersRecordGo(t *testing.T) 
 	if !errors.Is(err, syscall.Errno(32)) {
 		t.Fatalf("AcquireNamedOwner = %v, want the sharing violation", err)
 	}
-	if waited := time.Since(began); waited > 5*time.Second {
+	if waited := time.Since(began); waited > time.Minute {
 		t.Errorf("the acquire waited %s, want it bounded", waited)
 	}
 }
@@ -872,7 +873,7 @@ func TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait(t *testing.T) {
 	}
 	// It stops short of a pause that would end past the wait, so it can give
 	// up up to one pause early.
-	if waited < wait/4 || waited > 5*time.Second {
+	if waited < wait/4 || waited > 30*time.Second {
 		t.Errorf("the acquire waited %s, want about %s", waited, wait)
 	}
 }

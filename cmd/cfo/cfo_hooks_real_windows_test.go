@@ -100,6 +100,7 @@ func TestARealClaudeCFOGetsItsHooksThroughItsTerminalAlone(t *testing.T) {
 	p.settle(t, record)
 	await := func(what string, within time.Duration, done func() bool) {
 		t.Helper()
+		// stall-accepted: every await below is handed three minutes or more.
 		for deadline := time.Now().Add(within); !done(); time.Sleep(time.Second) {
 			if time.Now().After(deadline) {
 				screen, _ := host.ReadScreen(record)

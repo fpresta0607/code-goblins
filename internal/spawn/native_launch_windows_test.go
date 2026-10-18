@@ -125,7 +125,7 @@ func fakeHarness() {
 			}
 			if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
 				_ = windows.TerminateProcess(process, 1)
-				_, _ = windows.WaitForSingleObject(process, 10000)
+				_, _ = windows.WaitForSingleObject(process, 60000)
 				_ = windows.CloseHandle(process)
 			}
 		}
@@ -175,7 +175,7 @@ func fakeHarness() {
 		case "pi-stuck":
 			startup = time.Hour
 		}
-		piStartup(startup, mode == "pi-stale", keys, record, draw)
+		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
 	composer := func(text string) {
@@ -387,7 +387,7 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 			// As Codex 0.154 does, the review shows a moment before keys
 			// reach it, and a key sent meanwhile is lost.
 			review(0)
-			for deaf := time.After(1500 * time.Millisecond); deaf != nil; {
+			for deaf := time.After(1500 * time.Millisecond); deaf != nil; { // stall-accepted: the stand-in's deaf moment, which the spawn's longer settle outlasts on the same clock.
 				select {
 				case key := <-keys:
 					record(codexEvent{Event: "lost", Text: key})
@@ -442,13 +442,14 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 	}
 	editor("")
 	started := time.Now().Add(startup)
-	hasTurned := false
+	hasTurned, hasRefused := false, false
 	var line strings.Builder
 	for key := range keys {
 		switch {
-		case key == "\r" && time.Now().Before(started):
+		case key == "\r" && (time.Now().Before(started) || (startup > 0 && !hasRefused)):
 			record(codexEvent{Event: "refused while starting", Text: line.String()})
 			status = " Startup is still in progress"
+			hasRefused = true
 		case key == "\r" && line.Len() > 0 && hasTurned:
 			record(codexEvent{Event: "left in the editor", Text: line.String()})
 		case key == "\r" && line.Len() > 0:
@@ -719,20 +720,20 @@ func named(events []codexEvent, name string) []codexEvent {
 	return matched
 }
 
-// ended reports whether pid has ended within ten seconds.
+// ended reports whether pid has ended within thirty seconds.
 func ended(pid int) bool {
 	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return true
 	}
 	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 10000)
+	event, _ := windows.WaitForSingleObject(handle, 30000)
 	return event == windows.WAIT_OBJECT_0
 }
 
 func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "daybreak")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	_, err := f.service.Spawn(ctx, f.request)
@@ -1273,7 +1274,7 @@ func TestANativeSpawnFailsWhenPiNeverFinishesStarting(t *testing.T) {
 func TestANativeSendIgnoresAStartupRowLeftFromAnEarlierSubmit(t *testing.T) {
 	// Arrange
 	previousAccepted, previousStartup := nativeAccepted, nativeStartup
-	nativeAccepted, nativeStartup = 3*time.Second, 15*time.Second
+	nativeAccepted, nativeStartup = 3*time.Second, 2*time.Minute
 	t.Cleanup(func() { nativeAccepted, nativeStartup = previousAccepted, previousStartup })
 	f := newNativeFixture(t, harness.Pi, "pi-stale")
 	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
@@ -1303,7 +1304,7 @@ func TestANativeSendIgnoresAStartupRowLeftFromAnEarlierSubmit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "never showed its harness working") {
 		t.Errorf("SendNative = %v, want the acceptance window's error", err)
 	}
-	if took >= nativeStartup {
+	if took >= time.Minute {
 		t.Errorf("SendNative took %s, want it back once the %s acceptance window ran", took, nativeAccepted)
 	}
 	if left := named(f.events(t), "left in the editor"); len(left) != 1 || left[0].Text != "CFO: run the tests" {

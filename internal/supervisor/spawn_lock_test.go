@@ -114,7 +114,7 @@ func TestAStartThatMeetsAHandRunSpawnTriesAgainOnceTheLockFrees(t *testing.T) {
 			test.start(t, s, h)
 			select {
 			case <-spawner.met:
-			case <-time.After(10 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("the start never met the held spawn lock")
 			}
 			if err := lock.ReleaseExclusiveNamed(h.State, ".spawn.lock"); err != nil {

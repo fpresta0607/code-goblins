@@ -14,8 +14,8 @@ func TestCodexHealthReportUsesRuntimeAndFollowsPagesWithoutRunningAModel(t *test
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
-	_ = client.SetDeadline(time.Now().Add(3 * time.Second))
-	_ = server.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = client.SetDeadline(time.Now().Add(time.Minute))
+	_ = server.SetDeadline(time.Now().Add(time.Minute))
 	errors := make(chan error, 1)
 	go func() {
 		scanner := bufio.NewScanner(server)

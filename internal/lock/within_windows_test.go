@@ -45,6 +45,7 @@ func TestAcquireNamedOwnerWithinEndsAtItsWaitWhileTheRecordIsHeld(t *testing.T) 
 	if err == nil {
 		t.Fatal("AcquireNamedOwnerWithin took a lock a live holder holds")
 	}
+	// stall-accepted: it times the acquire, and the wait it rules out, the 5 s a read of a held record waits by default, is too short for a bound past a stall to tell apart.
 	if waited > wait+2*time.Second {
 		t.Errorf("the acquire waited %s while the record was held, want it to give up near its wait of %s: %v", waited, wait, err)
 	}

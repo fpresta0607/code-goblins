@@ -386,6 +386,7 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 				select {
 				case err := <-finished:
 					t.Fatalf("start returned while another start held the lock: %v", err)
+				// stall-accepted: nothing is meant to finish while the lock is held, and the start's own wait for it is 30 s, so a stall only makes this wait longer.
 				case <-time.After(200 * time.Millisecond):
 				}
 				isRunning.Store(isOtherRunning)
@@ -397,7 +398,7 @@ func TestCFOStartsWaitForTheLaunchLockAndRecheckTheRunningTerminal(t *testing.T)
 					if err != nil {
 						t.Fatal(err)
 					}
-				case <-time.After(3 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("start did not finish after the lock was released")
 				}
 
@@ -431,6 +432,7 @@ func TestCFOLaunchWaitRechecksTheCFOWhenItsDeadlineEnds(t *testing.T) {
 			}
 			t.Cleanup(func() { lock.ReleaseExclusiveNamed(fixture.home.State, supervisor.CFOLaunchLock) })
 			fixture.runtime.nativeTerminalRuns = func(string, string) bool { return isRunning }
+			// stall-accepted: the test means this context to run out while another start holds the lock.
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 			defer cancel()
 

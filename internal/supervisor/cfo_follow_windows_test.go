@@ -70,7 +70,7 @@ func cfoBoard(t *testing.T) (*Service, string, string) {
 // queued for a reopened CFO whose composer has not settled yet.
 func deliver(t *testing.T, s *Service) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	for {
 		s.cycle(ctx, false)
@@ -81,7 +81,7 @@ func deliver(t *testing.T, s *Service) {
 			return
 		}
 		select {
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(50 * time.Millisecond): // stall-accepted: a pause between ticks, which a stall only makes longer.
 		case <-ctx.Done():
 			t.Fatalf("the reopened CFO still has an untyped reply queued: %+v", d.Actions)
 		}

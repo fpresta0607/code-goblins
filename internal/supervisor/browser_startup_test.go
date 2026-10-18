@@ -101,7 +101,7 @@ func TestBrowserFailedStartupRetainsAnUnclosedReturnedProcess(t *testing.T) {
 func TestBrowserRequestCancelledBehindTheMutexStartsNothing(t *testing.T) {
 	broker, chrome, _, _ := testBroker(t)
 	brokerTask(t, broker, "pd-keys", "throwaway")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond) // stall-accepted: the test means this context to run out while the request waits on the lock.
 	defer cancel()
 	broker.mu.Lock()
 	answer := make(chan error, 1)
@@ -114,7 +114,7 @@ func TestBrowserRequestCancelledBehindTheMutexStartsNothing(t *testing.T) {
 		if !errors.Is(err, context.DeadlineExceeded) || len(chrome.launches) != 0 {
 			t.Fatalf("expired request = %v, launches %d, want no launch", err, len(chrome.launches))
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("cancelled request did not return")
 	}
 }

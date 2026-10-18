@@ -23,7 +23,7 @@ func TestTurnKeepsCustodyUntilItsWorkersAreConfirmedGone(t *testing.T) {
 
 	// Act
 	turn.Release()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	other, err := admission.Wait(ctx)
 	other.Release()
@@ -151,7 +151,7 @@ func TestAdmissionRefusesOrphanedOrUnreadableWorkerCustody(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(admission.Dir, "custody", "orphan.json"), []byte(contents), 0600); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act

@@ -185,6 +185,7 @@ func writeConversation(t *testing.T, home, harness, worktree string, entries ...
 	other := t.TempDir()
 	taken := map[string]map[string]any{"claude": claudeQueued("2026-10-06T21:59:00Z", steer), "codex": codexMessage("2026-10-06T21:59:00Z", "user", steer), "pi": piMessage("2026-10-06T21:59:00Z", "user", steer)}[harness]
 	for i, dir := range []string{worktree, other} {
+		// stall-accepted: a file's written time, which the code compares only with other files' times, never with the clock.
 		written := time.Now().Add(time.Duration(i) * time.Minute)
 		if dir == other {
 			entries = []map[string]any{taken}

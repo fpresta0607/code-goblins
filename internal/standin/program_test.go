@@ -276,7 +276,7 @@ func TestAStandInToldToHoldKeepsRunning(t *testing.T) {
 	select {
 	case <-exited:
 		t.Fatal("the stand-in exited, want it held")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond): // stall-accepted: no exit is meant to arrive, so a stall only makes the wait longer.
 	}
 }
 

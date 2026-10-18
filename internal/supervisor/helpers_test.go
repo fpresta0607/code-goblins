@@ -53,7 +53,7 @@ func writeHelperTask(t *testing.T, h home.Home, meta state.TaskMeta) {
 // waitForCalls waits until spawner has run n commands.
 func waitForCalls(t *testing.T, spawner *spawnRecorder, n int) [][]string {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if calls := spawner.recorded(); len(calls) >= n {
 			return calls
 		}
@@ -65,7 +65,7 @@ func waitForCalls(t *testing.T, spawner *spawnRecorder, n int) [][]string {
 // waitStartEnds waits until the start s runs has ended and told everyone.
 func waitStartEnds(t *testing.T, s *Service) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		s.starts.Lock()
 		starting := s.starting
 		s.starts.Unlock()

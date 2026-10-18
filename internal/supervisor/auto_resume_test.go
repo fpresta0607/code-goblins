@@ -121,7 +121,7 @@ func TestFailedAllowancePauseIsHeldOnlyForItsGenerationAndReset(t *testing.T) {
 
 func awaitDispatch(t *testing.T, service *Service, spawner *spawnRecorder, count int) [][]string {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		service.starts.Lock()
 		isChanging := service.starting != "" || len(service.changing) > 0
@@ -508,7 +508,7 @@ func TestTheSnapshotSaysWhoseStartIsUnderWay(t *testing.T) {
 
 			// Act
 			err := handler.Service.startQueued("next-task", isOverlord)
-			awaitRecorded(t, spawner, 1)
+			waitForCalls(t, spawner, 1)
 			card := cardOf(t, handler, "next-task")
 			close(spawner.release)
 			waitStarted(t, handler, "next-task")

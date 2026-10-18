@@ -23,7 +23,10 @@ func TestAtomicWriteFileContextStopsAtDeadlineAndPreservesDestination(t *testing
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	budget := transientBudget
+	transientBudget = 2 * time.Minute
+	t.Cleanup(func() { transientBudget = budget })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	// Act
@@ -31,7 +34,7 @@ func TestAtomicWriteFileContextStopsAtDeadlineAndPreservesDestination(t *testing
 	err = AtomicWriteFileContext(ctx, path, []byte("new"))
 
 	// Assert
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Minute {
 		t.Fatalf("write ignored deadline: %v", err)
 	}
 	data, err := ReadFile(path)

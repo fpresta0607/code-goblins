@@ -376,6 +376,7 @@ func (p *wakeProof) dismissOptionalNotices(ctx context.Context, record host.Reco
 		select {
 		case <-ctx.Done():
 			return
+		// stall-accepted: running out only looks at the screen again, which is the loop's passing path.
 		case <-time.After(2 * time.Second):
 		}
 	}

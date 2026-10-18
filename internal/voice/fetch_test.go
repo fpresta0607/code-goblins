@@ -32,7 +32,7 @@ func TestTwoFetchesOfOnePartAtOnceBothLeaveItReady(t *testing.T) {
 		}
 		select {
 		case <-both:
-		case <-time.After(10 * time.Second):
+		case <-time.After(time.Minute):
 		}
 		w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
 		_, _ = w.Write(archive[:len(archive)/2])

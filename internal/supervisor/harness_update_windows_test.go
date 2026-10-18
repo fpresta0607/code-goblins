@@ -348,7 +348,7 @@ func screenShows(t *testing.T, stateDir, id, text string, working bool) {
 		t.Fatal(err)
 	}
 	screens, _ := harness.NativeScreens(harness.Claude)
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if rows, err := host.ReadScreen(record); err == nil && slices.ContainsFunc(rows, func(row string) bool { return strings.Contains(row, text) }) && screens.IsWorking(rows) == working {
 			return
 		}

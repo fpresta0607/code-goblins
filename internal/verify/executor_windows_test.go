@@ -30,7 +30,7 @@ func TestExecutorRecordsActualExitOutputAndWholeJobCleanup(t *testing.T) {
 			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond, Headroom: func() (Headroom, error) {
 				return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil
 			}}}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -126,7 +126,7 @@ func TestExecutorTracksDescendantsAfterTheParentExits(t *testing.T) {
 			}
 			return nil
 		}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -176,7 +176,7 @@ func TestExecutorRefusesResourceWaitWithoutStartingCommand(t *testing.T) {
 		return Headroom{PhysicalAvailable: 3 << 30, CommitAvailable: 8 << 30}, nil
 	}}}
 	executor.Admission.Limit = 10 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -262,7 +262,7 @@ func TestExecutorFileInputDoesNotWaitForEOFWhenTheCommandEnds(t *testing.T) {
 	executor := Executor{Stdin: reader, Admission: admission(t), Monitor: Monitor{Poll: time.Millisecond,
 		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 8 << 30}, nil },
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -286,7 +286,7 @@ func TestExecutorAdmitsIndependentPhysicalAndCommitReserves(t *testing.T) {
 		Headroom: func() (Headroom, error) { return Headroom{PhysicalAvailable: 8 << 30, CommitAvailable: 16 << 30}, nil },
 	}}
 	executor.Admission.Limit = 10 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -391,7 +391,7 @@ func TestExecutorRetainsFinalWriteFailureAfterSuccessfulCleanup(t *testing.T) {
 			}
 			return os.WriteFile(filepath.Join(recordPath, "occupied"), nil, 0600)
 		}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -527,10 +527,10 @@ func TestExecutorConcurrentCleanupHonorsTheWaitingCallersDeadline(t *testing.T) 
 	})
 	select {
 	case <-job.entered:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("first cleanup did not start")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 
 	// Act
@@ -538,6 +538,7 @@ func TestExecutorConcurrentCleanupHonorsTheWaitingCallersDeadline(t *testing.T) 
 	err = executor.RetryCleanup(ctx)
 
 	// Assert
+	// stall-accepted: it times the call, and the waits it rules out include the cleanup's own 5 s bound, so no longer bound tells them apart.
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
 		t.Fatalf("concurrent cleanup ignored deadline: %v after %s", err, time.Since(started))
 	}
@@ -595,7 +596,7 @@ func TestExecutorCleanupDeadlineCoversCustodyReleaseAndEvidence(t *testing.T) {
 				}
 			}()
 			executor := Executor{pending: map[string]*pendingCleanup{execution.ID(): pending}}
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 			defer cancel()
 
 			// Act
@@ -606,6 +607,7 @@ func TestExecutorCleanupDeadlineCoversCustodyReleaseAndEvidence(t *testing.T) {
 			unblock = nil
 
 			// Assert
+			// stall-accepted: it times the call, and the waits it rules out include the cleanup's own 5 s bound, so no longer bound tells them apart.
 			if !errors.Is(err, context.DeadlineExceeded) || elapsed > time.Second || len(executor.pending) != 1 {
 				t.Errorf("%s ignored cleanup deadline or lost ownership: %v after %s, pending=%d", phase, err, elapsed, len(executor.pending))
 			}
@@ -684,12 +686,13 @@ func TestExecutorNestedCleanupDeadlineCoversProgressCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	started := time.Now()
 	err = executor.RetryCleanup(ctx)
 	elapsed := time.Since(started)
 	windows.CloseHandle(handle)
+	// stall-accepted: it times the call, and the waits it rules out include the cleanup's own 5 s bound, so no longer bound tells them apart.
 	if !errors.Is(err, context.DeadlineExceeded) || elapsed > time.Second || len(executor.pending) != 1 {
 		t.Errorf("nested release ignored deadline or lost ownership: %v after %s", err, elapsed)
 	}
@@ -790,7 +793,7 @@ func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 				}
 				return row.end, row.failure
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act

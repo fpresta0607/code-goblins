@@ -1121,8 +1121,10 @@ func TestCIUnreadableStaysUpThroughASuccessfulAction(t *testing.T) {
 	}
 	gitFixture(t, meta.Worktree)
 	_ = s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
-	stop := event(t, h, "Stop", "native-stop", "turn", time.Now().Add(time.Millisecond))
-	for _, e := range []nativehook.Event{event(t, h, "SessionStart", "native-stop", "", time.Now()), stop} {
+	now := time.Now()
+	// stall-accepted: the Stop event's timestamp, a moment after its session start's, which no wait compares with the clock.
+	stop := event(t, h, "Stop", "native-stop", "turn", now.Add(time.Millisecond))
+	for _, e := range []nativehook.Event{event(t, h, "SessionStart", "native-stop", "", now), stop} {
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)
 		}

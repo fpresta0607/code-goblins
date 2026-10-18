@@ -38,7 +38,7 @@ func TestARunItemARaisedSupervisorStartsRunsAtNormal(t *testing.T) {
 			return
 		}
 		_ = windows.TerminateProcess(ending, 1)
-		_, _ = windows.WaitForSingleObject(ending, 10000)
+		_, _ = windows.WaitForSingleObject(ending, 60000)
 		_ = windows.CloseHandle(ending)
 	})
 	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(started.PID))

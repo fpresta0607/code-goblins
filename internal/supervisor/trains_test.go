@@ -465,6 +465,7 @@ func TestALineTheCFOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testi
 		t.Fatal(err)
 	}
 	engine.Landed(context.Background(), landed, train.Car{Number: 11, URL: "https://github.com/o/r/pull/11"})
+	// stall-accepted: the time written on the CFO's line, a second after the train's, which no wait compares with the clock.
 	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindMerge, What: "PR 11 landed on merge train 900", Link: landed.PR, Evidence: "One CI run, all checks passed."}, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
