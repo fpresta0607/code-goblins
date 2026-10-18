@@ -421,8 +421,8 @@
                 Pop-Location
             }
             # Said plainly, because nothing else will: a build from source has no
-            # publisher, and no release is signed yet.
-            Write-Detail "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
+            # publisher, though every release from v0.5.2 on is signed.
+            Write-Detail "These programs are unsigned: they were built on this PC from this clone, while Code Goblins' releases are signed by SIQstack LLC."
             Write-Detail "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
             # cfo install puts the window built beside it in the home.
@@ -475,14 +475,14 @@
     # beside the tools, out of sight, and the install waits for it where it
     # once ran it, after them: on a GitHub runner on 2026-10-18 it took 76 s
     # of a fresh install's 298. What it prints goes to the log once it has
-    # ended.
+    # ended. It runs on the install's own console, as the install ran it
+    # before, so an interrupt that ends the install ends it too.
     $dictation = $null
     try {
         $start = New-Object System.Diagnostics.ProcessStartInfo
         $start.FileName = $dest
         $start.Arguments = "dictation setup"
         $start.UseShellExecute = $false
-        $start.CreateNoWindow = $true
         $start.RedirectStandardOutput = $true
         $start.RedirectStandardError = $true
         $dictation = [Diagnostics.Process]::Start($start)
@@ -588,14 +588,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # no-mistakes' own installer and its update put it.
     $noMistakesProgram = Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe"
 
-    # Read-NoMistakesVersion returns the version $Program reports, such as
-    # 1.88.0-24-gbcbb444, or "" when it reports none. Only stdout holds the
-    # version: stderr may carry an update notice that names another.
-    function Read-NoMistakesVersion([string]$Program) {
-        if ((& $Program --version 2>$null | Out-String) -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)(\s|$)') {
-            return $Matches[1]
-        }
-        return ""
+    # Get-NoMistakesOrder orders a no-mistakes version as git describe names
+    # a build: by its release, then by how many commits past it the build is,
+    # so v1.88.0-20-g1234567 comes before v1.88.0-24-gbcbb444 and a release
+    # before every build past it.
+    function Get-NoMistakesOrder([string]$Version) {
+        $parts = [regex]::Match($Version, '^(\d+\.\d+\.\d+)(-(\d+)-g[0-9a-f]+)?')
+        $distance = if ($parts.Groups[3].Success) { $parts.Groups[3].Value } else { "0" }
+        return [version]"$($parts.Groups[1].Value).$distance"
     }
 
     # Test-NoMistakes says what keeps $Program from gating the fleet's work
@@ -606,14 +606,18 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # there, which Microsoft Defender detects as a lure, and one with no
     # launch selection refuses every gate of a task frozen at policy v6. A
     # build that reports no version of that shape, such as one built by hand,
-    # is judged by what it does alone.
+    # is judged by what it does alone. Only stdout holds the version: stderr
+    # may carry an update notice that names another.
     function Test-NoMistakes([string]$Program) {
         $said = & $Program --version 2>$null | Out-String
         if ($LASTEXITCODE -ne 0 -or $said -notmatch '(?m)^no-mistakes version ') {
             return "$Program did not run"
         }
-        $version = Read-NoMistakesVersion $Program
-        if ($version -and [version]($version -replace '-.*$', '') -lt [version]($noMistakesVersion -replace '-.*$', '')) {
+        $version = ""
+        if ($said -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)(\s|$)') {
+            $version = $Matches[1]
+        }
+        if ($version -and (Get-NoMistakesOrder $version) -lt (Get-NoMistakesOrder $noMistakesVersion)) {
             return "$Program is v$version, older than the pinned v$noMistakesVersion"
         }
         $help = & $Program help axi run 2>$null | Out-String

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 )
 
@@ -140,54 +142,93 @@ func TestTheInstallRunsTheSameWithASignatureAtItsEnd(t *testing.T) {
 // install.ps1 pins it, and published with the licences of what it compiles in.
 func TestTheReleaseSignsChecksAndPublishesEveryProgramItLists(t *testing.T) {
 	// Arrange
-	sums, _ := releaseStep(t, "Checksum")
-	verify, _ := releaseStep(t, "Verify the signatures")
-	scan, _ := releaseStep(t, "Scan with Microsoft Defender")
-	_, afterSign := releaseStep(t, "Sign")
-	sign, _, _ := strings.Cut(afterSign, "\n      - ")
-	_, afterPublish := releaseStep(t, "Publish release")
-	publish, _, _ := strings.Cut(afterPublish, "\n      - ")
-	_, afterBuild := releaseStep(t, "Build no-mistakes")
-	build, _, _ := strings.Cut(afterBuild, "\n      - ")
-	upload, _, _ := strings.Cut(afterBuild, "\n      - name:")
-	upload = upload[strings.Index(upload, "uses: actions/upload-artifact@"):]
+	source, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type step struct {
+		Name string            `yaml:"name"`
+		Uses string            `yaml:"uses"`
+		Run  string            `yaml:"run"`
+		With map[string]string `yaml:"with"`
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []step `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	find := func(job, what string, isIt func(step) bool) step {
+		t.Helper()
+		for _, candidate := range workflow.Jobs[job].Steps {
+			if isIt(candidate) {
+				return candidate
+			}
+		}
+		t.Fatalf("the release's %s job has no step that %s", job, what)
+		return step{}
+	}
+	named := func(name string) func(step) bool { return func(s step) bool { return s.Name == name } }
+	using := func(action string) func(step) bool {
+		return func(s step) bool { return strings.HasPrefix(s.Uses, action+"@") }
+	}
+	// lines is a with value that lists one file to a line.
+	lines := func(text string) []string {
+		var listed []string
+		for _, line := range strings.Split(text, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				listed = append(listed, line)
+			}
+		}
+		return listed
+	}
+	// files is the list a step's script walks with foreach ($file in ...).
+	files := func(s step) []string {
+		t.Helper()
+		list := regexp.MustCompile(`foreach \(\$file in ([^)]*)\)`).FindStringSubmatch(s.Run)
+		if list == nil {
+			t.Fatalf("the %s step walks no list of files:\n%s", s.Name, s.Run)
+		}
+		var listed []string
+		for _, match := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(list[1], -1) {
+			listed = append(listed, match[1])
+		}
+		return listed
+	}
 
 	// Act
-	list := regexp.MustCompile(`foreach \(\$file in ([^)]*)\)`).FindStringSubmatch(sums)
-	if list == nil {
-		t.Fatalf("the Checksum step names no list of programs:\n%s", sums)
-	}
-	var programs []string
-	for _, match := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(list[1], -1) {
-		programs = append(programs, match[1])
-	}
+	programs := files(find("publish", "sums the programs", named("Checksum")))
+	build := strings.Fields(find("build", "builds no-mistakes", named("Build no-mistakes")).Run)
+	handedOver := lines(find("build", "hands the build over", using("actions/upload-artifact")).With["path"])
+	signed := lines(find("publish", "signs the programs", func(s step) bool { return s.Name == "Sign" && using("azure/artifact-signing-action")(s) }).With["files"])
+	verified := files(find("publish", "verifies the signatures", named("Verify the signatures")))
+	scanned := files(find("publish", "scans the programs", named("Scan with Microsoft Defender")))
+	published := lines(find("publish", "publishes the release", using("softprops/action-gh-release")).With["files"])
 
 	// Assert
 	if !slices.Contains(programs, "no-mistakes.exe") {
 		t.Errorf("the release lists %q, want no-mistakes.exe among them", programs)
 	}
-	if !strings.HasSuffix(build, "run: ./tools/build-no-mistakes.ps1 -Destination no-mistakes.exe -Notices no-mistakes-NOTICES") {
-		t.Errorf("the build job builds no-mistakes with:\n%s\nwant tools/build-no-mistakes.ps1 and its notices", build)
+	flags := map[string]string{}
+	for i := 1; i+1 < len(build); i += 2 {
+		flags[build[i]] = build[i+1]
+	}
+	if len(build) == 0 || build[0] != "./tools/build-no-mistakes.ps1" || flags["-Destination"] != "no-mistakes.exe" || flags["-Notices"] != "no-mistakes-NOTICES" {
+		t.Errorf("the build job builds no-mistakes with %q, want tools/build-no-mistakes.ps1 writing no-mistakes.exe and its notices", build)
 	}
 	for _, program := range programs {
-		if !strings.Contains(upload, "            "+program+"\n") {
-			t.Errorf("the build job does not hand over %s", program)
-		}
-		if !strings.Contains(sign, `${{ github.workspace }}\`+program+"\n") {
-			t.Errorf("the release does not sign %s", program)
-		}
-		for name, step := range map[string]string{"Verify the signatures": verify, "Scan with Microsoft Defender": scan} {
-			if !strings.Contains(step, "'"+program+"'") {
-				t.Errorf("the %s step leaves out %s", name, program)
+		for what, list := range map[string][]string{"hand over": handedOver, "verify": verified, "scan": scanned, "publish": published} {
+			if !slices.Contains(list, program) {
+				t.Errorf("the release does not %s %s: %q", what, program, list)
 			}
 		}
-		if !strings.Contains(publish, "            "+program+"\n") {
-			t.Errorf("the release does not publish %s", program)
+		if !slices.Contains(signed, `${{ github.workspace }}\`+program) {
+			t.Errorf("the release does not sign %s: %q", program, signed)
 		}
 	}
-	for _, file := range []string{"no-mistakes-NOTICES"} {
-		if !strings.Contains(upload, "            "+file+"\n") || !strings.Contains(publish, "            "+file+"\n") {
-			t.Errorf("the release does not hand over and publish %s", file)
-		}
+	if !slices.Contains(handedOver, "no-mistakes-NOTICES") || !slices.Contains(published, "no-mistakes-NOTICES") {
+		t.Errorf("the release does not hand over and publish no-mistakes-NOTICES: %q, %q", handedOver, published)
 	}
 }

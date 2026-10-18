@@ -231,7 +231,7 @@ func goComponents(goroot string, modules []module) (section, []string, error) {
 			name, dir = "Go standard library", goroot
 		}
 		text, err := licenceText(dir)
-		if stated, ok := statedLicences[m.Path]; ok && err != nil {
+		if stated, ok := statedLicences[m.Path+"@"+m.Version]; ok && err != nil {
 			text, err = stated, nil
 		}
 		if err != nil {
@@ -246,13 +246,14 @@ func goComponents(goroot string, modules []module) (section, []string, error) {
 	return s, problems, nil
 }
 
-// statedLicences are the texts the notices carry for the modules that ship
-// no licence file but state their licence in their README, by module path. A
-// version that ships a file of its own is read from that file.
+// statedLicences are the texts the notices carry for the module versions
+// that ship no licence file but state their licence in their README, by
+// path@version, each read by a person. Another version of the same module
+// is read from its own files, and refused when it has none.
 var statedLicences = map[string]string{
 	// Its README says "## License MIT" and names its author; no-mistakes
 	// compiles it in through bubbletea.
-	"github.com/mattn/go-localereader": "Copyright (c) Yasuhiro Matsumoto (a.k.a. mattn)\n\n" + mitTerms,
+	"github.com/mattn/go-localereader@v0.0.1": "Copyright (c) Yasuhiro Matsumoto (a.k.a. mattn)\n\n" + mitTerms,
 }
 
 // mitTerms is the MIT licence's text after its copyright line.

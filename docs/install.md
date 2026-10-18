@@ -102,7 +102,7 @@ When it adopts the standalone copy's existing Start at login entry, that entry r
 ### What it leaves in your temp folder
 
 The install keeps one file in your temp folder, its log, `CodeGoblinsInstall.log`, which its last line names.
-Everything else it makes there it removes: the release it downloads, the no-mistakes download, the files dictation's setup prints to, each installer it saves to a file, and the folder the setup downloads the install script to.
+Everything else it makes there it removes: the release it downloads, the no-mistakes download, each installer it saves to a file, and the folder the setup downloads the install script to.
 A virus scanner can still be reading a file it just saw, and Windows keeps a program for a moment after it ran, so a removal that fails at first is tried again as the install ends, for up to ten seconds.
 A folder that is still held then never fails the install.
 One `Note:` line names it, and it is safe to delete.
@@ -189,7 +189,8 @@ Rerunning the install still updates the tools it pins, such as no-mistakes, whic
 ## On a fresh PC
 
 A release says at the top of its notes whether its programs are code-signed, and by whom.
-Every release from v0.5.2 on is signed by SIQstack LLC, through Azure Artifact Signing, with a timestamp, and so is the no-mistakes it publishes; v0.4.0 to v0.5.1 are not.
+Every release from v0.5.2 on is signed by SIQstack LLC, through Azure Artifact Signing, with a timestamp; v0.4.0 to v0.5.1 are not.
+A release that publishes no-mistakes signs it the same way.
 A signed release signs its `install.ps1` too, with the same certificate.
 The one-line install runs the script as text, where the signature is a block of comment lines at its end and changes nothing the script does.
 An unsigned release says so, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.

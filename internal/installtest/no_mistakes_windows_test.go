@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -480,12 +481,24 @@ func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
 // alone, and names no-mistakes among the installs that did not complete, on
 // every rerun alike.
 func TestOneLineInstallWarnsOfANoMistakesItDidNotInstallThatCannotGate(t *testing.T) {
+	// earlier is a build of the pinned release fewer commits past it: older,
+	// though its release is the pin's.
+	pinned := regexp.MustCompile(`^(\d+\.\d+\.\d+)-(\d+)-g[0-9a-f]+$`).FindStringSubmatch(pinnedNoMistakes(t))
+	if pinned == nil {
+		t.Fatalf("install.ps1 pins no-mistakes %s, want a build past a release", pinnedNoMistakes(t))
+	}
+	distance, err := strconv.Atoi(pinned[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	earlier := fmt.Sprintf("%s-%d-g0000000", pinned[1], distance-1)
 	for name, test := range map[string]struct {
 		stub string
 		why  string
 	}{
-		"an older one":                 {stub: existingNoMistakes("1.0.0", true), why: "is v1.0.0, older than the pinned v"},
-		"one with no launch selection": {stub: existingNoMistakes("999.0.0", false), why: "has no --intent-file and --launch-assertion, which the fleet's gate needs"},
+		"an older one":                           {stub: existingNoMistakes("1.0.0", true), why: "is v1.0.0, older than the pinned v"},
+		"an earlier build of the pinned release": {stub: existingNoMistakes(earlier, true), why: "is v" + earlier + ", older than the pinned v"},
+		"one with no launch selection":           {stub: existingNoMistakes("999.0.0", false), why: "has no --intent-file and --launch-assertion, which the fleet's gate needs"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			release := serveNoMistakesRelease(t, []byte("the pinned build"), 0, publishedSums, nil)

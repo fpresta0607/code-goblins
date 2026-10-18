@@ -141,8 +141,8 @@ func TestGoComponentsFailsForAModuleWithNoLicenceFile(t *testing.T) {
 	}
 }
 
-func TestGoComponentsTakesTheStatedLicenceOfAModuleThatShipsNoFile(t *testing.T) {
-	bare := writeFiles(t, map[string]string{"README.md": "## License\n\nMIT"})
+func TestGoComponentsTakesTheStatedLicenceOfAModuleVersionThatShipsNoFile(t *testing.T) {
+	bare := writeFiles(t, map[string]string{"go.mod": "module github.com/mattn/go-localereader"})
 
 	s, problems, err := goComponents(t.TempDir(), []module{{Path: "github.com/mattn/go-localereader", Version: "v0.0.1", Dir: bare}})
 
@@ -151,6 +151,16 @@ func TestGoComponentsTakesTheStatedLicenceOfAModuleThatShipsNoFile(t *testing.T)
 	}
 	if got := s.components[0]; got.licence != "MIT" || !strings.HasPrefix(got.text, "Copyright (c) Yasuhiro Matsumoto") {
 		t.Errorf("component = %s under %s, want the stated MIT licence with its author's copyright", got.name, got.licence)
+	}
+}
+
+func TestGoComponentsRefusesAnotherVersionOfAStatedModuleThatShipsNoFile(t *testing.T) {
+	bare := writeFiles(t, map[string]string{"go.mod": "module github.com/mattn/go-localereader"})
+
+	_, _, err := goComponents(t.TempDir(), []module{{Path: "github.com/mattn/go-localereader", Version: "v0.0.2", Dir: bare}})
+
+	if err == nil || !strings.Contains(err.Error(), "github.com/mattn/go-localereader v0.0.2: no licence file") {
+		t.Fatalf("err = %v, want v0.0.2 refused for having no licence file", err)
 	}
 }
 
