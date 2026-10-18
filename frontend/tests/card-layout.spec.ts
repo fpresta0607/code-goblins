@@ -363,3 +363,41 @@ test.describe("in his window, beside the CFO's panel", () => {
     await expect(shell.getByRole("button", { name: /^(Update|Pause|Stop) / })).toHaveCount(0);
   });
 });
+
+// The Overlord, 2026-10-17, of Murray's card, its date running into a ticket,
+// a pull request, two checks and its harness mark: "We don't need to have the
+// full October 14, we could just put 10/14 to keep it smaller, and the checks
+// that you have here, we don't need to have the test checks as an icon. That
+// can be in the task panel. But for now, we just want to know the pull
+// request and the issue." A card's bottom row holds its time, a date as its
+// month and day and a time only for today, then its ticket, its pull request
+// and its harness mark, none over another at the board's narrowest.
+test.describe("in en-US at UTC", () => {
+  test.use({ locale: "en-US", timezoneId: "UTC" });
+
+  test("at 280 px a card's bottom row shows a short date and only its ticket and pull request, none over another", async ({ page }, testInfo) => {
+    // Arrange
+    await board(page, 1400, 280);
+    const murray = page.locator(".task-card-shell").filter({ has: page.locator(".card-title", { hasText: "Murray - API Artisan" }) });
+    const finished = page.locator(".task-card-shell").filter({ hasText: "Orchestration pulses end smoothly" });
+
+    // Act
+    await murray.screenshot({ path: testInfo.outputPath("murray.png") });
+    const row = await murray.evaluate((shell) => {
+      const parts = [...shell.querySelectorAll(":scope > .card-clock, :scope > .card-icons > *")];
+      const kinds = parts.map((part) => ["card-clock", "card-ticket", "card-pr", "card-harness"].find((kind) => part.classList.contains(kind)) || part.className);
+      const boxes = parts.map((part) => part.getBoundingClientRect()), overlaps: string[] = [];
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0) overlaps.push(kinds[i] + " / " + kinds[j]);
+      }
+      return { kinds, overlaps };
+    });
+
+    // Assert
+    await expect(murray.locator(".card-clock time")).toHaveText("9/28");
+    await expect(finished.locator(".card-clock time")).toHaveText("9:15 AM");
+    expect(row.kinds).toEqual(["card-clock", "card-ticket", "card-pr", "card-harness"]);
+    expect(row.overlaps).toEqual([]);
+  });
+});

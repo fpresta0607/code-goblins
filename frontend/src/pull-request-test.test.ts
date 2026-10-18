@@ -176,7 +176,7 @@ test("a goblin whose pull request a train fails and retries reads each train on 
   }
 });
 
-test("a pull request a train could not merge shows on its goblin's card with what happens next, in grey", () => {
+test("a pull request a train could not merge shows in its goblin's panel with what happens next, in grey", () => {
   // Arrange: Abe's #523 conflicted on the train that landed the rest.
   const conflicted = train("landed", "conflict", { cars: [{ number: 512, url: PR, title: "Keep memory", task: "cg-sid", goblin: "Sid", goblin_title: "Memory Keeper", head: HEAD, state: "conflict", note: "it conflicts in a.go" }] });
 
