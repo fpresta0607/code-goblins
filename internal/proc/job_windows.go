@@ -102,17 +102,25 @@ func (h *HeldJobs) Processes() ([]Entry, error) {
 	return jobEntries(h.jobs)
 }
 
-// jobEntries returns the live processes in jobs, sorted by pid. The jobs are
-// read before the machine's processes, so a process that joined one just
-// before has its name.
+// jobEntries returns the live processes in jobs, sorted by pid: those the
+// jobs list, and those Windows still holds in one of them but lists no
+// more, as it lists no process that a job nested in one of them is ending
+// (JobProcessIDs). Only the machine's processes name those, so each that is
+// in one of the jobs and has not ended is one of them. The jobs are read
+// before the machine's processes, so a process that joined one just before
+// has its name.
 func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
 	held := make([][]uint32, len(jobs))
+	listed := map[uint32]bool{}
 	for index, job := range jobs {
 		ids, _, err := JobProcessIDs(job)
 		if err != nil {
 			return nil, err
 		}
 		held[index] = ids
+		for _, id := range ids {
+			listed[id] = true
+		}
 	}
 	processes, err := snapshotProcesses()
 	if err != nil {
@@ -130,8 +138,42 @@ func jobEntries(jobs []syscall.Handle) ([]Entry, error) {
 			jobbed = append(jobbed, Entry{PID: int(id), ParentPID: int(processes[id].parentPID), ExeBase: processes[id].exeBase, Start: start})
 		}
 	}
+	for id, process := range processes {
+		if listed[id] {
+			continue
+		}
+		if start, isMember := unlistedProcessStart(jobs, id); isMember {
+			jobbed = append(jobbed, Entry{PID: int(id), ParentPID: int(process.parentPID), ExeBase: process.exeBase, Start: start})
+		}
+	}
 	sort.Slice(jobbed, func(i, j int) bool { return jobbed[i].PID < jobbed[j].PID })
 	return jobbed, nil
+}
+
+// unlistedProcessStart reports when process id started if it is in one of
+// jobs and has not ended. Like jobProcessStart it reads membership and birth
+// through one handle, so a reused pid never names another process.
+func unlistedProcessStart(jobs []syscall.Handle, id uint32) (time.Time, bool) {
+	process, err := syscall.OpenProcess(processQueryLimitedInformation|syscall.SYNCHRONIZE, false, id)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer syscall.CloseHandle(process)
+	if event, err := syscall.WaitForSingleObject(process, 0); err != nil || event != syscall.WAIT_TIMEOUT {
+		return time.Time{}, false
+	}
+	for _, job := range jobs {
+		var isMember int32
+		if ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok == 0 || isMember == 0 {
+			continue
+		}
+		var creation, exit, kernel, user syscall.Filetime
+		if err := syscall.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil {
+			return time.Time{}, false
+		}
+		return time.Unix(0, creation.Nanoseconds()).UTC(), true
+	}
+	return time.Time{}, false
 }
 
 // KeepOnClose stops the held jobs from ending their processes when their
@@ -188,12 +230,13 @@ const endJobFor = 5 * time.Second
 // (RunningServicesAmong): Docker Desktop or the no-mistakes daemon a goblin
 // started serves the whole machine, and the end of what started it must not
 // end it. With one there, the rest are ended one by one until none is left,
-// within endJobFor or ctx's deadline. It returns the processes the job held
-// as it ended them, and the services it spared with what runs under them,
-// each sorted by pid, and an end that fails beside a service still returns
-// the services. A job that ends its processes when its last handle closes
-// still does: its caller stops that (KeepJobOnClose) once the service is to
-// outlive the job, so a caller that dies first still ends the rest.
+// one Windows no longer lists included (jobEntries), within endJobFor or
+// ctx's deadline. It returns the processes the job held as it ended them,
+// and the services it spared with what runs under them, each sorted by pid,
+// and an end that fails beside a service still returns the services. A job
+// that ends its processes when its last handle closes still does: its
+// caller stops that (KeepJobOnClose) once the service is to outlive the
+// job, so a caller that dies first still ends the rest.
 func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err error) {
 	members, err := jobEntries([]syscall.Handle{syscall.Handle(job)})
 	if err != nil {
@@ -445,15 +488,19 @@ var readJobList = func(job syscall.Handle, buffer []uintptr) error {
 
 // JobProcessIDs lists the processes in a job, and says how many more the job
 // counts than it lists. Windows counts a job's processes and lists them in
-// one call, and while a process exits the count can stay above the list for
-// as long as the exit takes, which no reader bounds: as a headless Chrome
-// was ended its job counted one more process than it listed for up to
-// 474 ms, the process left out one whose exit had begun, and a browser run
-// pinned to four processors beside two busy loops kept the two apart
-// through every read of a sample's 250 ms and then of its end's, which
-// ended the run (issue 1025). A sample takes the list as it is, and a
+// one call. A process that a job nested in this one ends leaves the list as
+// that end begins, at times before it has an exit status, and the count
+// either with it or some time after, as its threads end, which no reader
+// bounds. A headless Chrome puts most of its processes each in a job of its
+// own inside the one the browser runs in, which ends what it holds once the
+// browser has ended: such a process left the list with up to 21 threads not
+// yet ended and was done up to 2.5 s later, while the job counted it beyond
+// the list for up to 474 ms or not at all (issues 1025 and 1066). A process
+// that exits, ends itself, is ended by its handle or ends with this job
+// stays listed until it has ended. A sample takes the list as it is, and a
 // caller that must show the job holds nothing else, as an end that spares a
-// machine service does, waits until the job counts nothing beyond it.
+// machine service does, also reads the machine's processes for those the
+// list leaves out (jobEntries).
 func JobProcessIDs(job syscall.Handle) (ids []uint32, unlisted uint32, err error) {
 	// Two DWORD counts precede pointer-sized ids. The room grows only when
 	// the list does not fit, within a bound, so a changing job cannot turn
