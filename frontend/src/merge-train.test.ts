@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { batchCars, batchRuns, cardCars, carLook, carName, isTrainOver, trainLook, trainSection } from "./merge-train.ts";
+import { batchCars, batchRuns, carLook, carName, isTrainOver, trainLook, trainSection } from "./merge-train.ts";
 import type { MergeTrain, TrainCar, TrainCheck, TrainRun } from "./types.ts";
 
 const PR = "https://github.com/o/r/pull/";
@@ -42,13 +42,6 @@ test("a train that took on one that landed nothing counts its runs on from it", 
   assert.deepEqual(trainLook(landed), { text: "Landed on run 4", tone: "passed", url: PR + "526" });
   const retrying = train({ runs: 1, earlier: [failed], cars: [car(517, "riding"), car(519, "riding")] });
   assert.equal(trainLook(retrying).text, "CI tests #517, #519, run 4");
-});
-
-test("a finished train's card lists only what it landed, and a running one what it carries", () => {
-  assert.deepEqual(cardCars(landed).map((each) => each.number), [517, 519, 520, 524]);
-  assert.deepEqual(cardCars(failed), []);
-  const running = train({ cars: [car(1, "landed"), car(2, "riding"), car(3, "waiting"), car(4, "conflict"), car(5, "returned")] });
-  assert.deepEqual(cardCars(running).map((each) => each.number), [1, 2, 3]);
 });
 
 test("a train's panel lists every run of its batch, numbered on from the trains it took on, each opening its run", () => {

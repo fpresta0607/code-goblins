@@ -4,7 +4,7 @@ import { expect, test, type Page } from "./site";
 // the top of In progress, a finished one at the top of Completed. The
 // supervisor is played by one held snapshot.
 const REPO = "https://github.com/northwind/northwind-api";
-const car = (number: number, state: string, title: string, note = "") => ({ number, url: REPO + "/pull/" + number, title, task: "nw-" + number, state, note });
+const car = (number: number, state: string, title: string, note = "", goblin = "", goblin_title = "") => ({ number, url: REPO + "/pull/" + number, title, task: "nw-" + number, state, note, goblin, goblin_title });
 const SNAPSHOT = {
   healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
   sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
@@ -20,7 +20,7 @@ const SNAPSHOT = {
     {
       id: "northwind-api-20261007-120000", repository: "northwind/northwind-api", base: "main", pr: REPO + "/pull/899", state: "stopped", runs: 3,
       started: new Date(Date.now() - 5 * 3600_000).toISOString(), finished: new Date(Date.now() - 4 * 3600_000).toISOString(), note: "#53 breaks CI on main: test (" + REPO + "/actions/runs/7)",
-      cars: [car(51, "landed", "Ship the export"), car(52, "landed", "Cache the rates"), car(53, "culprit", "Speed up the importer", "failed: test (" + REPO + "/actions/runs/7)"), car(54, "returned", "Tidy the logs")],
+      cars: [car(51, "landed", "Ship the export", "", "Ingrid", "Clock Icon Restorer of the Minimal Cards"), car(52, "landed", "Cache the rates"), car(53, "culprit", "Speed up the importer", "failed: test (" + REPO + "/actions/runs/7)"), car(54, "returned", "Tidy the logs")],
     },
   ],
 };
@@ -59,22 +59,26 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       // What happened last is in the status's tip, never a line on the card.
       await expect(status).toHaveAttribute("data-tip", /first half rides alone next: #55, #56$/);
       await expect(running.locator("p")).toHaveCount(0);
-      await expect(running.locator(".train-car")).toHaveText([/#55.*Retry the webhook.*Testing/, /#56.*Export the audit trail.*Testing/, /#57.*Fix the docs links.*Waits its turn/, /#58.*Rename the sync job.*Waits its turn/]);
+      // A rider says where it stands only when that differs from the train.
+      await expect(running.locator(".train-car")).toHaveText([/#55.*Retry the webhook$/, /#56.*Export the audit trail.*review$/, /#57.*Fix the docs links.*Waits its turn/, /#58.*Rename the sync job.*Waits its turn/]);
       await expect(running.locator(".train-car").first().locator("a")).toHaveAttribute("href", REPO + "/pull/55");
       // The train's card comes before the goblins' cards.
       const first = await column(page, "In progress").locator(".train-card, .task-card-shell").first().getAttribute("class");
       expect(first).toContain("train-card");
     });
 
-    test("a finished train heads Completed and lists only what it landed", async ({ page }) => {
+    test("a finished train heads Completed and lists what it landed and what it could not merge", async ({ page }) => {
       await open(page);
 
       const finished = column(page, "Completed").locator(".train-card");
       await expect(finished).toHaveCount(1);
       await expect(finished.locator(".train-status")).toHaveText("Landed on run 3");
       await expect(finished.locator(".train-status")).toHaveClass(/train-passed/);
-      await expect(finished.locator(".train-car")).toHaveText([/#51.*Ship the export.*Landed/, /#52.*Cache the rates.*Landed/]);
-      await expect(finished).not.toContainText(/#53|#54/);
+      // The train's status says Landed, so its landed riders do not say it
+      // again; one it could not merge says what happened to it.
+      await expect(finished.locator(".train-car")).toHaveText(["#51Ingrid - Clock Icon Restorer of the Minimal Cards", "#52Cache the rates", "#53Speed up the importerBreaks CI", "#54Tidy the logsRides the next train"]);
+      await expect(finished.locator(".train-car-state")).toHaveText(["Breaks CI", "Rides the next train"]);
+      await expect(finished.locator(".train-car").nth(2)).toHaveClass(/train-failed/);
       await expect(column(page, "In progress").locator(".train-card")).toHaveCount(1);
     });
 
@@ -93,6 +97,26 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         };
       });
       expect(fits).toEqual({ inside: true, oneLine: true, statesInside: true });
+    });
+
+    // The Overlord, 2026-10-17: "don't need to have landed in #1073 lines in
+    // completed, instead allow goblin name and title to flex fit that row".
+    test("a landed rider's goblin name and title take the row and wrap whole", async ({ page }, testInfo) => {
+      // Arrange
+      await open(page);
+      const finished = column(page, "Completed").locator(".train-card");
+      const title = finished.locator(".train-car").first().locator(".train-car-title");
+
+      // Act
+      await finished.screenshot({ path: testInfo.outputPath("landed-train.png") });
+      const fit = await title.evaluate((element) => {
+        const row = element.closest(".train-car")!.getBoundingClientRect(), goblin = element.closest(".train-car-goblin")!.getBoundingClientRect();
+        return { isWhole: element.scrollHeight <= element.clientHeight && element.scrollWidth <= element.clientWidth, reachesTheEnd: row.right - goblin.right < 12 };
+      });
+
+      // Assert
+      await expect(title).toHaveText("Ingrid - Clock Icon Restorer of the Minimal Cards");
+      expect(fit).toEqual({ isWhole: true, reachesTheEnd: true });
     });
   });
 }

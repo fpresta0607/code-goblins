@@ -122,7 +122,7 @@ A test that failed once inside a check that still ended green is named in the tr
 When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
-The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with what it tests or landed, folding a train that landed nothing into the train that retried it.
+The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with each of its pull requests and where it stands, folding a train that landed nothing into the train that retried it.
 Completed holds only finished trains that landed at least one pull request.
 Stopped or failed trains that landed nothing stay accessible under Train history, with their recorded reason.
 A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.

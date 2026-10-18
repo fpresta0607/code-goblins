@@ -864,7 +864,7 @@ A train that ends on a poll's step reads the open pull requests again and starts
 Each train records every CI run it starts, with the pull requests it tested and how it ended.
 The board shows one card for each batch of pull requests: a train that landed nothing is folded into the later train that took its pull requests on, which counts its runs on from it, and one that landed nothing and was not retried shows once, saying why.
 A running train heads In progress, and a finished one heads Completed for six hours.
-A finished card lists only what its train landed, and a pull request it could not merge or left for the next train shows on its goblin's card with what happens next.
+A finished card lists every pull request on its train, and one it could not merge or left for the next train says there what happens next.
 A click on a train's card opens its panel: every pull request of the batch with its goblin, and every run with the pull requests it tested and how it ended, each one tap from GitHub.
 While a train runs, hold other merges to its branch: a merge outside it makes the train test again.
 PR health wakes leave alone a train's own pull request and the pull requests a running train carries.
