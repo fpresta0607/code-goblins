@@ -20,7 +20,10 @@ owner account. No personal hostname, account or key is included in the build.
    open the link in its browser. Open the CFO terminal to control the existing
    session. To keep the board beside your apps, use Safari's **Share → Add to
    Home Screen** on an iPhone, or Chrome's menu **→ Add to Home screen** on
-   Android: it becomes a Code Goblins app with the goblin icon.
+   Android: it becomes a Code Goblins app with the goblin icon. In that app,
+   turn **App badge** on under Remote access and allow its notifications: while
+   the app is closed each new item shows as a notification and adds to the count
+   on its icon, which the app corrects when you open it.
 
 The panel checks the signed-in owner and reads back the exact private proxy
 before calling it ready, which a green check beside the switch says; an amber
@@ -170,8 +173,8 @@ Scrawl keep working on this PC either way.
 
 ## Security boundary
 
-The board keeps its numeric loopback listener. Tailscale Serve provides HTTPS
-on port 4311 inside the tailnet, and Code Goblins accepts only the exact saved
+The board keeps its numeric loopback listener. Tailscale Serve provides HTTPS on
+port 4311 inside the tailnet, and Code Goblins accepts only the exact saved
 HTTPS host and the signed-in owner's identity supplied by that local proxy.
 Other tailnet users, shared-node guests, tagged devices, missing identities and
 public Funnel requests are refused. A Tailscale ACL still governs which of the
@@ -179,7 +182,11 @@ owner's devices may reach the PC. To list the machines to pick from, the board
 asks each of the owner's own machines in the tailnet, online and untagged, for
 its web app manifest over HTTPS on port 4311, through that machine's own gate,
 and reads only whether it names Code Goblins; it never proxies another machine's
-board.
+board. With the App badge on, the supervisor also sends each new Command Center
+item and the count to the browser's push service, encrypted so only the
+subscribed app reads them, and to no other server. The board on a PC turns no
+app's badge on, and turning remote access off forgets every app at once; as
+everywhere, a program already running on the PC is inside this boundary.
 
 The gate checks browser Origin before translating it to the local board and
 retains the existing mutation and terminal WebSocket token checks. Forwarding

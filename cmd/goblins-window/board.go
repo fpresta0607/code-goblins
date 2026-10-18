@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
 // boardAddress reads the board's address from the record cfo serve writes in
@@ -212,134 +213,6 @@ func (p *Page) Shown() {
 	p.shown = true
 }
 
-// Item is one thing on the board that asks the Overlord something: its
-// alert's key as the board's page names it, the item's id with the
-// publishing it stands for, so the page and the window raise one
-// notification for it; who asks; and what it asks, on one plain line.
-type Item struct {
-	ID    string
-	Asker string
-	Text  string
-}
-
-// waiting lists what a board snapshot holds that asks the Overlord
-// something, which is what the board's page alerts, each in the asker's
-// words as the page says it: a pending question; an open review item; a
-// command ready or running that no credential card or Remote access setting
-// opened, since that terminal shows there; and an open request for
-// credentials, by its project alone, so the credential names stay out of a
-// Windows notification. A question that names a task is a goblin's, which
-// the CFO answers: it is not listed. Nothing else on the board, such
-// as a goblin blocked, failed or done, is an item. It names the supervisor's
-// instance too, which every request to the board that changes something
-// carries.
-func waiting(snapshot []byte) (string, []Item, error) {
-	var view struct {
-		Instance string `json:"instance"`
-		Tasks    []struct {
-			ID, Title string
-		} `json:"tasks"`
-		Questions []struct {
-			ID, Text, Status, Task string
-			CreatedAt              string `json:"created_at"`
-		} `json:"questions"`
-		Reviews []struct {
-			ID, Title, State, Task, Lavish string
-			CreatedAt                      string `json:"created_at"`
-		} `json:"reviews"`
-		Runs []struct {
-			ID, Title, State, Task string
-			CredentialRequest      string `json:"credential_request"`
-			RemoteFix              string `json:"remote_fix"`
-			CreatedAt              string `json:"created_at"`
-			Update                 *struct {
-				From, To string
-			} `json:"update"`
-		} `json:"runs"`
-		Credentials []struct {
-			ID, Project, State, Task, Why string
-			Names, Plain                  []string
-			CreatedAt                     string `json:"created_at"`
-		} `json:"credentials"`
-	}
-	if err := json.Unmarshal(snapshot, &view); err != nil {
-		return "", nil, err
-	}
-	// A goblin speaks by its title, as its card names it, and the CFO for
-	// what names no goblin.
-	speaker := func(task string) string {
-		if task == "" {
-			return "CFO"
-		}
-		for _, t := range view.Tasks {
-			if t.ID == task {
-				if name := withoutHarness(t.Title); name != "" {
-					return name
-				}
-			}
-		}
-		return task
-	}
-	asker := func(task string) string {
-		if task == "" {
-			return "The CFO"
-		}
-		return shortened(speaker(task), nameLimit)
-	}
-	item := func(key, createdAt, task, text string) Item {
-		return Item{ID: key + "@" + createdAt, Asker: speaker(task), Text: shortened(text, textLimit)}
-	}
-	var items []Item
-	for _, q := range view.Questions {
-		if q.Status != "pending" || q.Task != "" {
-			continue
-		}
-		items = append(items, item("question:"+q.ID, q.CreatedAt, "", asker("")+" asks: "+lead(q.Text)))
-	}
-	for _, r := range view.Reviews {
-		if r.State != "open" {
-			continue
-		}
-		// A goblin's wait on him reads as its reason, without the queue's
-		// prefix or its page's link.
-		if r.Task != "" && strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
-			reason := waitPrefix.ReplaceAllString(r.Title, "")
-			if r.Lavish != "" {
-				reason = strings.Replace(reason, " (page "+r.Lavish+")", "", 1)
-			}
-			items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" is waiting on you: "+plain(reason)))
-			continue
-		}
-		items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" wants your review: "+plain(r.Title)))
-	}
-	for _, r := range view.Runs {
-		if r.State != "ready" && r.State != "running" || r.CredentialRequest != "" || r.RemoteFix != "" {
-			continue
-		}
-		switch {
-		case r.Update != nil:
-			release := item("run:"+r.ID, r.CreatedAt, "", "Code Goblins "+r.Update.To+" is ready: update from "+r.Update.From)
-			release.Asker = "Code Goblins"
-			items = append(items, release)
-		case r.Task != "":
-			items = append(items, item("run:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" asks you to run a command: "+plain(r.Title)))
-		default:
-			items = append(items, item("run:"+r.ID, r.CreatedAt, "", "A command waits for you to run it: "+r.Title))
-		}
-	}
-	// A card that asks for no value is a step he takes, by what it is for.
-	for _, c := range view.Credentials {
-		switch {
-		case c.State != "open":
-		case len(c.Names)+len(c.Plain) == 0:
-			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" needs you for a step: "+plain(c.Why)))
-		default:
-			items = append(items, item("credential:"+c.ID, c.CreatedAt, c.Task, asker(c.Task)+" asks for credentials for "+c.Project))
-		}
-	}
-	return view.Instance, items, nil
-}
-
 // Watcher tells which items waiting on the Overlord are new since its last
 // look. Its first look only learns what already waits, which the board shows.
 type Watcher struct {
@@ -353,7 +226,7 @@ type Watcher struct {
 // New reads the board's snapshot and returns the items that were not
 // waiting at the last look, and whether the board answered. A board that
 // cannot be read shows nothing new.
-func (w *Watcher) New(board string) ([]Item, bool) {
+func (w *Watcher) New(board string) ([]waiting.Item, bool) {
 	client := w.Client
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
@@ -370,17 +243,17 @@ func (w *Watcher) New(board string) ([]Item, bool) {
 	if err != nil {
 		return nil, false
 	}
-	instance, items, err := waiting(data)
+	instance, items, err := waiting.Items(data)
 	if err != nil {
 		return nil, false
 	}
 	w.Instance = instance
 	first := w.seen == nil
 	current := map[string]bool{}
-	var fresh []Item
+	var fresh []waiting.Item
 	for _, item := range items {
 		current[item.ID] = true
-		if !first && !w.seen[item.ID] {
+		if !first && !w.seen[item.ID] && !item.IsQuiet {
 			fresh = append(fresh, item)
 		}
 	}

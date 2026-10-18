@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { announce } from "./api";
+import { isPushingApp } from "./app-badge";
 import { alertItem, announceKey, asksPermission, boardAlerts, NOTIFICATION_CLICK, notifies, outlived, unseen, type BoardAlert, type SeenAlert } from "./alertRules";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
@@ -66,7 +67,10 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (item
     latest.current = snapshot;
     for (const { note, alert } of [...notes.current.values()]) if (outlived(alert, snapshot)) note.close();
     const { fresh } = sighting;
-    if (!fresh.length) return;
+    // His phone's Home Screen app tells nothing itself: the supervisor's
+    // pushes do, once he turns its App badge on, which alone asks for its
+    // notifications, so the board on his PC keeps every claim.
+    if (!fresh.length || isPushingApp()) return;
     // The supervisor answers after later snapshots may have come, so what
     // it hands this tab is notified against the items open by then.
     void announce(snapshot.instance, fresh.map(announceKey)).then((claimed) => {
