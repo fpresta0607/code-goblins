@@ -11,6 +11,7 @@ import (
 // with what a spawn there is given, which since a worktree shares no env
 // file by default is no env file and no credential.
 func TestCheckoutsTheHomeHoldsNoFolderForAreNamedWithWhatASpawnThereIsGiven(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	base := t.TempDir()
 	root, data := filepath.Join(base, "dev"), filepath.Join(base, "home", "data")
@@ -68,6 +69,7 @@ func TestCheckoutsTheHomeHoldsNoFolderForAreNamedWithWhatASpawnThereIsGiven(t *t
 // A projects root that cannot be read is an error, never a list that says
 // every checkout is filed.
 func TestAProjectsRootThatCannotBeReadIsAnError(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	base := t.TempDir()
 

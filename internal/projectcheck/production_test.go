@@ -23,6 +23,7 @@ const loadsEnv = "from dotenv import load_dotenv\n\nload_dotenv()\n"
 // that paged production Sentry. A goblin's worktree shares the checkout's
 // env files, so what they hold is what its tests start with.
 func TestATestStepThatCanReachProductionIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".gitignore":        ".env\n",
@@ -57,6 +58,7 @@ func TestATestStepThatCanReachProductionIsReported(t *testing.T) {
 // test step runs, so nothing stands between it and the env file: a remote
 // database alone is then as bad as it gets.
 func TestAnAgentChosenTestStepBesideAProductionEnvFileIsCritical(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": ".env.docker.local\n", "conftest.py": "from dotenv import load_dotenv\n\nload_dotenv(\".env.docker.local\")\n"})
 	f.write(".env.docker.local", "DATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n")
@@ -76,6 +78,7 @@ func TestAnAgentChosenTestStepBesideAProductionEnvFileIsCritical(t *testing.T) {
 // A remote service with the repository's own test command in front of it is
 // high, not critical: the command bounds what runs.
 func TestARemoteServiceBehindTheRepositorysOwnTestCommandIsHigh(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n", "conftest.py": loadsEnv})
 	f.write(".env", "DATABASE_URL=postgres://app:hunter2hunter2@db.internal.example.com:5432/app\n")
@@ -94,6 +97,7 @@ func TestARemoteServiceBehindTheRepositorysOwnTestCommandIsHigh(t *testing.T) {
 // The line that passes says what it examined, so an env file it stopped
 // reading does not read as a safe one.
 func TestATestStepWhoseEnvFileIsPinnedOrLocalPassesAndSaysWhatWasExamined(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".gitignore":        ".env\n",
@@ -121,6 +125,7 @@ func TestATestStepWhoseEnvFileIsPinnedOrLocalPassesAndSaysWhatWasExamined(t *tes
 // shares nothing, with one that names no link, and with no manifest at all,
 // which used to share it by default.
 func TestAnEnvFileNoWorktreeSharesIsNotATestRunsToRead(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		manifest string
@@ -131,6 +136,7 @@ func TestAnEnvFileNoWorktreeSharesIsNotATestRunsToRead(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 			f.write(".env", productionEnv)
@@ -152,6 +158,7 @@ func TestAnEnvFileNoWorktreeSharesIsNotATestRunsToRead(t *testing.T) {
 // A test key and a placeholder spend nothing, and neither does a
 // publishable key, which a browser is handed by design.
 func TestTestKeysAndPlaceholdersAreNoProductionValues(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 	f.write(".env", "STRIPE_SECRET_KEY=sk_test_"+"a1B2a1B2a1B2a1B2a1B2a1B2\nRESEND_API_KEY=your-key-here\nOPENAI_API_KEY=\nAPP_ENV=development\n"+
@@ -177,6 +184,7 @@ func jwt(role string) string {
 // holds neither PUBLIC nor PUBLISHABLE. The value is asked first where it can
 // say, and the name after it.
 func TestAPublishableKeyIsNoProductionCredential(t *testing.T) {
+	t.Parallel()
 	// Long and varied enough to be shaped like a credential, which is what
 	// made a value under a credential's name count before.
 	const random = "q7Lm2Xc9Rt4Vb8Kn3Zp6Wd1Hs5Jf0Gy"
@@ -188,6 +196,7 @@ func TestAPublishableKeyIsNoProductionCredential(t *testing.T) {
 		{"a name a bundler ships to the browser", "VITE_GOOGLE_PLACES_API_KEY=AIza" + random},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 			f.write(".env", test.line+"\n")
@@ -206,12 +215,14 @@ func TestAPublishableKeyIsNoProductionCredential(t *testing.T) {
 // payload names the service role, or one that starts the way a secret key
 // does, is a credential whatever it is called.
 func TestASecretUnderAPublishableNameIsStillACredential(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct{ name, variable, value string }{
 		{"a service key under an anon name", "SUPABASE_ANON_KEY", jwt("service_role")},
 		{"a secret key under a name a bundler ships", "VITE_OPENAI_API_KEY", "sk-proj-" + strings.Repeat("a1B2", 8)},
 		{"a secret key under a public name", "NEXT_PUBLIC_SUPABASE_KEY", "sb_secret_" + strings.Repeat("a1B2", 8)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{".gitignore": ".env\n", ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n", "conftest.py": loadsEnv})
 			f.write(".env", test.variable+"="+test.value+"\n")

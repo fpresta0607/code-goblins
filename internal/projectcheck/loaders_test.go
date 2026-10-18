@@ -29,6 +29,7 @@ func loadedBy(t *testing.T, envFile string, tracked map[string]string) fixture {
 // file where a tracked file shows it, and claims a test only where a test,
 // its setup or the application's own code loads it.
 func TestTheLineSaysWhatLoadsTheEnvFile(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name    string
 		tracked map[string]string
@@ -84,6 +85,7 @@ func TestTheLineSaysWhatLoadsTheEnvFile(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := loadedBy(t, ".env", test.tracked)
 
@@ -112,6 +114,7 @@ func TestTheLineSaysWhatLoadsTheEnvFile(t *testing.T) {
 // not load this one, and one that names none loads .env, which is what the
 // libraries do.
 func TestALoaderLoadsTheEnvFileItNames(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, envFile string
 		tracked       map[string]string
@@ -124,6 +127,7 @@ func TestALoaderLoadsTheEnvFileItNames(t *testing.T) {
 		{"a framework beside a file it loads by its own rule", ".env.local", map[string]string{"package.json": `{"devDependencies":{"vite":"6.0.0"}}`}, "worktree-holds-production"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := loadedBy(t, test.envFile, test.tracked)
 
@@ -139,6 +143,7 @@ func TestALoaderLoadsTheEnvFileItNames(t *testing.T) {
 // A document that mentions a loader, a lockfile and a list of dependencies
 // load nothing.
 func TestAMentionOfALoaderLoadsNothing(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := loadedBy(t, ".env", map[string]string{
 		"README.md":         "Copy `.env.example` to `.env`. The app loads it with dotenv.\n",
@@ -159,6 +164,7 @@ func TestAMentionOfALoaderLoadsNothing(t *testing.T) {
 // that names a variable clears nothing for a script either, so every
 // production value is counted.
 func TestAnEnvFileNoTestLoadsIsJudgedByWhatItHolds(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name, env string
 		gate      string
@@ -170,6 +176,7 @@ func TestAnEnvFileNoTestLoadsIsJudgedByWhatItHolds(t *testing.T) {
 		{"a variable the test setup names", production, "pytest -q", High, "1 production value"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			files := map[string]string{".gitignore": ".env\n", "scripts/backfill.ts": "import 'dotenv/config'\n", "pytest.ini": "[pytest]\nenv =\n    DATABASE_URL=sqlite://\n"}
 			if test.gate != "" {
