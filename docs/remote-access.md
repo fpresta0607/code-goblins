@@ -16,7 +16,7 @@ owner account. No personal hostname, account or key is included in the build.
    open the link in its browser. Open the CFO terminal to control the existing
    session. To keep the board beside your apps, use Safari's **Share → Add to
    Home Screen** on an iPhone, or Chrome's menu **→ Add to Home screen** on
-   Android.
+   Android: it becomes a Code Goblins app with the goblin icon.
 
 The panel checks the signed-in owner and reads back the exact private proxy
 before calling it ready. It does not connect the phone's VPN; Tailscale handles

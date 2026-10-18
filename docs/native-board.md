@@ -1191,7 +1191,9 @@ A goblin's press is a pending engine choice with `when` `update` and its own har
 The board's tab shows the goblin mark, from `/favicon.svg` with 16 and 32 px PNGs beside it, and its title counts what waits on the Overlord, such as (2) Code Goblins, dropping the count once nothing does.
 Its theme color is the #03050a base, so a browser that tints its bar, such as Chrome on Android, blends into the board.
 The supervisor serves a web app manifest at `/manifest.webmanifest` as `application/manifest+json`: Code Goblins, standalone, in the base color, with 192 and 512 px icons and a maskable 512 px icon, so Chrome and Edge offer Install Code Goblins and open the board in a window of its own with no tabs or address bar.
-The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render them again from it whenever the mark changes.
+Added to an iPhone's or iPad's Home Screen from Safari, including over the private Tailscale link, the board is an app named Code Goblins that opens without Safari's bars, with its icon at 120, 152, 167 and 180 px, the sizes iOS and iPadOS ask for.
+While an installed board is open, its icon carries the same count as the title where the browser badges installed apps, as Chrome and Edge do, and an iPhone does once the app's notifications are allowed; nothing updates it while the app is closed.
+The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`, the smaller Home Screen icons from the 180 px one; render them again whenever the mark changes.
 
 ### The desktop window
 
