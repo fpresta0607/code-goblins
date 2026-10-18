@@ -10,4 +10,3 @@
 .card-mail-body:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .card-mail-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .card-mail-actions .icon-button { height: 40px; min-height: 40px; }
-.card-mail-failure { display: flex; align-items: center; gap: 6px; margin: 0 auto 0 0; color: var(--amber); font-size: .9375rem; }

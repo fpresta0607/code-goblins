@@ -192,6 +192,6 @@ test("a code value that is a whole path is one link, spaces and all, and text wi
   const withoutLinks = html(text);
 
   // Assert
-  assert.equal(withLinks, String.raw`<p>Keep the notes in <a>C:\Users\fpres\OneDrive - SIQstack\Desktop</a> or (<a>D:/CodeGoblins/scratch</a>), not https://example.com/C:\x or 3:4.</p>`);
-  assert.equal(withoutLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code> or (D:/CodeGoblins/scratch), not https://example.com/C:\x or 3:4.</p>`);
+  assert.equal(withLinks, String.raw`<p>Keep the notes in <a>C:\Users\fpres\OneDrive - SIQstack\Desktop</a> or (<a>D:/CodeGoblins/scratch</a>), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
+  assert.equal(withoutLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code> or (D:/CodeGoblins/scratch), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
 });
