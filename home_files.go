@@ -7,7 +7,7 @@ import "embed"
 // Contract is the CFO's operating contract and the docs the contract links
 // to. The binary owns these: every install brings a home's copies up to date.
 //
-//go:embed AGENTS.md CLAUDE.md docs/pipeline.md docs/native-board.md
+//go:embed AGENTS.md CLAUDE.md docs/pipeline.md docs/native-board.md docs/remote-access.md
 var Contract embed.FS
 
 // Skills are the skills Code Goblins ships, one folder each under

@@ -29,6 +29,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/release"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -232,7 +233,13 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	remote := boardRemoteAccess(h, "http://"+listener.Addr().String())
+	var remoteSetting *remoteaccess.Manager
+	if !*example {
+		remoteSetting = remote
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
+		RemoteAccess:     remoteSetting,
 		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
@@ -288,7 +295,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// After an update to a build that pins a newer speech model, the board
 	// replaces the earlier one now rather than at the first dictation.
 	handler.ReplaceDictation()
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Handler: remoteaccess.NewGate(ctx, remote, handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		select {
 		case <-ctx.Done():

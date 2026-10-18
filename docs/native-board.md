@@ -1,6 +1,10 @@
 # Native supervisor and board
 
 `cfo serve` runs one native Go supervisor and serves the embedded React/TypeScript board on `http://127.0.0.1:4310`.
+
+The optional [Remote access setting](remote-access.md) in the CFO's Task panel
+shares that same board and its existing terminals with the owner's phone over
+Tailscale HTTPS. It is off by default and leaves the listener on loopback.
 Use `--listen 127.0.0.1:0` for an ephemeral port; the command prints its actual URL.
 Node, Vite, Docker, and a browser are not runtime dependencies of the supervisor.
 Docker remains an optional project environment managed by the existing worktree profiles.

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 )
 
 // shortcuts are how Windows shows and starts Code Goblins: its shortcuts in
@@ -13,6 +14,16 @@ import (
 // window registered to show notifications and sit in the tray.
 func (m Machine) shortcuts(context.Context) ([]Item, error) {
 	var items []Item
+	remote, err := remoteaccess.Read(m.Home.State)
+	if err != nil {
+		return nil, err
+	}
+	if remote.Origin != "" {
+		items = append(items, Item{Action: Remove, Group: GroupShortcuts, What: "its private Tailscale routes", Where: remote.Origin, Fix: "run cfo remote off on this PC, then run the uninstall again", do: func(ctx context.Context) error {
+			manager := remoteaccess.Manager{State: m.Home.State, Target: remote.Target, Commands: m.Commands}
+			return manager.Disable(ctx)
+		}})
+	}
 	for _, shortcut := range []struct{ what, path string }{
 		{"its shortcut in the Start menu", m.Install.StartMenuShortcut},
 		{"the window's own shortcut in the Start menu, from an earlier install", install.WindowShortcut(m.Install.StartMenuShortcut)},

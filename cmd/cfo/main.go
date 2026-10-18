@@ -60,6 +60,7 @@ Run as goblins with no command, from any folder, it is the quick start: one Ente
 commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
+  remote    on|status|off: private iPhone access to the board and CFO terminal over your Tailscale account
   host      run one goblin terminal in a process of its own; cfo starts it, not you
   attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
@@ -167,7 +168,7 @@ type commandRuntime struct {
 	authRefresher func(home.Home) spawn.AuthRefresher
 	peek          func(home.Home, string, int) (string, error)
 	// screen reads the rows a native terminal shows now.
-	screen func(stateDir, id string) ([]string, error)
+	screen        func(stateDir, id string) ([]string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -179,8 +180,8 @@ type commandRuntime struct {
 	// leftRunning reads what a task's goblin started that still runs, for
 	// its done or failed report to name; nil names nothing.
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
-	speedHint     func(context.Context, string) string
-	quota         func(context.Context) (quota.Report, string)
+	speedHint   func(context.Context, string) string
+	quota       func(context.Context) (quota.Report, string)
 	// now is the clock a quota reading is judged by, so a test's reading
 	// keeps the date it was taken on; nil is the real clock.
 	now func() time.Time
@@ -467,14 +468,14 @@ func defaultCommandRuntime() commandRuntime {
 		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {
 			return defender.Read(ctx, execx.OSRunner{}, since)
 		},
-		goblins:      invokedAsGoblins(),
-		startServe:   startDetachedServe,
-		openURL:      openInBrowser,
-		openWindow:   openWindow,
-		nativeCFO:    supervisor.NativeCFO,
-		liveCFO:      supervisor.LiveCFO,
-		focusCFO:     focusCFOInHerdr,
-		attachHerdr:  attachHerdr,
+		goblins:     invokedAsGoblins(),
+		startServe:  startDetachedServe,
+		openURL:     openInBrowser,
+		openWindow:  openWindow,
+		nativeCFO:   supervisor.NativeCFO,
+		liveCFO:     supervisor.LiveCFO,
+		focusCFO:    focusCFOInHerdr,
+		attachHerdr: attachHerdr,
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
 		},
@@ -596,6 +597,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runStop(args[1:], stdout, stderr, runtime)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, runtime)
+	case "remote":
+		return runRemote(args[1:], stdout, stderr, runtime)
 	case "update":
 		return runUpdate(args[1:], stdout, stderr, runtime)
 	case "host":
