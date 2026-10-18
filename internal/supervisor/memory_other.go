@@ -19,6 +19,11 @@ func MachineGPU() (GPU, error) {
 	return GPU{}, ErrNoGPU
 }
 
+// PoolTags is read only on Windows, the fleet's platform.
+func PoolTags() ([]PoolTag, error) {
+	return nil, errors.New("the kernel's pool tags are read only on Windows")
+}
+
 // CommitHolders is read only on Windows, the fleet's platform.
 func CommitHolders() ([]CommitHolder, error) {
 	return nil, errors.New("commit is read only on Windows")

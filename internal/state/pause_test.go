@@ -32,6 +32,9 @@ func TestPauseConditionsRequireTheEvidenceThatClearsThem(t *testing.T) {
 		{reason: "deploy", until: "run:https://github.com/owner/repo/actions/runs/42@" + strings.Repeat("a", 40), isValid: true},
 		{reason: "ci", until: "pr:https://github.com/owner/repo/pull/42"},
 		{reason: "deploy", until: "run:https://github.com/owner/repo/actions/runs/42@wrong"},
+		{reason: "restart", until: "2026-10-18T11:13:27.2056637Z", isValid: true},
+		{reason: "restart"},
+		{reason: "restart", until: "next boot"},
 		{reason: "unknown"},
 	} {
 		t.Run(testCase.reason+"/"+testCase.until, func(t *testing.T) {

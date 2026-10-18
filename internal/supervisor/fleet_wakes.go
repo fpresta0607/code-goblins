@@ -354,6 +354,19 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 		w.MemoryAbove, w.MemoryBelow = 0, 0
 		return planningErr
 	}
+	if err := s.keepPools(memory, now); err != nil {
+		s.publish(err)
+	}
+	// While the fleet stops for the PC's restart, nothing pauses at the
+	// floor, comes back or starts by itself, and its readings count for
+	// nothing once a restart that stopped short is over.
+	s.starts.Lock()
+	isRestarting := s.isRestartingPC()
+	s.starts.Unlock()
+	if isRestarting {
+		w.MemoryAbove, w.MemoryBelow = 0, 0
+		return planningErr
+	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
 	}
