@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -610,6 +611,11 @@ func TestPageReceiptRecoveryDoesNotUseHistoryToAnswerANewQuestion(t *testing.T) 
 	polled := false
 	recovered := &Service{Store: restarted, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
 		polled = true
+		// The old feedback reaches the CFO while the supervisor runs, and
+		// then it stops: a stopping supervisor keeps what still waits for its
+		// next start.
+		for deadline := time.Now().Add(30 * time.Second); len(restarted.pageReceiptsSnapshot().Answers) != 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		}
 		cancel()
 		return axi.PagePoll{}, context.Canceled
 	}}}
@@ -746,6 +752,11 @@ func TestPagePollDoesNotApproveVersionPublishedWhilePolling(t *testing.T) {
 						t.Error(err)
 					}
 					return axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "Old approval"}, nil
+				}
+				// The old feedback reaches the CFO while the supervisor runs,
+				// and then it stops: a stopping supervisor keeps what still
+				// waits for its next start.
+				for deadline := time.Now().Add(30 * time.Second); len(store.pageReceiptsSnapshot().Answers) != 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 				}
 				cancel()
 				return axi.PagePoll{}, context.Canceled
@@ -902,14 +913,18 @@ func TestPageNotesWaitForAGoblinBetweenSessionsAndArriveOnceInOrder(t *testing.T
 // changing hands: a resume types its own instruction into the starting
 // terminal, where the note would take its place or be submitted with it, and
 // a pause ends the terminal the note was typed into. It is typed once the
-// change has finished, under the session it brought.
+// change has finished, under the session it brought. A change whose
+// controller is gone, cut short, holds nothing: its record stays behind.
 func TestAPageNoteWaitsWhileItsGoblinIsPausedResumedOrRelaunched(t *testing.T) {
 	for name, test := range map[string]struct {
-		generation, phase, action, relaunch string
+		generation, phase, action, relaunch, start string
+		isControlled, isHeld                       bool
 	}{
-		"its resume":                    {generation: "g2", phase: "resuming", action: "resume"},
-		"its pause":                     {phase: "pausing", action: "pause"},
-		"the supervisor relaunching it": {generation: "g2", relaunch: "resume"},
+		"its resume":                    {generation: "g2", phase: "resuming", action: "resume", isControlled: true, isHeld: true},
+		"its pause":                     {phase: "pausing", action: "pause", isControlled: true, isHeld: true},
+		"the supervisor relaunching it": {generation: "g2", relaunch: "resume", isHeld: true},
+		"the supervisor starting it":    {generation: "g2", start: "task-1", isHeld: true},
+		"a resume cut short":            {generation: "g2", phase: "resuming", action: "resume"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -930,31 +945,42 @@ func TestAPageNoteWaitsWhileItsGoblinIsPausedResumedOrRelaunched(t *testing.T) {
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			change := func(phase, action, relaunch string) {
-				t.Helper()
-				if phase != "" {
-					if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "change-1", Action: action, Phase: phase}); err != nil {
-						t.Fatal(err)
-					}
+			if test.phase != "" {
+				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "change-1", Action: test.action, Phase: test.phase}); err != nil {
+					t.Fatal(err)
 				}
-				s.starts.Lock()
-				s.changing[meta.ID] = relaunch
-				s.starts.Unlock()
 			}
+			if test.isControlled {
+				if _, err := lock.AcquireExclusiveNamed(h.State, state.LifecycleLockName(meta.ID)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.starts.Lock()
+			s.starting, s.changing[meta.ID] = test.start, test.relaunch
+			s.starts.Unlock()
 
 			// Act
-			change(test.phase, test.action, test.relaunch)
 			cycle()
 			whileChanging := len(typed)
-			change("running", "resume", "")
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "change-1", Action: "resume", Phase: "running"}); err != nil {
+				t.Fatal(err)
+			}
+			if test.isControlled {
+				if err := lock.ReleaseExclusiveNamed(h.State, state.LifecycleLockName(meta.ID)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.starts.Lock()
+			s.starting, s.changing[meta.ID] = "", ""
+			s.starts.Unlock()
 			cycle()
 
 			// Assert
-			if whileChanging != 0 {
-				t.Errorf("typed %d notes during %s, want none", whileChanging, name)
+			if test.isHeld != (whileChanging == 0) {
+				t.Errorf("typed %d notes during %s, want it held: %t", whileChanging, name, test.isHeld)
 			}
 			if len(typed) != 1 || !strings.Contains(typed[0], ": first") {
-				t.Fatalf("typed = %q, want the note once the change finished", typed)
+				t.Fatalf("typed = %q, want the note once", typed)
 			}
 		})
 	}
@@ -991,8 +1017,44 @@ func TestAPageNoteOfAnEarlierTaskNeverReachesTheGoblinThatReusesItsID(t *testing
 	if len(typed) != 0 {
 		t.Fatalf("typed %q into the goblin that reuses the id, want nothing", typed)
 	}
-	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || strings.Contains(wakes[0].Detail, " has it") {
-		t.Fatalf("wakes = %+v, want the note handed to the CFO undelivered", wakes)
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "a later task under the same id, so it was not passed on") || strings.Contains(wakes[0].Detail, "relay it") {
+		t.Fatalf("wakes = %+v, want the CFO told the page's goblin is gone, never to relay it", wakes)
+	}
+}
+
+// A goblin that came back in a new session, as a pause's resume brings it,
+// is still the page's own: its task was first spawned before the note was
+// written, though the generation it runs on now is later. The note its
+// earlier session refused is typed into its current one.
+func TestAPageNoteReachesItsGoblinResumedUnderALaterGeneration(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	r := store.Snapshot().Reviews[0]
+	cycle := pageNotes(t, s, r, "first")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		typed = append(typed, text)
+		return nil
+	}
+	generation := func(at time.Time) string { return "s" + strconv.FormatInt(at.UnixNano(), 10) }
+	meta.FirstGen, meta.SpawnGen = generation(r.CreatedAt.Add(-time.Hour)), generation(r.CreatedAt.Add(time.Hour))
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	cycle()
+
+	// Assert
+	if len(typed) != 1 || !strings.Contains(typed[0], ": first") {
+		t.Fatalf("typed = %q, want the note typed into the resumed goblin once", typed)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, meta.ID+" has it: first") {
+		t.Fatalf("wakes = %+v, want the CFO told the goblin has it", wakes)
 	}
 }
 

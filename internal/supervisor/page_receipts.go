@@ -229,18 +229,20 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 			case isLive:
 				// A terminal changing hands takes no note, as it takes no board
 				// message: a resume types its own instruction into it, and a
-				// pause ends it.
+				// pause ends it. Only a change its controller still runs counts,
+				// since one cut short leaves its record behind.
 				record, err := state.ReadLifecycle(s.Store.Home.State, r.Task)
 				if err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
+					s.publish(err)
 				}
+				isChanging := err == nil && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping") && record.SuppressesMonitoring(s.Store.Home.State)
 				s.starts.Lock()
 				isRelaunched := s.starting == r.Task || s.changing[r.Task] != ""
 				s.starts.Unlock()
-				if isRelaunched || err == nil && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping") {
+				if isChanging || isRelaunched {
 					return errPageAnswerWaits
 				}
-				if _, err := host.ReadRecord(s.Options.CFO.State, r.Task); err != nil && meta.Backend == "native" {
+				if terminal, err := host.ReadRecord(s.Options.CFO.State, r.Task); (err != nil || !host.Running(terminal)) && meta.Backend == "native" {
 					return errPageAnswerWaits
 				}
 				answer.Status, answer.SentAt = "sending", time.Now().UTC()
@@ -248,12 +250,14 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 					return err
 				}
 				_, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
-				if current := goblinIdentity(meta); errors.Is(err, ErrRejected) && current != r.Identity && !lifeStart(meta).After(r.CreatedAt) {
+				// A task that reuses the id began after the note was written,
+				// by the generation it was first spawned on, which a relaunch
+				// does not move; a task an older build spawned records none.
+				isReused := meta.FirstGen != "" && spawnTime(meta.FirstGen).After(r.CreatedAt)
+				if current := goblinIdentity(meta); errors.Is(err, ErrRejected) && current != r.Identity && !isReused {
 					// Its goblin came back in a new session, as a pause's
-					// resume brings it, and the page is still its own, since
-					// its task began before the page did; a task that reuses
-					// the id is another goblin's. A refusal typed nothing, so
-					// it is sent again.
+					// resume brings it, and the page is still its own. A
+					// refusal typed nothing, so it is sent again.
 					_, err = s.Options.CFO.SendGoblin(ctx, r.Task, current, text)
 				}
 				switch {
@@ -267,6 +271,13 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 						return saveErr
 					}
 					return errPageAnswerWaits
+				case errors.Is(err, ErrRejected) && isReused:
+					saved, saveErr := s.savePageAnswer(answer)
+					feedback := "his feedback is in " + saved
+					if saveErr != nil {
+						feedback = fmt.Sprintf("his feedback could not be saved (%v)", saveErr)
+					}
+					detail = "the Overlord wrote on the page " + r.LavishPage + " of an earlier task " + r.Task + ", cleaned up since; " + r.Task + " is now a later task under the same id, so it was not passed on; " + feedback + ", act on it"
 				case errors.Is(err, ErrRejected):
 					s.publish(err)
 				default:

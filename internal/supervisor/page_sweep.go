@@ -179,7 +179,9 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 		if err != nil || poll.Status != "feedback" {
 			return err
 		}
-		answer := pageAnswer{ID: rand.Text(), Item: Review{ID: owner.key, Task: owner.task, Identity: identity, LavishPage: file}, Poll: poll, Status: "collecting"}
+		// The note was written by the time it is taken, so a task that
+		// reuses the id later never gets it (tellAnswer).
+		answer := pageAnswer{ID: rand.Text(), Item: Review{ID: owner.key, Task: owner.task, Identity: identity, LavishPage: file, CreatedAt: time.Now().UTC()}, Poll: poll, Status: "collecting"}
 		if !s.keepAnswer(ctx, answer) {
 			return errors.New("page feedback could not be kept")
 		}
