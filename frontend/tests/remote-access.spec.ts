@@ -1,4 +1,4 @@
-import { expect, holdStream, servePages, test, type Page } from "./site";
+import { expect, servePages, test, type Page } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
 const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
@@ -9,22 +9,41 @@ const BYPASSED = { ...ON, scrawl_state: "bypassed", scrawl_issue: "Your own Tail
 
 type Status = Record<string, unknown>;
 
+const BOARD = { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo", cfo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo" }] };
+
 // open shows the CFO's Task panel's Remote access section, as this PC sees
 // the board or, with origin, as a phone sees the private board. The
-// supervisor is played by one status that each press moves on, and a press
-// can be slowed, during which a read answers what it read before the press.
+// supervisor is played by one status that each press but a fix moves on, and
+// a press can be slowed, during which a read answers what it read before the
+// press. The board's stream is the test's to move on with push.
 async function open(page: Page, first: Status, { fail = false, origin = "", slow = false } = {}) {
   const actions: unknown[] = [];
+  const reads = { count: 0 };
   let status = first;
   let before: Status | null = null;
-  await holdStream(page, { healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" }, cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo", cfo_terminal_since: "2026-10-08T09:00:00Z", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo" }] });
+  await page.addInitScript((data) => {
+    class LiveStream extends EventTarget {
+      onerror: (() => void) | null = null;
+      constructor() {
+        super();
+        Object.assign(window, { pushSnapshot: (next: string) => this.dispatchEvent(new MessageEvent("snapshot", { data: next })) });
+        setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data })));
+      }
+      close() {}
+    }
+    Object.defineProperty(window, "EventSource", { value: LiveStream });
+  }, JSON.stringify(BOARD));
   await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
   await page.route("**/api/remote", async (route) => {
-    if (route.request().method() !== "POST") return route.fulfill({ json: before ?? status });
-    const body: { on?: boolean; scrawl?: boolean } = route.request().postDataJSON();
+    if (route.request().method() !== "POST") {
+      reads.count++;
+      return route.fulfill({ json: before ?? status });
+    }
+    const body: { on?: boolean; scrawl?: boolean; fix?: string } = route.request().postDataJSON();
     actions.push(body);
     expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
     if (fail) return route.fulfill({ status: 409, json: { error: "Tailscale is not running on this PC; start Tailscale and sign in" } });
+    if (body.fix !== undefined) return route.fulfill({ json: { ...status, run_id: "remote-fix-" + body.fix + "-1" } });
     before = slow ? status : null;
     status = body.scrawl === undefined ? body.on ? ON : OFF : body.scrawl ? SCRAWL_ON : ON;
     if (slow) await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -38,7 +57,8 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
   await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await page.locator(".disclosure.remote-access > summary").click();
-  return { actions, panel: page.getByRole("region", { name: "Remote access" }), setStatus: (next: Status) => { status = next; } };
+  const push = (snapshot: Status) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, ...snapshot }));
+  return { actions, reads, push, panel: page.getByRole("region", { name: "Remote access" }), setStatus: (next: Status) => { status = next; } };
 }
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -104,11 +124,73 @@ for (const [tailscale, note, isOffered, fix] of [
     await expect(toggle).toHaveAccessibleDescription(note);
     if (isOffered) await expect(toggle).toBeEnabled(); else await expect(toggle).toBeDisabled();
     await expect(panel.getByRole("button", { name: /^Copy / })).toHaveCount(fix ? 1 : 0);
+    await expect(panel.getByRole("button", { name: "Run in PowerShell" })).toHaveCount(fix ? 1 : 0);
     if (fix) await expect(panel.getByRole("button", { name: "Copy " + fix, exact: true })).toBeVisible();
     await expect(panel.getByRole("link")).toHaveCount(0);
     await expect(panel.getByText("the supervisor's full reason")).toHaveCount(0);
   });
 }
+
+// The Overlord, 2026-10-18: the command that mends a row has "a play button
+// that runs it directly in a PowerShell window, the same way a Command Center
+// run card runs a command. It stays in the section, never as a Command Center
+// card."
+for (const [outcome, after, isMended] of [
+  ["failed", { ...OFF, tailscale: "no_https", fix: SERVE }, false],
+  ["succeeded", OFF, true],
+] as const) {
+  test(`a row's command runs in its own terminal in the section, never as a Command Center card, and once it ${outcome} the row is read again`, async ({ page }) => {
+    // Arrange
+    const { actions, reads, push, panel, setStatus } = await open(page, { ...OFF, tailscale: "no_https", fix: SERVE });
+    await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+      socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+      socket.send(Buffer.from("To approve Serve, visit the link\r\n"));
+    });
+    const fix = { id: "remote-fix-tailscale-1", identity: "r".repeat(64), title: "Mend Tailscale for remote access", shell: "powershell", command: SERVE, cwd: "C:\\home", remote_fix: "tailscale", created_at: "2026-10-18T12:00:00Z" };
+    const play = panel.getByRole("button", { name: "Run in PowerShell" });
+
+    // Act: he presses play, and the supervisor starts its terminal.
+    await play.click();
+    await push({ revision: 2, runs: [{ ...fix, state: "running", terminal: true }] });
+
+    // Assert: its terminal is in the section, and nothing waits on him.
+    await expect(panel.getByRole("region", { name: "Terminal of Mend Tailscale for remote access" })).toBeVisible();
+    await expect(play).toBeDisabled();
+    expect(actions).toEqual([{ fix: "tailscale", command: SERVE }]);
+    await expect(page).toHaveTitle("Code Goblins");
+    await expect(page.locator(".run-card")).toHaveCount(0);
+
+    // Act: the command ends.
+    setStatus(after);
+    const readsBefore = reads.count;
+    await push({ revision: 3, runs: [{ ...fix, state: outcome, terminal: false, exit_code: outcome === "failed" ? 1 : 0, output: "Serve is not enabled on your tailnet." }] });
+
+    // Assert
+    await expect.poll(() => reads.count).toBeGreaterThan(readsBefore);
+    await expect(panel.getByRole("region", { name: /^Terminal of / })).toHaveCount(0);
+    if (isMended) await expect(play).toHaveCount(0);
+    else {
+      await expect(play).toBeEnabled();
+      await expect(panel.locator(".click-feedback")).toHaveText(/^Failed/);
+    }
+  });
+}
+
+test("a row's command that fails as it starts, before the board saw it run, still says why and reads the row again", async ({ page }) => {
+  // Arrange: he presses play, and the supervisor answers with its run.
+  const { reads, push, panel } = await open(page, { ...OFF, tailscale: "no_https", fix: SERVE });
+  const play = panel.getByRole("button", { name: "Run in PowerShell" });
+  await play.click();
+  await expect(play).toBeEnabled();
+  const readsBefore = reads.count;
+
+  // Act: the first the board hears of the run is that it failed.
+  await push({ revision: 2, runs: [{ id: "remote-fix-tailscale-1", identity: "r".repeat(64), title: "Mend Tailscale for remote access", shell: "powershell", command: SERVE, cwd: "C:\\home", remote_fix: "tailscale", created_at: "2026-10-18T12:00:00Z", state: "failed", exit_code: null, reason: "it could not start: no terminal host" }] });
+
+  // Assert
+  await expect.poll(() => reads.count).toBeGreaterThan(readsBefore);
+  await expect(panel.locator(".click-feedback")).toHaveText(/^Failed/);
+});
 
 test("settings that cannot be read leave the switch off with an amber mark that says so", async ({ page }) => {
   // Arrange and act
@@ -123,7 +205,7 @@ test("settings that cannot be read leave the switch off with an amber mark that 
 
 test("Scrawl reviews say what is wrong with an amber mark and a few words, and on this PC the command that mends it", async ({ page }) => {
   // Arrange and act
-  const { panel } = await open(page, BYPASSED);
+  const { actions, panel } = await open(page, BYPASSED);
 
   // Assert
   const scrawl = panel.getByRole("switch", { name: "Scrawl reviews", exact: true });
@@ -136,6 +218,10 @@ test("Scrawl reviews say what is wrong with an amber mark and a few words, and o
   await expect(panel.locator(".remote-access-option").getByRole("button", { name: "Copy " + BYPASSED.scrawl_fix, exact: true })).toBeVisible();
   await expect(panel.getByRole("button", { name: /Set up/ })).toHaveCount(0);
   await expect(panel.getByText(BYPASSED.scrawl_issue)).toHaveCount(0);
+
+  // Act and assert: its play button runs the command it shows, for its row.
+  await panel.locator(".remote-access-option").getByRole("button", { name: "Run in PowerShell" }).click();
+  await expect.poll(() => actions).toEqual([{ fix: "scrawl", command: BYPASSED.scrawl_fix }]);
 });
 
 test("a phone on the private board turns Scrawl reviews off but never on, and is shown no commands", async ({ page }) => {
@@ -148,6 +234,7 @@ test("a phone on the private board turns Scrawl reviews off but never on, and is
   await expect(tailscale).toBeEnabled();
   await expect(scrawl).toBeEnabled();
   await expect(panel.getByRole("button", { name: /^Copy tailscale/ })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Run in PowerShell" })).toHaveCount(0);
   await scrawl.click();
   await expect(scrawl).toHaveAttribute("aria-checked", "false");
   await expect(scrawl).toBeDisabled();

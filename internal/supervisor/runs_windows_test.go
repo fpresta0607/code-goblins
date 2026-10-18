@@ -334,6 +334,7 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 		age               time.Duration
 		connectionTask    string
 		credentialRequest string
+		remoteFix         string
 		ran               bool
 		refusal           string
 	}{
@@ -343,6 +344,7 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
 		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionTask: "task-1", refusal: "connection repair the Overlord asked for on task-1"},
 		{name: "the terminal the Overlord opened for a credential request", isRegistered: true, id: "install-tool", reason: "not needed", credentialRequest: "cred-0123456789abcdef", refusal: "terminal the Overlord opened for a credential request"},
+		{name: "a command the Overlord ran from Remote access", isRegistered: true, id: "install-tool", reason: "not needed", remoteFix: "tailscale", refusal: "command the Overlord ran from Remote access"},
 		{name: "no reason", isRegistered: true, id: "install-tool", reason: " ", refusal: "reason"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -351,10 +353,10 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 			_, identity, _, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			var r Run
-			if c.connectionTask == "" && c.credentialRequest == "" {
+			if c.connectionTask == "" && c.credentialRequest == "" && c.remoteFix == "" {
 				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
 			} else {
-				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, CredentialRequest: c.credentialRequest}
+				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, CredentialRequest: c.credentialRequest, RemoteFix: c.remoteFix}
 				if c.connectionTask != "" {
 					r.ConnectionGeneration = "1"
 				}

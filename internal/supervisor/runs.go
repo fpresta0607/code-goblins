@@ -107,6 +107,10 @@ type Run struct {
 	// DevDrive is the Dev Drive step the board made this item for: create,
 	// attach, trust or move.
 	DevDrive string `json:"dev_drive,omitempty"`
+	// RemoteFix is the row of the Remote access setting, tailscale or
+	// scrawl, whose mending command the Overlord ran from it: the setting
+	// draws its terminal, and it is never a Command Center item.
+	RemoteFix string `json:"remote_fix,omitempty"`
 	// CFOUnwoken is the oldest wake the supervisor could not type into the
 	// CFO, for the item that offers the Overlord its restart.
 	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
@@ -375,8 +379,8 @@ func (s *Store) acceptRun(r Run) error {
 // keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
 // publishing the new command under a new ID. An item the board made for the
-// Overlord, a connection repair or a credential request's terminal, is not
-// the CFO's to withdraw.
+// Overlord, a connection repair, a credential request's terminal or a Remote
+// access fix, is not the CFO's to withdraw.
 func (s *Store) withdrawRun(id, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len(reason) > 1900 {
@@ -397,6 +401,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.CredentialRequest != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
+	case r.RemoteFix != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the command the Overlord ran from Remote access; it is not the CFO's to withdraw", r.ID)
 	case r.Update != nil:
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
@@ -825,6 +832,11 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	// A credential request's terminal tells the CFO the names it stored.
 	if r.CredentialRequest != "" {
 		s.credentialTerminalEnded(r, code)
+		return err
+	}
+	// A Remote access fix ends on the setting that ran it, which reads its
+	// row again; nobody asked for it, so nobody is told.
+	if r.RemoteFix != "" {
 		return err
 	}
 	if r.ConnectionTask != "" {

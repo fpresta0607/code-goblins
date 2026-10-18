@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,11 @@ type scrawlHealth struct {
 	RequestedHosts []string `json:"requested_hosts"`
 	LinkOrigin     string   `json:"link_origin"`
 }
+
+// pathMount is a Serve mount a command can name as it is, which the command
+// that removes a direct route to Scrawl names so that it removes no other
+// handler on the port.
+var pathMount = regexp.MustCompile(`^/[A-Za-z0-9._~/-]*$`)
 
 var scrawlClient = &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
@@ -423,39 +429,44 @@ func (m *Manager) ScrawlLink(ctx context.Context, raw string) (string, error) {
 // bypass the owner gate, and the command that removes it. The route is the
 // user's, so setup diagnoses it and never takes it over or removes it; the
 // command is for him to run, and there is none for a route inside a
-// foreground serve or a Tailscale service, which their own definitions hold.
+// foreground serve or a Tailscale service, which their own definitions hold,
+// or at a mount a command cannot name as it is.
 func directScrawlRoute(config serveConfig, c Config) (bool, string) {
 	target, _ := url.Parse(c.ScrawlTarget)
 	isLoopback := func(host string) bool {
 		ip := net.ParseIP(host)
 		return host == "localhost" || ip != nil && ip.IsLoopback()
 	}
-	off := func(flag, port string) string {
-		if _, err := strconv.Atoi(port); err != nil {
+	off := func(flag, port, mount string) string {
+		if _, err := strconv.Atoi(port); err != nil || mount != "" && !pathMount.MatchString(mount) {
 			return ""
 		}
-		return "tailscale serve --" + flag + "=" + port + " off"
+		command := "tailscale serve --" + flag + "=" + port
+		if mount != "" && mount != "/" {
+			command += " --set-path=" + mount
+		}
+		return command + " off"
 	}
 	for port, raw := range config.TCP {
 		var tcp struct{ TCPForward string }
 		if json.Unmarshal(raw, &tcp) == nil {
 			host, forwarded, err := net.SplitHostPort(tcp.TCPForward)
 			if err == nil && forwarded == target.Port() && isLoopback(host) {
-				return true, off("tcp", port)
+				return true, off("tcp", port, "")
 			}
 		}
 	}
 	for key, web := range config.Web {
-		for _, handler := range web.Handlers {
+		for mount, handler := range web.Handlers {
 			u, err := url.Parse(handler.Proxy)
 			if err == nil && u.Scheme == "http" && u.Port() == target.Port() && isLoopback(u.Hostname()) {
 				_, port, _ := net.SplitHostPort(key)
 				var mode struct{ HTTP bool }
 				_ = json.Unmarshal(config.TCP[port], &mode)
 				if mode.HTTP {
-					return true, off("http", port)
+					return true, off("http", port, mount)
 				}
-				return true, off("https", port)
+				return true, off("https", port, mount)
 			}
 		}
 	}
