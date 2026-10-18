@@ -298,7 +298,7 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		return err
 	}
-	return SurfaceNotify(h.State, taskID, record, detail, link, nil)
+	return SurfaceNotify(h.State, taskID, record, detail, link, nil, nil)
 }
 
 // ErrPageHeld refuses an item whose page another reporter's open item

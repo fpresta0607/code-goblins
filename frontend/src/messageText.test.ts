@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { leadAndRest, linkedText, messageBlocks, messageElements, plainMessage } from "./messageText.ts";
+import { leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -165,4 +165,47 @@ test("a message that opens with a table has no lead line, so the table stays who
   assert.deepEqual(opensWithTable, { lead: "", rest: table });
   assert.deepEqual(messageBlocks(opensWithTable.rest).map((block) => block.kind), ["table", "paragraph"]);
   assert.deepEqual(opensWithWords, { lead: "Add these records", rest: table });
+});
+
+// The Overlord, 2026-10-17: "if there is a folder, there should be a link to
+// the open the file explorer folder on my PC". A path renders as a link the
+// way the supervisor finds it (internal/supervisor/card_paths.go).
+const linked = (path: string, key: number, isIcon?: boolean) => createElement("a", { key, className: isIcon ? "icon" : undefined }, isIcon ? "" : path);
+
+test("a local path in a card's text is drawn as a link, up to a space and without the punctuation that ends a sentence", () => {
+  // Arrange
+  const step = String.raw`Send the email in C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md.`;
+
+  // Act
+  const drawn = renderToStaticMarkup(createElement("p", null, ...pathElements(step, linked)));
+
+  // Assert
+  assert.equal(drawn, String.raw`<p>Send the email in <a>C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md</a>.</p>`);
+});
+
+// The board and the supervisor find the same paths in the same text, so a
+// link opens the path its card names: internal/supervisor/card_paths.go
+// holds this text too. A closing bracket stays with a path that opened it.
+test("a path keeps a closing bracket it opened and drops one that ends its sentence, as the supervisor finds it", () => {
+  // Arrange
+  const step = String.raw`Install it in C:\apps\tool(v2), not (C:\apps\old).`;
+
+  // Act
+  const drawn = renderToStaticMarkup(createElement("p", null, ...pathElements(step, linked)));
+
+  // Assert
+  assert.equal(drawn, String.raw`<p>Install it in <a>C:\apps\tool(v2)</a>, not (<a>C:\apps\old</a>).</p>`);
+});
+
+test("a code value that is a whole path keeps its copy and gains the path's icon, spaces and all, and text with no path renderer is unchanged", () => {
+  // Arrange
+  const text = String.raw`Keep the notes in ` + "`" + String.raw`C:\Users\fpres\OneDrive - SIQstack\Desktop` + "`" + String.raw` or (D:/CodeGoblins/scratch), not https://example.com/C:\x or 3:4.`;
+
+  // Act
+  const withLinks = renderToStaticMarkup(messageElements(text, undefined, linked));
+  const withoutLinks = html(text);
+
+  // Assert
+  assert.equal(withLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code><a class="icon"></a> or (<a>D:/CodeGoblins/scratch</a>), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
+  assert.equal(withoutLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code> or (D:/CodeGoblins/scratch), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
 });

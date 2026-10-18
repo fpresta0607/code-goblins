@@ -23,7 +23,7 @@ func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
-	if err := connection.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, "", ""); err != nil {
+	if err := connection.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
@@ -55,7 +55,7 @@ func TestAnAnswerHeGaveElsewhereIsRecordedOnceAFKModeIsOff(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
-	if err := connection.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, "", ""); err != nil {
+	if err := connection.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {

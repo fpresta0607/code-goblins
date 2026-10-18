@@ -109,7 +109,7 @@ func TestAGoblinsNewerQuestionReplacesItsOlderOne(t *testing.T) {
 	}
 
 	// Act
-	if err := SurfaceNotify(h.State, meta.ID, again, again.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, again, again.Detail, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

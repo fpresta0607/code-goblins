@@ -74,7 +74,7 @@ func TestANightUnderAFKMode(t *testing.T) {
 
 	// A migration that drops a table is the Overlord's alone: the CFO holds it
 	// for him with what it would choose, and nothing answers it in his name.
-	if err := cfo.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops the legacy_invoices table. Apply it?", []string{"Apply it", "Keep it held"}, "Keep it held", ""); err != nil {
+	if err := cfo.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops the legacy_invoices table. Apply it?", []string{"Apply it", "Keep it held"}, "Keep it held", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.holdForOverlord(time.Now()); err != nil {
