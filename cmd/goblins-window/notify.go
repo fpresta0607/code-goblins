@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
 // sight is what the window knows of where it is on the screen.
@@ -114,7 +116,7 @@ func (n *Notifier) FromPage(note Note) {
 // this window. A supervisor that cannot be asked lets the window announce
 // them all, as it lets the board's page: one older than the claims keeps none
 // and has no AFK mode, and one in AFK mode answers, with nothing.
-func (n *Notifier) FromBoard(board, instance string, items []Item) {
+func (n *Notifier) FromBoard(board, instance string, items []waiting.Item) {
 	if len(items) == 0 || !n.Away() {
 		return
 	}
