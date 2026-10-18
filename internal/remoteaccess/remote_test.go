@@ -28,6 +28,8 @@ type fakeTailscale struct {
 	// isWithoutHTTPS stands for a tailnet that has not approved HTTPS, which
 	// gives the PC no certificate domains.
 	isWithoutHTTPS bool
+	// statusWaits stands for a tailscale status that never answers.
+	statusWaits bool
 }
 
 const ownProxy = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
@@ -44,6 +46,9 @@ func (f *fakeTailscale) Run(ctx context.Context, r execx.Request) (execx.Result,
 	}
 	switch call {
 	case "status --json":
+		if f.statusWaits {
+			return execx.Result{}, context.DeadlineExceeded
+		}
 		certDomains := `["home.example.ts.net"]`
 		if f.isWithoutHTTPS {
 			certDomains = `null`
@@ -473,5 +478,49 @@ func TestTurningOnAdoptsTheExactRouteTheFirstServeLeft(t *testing.T) {
 	}
 	if c, err := Read(m.State); err != nil || !c.Enabled {
 		t.Fatal("the route was not taken as its own", c, err)
+	}
+}
+
+// A timeout names the command that ran out of time, and only a serve that
+// starts a route can be waiting for Serve or HTTPS to be approved.
+func TestATimeoutNamesItsCommandAndOnlyServeHintsAtApproval(t *testing.T) {
+	// Arrange
+	f := &fakeTailscale{statusWaits: true}
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: f}
+
+	// Act
+	_, err := m.Enable(context.Background())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "tailscale status --json did not answer within 15 seconds") {
+		t.Fatalf("enable with status timing out: %v", err)
+	}
+	if strings.Contains(err.Error(), "approved") {
+		t.Errorf("%q blames an approval a status never waits for", err)
+	}
+}
+
+// Turning remote access off with the Tailscale service stopped revokes it
+// and says Tailscale is not running, never that HTTPS needs enabling.
+func TestOffWithTailscaleStoppedSaysItIsNotRunning(t *testing.T) {
+	// Arrange
+	f := &fakeTailscale{fail: true}
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: f}
+	if err := write(m.State, testConfig()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := m.Disable(context.Background())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "Tailscale is not running on this PC") || !strings.Contains(err.Error(), "run cfo remote off again") {
+		t.Fatalf("off with Tailscale stopped: %v", err)
+	}
+	if strings.Contains(err.Error(), "enable HTTPS") || strings.Contains(err.Error(), "secret") {
+		t.Errorf("%q misnames the problem or echoes the CLI", err)
+	}
+	if c, err := Read(m.State); err != nil || c.Enabled || c.Origin == "" {
+		t.Fatal("off did not revoke or lost the route it owns", c, err)
 	}
 }
