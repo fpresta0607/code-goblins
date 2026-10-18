@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -894,6 +895,104 @@ func TestPageNotesWaitForAGoblinBetweenSessionsAndArriveOnceInOrder(t *testing.T
 	}
 	if left := store.pageReceiptsSnapshot().Answers; len(left) != 0 {
 		t.Errorf("receipts still hold %+v", left)
+	}
+}
+
+// A note waiting for its goblin is never typed while the goblin's terminal is
+// changing hands: a resume types its own instruction into the starting
+// terminal, where the note would take its place or be submitted with it, and
+// a pause ends the terminal the note was typed into. It is typed once the
+// change has finished, under the session it brought.
+func TestAPageNoteWaitsWhileItsGoblinIsPausedResumedOrRelaunched(t *testing.T) {
+	for name, test := range map[string]struct {
+		generation, phase, action, relaunch string
+	}{
+		"its resume":                    {generation: "g2", phase: "resuming", action: "resume"},
+		"its pause":                     {phase: "pausing", action: "pause"},
+		"the supervisor relaunching it": {generation: "g2", relaunch: "resume"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, connection, _ := pageOfAGoblin(t, store)
+			s := &Service{Store: store, Options: Options{CFO: connection}, changing: map[string]string{}}
+			cycle := pageNotes(t, s, store.Snapshot().Reviews[0], "first")
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			var typed []string
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+				typed = append(typed, text)
+				return nil
+			}
+			if test.generation != "" {
+				meta.SpawnGen = test.generation
+			}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			change := func(phase, action, relaunch string) {
+				t.Helper()
+				if phase != "" {
+					if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "change-1", Action: action, Phase: phase}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				s.starts.Lock()
+				s.changing[meta.ID] = relaunch
+				s.starts.Unlock()
+			}
+
+			// Act
+			change(test.phase, test.action, test.relaunch)
+			cycle()
+			whileChanging := len(typed)
+			change("running", "resume", "")
+			cycle()
+
+			// Assert
+			if whileChanging != 0 {
+				t.Errorf("typed %d notes during %s, want none", whileChanging, name)
+			}
+			if len(typed) != 1 || !strings.Contains(typed[0], ": first") {
+				t.Fatalf("typed = %q, want the note once the change finished", typed)
+			}
+		})
+	}
+}
+
+// A task id is reused once its task is cleaned up. A note written on a page
+// of the earlier task never reaches the goblin that reuses the id: the
+// session that refused it is another task's, not the page's goblin come back
+// in a new one, so the note goes to the CFO.
+func TestAPageNoteOfAnEarlierTaskNeverReachesTheGoblinThatReusesItsID(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, connection, _ := pageOfAGoblin(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	r := store.Snapshot().Reviews[0]
+	cycle := pageNotes(t, s, r, "first")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		typed = append(typed, text)
+		return nil
+	}
+	later := "s" + strconv.FormatInt(r.CreatedAt.Add(time.Hour).UnixNano(), 10)
+	meta.FirstGen, meta.SpawnGen = later, later
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	cycle()
+
+	// Assert
+	if len(typed) != 0 {
+		t.Fatalf("typed %q into the goblin that reuses the id, want nothing", typed)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || strings.Contains(wakes[0].Detail, " has it") {
+		t.Fatalf("wakes = %+v, want the note handed to the CFO undelivered", wakes)
 	}
 }
 

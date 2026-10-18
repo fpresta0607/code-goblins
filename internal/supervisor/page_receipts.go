@@ -227,6 +227,19 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				}
 				detail += fmt.Sprintf("; it was typed into %s's terminal%s and the goblin's record has not shown it taken: check with cfo peek %s whether it waits there before relaying it", r.Task, at, r.Task)
 			case isLive:
+				// A terminal changing hands takes no note, as it takes no board
+				// message: a resume types its own instruction into it, and a
+				// pause ends it.
+				record, err := state.ReadLifecycle(s.Store.Home.State, r.Task)
+				if err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				s.starts.Lock()
+				isRelaunched := s.starting == r.Task || s.changing[r.Task] != ""
+				s.starts.Unlock()
+				if isRelaunched || err == nil && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping") {
+					return errPageAnswerWaits
+				}
 				if _, err := host.ReadRecord(s.Options.CFO.State, r.Task); err != nil && meta.Backend == "native" {
 					return errPageAnswerWaits
 				}
@@ -234,11 +247,13 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				if err := s.Store.keepPageAnswer(answer); err != nil {
 					return err
 				}
-				_, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
-				if current := goblinIdentity(meta); errors.Is(err, ErrRejected) && current != r.Identity {
+				_, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+				if current := goblinIdentity(meta); errors.Is(err, ErrRejected) && current != r.Identity && !lifeStart(meta).After(r.CreatedAt) {
 					// Its goblin came back in a new session, as a pause's
-					// resume brings it, and the page is still its own. A
-					// refusal typed nothing, so it is sent again.
+					// resume brings it, and the page is still its own, since
+					// its task began before the page did; a task that reuses
+					// the id is another goblin's. A refusal typed nothing, so
+					// it is sent again.
 					_, err = s.Options.CFO.SendGoblin(ctx, r.Task, current, text)
 				}
 				switch {
