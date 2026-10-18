@@ -261,7 +261,7 @@ func RefuseEndedPage(page string) error {
 // EndedPage refuses a review of page, its Scrawl link or its HTML file, whose
 // review session has ended: its card would open a page that says so.
 func EndedPage(page string) error {
-	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with cfo review --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
+	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with cfo review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
 }
 
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
@@ -378,6 +378,11 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	if found {
 		if !sameReview(prior, r) {
 			return errors.New("review ID already used")
+		}
+		// Publishing a closed item again would show him nothing, so it is
+		// refused rather than reported published: another look is a new item.
+		if prior.State != "open" {
+			return fmt.Errorf("item %s is %s, so publishing it again would show him nothing; publish another look under a new --id", r.ID, prior.State)
 		}
 		return nil
 	}

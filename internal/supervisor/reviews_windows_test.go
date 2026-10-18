@@ -348,6 +348,46 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	}
 }
 
+// His Send and End closes an item, and a reporter that published it again
+// under its ID, as a goblin rerunning cfo review --reopen did, was told it was
+// published while no card appeared. A republish of an item that is no longer
+// open is refused, naming a new --id, and recording nothing; a republish of
+// an open item is still that same item.
+func TestARepublishOfAClosedItemIsRefusedNamingANewID(t *testing.T) {
+	for _, state := range []string{"open", "answered", "withdrawn"} {
+		t.Run(state, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			if err := PublishReview(h, meta.ID, "mockup-review-1", "Look at the mockup", "", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			store.db.Reviews[0].State = state
+			err := store.save()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err = PublishReview(h, meta.ID, "mockup-review-1", "Look at the mockup", "", "", nil)
+
+			// Assert
+			isRefused := state != "open"
+			if isRefused != (err != nil) || isRefused && !strings.Contains(err.Error(), "new --id") {
+				t.Fatalf("republishing the %s item = %v, want refused naming a new --id: %t", state, err, isRefused)
+			}
+			if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
+				t.Fatalf("the republish left %d inbox records", len(entries))
+			}
+		})
+	}
+}
+
 // A publication refused because the inbox is full copies no image.
 func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 	store, h := testStore(t)

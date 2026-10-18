@@ -158,7 +158,7 @@ func TestReviewCommandRefusesAnEndedPageUnlessToldToReopenIt(t *testing.T) {
 				reopenedExit, reopened := review("--reopen")
 
 				// Assert
-				if refusedExit != 1 || !strings.Contains(refused, "has ended") || !strings.Contains(refused, "--reopen") {
+				if refusedExit != 1 || !strings.Contains(refused, "has ended") || !strings.Contains(refused, "--reopen") || !strings.Contains(refused, "--id <a new ID>") {
 					t.Errorf("a review of an ended session: exit=%d stderr=%q, want it refused naming --reopen", refusedExit, refused)
 				}
 				if ranBefore == nil {
@@ -209,7 +209,7 @@ func TestReviewCommandRefusesAPageLavishAxiSaysHeEnded(t *testing.T) {
 	exit := runReview([]string{"--id", "site-real-photos-1", "--task", "g1", "--title", "The site with real photos", "--lavish", page}, &stdout, &stderr, runtime)
 
 	// Assert
-	if exit != 1 || !strings.Contains(stderr.String(), "has ended") || !strings.Contains(stderr.String(), "--reopen") {
+	if exit != 1 || !strings.Contains(stderr.String(), "has ended") || !strings.Contains(stderr.String(), "--reopen") || !strings.Contains(stderr.String(), "--id <a new ID>") {
 		t.Fatalf("exit=%d stderr=%q, want the ended page refused naming --reopen before anything is published", exit, stderr.String())
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
@@ -268,6 +268,27 @@ func TestReviewCommandRefusesAnAgentEndedPageGivenThroughAJunction(t *testing.T)
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
 		t.Fatalf("the refused review left %d inbox records", len(entries))
+	}
+}
+
+// Every place that lists cfo review's syntax names --reopen with --lavish, so
+// an agent learns of it before a refusal sends it there: cfo help and the
+// README's command reference.
+func TestReviewSyntaxListsReopenWithLavish(t *testing.T) {
+	// Arrange
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	listed := map[string]string{"cfo help": usage, "README.md": string(readme)}
+
+	// Assert
+	for where, text := range listed {
+		if !strings.Contains(text, "[--lavish <url|html-file> [--reopen]]") {
+			t.Errorf("%s does not list --reopen with cfo review's --lavish", where)
+		}
 	}
 }
 
