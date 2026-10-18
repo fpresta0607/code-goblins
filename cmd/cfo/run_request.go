@@ -14,7 +14,7 @@ import (
 // primary CFO only; replacing an item is withdrawing it and publishing the
 // new command under a new ID:
 //
-//	cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
+//	cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path> [--message-file <path>]
 //	cfo run-request --withdraw <id> --reason "<why>"
 func runRunRequest(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("run-request", flag.ContinueOnError)
@@ -26,6 +26,7 @@ func runRunRequest(args []string, stdout, stderr io.Writer, runtime commandRunti
 	f.BoolVar(&req.Admin, "admin", false, "run it as administrator through Windows UAC")
 	f.StringVar(&req.Cwd, "cwd", "", "the folder it runs in; the CFO home when omitted")
 	f.StringVar(&req.CommandFile, "command-file", "", "the file holding the exact command; read once")
+	f.StringVar(&req.MessageFile, "message-file", "", messageFileUsage)
 	withdraw := f.String("withdraw", "", "take the item with this ID, which nobody ran yet, off the Command Center")
 	reason := f.String("reason", "", "why the item is withdrawn; kept on the item and in state/runs.audit")
 	if !parseFlags(f, args) {
