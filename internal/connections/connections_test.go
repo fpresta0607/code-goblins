@@ -87,7 +87,7 @@ func TestCodexNeedsRuntimeHealthNotAnAuthMethodOrCachedTools(t *testing.T) {
 func TestCacheReturnsWhileCheckingAndSharesOneCheck(t *testing.T) {
 	var calls atomic.Int32
 	release := make(chan struct{})
-	cache := NewCache(time.Minute, time.Second, func(ctx context.Context, key string) Snapshot {
+	cache := NewCache(time.Minute, time.Minute, func(ctx context.Context, key string) Snapshot {
 		calls.Add(1)
 		select {
 		case <-release:
@@ -154,7 +154,7 @@ func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 	// The cache's clock moves only when the test moves it, so a result is
 	// fresh until then however long a busy machine takes between reads.
 	var ahead atomic.Int64
-	cache.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) }
+	cache.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) } // stall-accepted: the offset the test moves the cache's clock by, not a wait, and a result stays fresh a minute.
 	cache.Get("one", false)
 	waitChecked(t, cache, "one")
 	if cache.Get("one", false).Checking || calls.Load() != 1 {
@@ -172,7 +172,7 @@ func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 
 func TestCachedReadNeverStartsACheck(t *testing.T) {
 	var calls atomic.Int32
-	cache := NewCache(200*time.Millisecond, time.Second, func(context.Context, string) Snapshot {
+	cache := NewCache(200*time.Millisecond, time.Minute, func(context.Context, string) Snapshot {
 		calls.Add(1)
 		return Snapshot{Entries: []Entry{{Name: "sample", Status: "connected"}}}
 	})
@@ -192,7 +192,7 @@ func TestCachedReadNeverStartsACheck(t *testing.T) {
 func TestRefreshesDuringACheckCoalesceIntoOneFollowingCheck(t *testing.T) {
 	var calls atomic.Int32
 	releases := []chan struct{}{make(chan struct{}), make(chan struct{})}
-	cache := NewCache(time.Minute, time.Second, func(context.Context, string) Snapshot {
+	cache := NewCache(time.Minute, time.Minute, func(context.Context, string) Snapshot {
 		call := calls.Add(1)
 		<-releases[call-1]
 		return Snapshot{Entries: []Entry{{Name: "sample", Status: map[int32]string{1: "unauthorized", 2: "connected"}[call]}}}
@@ -205,7 +205,7 @@ func TestRefreshesDuringACheckCoalesceIntoOneFollowingCheck(t *testing.T) {
 		}
 	}
 	close(releases[0])
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(time.Minute)
 	for calls.Load() < 2 {
 		if !cache.Cached("one").Checking {
 			t.Fatal("pending refresh went idle between checks")
@@ -213,7 +213,7 @@ func TestRefreshesDuringACheckCoalesceIntoOneFollowingCheck(t *testing.T) {
 		select {
 		case <-deadline:
 			t.Fatal("pending refresh never ran")
-		case <-time.After(time.Millisecond):
+		case <-time.After(time.Millisecond): // stall-accepted: a pause between polls, whose running out only starts the next poll.
 		}
 	}
 	if !cache.Cached("one").Checking {
@@ -228,7 +228,7 @@ func TestRefreshesDuringACheckCoalesceIntoOneFollowingCheck(t *testing.T) {
 
 func TestClosingDropsAPendingRefresh(t *testing.T) {
 	var calls atomic.Int32
-	cache := NewCache(time.Minute, time.Second, func(ctx context.Context, _ string) Snapshot {
+	cache := NewCache(time.Minute, time.Minute, func(ctx context.Context, _ string) Snapshot {
 		calls.Add(1)
 		<-ctx.Done()
 		return Snapshot{}
@@ -246,7 +246,7 @@ func TestClosingDropsAPendingRefresh(t *testing.T) {
 
 func waitChecked(t *testing.T, cache *Cache, key string) Snapshot {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(time.Minute)
 	for {
 		result := cache.Get(key, false)
 		if !result.Checking {
@@ -255,7 +255,7 @@ func waitChecked(t *testing.T, cache *Cache, key string) Snapshot {
 		select {
 		case <-deadline:
 			t.Fatal(errors.New("check did not finish"))
-		case <-time.After(time.Millisecond):
+		case <-time.After(time.Millisecond): // stall-accepted: a pause between polls, whose running out only starts the next poll.
 		}
 	}
 }

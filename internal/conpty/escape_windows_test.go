@@ -109,7 +109,7 @@ func TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce(t *testing.T)
 	})
 	s.waitFor(t, "key-records-ready")
 	read := func(want string) bool {
-		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if progress, _ := os.ReadFile(progressPath); strings.Contains(string(progress), want) {
 				return true
 			}
@@ -137,7 +137,7 @@ func TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce(t *testing.T)
 		// Assert
 		if !read(key.read) {
 			progress, _ := os.ReadFile(progressPath)
-			t.Fatalf("%s typed as %q did not reach the program as %q within a second; it read:\n%s", key.name, key.typed, key.read, progress)
+			t.Fatalf("%s typed as %q did not reach the program as %q within a minute; it read:\n%s", key.name, key.typed, key.read, progress)
 		}
 	}
 }
@@ -155,7 +155,7 @@ func TestAKeyEventSplitAcrossTwoWritesReachesTheProgramWhole(t *testing.T) {
 	})
 	s.waitFor(t, "key-records-ready")
 	read := func(want string) bool {
-		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if progress, _ := os.ReadFile(progressPath); strings.Contains(string(progress), want) {
 				return true
 			}

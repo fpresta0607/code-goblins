@@ -170,7 +170,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 		}
 		return 1
 	})
-	for deadline := time.Now().Add(10 * time.Second); !isVisible && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !isVisible && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		user32.NewProc("EnumDesktopWindows").Call(desktop, callback, 0)
 	}
 	if !isVisible {

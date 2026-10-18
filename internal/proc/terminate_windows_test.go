@@ -32,7 +32,7 @@ func TestTerminateVerifiedEndsOnlyTheProcessItWasAskedAbout(t *testing.T) {
 		select {
 		case <-exited:
 			return false
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond): // stall-accepted: no exit is meant to arrive, so a stall only makes the wait longer.
 			return true
 		}
 	}
@@ -54,7 +54,9 @@ func TestTerminateVerifiedEndsOnlyTheProcessItWasAskedAbout(t *testing.T) {
 	if err := TerminateVerified(cmd.Process.Pid, start, pingRole); err != nil {
 		t.Fatalf("TerminateVerified = %v, want the process ended", err)
 	}
-	if running() {
+	select {
+	case <-exited:
+	case <-time.After(30 * time.Second):
 		t.Fatal("the process asked about still runs")
 	}
 	if len(seen) < 2 || !strings.EqualFold(seen[1], "/c") {

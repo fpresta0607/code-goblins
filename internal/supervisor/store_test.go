@@ -365,7 +365,7 @@ func TestStopContinuationAndSecondStopWithinSameTurn(t *testing.T) {
 	now := time.Now()
 	var stops []nativehook.Event
 	for i, kind := range []string{"SessionStart", "Stop", "PostToolUse", "Stop"} {
-		e := event(t, h, kind, "continuation", "same-turn", now.Add(time.Duration(i)*time.Millisecond))
+		e := event(t, h, kind, "continuation", "same-turn", now.Add(time.Duration(i)*time.Millisecond)) // stall-accepted: each event's timestamp, a millisecond after the one before, which no wait compares with the clock.
 		if kind == "Stop" {
 			stops = append(stops, e)
 		}

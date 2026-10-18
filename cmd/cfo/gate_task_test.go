@@ -307,7 +307,7 @@ func TestAGateTaskRejectsUnboundRunAndOwnerEvidence(t *testing.T) {
 				if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: holder, Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-"+holder)}); err != nil {
 					t.Fatal(err)
 				}
-				held, err := holdExclusively(state.TaskMetaPath(stateDir, holder), time.Second)
+				held, err := holdExclusively(state.TaskMetaPath(stateDir, holder), time.Minute)
 				if err != nil {
 					t.Fatal(err)
 				}

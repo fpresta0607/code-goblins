@@ -109,7 +109,7 @@ func TestGoblinsGoesOnPromptlyWhenTheSnapshotNeverAnswers(t *testing.T) {
 		if held > snapshotTimeout+2*time.Second {
 			t.Errorf("goblins waited %s on the snapshot, want no longer than its own bound of %s", held, snapshotTimeout)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Error("goblins went on without giving up its request for the snapshot")
 	}
 }

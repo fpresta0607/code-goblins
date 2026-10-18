@@ -55,7 +55,7 @@ func TestCloseTakesAHostEndingAsItsRequestIsRefusedAsEnded(t *testing.T) {
 		if err := client.CloseTerminal(); err != nil {
 			return err
 		}
-		for deadline := time.Now().Add(20 * time.Second); running(record.HostPID) && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(time.Minute); running(record.HostPID) && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
 		}
 		refused = client.CloseTerminal()
@@ -99,7 +99,10 @@ func TestCloseReportsARefusedRequestWhoseHostKeepsRunning(t *testing.T) {
 			stateDir, record := launch(t)
 			t.Cleanup(func() { end(record.HostPID) })
 			previousWait := closeEndWait
-			closeEndWait = time.Second
+			closeEndWait = time.Minute
+			if test.isWait {
+				closeEndWait = time.Second
+			}
 			t.Cleanup(func() { closeEndWait = previousWait })
 			setCloseTerminal(t, func(*Client) error {
 				if test.isRecordRemoved {
@@ -184,13 +187,13 @@ func TestCloseTakesARecordWhosePidALaterProcessReusesAsEnded(t *testing.T) {
 	}
 
 	began := time.Now()
-	err := Close(stateDir, record, 5*time.Second)
+	err := Close(stateDir, record, 2*time.Minute)
 	took := time.Since(began)
 
 	if err != nil {
 		t.Errorf("Close: %v", err)
 	}
-	if took >= 5*time.Second {
+	if took >= time.Minute {
 		t.Errorf("Close took %s, want it back without waiting for the pid's process to answer", took)
 	}
 	if !running(later.Process.Pid) {
@@ -220,7 +223,7 @@ func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 	var heldErr error
 	go func() {
 		defer close(released)
-		for deadline := time.Now().Add(20 * time.Second); Running(record) && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(time.Minute); Running(record) && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
 		}
 		_, heldErr = ReadRecord(stateDir, record.ID)

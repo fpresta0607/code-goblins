@@ -244,7 +244,7 @@ func commandFolder(t *testing.T) string {
 			letGo(t, dir, name)
 			data, _ := os.ReadFile(filepath.Join(dir, name+".pid"))
 			pid, _ := strconv.Atoi(string(data))
-			for deadline := time.Now().Add(10 * time.Second); !left(dir, name, "ended") && time.Now().Before(deadline); {
+			for deadline := time.Now().Add(time.Minute); !left(dir, name, "ended") && time.Now().Before(deadline); {
 				if _, isRunning := proc.StartTime(pid); !isRunning {
 					break
 				}
@@ -377,6 +377,7 @@ func gateTurn(runtime commandRuntime, stdout, stderr *lockedBuffer, args ...stri
 	go func() { copied.Wait(); close(isCopied) }()
 	select {
 	case <-isCopied:
+	// stall-accepted: it is meant to run out when a machine service the run left running holds the pipes; otherwise the copies end at once.
 	case <-time.After(5 * time.Second):
 	}
 	outputReader.Close()

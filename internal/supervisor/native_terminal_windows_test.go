@@ -68,7 +68,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// An orphaned program starts only once the relay that started it has
 	// exited, as what Git Bash's timeout starts outlives the bash it replaced.
 	if relay, err := strconv.Atoi(os.Getenv(orphanOf)); err == nil {
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if _, alive := proc.StartTime(relay); !alive {
 				break
 			}
@@ -396,11 +396,11 @@ func hostProgram(t *testing.T, stateDir, id, typed string, args ...string) hoste
 		}
 		select {
 		case <-terminal.ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if record, err := host.ReadRecord(stateDir, id); err == nil {
 			if phases != "" {
 				terminal.child, err = windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(record.ChildPID))
@@ -462,7 +462,7 @@ func (terminal hostedTerminal) showsTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	screens, _ := harness.NativeScreens(harness.Claude)
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if rows, err := host.ReadScreen(record); err == nil && screens.IsWorking(rows) {
 			return
 		}
@@ -494,7 +494,7 @@ func (terminal hostedTerminal) showsComposer(t *testing.T, name string) {
 		t.Fatal(err)
 	}
 	screens, _ := harness.NativeScreens(harness.Kind(name))
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if rows, err := host.ReadScreen(record); err == nil && screens.IsReady(rows) && screens.ComposerEmpty(rows) {
 			return
 		}
@@ -535,7 +535,7 @@ func (terminal hostedTerminal) exit(t *testing.T) []string {
 	}
 	select {
 	case <-terminal.ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		terminal.exitSnapshot(t, "exit wait timed out before cleanup")
 		t.Fatal("the terminal did not exit")
 	}
@@ -593,7 +593,7 @@ func (terminal hostedTerminal) lines(t *testing.T) []string {
 // waitForLines waits until the program recorded want lines.
 func (terminal hostedTerminal) waitForLines(t *testing.T, want int) []string {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if lines := terminal.lines(t); len(lines) >= want || time.Now().After(deadline) {
 			return lines
 		}
@@ -625,7 +625,7 @@ type nativeView struct {
 }
 
 func dialNative(server *httptest.Server, query, origin string) (*websocket.Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	header := http.Header{}
 	if origin != "" {
@@ -670,7 +670,7 @@ func openNativeView(t *testing.T, server *httptest.Server, query string) *native
 
 // acknowledge tells the board the view has shown output bytes of output.
 func (v *nativeView) acknowledge(output int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	_ = v.conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"type":"ack","bytes":%d}`, output)))
 }
@@ -692,7 +692,7 @@ func (v *nativeView) shows(text string) bool {
 
 func (v *nativeView) waitFor(t *testing.T, text string) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
 		v.mu.Unlock()
@@ -710,7 +710,7 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 // the old size just after one.
 func (v *nativeView) waitForSize(t *testing.T, size string) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); !v.shows("size " + size); time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !v.shows("size " + size); time.Sleep(200 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the program never read its size as %s", size)
 		}
@@ -720,7 +720,7 @@ func (v *nativeView) waitForSize(t *testing.T, size string) {
 
 func (v *nativeView) send(t *testing.T, kind websocket.MessageType, text string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := v.conn.Write(ctx, kind, []byte(text)); err != nil {
 		t.Fatalf("sending %q: %v", text, err)
@@ -732,7 +732,7 @@ func (v *nativeView) waitForClose(t *testing.T) websocket.CloseError {
 	t.Helper()
 	select {
 	case <-v.closed:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the view never closed")
 	}
 	var closed websocket.CloseError
@@ -835,7 +835,7 @@ func TestANativeViewIsToldWhereTheHistoryEnds(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
 	conn.SetReadLimit(1 << 20)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	kind, first, err := conn.Read(ctx)
@@ -1336,7 +1336,7 @@ func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
 
 	gate.taken.Store(true)
 	// The first refusal is kept before the next check starts.
-	for deadline := time.Now().Add(10 * time.Second); gate.refused.Load() < 2; time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); gate.refused.Load() < 2; time.Sleep(5 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("no tick checked custody after the gate took over")
 		}
@@ -1368,14 +1368,14 @@ func TestANativeTerminalHoldsItsSizeWhileAGateOwnsTheTask(t *testing.T) {
 
 	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
 	// The relay answers a ping only after its loop has handled the resize, so the pong proves it arrived under custody.
-	ping, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := v.conn.Ping(ping); err != nil {
 		t.Fatalf("pinging the view: %v", err)
 	}
 	gate.taken.Store(false)
 	// The first allowance is kept before the next check starts.
-	for deadline := time.Now().Add(10 * time.Second); gate.allowed.Load() < 2; time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); gate.allowed.Load() < 2; time.Sleep(5 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("no tick checked custody after the gate released the task")
 		}

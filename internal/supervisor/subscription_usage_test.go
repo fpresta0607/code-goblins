@@ -146,33 +146,42 @@ func TestSubscriptionUsageSaysTheWeeklyFloorTheFleetReadingRead(t *testing.T) {
 
 func TestSnapshotDoesNotWaitForQuotaRefresh(t *testing.T) {
 	store, _ := testStore(t)
-	started := make(chan struct{})
+	started, release := make(chan struct{}), make(chan struct{})
 	service := &Service{Store: store, Options: Options{Quota: func(ctx context.Context) (quota.Report, string) {
 		if _, isBounded := ctx.Deadline(); !isBounded {
 			t.Error("quota refresh has no deadline")
 		}
 		close(started)
-		<-ctx.Done()
+		<-release
 		return quota.Report{}, "private provider failure payload"
 	}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); service.keepSubscriptionUsage(ctx, time.Minute) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); close(release); <-done })
 	select {
 	case <-started:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("refresh did not begin")
 	}
 
-	began := time.Now()
-	for range 3 {
-		if _, err := service.Snapshot(); err != nil {
+	snapshotted := make(chan error, 1)
+	go func() {
+		for range 3 {
+			if _, err := service.Snapshot(); err != nil {
+				snapshotted <- err
+				return
+			}
+		}
+		snapshotted <- nil
+	}()
+	select {
+	case err := <-snapshotted:
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	if elapsed := time.Since(began); elapsed > time.Second {
-		t.Fatalf("snapshots waited for quota: %s", elapsed)
+	case <-time.After(time.Minute):
+		t.Fatal("snapshots waited for a quota refresh still under way")
 	}
 }
 

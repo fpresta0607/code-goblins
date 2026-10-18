@@ -80,7 +80,7 @@ func TestTreeUsageRefusesAJobWhoseMemoryReadsNothingWhileItRuns(t *testing.T) {
 	if err == nil || usage != (TreeUsage{}) || !strings.Contains(err.Error(), "no commitment while") {
 		t.Errorf("usage = %+v, %v; want an error that names no commitment while members run, and no sample", usage, err)
 	}
-	if waited := time.Since(started); waited > 5*time.Second {
+	if waited := time.Since(started); waited > time.Minute {
 		t.Errorf("the read took %s; want it to give up within its bound", waited)
 	}
 }
@@ -185,7 +185,7 @@ func TestTreeUsageKeepsItsPeakOnceItsMembersExit(t *testing.T) {
 
 	// Act
 	var usage TreeUsage
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if usage, err = tree.Usage(); err != nil || usage.ActiveProcesses == 0 {
 			break
 		}
@@ -217,7 +217,7 @@ func TestTreeCleanupDeadlineIncludesWaitingForMeasurement(t *testing.T) {
 	// Arrange
 	tree := &Tree{job: windows.InvalidHandle}
 	tree.mu.Lock()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out while it holds the lock.
 	defer cancel()
 	finished := make(chan error, 1)
 
@@ -231,7 +231,7 @@ func TestTreeCleanupDeadlineIncludesWaitingForMeasurement(t *testing.T) {
 		if err != context.DeadlineExceeded {
 			t.Fatalf("cleanup = %v, want deadline before taking custody", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		tree.mu.Unlock()
 		<-finished
 		t.Fatal("cleanup waited for measurement past its deadline")

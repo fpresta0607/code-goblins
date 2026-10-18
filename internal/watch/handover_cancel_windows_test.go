@@ -16,18 +16,18 @@ func TestAWatcherThatAnsweredSkipsThePollFloorAfterAWaitFailure(t *testing.T) {
 	first := startServeStandIn(t)
 	second := startServeStandIn(t)
 	cfg := baseConfig(dir)
-	cfg.Poll = 20 * time.Second
+	cfg.Poll = 2 * time.Minute
 	cfg.Sleep = sleep
 	var answered time.Time
 	cfg.WaitEvent = func(context.Context, time.Duration) bool {
 		askForTheLock(t, dir, first)
-		eventually(t, 5*time.Second, "the first handover answer", func() bool {
+		eventually(t, time.Minute, "the first handover answer", func() bool {
 			ack, ok := readHandoverAck(dir)
 			return ok && ack.ServePID == first
 		})
 		askForTheLock(t, dir, second)
 		// Answering again proves the first request already canceled the cycle.
-		eventually(t, 5*time.Second, "the second handover answer", func() bool {
+		eventually(t, time.Minute, "the second handover answer", func() bool {
 			ack, ok := readHandoverAck(dir)
 			return ok && ack.ServePID == second
 		})
@@ -43,7 +43,7 @@ func TestAWatcherThatAnsweredSkipsThePollFloorAfterAWaitFailure(t *testing.T) {
 	if answered.IsZero() {
 		t.Fatal("the watcher never answered while its directory wait was running")
 	}
-	if waited := time.Since(answered); waited > 5*time.Second {
+	if waited := time.Since(answered); waited > time.Minute {
 		t.Errorf("the watcher stayed alive %s after answering; want cancellation to interrupt its %s poll", waited, cfg.Poll)
 	}
 	if lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) {
@@ -66,7 +66,7 @@ func TestAWatcherYieldsDuringItsTimerAndGraceSleeps(t *testing.T) {
 				}
 			}
 			cfg := baseConfig(dir)
-			cfg.Poll, cfg.SignalGrace = 10*time.Second, 10*time.Second
+			cfg.Poll, cfg.SignalGrace = 2*time.Minute, 2*time.Minute
 			sleeping := make(chan struct{})
 			cfg.Sleep = func(ctx context.Context, duration time.Duration) {
 				close(sleeping)
@@ -85,7 +85,7 @@ func TestAWatcherYieldsDuringItsTimerAndGraceSleeps(t *testing.T) {
 			case <-sleeping:
 			case got := <-returned:
 				t.Fatalf("Run returned before sleeping: %q, %v", got.reason, got.err)
-			case <-time.After(10 * time.Second):
+			case <-time.After(time.Minute):
 				t.Fatal("the watcher never started its sleep")
 			}
 
@@ -94,7 +94,7 @@ func TestAWatcherYieldsDuringItsTimerAndGraceSleeps(t *testing.T) {
 			var got result
 			select {
 			case got = <-returned:
-			case <-time.After(5 * time.Second):
+			case <-time.After(time.Minute):
 				t.Error("the handover did not interrupt the watcher's sleep")
 				got = <-returned
 			}
@@ -125,7 +125,7 @@ func TestAWaitFailureStillKeepsThePollFloor(t *testing.T) {
 		askForTheLock(t, dir, serve)
 		select {
 		case <-ctx.Done():
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal("the watcher never canceled after the handover request")
 		}
 		return false

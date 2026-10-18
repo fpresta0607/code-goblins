@@ -318,7 +318,7 @@ func TestARunTerminalViewOpensOnlyWhileItsCommandRuns(t *testing.T) {
 // dialNativeWith opens a view from the board's own origin with header set,
 // as a proxy in front of the board sets it.
 func dialNativeWith(server *httptest.Server, query, header string) (*websocket.Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	headers := http.Header{"Origin": {server.URL}}
 	if header != "" {

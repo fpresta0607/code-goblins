@@ -1113,7 +1113,7 @@ func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
 	// The relay reads the registration every tick through a handle that
 	// refuses a write while it is open, so the write retries the few
 	// microseconds a tick holds it, the way state.RemoveTaskMeta does.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for err := os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600); err != nil; err = os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600) {
 		if time.Now().After(deadline) {
 			t.Fatal(err)

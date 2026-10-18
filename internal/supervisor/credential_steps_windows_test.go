@@ -238,6 +238,7 @@ func TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone(t *testing.T) {
 	if press.Code != http.StatusOK || got.err != nil || got.request.State != "done" {
 		t.Fatalf("Done = %d %s, wait = %+v %v", press.Code, press.Body, got.request, got.err)
 	}
+	// stall-accepted: it times the wait, and the slow path it rules out, the look every two seconds whatever the record's stamp says, is too short for a longer bound to tell apart.
 	if waited := got.at.Sub(pressed); waited > 2*time.Second {
 		t.Fatalf("the goblin went on %s after Done, want within seconds", waited)
 	}
@@ -279,11 +280,11 @@ func firstTab(ctx context.Context, t *testing.T, address string) *cdp.Conn {
 }
 
 // pageText is the page's text once it holds want, or what it holds after
-// ten seconds.
+// a minute.
 func pageText(ctx context.Context, t *testing.T, tab *cdp.Conn, want string) string {
 	t.Helper()
 	var text string
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		var result struct {
 			Result struct {
 				Value string `json:"value"`

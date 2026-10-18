@@ -95,7 +95,7 @@ func (c *console) shown() string {
 
 func (c *console) waitFor(t *testing.T, text string) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); !strings.Contains(c.shown(), text); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(c.shown(), text); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			shown := c.shown()
 			t.Fatalf("the console never showed %q; it shows %q", text, shown[max(0, len(shown)-400):])
@@ -108,7 +108,7 @@ func (c *console) waitFor(t *testing.T, text string) {
 // so the program can still read the old size just after one.
 func (c *console) askForSizeUntil(t *testing.T, typeSize func() error, isRead func(shown string) bool) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); !isRead(c.shown()); time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !isRead(c.shown()); time.Sleep(200 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			shown := c.shown()
 			t.Fatalf("the program never read the size it was waited for; the console shows %q", shown[max(0, len(shown)-400):])
@@ -132,7 +132,7 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 		defer close(ended)
 		_ = host.Run(stateDir, host.Spec{ID: id, Args: []string{program, attachTestTerminal}, Cols: 80, Rows: 24})
 	}()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := host.ReadRecord(stateDir, id); err == nil {
 			break
 		}
@@ -149,7 +149,7 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})
@@ -220,6 +220,7 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 		if _, err := viewer.Write([]byte("size\r")); err != nil {
 			t.Fatal(err)
 		}
+		// stall-accepted: running out only types size again, and the test fails on how many old sizes the terminal answers, never on the clock.
 		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline) && !resized; time.Sleep(20 * time.Millisecond) {
 			resized = strings.Contains(c.shown(), "size 90x20")
 		}
@@ -233,7 +234,7 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 
 	select {
 	case <-viewer.Done():
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("cfo attach did not leave on Ctrl-]; the console shows %q", c.shown()[max(0, len(c.shown())-600):])
 	}
 	if code := viewer.ExitCode(); code != 0 {
@@ -322,7 +323,7 @@ func TestAttachTakesWindowsKeyEventsAfterTheHistoryIsTrimmed(t *testing.T) {
 
 	select {
 	case <-c.Done():
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("cfo attach did not end with the terminal; the console shows %q", c.shown()[max(0, len(c.shown())-600):])
 	}
 	if code := c.ExitCode(); code != 0 {
@@ -650,7 +651,7 @@ func TestClosingANativeTerminalLeavesTheProcessThatTookItsEndedHostsPid(t *testi
 	}()
 	select {
 	case <-ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		_ = hostProcess.Kill()
 		t.Fatalf("the host pid %d did not end after its terminal closed", record.HostPID)
 	}
@@ -706,8 +707,8 @@ func TestClosingANativeTerminalLeavesTheProcessThatTookItsEndedHostsPid(t *testi
 		if line != "got alive" {
 			t.Errorf("closing native terminal %s ended pid %d, which its record named but which was not its host: it answered %q", supervisor.NativeCFOTerminal, bystander.Process.Pid, line)
 		}
-	case <-time.After(15 * time.Second):
-		t.Errorf("closing native terminal %s left pid %d, which its record named but which was not its host, unable to answer within 15s", supervisor.NativeCFOTerminal, bystander.Process.Pid)
+	case <-time.After(time.Minute):
+		t.Errorf("closing native terminal %s left pid %d, which its record named but which was not its host, unable to answer within a minute", supervisor.NativeCFOTerminal, bystander.Process.Pid)
 	}
 }
 
@@ -784,7 +785,7 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 	}()
 	select {
 	case <-ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		_ = hostProcess.Kill()
 		t.Errorf("the host pid %d did not end after its terminal closed", record.HostPID)
 	}
@@ -793,7 +794,7 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 func waitForFakeClaudeEnvironment(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	path := filepath.Join(dir, fakeClaudeEnvironment)
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		raw, err := os.ReadFile(path)
 		if err != nil || len(raw) == 0 {
 			continue
@@ -806,7 +807,7 @@ func waitForFakeClaudeEnvironment(t *testing.T, dir string) map[string]string {
 		}
 		return env
 	}
-	t.Fatalf("the CFO's program wrote no %s within 15s", path)
+	t.Fatalf("the CFO's program wrote no %s within a minute", path)
 	return nil
 }
 

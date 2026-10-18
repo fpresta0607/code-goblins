@@ -214,7 +214,7 @@ func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 				}()
 				t.Cleanup(func() {
 					if record, err := host.ReadRecord(stateDir, meta.ID); err == nil {
-						if err := host.Close(stateDir, record, 10*time.Second); err != nil {
+						if err := host.Close(stateDir, record, time.Minute); err != nil {
 							t.Errorf("close fixture terminal: %v", err)
 						}
 					}
@@ -223,7 +223,7 @@ func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 						if err != nil {
 							t.Errorf("fixture host: %v", err)
 						}
-					case <-time.After(15 * time.Second):
+					case <-time.After(time.Minute):
 						t.Error("fixture host did not end")
 					}
 				})
@@ -231,7 +231,7 @@ func TestNativeCLISendSubmitsDelayedMultilinePasteOnce(t *testing.T) {
 				// The host starts its program before it records itself, so a
 				// composer that is ready says nothing of the record yet.
 				var record host.Record
-				for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 					if record, err = host.ReadRecord(stateDir, meta.ID); err == nil {
 						break
 					}
@@ -331,7 +331,7 @@ func readNativeSendPasteEvents(t *testing.T, stateDir string) []nativeSendPasteE
 
 func awaitNativeSendPasteEvent(t *testing.T, stateDir, kind string) nativeSendPasteEvent {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		for _, event := range readNativeSendPasteEvents(t, stateDir) {
 			if event.Kind == kind {
 				return event

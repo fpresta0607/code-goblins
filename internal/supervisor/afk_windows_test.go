@@ -696,9 +696,11 @@ func TestAHeldItemIsHeldOnceForEachStretchAcrossARestart(t *testing.T) {
 	if _, err := afk.TurnOff(h.State, "the board", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	// stall-accepted: the second stretch's switch time, which no wait compares with the clock.
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	// stall-accepted: the time the hold records, which no wait compares with the clock.
 	if err := restarted.holdForOverlord(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -947,16 +949,16 @@ func TestTurningAFKModeOnOrOffNeverWaitsOnQuotaAxi(t *testing.T) {
 	runPipe(t, s)
 	// Cleanups run last first, so the reader lets go before the pipe stops.
 	t.Cleanup(func() { close(never) })
-	// A switch that read quota-axi here would wait on it until the pipe's 20
-	// second deadline, so half of that is waiting on it.
+	// A switch that read quota-axi here would count a third read and wait on
+	// it past the pipe's deadline, so the switch fails and the count shows it.
 	switchAFK := func(on bool) error {
 		switched := make(chan error, 1)
 		go func() { switched <- SwitchAFK(h, on) }()
 		select {
 		case err := <-switched:
 			return err
-		case <-time.After(10 * time.Second):
-			t.Fatalf("turning AFK mode on = %v is still waiting after 10 seconds, on a quota-axi that answers no switch", on)
+		case <-time.After(time.Minute):
+			t.Fatalf("turning AFK mode on = %v is still waiting after a minute, on a quota-axi that answers no switch", on)
 			return nil
 		}
 	}

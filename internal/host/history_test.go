@@ -250,7 +250,7 @@ func TestHistoryKeepsOutputWrittenWhileAResizeApplies(t *testing.T) {
 		select {
 		case <-written:
 			return nil
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			return errors.New("no output could be written while the resize applied")
 		}
 	})

@@ -133,7 +133,7 @@ func waitForFile(t *testing.T, path string, within time.Duration) []byte {
 
 func openProcess(t *testing.T, pidFile string) windows.Handle {
 	t.Helper()
-	pid, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, pidFile, 20*time.Second))))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, pidFile, time.Minute))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,12 +153,12 @@ func hasEnded(handle windows.Handle) bool {
 	return err == nil && event == windows.WAIT_OBJECT_0
 }
 
-// endsSoon reports whether the process ends within five seconds. Windows
+// endsSoon reports whether the process ends within thirty seconds. Windows
 // can count a job empty a moment before a process it ended has finished
 // exiting, which a busy machine stretches, so a check made once just after a
 // job is counted empty races it.
 func endsSoon(handle windows.Handle) bool {
-	event, err := windows.WaitForSingleObject(handle, 5000)
+	event, err := windows.WaitForSingleObject(handle, 30000)
 	return err == nil && event == windows.WAIT_OBJECT_0
 }
 
@@ -217,7 +217,7 @@ func TestRecoveryEndsTheJobOfAKilledControllerAndFreesTheTurn(t *testing.T) {
 	if hasEnded(descendant) {
 		t.Fatal("the fixture's descendant ended with its controller, so it proves nothing")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -256,7 +256,7 @@ func TestRecoveryRefusesAWorkerThatNeverJoinedItsJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	stranded := openProcess(t, filepath.Join(root, "stranded.pid"))
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -265,7 +265,7 @@ func TestRecoveryRefusesAWorkerThatNeverJoinedItsJob(t *testing.T) {
 	if err := windows.TerminateProcess(stranded, 1); err != nil {
 		t.Fatal(err)
 	}
-	if event, err := windows.WaitForSingleObject(stranded, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(stranded, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Fatalf("the stranded worker did not end: %d, %v", event, err)
 	}
 	turn, err := requested.Wait(context.Background())
@@ -307,7 +307,7 @@ func TestRecoveryRefusesAJobItCannotOpenUntilTheJobIsGone(t *testing.T) {
 			windows.CloseHandle(job)
 		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -401,7 +401,7 @@ func TestRecoveryLeavesCustodyItCannotProveAbandoned(t *testing.T) {
 			if err := writeCustody(requested.Dir, guard); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -492,7 +492,7 @@ func TestRecoveryFreesTheTurnOnceAKilledControllersJobEndedWithIt(t *testing.T) 
 		t.Fatal(err)
 	}
 	controller.Wait()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -503,7 +503,7 @@ func TestRecoveryFreesTheTurnOnceAKilledControllersJobEndedWithIt(t *testing.T) 
 	if err != nil {
 		t.Fatalf("a killed controller's custody kept the turn: %v", err)
 	}
-	if event, err := windows.WaitForSingleObject(descendant, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(descendant, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Fatal("the descendant outlived its controller's job")
 	}
 	record := readExecution(t, filepath.Join(store, "executions", runID+".json"))

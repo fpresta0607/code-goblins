@@ -751,7 +751,7 @@ func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
 	defer s.Close()
 	within := func(what string, done func() bool) {
 		t.Helper()
-		for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); !done(); time.Sleep(20 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatal(what)
 			}
@@ -768,7 +768,7 @@ func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
 
 	select {
 	case <-scanning:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the merge scan never started")
 	}
 
@@ -795,7 +795,7 @@ func TestHistoryIsRebuiltWhenATaskFinishesOrMerges(t *testing.T) {
 		t.Helper()
 		select {
 		case <-scans:
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal(why)
 		}
 	}
@@ -804,7 +804,7 @@ func TestHistoryIsRebuiltWhenATaskFinishesOrMerges(t *testing.T) {
 		select {
 		case <-scans:
 			t.Fatal(why)
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond): // stall-accepted: no rebuild is meant to come before the hour is up, so a stall only makes the wait longer.
 		}
 	}
 
@@ -1061,11 +1061,15 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 		}
 	}
 	var asked []string
+	var isBudgeted bool
+	var budgetLeft time.Duration
 	blocking := true
 	service := &Service{Store: store, Options: Options{PullRequestState: func(ctx context.Context, url string) (PullRequestInfo, error) {
 		asked = append(asked, url)
 		if blocking {
 			blocking = false
+			deadline, hasDeadline := ctx.Deadline()
+			isBudgeted, budgetLeft = hasDeadline, time.Until(deadline)
 			<-ctx.Done()
 			return PullRequestInfo{}, ctx.Err()
 		}
@@ -1073,12 +1077,10 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	}}}
 	now := time.Now().UTC()
 
-	started := time.Now()
 	err := service.refreshHistory(t.Context(), now)
-	elapsed := time.Since(started)
 
-	if elapsed > pullRequestBudget+3*time.Second {
-		t.Fatalf("the refresh took %v, want it to end soon after the %v budget", elapsed, pullRequestBudget)
+	if !isBudgeted || budgetLeft > pullRequestBudget {
+		t.Fatalf("the ask GitHub never answers had %v left of its time (deadline %t), want it held to the refresh's %v budget", budgetLeft, isBudgeted, pullRequestBudget)
 	}
 	if err != nil || len(asked) != 1 {
 		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and not reported", err, asked)

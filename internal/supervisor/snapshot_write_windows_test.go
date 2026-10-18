@@ -38,7 +38,7 @@ func TestAnEventStreamOpensWhileStoreWritesWaitForAFileReader(t *testing.T) {
 			}
 		}()
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		pending, err := filepath.Glob(filepath.Join(h.State, ".cfo-tmp-*"))
 		if err != nil {
@@ -57,7 +57,7 @@ func TestAnEventStreamOpensWhileStoreWritesWaitForAFileReader(t *testing.T) {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 	if err != nil {

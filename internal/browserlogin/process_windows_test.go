@@ -222,7 +222,7 @@ func TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent(t *testing.T
 
 func TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents(t *testing.T) {
 	process, _ := startChrome(t, []string{"localhost"})
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	socket, err := browserSocket(ctx, process.URL)
 	if err != nil {

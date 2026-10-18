@@ -43,12 +43,12 @@ func TestRemoveOnceEndedRemovesTheFolderOnceNothingHoldsIt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 				if _, err := os.Stat(folder); os.IsNotExist(err) {
 					return
 				}
 			}
-			t.Errorf("%s is still there 20 seconds after it was let go", folder)
+			t.Errorf("%s is still there a minute after it was let go", folder)
 		})
 	}
 }

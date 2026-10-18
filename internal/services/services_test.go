@@ -901,13 +901,13 @@ func TestAStopAfterAFinishedStartMeasuresOnlyItsOwnRise(t *testing.T) {
 }
 
 // buildUntilEnded is a build that runs until it is ended. It gives up after
-// ten seconds, so a start that never ends it fails rather than hangs.
+// a minute, so a start that never ends it fails rather than hangs.
 func buildUntilEnded(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(10 * time.Second):
-		return errors.New("the build ran ten seconds and nothing ended it")
+	case <-time.After(time.Minute):
+		return errors.New("the build ran a minute and nothing ended it")
 	}
 }
 
@@ -988,9 +988,9 @@ func TestTheReliefRunsOnItsIntervalWhileABuildRuns(t *testing.T) {
 	h.service.ReliefEvery = every
 	h.docker.reliefDelay = every * 3 / 2
 	h.docker.upWait = func(context.Context) error {
-		for deadline := time.Now().Add(10 * time.Second); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
 			if time.Now().After(deadline) {
-				return errors.New("three reliefs did not run in ten seconds")
+				return errors.New("three reliefs did not run in a minute")
 			}
 		}
 		return nil
@@ -1030,9 +1030,9 @@ func TestAFailedReliefIsSaidOnceAndTheStartGoesOn(t *testing.T) {
 	h.service.ReliefEvery = time.Millisecond
 	h.docker.reliefErr = errors.New("wsl.exe exited 1: There is no distribution with the supplied name.")
 	h.docker.upWait = func(context.Context) error {
-		for deadline := time.Now().Add(10 * time.Second); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
 			if time.Now().After(deadline) {
-				return errors.New("three reliefs did not run in ten seconds")
+				return errors.New("three reliefs did not run in a minute")
 			}
 		}
 		return nil

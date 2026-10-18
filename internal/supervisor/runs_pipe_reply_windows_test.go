@@ -46,7 +46,7 @@ func replyPipe(t *testing.T, s *Service, ctx context.Context) (*os.File, <-chan 
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("reply handler did not release its pipe after the client closed")
 		}
 	})
@@ -154,12 +154,16 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 			}
 
 			// Act
+			written := time.Now()
 			if _, err := client.Write(data); err != nil {
 				t.Fatal(err)
 			}
 			select {
 			case <-released:
-			case <-time.After(runRequestTimeout):
+				if held := time.Since(written); held >= runReplyTimeout {
+					t.Fatalf("the handler held its pipe %s, to its reply deadline, for a reply its client had yet to read", held)
+				}
+			case <-time.After(time.Minute):
 				t.Fatal("the handler held its pipe for a reply its client had yet to read")
 			}
 			line, readErr := bufio.NewReader(client).ReadBytes('\n')
@@ -185,6 +189,7 @@ func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *t
 	s := &Service{Store: store, Options: Options{CFO: cfo}}
 	asGoblinsTerminal(s)
 	silent, released := replyPipe(t, s, context.Background())
+	silentWritten := time.Now()
 	if _, err := silent.Write([]byte(`{"kind":"afk-off"}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +205,7 @@ func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *t
 
 	// Act
 	other, finished := replyPipe(t, s, context.Background())
-	if err := other.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+	if err := other.SetDeadline(time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := other.Write([]byte(`{"kind":"afk-off"}` + "\n")); err != nil {
@@ -212,15 +217,23 @@ func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *t
 	if err != nil || !strings.Contains(string(line), "a goblin's terminal") {
 		t.Fatalf("another caller's reply = %q, %v; want its refusal without waiting for the silent client", line, err)
 	}
+	select {
+	case <-held:
+		t.Fatal("another caller's reply came only once the handler of a reply its client never read let go")
+	default:
+	}
 	_ = other.Close()
 	select {
 	case <-finished:
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the caller that read its reply did not release its handler")
 	}
 	select {
 	case <-released:
-	case <-time.After(2 * time.Second):
+		if kept := time.Since(silentWritten); kept >= runReplyTimeout {
+			t.Fatalf("the silent client's unread refusal kept its handler %s, to its reply deadline", kept)
+		}
+	case <-time.After(time.Minute):
 		t.Fatal("the silent client's unread refusal kept its handler")
 	}
 	refusal, err := bufio.NewReader(silent).ReadBytes('\n')
@@ -235,7 +248,7 @@ func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *t
 		if elapsed := time.Since(started); elapsed < runReplyTimeout {
 			t.Fatalf("the reply larger than the buffer released in %s, want its write waiting for a reader until the deadline", elapsed)
 		}
-	case <-time.After(runReplyTimeout + 5*time.Second):
+	case <-time.After(runReplyTimeout + time.Minute):
 		t.Fatal("a reply write its client never read outlived its deadline")
 	}
 }
@@ -258,6 +271,7 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
+			written := time.Now()
 			if _, err := client.Write(append(data, '\n')); err != nil {
 				t.Fatal(err)
 			}
@@ -274,7 +288,10 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 			} else {
 				select {
 				case <-released:
-				case <-time.After(2 * time.Second):
+					if kept := time.Since(written); kept >= runReplyTimeout {
+						t.Fatalf("an unread reply that fits the buffer kept its handler %s, to its reply deadline", kept)
+					}
+				case <-time.After(time.Minute):
 					t.Fatal("an unread reply that fits the buffer kept its handler")
 				}
 			}
@@ -285,7 +302,10 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 			// Assert
 			select {
 			case <-released:
-			case <-time.After(2 * time.Second):
+				if kept := time.Since(written); kept >= runReplyTimeout {
+					t.Fatalf("shutdown left the reply handler waiting on its client %s, to its reply deadline", kept)
+				}
+			case <-time.After(time.Minute):
 				t.Fatal("shutdown left the reply handler waiting on its client")
 			}
 			if isLarge {
@@ -329,7 +349,7 @@ func TestPipeReplyLargerThanItsBufferReachesItsClientWhole(t *testing.T) {
 	}
 	select {
 	case <-released:
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the handler did not release its pipe once the whole reply was read")
 	}
 }
@@ -350,7 +370,7 @@ func TestPipeReportClientReleasesItsHandlerWithoutReadingAReply(t *testing.T) {
 	// Assert
 	select {
 	case <-released:
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the fire-and-forget report left its handler waiting for a reader")
 	}
 }
@@ -365,7 +385,7 @@ func TestAFKRefusalSurvivesAClientThatReadsAfterTheHandlerReplies(t *testing.T) 
 	runPipe(t, s)
 	var client *os.File
 	var err error
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		client, err = os.OpenFile(runPipeName(h.State), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
 		if err == nil || time.Now().After(deadline) {
@@ -377,7 +397,7 @@ func TestAFKRefusalSurvivesAClientThatReadsAfterTheHandlerReplies(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer client.Close()
-	if err := client.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+	if err := client.SetDeadline(time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.Write([]byte(`{"kind":"afk-off"}` + "\n")); err != nil {

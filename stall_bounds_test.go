@@ -40,8 +40,8 @@ const modulePath = "github.com/fpresta0607/code-goblins"
 type clockBound struct {
 	position token.Position
 	// shape is how the bound is written: a timer, a deadline, a context's
-	// timeout, a measure of how long something took, or a helper's bound
-	// handed its duration at a call.
+	// timeout, a measure of how long something took, a wait on a handle in
+	// milliseconds, or a helper's bound handed its duration at a call.
 	shape    string
 	function string
 	source   string
@@ -76,9 +76,12 @@ type packageValue struct {
 
 // helperBound is a bound whose duration is a parameter of the function
 // holding it, judged at each call of that function in its package instead.
+// A method is known by its calls through a selector and a function by its
+// plain calls, so a closure that shares a method's name is not taken for it.
 type helperBound struct {
 	directory string
 	function  string
+	isMethod  bool
 	parameter int
 	shape     string
 }
@@ -103,7 +106,7 @@ func scanClockBounds(root string) stallScan {
 		}
 		if entry.IsDir() {
 			name := entry.Name()
-			if path != root && (name == "frontend" || name == "testdata" || name == "node_modules" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
+			if path != root && (name == "testdata" || name == "node_modules" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -296,8 +299,8 @@ func (in scope) isElapsed(expression ast.Expr) bool {
 
 // evaluate is the duration expression stands for, when the scan can tell:
 // literals, the time package's units, arithmetic, conversions, min and max,
-// and constants and variables of the function, of its package or of
-// another package of this module.
+// a duration's Milliseconds, and constants and variables of the function,
+// of its package or of another package of this module.
 func (in scope) evaluate(expression ast.Expr) (float64, bool) {
 	if in.depth > 16 {
 		return 0, false
@@ -351,6 +354,10 @@ func (in scope) evaluate(expression ast.Expr) (float64, bool) {
 		if len(value.Args) == 1 && (in.isTimeCall(value, "Duration") || isNumericConversion(value.Fun)) {
 			return in.evaluate(value.Args[0])
 		}
+		if milliseconds, ok := value.Fun.(*ast.SelectorExpr); ok && milliseconds.Sel.Name == "Milliseconds" && len(value.Args) == 0 {
+			duration, ok := in.evaluate(milliseconds.X)
+			return duration / float64(time.Millisecond), ok
+		}
 	case *ast.SelectorExpr:
 		pkg, ok := value.X.(*ast.Ident)
 		if !ok {
@@ -377,7 +384,7 @@ func (in scope) evaluate(expression ast.Expr) (float64, bool) {
 
 func isNumericConversion(function ast.Expr) bool {
 	name, ok := function.(*ast.Ident)
-	return ok && slices.Contains([]string{"int", "int64", "float64", "uint", "uint64"}, name.Name)
+	return ok && slices.Contains([]string{"int", "int64", "float64", "uint", "uint32", "uint64"}, name.Name)
 }
 
 func (in scope) packageValue(directory, name string) (float64, bool) {
@@ -404,7 +411,7 @@ func (scanner *stallScanner) scanFile(path string, file *ast.File) ([]clockBound
 			if name, ok := duration.(*ast.Ident); ok {
 				if parameter, isParameter := in.parameters[name.Name]; isParameter {
 					if _, isLocal := in.locals[name.Name]; !isLocal {
-						helpers = append(helpers, helperBound{directory: in.directory, function: function.Name.Name, parameter: parameter, shape: shape})
+						helpers = append(helpers, helperBound{directory: in.directory, function: function.Name.Name, isMethod: function.Recv != nil, parameter: parameter, shape: shape})
 						return
 					}
 				}
@@ -430,6 +437,10 @@ func (scanner *stallScanner) scanFile(path string, file *ast.File) ([]clockBound
 					found(expression, "context", expression.Args[1])
 				case isDeadline(in, expression):
 					found(expression, "deadline", expression.Args[0])
+				default:
+					if milliseconds, isHandleWait := handleWaitArgument(expression); isHandleWait {
+						found(expression, "handle wait", milliseconds)
+					}
 				}
 			case *ast.BinaryExpr:
 				loop, isLoopCondition := parent.(*ast.ForStmt)
@@ -465,7 +476,7 @@ func isDeadline(in scope, call *ast.CallExpr) bool {
 	if !ok || selector.Sel.Name != "Add" || len(call.Args) != 1 {
 		return false
 	}
-	if negative, ok := call.Args[0].(*ast.UnaryExpr); ok && negative.Op == token.SUB {
+	if isPast(call.Args[0]) {
 		return false
 	}
 	if value, ok := in.evaluate(call.Args[0]); ok && value <= 0 {
@@ -476,6 +487,38 @@ func isDeadline(in scope, call *ast.CallExpr) bool {
 	}
 	name, ok := selector.X.(*ast.Ident)
 	return ok && in.timeNow[name.Name]
+}
+
+// handleWaitArgument is the milliseconds a Win32 wait on a handle, as
+// WaitForSingleObject and WaitForMultipleObjects take them, holds the clock
+// to, unless it waits for as long as it takes.
+func handleWaitArgument(call *ast.CallExpr) (ast.Expr, bool) {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil, false
+	}
+	index := map[string]int{"WaitForSingleObject": 1, "WaitForMultipleObjects": 2}[selector.Sel.Name]
+	if index == 0 || len(call.Args) <= index {
+		return nil, false
+	}
+	if infinite, ok := call.Args[index].(*ast.SelectorExpr); ok && infinite.Sel.Name == "INFINITE" {
+		return nil, false
+	}
+	return call.Args[index], true
+}
+
+// isPast reports whether duration is plainly negative as written: a minus on
+// it, or on the first factor of a product it is, as in -n * time.Second.
+func isPast(duration ast.Expr) bool {
+	switch value := duration.(type) {
+	case *ast.UnaryExpr:
+		return value.Op == token.SUB
+	case *ast.ParenExpr:
+		return isPast(value.X)
+	case *ast.BinaryExpr:
+		return (value.Op == token.MUL || value.Op == token.QUO) && isPast(value.X) && !isPast(value.Y)
+	}
+	return false
 }
 
 // bound is the clockBound node holds, with the lines a mark accepting it may
@@ -493,6 +536,9 @@ func (scanner *stallScanner) bound(in scope, stack []ast.Node, node ast.Node, sh
 		}
 	}
 	value, isKnown := in.evaluate(duration)
+	if strings.HasPrefix(shape, "handle wait") {
+		value *= float64(time.Millisecond)
+	}
 	return clockBound{position: position, shape: shape, function: function, source: scanner.source(node), value: time.Duration(value), isKnown: isKnown, marks: [2]int{first, position.Line}}
 }
 
@@ -510,6 +556,9 @@ func (scanner *stallScanner) source(node ast.Node) string {
 func (scanner *stallScanner) scanCalls(path string, helpers []helperBound) ([]clockBound, []helperBound) {
 	directory := filepath.Dir(path)
 	file := scanner.packages[directory].files[path]
+	if file == nil {
+		return nil, nil
+	}
 	var bounds []clockBound
 	var next []helperBound
 	for _, declaration := range file.Decls {
@@ -530,21 +579,22 @@ func (scanner *stallScanner) scanCalls(path string, helpers []helperBound) ([]cl
 				return true
 			}
 			var name string
+			var isMethodCall bool
 			switch callee := call.Fun.(type) {
 			case *ast.Ident:
 				name = callee.Name
 			case *ast.SelectorExpr:
-				name = callee.Sel.Name
+				name, isMethodCall = callee.Sel.Name, true
 			}
 			for _, helper := range helpers {
-				if helper.directory != directory || helper.function != name || helper.parameter >= len(call.Args) {
+				if helper.directory != directory || helper.function != name || helper.isMethod != isMethodCall || helper.parameter >= len(call.Args) {
 					continue
 				}
 				duration := call.Args[helper.parameter]
 				if argument, ok := duration.(*ast.Ident); ok {
 					if parameter, isParameter := in.parameters[argument.Name]; isParameter {
 						if _, isLocal := in.locals[argument.Name]; !isLocal {
-							next = append(next, helperBound{directory: directory, function: function.Name.Name, parameter: parameter, shape: helper.shape})
+							next = append(next, helperBound{directory: directory, function: function.Name.Name, isMethod: function.Recv != nil, parameter: parameter, shape: helper.shape})
 							continue
 						}
 					}
@@ -621,6 +671,154 @@ func (scanner *stallScanner) judge(testFiles []string, bounds []clockBound) []st
 	return slices.Compact(findings)
 }
 
+// stallFixture is a test file holding a bound of each shape the scan reads,
+// short and long, marked and not, with the constants a bound may name in
+// its own package and in another package of the module.
+const stallFixture = `package wait
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/other"
+	"golang.org/x/sys/windows"
+)
+
+const long = time.Minute
+
+func TestBounds(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	select {
+	case <-ctx.Done():
+	case <-time.After(Patience):
+	}
+	timer := time.NewTimer(other.Grace)
+	defer timer.Stop()
+	deadline := time.Now().Add(long)
+	soonest := time.Now().Add(2 * time.Second)
+	started := time.Now()
+	soon := started.Add(3 * time.Second)
+	_, _, _ = deadline, soonest, soon
+	if time.Since(started) > 10*time.Second {
+		t.Fatal("slow")
+	}
+	for time.Since(started) < 7*time.Second {
+	}
+	if time.Since(started) < time.Second {
+		t.Fatal("too soon")
+	}
+	var handle windows.Handle
+	_, _ = windows.WaitForSingleObject(handle, 5000)
+	_, _ = windows.WaitForSingleObject(handle, uint32((time.Minute).Milliseconds()))
+	_, _ = windows.WaitForSingleObject(handle, windows.INFINITE)
+	_, _ = windows.WaitForSingleObject(handle, 0)
+	past := time.Now().Add(-time.Hour)
+	earlier := started.Add(-time.Duration(len(t.Name())) * time.Second)
+	_, _ = past, earlier
+	waitFor(t, 4*time.Second)
+	waitFor(t, time.Minute)
+	var w waiter
+	w.await(6 * time.Second)
+	await := func(what string, within time.Duration) {}
+	await("a closure that shares the method's name", 2*time.Second)
+	<-time.After(29 * time.Second)
+	<-time.After(30 * time.Second)
+	// stall-accepted: nothing is meant to arrive
+	// before this runs out.
+	<-time.After(100 * time.Millisecond)
+	// stall-accepted: it times the call on purpose.
+	if ctx.Err() != nil ||
+		time.Since(started) > 2*time.Second {
+		t.Fatal("slow")
+	}
+	for _, row := range []struct{ within time.Duration }{{time.Second}} {
+		<-time.After(row.within)
+	}
+	// stall-accepted: this mark accepts nothing at all.
+	_ = started
+	<-time.After(time.Millisecond) // stall-accepted: none
+}
+
+func waitFor(t *testing.T, within time.Duration) {
+	<-time.After(within)
+}
+
+type waiter struct{}
+
+func (waiter) await(within time.Duration) {
+	<-time.After(within)
+}
+`
+
+// The scan reports every short bound of each shape it reads, judges a
+// helper's bound at its calls, reads the constants a bound names, and
+// reports a mark that accepts nothing or gives no reason. It reports
+// nothing else, so a bound at the floor or marked passes.
+func TestTheStallScanReportsEachShortBoundItReadsAndNothingElse(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	files := map[string]string{
+		"wait/wait.go":                    "package wait\n\nimport \"time\"\n\nconst Patience = 2 * time.Second\n",
+		"wait/wait_test.go":               stallFixture,
+		"wait/broken_test.go":             "package wait\n\nfunc {\n",
+		"internal/other/other.go":         "package other\n\nimport \"time\"\n\nconst Grace = 1500 * time.Millisecond\n",
+		"frontend/node_modules/x_test.go": "package x\n\nfunc {\n",
+		"frontend/tools/tools_test.go":    "package tools\n\nimport \"time\"\n\nfunc TestTool() {\n\t<-time.After(time.Second)\n}\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lineOf := func(text string) int {
+		before, _, isFound := strings.Cut(stallFixture, text)
+		if !isFound || strings.Count(stallFixture, text) != 1 {
+			t.Fatalf("the fixture holds %q other than once", text)
+		}
+		return strings.Count(before, "\n") + 1
+	}
+	want := []string{
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 5s, under the 30s floor, with a context:", lineOf("5*time.Second)")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 2s, under the 30s floor, with a timer:", lineOf("time.After(Patience)")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 1.5s, under the 30s floor, with a timer:", lineOf("other.Grace")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 3s, under the 30s floor, with a deadline:", lineOf("started.Add(3")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 10s, under the 30s floor, with a elapsed:", lineOf("> 10*time.Second")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 7s, under the 30s floor, with a deadline:", lineOf("< 7*time.Second")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 4s, under the 30s floor, with a timer in waitFor:", lineOf("waitFor(t, 4")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 6s, under the 30s floor, with a timer in await:", lineOf("w.await(6")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 5s, under the 30s floor, with a handle wait:", lineOf("(handle, 5000)")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 29s, under the 30s floor, with a timer:", lineOf("29 * time.Second")),
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to a timer whose length the scan cannot tell:", lineOf("row.within)")),
+		fmt.Sprintf("wait/wait_test.go:%d: a %s mark accepts no bound shorter than the floor", lineOf("accepts nothing at all"), stallAccepted),
+		fmt.Sprintf("wait/wait_test.go:%d: a %s mark gives no reason", lineOf("stall-accepted: none"), stallAccepted),
+		"wait/broken_test.go does not parse, so its bounds went unread:",
+		fmt.Sprintf("wait/wait_test.go:%d: TestBounds holds the clock to 2s, under the 30s floor, with a deadline:", lineOf("time.Now().Add(2 * time.Second)")),
+		"frontend/tools/tools_test.go:6: TestTool holds the clock to 1s, under the 30s floor, with a timer:",
+	}
+
+	// Act
+	scan := scanClockBounds(root)
+
+	// Assert
+	if scan.files != 3 {
+		t.Errorf("the scan read %d test files, want the 3 outside node_modules", scan.files)
+	}
+	for _, prefix := range want {
+		if !slices.ContainsFunc(scan.findings, func(finding string) bool { return strings.HasPrefix(finding, prefix) }) {
+			t.Errorf("no finding starts %q", prefix)
+		}
+	}
+	if len(scan.findings) != len(want) {
+		t.Errorf("%d findings, want %d:\n%s", len(scan.findings), len(want), strings.Join(scan.findings, "\n"))
+	}
+}
+
 // A hosted runner can stop every process for about ten seconds (#1048), and
 // a test that holds the runner's clock to less than that fails by chance
 // when such a stall falls inside its bound. Every bound a test holds the
@@ -638,7 +836,7 @@ func TestNoTestHoldsTheClockToLessThanAStall(t *testing.T) {
 	for _, bound := range scan.bounds {
 		shapes[strings.Fields(bound.shape)[0]]++
 	}
-	for _, shape := range []string{"timer", "deadline", "context", "elapsed"} {
+	for _, shape := range []string{"timer", "deadline", "context", "elapsed", "handle"} {
 		if shapes[shape] == 0 {
 			t.Errorf("the scan found no %s in %d test files, so it no longer sees that shape", shape, scan.files)
 		}

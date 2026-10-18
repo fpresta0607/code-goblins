@@ -44,7 +44,7 @@ func TestOutputFileNeverConsumesAPipeOrFollowsAReusedPID(t *testing.T) {
 		if line != "still here\n" {
 			t.Fatalf("pipe was consumed: %q", line)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("pipe output unavailable")
 	}
 }

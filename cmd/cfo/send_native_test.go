@@ -45,7 +45,7 @@ func TestSendReachesANativeTaskThroughItsTerminal(t *testing.T) {
 		t.Errorf("send gb-t1 --key Enter: %v", keyErr)
 	}
 	screen := ""
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline) && !strings.Contains(screen, "got hello"); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline) && !strings.Contains(screen, "got hello"); time.Sleep(50 * time.Millisecond) {
 		screen, _ = peekTerminal(h, "t1", 0)
 	}
 	if !strings.Contains(screen, "got hello") {

@@ -92,7 +92,7 @@ func TestChildLeavesAProgramWindowsStillHas(t *testing.T) {
 		RemoveAtCleanup(t, dir)
 	}
 	release := keepImage(t, writeProgram(t, dir))
-	time.AfterFunc(goRetries, release)
+	time.AfterFunc(goRetries, release) // stall-accepted: the image is meant to be let go after Go's own 2 s of cleanup retries and well inside RemoveAtCleanup's 30 s, and only Go's 2 s, which no test can lengthen, can be outrun by a stall.
 }
 
 // The failure, 16 times in 12 gate runs up to 2026-10-01: a test that wrote a
@@ -157,11 +157,12 @@ func TestRemovalGivesUpAtItsBoundOnAProgramNeverLetGo(t *testing.T) {
 	}
 	// It gives up within its last pause of the bound, and a loaded machine
 	// adds what it adds: never another removal's whole wait on top of it.
+	// stall-accepted: it times the removal, and the wait it rules out, a removal's 5 s budget on top of its own, is too short for a bound past a stall to tell apart.
 	if waited := time.Since(started); waited < 150*time.Millisecond || waited > 300*time.Millisecond+time.Second {
 		t.Fatalf("the removal gave up after %s, want its bound of 300ms", waited)
 	}
 	release()
-	if err := fsx.RemoveAllWithin(dir, 300*time.Millisecond); err != nil {
+	if err := fsx.RemoveAllWithin(dir, time.Minute); err != nil {
 		t.Fatalf("the folder could not be removed once its program was let go: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -183,9 +184,9 @@ func TestRemovalWaitsOutAFileStillHeldOpen(t *testing.T) {
 	}
 	release := holdOpen(t, record)
 	defer release()
-	time.AfterFunc(300*time.Millisecond, release)
+	time.AfterFunc(300*time.Millisecond, release) // stall-accepted: the test means this hold to end, and the removal's minute outlasts it.
 
-	err := fsx.RemoveAllWithin(dir, 10*time.Second)
+	err := fsx.RemoveAllWithin(dir, time.Minute)
 
 	if err != nil {
 		t.Fatalf("removing a folder whose file was held open for a moment returned %v, want it removed", err)

@@ -122,7 +122,7 @@ func TestWaitingOnACardShowsTheWindowAtHisPressAndHidesItAfter(t *testing.T) {
 		},
 	}
 	var stdout, stderr strings.Builder
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act

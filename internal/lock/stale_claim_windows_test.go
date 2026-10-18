@@ -20,7 +20,7 @@ func TestStaleClaimChild(t *testing.T) {
 	if dir == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	fmt.Println("started")
 	owner, err := AcquireExclusiveNamedStrictContext(ctx, dir, "lease")
@@ -48,7 +48,7 @@ func TestStaleClaimPreservesCrossProcessReplacement(t *testing.T) {
 			if err := writeInfo(context.Background(), filepath.Join(dir, name), &dead); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			t.Cleanup(cancel)
 			child := execx.CommandContext(ctx, os.Args[0], "-test.run=^TestStaleClaimChild$")
 			child.Env = append(os.Environ(), "LOCK_STALE_CLAIM_CHILD="+dir)
@@ -146,7 +146,7 @@ func TestContextAcquisitionWaitsForCrossProcessPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { writer.Close() })
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
 	child := execx.CommandContext(ctx, os.Args[0], "-test.run=^TestStaleClaimChild$")
 	child.Env = append(os.Environ(), "LOCK_STALE_CLAIM_CHILD="+dir)
@@ -177,7 +177,7 @@ func TestContextAcquisitionWaitsForCrossProcessPublication(t *testing.T) {
 	select {
 	case line := <-output:
 		t.Fatalf("contender observed unfinished publication: %q", line)
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond): // stall-accepted: nothing is meant to arrive, and a stall here can outrun only the child's own 5 s wait for the record, which no bound here lengthens.
 	}
 	dead, _ := ownerInfo(os.Getpid(), "interrupted prior owner")
 	dead.Start = dead.Start.Add(-time.Hour)

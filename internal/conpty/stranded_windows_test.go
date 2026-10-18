@@ -169,8 +169,8 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		}
 	}()
 	var shown string
-	echoed := func(marker string, limit time.Duration) bool {
-		timer := time.NewTimer(limit)
+	echoed := func(marker string) bool {
+		timer := time.NewTimer(time.Minute)
 		defer timer.Stop()
 		for !strings.Contains(shown, marker) {
 			select {
@@ -189,7 +189,7 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		shown = shown[strings.Index(shown, marker)+len(marker):]
 		return true
 	}
-	if !echoed("stranded-ready", 15*time.Second) {
+	if !echoed("stranded-ready") {
 		t.Fatal("the program never started reading")
 	}
 	const keys = 3000
@@ -202,13 +202,13 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 		}
 
 		// Assert
-		if !echoed(fmt.Sprintf("key-%04d", sequence), 2*time.Second) {
+		if !echoed(fmt.Sprintf("key-%04d", sequence)) {
 			progress, _ := os.ReadFile(progressPath)
 			lines := strings.Split(strings.TrimSpace(string(progress)), "\n")
 			if strings.Contains(string(progress), fmt.Sprintf("as key-%04d", sequence)) {
-				t.Fatalf("key %d of %d reached the program, but its echo did not show within 2s; the program last read: %q", sequence, keys, lines[max(0, len(lines)-3):])
+				t.Fatalf("key %d of %d reached the program, but its echo did not show within a minute; the program last read: %q", sequence, keys, lines[max(0, len(lines)-3):])
 			}
-			t.Fatalf("key %d of %d did not reach the program within 2s while it printed: it is stranded in the console's input; the program last read: %q", sequence, keys, lines[max(0, len(lines)-3):])
+			t.Fatalf("key %d of %d did not reach the program within a minute while it printed: it is stranded in the console's input; the program last read: %q", sequence, keys, lines[max(0, len(lines)-3):])
 		}
 		slowest = max(slowest, time.Since(typed))
 	}
@@ -221,11 +221,11 @@ func TestTypedKeysReachAProgramThatPrintsWhileItReads(t *testing.T) {
 // failed or was ended from a console server that went away under it, as one
 // that crashed does (0xc0000005).
 func terminalEnd(console *Console, server windows.Handle, readErr error, shown, progressPath string) string {
-	exit := "its program had not exited 5s later"
+	exit := "its program had not exited a minute later"
 	select {
 	case <-console.Done():
 		exit = fmt.Sprintf("its program exited with code %#x", console.ExitCode())
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 	}
 	serverEnd := "its console server was not found"
 	if server != 0 {
@@ -281,7 +281,7 @@ func TestUnreadInputChild(t *testing.T) {
 	// which a busy machine delays, so the input is looked at without reading
 	// it until the wake is there. A wake that never comes leaves the reads
 	// below to show it missing.
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline) && !hasWakeBehindKey(input); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline) && !hasWakeBehindKey(input); time.Sleep(10 * time.Millisecond) {
 	}
 	progress, err := os.Create(arguments[1])
 	if err != nil {
@@ -351,7 +351,7 @@ func TestInputLeftUnreadIsFollowedByAWakeEveryReaderSkips(t *testing.T) {
 
 	// Assert
 	var records []string
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		progress, _ := os.ReadFile(progressPath)
 		records = strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(progress)), " ", "/"))
 		if slices.Contains(records, "kind=8/down=0/character=0000") || time.Now().After(deadline) {

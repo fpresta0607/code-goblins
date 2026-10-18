@@ -68,6 +68,7 @@ func reportLater(t *testing.T, store *Store, meta state.TaskMeta) {
 		t.Fatal(err)
 	}
 	defer file.Close()
+	// stall-accepted: a report's timestamp, which no wait compares with the clock.
 	if _, err := file.WriteString(time.Now().Add(2*time.Second).UTC().Format(time.RFC3339) + " working: started on SQLite\n"); err != nil {
 		t.Fatal(err)
 	}

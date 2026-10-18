@@ -52,7 +52,7 @@ func TestRunPipeIsNotServedWhenAnotherProcessHoldsItsName(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(firstInstanceWait + 5*time.Second):
+	case <-time.After(firstInstanceWait + time.Minute):
 		t.Fatal("the supervisor is serving run requests on a pipe name another process created first")
 	}
 	s.mu.Lock()
@@ -84,7 +84,7 @@ func TestRunRequestIsNotSentToAPipeTheSupervisorDoesNotServe(t *testing.T) {
 		if len(data) != 0 {
 			t.Fatalf("the squatter received %q", data)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the client never closed its connection to the squatter")
 	}
 }

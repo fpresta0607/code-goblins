@@ -58,7 +58,7 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := host.ReadRecord(stateDir, os.Getenv(host.IDVariable)); err == nil {
 			break
 		}
@@ -221,7 +221,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "events.jsonl")
 			release := filepath.Join(t.TempDir(), "turn-ended")
 			terminal := hostProgram(t, store.Home.State, "cfo", output, program, "-test.run=^TestNativeCodexSubmitProgram$", "--", "codex-submit-program", store.Home.State, output, release, mode)
-			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 				if events := codexSubmitEvents(t, output); len(events) > 0 && events[0].Kind == "ready" {
 					break
 				}
@@ -278,7 +278,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 				events = codexSubmitEvents(t, output)
 				var consumed []codexSubmitEvent
 				for _, event := range events {
