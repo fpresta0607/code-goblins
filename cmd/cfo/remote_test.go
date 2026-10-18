@@ -73,16 +73,18 @@ func TestDoctorReportsRemoteAccessWithoutNamingTheTailnet(t *testing.T) {
 	const on = `{"enabled":true,"origin":"https://pc.example.ts.net:4311","login":"owner@example.com","target":"http://127.0.0.1:4310"}`
 	const reserved = `{"enabled":false,"origin":"https://pc.example.ts.net:4311","login":"owner@example.com","target":"http://127.0.0.1:4310"}`
 	for _, tc := range []struct {
-		name     string
-		settings string
-		commands doctorTailscale
-		want     string
+		name           string
+		settings       string
+		commands       doctorTailscale
+		isBoardRunning bool
+		want           string
 	}{
-		{"never turned on", "", doctorTailscale{isStopped: true}, "off; to use the board from a phone"},
-		{"on and ready", on, doctorTailscale{serve: route}, "on and ready; cfo remote status shows its link"},
-		{"on with Tailscale stopped", on, doctorTailscale{isStopped: true}, "on, but not ready: Tailscale is not running on this PC"},
-		{"off with its route reserved", reserved, doctorTailscale{serve: route}, "an earlier change left its Tailscale route reserved: run cfo remote on to finish turning it on, or cfo remote off to remove it"},
-		{"settings unreadable", "{", doctorTailscale{}, "settings unreadable"},
+		{"never turned on", "", doctorTailscale{isStopped: true}, true, "off; to use the board from a phone"},
+		{"on and ready", on, doctorTailscale{serve: route}, true, "on and ready; cfo remote status shows its link"},
+		{"on with Tailscale stopped", on, doctorTailscale{isStopped: true}, true, "on, but not ready: Tailscale is not running on this PC"},
+		{"on with the board stopped", on, doctorTailscale{serve: route}, false, "on, but the board is stopped; start Code Goblins on this PC"},
+		{"off with its route reserved", reserved, doctorTailscale{serve: route}, true, "an earlier change left its Tailscale route reserved: run cfo remote on to finish turning it on, or cfo remote off to remove it"},
+		{"settings unreadable", "{", doctorTailscale{}, true, "settings unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -95,7 +97,7 @@ func TestDoctorReportsRemoteAccessWithoutNamingTheTailnet(t *testing.T) {
 			m := &remoteaccess.Manager{State: state, Target: "http://127.0.0.1:4310", Commands: tc.commands}
 
 			// Act
-			line := remoteAccessLine(context.Background(), m)
+			line := remoteAccessLine(context.Background(), m, tc.isBoardRunning)
 
 			// Assert
 			if !strings.Contains(line, tc.want) {

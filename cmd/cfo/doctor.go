@@ -267,8 +267,8 @@ func reportRemoteAccess(stdout io.Writer, runtime commandRuntime) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	target, _ := remoteTarget(ctx, h)
-	fmt.Fprintln(stdout, "remote access: "+remoteAccessLine(ctx, boardRemoteAccess(h, target)))
+	target, isBoardRunning := remoteTarget(ctx, h)
+	fmt.Fprintln(stdout, "remote access: "+remoteAccessLine(ctx, boardRemoteAccess(h, target), isBoardRunning))
 }
 
 // reportDictation says dictation is ready, naming the speech model and the

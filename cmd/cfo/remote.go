@@ -116,10 +116,11 @@ func remoteTarget(ctx context.Context, h home.Home) (string, bool) {
 }
 
 // remoteAccessLine is cfo doctor's account of remote access: off, on and
-// ready, or on and what it needs, and a Tailscale route an earlier change
-// left reserved. It never names the tailnet or the owner's account, since
-// agents quote doctor's lines; cfo remote status shows them.
-func remoteAccessLine(ctx context.Context, m *remoteaccess.Manager) string {
+// ready, or on and what it needs, a stopped board named first, and a
+// Tailscale route an earlier change left reserved. It never names the
+// tailnet or the owner's account, since agents quote doctor's lines; cfo
+// remote status shows them.
+func remoteAccessLine(ctx context.Context, m *remoteaccess.Manager, isBoardRunning bool) string {
 	s := m.Status(ctx)
 	switch {
 	case !s.Enabled && s.Issue != "":
@@ -128,6 +129,8 @@ func remoteAccessLine(ctx context.Context, m *remoteaccess.Manager) string {
 		return "off; an earlier change left its Tailscale route reserved: run cfo remote on to finish turning it on, or cfo remote off to remove it"
 	case !s.Enabled:
 		return "off; to use the board from a phone, connect Tailscale on this PC and the phone, then press Enable in the CFO's Task panel under Remote access, or run cfo remote on (see docs/remote-access.md)"
+	case !isBoardRunning:
+		return "on, but the board is stopped; start Code Goblins on this PC"
 	case !s.Ready:
 		return "on, but not ready: " + s.Issue
 	case s.ScrawlReady:
