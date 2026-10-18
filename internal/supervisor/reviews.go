@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -215,27 +214,54 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 
 // servedPage is the HTML page of the review session lavish-axi keeps at link,
 // whose address ends with /session/<key> on whichever of its addresses link
-// names, or "" for a link to no such session.
+// names, or "" for a link to no such session. A session that has ended is
+// refused: its card would open a page that says the review ended.
 func servedPage(link string) (string, error) {
-	u, err := url.Parse(link)
-	if err != nil {
-		return "", nil
-	}
-	key, found := strings.CutPrefix(u.Path, "/session/")
-	if !found || key == "" || strings.Contains(key, "/") {
-		return "", nil
-	}
-	sessions, err := (axi.Lavish{}).Sessions()
-	if err != nil {
+	session, found, err := (axi.Lavish{}).SessionAt(link)
+	if err != nil || !found {
 		return "", err
 	}
-	for _, session := range sessions {
-		extension := strings.ToLower(filepath.Ext(session.File))
-		if session.Key == key && filepath.IsAbs(session.File) && filepath.Clean(session.File) == session.File && (extension == ".html" || extension == ".htm") {
-			return session.File, nil
-		}
+	if session.Status == "ended" {
+		return "", EndedPage(link)
 	}
-	return "", nil
+	extension := strings.ToLower(filepath.Ext(session.File))
+	if !filepath.IsAbs(session.File) || filepath.Clean(session.File) != session.File || extension != ".html" && extension != ".htm" {
+		return "", nil
+	}
+	return session.File, nil
+}
+
+// RefuseEndedPage refuses a review of the HTML file page while the review
+// session lavish-axi keeps for it has ended, whoever ended it, as servedPage
+// refuses one given by its link: lavish-axi would open again, uninvited, a
+// page whose review an agent ended. lavish-axi keeps the file's real path, so
+// the session is found by the file it names, not by how page spells it, which
+// may be through a junction or by an 8.3 short name.
+func RefuseEndedPage(page string) error {
+	sessions, err := (axi.Lavish{}).Sessions()
+	if err != nil {
+		return err
+	}
+	given, err := os.Stat(page)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(sessions, func(session axi.PageSession) bool {
+		if session.Status != "ended" {
+			return false
+		}
+		kept, err := os.Stat(session.File)
+		return err == nil && os.SameFile(kept, given)
+	}) {
+		return EndedPage(page)
+	}
+	return nil
+}
+
+// EndedPage refuses a review of page, its Scrawl link or its HTML file, whose
+// review session has ended: its card would open a page that says so.
+func EndedPage(page string) error {
+	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with cfo review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
 }
 
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
@@ -352,6 +378,11 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	if found {
 		if !sameReview(prior, r) {
 			return errors.New("review ID already used")
+		}
+		// Publishing a closed item again would show him nothing, so it is
+		// refused rather than reported published: another look is a new item.
+		if prior.State != "open" {
+			return fmt.Errorf("item %s is %s, so publishing it again would show him nothing; publish another look under a new --id", r.ID, prior.State)
 		}
 		return nil
 	}
