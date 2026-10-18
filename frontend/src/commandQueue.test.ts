@@ -87,6 +87,38 @@ test("a goblin's question the CFO has left for ten minutes waits on the Overlord
   assert.equal(newestItemOf(snapshot, "billing")?.key, "question:left");
 });
 
+// The Overlord, 2026-10-17, at "Wanda - API Ace is waiting on you" beside the
+// decision she waited for, with no decision button: "These follow-ups should
+// not be notifications in the Command Center, that can be removed. But the
+// initial one is critical, and should still stay." A goblin's wait its goblin
+// declared to follow the open decision, by that question's ID, never waits on
+// him while that question does; the supervisor closes it when the question is
+// answered, so an open wait is never hidden past it.
+test("a goblin's follow-up wait never waits on the Overlord beside the open decision it follows", () => {
+  const at = "2026-10-17T18:30:00Z";
+  const wait = (follows: string) => review("waiting-pd-mcp-only-9", "pd-mcp-only", "2026-10-17T18:16:11Z", "open", { title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing", follows });
+  const decision = question("pd-connector-parity", "", "2026-10-17T18:16:04Z", "pending", { for_task: "pd-mcp-only" });
+  const ownQuestion = question("notify-pd-mcp-only-8", "pd-mcp-only", "2026-10-17T18:15:30Z");
+  const cases: [string, unknown[], unknown[], string[]][] = [
+    ["the CFO's open question for the goblin shows alone", [decision], [wait(decision.id)], ["question:pd-connector-parity"]],
+    ["the goblin's own open question, left to him, shows alone", [ownQuestion], [wait(ownQuestion.id)], ["question:notify-pd-mcp-only-8"]],
+    ["a wait that follows no decision is its own card beside one", [decision], [wait("")], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
+    ["a wait that follows another question is its own card", [decision], [wait("notify-pd-mcp-only-2")], ["question:pd-connector-parity", "review:waiting-pd-mcp-only-9"]],
+    ["once its decision is no longer open, a wait still open shows", [{ ...decision, status: "succeeded", answer_id: "a-1", answered_by: "overlord" }], [wait(decision.id)], ["review:waiting-pd-mcp-only-9"]],
+    ["the supervisor's close of it with the answer leaves nothing", [{ ...decision, status: "queued", answer_id: "a-1" }], [{ ...wait(decision.id), state: "answered", answered_by: "overlord", answered_in: "question" }], []],
+  ];
+  for (const [name, questions, reviews, want] of cases) {
+    // Arrange
+    const snapshot = parseSnapshot({ healthy: true, at, tasks: [{ id: "pd-mcp-only", phase: "waiting", generation: "g1", verified: false, archived: false, merged: false }], questions, reviews });
+
+    // Act
+    const waiting = waitingItems(snapshot).map((item) => item.key);
+
+    // Assert
+    assert.deepEqual(waiting, want, name);
+  }
+});
+
 // Answered from his Command Center, the question is no longer pending, and its
 // card stays in this sitting to show how the answer went, as the CFO's own
 // questions' cards do. One its goblin asked while its review page is open is
@@ -305,12 +337,16 @@ test("a review he answered on its own page reads as answered by him there, with 
     review("waiting-theme-7", "theme", "2026-09-30T23:20:00Z", "answered", { lavish: "http://127.0.0.1:4387/session/f26e", lavish_page: "C:\\data\\theme\\review.html",
       answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the CFO relays it to the goblin.", updated_at: "2026-09-30T23:29:38Z" }),
     review("cfo-plan", "", "2026-09-30T23:21:00Z", "answered", { answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the CFO has it." }),
+    review("canvas-before-after", "canvas", "2026-10-17T18:09:52Z", "answered", { answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the goblin has it.", answer: "Looks right.\nShip it." }),
     review("waiting-notes-2", "notes", "2026-09-30T23:00:00Z", "withdrawn", { reason: "notes reported again: working: tests" }),
     review("r1", "steward", "2026-09-24T00:15:00Z", "answered", { answer: "Go with B", answer_id: "z", delivered: true }),
   ] });
+  // What he wrote there is in History with who has it (the Overlord,
+  // 2026-10-17: it "moves to History with what he sent").
   const cases: [string, string, boolean][] = [
     ["review:waiting-theme-7", "You answered on its page; the CFO relays it to the goblin.", true],
     ["review:cfo-plan", "You answered on its page; the CFO has it.", true],
+    ["review:canvas-before-after", "You answered on its page; the goblin has it. You wrote: Looks right.\nShip it.", true],
   ];
   for (const [key, label, elsewhere] of cases) {
     const item = itemFor(snapshot, key)!;

@@ -19,6 +19,18 @@ import (
 // harness the terminal started.
 func nativeCFOTerminal(t *testing.T, dir string) {
 	t.Helper()
+	hostThisProcess(t, dir, "cfo")
+	t.Setenv(host.IDVariable, "cfo")
+	t.Setenv("HERDR_PANE_ID", "")
+	for _, name := range []string{"CFO_ROLE", "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
+		t.Setenv(name, "")
+	}
+}
+
+// hostThisProcess hosts native terminal id in the state at dir and records
+// this test process as the program in it, until the test ends.
+func hostThisProcess(t *testing.T, dir, id string) {
+	t.Helper()
 	shell, err := exec.LookPath("cmd.exe")
 	if err != nil {
 		t.Fatal(err)
@@ -26,11 +38,11 @@ func nativeCFOTerminal(t *testing.T, dir string) {
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		_ = host.Run(dir, host.Spec{ID: "cfo", Args: []string{shell, "/d", "/q", "/k"}, Cols: 80, Rows: 24})
+		_ = host.Run(dir, host.Spec{ID: id, Args: []string{shell, "/d", "/q", "/k"}, Cols: 80, Rows: 24})
 	}()
 	var record host.Record
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
-		if record, err = host.ReadRecord(dir, "cfo"); err == nil {
+		if record, err = host.ReadRecord(dir, id); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -48,12 +60,7 @@ func nativeCFOTerminal(t *testing.T, dir string) {
 			t.Error("the terminal's host did not end")
 		}
 	})
-	hosttest.Rewrite(t, dir, "cfo", func(record *host.Record) { programIsThisProcess(t, record) })
-	t.Setenv(host.IDVariable, "cfo")
-	t.Setenv("HERDR_PANE_ID", "")
-	for _, name := range []string{"CFO_ROLE", "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
-		t.Setenv(name, "")
-	}
+	hosttest.Rewrite(t, dir, id, func(record *host.Record) { programIsThisProcess(t, record) })
 }
 
 // A Codex or pi CFO has no Stop hook that reopens its turn, so its native

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -111,6 +112,21 @@ func DeliverDocument(h home.Home, taskID, id, title, file string, isDownload boo
 		r.Lavish, r.LavishPage = link, page
 		return nil
 	})
+}
+
+// OpenDeliveredFile is the ID of goblin task's open item that hands the
+// Overlord a file it delivered, or "" when it has none. A wait of its beside
+// that item opens the file, as the board's card for the wait does, so it is a
+// card of its own. It only reads, as reportedReviews does.
+func OpenDeliveredFile(stateDir, task string) (string, error) {
+	reviews, err := reportedReviews(stateDir)
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(reviews, func(r Review) bool { return r.State == "open" && r.Task == task && r.Document != nil }); i >= 0 {
+		return reviews[i].ID, nil
+	}
+	return "", nil
 }
 
 // stageDocument copies file into dir, beside the page it writes for it, and

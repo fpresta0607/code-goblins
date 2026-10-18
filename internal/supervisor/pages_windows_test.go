@@ -35,7 +35,7 @@ func waitOnAPage(t *testing.T, store *Store) (string, string) {
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a plan"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(store.Home, meta.ID, 7, "pick a plan", pageLink, page, ""); err != nil {
+	if err := PublishWait(store.Home, meta.ID, 7, "pick a plan", pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -61,7 +61,7 @@ func askOnAPage(t *testing.T, store *Store) (state.TaskMeta, wake.Record, string
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a store on the page"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(store.Home, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page, ""); err != nil {
+	if err := PublishWait(store.Home, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -120,7 +120,7 @@ func TestAQuestionAskedAfterItsPageWaitLeavesThePageOpen(t *testing.T) {
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a store on the page"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(store.Home, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page, ""); err != nil {
+	if err := PublishWait(store.Home, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -189,8 +189,9 @@ func TestAnAnswerOnAPageClosesOnlyThatPage(t *testing.T) {
 // On 2026-10-13 the CFO answered Cora's question and the board also closed
 // her open review page with that answer as its reason, so the Overlord never
 // saw the page. The CFO's answer closes exactly the question it answers: the
-// goblin's open page stays open, and so does its earlier wait on the
-// Overlord, such as a sign-in only he can clear.
+// goblin's open page stays open, and so does its wait on the Overlord that it
+// did not declare to follow the question, such as a sign-in only he can
+// clear, though filed after it.
 func TestTheCFOsAnswerClosesOnlyItsQuestion(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -465,7 +466,7 @@ func presentAPage(t *testing.T, store *Store, meta state.TaskMeta, seq int, name
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: look at "+name); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(store.Home, meta.ID, seq, "look at "+name, pageLink, page, ""); err != nil {
+	if err := PublishWait(store.Home, meta.ID, seq, "look at "+name, pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -755,7 +756,7 @@ func pageOfAGoblin(t *testing.T, store *Store) (state.TaskMeta, hostedTerminal, 
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a plan"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(store.Home, meta.ID, 7, "pick a plan", pageLink, page, ""); err != nil {
+	if err := PublishWait(store.Home, meta.ID, 7, "pick a plan", pageLink, page, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -878,7 +879,7 @@ func TestTheNextVersionOfAPageReplacesItsItem(t *testing.T) {
 	}
 
 	// Act
-	err := PublishWait(store.Home, meta.ID, 9, "pick a plan, now with bigger cards", pageLink, page, "")
+	err := PublishWait(store.Home, meta.ID, 9, "pick a plan, now with bigger cards", pageLink, page, "", "")
 	if err == nil {
 		err = store.ingestReviews()
 	}
@@ -912,8 +913,9 @@ func TestAnAnswerOnAPageReachesTheGoblinItself(t *testing.T) {
 	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": Approved as shown.") {
 		t.Fatalf("the goblin got %q, want his answer", told)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Reason != "You answered on its page; the goblin has it." {
-		t.Fatalf("the wait = %+v, want it answered, saying the goblin has it", got)
+	// The item keeps what he wrote there, which its line in History shows.
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Reason != "You answered on its page; the goblin has it." || got.Answer != "Approved as shown." {
+		t.Fatalf("the wait = %+v, want it answered with what he wrote, saying the goblin has it", got)
 	}
 	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the goblin has it: Approved as shown.") {
 		t.Fatalf("review wakes = %+v, want the CFO told the goblin has the answer", wakes)

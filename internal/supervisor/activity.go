@@ -398,9 +398,38 @@ func callerSession() string {
 
 // PublishPresentation is an explicit report after the browser/presentation
 // command succeeds. It neither invokes that tool nor controls its browser.
+// A review the Overlord is asked to watch waits on him until he answers it,
+// so it is published as a review item, titled by what he is asked and polled
+// on the page lavish-axi serves at its link, and its end withdraws that item:
+// a presentation knows nothing of the page, so his answer there never closed
+// it and it waited on him until it expired.
 func PublishPresentation(h home.Home, a BoardActivity) error {
 	if a.Kind != "browser" && a.Kind != "review" {
 		return errors.New("presentation kind must be browser or review")
+	}
+	if a.Kind == "review" && a.State == "active" && a.Watch != "" {
+		if a.TaskID != "" && a.Generation != "" {
+			meta, err := goblinAsker(h.State, a.TaskID)
+			if err != nil {
+				return err
+			}
+			if a.Generation != meta.SpawnGen {
+				return fmt.Errorf("task %s is now generation %s, not %s", a.TaskID, meta.SpawnGen, a.Generation)
+			}
+		}
+		return PublishReview(h, a.TaskID, a.ID, a.Watch, a.URL, "", nil)
+	}
+	if a.Kind == "review" && a.State == "ended" {
+		r, found, err := reportedReview(h.State, a.ID)
+		if err != nil {
+			return err
+		}
+		if found && r.Task == a.TaskID && r.Lavish == a.URL {
+			if r.State != "open" {
+				return nil
+			}
+			return WithdrawReview(h, a.TaskID, a.ID, "Its presenter ended it.")
+		}
 	}
 	store, err := readBoardState(h)
 	if err != nil {

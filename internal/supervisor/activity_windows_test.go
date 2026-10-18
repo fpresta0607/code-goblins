@@ -2,9 +2,11 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -210,6 +212,77 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	got = store.Snapshot().Activity
 	if len(got) != 3 || got[2].Source != node.Parent {
 		t.Fatal("explicit sender link missing", got)
+	}
+}
+
+// The Overlord, 2026-10-17, of cg-canvas-live-only's Scrawl page, presented
+// with cfo present --kind review --watch: its row in the Command Center took
+// him straight to the page, and once he sent and ended the review there "it
+// didn't react or update. It still shows I have a notification." A review he
+// is asked to watch is a review item, polled on the page lavish-axi serves at
+// its link and titled by what he is asked, so his answer there closes it; its
+// presenter ending it, with the command it presented it by, withdraws it.
+func TestAReviewHeIsAskedToWatchIsAReviewItemItsPresenterEnds(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, _, _ := goblinFixture(t, store)
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	lavish := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+	page := filepath.Join(t.TempDir(), "review", "index.html")
+	stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":` + strconv.Quote(page) + `,"status":"opened"}}}`
+	if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	a := BoardActivity{ID: "canvas-before-after", Kind: "review", TaskID: meta.ID, Generation: meta.SpawnGen, State: "active", URL: "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b", Watch: "Before and after pictures of the Orchestration canvas", At: now, Until: now.Add(30 * time.Minute)}
+
+	// Act
+	err := PublishPresentation(h, a)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(store.ingestReviews(), store.ingestActivity()); err != nil {
+		t.Fatal(err)
+	}
+	got := store.Snapshot()
+	if len(got.Activity) != 0 {
+		t.Errorf("activity = %+v, want no presentation beside the review item", got.Activity)
+	}
+	if len(got.Reviews) != 1 || got.Reviews[0].ID != a.ID || got.Reviews[0].Task != meta.ID || got.Reviews[0].Title != a.Watch || got.Reviews[0].Lavish != a.URL || got.Reviews[0].LavishPage != page || got.Reviews[0].State != "open" {
+		t.Fatalf("reviews = %+v, want an open item titled %q polled on %s", got.Reviews, a.Watch, page)
+	}
+
+	// Act: a refresh changes nothing, a previous generation is refused, and
+	// the presenter ends it as cg-canvas-live-only did, without --watch.
+	a.At = now.Add(time.Minute)
+	refreshed := PublishPresentation(h, a)
+	stale := a
+	stale.Generation = "g0"
+	refused := PublishPresentation(h, stale)
+	a.State, a.Watch, a.At = "ended", "", now.Add(2*time.Minute)
+	ended := PublishPresentation(h, a)
+
+	// Assert
+	if refreshed != nil {
+		t.Errorf("an unchanged refresh = %v, want it taken", refreshed)
+	}
+	if refused == nil || !strings.Contains(refused.Error(), "generation") {
+		t.Errorf("a previous generation's presentation = %v, want it refused", refused)
+	}
+	if ended != nil {
+		t.Fatal(ended)
+	}
+	if err := errors.Join(store.ingestReviews(), store.ingestActivity()); err != nil {
+		t.Fatal(err)
+	}
+	got = store.Snapshot()
+	if len(got.Activity) != 0 || len(got.Reviews) != 1 || got.Reviews[0].State != "withdrawn" || got.Reviews[0].Reason != "Its presenter ended it." {
+		t.Fatalf("after its end, activity = %+v and reviews = %+v, want only the item, withdrawn", got.Activity, got.Reviews)
 	}
 }
 

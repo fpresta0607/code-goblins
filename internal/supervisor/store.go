@@ -679,6 +679,7 @@ func (s *Store) queue(a Action) (Action, error) {
 			if s.db.Questions[i].ID == a.QuestionID {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
 				s.db.Questions[i].Answer, s.db.Questions[i].AnswerKind = a.Text, a.AnswerKind
+				s.closeFollowUps(s.db.Questions[i], "overlord", a.CreatedAt)
 			}
 		}
 	}

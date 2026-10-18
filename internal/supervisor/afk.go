@@ -728,8 +728,14 @@ func waitingOnOverlord(d Database) []heldItem {
 			items = append(items, heldItem{"question", q.ID, q.Task, q.Text, q.Recommended})
 		}
 	}
+	// A wait that follows a decision still open waits on that decision, which
+	// stands for it, as the board shows only the decision.
+	isOpen := map[string]bool{}
+	for _, q := range d.Questions {
+		isOpen[q.ID] = q.Status == "pending"
+	}
 	for _, r := range d.Reviews {
-		if r.State == "open" {
+		if r.State == "open" && !isOpen[r.Follows] {
 			items = append(items, heldItem{"review", r.ID, r.Task, r.Title, ""})
 		}
 	}

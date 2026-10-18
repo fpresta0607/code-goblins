@@ -73,6 +73,38 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	}
 }
 
+// Only a goblin's wait that opens nothing follows a decision, named by a
+// question's ID: a review that is no wait, another goblin's wait name, the
+// CFO's item, a wait with a link or a page, and an ID no question can have
+// are refused.
+func TestValidReviewTakesAFollowedDecisionOnlyOnAGoblinsPlainWait(t *testing.T) {
+	following := func(r Review, follows string) Review {
+		r.Follows = follows
+		return r
+	}
+	wait := openReview("waiting-task-1-9", "task-1")
+	if err := validReview(following(wait, "pd-connector-parity")); err != nil {
+		t.Fatalf("a goblin's plain wait following a decision was refused: %v", err)
+	}
+	withLink, withPage := wait, wait
+	withLink.Link = "https://dashboard.stripe.com/login"
+	withPage.Lavish, withPage.LavishPage = "http://127.0.0.1:4387/session/f26e", `C:\work\.lavish\plan.html`
+	for name, r := range map[string]Review{
+		"a review that is no wait":   following(openReview("canvas-review-1", "task-1"), "pd-connector-parity"),
+		"another goblin's wait name": following(openReview("waiting-task-2-9", "task-1"), "pd-connector-parity"),
+		"the CFO's item":             following(openReview("cfo-review-1", ""), "pd-connector-parity"),
+		"a wait with a link":         following(withLink, "pd-connector-parity"),
+		"a wait with a page":         following(withPage, "pd-connector-parity"),
+		"an ID too short":            following(wait, "q-1"),
+		"an ID too long":             following(wait, strings.Repeat("q", 129)),
+		"an ID across lines":         following(wait, "pd-connector\nparity"),
+	} {
+		if err := validReview(r); err == nil {
+			t.Errorf("%s following a decision was accepted", name)
+		}
+	}
+}
+
 // Clearing closes an open review once, only for the identity the board saw,
 // and a question whose answer is on its way can never be cleared.
 func TestClearActionsCloseOnlyWhatTheOverlordMayClear(t *testing.T) {

@@ -725,7 +725,8 @@ The question reads as plain body text across a wide card: its first sentence is 
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
 Answers you give to several of the CFO's questions in one go reach the CFO as one message that lists each question and your answer in the order you gave them, and an answer to its only question goes at once.
-Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
+Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open review**, **Open the file** or **Open the link**), with **Skip** beside it.
+A wait its goblin declared to follow a decision open for you shows only as that decision's card, and answering the decision closes both.
 A card says each thing once: the goblin's name and title, such as Tad - Report Fixer, then the item's own title, never the task's title again.
 A card for a Scrawl page shows the page itself, live and scaled down, with one **Open review** button and no line that explains how to answer. A page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, the page and **Open review**.
@@ -737,7 +738,7 @@ A pick or a note you send just before **Send & End** is part of that one answer,
   <img src="docs/images/review-page.webp" alt="A Scrawl review page from the goblin streaming the billing export: its result, the numbers that matter and what was checked, a comment being written on the 190 MB figure, and the Conversation panel with the agent listening" width="900" />
 </p>
 
-Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
+A Scrawl card, a review given only its Scrawl link included, has no box for words, since you answer on its page; other items are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A file the CFO or a goblin hands you with `cfo deliver` opens as a Scrawl page that shows it: a picture inline, a PDF page by page and plain text as text, under the title it was given. What you write there goes back to whoever delivered it. The page offers **Download** only for a generated asset or a file you asked to keep.
 Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
 An item shows no toast and opens no dialog by itself.
@@ -976,10 +977,10 @@ cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo process-plan
 cfo drain
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>] [--follows <question-id> | --separate]
 cfo helper start <parent-id> --brief <file> [--title "<short title>"]
 cfo helper merge <parent-id>
-cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
+cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"] [--for <task-id>]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]

@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,41 @@ func TestBrowserSignInDeduplicatesByLoginInsteadOfProviderLabel(t *testing.T) {
 
 	if err != nil || first.Login == second.Login || first.SignIn == second.SignIn {
 		t.Fatalf("separate providers reused a sign-in: %+v, %+v, %v", first, second, err)
+	}
+}
+
+// What waits on him, as AFK mode holds it and the CFO's open items list it,
+// agrees with his board: a goblin's wait that follows a decision still open
+// waits on that decision, which stands for it, and any other open wait is
+// held, one whose decision has closed included.
+func TestAWaitThatFollowsAnOpenDecisionIsHeldOnlyThroughIt(t *testing.T) {
+	for name, test := range map[string]struct {
+		status, follows string
+		want            []string
+	}{
+		"its decision still open": {status: "pending", follows: "pd-connector-parity", want: []string{"question:pd-connector-parity"}},
+		"its decision answered":   {status: "succeeded", follows: "pd-connector-parity", want: []string{"review:waiting-pd-mcp-only-9"}},
+		"a wait following none":   {status: "pending", want: []string{"question:pd-connector-parity", "review:waiting-pd-mcp-only-9"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			database := Database{
+				Questions: []Question{{ID: "pd-connector-parity", Text: "Build the parity tools?", Status: test.status, ForTask: "pd-mcp-only"}},
+				Reviews:   []Review{{ID: "waiting-pd-mcp-only-9", Task: "pd-mcp-only", Title: "Waiting on you: the parity sizing", State: "open", Follows: test.follows}},
+			}
+
+			// Act
+			held := waitingOnOverlord(database)
+
+			// Assert
+			var got []string
+			for _, item := range held {
+				got = append(got, item.key())
+			}
+			if !slices.Equal(got, test.want) {
+				t.Errorf("held %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

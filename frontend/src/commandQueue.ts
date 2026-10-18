@@ -97,6 +97,15 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
   return null;
 }
 
+// followsDecision says whether a goblin's wait on him follows a decision that
+// is still open, which alone shows (the Overlord, 2026-10-17: "These
+// follow-ups should not be notifications in the Command Center ... But the
+// initial one is critical"). The goblin ties its wait to that decision by its
+// question's ID as it raises the wait (cfo notify --follows), and the
+// supervisor closes the wait when that decision is answered, so nothing open
+// is ever hidden past its decision.
+export const followsDecision = (review: Review, snapshot: Snapshot) => !!review.follows && (snapshot.questions || []).some((question) => question.id === review.follows && question.status === "pending");
+
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
 }
@@ -104,11 +113,12 @@ export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
 // The stack he works through: the CFO's own items first, then goblins in the
 // In progress order he set, then goblins he has not placed, each by longest
 // wait. An item answered in this sitting keeps its place, so it can show its
-// outcome instead of vanishing under the pointer.
+// outcome instead of vanishing under the pointer. A goblin's follow-up of a
+// decision never waits on him: the decision does.
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && waitsOnHim(item) || kept.has(item.key))
+    .filter((item) => forOverlord(item, Date.parse(snapshot.at)) && waitsOnHim(item) && !(item.kind === "review" && followsDecision(item.review, snapshot)) || kept.has(item.key))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
@@ -345,7 +355,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
   if (state !== "answered") return reason || "Cleared";
-  if (answeredElsewhere(item)) return reason;
+  if (answeredElsewhere(item)) return answer ? reason + " You wrote: " + answer : reason;
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return advice(item.review.answer_id) || "Not confirmed: check " + asker + "'s terminal before answering again";
