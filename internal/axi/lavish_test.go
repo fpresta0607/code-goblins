@@ -86,7 +86,7 @@ func TestLavishReopenOpensAPageHisEndedReviewClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open", "--reopen"}})
+	assertLavishRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{`C:\work\.lavish\plan.html`, "--no-open", "--reopen"}})
 }
 
 func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
