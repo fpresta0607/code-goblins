@@ -713,7 +713,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent@1.0.4" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi@0.2.6" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi@0.1.58" },
-        @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "toolsuild-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
+        @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "tools\build-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.35" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi@0.1.39" },
         @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.16/lavish-axi-0.1.79-codegoblins.16.tgz"; Sha256 = "6ED51841F30351AC490D880597E7E613049F894136F650166CF64260A7B19BF3" }
