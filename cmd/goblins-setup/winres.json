@@ -18,17 +18,17 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "0.0.0.0",
-          "product_version": "0.0.0.0"
+          "file_version": "1.0.0.0",
+          "product_version": "1.0.0.0"
         },
         "info": {
           "0409": {
             "CompanyName": "Code Goblins",
             "FileDescription": "Code Goblins Setup",
-            "FileVersion": "0.0.0.0",
+            "FileVersion": "1.0.0.0",
             "LegalCopyright": "Copyright (c) 2026 Kun Chen, Franco Presta. MIT License.",
             "ProductName": "Code Goblins",
-            "ProductVersion": "dev"
+            "ProductVersion": "the newest release"
           }
         }
       }

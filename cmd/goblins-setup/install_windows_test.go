@@ -183,3 +183,27 @@ func TestTheWindowNamesTheScriptsSteps(t *testing.T) {
 		t.Errorf("the window lists the steps %q, the install script says %q", shown, steps)
 	}
 }
+
+// The setup names the release it installs from the line tools/pin-installer.ps1
+// writes into a release's install script, so a change to that line that the
+// setup no longer reads fails here, not by the window saying no release. The
+// pin writes the script to its output alone: a pinned copy on disk is one more
+// unsigned script that downloads and runs programs.
+func TestTheSetupReadsTheReleaseThePinWrites(t *testing.T) {
+	// Arrange
+	pinner, err := filepath.Abs(filepath.Join("..", "..", "tools", "pin-installer.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	out, err := exec.Command(installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pinner, "-Repository", "fpresta0607/code-goblins", "-Tag", "v1.2.3", "-Publisher", "Code Goblins Test Publisher").Output()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("pin-installer.ps1 = %v", err)
+	}
+	if match := pinnedRelease.FindSubmatch(out); match == nil || string(match[1]) != "v1.2.3" {
+		t.Errorf("the setup reads %q from the pinned install script, want v1.2.3", match)
+	}
+}

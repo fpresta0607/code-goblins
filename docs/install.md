@@ -19,6 +19,7 @@ It needs no clone and no Go, and `goblins` works in the same window as soon as i
 
 The setup first says what it will install, where, and what it changes, and starts when you press **Install** (or **Update**, where Code Goblins is already there).
 The setup downloads the newest release's install script and runs it out of sight.
+Its window and its log name the release that script installs, as in **Installing Code Goblins v0.5.20**.
 The one-line install runs that script in your window.
 Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing and when it is setting up dictation, a `Note:` line for anything to know, and nothing else.
 Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
@@ -198,11 +199,13 @@ An unsigned release says so, lists the SHA-256 of each file, and its `install.ps
 A signed release's `install.ps1` names its publisher, and refuses a download that publisher did not sign.
 Windows knows an unsigned program only as an unknown program from an unknown publisher.
 Each program's file properties (right-click, Properties, Details) name the product Code Goblins and its version, and none asks for administrator rights.
+The setup's say its product version is "the newest release", since it carries nothing of the release that built it.
 
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
 - **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it.
   A signed setup names SIQstack LLC as its publisher, but Windows still judges a program few people have run yet by its reputation, which builds over weeks of downloads: until then the browser can say it "isn't commonly downloaded", and SmartScreen can stop it once with "Windows protected your PC", as it does an unsigned one with an Unknown publisher.
+  So a release whose setup has the last release's code publishes the last release's signed setup again, and every download adds to the reputation of one file rather than starting a new one.
   Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
   Then **More info**, **Run anyway** runs it.
   The install script checks the programs it installs against the newest release's `SHA256SUMS`.

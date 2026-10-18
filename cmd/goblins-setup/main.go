@@ -91,6 +91,8 @@ func main() {
 					call("setupDoing", progress.Doing)
 				case progress.Note != "":
 					call("setupNote", progress.Note)
+				case progress.Release != "":
+					call("setupRelease", progress.Release)
 				}
 			})
 			// A window that was closed has nothing left to tell.
