@@ -740,10 +740,14 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 		}{{Phase: "working"}}}, "CFO supervising · 1 goblin working · 0 waiting on you"},
 		"a CFO the board misses": {launcherSnapshot{Registration: "no CFO has registered"}, "CFO not connected · 0 goblins working · 0 waiting on you"},
 		"a run already finished": {launcherSnapshot{Runs: []struct {
-			State string `json:"state"`
+			State             string `json:"state"`
+			CredentialRequest string `json:"credential_request"`
+			RemoteFix         string `json:"remote_fix"`
 		}{{State: "failed"}}}, "CFO supervising · 0 goblins working · 0 waiting on you"},
 		"a run the Overlord owes": {launcherSnapshot{Runs: []struct {
-			State string `json:"state"`
+			State             string `json:"state"`
+			CredentialRequest string `json:"credential_request"`
+			RemoteFix         string `json:"remote_fix"`
 		}{{State: "running"}}}, "CFO supervising · 0 goblins working · 1 waiting on you"},
 	} {
 		if got := statusLine(c.snapshot); got != c.want {
@@ -762,6 +766,7 @@ func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
 		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
 		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
 		"a page he sent a revision on waits on its goblin, not on him":                 {`{"reviews":[{"state":"open","revising_since":"2026-10-01T05:09:00Z"},{"state":"open"}]}`, 1},
+		"a terminal a card or a setting opened is no item of its own":                  {`{"runs":[{"state":"ready"},{"state":"running","credential_request":"c1"},{"state":"running","remote_fix":"tailscale"}]}`, 1},
 	} {
 		// Arrange
 		var snapshot launcherSnapshot

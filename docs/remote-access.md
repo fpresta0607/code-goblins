@@ -26,29 +26,36 @@ The panel checks the signed-in owner and reads back the exact private proxy
 before calling it ready, which a green check beside the switch says; an amber
 triangle says something is wrong, and its tip says what. The section has no
 explanatory text: the private link to copy while it is on and, on the PC, the
-command that mends what is missing under the switch it is for. It does not
-connect the phone's VPN; Tailscale handles
-that on each device. No developer checkout, Go installation or account-specific
-configuration is needed with a released build carrying this feature.
+command that mends what is missing under the switch it is for, to copy or to run
+with its play button. Play runs that command, only while it is still the one the
+switch shows, in a PowerShell terminal drawn in the section, as a Command Center
+run card runs its command; that terminal opens only on the PC, it never becomes
+a Command Center item, and the section reads the switch again when it ends. It
+does not connect the phone's VPN; Tailscale handles that on each device. No
+developer checkout, Go installation or account-specific configuration is needed
+with a released build carrying this feature.
 
 Tailscale may require one-time administrator permission or HTTPS approval; the
 switch then says HTTPS not approved, and under it the board shows the exact
-`tailscale serve --bg --https=4311 http://127.0.0.1:4310` command to copy (the
-port follows your actual running board). Run it in a PowerShell on the PC, as
-Administrator if Tailscale asks, follow Tailscale's approval link, then turn the
-switch on: it takes the route that command made as its own. The same command
-shows after a turn-on that waited on approval. Code Goblins never follows an
-approval link for you or logs it. Existing services on port 4311 are left
-unchanged; free that port in Tailscale before enabling this feature. Without
-Tailscale the command under the switch installs it with winget.
+`tailscale serve --bg --https=4311 http://127.0.0.1:4310` command (the port
+follows your actual running board). Press its play button, or run it in a
+PowerShell on the PC, as Administrator if Tailscale asks; follow Tailscale's
+approval link, then turn the switch on: it takes the route that command made as
+its own. The same command shows after a turn-on that waited on approval. Code
+Goblins never follows an approval link for you, and turning remote access on
+never logs it; a command run with play keeps the end of what its terminal
+showed, as a run card does, which can hold that link. Existing services on port
+4311 are left unchanged; free that port in Tailscale before enabling this
+feature. Without Tailscale the command under the switch installs it with winget.
 
 Tailscale for [Windows](https://tailscale.com/download/windows),
 [iPhone](https://tailscale.com/download/ios) and
 [Android](https://tailscale.com/download/android) comes from Tailscale's own
 downloads, and [HTTPS setup](https://tailscale.com/docs/how-to/set-up-https-certificates)
 needs the tailnet's DNS settings and permissions; the first Serve command can
-print the exact approval link in your terminal. The app times out that command
-instead of waiting forever.
+print the exact approval link in your terminal. Turning remote access on times
+out that command instead of waiting forever; run with play, it waits in its
+terminal until you approve it or press Stop.
 
 ## Scrawl reviews
 
@@ -60,7 +67,8 @@ or two say what is wrong: Direct route when a Tailscale route of your own
 already serves Scrawl to your tailnet without the owner check, Not private,
 Other server, Update Scrawl or Needs setup. A stopped Scrawl counts as on: the
 next review a phone opens starts it. On the PC, the command that removes a
-direct route of your own shows under the switch to copy. Turning it off removes
+direct route of your own shows under the switch, to copy or to run with its
+play button. Turning it off removes
 only Scrawl's own route on port 4312 and keeps the board's; the phone's open
 views reconnect, as they do when it turns on. Turning it on uses the bundled
 Scrawl protocol (lavish-axi v0.1.79-codegoblins.16 or a compatible newer build),

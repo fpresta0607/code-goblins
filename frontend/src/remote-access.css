@@ -11,3 +11,8 @@
 .setting-switch-mark.ok { color: var(--accent-green); }
 .setting-switch-mark.problem { color: var(--amber); }
 .setting-switch-note { padding-left: 12px; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+/* A row's mending command sits under it with its copy and play buttons, and
+   its terminal under them while it runs. */
+.remote-fix { display: grid; gap: 8px; justify-self: stretch; min-width: 0; }
+.remote-fix-command { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.remote-fix-command .copy-value { flex: 1 1 auto; }

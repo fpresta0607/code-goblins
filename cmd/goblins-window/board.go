@@ -225,11 +225,11 @@ type Item struct {
 // waiting lists what a board snapshot holds that asks the Overlord
 // something, which is what the board's page alerts, each in the asker's
 // words as the page says it: a pending question; an open review item; a
-// command ready or running that no credential card opened, since that
-// terminal shows on its card; and an open request for credentials, by its
-// project alone, so the credential names stay out of a Windows notification.
-// A question that names a task is a goblin's, which the CFO answers: it is
-// not listed. Nothing else on the board, such
+// command ready or running that no credential card or Remote access setting
+// opened, since that terminal shows there; and an open request for
+// credentials, by its project alone, so the credential names stay out of a
+// Windows notification. A question that names a task is a goblin's, which
+// the CFO answers: it is not listed. Nothing else on the board, such
 // as a goblin blocked, failed or done, is an item. It names the supervisor's
 // instance too, which every request to the board that changes something
 // carries.
@@ -250,6 +250,7 @@ func waiting(snapshot []byte) (string, []Item, error) {
 		Runs []struct {
 			ID, Title, State, Task string
 			CredentialRequest      string `json:"credential_request"`
+			RemoteFix              string `json:"remote_fix"`
 			CreatedAt              string `json:"created_at"`
 			Update                 *struct {
 				From, To string
@@ -312,7 +313,7 @@ func waiting(snapshot []byte) (string, []Item, error) {
 		items = append(items, item("review:"+r.ID, r.CreatedAt, r.Task, asker(r.Task)+" wants your review: "+plain(r.Title)))
 	}
 	for _, r := range view.Runs {
-		if r.State != "ready" && r.State != "running" || r.CredentialRequest != "" {
+		if r.State != "ready" && r.State != "running" || r.CredentialRequest != "" || r.RemoteFix != "" {
 			continue
 		}
 		switch {

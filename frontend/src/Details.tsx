@@ -161,7 +161,7 @@ export function TaskView({ task, snapshot, connected, reviews, log, now, onRepai
 }) {
   return <div className="panel-content">
       {task.tree && hasChildren(task.tree) && <Disclosure title="What's working" kind="working-section" defaultOpen={running(task.tree).length > 0}><WhatsWorking tree={task.tree} now={now} /></Disclosure>}
-      <WorkspaceDetails task={task} runs={snapshot.runs} snapshot={snapshot} onRepair={onRepair} />
+      <WorkspaceDetails task={task} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onRepair} />
       {task.generation && <Disclosure title="Changes" kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure>}
       <Disclosure id="task-activity" title="Activity" open={log.open} onOpenChange={log.onOpenChange}><Activity task={task} snapshot={snapshot} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}

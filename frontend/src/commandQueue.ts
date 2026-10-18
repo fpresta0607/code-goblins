@@ -30,11 +30,12 @@ export const leftByTheCFO = (question: Question, at: number) => !!question.task 
 // asking me every question").
 export const forOverlord = (item: Item, at: number) => item.kind !== "question" || !item.question.task || leftByTheCFO(item.question, at);
 
-// A terminal a credential card opened shows on that card, not as a run of its own.
+// A terminal a credential card or the Remote access setting opened shows
+// there, not as a run of its own.
 export const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.questions || []).map((question): Item => ({ kind: "question", key: "question:" + question.id, question })),
   ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
-  ...(snapshot.runs || []).filter((run) => !run.credential_request).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
+  ...(snapshot.runs || []).filter((run) => !run.credential_request && !run.remote_fix).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
   ...(snapshot.credentials || []).map((request): Item => ({ kind: "credential", key: "credential:" + request.id, request })),
   ...(snapshot.browser_signins || []).map((signin): Item => ({ kind: "browser-signin", key: "browser-signin:" + signin.id, signin })),
 ];
