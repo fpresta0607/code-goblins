@@ -62,11 +62,13 @@ func TestEveryScreenFitsTheWindowAtEachScale(t *testing.T) {
 		"the update of a home kept where it is":       {pageCall("setupPlan", kept)},
 		"the plan saying Windows 10 has no Dev Drive": {pageCall("setupPlan", onWindows10)},
 		"the plan saying Defender could not be read":  {pageCall("setupPlan", withDefenderUnread)},
-		"the install under way":                       {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupStep", 3), pageCall("setupDoing", "Installing the GitHub CLI")},
+		"the install under way":                       {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"), pageCall("setupStep", 3), pageCall("setupDoing", "Installing the GitHub CLI")},
+		"the update of a kept home under way":         {pageCall("setupPlan", kept), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"), pageCall("setupStep", 3), pageCall("setupDoing", "Installing the GitHub CLI")},
+		"the update of a kept home done":              {pageCall("setupPlan", kept), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"), pageCall("setupDone")},
 		"a failed install with its details shown": {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupStep", 3),
 			pageCall("setupFailed", "Code Goblins could not be set up: the home's state folder could not be written; free some disk space, then try again.", log),
 			`document.getElementById("show-details").click()`},
-		"the install done with a note": {pageCall("setupPlan", fresh), pageCall("setupStarted"),
+		"the install done with a note": {pageCall("setupPlan", fresh), pageCall("setupStarted"), pageCall("setupRelease", "v0.12.345"),
 			pageCall("setupNote", "These could not be installed, so only what needs them is left out: codex, pi, chrome-devtools-axi skill. The log says why."), pageCall("setupDone")},
 	}
 
