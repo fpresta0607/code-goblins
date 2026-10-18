@@ -27,7 +27,7 @@ function splitModel(model: string): { name: string; basis: string } {
 // Harness and Connections sections of a panel, each closed until it is
 // opened, like the sections below them. Harness holds every harness control,
 // the CFO's Restart among them, and Connections names no harness.
-export function WorkspaceDetails({ task, node, runs, snapshot, onRepair }: { task?: Task; node?: Session; runs?: Run[]; snapshot: Snapshot; onRepair?: (key: string) => void }) {
+export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepair }: { task?: Task; node?: Session; runs?: Run[]; snapshot: Snapshot; connected: boolean; onRepair?: (key: string) => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const isArchived = !!task?.archived;
@@ -48,7 +48,7 @@ export function WorkspaceDetails({ task, node, runs, snapshot, onRepair }: { tas
       </>}
       {isCfo && snapshot.dev_drive && <DevDriveSetting drive={snapshot.dev_drive} instance={snapshot.instance} />}
     </Disclosure>
-    {isCfo && !snapshot.example && <Disclosure kind="remote-access" title="Remote access"><RemoteAccessSetting instance={snapshot.instance} /></Disclosure>}
+    {isCfo && !snapshot.example && <Disclosure kind="remote-access" title="Remote access"><RemoteAccessSetting instance={snapshot.instance} runs={snapshot.runs || []} connected={connected} /></Disclosure>}
     <Disclosure kind="harness" title="Harness">
       {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={snapshot.instance} /> : <>
         {!(isCfo && isCfoRestartOffered(snapshot)) && <ul className="connection-list" aria-label="Harness and model">

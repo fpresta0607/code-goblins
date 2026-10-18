@@ -105,8 +105,9 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 // What waits on the Overlord is what the board's page alerts, keyed as the
 // page keys it, by its id and publishing: a pending question by its lead
 // unless it was asked from an open review page, an open review item, a
-// command ready or running unless a credential card opened it, and an open
-// request for credentials by its project, never by the credential names. A
+// command ready or running unless a credential card or Remote access opened
+// it, and an open request for credentials by its project, never by the
+// credential names. A
 // goblin's question, which names its task, is the CFO's to answer: it is not
 // listed, and a goblin blocked, failed or done is no item at all. The snapshot names the supervisor's instance too.
 func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
@@ -116,7 +117,8 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","created_at":"2026-10-01T12:05:00Z"}],
 		"reviews":[{"id":"r1","title":"Pick a layout","state":"open","task":"shop","created_at":"2026-10-01T12:01:00Z"},{"id":"r2","title":"done","state":"answered","created_at":"2026-10-01T12:00:00Z"}],
 		"runs":[{"id":"u1","title":"Install the tool","state":"ready","created_at":"2026-10-01T12:02:00Z"},{"id":"u2","title":"ran","state":"finished","created_at":"2026-10-01T12:00:00Z"},
-			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1","created_at":"2026-10-01T12:00:00Z"}],
+			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1","created_at":"2026-10-01T12:00:00Z"},
+			{"id":"u4","title":"Mend Tailscale for remote access","state":"running","remote_fix":"tailscale","created_at":"2026-10-01T12:03:00Z"}],
 		"credentials":[{"id":"c1","project":"shop","state":"open","task":"shop","names":["API_KEY"],"created_at":"2026-10-01T12:06:00Z"},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"],"created_at":"2026-10-01T12:00:00Z"},
 			{"id":"c3","project":"shop","state":"open","task":"shop","names":[],"why":"Create the shop's test account","created_at":"2026-10-01T12:07:00Z"}]}`
 

@@ -763,7 +763,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		switch {
 		case declined < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
-		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "":
+		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "" || s.db.Runs[declined].RemoteFix != "":
 			return Action{}, errors.New("that item is the board's own, not a command someone asked you to run")
 		case s.db.Runs[declined].State != "ready" || !time.Now().Before(s.db.Runs[declined].ExpiresAt):
 			return Action{}, errors.New("that run item is no longer waiting on you; refresh the board")

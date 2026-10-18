@@ -495,6 +495,9 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
+  // remote_fix is the row of the Remote access setting whose mending command
+  // the Overlord ran from it, which draws its terminal.
+  remote_fix: string;
   // task is the goblin whose own command this is, empty for the CFO's;
   // terminal is whether the item's terminal runs, which its card draws.
   task: string; terminal: boolean;
@@ -758,7 +761,7 @@ function itemLists(v: Record<string, unknown>) {
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names), remote_fix: string(r.remote_fix),
         task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken), cfo_stopped: r.cfo_stopped === undefined ? false : boolean(r.cfo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
           notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };

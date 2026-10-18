@@ -128,8 +128,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(closeCode(err), err.Error())
 		return
 	}
-	if binding.isLocalOnly && offMachine(r, h.Host) != "" {
-		_ = view.Close(websocket.StatusPolicyViolation, "Values are typed only on the board's own page on this PC.")
+	if binding.localOnly != "" && offMachine(r, h.Host) != "" {
+		_ = view.Close(websocket.StatusPolicyViolation, binding.localOnly)
 		return
 	}
 	// A goblin's session shows on the board as soon as its start or resume
@@ -356,12 +356,13 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 // run item's terminal is recorded as run, in the item's own directory. check
 // repeats what opening it proved: it returns an error once the view must
 // close, and custody, the reason typing is held while a gate owns the task.
-// A view of a terminal where values are typed opens only on the board's own
-// page on this PC. isLaunching, when set, says the terminal's host may not run
+// localOnly, when set, is why a view opens only on the board's own page on
+// this PC: a terminal where values are typed, or one that mends remote
+// access, which only this PC does. isLaunching, when set, says the terminal's host may not run
 // yet because its goblin starts or resumes now.
 type nativeBinding struct {
 	id, name, dir, key string
-	isLocalOnly        bool
+	localOnly          string
 	check              func(ctx context.Context) (custody, err error)
 	isLaunching        func() bool
 }
@@ -374,7 +375,14 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 		if !found {
 			return nativeBinding{}, terminalEnded("This command is not running.")
 		}
-		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, isLocalOnly: r.CredentialRequest != "", check: func(context.Context) (error, error) {
+		localOnly := ""
+		switch {
+		case r.CredentialRequest != "":
+			localOnly = "Values are typed only on the board's own page on this PC."
+		case r.RemoteFix != "":
+			localOnly = "Remote access is mended only on the board's own page on this PC."
+		}
+		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, localOnly: localOnly, check: func(context.Context) (error, error) {
 			if _, found := s.runOnCard(id, r.RunAction); !found {
 				return nil, terminalEnded("The command ended.")
 			}

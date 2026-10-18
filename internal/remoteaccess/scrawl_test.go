@@ -313,13 +313,16 @@ func TestScrawlOpaqueSandboxAssetsKeepIdentityAndAPIBoundaries(t *testing.T) {
 }
 
 // A route of the owner's own straight to Scrawl is found however it is
-// written, never adopted, and named with the command that removes it where
-// one does: none for a route inside a Tailscale service.
+// written, never adopted, and named with the command that removes it, and
+// only it, where one does: none for a route inside a Tailscale service or at
+// a mount no command can name as it is.
 func TestDirectScrawlServeRouteIsNotAdoptedOrCalledPrivate(t *testing.T) {
 	m, c, _ := scrawlFixture(t, http.NotFoundHandler())
 	forward := strings.TrimPrefix(c.ScrawlTarget, "http://")
 	for _, tc := range []struct{ name, config, fix string }{
 		{"an HTTPS proxy", `{"TCP":{"4388":{"HTTPS":true}},"Web":{"home.example.ts.net:4388":{"Handlers":{"/":{"Proxy":"` + c.ScrawlTarget + `"}}}}}`, "tailscale serve --https=4388 off"},
+		{"an HTTPS proxy at a path", `{"TCP":{"4388":{"HTTPS":true}},"Web":{"home.example.ts.net:4388":{"Handlers":{"/notes":{"Path":"/srv/notes"},"/scrawl/":{"Proxy":"` + c.ScrawlTarget + `"}}}}}`, "tailscale serve --https=4388 --set-path=/scrawl/ off"},
+		{"an HTTPS proxy at a path no command can name", `{"TCP":{"4388":{"HTTPS":true}},"Web":{"home.example.ts.net:4388":{"Handlers":{"/a b;exit":{"Proxy":"` + c.ScrawlTarget + `"}}}}}`, ""},
 		{"an HTTP proxy", `{"TCP":{"4389":{"HTTP":true}},"Web":{"home.example.ts.net:4389":{"Handlers":{"/":{"Proxy":"` + c.ScrawlTarget + `"}}}}}`, "tailscale serve --http=4389 off"},
 		{"a TCP forward", `{"TCP":{"4388":{"TCPForward":"` + forward + `"}}}`, "tailscale serve --tcp=4388 off"},
 		{"a TCP forward inside a service", `{"Services":{"svc:test":{"TCP":{"4388":{"TCPForward":"` + forward + `"}}}}}`, ""},

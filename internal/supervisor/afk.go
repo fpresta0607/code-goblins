@@ -740,10 +740,11 @@ func waitingOnOverlord(d Database) []heldItem {
 		}
 	}
 	for _, r := range d.Runs {
-		// A run the board made itself, for a credential card's terminal or a
-		// connection's repair, is ready only for the moment after his own
-		// click, and was never something that waited on him.
-		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" {
+		// A run the board made itself, for a credential card's terminal, a
+		// connection's repair or a Remote access fix, is ready only for the
+		// moment after his own click, and was never something that waited on
+		// him.
+		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" && r.RemoteFix == "" {
 			items = append(items, heldItem{"run", r.ID, r.Task, r.Title, ""})
 		}
 	}

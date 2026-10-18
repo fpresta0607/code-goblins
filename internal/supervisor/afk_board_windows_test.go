@@ -510,9 +510,9 @@ func TestTheSnapshotSaysWhatWasRecommendedForEachHeldItem(t *testing.T) {
 	}
 }
 
-// A command the board made itself, for a credential card's terminal or a
-// connection's repair, is ready only for the moment after the Overlord's own
-// click. It never waited on him, so it is not held.
+// A command the board made itself, for a credential card's terminal, a
+// connection's repair or a Remote access fix, is ready only for the moment
+// after the Overlord's own click. It never waited on him, so it is not held.
 func TestACommandTheBoardMadeItselfIsNotHeld(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -521,6 +521,7 @@ func TestACommandTheBoardMadeItselfIsNotHeld(t *testing.T) {
 	readyRun(t, store, strings.Repeat("c", 64), "left-for-him", "powershell", false, now)
 	readyRun(t, store, strings.Repeat("c", 64), "credential-terminal", "powershell", false, now)
 	readyRun(t, store, strings.Repeat("c", 64), "connection-repair", "powershell", false, now)
+	readyRun(t, store, strings.Repeat("c", 64), "remote-fix-tailscale", "powershell", false, now)
 	store.mu.Lock()
 	for i := range store.db.Runs {
 		switch store.db.Runs[i].ID {
@@ -528,6 +529,8 @@ func TestACommandTheBoardMadeItselfIsNotHeld(t *testing.T) {
 			store.db.Runs[i].CredentialRequest = "request-1"
 		case "connection-repair":
 			store.db.Runs[i].ConnectionTask = "task-1"
+		case "remote-fix-tailscale":
+			store.db.Runs[i].RemoteFix = "tailscale"
 		}
 	}
 	err := store.save()
