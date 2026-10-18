@@ -92,7 +92,8 @@ func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
 // or the goblin's own with choices, since a need he never sees stalls the
 // goblin and an extra card does not. A wait declared to follow a decision
 // already answered closes as it is taken in, answered with it, and one whose
-// decision he dismissed is its own card.
+// decision he dismissed is its own card, as is one beside a file its goblin
+// delivered, which opens that file.
 func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 	answerByCFO := func(t *testing.T, store *Store, q Question) {
 		if err := store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: q.Options[0], Answer: q.Options[0], At: time.Now().UTC()}); err != nil {
@@ -110,10 +111,10 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 		}
 	}
 	for name, test := range map[string]struct {
-		isCFOsQuestion, isDeclared bool
-		closeFirst                 func(*testing.T, *Store, Question)
-		wantState, wantReason      string
-		isHeld                     bool
+		isCFOsQuestion, isDeclared, hasDeliveredFile bool
+		closeFirst                                   func(*testing.T, *Store, Question)
+		wantState, wantReason                        string
+		isHeld                                       bool
 	}{
 		"declared to follow the CFO's question for the goblin":   {isCFOsQuestion: true, isDeclared: true, wantState: "open"},
 		"declared to follow the goblin's own question":           {isDeclared: true, wantState: "open"},
@@ -122,6 +123,7 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 		"declared to follow a question the CFO already answered": {isDeclared: true, closeFirst: answerByCFO, wantState: "answered", wantReason: "The CFO answered the decision it waited on, "},
 		"declared to follow a question he already answered":      {isDeclared: true, closeFirst: answerOnBoard, wantState: "answered", wantReason: "You answered the decision it waited on, "},
 		"declared to follow a question he dismissed without one": {isCFOsQuestion: true, isDeclared: true, closeFirst: dismiss, wantState: "open", isHeld: true},
+		"declared beside a file its goblin delivered":            {isCFOsQuestion: true, isDeclared: true, hasDeliveredFile: true, wantState: "open", isHeld: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -144,9 +146,19 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 			if test.closeFirst != nil {
 				test.closeFirst(t, store, q)
 			}
-			follows := ""
+			if test.hasDeliveredFile {
+				file := openReview(meta.ID+"-site-plan", meta.ID)
+				file.Document = &ReviewDocument{Name: "site-plan.pdf", Size: 2048, Sum: strings.Repeat("b", 64), Kind: "application/pdf"}
+				if err := store.acceptReview(file); err != nil {
+					t.Fatal(err)
+				}
+			}
+			follows, wantFollows := "", ""
 			if test.isDeclared {
 				follows = q.ID
+			}
+			if !test.hasDeliveredFile {
+				wantFollows = follows
 			}
 			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: the parity sizing"); err != nil {
 				t.Fatal(err)
@@ -162,11 +174,16 @@ func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := store.Snapshot().Reviews
-			if len(got) != 1 || got[0].Follows != follows || got[0].State != test.wantState || !strings.HasPrefix(got[0].Reason, test.wantReason) || test.wantReason != "" && !strings.Contains(got[0].Reason, q.ID) {
-				t.Fatalf("reviews = %+v, want the wait %s following %q, reason %q naming %s", got, test.wantState, follows, test.wantReason, q.ID)
+			reviews := store.Snapshot().Reviews
+			i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == fmt.Sprintf("waiting-%s-%d", meta.ID, record.Seq+1) })
+			if i < 0 {
+				t.Fatalf("reviews = %+v, want the wait taken in", reviews)
 			}
-			isHeld := slices.ContainsFunc(waitingOnOverlord(store.Snapshot()), func(item heldItem) bool { return item.key() == "review:"+got[0].ID })
+			got := reviews[i]
+			if got.Follows != wantFollows || got.State != test.wantState || !strings.HasPrefix(got.Reason, test.wantReason) || test.wantReason != "" && !strings.Contains(got.Reason, q.ID) {
+				t.Fatalf("wait = %+v, want it %s following %q, reason %q naming %s", got, test.wantState, wantFollows, test.wantReason, q.ID)
+			}
+			isHeld := slices.ContainsFunc(waitingOnOverlord(store.Snapshot()), func(item heldItem) bool { return item.key() == "review:"+got.ID })
 			if isHeld != test.isHeld {
 				t.Errorf("the wait held for him = %t, want %t", isHeld, test.isHeld)
 			}

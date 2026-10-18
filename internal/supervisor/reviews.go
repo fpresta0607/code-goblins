@@ -752,6 +752,11 @@ func (s *Store) acceptReview(r Review) error {
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
 		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered, r.PageSettled = 0, "", "", "", false, nil
+		// A wait beside a file its goblin delivered opens that file, so it
+		// keeps its card whatever it declared.
+		if r.Follows != "" && slices.ContainsFunc(s.db.Reviews, func(other Review) bool { return other.State == "open" && other.Task == r.Task && other.Document != nil }) {
+			r.Follows = ""
+		}
 		s.db.Reviews = append(s.db.Reviews, r)
 		// A wait that follows a decision already answered was answered with it.
 		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == r.Follows }); r.Follows != "" && q >= 0 && isAnswered(s.db.Questions[q]) {

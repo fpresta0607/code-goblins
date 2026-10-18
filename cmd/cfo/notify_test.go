@@ -1276,6 +1276,51 @@ func TestNotifyWaitPublishesWhatItDeclared(t *testing.T) {
 	}
 }
 
+// The CFO, 2026-10-18: opening something means a page, a link or a file, so a
+// wait beside a file its goblin delivered opens that file, as its card does,
+// and is a card of its own. --follows is refused, recording nothing, and
+// names the file's item; --separate is taken.
+func TestNotifyWaitBesideADeliveredFileIsACardOfItsOwn(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, c := range map[string]struct {
+			flags     func(id string) []string
+			isRefused bool
+		}{
+			"--follows the decision": {flags: func(id string) []string { return []string{"--follows", id} }, isRefused: true},
+			"--separate":             {flags: func(string) []string { return []string{"--separate"} }},
+		} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				nativeGoblin(t, stateDir, "g1")
+				id, _ := open(t, stateDir)
+				now := time.Now().UTC()
+				file := supervisor.Review{ID: "g1-site-plan", Identity: strings.Repeat("g", 64), Task: "g1", Title: "The site plan", State: "open", Document: &supervisor.ReviewDocument{Name: "site-plan.pdf", Size: 2048, Sum: strings.Repeat("b", 64), Kind: "application/pdf"}, CreatedAt: now, UpdatedAt: now}
+				plantJSON(t, filepath.Join(stateDir, "reviews-inbox", file.ID+".open.json"), file)
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store"}, c.flags(id)...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				waits := waitsInTheInbox(t, stateDir)
+				records, err := wake.Pending(stateDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch {
+				case c.isRefused && (exit != 2 || !strings.Contains(stderr.String(), "your delivered file g1-site-plan is open") || !strings.Contains(stderr.String(), "give --separate")):
+					t.Fatalf("exit=%d stderr=%q, want --follows refused naming the delivered file", exit, stderr.String())
+				case c.isRefused && (len(waits) != 0 || len(records) != 0):
+					t.Fatalf("a refused wait published %+v and woke the CFO with %+v", waits, records)
+				case !c.isRefused && (exit != 0 || stderr.Len() != 0 || len(waits) != 1 || waits[0].Follows != ""):
+					t.Fatalf("exit=%d stderr=%q waits=%+v, want one wait of its own", exit, stderr.String(), waits)
+				}
+			})
+		}
+	}
+}
+
 // With no decision open a wait on the Overlord needs no declaration and is a
 // card of its own, as it is with --separate; --follows is refused, saying
 // none is open, and either flag on anything but a wait on him is refused.
