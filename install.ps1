@@ -422,7 +422,7 @@
             }
             # Said plainly, because nothing else will: a build from source has no
             # publisher, though every release from v0.5.2 on is signed.
-            Write-Detail "These programs are unsigned: they were built on this PC from this clone, while Code Goblins' releases are signed by SIQstack LLC."
+            Write-Detail "These programs are unsigned: they were built on this PC from this clone, while Code Goblins' releases from v0.5.2 on are signed by SIQstack LLC."
             Write-Detail "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
             # cfo install puts the window built beside it in the home.
