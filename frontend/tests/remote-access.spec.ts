@@ -2,9 +2,10 @@ import { expect, servePages, test, type Page } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
 const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
-// The board's push key, the RFC 8291 example's application server key.
-const SERVER_KEY = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
-const APP = { endpoint: "https://web.push.apple.com/QGuQyavXutnMH", keys: { p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", auth: "BTBZMqHH6r4Tts7J_aSIgg" } };
+// The board's push key, and an app's subscription, as their sizes are: the
+// test's browser takes them as they are, so no real key is needed.
+const SERVER_KEY = "B" + "A".repeat(86);
+const APP = { endpoint: "https://web.push.apple.com/QGuQyavXutnMH", keys: { p256dh: "B" + "Q".repeat(86), auth: "A".repeat(22) } };
 const OFF = { enabled: false, ready: false, tailscale: "ready", scrawl: false };
 const ON = { enabled: true, ready: true, url: URL, login: "owner@example.com", scrawl: false };
 const SCRAWL_ON = { ...ON, scrawl: true, scrawl_state: "on" };

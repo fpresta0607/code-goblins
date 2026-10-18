@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/hkdf"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -29,34 +30,44 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/webpush"
 )
 
-// The RFC 8291 example's browser keys: a test's app subscribes with them, so
-// a test reads what was pushed to it.
-const (
-	browserPrivate = "q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94"
-	browserPublic  = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"
-	browserAuth    = "BTBZMqHH6r4Tts7J_aSIgg"
-	phoneEndpoint  = "https://web.push.apple.com/QGuQyavXutnMH"
+// browser is the push keys of a test's app, made for the run, so a test reads
+// what was pushed to it; browserPublic and browserAuth are as its
+// subscription names them.
+var browser = func() struct {
+	private *ecdh.PrivateKey
+	auth    []byte
+} {
+	private, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return struct {
+		private *ecdh.PrivateKey
+		auth    []byte
+	}{private, []byte(rand.Text())[:16]}
+}()
+
+var (
+	browserPublic = base64.RawURLEncoding.EncodeToString(browser.private.PublicKey().Bytes())
+	browserAuth   = base64.RawURLEncoding.EncodeToString(browser.auth)
 )
 
-// pushed is a push as the browser with the example's keys reads it.
+const phoneEndpoint = "https://web.push.apple.com/QGuQyavXutnMH"
+
+// pushed is a push as the test's app reads it.
 func pushed(t *testing.T, body []byte) map[string]any {
 	t.Helper()
-	decode := func(value string) []byte { data, _ := base64.RawURLEncoding.DecodeString(value); return data }
 	salt, length := body[:16], int(body[20])
 	serverKey, record := body[21:21+length], body[21+length:]
-	browser, err := ecdh.P256().NewPrivateKey(decode(browserPrivate))
-	if err != nil {
-		t.Fatal(err)
-	}
 	server, err := ecdh.P256().NewPublicKey(serverKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	shared, err := browser.ECDH(server)
+	shared, err := browser.private.ECDH(server)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ikm, _ := hkdf.Key(sha256.New, shared, decode(browserAuth), "WebPush: info\x00"+string(browser.PublicKey().Bytes())+string(serverKey), 32)
+	ikm, _ := hkdf.Key(sha256.New, shared, browser.auth, "WebPush: info\x00"+string(browser.private.PublicKey().Bytes())+string(serverKey), 32)
 	key, _ := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", 16)
 	nonce, _ := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", 12)
 	block, _ := aes.NewCipher(key)
