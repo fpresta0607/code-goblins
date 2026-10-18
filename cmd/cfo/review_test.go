@@ -144,7 +144,7 @@ func TestReviewCommandRefusesAnEndedPageUnlessToldToReopenIt(t *testing.T) {
 					t.Fatal(err)
 				}
 				t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
-				named := map[string]string{"link": "https://sermon.tailcc4238.ts.net:4388/session/ad6519f76542da4e", "file": page}[given]
+				named := map[string]string{"link": "https://pc.example.ts.net:4388/session/ad6519f76542da4e", "file": page}[given]
 				review := func(extra ...string) (int, string) {
 					var stdout, stderr bytes.Buffer
 					exit := runReview(append([]string{"--id", "site-real-photos-1", "--task", "g1", "--title", "The site with real photos", "--lavish", named}, extra...), &stdout, &stderr, runtime)

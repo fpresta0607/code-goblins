@@ -750,7 +750,7 @@ This is the pick for a change to three files of `internal/supervisor`:
 ```text
 cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
 1. imports of 5 packages and their tests (an import cycle fails every test of its package)
-2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills)
+2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name)
 3. guard tests of cmd/cfo (they read every command main.go dispatches)
    - TestEveryCommandSaysWhetherItActsAsTheCFO
    - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose

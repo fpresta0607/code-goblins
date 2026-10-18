@@ -287,11 +287,11 @@ func TestLavishSessionAtFindsTheSessionALinkNames(t *testing.T) {
 	}
 	want := PageSession{Key: "1a4d8f434fcca24b", File: `C:\scratch\review\index.html`, Status: "ended", EndedBy: "user"}
 	for link, isKept := range map[string]bool{
-		"https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b": true,
-		"http://127.0.0.1:4387/session/1a4d8f434fcca24b":                 true,
-		"http://127.0.0.1:4387/session/0000000000000000":                 false,
-		"http://127.0.0.1:4387/session/1a4d8f434fcca24b/export":          false,
-		"https://example.com/plan":                                       false,
+		"https://pc.example.ts.net:4388/session/1a4d8f434fcca24b": true,
+		"http://127.0.0.1:4387/session/1a4d8f434fcca24b":          true,
+		"http://127.0.0.1:4387/session/0000000000000000":          false,
+		"http://127.0.0.1:4387/session/1a4d8f434fcca24b/export":   false,
+		"https://example.com/plan":                                false,
 	} {
 		// Act
 		session, found, err := (Lavish{}).SessionAt(link)

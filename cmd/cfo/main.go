@@ -60,7 +60,7 @@ Run as goblins with no command, from any folder, it is the quick start: one Ente
 commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
-  remote    on|status|off: private iPhone access to the board and CFO terminal over your Tailscale account
+  remote    on|status|off: private phone access to the board and CFO terminal over your Tailscale account
   host      run one goblin terminal in a process of its own; cfo starts it, not you
   attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs

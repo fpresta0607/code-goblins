@@ -90,7 +90,7 @@ test("a goblin's review page stays live while its question waits on the Overlord
 });
 
 test("a Lavish tailnet link opens as returned, and plain http elsewhere stays refused", () => {
-  for (const raw of ["http://sermon.tailcc4238.ts.net:4387/session/f26e","http://100.122.0.50:4387/session/f26e","http://127.0.0.1:4387/session/f26e","https://example.com/review"]) assert.equal(safePresentationURL(raw),true,raw);
+  for (const raw of ["http://pc.example.ts.net:4387/session/f26e","http://100.64.0.50:4387/session/f26e","http://127.0.0.1:4387/session/f26e","https://example.com/review"]) assert.equal(safePresentationURL(raw),true,raw);
   for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://100.64.evil.example/review","http://[::ffff:100.64.0.1]/review","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);
 });
 

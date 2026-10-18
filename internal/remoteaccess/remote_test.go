@@ -1,6 +1,7 @@
 package remoteaccess
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,8 +17,14 @@ import (
 type fakeTailscale struct {
 	config        string
 	calls         []string
+	programs      []string
 	fail          bool
 	wrongReadback bool
+	// backend is the state tailscale status reports, Running when empty.
+	backend string
+	// serveWaits stands for a serve that waits for Serve or HTTPS to be
+	// approved for the tailnet until its context runs out.
+	serveWaits bool
 }
 
 const ownProxy = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"home.example.ts.net:4311":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4310"}}}}}`
@@ -25,7 +32,8 @@ const ownProxy = `{"TCP":{"4311":{"HTTPS":true}},"Web":{"home.example.ts.net:431
 func (f *fakeTailscale) Run(ctx context.Context, r execx.Request) (execx.Result, error) {
 	call := strings.Join(r.Args, " ")
 	f.calls = append(f.calls, call)
-	if r.Name != "tailscale" {
+	f.programs = append(f.programs, r.Name)
+	if !strings.EqualFold(strings.TrimSuffix(filepath.Base(r.Name), ".exe"), "tailscale") {
 		return execx.Result{}, fmt.Errorf("unexpected program %s", r.Name)
 	}
 	if f.fail {
@@ -33,13 +41,16 @@ func (f *fakeTailscale) Run(ctx context.Context, r execx.Request) (execx.Result,
 	}
 	switch call {
 	case "status --json":
-		return execx.Result{Stdout: []byte(`{"BackendState":"Running","Self":{"DNSName":"home.example.ts.net.","UserID":123,"TailscaleIPs":["100.64.5.6","fd7a:115c:a1e0::123"]},"User":{"123":{"LoginName":"owner@example.com"}}}`)}, nil
+		return execx.Result{Stdout: []byte(`{"BackendState":"` + cmp.Or(f.backend, "Running") + `","Self":{"DNSName":"home.example.ts.net.","UserID":123,"TailscaleIPs":["100.64.5.6","fd7a:115c:a1e0::123"]},"User":{"123":{"LoginName":"owner@example.com"}}}`)}, nil
 	case "serve status --json":
 		if f.config == "" {
 			return execx.Result{Stdout: []byte("{}")}, nil
 		}
 		return execx.Result{Stdout: []byte(f.config)}, nil
 	case "serve --bg --https=4311 http://127.0.0.1:4310":
+		if f.serveWaits {
+			return execx.Result{Stdout: []byte("Serve is not enabled on your tailnet.\nTo enable, visit:\n\n  https://login.secret.example/f/serve?node=private\n")}, context.DeadlineExceeded
+		}
 		if !f.wrongReadback {
 			f.config = ownProxy
 		}
@@ -189,5 +200,133 @@ func TestFunnelIsNeverReportedReady(t *testing.T) {
 	_ = write(m.State, testConfig())
 	if s := m.Status(context.Background()); s.Ready || s.Issue == "" {
 		t.Fatal(s)
+	}
+}
+
+// A new user without Tailscale is told it is missing, by the real command
+// runner, and nothing is saved, so remote access stays off.
+func TestWithoutTailscaleEnableAndStatusSayItIsNotInstalled(t *testing.T) {
+	// Arrange
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ProgramFiles", t.TempDir())
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target}
+
+	// Act
+	_, err := m.Enable(context.Background())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "Tailscale is not installed on this PC") {
+		t.Fatalf("enable without Tailscale: %v", err)
+	}
+	if c, err := Read(m.State); err != nil || c != (Config{}) {
+		t.Fatal("a failed enable saved settings", c, err)
+	}
+	if s := m.Status(context.Background()); s.Enabled || s.Issue != "" {
+		t.Fatal("off reads Tailscale or reports a problem", s)
+	}
+
+	// A home that turned it on before Tailscale was removed says why it is
+	// not ready.
+	if err := write(m.State, testConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if s := m.Status(context.Background()); s.Ready || !strings.Contains(s.Issue, "Tailscale is not installed on this PC") {
+		t.Fatal(s)
+	}
+}
+
+// A board keeps the PATH it started with. Tailscale's installer adds its
+// folder in Program Files to the machine's PATH, so a board started before
+// the install finds the CLI there.
+func TestTailscaleInstalledAfterTheBoardStartedIsFound(t *testing.T) {
+	// Arrange
+	programFiles := t.TempDir()
+	installed := filepath.Join(programFiles, "Tailscale", "tailscale.exe")
+	if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, []byte("stand-in"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ProgramFiles", programFiles)
+	f := &fakeTailscale{}
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: f}
+
+	// Act
+	s, err := m.Enable(context.Background())
+
+	// Assert
+	if err != nil || !s.Ready {
+		t.Fatal(s, err)
+	}
+	for _, program := range f.programs {
+		if program != installed {
+			t.Fatalf("ran %s, want the installed %s", program, installed)
+		}
+	}
+}
+
+// A first serve on a tailnet that has not approved Serve or HTTPS waits for
+// that approval and prints the link to approve it. The wait running out is
+// not Tailscale missing, and the link is never repeated.
+func TestServeWaitingForApprovalSaysSoAndNamesTheCommand(t *testing.T) {
+	// Arrange
+	f := &fakeTailscale{serveWaits: true}
+	m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: f}
+
+	// Act
+	_, err := m.Enable(context.Background())
+
+	// Assert
+	if err == nil {
+		t.Fatal("enabled without a route")
+	}
+	for _, want := range []string{"waiting for Serve or HTTPS to be approved", "tailscale serve --bg --https=4311 http://127.0.0.1:4310"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q does not say %q", err, want)
+		}
+	}
+	for _, wrong := range []string{"not installed", "install and connect", "secret"} {
+		if strings.Contains(err.Error(), wrong) {
+			t.Errorf("%q says %q", err, wrong)
+		}
+	}
+	if c, err := Read(m.State); err != nil || c.Enabled {
+		t.Fatal(c, err)
+	}
+}
+
+// Tailscale installed but stopped, signed out or disconnected is named as
+// that, when turning it on and in the status of a home that has it on.
+func TestTailscaleNotConnectedSaysWhatIsMissing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    *fakeTailscale
+		want string
+	}{
+		{"service stopped", &fakeTailscale{fail: true}, "Tailscale is not running on this PC"},
+		{"signed out", &fakeTailscale{backend: "NeedsLogin"}, "Tailscale is signed out on this PC"},
+		{"disconnected", &fakeTailscale{backend: "Stopped"}, "Tailscale is not connected on this PC"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			m := &Manager{State: t.TempDir(), Target: testConfig().Target, Commands: tc.f}
+
+			// Act
+			_, enableErr := m.Enable(context.Background())
+			if err := write(m.State, testConfig()); err != nil {
+				t.Fatal(err)
+			}
+			s := m.Status(context.Background())
+
+			// Assert
+			if enableErr == nil || !strings.Contains(enableErr.Error(), tc.want) {
+				t.Errorf("enable: %v, want %q", enableErr, tc.want)
+			}
+			if s.Ready || !strings.Contains(s.Issue, tc.want) {
+				t.Errorf("status: %+v, want %q", s, tc.want)
+			}
+		})
 	}
 }

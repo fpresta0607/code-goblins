@@ -320,7 +320,7 @@ func TestCredentialSaveRefusesEverythingButAnOpenRequestFromThisMachine(t *testi
 	}{
 		{"a board served under a name off this machine", true, nil, nil, http.StatusForbidden},
 		{"X-Forwarded-For", false, nil, header("X-Forwarded-For", "100.101.102.103"), http.StatusForbidden},
-		{"X-Forwarded-Host", false, nil, header("X-Forwarded-Host", "goblins.tailnet.ts.net"), http.StatusForbidden},
+		{"X-Forwarded-Host", false, nil, header("X-Forwarded-Host", "goblins.example.ts.net"), http.StatusForbidden},
 		{"X-Forwarded-Proto", false, nil, header("X-Forwarded-Proto", "https"), http.StatusForbidden},
 		{"Forwarded", false, nil, header("Forwarded", "for=100.101.102.103"), http.StatusForbidden},
 		{"X-Real-Ip", false, nil, header("X-Real-Ip", "100.101.102.103"), http.StatusForbidden},
@@ -364,7 +364,7 @@ func TestCredentialSaveRefusesEverythingButAnOpenRequestFromThisMachine(t *testi
 			}
 			handler := b.handler
 			if test.tailnet {
-				handler = NewHTTP(b.service, "goblins.tailnet.ts.net:443", nil)
+				handler = NewHTTP(b.service, "goblins.example.ts.net:443", nil)
 			}
 
 			// Act
