@@ -31,6 +31,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test("the CFO task panel enables private phone access, copies its link and turns it off", async ({ page }, testInfo) => {
   const { actions, panel } = await open(page);
   await expect(panel.getByRole("button", { name: "Enable", exact: true })).toBeVisible();
+  for (const [name, href] of [["For iPhone", "https://tailscale.com/download/ios"], ["For Android", "https://tailscale.com/download/android"]]) await expect(panel.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
   await panel.getByRole("button", { name: "Enable", exact: true }).click();
   await expect(panel.getByText("Private access is ready.")).toBeVisible();
   await expect(panel.getByRole("link", { name: "Open private board" })).toHaveAttribute("href", URL);

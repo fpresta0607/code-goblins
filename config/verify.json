@@ -13,7 +13,7 @@
   "guards": [
     {
       "package": ".",
-      "why": "its tests read every link of the contract, the workflows and the shipped skills"
+      "why": "its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name"
     },
     {
       "package": "cmd/cfo",

@@ -13,7 +13,7 @@ import { doneCards, expect, openItem, recordDoneCards, test, type BrowserContext
 // snapshot themselves, so nothing reloads the board.
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
 
-const PAGE = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b";
+const PAGE = "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b";
 const TITLE = "Before and after pictures of the Orchestration canvas, now showing only goblins in progress";
 const greta = { id: "cg-canvas-live-only", title: "Canvas shows only live goblins", goblin_name: "Greta", goblin_title: "Canvas Captain", project: "code-goblins", phase: "working", generation: "g1", verified: false };
 const wanda = { id: "pd-mcp-only", title: "Retire the web routes", goblin_name: "Wanda", goblin_title: "API Ace", project: "precisiondocs", phase: "waiting", generation: "g1", verified: false };

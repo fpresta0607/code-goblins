@@ -144,7 +144,7 @@ func TestPresentationURLNamesTheRuleAndKeepsTailnetLinks(t *testing.T) {
 			t.Errorf("%s: problem = %q, want the %q rule named", raw, problem, rule)
 		}
 	}
-	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e", "http://sermon.tailcc4238.ts.net:4387/session/f26e1c33babf6415", "http://100.122.0.50:4387/session/f26e"} {
+	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e", "http://pc.example.ts.net:4387/session/f26e1c33babf6415", "http://100.64.0.50:4387/session/f26e"} {
 		if problem := PresentationURLProblem(raw); problem != "" {
 			t.Errorf("%s refused: %s", raw, problem)
 		}

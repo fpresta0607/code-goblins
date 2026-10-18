@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -148,6 +149,22 @@ type Status struct {
 	ScrawlIssue string `json:"scrawl_issue,omitempty"`
 }
 
+// errRefused is a Tailscale command that ran and exited with an error.
+var errRefused = errors.New("Tailscale refused the request; in an Administrator terminal, check tailscale status and tailscale serve --help, then enable HTTPS in your tailnet")
+
+// program is the Tailscale CLI. Its Windows installer puts it in Program
+// Files and adds that folder to the machine's PATH, which a board started
+// before the install does not have, so the folder is looked in too.
+func program() string {
+	if _, err := exec.LookPath("tailscale"); err != nil && os.Getenv("ProgramFiles") != "" {
+		installed := filepath.Join(os.Getenv("ProgramFiles"), "Tailscale", "tailscale.exe")
+		if info, err := os.Stat(installed); err == nil && info.Mode().IsRegular() {
+			return installed
+		}
+	}
+	return "tailscale"
+}
+
 func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
 	runner := m.Commands
 	if runner == nil {
@@ -155,19 +172,29 @@ func (m *Manager) command(ctx context.Context, args ...string) ([]byte, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	result, err := runner.Run(ctx, execx.Request{Name: "tailscale", Args: args})
-	if err != nil {
-		return nil, fmt.Errorf("Tailscale is unavailable: %w; install and connect Tailscale on this PC", err)
+	result, err := runner.Run(ctx, execx.Request{Name: program(), Args: args})
+	switch {
+	case errors.Is(err, exec.ErrNotFound):
+		return nil, errors.New("Tailscale is not installed on this PC; install it from https://tailscale.com/download and sign in")
+	case errors.Is(err, context.DeadlineExceeded):
+		// A first serve on a tailnet that has not approved Serve or HTTPS
+		// prints the approval link and waits for it without end.
+		return nil, errors.New("Tailscale did not answer within 15 seconds; it may be waiting for Serve or HTTPS to be approved for your tailnet")
+	case err != nil:
+		return nil, fmt.Errorf("Tailscale could not be run: %w", err)
 	}
 	if result.ExitCode != 0 {
 		// Never echo CLI output: it can contain login or HTTPS consent links.
-		return nil, errors.New("Tailscale refused the request; in an Administrator terminal, check tailscale status and tailscale serve --help, then enable HTTPS in your tailnet")
+		return nil, errRefused
 	}
 	return result.Stdout, nil
 }
 
 func (m *Manager) identity(ctx context.Context) (string, string, error) {
 	data, err := m.command(ctx, "status", "--json")
+	if errors.Is(err, errRefused) {
+		return "", "", errors.New("Tailscale is not running on this PC; start Tailscale and sign in")
+	}
 	if err != nil {
 		return "", "", err
 	}
@@ -180,8 +207,12 @@ func (m *Manager) identity(ctx context.Context) (string, string, error) {
 		}
 		User map[string]struct{ LoginName string }
 	}
-	if json.Unmarshal(data, &status) != nil || status.BackendState != "Running" || status.Self == nil {
-		return "", "", errors.New("connect Tailscale on this PC before enabling remote access")
+	err = json.Unmarshal(data, &status)
+	switch {
+	case err == nil && status.BackendState == "NeedsLogin":
+		return "", "", errors.New("Tailscale is signed out on this PC; open Tailscale and sign in")
+	case err != nil || status.BackendState != "Running" || status.Self == nil:
+		return "", "", errors.New("Tailscale is not connected on this PC; open Tailscale and connect")
 	}
 	name := strings.TrimSuffix(strings.ToLower(status.Self.DNSName), ".")
 	login := status.User[status.Self.UserID.String()].LoginName

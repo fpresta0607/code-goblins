@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
@@ -97,6 +98,7 @@ func runDoctor(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	reportPermissions(stdout)
 	reportLongPaths(stdout)
 	reportDevDrive(stdout, runtime)
+	reportRemoteAccess(stdout, runtime)
 
 	if *fix && !fixHarnesses(stdout, releases, versions) {
 		healthy = false
@@ -253,6 +255,20 @@ func reportDevDrive(stdout io.Writer, runtime commandRuntime) {
 		line += " (file: " + report.File + ")"
 	}
 	fmt.Fprintln(stdout, line)
+}
+
+// reportRemoteAccess says whether private phone access is off or on and what
+// it needs (remoteAccessLine). It never counts against the health verdict:
+// remote access is optional and off by default.
+func reportRemoteAccess(stdout io.Writer, runtime commandRuntime) {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	target, _ := remoteTarget(ctx, h)
+	fmt.Fprintln(stdout, "remote access: "+remoteAccessLine(ctx, boardRemoteAccess(h, target)))
 }
 
 // reportDictation says dictation is ready, naming the speech model and the

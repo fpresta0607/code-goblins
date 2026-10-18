@@ -33,7 +33,7 @@ export function RemoteAccessSetting({ instance }: { instance: string }) {
     {status ? <>
       <p>{status.enabled ? status.ready ? "Private access is ready." : "Remote access needs attention." : "Open this board and the CFO terminal from your phone over Tailscale."}</p>
       {status.enabled && status.url && <><CopyValue value={status.url} /><a href={status.url} target="_blank" rel="noreferrer">Open private board</a></>}
-      {status.enabled && <p className="muted">Connect Tailscale as {status.login}, then open the link in Safari. Share → Add to Home Screen keeps it handy. Keep this PC awake and online.</p>}
+      {status.enabled && <p className="muted">Connect Tailscale on your phone as {status.login}, then open the link in its browser. Add to Home Screen keeps it handy. Keep this PC awake and online.</p>}
       {!status.enabled && local && <p className="muted">Enable also turns on Start at login so the board returns after Windows sign-in.</p>}
       {status.issue && <p role="status">{status.issue}</p>}
       {status.enabled && <>
@@ -45,7 +45,7 @@ export function RemoteAccessSetting({ instance }: { instance: string }) {
     </> : !resource.error && <p role="status">Checking remote access…</p>}
     <ClickFeedback text={feedback} />
     {resource.error && <span className="plain-status">Unavailable</span>}
-    <div className="remote-access-help"><button className="secondary" disabled={busy} onClick={refresh}>Refresh</button><a href="https://tailscale.com/download/windows" target="_blank" rel="noreferrer">Get Tailscale for PC</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noreferrer">For iPhone</a><a href="https://tailscale.com/docs/how-to/set-up-https-certificates" target="_blank" rel="noreferrer">HTTPS setup</a></div>
+    <div className="remote-access-help"><button className="secondary" disabled={busy} onClick={refresh}>Refresh</button><a href="https://tailscale.com/download/windows" target="_blank" rel="noreferrer">Get Tailscale for PC</a><a href="https://tailscale.com/download/ios" target="_blank" rel="noreferrer">For iPhone</a><a href="https://tailscale.com/download/android" target="_blank" rel="noreferrer">For Android</a><a href="https://tailscale.com/docs/how-to/set-up-https-certificates" target="_blank" rel="noreferrer">HTTPS setup</a></div>
     <p className="muted">Connect the Tailscale app on each device with the same account. Your device’s VPN stays in Tailscale.</p>
     {local && <Disclosure kind="remote-https" title="Approve HTTPS on this PC"><p>In an Administrator PowerShell, run the command below and follow Tailscale’s approval link. Then press Enable again.</p><CopyValue value={"tailscale serve --bg --https=4311 " + location.origin} /></Disclosure>}
   </section>;

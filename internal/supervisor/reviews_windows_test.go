@@ -96,9 +96,9 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 	for name, test := range map[string]struct {
 		link, wantPage string
 	}{
-		"a session lavish-axi keeps":   {link: "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
+		"a session lavish-axi keeps":   {link: "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
 		"the same session on loopback": {link: "http://127.0.0.1:4387/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
-		"a session it does not keep":   {link: "https://sermon.tailcc4238.ts.net:4388/session/0000000000000000"},
+		"a session it does not keep":   {link: "https://pc.example.ts.net:4388/session/0000000000000000"},
 		"a link to no session":         {link: "https://example.com/plan"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -137,7 +137,7 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 // page the CFO's review holds would take it from the CFO. The goblin's own
 // review of its page is still its own.
 func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
-	const link = "https://sermon.tailcc4238.ts.net:4388/session/1a4d8f434fcca24b"
+	const link = "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b"
 	const page = `C:\scratch\task-1\review\index.html`
 	wait := func(h home.Home) error {
 		return PublishWait(h, "task-1", 7, "pick a layout on the page", link, page, "", "")
