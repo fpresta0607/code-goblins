@@ -200,22 +200,58 @@ func TestShowDetailsShowsTheLogsLastLines(t *testing.T) {
 // installs the newest release, whichever release built it, so one kept from
 // an older release never puts its own older build over a newer one.
 func TestTheSetupInstallsTheNewestReleaseWhicheverBuiltIt(t *testing.T) {
-	for name, test := range map[string]struct{ tag, want string }{
-		"an older release's setup":  {"v0.4.0", "https://github.com/someone/code-goblins/releases/latest/download/install.ps1"},
-		"a setup built from source": {"", "https://github.com/someone/code-goblins/releases/latest/download/install.ps1"},
+	// Arrange
+	wasRepository := repository
+	t.Cleanup(func() { repository = wasRepository })
+	repository = "someone/code-goblins"
+
+	// Act
+	got := scriptURL()
+
+	// Assert
+	if want := "https://github.com/someone/code-goblins/releases/latest/download/install.ps1"; got != want {
+		t.Errorf("scriptURL = %s, want %s", got, want)
+	}
+}
+
+// The setup carries no release of its own, so it is the same file from one
+// release to the next, and names the release it installs, which it reads from
+// the install script a release pins to itself: the window's title and the log
+// say it, so nothing reads as older than it is. A clone's script names none.
+func TestTheSetupNamesTheReleaseItInstalls(t *testing.T) {
+	for name, test := range map[string]struct {
+		script string
+		shown  []Progress
+		logged string
+	}{
+		"a release's install script": {
+			script: "$releaseBase = \"https://github.com/$repo/releases/download/v9.8.7\"\nWrite-Host '[2/4] Check the download'",
+			shown:  []Progress{{Step: 1}, {Release: "v9.8.7"}, {Step: 2}},
+			logged: "The newest release is Code Goblins v9.8.7",
+		},
+		"a clone's install script": {
+			script: "$releaseBase = \"https://github.com/$repo/releases/latest/download\"\nWrite-Host '[2/4] Check the download'",
+			shown:  []Progress{{Step: 1}, {Step: 2}},
+			logged: "The install script names no release, as one from a clone does.",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			wasRepository, wasTag := repository, tag
-			t.Cleanup(func() { repository, tag = wasRepository, wasTag })
-			repository, tag = "someone/code-goblins", test.tag
+			setup := published(t, test.script, http.StatusOK)
+			var shown []Progress
 
 			// Act
-			got := scriptURL()
+			err := setup.Install(context.Background(), func(progress Progress) { shown = append(shown, progress) })
 
 			// Assert
-			if got != test.want {
-				t.Errorf("scriptURL = %s, want %s", got, test.want)
+			if err != nil {
+				t.Fatalf("Install = %v, want the script run to its end", err)
+			}
+			if !slices.Equal(shown, test.shown) {
+				t.Errorf("the setup showed %+v, want %+v", shown, test.shown)
+			}
+			if kept := readLog(t, setup); !strings.Contains(kept, test.logged) {
+				t.Errorf("the log lacks %q:\n%s", test.logged, kept)
 			}
 		})
 	}

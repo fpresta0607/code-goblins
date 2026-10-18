@@ -19,16 +19,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// repository and tag are the release that publishes this program, stamped in
-// when it is built with -ldflags -X. tag is this program's own version, which
-// its log names; a build that names none is one from a clone.
-var (
-	repository = "fpresta0607/code-goblins"
-	tag        = ""
-)
+// repository is the one whose releases this program installs, stamped in
+// when it is built with -ldflags -X. The program carries nothing of the
+// release that builds it, so each release builds it to the same file while
+// its code is the same, and the release then publishes the signed copy
+// people already run, whose reputation with SmartScreen grows with each
+// download. It names the release it installs from the install script.
+var repository = "fpresta0607/code-goblins"
 
-// scriptURL ignores tag so retaining this setup cannot pin an install to an
-// older release. See docs/install.md for compatibility details.
+// scriptURL is the newest release's install script, so a setup kept from an
+// older release still installs the newest. See docs/install.md for
+// compatibility details.
 func scriptURL() string {
 	return "https://github.com/" + repository + "/releases/latest/download/install.ps1"
 }
@@ -70,7 +71,14 @@ type Progress struct {
 	Doing string
 	// Note is a sentence to show until the install ends.
 	Note string
+	// Release is the release the install puts in, such as v0.5.20, which the
+	// setup reads from the install script once it has downloaded it.
+	Release string
 }
+
+// pinnedRelease finds the release a release's own copy of the install script
+// downloads from, which tools/pin-installer.ps1 writes into it.
+var pinnedRelease = regexp.MustCompile(`(?m)^\s*\$releaseBase = "[^"\r\n]*/releases/download/(v[0-9A-Za-z._+-]+)"`)
 
 // Setup runs the install script described in docs/install.md behind a
 // window. Every destination is a field, so a test names
@@ -101,7 +109,7 @@ type Setup struct {
 // sentence: what stopped the install and what to do. The details are in the
 // log.
 func (s Setup) Install(ctx context.Context, report func(Progress)) error {
-	if err := os.WriteFile(s.Log, []byte("Code Goblins Setup "+version()+", installing the newest release, "+time.Now().Format(time.RFC1123)+"\r\n"), 0o644); err != nil {
+	if err := os.WriteFile(s.Log, []byte("Code Goblins Setup, installing the newest release, "+time.Now().Format(time.RFC1123)+"\r\n"), 0o644); err != nil {
 		return fmt.Errorf("Setup could not write its log %s (%v); free some disk space, then try again.", s.Log, err)
 	}
 	report(Progress{Step: 1})
@@ -112,8 +120,15 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 	defer s.remove(folder)
 	script := filepath.Join(folder, "install.ps1")
 	s.keep("Downloading the install script from " + s.Script)
-	if err := s.download(ctx, script); err != nil {
+	downloaded, err := s.download(ctx, script)
+	if err != nil {
 		return s.fail("Code Goblins could not be downloaded. Check the internet connection, then try again.", err)
+	}
+	if match := pinnedRelease.FindSubmatch(downloaded); match != nil {
+		s.keep("The newest release is Code Goblins " + string(match[1]))
+		report(Progress{Release: string(match[1])})
+	} else {
+		s.keep("The install script names no release, as one from a clone does.")
 	}
 
 	// -File runs the script as the one-line install does, in a session of its
@@ -253,33 +268,25 @@ func (s Setup) Details() string {
 	return strings.Join(lines, "\n")
 }
 
-// download saves the install script to path.
-func (s Setup) download(ctx context.Context, path string) error {
+// download saves the install script to path and returns it.
+func (s Setup) download(ctx context.Context, path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, downloadWait)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Script, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	response, err := s.Client.Do(request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s answered %s", s.Script, response.Status)
+		return nil, fmt.Errorf("%s answered %s", s.Script, response.Status)
 	}
 	var script bytes.Buffer
 	if _, err := io.Copy(&script, response.Body); err != nil {
-		return err
+		return nil, err
 	}
-	return os.WriteFile(path, script.Bytes(), 0o644)
-}
-
-// version is this program's own release, which installs the newest one.
-func version() string {
-	if tag == "" {
-		return "(built from source)"
-	}
-	return tag
+	return script.Bytes(), os.WriteFile(path, script.Bytes(), 0o644)
 }

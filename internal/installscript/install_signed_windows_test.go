@@ -1,7 +1,9 @@
 package installscript
 
 import (
+	"bytes"
 	"cmp"
+	"encoding/binary"
 	"os"
 	"path"
 	"path/filepath"
@@ -315,5 +317,126 @@ func TestTheReleaseSignsChecksAndPublishesEveryProgramItLists(t *testing.T) {
 	}
 	if !slices.Contains(handedOver, "no-mistakes-NOTICES") || !slices.Contains(published, "no-mistakes-NOTICES") {
 		t.Errorf("the release does not hand over and publish no-mistakes-NOTICES: %q, %q", handedOver, published)
+	}
+}
+
+// The release builds the setup with nothing of the release in it, so each
+// release builds the same file while the setup's code is the same, the file
+// the publish job then swaps for the last release's signed copy: its
+// resources stay the committed ones, with no version stamped in, and its
+// build stamps neither a version nor the commit.
+func TestTheReleaseBuildsTheSetupWithNothingOfTheRelease(t *testing.T) {
+	// Arrange
+	script, _ := releaseStep(t, "Build")
+
+	// Act
+	var build []string
+	for _, line := range strings.Split(script, "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && fields[0] == "go" && slices.Contains(fields, "./cmd/goblins-setup") {
+			build = fields
+		}
+	}
+
+	// Assert
+	if build == nil {
+		t.Fatalf("the release's Build step builds no ./cmd/goblins-setup:\n%s", script)
+	}
+	for _, flag := range []string{"-trimpath", "-buildvcs=false"} {
+		if !slices.Contains(build, flag) {
+			t.Errorf("the setup is built with %q, want %s among its flags", build, flag)
+		}
+	}
+	if command := strings.Join(build, " "); strings.Contains(command, "RELEASE_TAG") || strings.Contains(command, "main.tag") || strings.Contains(command, "github.sha") {
+		t.Errorf("the setup's build stamps something of the release in: %s", command)
+	}
+	if strings.Contains(script, "Push-Location cmd/goblins-setup") {
+		t.Errorf("the release stamps the setup's resources:\n%s", script)
+	}
+}
+
+// signedLike stands for a 64-bit Windows program as signing sees it, and is
+// none: it has no MZ, so nothing takes it for one. It holds the header fields
+// signing writes, a checksum and the certificate table's entry, around code,
+// and ends in signature when signature is not empty.
+func signedLike(code byte, checksum uint32, signature string) []byte {
+	data := make([]byte, 0x400)
+	binary.LittleEndian.PutUint32(data[0x3C:], 0x80)
+	optional := 0x80 + 24
+	binary.LittleEndian.PutUint16(data[optional:], 0x20B)
+	binary.LittleEndian.PutUint32(data[optional+64:], checksum)
+	for i := 0x200; i < len(data); i++ {
+		data[i] = code
+	}
+	if signature != "" {
+		binary.LittleEndian.PutUint32(data[optional+144:], uint32(len(data)))
+		binary.LittleEndian.PutUint32(data[optional+148:], uint32(len(signature)))
+		data = append(data, signature...)
+	}
+	return data
+}
+
+// A release whose setup has the last release's code publishes the last
+// release's signed setup again, the file people already downloaded and
+// SmartScreen already knows, though each signing writes other bytes; one whose
+// setup's code changed, or that finds no earlier release, publishes its own.
+// The step's own script runs, in each PowerShell, against files that look like
+// programs to it alone.
+func TestTheReleasePublishesTheLastSetupAgainWhileItsCodeIsTheSame(t *testing.T) {
+	script, _ := releaseStep(t, "Publish the last setup again while its code is the same")
+	built := signedLike(0xAA, 0x1111, "this release's signature")
+	for name, test := range map[string]struct {
+		// last is the last release's setup, nil where there is no release.
+		last        []byte
+		isLastAgain bool
+	}{
+		"the same code signed again": {last: signedLike(0xAA, 0x2222, "the last release's longer signature"), isLastAgain: true},
+		"code that changed":          {last: signedLike(0xBB, 0x2222, "the last release's longer signature")},
+		"no earlier release":         {},
+	} {
+		for _, shell := range installtest.OneLineShells(t) {
+			t.Run(name+" in "+filepath.Base(shell), func(t *testing.T) {
+				// Arrange: gh stands in for GitHub's own command, which saves
+				// the last release's setup where it is told, and records what
+				// it was asked.
+				record := filepath.Join(t.TempDir(), "gh.txt")
+				gh := "@>>\"" + record + "\" echo %*\r\n@exit /b 1\r\n"
+				if test.last != nil {
+					last := filepath.Join(t.TempDir(), "last.bin")
+					if err := os.WriteFile(last, test.last, 0o644); err != nil {
+						t.Fatal(err)
+					}
+					gh = "@>>\"" + record + "\" echo %*\r\n@copy /y \"" + last + "\" \"%~8\\CodeGoblinsSetup.exe\" >nul\r\n@exit /b %errorlevel%\r\n"
+				}
+				command, _, workspace := installtest.StrippedCommand(t, "", map[string]string{"gh": gh}, shell, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'\n"+script)
+				command.Env = append(command.Env, "RUNNER_TEMP="+t.TempDir(), "GITHUB_REPOSITORY=owner/name")
+				setup := filepath.Join(workspace, "CodeGoblinsSetup.exe")
+				if err := os.WriteFile(setup, built, 0o644); err != nil {
+					t.Fatal(err)
+				}
+
+				// Act
+				out, err := command.CombinedOutput()
+
+				// Assert
+				if err != nil {
+					t.Fatalf("the step = %v, want it to end well:\n%s", err, out)
+				}
+				published, err := os.ReadFile(setup)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := built
+				if test.isLastAgain {
+					want = test.last
+				}
+				if !bytes.Equal(published, want) {
+					t.Errorf("the release publishes the last setup again: %v, want %v:\n%s", bytes.Equal(published, test.last), test.isLastAgain, out)
+				}
+				asked, err := os.ReadFile(record)
+				if err != nil || !strings.HasPrefix(string(asked), "release download --repo owner/name --pattern CodeGoblinsSetup.exe --dir ") {
+					t.Errorf("gh was asked %q (%v), want the last release's CodeGoblinsSetup.exe from this repository", asked, err)
+				}
+			})
+		}
 	}
 }

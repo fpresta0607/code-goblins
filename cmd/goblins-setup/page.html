@@ -146,6 +146,7 @@
   let updating = false;
   let folder = "";
   let devDriveOffered = false;
+  let release = "";
 
   // setupPlan shows what the install will do before it starts: the folder,
   // whether it updates Code Goblins already there, and a line about it, which
@@ -170,12 +171,21 @@
   function setupStarted() {
     body.dataset.screen = "installing";
     body.classList.remove("showing-details");
+    release = "";
     text("title", updating ? "Updating Code Goblins" : "Installing Code Goblins");
     text("lead", (updating ? "In " : "Into ") + folder);
     for (const step of document.querySelectorAll(".steps li")) {
       step.className = "";
       step.querySelector(".doing").textContent = "";
     }
+  }
+
+  // setupRelease names the release the install puts in, once the setup has
+  // read it from the install script: the setup itself carries no release, so
+  // it is the same file from one release to the next.
+  function setupRelease(name) {
+    release = name;
+    text("title", updating ? "Updating Code Goblins to " + release : "Installing Code Goblins " + release);
   }
 
   // setupStep marks step number as the one under way and those before it
@@ -201,7 +211,7 @@
   function setupDone() {
     body.dataset.screen = "done";
     for (const step of document.querySelectorAll(".steps li")) step.className = "done";
-    text("title", updating ? "Code Goblins is up to date" : "Code Goblins is installed");
+    text("title", updating ? "Code Goblins is up to date" + (release ? " at " + release : "") : "Code Goblins" + (release ? " " + release : "") + " is installed");
     text("lead", "It is opening now. This window closes by itself.");
   }
 
