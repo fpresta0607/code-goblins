@@ -16,7 +16,7 @@ export function hostedChecksLook(checks: HostedChecks, pr: string): HostedChecks
   const pullRequest = safeGitHubLink(pr);
   const checksPage = pullRequest ? pullRequest + "/checks" : "";
   const counted = checks.checks === 1 ? "1 check" : checks.checks + " checks";
-  const limited = checks.rate_limited.length > 0 ? "; the host rate limited the deploy of " + checks.rate_limited.join(", ") + ", which never built this head" : "";
+  const limited = checks.rate_limited.length > 0 ? ". The host rate limited the deploy of " + checks.rate_limited.join(", ") + ", which never built this head" : "";
   switch (checks.state) {
     case "failed":
       return { text: "Checks failed", tip: "Failed: " + checks.failed.join(", ") + limited, tone: "failed", url: safeGitHubLink(checks.link) || checksPage };

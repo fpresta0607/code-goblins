@@ -48,8 +48,8 @@ test("one check is counted as one", () => {
 
 test("a deploy the host rate limited is named in the tip, never hidden, whatever the other checks say", () => {
   for (const [state, failed, tip] of [
-    ["passed", [], "All 9 checks passed; the host rate limited the deploy of Vercel, which never built this head"],
-    ["failed", ["go"], "Failed: go; the host rate limited the deploy of Vercel, which never built this head"],
+    ["passed", [], "All 9 checks passed. The host rate limited the deploy of Vercel, which never built this head"],
+    ["failed", ["go"], "Failed: go. The host rate limited the deploy of Vercel, which never built this head"],
   ] as const) {
     const look = hostedChecksLook(checks({ state, failed: [...failed], rate_limited: ["Vercel"] }), pr);
 
