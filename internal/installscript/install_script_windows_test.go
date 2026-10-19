@@ -346,6 +346,44 @@ func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
 	}
 }
 
+// A release that lists its hook program in SHA256SUMS has it downloaded and
+// checked beside cfo.exe as the window is, and one that does not match its
+// sum stops the install before anything runs.
+func TestOneLineInstallChecksTheHookProgramTheReleaseLists(t *testing.T) {
+	binary, hook := []byte("not a program"), []byte("not a hook program")
+	for _, shell := range installtest.OneLineShells(t) {
+		for name, test := range map[string]struct {
+			hookSum [32]byte
+			want    string
+			refused bool
+		}{
+			"a hook program that matches":        {sha256.Sum256(hook), "Verified cfo-hook.exe against the release's SHA256SUMS", false},
+			"a hook program that does not match": {sha256.Sum256([]byte("another hook program")), "The downloaded cfo-hook.exe does not match the release's checksum", true},
+		} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				// Arrange
+				sums := fmt.Sprintf("%x  cfo.exe\n%x  cfo-hook.exe\n", sha256.Sum256(binary), test.hookSum)
+				base := serveFiles(t, map[string][]byte{"cfo.exe": binary, "cfo-hook.exe": hook, "SHA256SUMS": []byte(sums)})
+
+				// Act
+				output, local, temp, err := runOneLineInstall(t, shell, base)
+
+				// Assert
+				if !strings.Contains(output, test.want) {
+					t.Fatalf("install = %v, want %q:\n%s", err, test.want, output)
+				}
+				if test.refused && strings.Contains(output, "Verified cfo-hook.exe") {
+					t.Errorf("a hook program that does not match was verified:\n%s", output)
+				}
+				if err == nil {
+					t.Fatalf("install succeeded with stand-in programs that cannot run:\n%s", output)
+				}
+				assertNothingInstalled(t, local, temp)
+			})
+		}
+	}
+}
+
 // An unsigned release pins its repository and its tag and names no publisher:
 // its install script says that it checks the release's SHA256SUMS only, and
 // goes on to run a download that matches its sum.

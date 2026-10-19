@@ -247,7 +247,8 @@
     }
 
     # Save-VerifiedRelease downloads the release's cfo.exe into $Folder, and
-    # its desktop window when the release's SHA256SUMS lists one, keeping each
+    # its desktop window and its hook program when the release's SHA256SUMS
+    # lists them, keeping each
     # only when it matches its sum and, where this script names the release's
     # publisher, is validly signed by it. It returns $false when the release
     # cannot be downloaded at all, and throws on a mismatch before anything
@@ -262,6 +263,9 @@
                 Invoke-WebRequest -Uri "$releaseBase/SHA256SUMS" -OutFile $sums -UseBasicParsing
                 if (Read-ReleaseChecksum $sums "goblins-window.exe") {
                     $names += "goblins-window.exe"
+                }
+                if (Read-ReleaseChecksum $sums "cfo-hook.exe") {
+                    $names += "cfo-hook.exe"
                 }
                 foreach ($name in $names) {
                     $expected[$name] = Read-ReleaseChecksum $sums $name
@@ -412,6 +416,10 @@
                 if ((Invoke-Logged "npm.cmd" @("--prefix", "frontend", "ci")) -ne 0) { throw "npm ci in frontend failed: $($lastLine.Text)" }
                 if ((Invoke-Logged "npm.cmd" @("--prefix", "frontend", "run", "build")) -ne 0) { throw "npm run build in frontend failed: $($lastLine.Text)" }
                 if ((Invoke-Logged "go" @("build", "-trimpath", "-o", $dest, "./cmd/cfo")) -ne 0) { throw "go build failed: $($lastLine.Text)" }
+                # The hook program is the same cfo built as a program with no
+                # console, which Windows starts with no console host of its own
+                # for each of a goblin's hooks.
+                if ((Invoke-Logged "go" @("build", "-trimpath", "-o", (Join-Path $build "cfo-hook.exe"), "-ldflags", "-H windowsgui", "./cmd/cfo")) -ne 0) { throw "go build of the hook program failed: $($lastLine.Text)" }
                 # -H windowsgui: the window is a program with no console.
                 # production: as a release builds it, with no developer tools and
                 # no browser menu on a right click.
