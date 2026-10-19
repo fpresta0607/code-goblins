@@ -993,6 +993,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"lines of their own that start with \"- \"",
 		"mark with **two asterisks** only the verdict or the blocking item",
 		"the Overlord personally (his sign-in, his click, his page)",
+		"a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CFO alone",
 		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
 		"the CFO answers it, and his answer arrives here as a message",
 		"Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply.",

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -344,9 +345,37 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 		if err := validCommand(entry); err != nil {
 			return Entry{}, err
 		}
+	case entry.Kind == KindHis:
+		if err := CheckStep(entry); err != nil {
+			return Entry{}, err
+		}
 	}
 	entry.Struck, entry.Settled, entry.Noted = "", "", ""
 	return record(stateDir, entry, now)
+}
+
+// stepCommand finds a command written into a step: a fleet, GitHub or
+// package command with its subcommand, a PowerShell call with its flags, or a
+// script file.
+var stepCommand = regexp.MustCompile(`\b(?:cfo|gh|goblins|git|npm|npx|pnpm|winget|no-mistakes)\s+[a-z][a-z-]*\b|\b(?:powershell|pwsh)(?:\.exe)?\s+-|\b[\w.-]+\.(?:ps1|sh|cmd|bat)\b`)
+
+// CheckStep refuses a step only he can take, with no command to run, whose
+// card would give him nothing that does it: one that names a command in its
+// words, and one with no page to take it on. Its card is a question with
+// Done and Later, and Done runs nothing: on 2026-10-18 the Overlord pressed
+// Done on install and merge steps and nothing ran. A command is a run item
+// he runs with one click.
+func CheckStep(step Entry) error {
+	if step.Kind != KindHis || step.Command != "" {
+		return nil
+	}
+	if command := stepCommand.FindString(step.What); command != "" {
+		return fmt.Errorf("the step names a command (%s), and Done on its card runs nothing: give the command with --run <command.ps1|command.sh>, so his card runs it with one click", command)
+	}
+	if strings.TrimSpace(step.Link) == "" {
+		return errors.New("a step with no command names with --link the page he takes it on, so its card opens that page beside Done: a card with neither has nothing that does the step. A command he runs goes with --run <command.ps1|command.sh>")
+	}
+	return nil
 }
 
 // ErrUnanswered refuses a decision logged for the Overlord without the CFO's

@@ -177,7 +177,7 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	kind := fs.String("kind", "", "what kind of decision: "+strings.Join(afk.DecisionKinds, ", "))
 	what := fs.String("what", "", "what was decided: the deploy, the migration, the build installed")
 	evidence := fs.String("evidence", "", "what the decision stands on: what you ran and what you read")
-	link := fs.String("link", "", "a link to it")
+	link := fs.String("link", "", "a link to it; a his line with no --run gives the page he takes the step on")
 	diagnosis := fs.String("diagnosis", "", "for a left line: what is wrong, found to its cause")
 	tried := fs.String("tried", "", "for a left line: what you already tried")
 	var options []string

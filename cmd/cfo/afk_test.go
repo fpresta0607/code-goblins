@@ -474,7 +474,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		{Kind: afk.KindMerge, What: pr, Evidence: "gate run 41 passed"},
 		{Kind: afk.KindMerge, What: pr, Evidence: "gh pr merge", Outcome: afk.OutcomeMerged},
 		{Kind: afk.KindAnswer, What: "notify-pd-billing-12", Task: "pd-billing", Evidence: "asked: Which store? answered: SQLite"},
-		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in"},
+		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in"},
 	} {
 		if _, err := afk.Log(h.State, entry, time.Now()); err != nil {
 			t.Fatal(err)
