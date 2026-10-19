@@ -949,7 +949,8 @@ func (c *ghChecks) UnmarshalJSON(data []byte) error {
 }
 
 // ghCheck is one entry of a pull request's check rollup: a check run, with a
-// status and a conclusion, or a commit status context, with a state.
+// status and a conclusion, or a commit status context, with a state and a
+// description.
 type ghCheck struct {
 	Kind        string `json:"__typename"`
 	Name        string `json:"name"`
@@ -957,6 +958,7 @@ type ghCheck struct {
 	Status      string `json:"status"`
 	Conclusion  string `json:"conclusion"`
 	State       string `json:"state"`
+	Description string `json:"description"`
 	CompletedAt string `json:"completedAt"`
 	StartedAt   string `json:"startedAt"`
 	DetailsURL  string `json:"detailsUrl"`
@@ -981,11 +983,18 @@ func (c ghCheck) concluded() bool {
 	return c.Status == "COMPLETED"
 }
 
+// rateLimited reports whether the check is a deploy the host rate limited
+// (train.IsRateLimitedDeploy).
+func (c ghCheck) rateLimited() bool {
+	return c.Kind == "StatusContext" && train.IsRateLimitedDeploy(c.State, c.Description)
+}
+
 // passed reports whether a finished check passed: a success, or a check that
-// was skipped or neutral, as GitHub's own merge box counts them.
+// was skipped or neutral, as GitHub's own merge box counts them, or a deploy
+// the host rate limited, which never ran.
 func (c ghCheck) passed() bool {
 	if c.Kind == "StatusContext" {
-		return c.State == "SUCCESS"
+		return c.State == "SUCCESS" || c.rateLimited()
 	}
 	switch c.Conclusion {
 	case "SUCCESS", "NEUTRAL", "SKIPPED":
@@ -997,9 +1006,13 @@ func (c ghCheck) passed() bool {
 // link is the check's own page: a check run's details, or the target a
 // commit status names.
 // hasRun says whether a concluded check ran: one that was skipped or
-// neutral tested nothing, though GitHub's merge box counts it as passing.
+// neutral tested nothing, though GitHub's merge box counts it as passing,
+// and a deploy the host rate limited never built the head.
 func (c ghCheck) hasRun() bool {
-	return c.Kind == "StatusContext" || c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+	if c.Kind == "StatusContext" {
+		return !c.rateLimited()
+	}
+	return c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
 }
 
 func (c ghCheck) link() string {
@@ -1186,7 +1199,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" || pr.IsDraft {
 		return nil
 	}
-	var parts, failed, reported []string
+	var parts, failed, reported, limited []string
 	hasWorkflow := false
 	for _, check := range pr.Checks {
 		if !check.concluded() {
@@ -1197,6 +1210,9 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		hasWorkflow = hasWorkflow || check.WorkflowName != "" && check.hasRun()
 		if !check.passed() {
 			failed = append(failed, check.name())
+		}
+		if check.rateLimited() {
+			limited = append(limited, check.name())
 		}
 	}
 	isUnstarted := isRunningWorkflows && !hasWorkflow
@@ -1235,12 +1251,17 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	if hasWorkflow && readOnce != nil {
 		once = failedOnceClause(readOnce())
 	}
+	if len(limited) > 0 {
+		once += "; the host rate limited the deploy of " + strings.Join(limited, ", ") + ", which never built this head and counts as not run, and pushing again for a fresh one only spends another build"
+	}
 	switch {
 	case isUnstarted:
 		sort.Strings(reported)
-		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported, and a workflow's skipped check ran nothing (%d of %d failed); next: check why its workflows did not start, such as a path filter, a skipped trigger or a workflow that does not run on ready_for_review, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
+		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported, and a workflow's skipped check ran nothing (%d of %d failed)%s; next: check why its workflows did not start, such as a path filter, a skipped trigger or a workflow that does not run on ready_for_review, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), once, pr.URL)
+	case len(limited) == len(pr.Checks):
+		detail += fmt.Sprintf("no check ran on it%s; next: leave it until a check runs on it, since there is nothing yet that tested it (%s)", once, pr.URL)
 	case len(failed) == 0:
-		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), once, pr.URL)
+		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks)-len(limited), once, pr.URL)
 	default:
 		sort.Strings(failed)
 		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with cfo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)

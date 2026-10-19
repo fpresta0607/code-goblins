@@ -792,6 +792,8 @@ A run whose event saw a draft first asks GitHub whether the pull request is a dr
 The goblin's first instruction says so for a direct-PR task.
 A gate opens its pull request ready, at the head its review, tests and lint passed, since its `ci` step waits on that pull request's CI: opened as a draft, a workflow that skips drafts would leave the step nothing to wait on, or skipped checks it would read as passed.
 A merge train and `cfo pr merge` take only a ready pull request, and only one on whose head a check ran: a check that was skipped or neutral tested nothing, though GitHub counts it as passing, and a pull request just marked ready shows its draft run's skipped checks until its ready run registers.
+A deploy status the host refused for its rate limit, one whose description begins `Deployment rate limited`, counts as not run in the same way, never as failed: the host never built the head, and pushing again for a fresh status spends another build of the same allowance.
+The train, `cfo pr merge`, the CI wakes and a card's hosted checks name it as rate limited, and any other failed deploy status still fails.
 The supervisor raises no `ci_finished` for a draft, and no `pr_health` for a draft that is only behind its base.
 - `local-only` — the goblin stops with a clean branch; land it with `cfo merge-local <id>` only on the Supreme Overlord's word.
 

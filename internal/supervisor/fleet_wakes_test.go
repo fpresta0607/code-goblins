@@ -423,6 +423,7 @@ const (
 	scanPassedRun   = `{"__typename":"CheckRun","name":"GitGuardian Security Checks","workflowName":"","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-10-07T03:47:00Z"}`
 	goTestQueued    = `{"__typename":"CheckRun","name":"test","workflowName":"go","status":"QUEUED","conclusion":""}`
 	goTestPassed    = `{"__typename":"CheckRun","name":"test","workflowName":"go","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-10-07T04:01:00Z"}`
+	goTestFailed    = `{"__typename":"CheckRun","name":"test","workflowName":"go","status":"COMPLETED","conclusion":"FAILURE","completedAt":"2026-10-07T04:01:00Z"}`
 	pullRequestFlow = "name: go\non:\n  push:\n    branches: [main]\n  pull_request:\n"
 )
 
@@ -467,6 +468,47 @@ func TestCIFinishedWaitsForThePullRequestsWorkflows(t *testing.T) {
 	finished := pollForge(t, s, h, &now)
 	if len(finished) != 1 || !strings.Contains(finished[0].Detail, "all 2 passed") {
 		t.Fatalf("the workflow finished = %+v, want one wake counting both checks", finished)
+	}
+}
+
+// A deploy the host rate limited never built the head (#1194), so
+// ci_finished counts it as not run, never as failed, and names it rather than
+// hiding it. Any other failed deploy still fails, and a head whose only check
+// is a rate-limited deploy is never said to have passed.
+func TestCIFinishedCountsARateLimitedDeployAsNotRun(t *testing.T) {
+	const (
+		deployLimited = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment rate limited - retry in 24 hours"}`
+		deployFailed  = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment has failed"}`
+		said          = "the host rate limited the deploy of Vercel, which never built this head and counts as not run"
+	)
+	for name, test := range map[string]struct {
+		checks       []string
+		want, refuse string
+	}{
+		"beside passing checks":       {[]string{scanPassedRun, goTestPassed, deployLimited}, "all 2 passed; " + said, "failed"},
+		"beside a real failure":       {[]string{scanPassedRun, goTestFailed, deployLimited}, "1 of 3 failed (test); " + said, "Vercel)"},
+		"a deploy failed for another": {[]string{scanPassedRun, goTestPassed, deployFailed}, "1 of 3 failed (Vercel)", "rate limited"},
+		"alone":                       {[]string{deployLimited}, "no check ran on it; " + said, "passed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, h := fleetService(t)
+			project := t.TempDir()
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			forge.branch, forge.runs = "feat/wakes", "[]"
+			forge.pulls = rollupWith("ed99ac3f00", "MERGEABLE", test.checks...)
+			s.Options.CI = forge
+			now := time.Date(2026, 10, 19, 5, 0, 0, 0, time.UTC)
+
+			// Act
+			finished := pollForge(t, s, h, &now)
+
+			// Assert
+			if len(finished) != 1 || !strings.Contains(finished[0].Detail, test.want) || strings.Contains(finished[0].Detail, test.refuse) {
+				t.Fatalf("ci wakes = %+v, want one saying %q and not %q", finished, test.want, test.refuse)
+			}
+		})
 	}
 }
 

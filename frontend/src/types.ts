@@ -166,8 +166,9 @@ export interface DevDriveView { state: string; line: string; note: string; expla
 // cancelled when they ended with one cancelled, and passed when all passed;
 // failed names the checks that failed or were cancelled and link is the first
 // one's page, or while they run the first running one's; approved says a
-// reviewer approved the pull request.
-export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; link: string; approved: boolean }
+// reviewer approved the pull request; rate_limited names the deploys the host
+// rate limited, which never built the head and checks leaves out.
+export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; rate_limited: string[]; link: string; approved: boolean }
 // LocalChecks is the newest cfo gate test run of a task's change: the commit,
 // the level it ran and the one required, passed or failed, how long it took
 // and waited for its turn, and the packages or commands that failed.
@@ -955,7 +956,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
-        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
+        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), rate_limited: strings(c.rate_limited), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
         ...(t.deployment == null ? {} : { deployment: ((d) => ({ commit: string(d.commit), state: string(d.state), workflows: strings(d.workflows), link: string(d.link), at: string(d.at) }))(object(t.deployment)) }),
