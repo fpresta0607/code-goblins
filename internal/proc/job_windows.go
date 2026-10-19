@@ -45,15 +45,15 @@ var (
 )
 
 // QueryJobInformation reads one class of job's information into the size
-// bytes at information, and SetJobInformation sets that class from them.
-// Every job query and set goes through them. They call through
-// LazyProc.Call, whose pointer arguments the compiler keeps on the heap
-// (go:uintptrescapes). windows.QueryInformationJobObject and
-// windows.SetInformationJobObject take the buffer as a bare uintptr, so a
-// buffer their caller declares stays on the stack, and a stack that grows or
-// shrinks on the way to the system call moves it: Windows then reads or
-// writes where the buffer had been, so a query reads nothing (issue 1060)
-// and a set hands Windows whatever is left there (issue 1110).
+// bytes at information, and SetJobInformation sets that class from them. A
+// job query or set goes through them, never through
+// windows.QueryInformationJobObject or windows.SetInformationJobObject, which
+// take the buffer as a bare uintptr: a buffer their caller declares stays on
+// the stack, and a stack that grows or shrinks on the way to the system call
+// moves it, so Windows reads or writes where the buffer had been. A query
+// then reads nothing (issue 1060), and a set hands Windows whatever is left
+// there (issue 1110). These call through LazyProc.Call, whose pointer
+// arguments the compiler keeps on the heap (go:uintptrescapes).
 func QueryJobInformation(job windows.Handle, class uint32, information unsafe.Pointer, size uintptr) error {
 	if ok, _, err := procQueryInformationJobObject.Call(uintptr(job), uintptr(class), uintptr(information), size, 0); ok == 0 {
 		return err
