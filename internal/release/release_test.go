@@ -298,7 +298,7 @@ func TestFetchReportsCheckingAfterAllProgramsDownload(t *testing.T) {
 }
 
 func TestFetchKeepsTheProgramsThatMatchTheReleaseSums(t *testing.T) {
-	programs := map[string][]byte{"cfo.exe": []byte("new build"), "goblins-window.exe": []byte("new window")}
+	programs := map[string][]byte{"cfo.exe": []byte("new build"), "goblins-window.exe": []byte("new window"), "cfo-hook.exe": []byte("new hook program")}
 	stub := newStubRelease(t, "v0.5.0", releaseAssets("", programs))
 
 	download, dir, err := fetchFrom(t, stub, noSignature(t))
@@ -306,8 +306,8 @@ func TestFetchKeepsTheProgramsThatMatchTheReleaseSums(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if download.Program != filepath.Join(dir, "cfo.exe") || download.Window != filepath.Join(dir, "goblins-window.exe") || download.Publisher != "" {
-		t.Fatalf("download = %+v, want cfo.exe and the window in %s, unsigned", download, dir)
+	if download.Program != filepath.Join(dir, "cfo.exe") || download.Window != filepath.Join(dir, "goblins-window.exe") || download.Hook != filepath.Join(dir, "cfo-hook.exe") || download.Publisher != "" {
+		t.Fatalf("download = %+v, want cfo.exe, the window and the hook program in %s, unsigned", download, dir)
 	}
 	for name, want := range programs {
 		got, err := os.ReadFile(filepath.Join(dir, name))
@@ -325,7 +325,7 @@ func TestFetchWithoutAWindowKeepsTheProgramAlone(t *testing.T) {
 
 	download, _, err := fetchFrom(t, stub, noSignature(t))
 
-	if err != nil || download.Program == "" || download.Window != "" {
+	if err != nil || download.Program == "" || download.Window != "" || download.Hook != "" {
 		t.Fatalf("download = %+v, %v; want cfo.exe alone", download, err)
 	}
 }

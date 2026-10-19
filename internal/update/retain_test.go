@@ -100,8 +100,8 @@ func TestBinKeepsTheCurrentBuildAloneAfterAnyNumberOfUpdates(t *testing.T) {
 func TestRemoveAsideCopiesRemovesEveryCopyMovedAsideAndNothingElse(t *testing.T) {
 	// Arrange
 	bin := t.TempDir()
-	aside := []string{"cfo.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "cfo.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "cfo.exe.held-66714dea"}
-	kept := []string{"cfo.exe.update-new", "goblins.exe.update-restore", "cfo.exe", "goblins.exe", "goblins-window.exe", "notes.txt", "cfo.exe.bak"}
+	aside := []string{"cfo.exe.1791449158834959100.update-old", "goblins.exe.ZWLFUCC5NGUANWZOS4MPE2XO2L.old", "cfo.exe.OFXG3O7Z2WTAOETUQUBHOQCWTS.old.GHVTLRQU5WOWXKXQU6QWXUHANI.old", "goblins-window.exe.abc.old", "cfo-hook.exe.KQ7YBGRJVN3HXK7Q2M4W5PZR3E.old", "cfo.exe.held-66714dea"}
+	kept := []string{"cfo.exe.update-new", "goblins.exe.update-restore", "cfo.exe", "goblins.exe", "goblins-window.exe", "cfo-hook.exe", "notes.txt", "cfo.exe.bak"}
 	for _, name := range append(append([]string{}, aside...), kept...) {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)

@@ -2061,6 +2061,7 @@ The paste fields and the terminal stay.
 ### The seal and the key alarm
 
 Every Claude Code goblin starts with two hooks of its own, handed to it with `--settings`, beside the CFO's: `state\goblin-claude-settings.json`, written anew at each spawn and switch.
+Each of a goblin's hooks runs the home's `cfo-hook.exe`, the same `cfo` built as a program with no console, where it is the same build as the home's `cfo.exe`, and `cfo.exe` otherwise: Claude Code starts every hook hidden, which gives a console program a console host of its own, a second process for each hook, while Windows starts a windowed one alone and it reads the hook's payload and answers through the same pipes.
 `cfo hook goblin-seal` runs before each Bash or PowerShell call and refuses a chrome-devtools-axi command while a fetch reads in the browser the goblin's task holds.
 The seal is a file under `state\browser-seals`, written before the key page loads and removed once the keys are hidden.
 A seal left behind lifts by itself three minutes after it was written, a minute past a fetch's own bound, a starting supervisor clears any left, and one that cannot be read refuses.

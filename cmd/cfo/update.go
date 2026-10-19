@@ -577,6 +577,12 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	if err := install.CarryWindow(programs, candidate, stdout); err != nil {
 		fmt.Fprintf(stderr, "cfo update: the update is done, but the desktop window in %s was not replaced, and the one there keeps working: %v\n", programs, err)
 	}
+	// So does the hook program, cfo built as a windowed program, which the
+	// goblins' hooks run only while it is the candidate's build: one that
+	// could not be replaced leaves them on cfo.exe.
+	if err := install.CarryHookProgram(programs, candidate, stdout); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the update is done, but the hook program in %s was not replaced, so goblins' hooks run cfo.exe: %v\n", programs, err)
+	}
 	return updateInstalled
 }
 

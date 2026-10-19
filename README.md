@@ -1140,6 +1140,7 @@ The home keeps them in its `bin`, or, where a build before `bin` set it up, such
 The journal of an earlier update that finished is history, whatever home it names.
 An unfinished update of this home is put back first by the next update, and only an unfinished one of another home, whose copies are its way back, stops an update.
 A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
+So does a `cfo-hook.exe` beside it, the same `cfo` built as a program with no console for the goblins' hooks: they run it only while it is the home's `cfo.exe` build, and `cfo.exe` otherwise.
 An update that stops part way prints nothing to paste: the next update puts the previous build back first, and opening Code Goblins again starts the board when the update left it down.
 To recover by hand, when nothing else can, run the candidate's kept copy with the home and its state named, which works from any folder with both commands gone:
 
