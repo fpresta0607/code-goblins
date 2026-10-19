@@ -94,9 +94,13 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 	if proof.Checks == 1 {
 		checks = "check"
 	}
+	green := fmt.Sprintf("%d %s completed green", proof.Checks, checks)
+	if len(proof.RateLimited) > 0 {
+		green += "; the host rate limited the deploy of " + strings.Join(proof.RateLimited, ", ") + ", which never built this head and counts as not run"
+	}
 	if queue.IsRequired {
-		return fmt.Sprintf("verified: %s; head %s; %d %s completed green; mergeable; by %s, the account gh is signed in as; %s requires its merge queue, which tests this head merged on %s's tip with the pull requests ahead of it and merges it only if that passes",
-			verified, proof.HeadRefOID, proof.Checks, checks, proof.Author, proof.BaseRefName, proof.BaseRefName), nil
+		return fmt.Sprintf("verified: %s; head %s; %s; mergeable; by %s, the account gh is signed in as; %s requires its merge queue, which tests this head merged on %s's tip with the pull requests ahead of it and merges it only if that passes",
+			verified, proof.HeadRefOID, green, proof.Author, proof.BaseRefName, proof.BaseRefName), nil
 	}
 	compared, err := ghText(ctx, commands, "api", "repos/"+repository+"/compare/"+proof.BaseRefName+"..."+proof.HeadRefOID, "--jq", "{behind_by, base: .base_commit.sha}")
 	if err != nil {
@@ -112,8 +116,8 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 	if *comparison.BehindBy > 0 {
 		return "", fmt.Errorf("the head is %d commit(s) behind %s, so CI on it did not test %s as it is now: have its goblin merge %s in and let CI run on that head", *comparison.BehindBy, proof.BaseRefName, proof.BaseRefName, proof.BaseRefName)
 	}
-	return fmt.Sprintf("verified: %s; head %s; %d %s completed green; mergeable; by %s, the account gh is signed in as; %s's tip %s was in the head when this was read, so the merge ref's first parent was that tip and CI on this head tested the merge of it",
-		verified, proof.HeadRefOID, proof.Checks, checks, proof.Author, proof.BaseRefName, comparison.Base), nil
+	return fmt.Sprintf("verified: %s; head %s; %s; mergeable; by %s, the account gh is signed in as; %s's tip %s was in the head when this was read, so the merge ref's first parent was that tip and CI on this head tested the merge of it",
+		verified, proof.HeadRefOID, green, proof.Author, proof.BaseRefName, comparison.Base), nil
 }
 
 // pullRequestRepository is the owner/name of the repository a pull request's
