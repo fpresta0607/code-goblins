@@ -528,6 +528,9 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $bin "goblins-window.exe"))) { throw "-Dev put no desktop window in $bin" }
           if ($shortcut.TargetPath -ne (Join-Path $bin "goblins-window.exe") -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's goblins-window.exe alone" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins Window.lnk")) { throw "the install made a second Start-menu entry for the window" }
+          # -Dev builds the hook program too, the same cfo with no console,
+          # which cfo install puts in bin for the goblins' hooks.
+          if (-not (Test-Path -LiteralPath (Join-Path $bin "cfo-hook.exe"))) { throw "-Dev put no hook program in $bin" }
           $global:LASTEXITCODE = 0
       - name: Use it with one goblin
         shell: powershell
