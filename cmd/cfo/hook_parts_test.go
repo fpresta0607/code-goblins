@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,18 +88,6 @@ func TestEachPartOfAMergedHookKeepsItsOwnTimeLimit(t *testing.T) {
 			wantExit: 1, wantStdout: "alarm", wantStderr: "the native hook did not finish within 50ms\n",
 		},
 		{
-			name: "a longer limit outlasting a shorter one",
-			parts: []hookPart{
-				{name: "the native hook", limit: 50 * time.Millisecond, run: func(stdout, _ io.Writer) int { io.WriteString(stdout, "{}"); return 0 }},
-				{name: "the key alarm", limit: time.Minute, run: func(stdout, _ io.Writer) int {
-					time.Sleep(300 * time.Millisecond) // stall-accepted: a part that outlasts the other part's limit, which this test is about.
-					io.WriteString(stdout, " alarm")
-					return 0
-				}},
-			},
-			wantExit: 0, wantStdout: "{} alarm",
-		},
-		{
 			name: "a part that failed",
 			parts: []hookPart{
 				{name: "the native hook", limit: time.Minute, run: func(_, stderr io.Writer) int { io.WriteString(stderr, "spool failed\n"); return 1 }},
@@ -111,7 +100,6 @@ func TestEachPartOfAMergedHookKeepsItsOwnTimeLimit(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			var stdout, stderr bytes.Buffer
-			started := time.Now()
 
 			// Act
 			exit := runHookParts(&stdout, &stderr, test.parts...)
@@ -120,10 +108,46 @@ func TestEachPartOfAMergedHookKeepsItsOwnTimeLimit(t *testing.T) {
 			if exit != test.wantExit || stdout.String() != test.wantStdout || stderr.String() != test.wantStderr {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want %d, %q, %q", exit, stdout.String(), stderr.String(), test.wantExit, test.wantStdout, test.wantStderr)
 			}
-			if took := time.Since(started); took > 10*time.Second {
-				t.Fatalf("the parts took %s, longer than any limit they keep", took)
-			}
 		})
+	}
+}
+
+// reported is stderr that says when anything was first written to it.
+type reported struct {
+	bytes.Buffer
+	once    sync.Once
+	written chan struct{}
+}
+
+func (r *reported) Write(data []byte) (int, error) {
+	r.once.Do(func() { close(r.written) })
+	return r.Buffer.Write(data)
+}
+
+// A part with a longer limit runs on past a shorter part's limit: the key
+// alarm here finishes only once the native hook was reported unfinished at
+// its own, and what the alarm wrote still reaches Claude Code.
+func TestAPartRunsOnPastAnotherPartsShorterLimit(t *testing.T) {
+	// Arrange
+	release := make(chan struct{})
+	defer close(release)
+	var stdout bytes.Buffer
+	stderr := &reported{written: make(chan struct{})}
+	parts := []hookPart{
+		{name: "the native hook", limit: 50 * time.Millisecond, run: func(io.Writer, io.Writer) int { <-release; return 0 }},
+		{name: "the key alarm", limit: time.Minute, run: func(stdout, _ io.Writer) int {
+			<-stderr.written
+			io.WriteString(stdout, "alarm")
+			return 0
+		}},
+	}
+
+	// Act
+	exit := runHookParts(&stdout, stderr, parts...)
+
+	// Assert
+	if exit != 1 || stdout.String() != "alarm" || stderr.String() != "the native hook did not finish within 50ms\n" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want the alarm's output after the native hook's limit", exit, stdout.String(), stderr.String())
 	}
 }
 
