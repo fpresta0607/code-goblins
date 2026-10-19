@@ -8,6 +8,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/priority/prioritytest"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // A terminal's host runs one priority class above normal, and what it
@@ -30,7 +31,7 @@ func TestWhatARaisedHostStartsForItsConsoleRunsAtNormalButItsWaker(t *testing.T)
 	console, _, server := startChildWithServer(t, Spec{Cols: 80, Rows: 25})
 	// The console's job holds its program and its input waker.
 	members := make([]uintptr, 64+2)
-	if err := windows.QueryInformationJobObject(console.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&members[0])), uint32(len(members))*uint32(unsafe.Sizeof(uintptr(0))), nil); err != nil {
+	if err := proc.QueryJobInformation(console.job, windows.JobObjectBasicProcessIdList, unsafe.Pointer(&members[0]), uintptr(len(members))*unsafe.Sizeof(uintptr(0))); err != nil {
 		t.Fatal(err)
 	}
 	count := *(*uint32)(unsafe.Add(unsafe.Pointer(&members[0]), 4))
