@@ -12,6 +12,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 // Access rights, information classes and layouts used to read the job
@@ -263,7 +265,7 @@ func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err
 // ended and the services it spared. A failure returns the services last
 // seen with it.
 func endEachBut(ctx context.Context, job windows.Handle, members []Entry, services map[int]Service) (ended, spared []Entry, err error) {
-	ctx, cancel := context.WithTimeout(ctx, endJobFor)
+	ctx, cancel := awake.WithTimeout(ctx, endJobFor)
 	defer cancel()
 	seen := servicesIn(members, services)
 	for {

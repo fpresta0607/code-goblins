@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"context"
 	"errors"
 	"os"
 	"runtime"
@@ -8,6 +9,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 // waitersSuffix names the file beside a lock that its waiters line up at.
@@ -24,8 +27,8 @@ var places = struct {
 	held map[string]windows.Handle
 }{held: map[string]windows.Handle{}}
 
-// lineUp waits until deadline for this process's place at the head of the
-// line of waiters at path, and returns it held.
+// lineUp waits until waiting ends for this process's place at the head of
+// the line of waiters at path, and returns it held.
 //
 // The line is a lock Windows itself keeps on the file's first byte. It hands
 // that lock to those asking in the order they asked, the moment its holder
@@ -34,12 +37,12 @@ var places = struct {
 // process that asked between two of its looks: on 2026-10-09 an
 // acknowledgement gave up after its five seconds beside a process that filed
 // one notify after another, though the lock was free between every two.
-func lineUp(path string, deadline time.Time) (windows.Handle, error) {
+func lineUp(path string, waiting context.Context) (windows.Handle, error) {
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return 0, &os.PathError{Op: "open", Path: path, Err: err}
 	}
-	// The file is opened for overlapped use so the wait can end at deadline.
+	// The file is opened for overlapped use so the wait can end with waiting.
 	place, err := windows.CreateFile(name, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OVERLAPPED, 0)
 	if err != nil {
 		return 0, &os.PathError{Op: "open", Path: path, Err: err}
@@ -54,14 +57,18 @@ func lineUp(path string, deadline time.Time) (windows.Handle, error) {
 	defer runtime.KeepAlive(request)
 	err = windows.LockFileEx(place, windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, request)
 	if errors.Is(err, windows.ERROR_IO_PENDING) {
-		wait := max(time.Until(deadline), 0)
-		if state, _ := windows.WaitForSingleObject(granted, uint32(min(wait.Milliseconds(), int64(windows.INFINITE-1)))); state != windows.WAIT_OBJECT_0 {
-			// The request ends cancelled, or granted if the place came up
-			// just as the wait ended.
+		// The request ends cancelled once waiting ends, or granted if the
+		// place came up just as it did.
+		cancelled := make(chan struct{})
+		stop := context.AfterFunc(waiting, func() {
 			_ = windows.CancelIoEx(place, request)
-		}
+			close(cancelled)
+		})
 		var transferred uint32
 		err = windows.GetOverlappedResult(place, request, &transferred, true)
+		if !stop() {
+			<-cancelled
+		}
 		if errors.Is(err, windows.ERROR_OPERATION_ABORTED) {
 			err = errWaitedOut
 		}
@@ -116,7 +123,9 @@ func leavePlace(key string) {
 // A sign another process holds for longer than wait is that process's, and
 // is an error here.
 func Show(path string, wait time.Duration) (hide func(), err error) {
-	place, err := lineUp(path, time.Now().Add(wait))
+	waiting, cancel := awake.WithTimeout(context.Background(), wait)
+	defer cancel()
+	place, err := lineUp(path, waiting)
 	if err != nil {
 		return nil, err
 	}

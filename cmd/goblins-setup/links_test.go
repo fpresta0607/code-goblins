@@ -11,6 +11,7 @@ import (
 // linkedPackages are the repository's packages the setup links: what its plan
 // reads and what those read, and nothing more.
 var linkedPackages = []string{
+	"internal/awake",
 	"internal/devdrive",
 	"internal/disk",
 	"internal/execx",

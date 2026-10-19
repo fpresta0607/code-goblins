@@ -30,7 +30,11 @@ const (
 // unreadAfter is how long a key press sits unread before the waker says so.
 // A program that reads as usual takes a key within milliseconds, Claude Code
 // while it streams within a few hundred, and only a key that has changed
-// nothing on the screen for a second is one a person may press again.
+// nothing on the screen for a second is one a person may press again. It is
+// read on the wall clock, which a pause of the whole machine runs on: a key
+// typed just before a pause is said unread as the machine runs again, until
+// the program, which the pause stopped too, reads it moments later. That
+// note on a viewer is accepted (#1102).
 const unreadAfter = time.Second
 
 // unreadShownFor is how long the waker keeps saying key presses sit unread,

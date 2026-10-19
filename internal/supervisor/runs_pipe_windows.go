@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
@@ -303,12 +304,16 @@ func sendPipeRequest(stateDir string, req runPipeRequest) error {
 func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	var pipe *os.File
 	var err error
-	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+	// The supervisor has 2 s of time the machine ran to make its pipe free
+	// (awake), since a pause of the whole machine stops it too.
+	opening, cancelOpening := awake.WithTimeout(context.Background(), 2*time.Second)
+	for ; ; time.Sleep(25 * time.Millisecond) {
 		pipe, err = os.OpenFile(runPipeName(stateDir), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
-		if !errors.Is(err, errorPipeBusy) && !errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+		if !errors.Is(err, errorPipeBusy) && !errors.Is(err, os.ErrNotExist) || opening.Err() != nil {
 			break
 		}
 	}
+	cancelOpening()
 	if err != nil {
 		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
 	}
