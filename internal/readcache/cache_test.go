@@ -424,3 +424,52 @@ func TestADatabaseQueryRunsAgainOnlyAfterAWrite(t *testing.T) {
 		})
 	}
 }
+
+// ghAccount is gh answering the account it works as, counting the times it
+// is asked.
+type ghAccount struct{ asked int }
+
+func (g *ghAccount) Run(context.Context, execx.Request) (execx.Result, error) {
+	g.asked++
+	return execx.Result{Stdout: []byte("fleet-account\n")}, nil
+}
+
+// The CI poll asks gh which account it works as on each poll that needs it.
+// That changes only when gh signs in, out or switches accounts, each of
+// which rewrites gh's hosts file, so gh is asked again only then.
+func TestTheAccountGhWorksAsIsAskedAgainOnlyWhenGhsHostsChange(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		change    func(t *testing.T, hosts string)
+		wantAsked int
+	}{
+		{"hosts unchanged", func(*testing.T, string) {}, 1},
+		{"account switched", func(t *testing.T, hosts string) { write(t, hosts, "github.com:\n    user: other-account\n") }, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			folder := t.TempDir()
+			t.Setenv("GH_CONFIG_DIR", folder)
+			hosts := filepath.Join(folder, "hosts.yml")
+			write(t, hosts, "github.com:\n    user: fleet-account\n")
+			gh := &ghAccount{}
+			read := Runner{Cache: settledCache(), Next: gh}
+			request := execx.Request{Dir: t.TempDir(), Name: "gh", Args: []string{"api", "user", "--jq", ".login"}}
+			if _, err := read.Run(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			test.change(t, hosts)
+
+			// Act
+			again, err := read.Run(context.Background(), request)
+
+			// Assert
+			if err != nil || string(again.Stdout) != "fleet-account\n" {
+				t.Fatalf("the read answered %q, %v", again.Stdout, err)
+			}
+			if gh.asked != test.wantAsked {
+				t.Fatalf("gh was asked %d times, want %d", gh.asked, test.wantAsked)
+			}
+		})
+	}
+}

@@ -1,7 +1,10 @@
 package readcache
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -28,8 +31,41 @@ func planOf(req execx.Request) (read, bool) {
 		return gitRead(req)
 	case "sqlite3":
 		return databaseRead(req)
+	case "gh":
+		return accountRead(req)
 	}
 	return read{}, false
+}
+
+// accountRead plans gh's answer of the account it works as, which changes
+// only when gh signs in, signs out or switches accounts, and each of those
+// rewrites its hosts file. Asked with the board's own environment only, where
+// a token gh is given stays the same.
+func accountRead(req execx.Request) (read, bool) {
+	if !slices.Equal(req.Args, []string{"api", "user", "--jq", ".login"}) || req.Env != nil {
+		return read{}, false
+	}
+	hosts := filepath.Join(ghConfigFolder(), "hosts.yml")
+	return read{
+		key:     "gh\x00" + strings.Join(req.Args, "\x00"),
+		answers: []int{0},
+		stamp:   func(s *stamper, _ []string, _ *execx.Result) { s.content(hosts) },
+	}, true
+}
+
+// ghConfigFolder is where gh keeps its configuration and its hosts file.
+func ghConfigFolder() string {
+	if folder := os.Getenv("GH_CONFIG_DIR"); folder != "" {
+		return folder
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "gh")
+	}
+	if appData := os.Getenv("AppData"); runtime.GOOS == "windows" && appData != "" {
+		return filepath.Join(appData, "GitHub CLI")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "gh")
 }
 
 // databaseRead plans a read-only query of a SQLite database: its answer
