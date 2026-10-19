@@ -11,6 +11,8 @@ import (
 	"path"
 	"path/filepath"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // racyWindow is how close to now a file's modification time makes its
@@ -74,7 +76,7 @@ func (s *stamper) file(name string) {
 // content adds a small file's content, or that there is none, and returns
 // it.
 func (s *stamper) content(name string) string {
-	data, err := os.ReadFile(name)
+	data, err := fsx.ReadFile(name)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		s.text(name, "-")
@@ -89,7 +91,7 @@ func (s *stamper) content(name string) string {
 
 // prefix adds the first n bytes of a file, or that there is none.
 func (s *stamper) prefix(name string, n int) {
-	file, err := os.Open(name)
+	file, err := fsx.Open(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		s.text(name, "-")
 		return
