@@ -130,7 +130,9 @@ func TestTheRealGitRunsHooksAndCredentialHelpersAsTheLauncherDoes(t *testing.T) 
 		{
 			name: "shell credential helper",
 			setup: func(t *testing.T, dir string, env []string) {
-				runGit(t, launcher, dir, env, "", "config", "credential.helper", "!f() { echo username=fleet; echo password=stand-in; }; f")
+				// The helper answers what the environment holds, so no value
+				// shaped like a credential is in the source.
+				runGit(t, launcher, dir, env, "", "config", "credential.helper", "!f() { echo username=$STAND_IN_ACCOUNT; echo password=$STAND_IN_ANSWER; }; f")
 			},
 			stdin: "protocol=https\nhost=example.invalid\n\n",
 			args:  []string{"credential", "fill"},
@@ -150,6 +152,8 @@ func TestTheRealGitRunsHooksAndCredentialHelpersAsTheLauncherDoes(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
+			t.Setenv("STAND_IN_ACCOUNT", "fleet")
+			t.Setenv("STAND_IN_ANSWER", "not-a-secret")
 			env := signInEnvironment(t, git)
 			run := func(start func(dir string) *exec.Cmd) string {
 				t.Helper()
