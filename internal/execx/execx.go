@@ -24,6 +24,12 @@ type Request struct {
 	// follows parents can reach. The run's error then names what was ended
 	// (Ended).
 	KillTree bool
+	// NoConsole starts the process with no console at all where it would
+	// get a console of its own with no window (see hide), so no console
+	// host starts with it. Only a program that starts no other program, such
+	// as git reading refs, may run so: a console program it started would
+	// get a new console, which Windows shows as a window.
+	NoConsole bool
 }
 
 // Result contains the complete, separately captured child output.
@@ -137,19 +143,29 @@ func (OSRunner) Start(ctx context.Context, req Request) error {
 }
 
 // Command is exec.Command for every process a fleet program starts: the
-// process opens no console window (see hide).
+// process opens no console window (see hide), git runs as one process (see
+// realGit), and the start is counted (see Starts).
 func Command(name string, arg ...string) *exec.Cmd {
 	cmd := exec.Command(name, arg...)
-	hide(cmd)
+	prepare(cmd, name)
 	return cmd
 }
 
 // CommandContext is exec.CommandContext for every process a fleet program
-// starts: the process opens no console window (see hide).
+// starts: the process opens no console window (see hide), git runs as one
+// process (see realGit), and the start is counted (see Starts).
 func CommandContext(ctx context.Context, name string, arg ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, arg...)
-	hide(cmd)
+	prepare(cmd, name)
 	return cmd
+}
+
+func prepare(cmd *exec.Cmd, name string) {
+	hide(cmd)
+	if name == "git" && cmd.Err == nil {
+		cmd.Path = realGit(cmd.Path)
+	}
+	count(name)
 }
 
 func command(ctx context.Context, req Request) *exec.Cmd {
@@ -199,5 +215,8 @@ func configure(cmd *exec.Cmd, req Request) {
 	}
 	if req.Env != nil {
 		cmd.Env = req.Env
+	}
+	if req.NoConsole {
+		detach(cmd)
 	}
 }

@@ -215,6 +215,8 @@ The pools are memory Windows holds for drivers that no goblin can use and that o
 
 The supervisor's minute memory reading keeps a record of the pools for each Windows sign-in in `state/kernel-pools.json`: once every 15 minutes a sample of both pools' sizes, two weeks of them at most, and in the sign-in's first and last sample what each pool tag holding a megabyte or more held, read with `NtQuerySystemInformation`'s pool tag list, which needs no administrator rights.
 `pool_growth` compares those two, and a new sign-in moves the record before it to `state/kernel-pools-before.json`, since the restart that frees a leak also ends the sign-in that recorded it.
+Each sample also keeps `processes`, how many processes the PC started since it booted (the kernel's process objects, pool tag `Proc`), and `tokens`, how many tokens the kernel holds (pool tag `Toke`), so two samples read side by side say how many processes the PC starts an hour and how many tokens it keeps: on 2026-10-19 about two in five processes left their token behind for good, and the paged pool grew with them until the PC had to be restarted.
+`board` names every process the board itself started since `board_started`, by program and by the code that started it, as every fleet program counts the processes it starts through `execx`.
 A tag names the driver or kernel part that allocated the memory, as poolmon shows it, and the string search `findstr /m /l <tag> C:\Windows\System32\drivers\*.sys` names the driver files that carry it.
 
 The line is 7.5 GB of the two pools together, measured on the Overlord's PC on 2026-10-18 as the point where free memory can no longer hold more than one goblin at a time.

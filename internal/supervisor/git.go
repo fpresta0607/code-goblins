@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -18,9 +17,16 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 )
 
-type Git struct{ Base string }
+// Git reads a task's worktree for the board. Base, when set, is the task's
+// retained base, and Reads answers the reads the board repeats while the
+// files git reads for them are unchanged; without it every read runs git.
+type Git struct {
+	Base  string
+	Reads *readcache.Cache
+}
 type ChangedFile struct {
 	Path   string `json:"path"`
 	Status string `json:"status"`
@@ -72,31 +78,49 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
-func (Git) run(ctx context.Context, dir string, args ...string) (string, error) {
+// gitExitCode is git's own answer of a non-zero exit code, whether git ran
+// now or g.Reads kept the answer.
+type gitExitCode int
+
+func (code gitExitCode) Error() string { return fmt.Sprintf("exit status %d", int(code)) }
+
+// isGitExit says whether err is git's own exit with code.
+func isGitExit(err error, code int) bool {
+	var exit gitExitCode
+	return errors.As(err, &exit) && int(exit) == code
+}
+
+func (g Git) run(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := execx.CommandContext(ctx, "git", append([]string{"--no-pager", "-c", "core.quotepath=false"}, args...)...)
-	cmd.Dir = dir
 	// Optional locks are what let git status rewrite the index, and these
 	// reads run every minute inside worktrees a goblin is using.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_OPTIONAL_LOCKS=0")
-	cmd.WaitDelay = 2 * time.Second
-	// Stderr is discarded: only warnings reach it when a command succeeds,
-	// and a failure is reported by its exit status.
-	out := &limitedBuffer{limit: maxGitOutput}
-	cmd.Stdout = out
-	if err := cmd.Run(); err != nil {
+	request := execx.Request{Dir: dir, Name: "git", Args: append([]string{"--no-pager", "-c", "core.quotepath=false"}, args...), Env: append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_OPTIONAL_LOCKS=0")}
+	result, err := g.Reads.Read(request, func(request execx.Request) (execx.Result, error) {
+		// Stderr is discarded: only warnings reach it when a command
+		// succeeds, and a failure is reported by its exit status.
+		out := &limitedBuffer{limit: maxGitOutput}
+		code, err := execx.OSRunner{}.Stream(ctx, request, out, io.Discard)
 		if out.exceeded {
-			return "", fmt.Errorf("Git %s output exceeds the %d KiB preview limit", args[0], maxGitOutput>>10)
+			return execx.Result{}, fmt.Errorf("Git %s output exceeds the %d KiB preview limit", args[0], maxGitOutput>>10)
 		}
 		// A git killed at the deadline exits with code 1 on Windows, which
 		// would read as git's own answer.
 		if ctx.Err() != nil {
-			return "", fmt.Errorf("Git %s did not finish: %w", args[0], ctx.Err())
+			return execx.Result{}, fmt.Errorf("Git %s did not finish: %w", args[0], ctx.Err())
 		}
-		return "", fmt.Errorf("Git %s failed: %w", args[0], err)
+		if err != nil {
+			return execx.Result{}, fmt.Errorf("Git %s failed: %w", args[0], err)
+		}
+		return execx.Result{Stdout: out.buffer.Bytes(), ExitCode: code}, nil
+	})
+	if err != nil {
+		return "", err
 	}
-	return out.buffer.String(), nil
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("Git %s failed: %w", args[0], gitExitCode(result.ExitCode))
+	}
+	return string(result.Stdout), nil
 }
 
 func SafeFilePath(path string) bool {
@@ -124,8 +148,7 @@ func (g Git) validateRevision(ctx context.Context, dir, revision string) error {
 		return errors.New("revision must be a full commit ID")
 	}
 	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", revision, "HEAD")
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+	if isGitExit(err, 1) {
 		return errors.New("commit is not in this task's history")
 	}
 	return err
@@ -144,15 +167,23 @@ func (g Git) Branch(ctx context.Context, dir string) (string, error) {
 // starts. Only symbolic-ref's own exit code 1 says so.
 func (g Git) Detached(ctx context.Context, dir string) (bool, error) {
 	_, err := g.run(ctx, dir, "symbolic-ref", "--quiet", "HEAD")
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+	if isGitExit(err, 1) {
 		return true, nil
 	}
 	return false, err
 }
+
+// Clean is whether dir has nothing to commit: no change and no untracked
+// file but those git ignores, which the status names too, for g.Reads to
+// pass over in its walk of the worktree.
 func (g Git) Clean(ctx context.Context, dir string) (bool, error) {
-	out, err := g.run(ctx, dir, "status", "--porcelain", "--untracked-files=normal")
-	return strings.TrimSpace(out) == "", err
+	out, err := g.run(ctx, dir, append([]string{"status"}, readcache.StatusArgs()...)...)
+	for _, entry := range strings.Split(out, "\x00") {
+		if entry != "" && !strings.HasPrefix(entry, "!! ") {
+			return false, err
+		}
+	}
+	return true, err
 }
 
 func (g Git) base(ctx context.Context, dir string) (string, error) {
@@ -165,8 +196,7 @@ func (g Git) base(ctx context.Context, dir string) (string, error) {
 	ref, err := g.run(ctx, dir, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
 	// Only symbolic-ref's own exit code 1 says origin/HEAD is not set; a git
 	// that failed or did not finish says nothing about the project.
-	var exit *exec.ExitError
-	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+	if err != nil && !isGitExit(err, 1) {
 		return "", err
 	}
 	if err == nil && strings.HasPrefix(strings.TrimSpace(ref), "refs/remotes/") {

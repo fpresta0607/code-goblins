@@ -44,9 +44,12 @@ func PoolTags() ([]PoolTag, error) {
 	for index := range count {
 		entry := buffer[8+index*poolTagSize:]
 		tags = append(tags, PoolTag{
-			Tag:      string(entry[0:4]),
-			Paged:    binary.LittleEndian.Uint64(entry[16:24]),
-			Nonpaged: binary.LittleEndian.Uint64(entry[32:40]),
+			Tag:            string(entry[0:4]),
+			PagedAllocs:    binary.LittleEndian.Uint32(entry[4:8]),
+			PagedFrees:     binary.LittleEndian.Uint32(entry[8:12]),
+			Paged:          binary.LittleEndian.Uint64(entry[16:24]),
+			NonpagedAllocs: binary.LittleEndian.Uint32(entry[24:28]),
+			Nonpaged:       binary.LittleEndian.Uint64(entry[32:40]),
 		})
 	}
 	return tags, nil

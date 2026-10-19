@@ -28,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -215,7 +216,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			},
 		}
 	}
-	gate := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
+	// The board reads the same heads, refs and gate runs every minute: one
+	// cache answers each read while the files it reads are unchanged, so a
+	// refresh over work nobody changed starts no git and no sqlite3.
+	reads := readcache.New()
+	cached := readcache.Runner{Cache: reads, Next: execx.OSRunner{}}
+	gate := pipeline.Reader{Root: root, Commands: cached}
 	// The board's family tree and the monitor's progress evidence read
 	// through one reader, so they never disagree about what a goblin does.
 	// An example board shows made-up goblins, so it reads no harness's
@@ -266,8 +272,9 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
-		CI:       execx.OSRunner{},
-		Progress: execx.OSRunner{},
+		CI:       cached,
+		Progress: cached,
+		Reads:    reads,
 		// The Defender wakes only read what Defender recorded, as cfo
 		// defender does.
 		Defender: runtime.readDefender,

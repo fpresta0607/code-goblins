@@ -44,7 +44,8 @@ func TestConsoleFixture(t *testing.T) {
 		processes := make([]uint32, 64)
 		count, _, _ := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&processes[0])), uintptr(len(processes)))
 		shares := slices.Contains(processes[:min(int(count), len(processes))], uint32(os.Getppid()))
-		if err := os.WriteFile(report+".tmp", fmt.Appendf(nil, "window=%d shares=%t", window, shares), 0o600); err != nil {
+		_, noConsole := windows.GetConsoleCP()
+		if err := os.WriteFile(report+".tmp", fmt.Appendf(nil, "window=%d shares=%t console=%t", window, shares, noConsole == nil), 0o600); err != nil {
 			os.Exit(1)
 		}
 		if err := os.Rename(report+".tmp", report); err != nil {
@@ -63,6 +64,9 @@ func startFixtureChild(entry, fixture, report string) int {
 	var err error
 	switch entry {
 	case "run":
+		_, err = OSRunner{}.Run(ctx, request)
+	case "run with no console":
+		request.NoConsole = true
 		_, err = OSRunner{}.Run(ctx, request)
 	case "start":
 		err = OSRunner{}.Start(ctx, request)
@@ -92,7 +96,9 @@ func startFixtureChild(entry, fixture, report string) int {
 // are, gets a new console, and Windows shows that console as a window unless
 // the start asks for none. A process that has a console passes it on, so its
 // children share it, and the Overlord's Ctrl-C and a gate's cancellation
-// reach them as they reach it.
+// reach them as they reach it. A start that asks for no console, which only
+// a program that starts nothing may, gets none where it would get one of its
+// own, and so no console host starts with it.
 func TestProcessesStartedThroughExecxOpenNoConsoleWindow(t *testing.T) {
 	for _, parent := range []struct {
 		name   string
@@ -102,7 +108,7 @@ func TestProcessesStartedThroughExecxOpenNoConsoleWindow(t *testing.T) {
 		{name: "parent without a console", flags: windows.DETACHED_PROCESS},
 		{name: "parent with a hidden console", flags: windows.CREATE_NO_WINDOW, shares: true},
 	} {
-		for _, entry := range []string{"run", "start", "command"} {
+		for _, entry := range []string{"run", "start", "command", "run with no console"} {
 			t.Run(parent.name+"/"+entry, func(t *testing.T) {
 				report := filepath.Join(t.TempDir(), "report")
 				command := exec.Command(os.Args[0], "-test.run=^TestConsoleFixture$")
@@ -118,7 +124,8 @@ func TestProcessesStartedThroughExecxOpenNoConsoleWindow(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if want := fmt.Sprintf("window=0 shares=%t", parent.shares); string(got) != want {
+				hasConsole := parent.shares || entry != "run with no console"
+				if want := fmt.Sprintf("window=0 shares=%t console=%t", parent.shares, hasConsole); string(got) != want {
 					t.Fatalf("the child reported %q, want %q (a nonzero window is a console window on the Overlord's desktop)", got, want)
 				}
 			})

@@ -1208,6 +1208,50 @@ func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
 	}
 }
 
+// countingGh is gh answering one state for every pull request, counting the
+// times it is asked.
+type countingGh struct {
+	state string
+	asked int
+}
+
+func (g *countingGh) Run(context.Context, execx.Request) (execx.Result, error) {
+	g.asked++
+	return execx.Result{Stdout: []byte(`{"state":"` + g.state + `","title":"Task title"}`)}, nil
+}
+
+// A merged pull request stays merged, so gh is asked about it once however
+// often the board, its scheduler and AFK mode ask again; one still open or
+// closed, which can be reopened, is asked about every time.
+func TestGitHubPullRequestStateAsksAboutAMergedPullRequestOnce(t *testing.T) {
+	for _, c := range []struct {
+		state string
+		want  int
+	}{
+		{"MERGED", 1},
+		{"OPEN", 3},
+		{"CLOSED", 3},
+	} {
+		t.Run(c.state, func(t *testing.T) {
+			// Arrange
+			gh := &countingGh{state: c.state}
+			read := GitHubPullRequestState(gh)
+
+			// Act
+			for range 3 {
+				if got, err := read(t.Context(), "https://github.com/o/r/pull/9"); err != nil || got.State != c.state {
+					t.Fatalf("state = %+v, %v; want %s", got, err, c.state)
+				}
+			}
+
+			// Assert
+			if gh.asked != c.want {
+				t.Fatalf("gh was asked %d times, want %d", gh.asked, c.want)
+			}
+		})
+	}
+}
+
 // A live goblin that reported its pull request done carries that pull
 // request's merge, whatever its gate says, so no merged card stands beside
 // its own, and the merge completes it.
