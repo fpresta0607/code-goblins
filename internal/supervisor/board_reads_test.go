@@ -33,7 +33,7 @@ func (g *gateStandIn) Run(ctx context.Context, req execx.Request) (execx.Result,
 // boardView is what one board refresh read of a goblin's worktree.
 type boardView struct {
 	evaluated, progress, branch, overlapBranch string
-	changed, worktrees                          []string
+	changed, worktrees                         []string
 }
 
 // refreshBoard reads a goblin's worktree as one board refresh does: its
@@ -179,10 +179,14 @@ func TestABoardRefreshSeesEachChangeOnTheNextRefresh(t *testing.T) {
 				return after.branch == "fix/other" && after.overlapBranch == "fix/other"
 			}},
 		{"ref", func(t *testing.T, dir, _ string) { boardGit(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD") },
-			func(before, after boardView, _ string, _ int) bool { return len(before.changed) > 0 && len(after.changed) == 0 }},
+			func(before, after boardView, _ string, _ int) bool {
+				return len(before.changed) > 0 && len(after.changed) == 0
+			}},
 		{"worktree", func(t *testing.T, dir, _ string) {
 			boardGit(t, dir, "worktree", "add", "-q", "-b", "fix/other", filepath.Join(filepath.Dir(dir), "other"))
-		}, func(before, after boardView, _ string, _ int) bool { return len(after.worktrees) == len(before.worktrees)+1 }},
+		}, func(before, after boardView, _ string, _ int) bool {
+			return len(after.worktrees) == len(before.worktrees)+1
+		}},
 		{"gate run", func(t *testing.T, _, gate string) {
 			if err := os.WriteFile(filepath.Join(gate, "state.sqlite"), []byte("SQLite format 3\x00 and a run"), 0o600); err != nil {
 				t.Fatal(err)
