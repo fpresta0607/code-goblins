@@ -97,6 +97,9 @@ func (s Service) writeHome(report *reporter) error {
 	if err := s.copyWindow(s.bin(), report); err != nil {
 		return err
 	}
+	if err := s.copyHookProgram(s.bin(), report); err != nil {
+		return err
+	}
 	if err := s.retireRootBinaries(report); err != nil {
 		return err
 	}

@@ -157,10 +157,17 @@ func GoblinHooks(root, stateDir string) []Hook {
 
 // GoblinSettings is the Claude Code settings document a goblin starts with:
 // the goblin hooks and nothing else, which Claude Code adds to the user's own
-// settings for that session alone.
+// settings for that session alone. Each runs the home's hook program where it
+// is the same build as cfo.exe (HookCommand), which Windows starts with no
+// console host.
 func GoblinSettings(root, stateDir string) ([]byte, error) {
+	hooks := GoblinHooks(root, stateDir)
+	command := HookCommand(filepath.Join(root, home.BinDir))
+	for index := range hooks {
+		hooks[index].Command = command
+	}
 	file := &settingsFile{values: map[string]any{}}
-	if err := file.addHooks(GoblinHooks(root, stateDir)); err != nil {
+	if err := file.addHooks(hooks); err != nil {
 		return nil, err
 	}
 	return file.render()

@@ -12,7 +12,7 @@ import (
 // them that an older install moved again under a second .<text>.old. A
 // staged candidate (.update-new) or restore (.update-restore) belongs to an
 // update in progress and is never one.
-var asideCopy = regexp.MustCompile(`(?i)^(cfo\.exe|goblins\.exe|goblins-window\.exe)\.([0-9]+\.update-old|[A-Za-z0-9]+\.old|held-[A-Za-z0-9]+)(\.[A-Za-z0-9]+\.old)*$`)
+var asideCopy = regexp.MustCompile(`(?i)^(cfo\.exe|cfo-hook\.exe|goblins\.exe|goblins-window\.exe)\.([0-9]+\.update-old|[A-Za-z0-9]+\.old|held-[A-Za-z0-9]+)(\.[A-Za-z0-9]+\.old)*$`)
 
 // RemoveAsideCopies removes recognized aside copies from the home's programs
 // folder (bin, or the root of a legacy home). Installed aliases, staged updates
