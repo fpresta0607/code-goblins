@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -30,6 +31,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	f.SetOutput(stderr)
 	root := f.String("home", "", "fleet home")
 	dir := f.String("state", "", "fleet state")
+	isKeyAlarm := f.Bool("key-alarm", false, "also wake the CFO when a goblin's tool output holds a secret key, as cfo hook goblin-key-alarm does")
 	if !parseFlags(f, args[1:]) {
 		return 2
 	}
@@ -50,7 +52,31 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 		fmt.Fprintln(stderr, "hook home and state must be absolute")
 		return 2
 	}
-	e, err := nativehook.Normalize(input, nativehook.Context{Harness: args[0], Role: os.Getenv("CFO_ROLE"), TaskID: os.Getenv("CFO_TASK_ID"), Generation: os.Getenv("CFO_SPAWN_GEN"), ParentSessionID: os.Getenv("CFO_PARENT_SESSION_ID"), ParentHarness: os.Getenv("CFO_PARENT_HARNESS"), RootSessionID: os.Getenv("CFO_ROOT_SESSION_ID"), HostID: os.Getenv(host.IDVariable)})
+	// A goblin's tool call ran the native hook and the key alarm as two
+	// hooks, two cfo.exe processes, each with a console host of its own; one
+	// process runs both now, each part still held to its own time limit.
+	if *isKeyAlarm {
+		payload, err := io.ReadAll(input)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return runHookParts(stdout, stderr,
+			hookPart{name: "the native hook", limit: nativeHookLimit, run: func(stdout, stderr io.Writer) int {
+				return nativeHookEvent(args[0], *root, *dir, bytes.NewReader(payload), stdout, stderr)
+			}},
+			hookPart{name: "the key alarm", limit: keyAlarmLimit, run: func(stdout, stderr io.Writer) int {
+				return runHook("goblin-key-alarm", bytes.NewReader(payload), stdout, stderr)
+			}},
+		)
+	}
+	return nativeHookEvent(args[0], *root, *dir, input, stdout, stderr)
+}
+
+// nativeHookEvent reports one event of a harness's native hook, read from
+// input, to the supervisor of the home at root, whose state is in dir.
+func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, stderr io.Writer) int {
+	e, err := nativehook.Normalize(input, nativehook.Context{Harness: harnessName, Role: os.Getenv("CFO_ROLE"), TaskID: os.Getenv("CFO_TASK_ID"), Generation: os.Getenv("CFO_SPAWN_GEN"), ParentSessionID: os.Getenv("CFO_PARENT_SESSION_ID"), ParentHarness: os.Getenv("CFO_PARENT_HARNESS"), RootSessionID: os.Getenv("CFO_ROOT_SESSION_ID"), HostID: os.Getenv(host.IDVariable)})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -58,14 +84,14 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// A compaction starts and ends no turn, so it never enters the session
 	// spool.
 	if e.Kind == "compacting" || e.Kind == "compacted" {
-		if err := compactNativeCFO(home.Home{Root: *root, State: *dir, Data: filepath.Join(*root, "data")}, e, time.Now()); err != nil {
+		if err := compactNativeCFO(home.Home{Root: root, State: dir, Data: filepath.Join(root, "data")}, e, time.Now()); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		fmt.Fprintln(stdout, "{}")
 		return 0
 	}
-	if err := nativehook.Spool(*dir, e); err != nil {
+	if err := nativehook.Spool(dir, e); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -74,7 +100,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// The role cfo says only that the session is no goblin's, so the CFO's
 	// continuation goes to the CFO's own session alone: a Codex session the
 	// Overlord opens himself is told nothing of the fleet.
-	if e.Harness == "codex" && e.Kind == "started" && e.Source == "compact" && e.Role == "cfo" && e.TaskID == "" && isOwnSession(*dir) {
+	if e.Harness == "codex" && e.Kind == "started" && e.Source == "compact" && e.Role == "cfo" && e.TaskID == "" && isOwnSession(dir) {
 		var reply struct {
 			Output struct {
 				Event   string `json:"hookEventName"`
@@ -82,7 +108,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 			} `json:"hookSpecificOutput"`
 		}
 		reply.Output.Event = "SessionStart"
-		reply.Output.Context = fmt.Sprintf("CFO compact continuation: before further fleet action, read %s, %s and %s. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not read those files; conversational holds absent from disk cannot be recovered.", filepath.Join(*root, "AGENTS.md"), filepath.Join(*root, "data", "overlord.md"), filepath.Join(*root, "data", "memory", "MEMORY.md"))
+		reply.Output.Context = fmt.Sprintf("CFO compact continuation: before further fleet action, read %s, %s and %s. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not read those files; conversational holds absent from disk cannot be recovered.", filepath.Join(root, "AGENTS.md"), filepath.Join(root, "data", "overlord.md"), filepath.Join(root, "data", "memory", "MEMORY.md"))
 		if err := json.NewEncoder(stdout).Encode(reply); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -94,15 +120,15 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// settled custody. Codex and Pi have only this one, and a failure here
 	// shows on the board as the registration state rather than in the reply.
 	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv(host.IDVariable) != "" {
-		_, _ = supervisor.Register(*dir, e.Harness, e.SessionID)
+		_, _ = supervisor.Register(dir, e.Harness, e.SessionID)
 	}
 	// A Codex or pi CFO has no Stop hook that reopens its turn, so the turn it
 	// ends idle while work waits raises the idle wake, which the supervisor
 	// types into its terminal as it does every wake. A failure never fails the
 	// hook the harness runs.
-	if e.Kind == "settled" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && supervisor.RunsUnderRegisteredCFO(*dir) {
+	if e.Kind == "settled" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && supervisor.RunsUnderRegisteredCFO(dir) {
 		if memory, err := hookMemory(); err == nil {
-			if _, err := supervisor.IdleTurnWake(home.Home{Root: *root, State: *dir, Data: filepath.Join(*root, "data")}, memory, time.Now().UTC()); err != nil {
+			if _, err := supervisor.IdleTurnWake(home.Home{Root: root, State: dir, Data: filepath.Join(root, "data")}, memory, time.Now().UTC()); err != nil {
 				fmt.Fprintln(stderr, "idle wake:", err)
 			}
 		}

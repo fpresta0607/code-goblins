@@ -48,9 +48,13 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 			hooks := slices.DeleteFunc(registeredHooks(t, path), func(hook registeredHook) bool { return !isNativeHook(hook) })
 
 			// Assert
-			want := []string{"native-hook", "claude", "--home", root, "--state", stateDir}
 			var events []string
 			for _, hook := range hooks {
+				want := []string{"native-hook", "claude", "--home", root, "--state", stateDir}
+				// A goblin's after a tool call raises the key alarm too.
+				if test.name == "a goblin" && hook.Event == "PostToolUse" {
+					want = append(want, "--key-alarm")
+				}
 				if hook.Command != filepath.Join(root, home.BinDir, "cfo.exe") || !slices.Equal(hook.Args, want) || hook.Shell || hook.Matcher != "" {
 					t.Errorf("native hook = %+v, want the home's cfo.exe run with %q and no shell for every tool", hook, want)
 				}
