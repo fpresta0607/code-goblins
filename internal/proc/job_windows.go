@@ -40,8 +40,35 @@ var (
 	ntQuerySystemInformation      = ntdll.NewProc("NtQuerySystemInformation")
 	procCreateJobObjectW          = kernel32.NewProc("CreateJobObjectW")
 	procQueryInformationJobObject = kernel32.NewProc("QueryInformationJobObject")
+	procSetInformationJobObject   = kernel32.NewProc("SetInformationJobObject")
 	procIsProcessInJob            = kernel32.NewProc("IsProcessInJob")
 )
+
+// QueryJobInformation reads one class of job's information into the size
+// bytes at information, and SetJobInformation sets that class from them.
+// Every job query and set goes through them. They call through
+// LazyProc.Call, whose pointer arguments the compiler keeps on the heap
+// (go:uintptrescapes). windows.QueryInformationJobObject and
+// windows.SetInformationJobObject take the buffer as a bare uintptr, so a
+// buffer their caller declares stays on the stack, and a stack that grows or
+// shrinks on the way to the system call moves it: Windows then reads or
+// writes where the buffer had been, so a query reads nothing (issue 1060)
+// and a set hands Windows whatever is left there (issue 1110).
+func QueryJobInformation(job windows.Handle, class uint32, information unsafe.Pointer, size uintptr) error {
+	if ok, _, err := procQueryInformationJobObject.Call(uintptr(job), uintptr(class), uintptr(information), size, 0); ok == 0 {
+		return err
+	}
+	return nil
+}
+
+// SetJobInformation sets one class of job's information from the size bytes
+// at information, as QueryJobInformation says.
+func SetJobInformation(job windows.Handle, class uint32, information unsafe.Pointer, size uintptr) error {
+	if ok, _, err := procSetInformationJobObject.Call(uintptr(job), uintptr(class), uintptr(information), size); ok == 0 {
+		return err
+	}
+	return nil
+}
 
 // JobProcesses returns the live processes in the job objects holderPID holds
 // open. Windows PowerShell's Start-Process -Wait puts the process it starts
@@ -208,14 +235,14 @@ func (h *HeldJobs) Close() {
 // closes, keeping its other limits.
 func KeepJobOnClose(job windows.Handle) error {
 	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+	if err := QueryJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		return fmt.Errorf("read the job's limits: %w", err)
 	}
 	if limits.BasicLimitInformation.LimitFlags&windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0 {
 		return nil
 	}
 	limits.BasicLimitInformation.LimitFlags &^= windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := SetJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		return fmt.Errorf("keep the job's processes when it closes: %w", err)
 	}
 	return nil
@@ -480,10 +507,7 @@ func handleTable() ([]handleEntry, error) {
 // readJobList fills buffer with job's JOBOBJECT_BASIC_PROCESS_ID_LIST: two
 // counts, then the ids as pointers. A test stands in for it.
 var readJobList = func(job syscall.Handle, buffer []uintptr) error {
-	if ok, _, err := procQueryInformationJobObject.Call(uintptr(job), jobObjectBasicProcessIDList, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer))*unsafe.Sizeof(uintptr(0)), 0); ok == 0 {
-		return err
-	}
-	return nil
+	return QueryJobInformation(windows.Handle(job), jobObjectBasicProcessIDList, unsafe.Pointer(&buffer[0]), uintptr(len(buffer))*unsafe.Sizeof(uintptr(0)))
 }
 
 // JobProcessIDs lists the processes in a job, and says how many more the job

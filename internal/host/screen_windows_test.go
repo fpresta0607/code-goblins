@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 var (
@@ -190,7 +191,7 @@ type jobAccounting struct {
 func processesStarted(t *testing.T, job windows.Handle) uint32 {
 	t.Helper()
 	var accounting jobAccounting
-	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+	if err := proc.QueryJobInformation(job, windows.JobObjectBasicAccountingInformation, unsafe.Pointer(&accounting), unsafe.Sizeof(accounting)); err != nil {
 		t.Fatalf("QueryInformationJobObject: %v", err)
 	}
 	return accounting.TotalProcesses

@@ -9,6 +9,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 const JOB_OBJECT_MSG_NEW_PROCESS = 6
@@ -37,7 +39,7 @@ func monitorJobScheduling(job windows.Handle) (*jobScheduling, error) {
 		Key  uintptr
 		Port windows.Handle
 	}{1, port}
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectAssociateCompletionPortInformation, uintptr(unsafe.Pointer(&association)), uint32(unsafe.Sizeof(association))); err != nil {
+	if err := proc.SetJobInformation(job, windows.JobObjectAssociateCompletionPortInformation, unsafe.Pointer(&association), unsafe.Sizeof(association)); err != nil {
 		windows.CloseHandle(port)
 		return nil, fmt.Errorf("conpty: associate scheduling port: %w", err)
 	}
@@ -113,7 +115,7 @@ func (s *jobScheduling) reconcile() error {
 	s.lastReconciled = time.Now()
 	for capacity := 64; capacity <= 65536; capacity *= 2 {
 		buffer := make([]uintptr, capacity+2)
-		err := windows.QueryInformationJobObject(s.job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&buffer[0])), uint32(len(buffer))*uint32(unsafe.Sizeof(uintptr(0))), nil)
+		err := proc.QueryJobInformation(s.job, windows.JobObjectBasicProcessIdList, unsafe.Pointer(&buffer[0]), uintptr(len(buffer))*unsafe.Sizeof(uintptr(0)))
 		if errors.Is(err, windows.ERROR_MORE_DATA) {
 			continue
 		}
