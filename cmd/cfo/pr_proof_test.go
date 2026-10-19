@@ -198,8 +198,11 @@ func TestVerifyPRReadyCountsARateLimitedDeployAsNotRunNeverAsFailed(t *testing.T
 		passed  = `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}`
 		failed  = `{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"}`
 		skipped = `{"__typename":"CheckRun","name":"e2e","status":"COMPLETED","conclusion":"SKIPPED"}`
-		limited = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment rate limited - retry in 24 hours"}`
-		broken  = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment has failed"}`
+		// limited is the Vercel entry gh returned live for a head the host
+		// rate limited, but for the team's name: no description, only the
+		// target of its upgrade page for that limit (#1194).
+		limited = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"}`
+		broken  = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects/app/9xYzBuildFailed"}`
 	)
 	cases := []struct {
 		name   string
@@ -208,7 +211,7 @@ func TestVerifyPRReadyCountsARateLimitedDeployAsNotRunNeverAsFailed(t *testing.T
 	}{
 		{"a rate-limited deploy alone among passing checks passes", passed + "," + limited, ""},
 		{"a rate-limited deploy beside a real failure does not", passed + "," + failed + "," + limited, "lint concluded FAILURE"},
-		{"a failed deploy with another description does not", passed + "," + broken, "Vercel concluded FAILURE"},
+		{"a failed deploy with another target does not", passed + "," + broken, "Vercel concluded FAILURE"},
 		{"only rate-limited and skipped checks do not", skipped + "," + limited, "no check ran on the PR's head, every one was skipped or neutral, and the host rate limited the deploy of Vercel"},
 	}
 	for _, tc := range cases {

@@ -1,6 +1,7 @@
 package train
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -190,8 +191,14 @@ func TestARateLimitedDeployCountsAsNotRunNeverAsFailed(t *testing.T) {
 	passed := Check{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}
 	failed := Check{Kind: "CheckRun", Name: "lint", Status: "COMPLETED", Conclusion: "FAILURE"}
 	skipped := Check{Kind: "CheckRun", Name: "e2e", Status: "COMPLETED", Conclusion: "SKIPPED"}
-	limited := Check{Kind: "StatusContext", Context: "Vercel", State: "FAILURE", Description: "Deployment rate limited - retry in 24 hours"}
-	broken := Check{Kind: "StatusContext", Context: "Vercel", State: "FAILURE", Description: "Deployment has failed"}
+	// The first deploy is the Vercel entry gh returned live for a head the host
+	// rate limited, but for the team's name: no description, only the target
+	// of its upgrade page for that limit (#1194). The second failed to build.
+	var deploys Checks
+	if err := json.Unmarshal([]byte(`[{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"},{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects/app/9xYzBuildFailed"}]`), &deploys); err != nil {
+		t.Fatal(err)
+	}
+	limited, broken := deploys[0], deploys[1]
 	for name, test := range map[string]struct {
 		checks  []Check
 		outcome string
@@ -200,7 +207,7 @@ func TestARateLimitedDeployCountsAsNotRunNeverAsFailed(t *testing.T) {
 	}{
 		"a rate-limited deploy alone among passing checks rides": {[]Check{passed, limited}, "passed", "", "the host rate limited the deploy of Vercel"},
 		"a rate-limited deploy beside a real failure does not":   {[]Check{passed, failed, limited}, "failed", "its checks failed", ""},
-		"a failed deploy with another description does not":      {[]Check{passed, broken}, "failed", "its checks failed", ""},
+		"a failed deploy with another target does not":           {[]Check{passed, broken}, "failed", "its checks failed", ""},
 		"only rate-limited and skipped checks do not":            {[]Check{skipped, limited}, "none", "no check ran on its head: every one was skipped, and the host rate limited the deploy of Vercel", ""},
 	} {
 		t.Run(name, func(t *testing.T) {

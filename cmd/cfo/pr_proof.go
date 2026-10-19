@@ -28,13 +28,13 @@ type prProof struct {
 }
 
 type prProofCheckView struct {
-	TypeName    string `json:"__typename"`
-	Name        string `json:"name"`
-	Context     string `json:"context"`
-	Status      string `json:"status"`
-	State       string `json:"state"`
-	Description string `json:"description"`
-	Conclusion  string `json:"conclusion"`
+	TypeName   string `json:"__typename"`
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	Status     string `json:"status"`
+	State      string `json:"state"`
+	TargetURL  string `json:"targetUrl"`
+	Conclusion string `json:"conclusion"`
 }
 
 // prProofChecks is a head's check rollup less the workflows' draft job's
@@ -166,7 +166,7 @@ func normalizePRCheck(check prProofCheckView) (prProofCheck, error) {
 		return prProofCheck{Name: check.Name, Status: check.Status, Conclusion: check.Conclusion}, nil
 	case "StatusContext":
 		state := strings.ToUpper(check.State)
-		normalized := prProofCheck{Name: emptyAs(check.Context, "unnamed status context"), IsRateLimited: train.IsRateLimitedDeploy(state, check.Description)}
+		normalized := prProofCheck{Name: emptyAs(check.Context, "unnamed status context"), IsRateLimited: train.IsRateLimitedDeploy(state, check.TargetURL)}
 		switch state {
 		case "SUCCESS", "FAILURE", "ERROR":
 			normalized.Status = "COMPLETED"
