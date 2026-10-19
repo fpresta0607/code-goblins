@@ -12,6 +12,7 @@ import { signInHeading } from "./browser-signins";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
+import { RestartPcButton } from "./restart-pc-button";
 import { finishedEvidence, goblinName, taskName, taskSummary } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { taskStatus } from "./task-status";
@@ -37,7 +38,8 @@ import { TaskAdjustment } from "./task-adjustment";
 // in the terminal header"). The CFO drawn without a task has
 // no worktree to open; its header carries Restart right below its name on
 // its Task view, the AFK toggle beside its status, with Update before it
-// while an update of the CFO's harness waits, and under them what a press of
+// while an update of the CFO's harness waits and Restart PC before that while
+// the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
 export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
@@ -119,7 +121,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         <ClickFeedback text={feedback} />
       </div>}
     </div>
-    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<CfoUpdate snapshot={snapshot} />} />}
+    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />}
     {cfo && snapshot.cfo_update?.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</p>}
   </header>;
 }

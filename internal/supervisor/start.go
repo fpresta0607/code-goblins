@@ -52,6 +52,9 @@ type Dispatch struct {
 	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
 	Memory func() (Memory, error)
+	// PoolTags reads what each of the kernel's pool tags holds, for the
+	// record of the pools (kernel_pools.go); nil keeps no record.
+	PoolTags func() ([]PoolTag, error)
 	// Disk reads the free space of the home's drive and the disk floor; nil
 	// reads the machine's.
 	Disk func() (Disk, error)
@@ -70,9 +73,10 @@ type Dispatch struct {
 // Memory is the machine's available physical memory and available commit,
 // in bytes, beside the fleet's floor, under which nothing starts, and the mark
 // at which the CFO starts the next task: a start needs both to reach them.
-// The kernel's pools ride along, since a paged pool that keeps growing is a
-// driver leaking memory, and so do the apps holding the most commit once
-// commit is the tighter of the two.
+// The kernel's pools ride along, since a pool that keeps growing is a driver
+// leaking memory, with the line past which the PC is better restarted
+// (pc_restart.go) and the tags that grew most since the sign-in began, and so
+// do the apps holding the most commit once commit is the tighter of the two.
 type Memory struct {
 	Available       uint64         `json:"available"`
 	Total           uint64         `json:"total"`
@@ -80,6 +84,8 @@ type Memory struct {
 	CommitLimit     uint64         `json:"commit_limit"`
 	PagedPool       uint64         `json:"paged_pool"`
 	NonpagedPool    uint64         `json:"nonpaged_pool"`
+	PoolLine        uint64         `json:"pool_line"`
+	PoolGrowth      []PoolGrowth   `json:"pool_growth,omitempty"`
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`

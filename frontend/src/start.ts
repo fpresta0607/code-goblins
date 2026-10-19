@@ -64,12 +64,40 @@ export function holdersLine(memory: Memory): string {
   return "Most commit: " + memory.holders.map((holder) => `${holder.name} ${held(holder.commit)} GB`).join(", ");
 }
 
-// The kernel's paged pool is under 2 GB on a healthy machine; past 4 GB a
-// driver is leaking memory, which only a reboot frees.
-const PAGED_POOL_WARNING = 4 * 2 ** 30;
+// How much the kernel's paged and nonpaged pools hold together: memory
+// Windows keeps for drivers, which no goblin can use and only a restart of
+// the PC gives back once a driver leaks it.
+export const kernelPools = (memory: Memory) => memory.paged_pool + memory.nonpaged_pool;
 
-export function poolWarning(memory: Memory): string {
-  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: Windows holds this in its kernel paged pool, where no goblin can use it. Restarting the PC frees it.` : "";
+// Whether the pools are past the line measured on this PC, past which free
+// memory can no longer hold the fleet and the CFO's panel offers Restart PC
+// (internal/supervisor/pc_restart.go). A snapshot that names no line is not.
+export function isPastPoolLine(memory: Memory | null): boolean {
+  return !!memory && memory.pool_line > 0 && kernelPools(memory) >= memory.pool_line;
+}
+
+// The pools' meter under the memory meter: red past the line.
+export function poolState(memory: Memory): { tone: "ready" | "under"; text: string } {
+  return isPastPoolLine(memory)
+    ? { tone: "under", text: `The kernel's pools hold ${held(kernelPools(memory))} GB, past the ${held(memory.pool_line)} GB line: Restart PC in the CFO's panel frees them.` }
+    : { tone: "ready", text: `The kernel's pools hold ${held(kernelPools(memory))} GB, under the ${held(memory.pool_line)} GB line.` };
+}
+
+// The pools' bar spans twice the line, so the line sits at its middle: the
+// fill and the mark as percents of the bar.
+export function poolScale(memory: Memory): { fill: number; line: number } {
+  return { fill: Math.min(100, kernelPools(memory) / (2 * memory.pool_line) * 100), line: 50 };
+}
+
+// A tag's growth in megabytes under a gigabyte, so a young leak reads as more
+// than nothing.
+const grown = (bytes: number) => bytes < 2 ** 30 ? `${Math.round(bytes / 2 ** 20)} MB` : `${held(bytes)} GB`;
+
+// What the pools' bar shows, for its tip: each pool, the line, and the pool
+// tags that grew most since the sign-in began, which name what leaks.
+export function poolMarks(memory: Memory): string {
+  const growth = memory.pool_growth.map((tag) => `${tag.tag.trim()} ${grown(tag.grown)} ${tag.pool}`).join(", ");
+  return `Paged ${held(memory.paged_pool)} GB, nonpaged ${held(memory.nonpaged_pool)} GB. Red mark: ${held(memory.pool_line)} GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC.` + (growth ? ` Grew most since sign-in: ${growth}.` : "");
 }
 
 // The disk meter under the memory meter: under the floor no goblin or gate

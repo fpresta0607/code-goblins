@@ -157,6 +157,12 @@ type Options struct {
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes
+	// RestartWindows restarts Windows, the last step of the Overlord's
+	// Restart PC, and EndHeavyRuns ends every run in the machine's heavy
+	// line and names each; without RestartWindows the board restarts no PC
+	// (pc_restart.go).
+	RestartWindows func() error
+	EndHeavyRuns   func() ([]string, error)
 }
 
 type Service struct {
@@ -288,6 +294,15 @@ type Service struct {
 	// isCFOComingBack says the comeback is bringing the CFO back now; starts
 	// guards it too.
 	isCFOComingBack bool
+	// pcRestart is the restart of the PC the Overlord's Restart PC began,
+	// while it stops the fleet and after it stopped short; starts guards it
+	// (pc_restart.go).
+	pcRestart *PCRestart
+	// poolsKept is when the record of the kernel's pools last kept a
+	// sample, and poolGrowth the tags that grew most since the sign-in
+	// began as of that sample; mu guards both (kernel_pools.go).
+	poolsKept  time.Time
+	poolGrowth []PoolGrowth
 	// comeback takes one change to the comeback record at a time, and
 	// signedIn is when this sign-in began, read once.
 	comeback sync.Mutex
@@ -1447,6 +1462,9 @@ type Snapshot struct {
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
+	// PCRestart is the restart of the PC the Overlord's Restart PC began,
+	// absent when none runs or stopped short.
+	PCRestart *PCRestart `json:"pc_restart,omitempty"`
 	// Scheduling is what the scheduler started, resumed or found waiting at
 	// its last reading with memory free, for the meter's line; absent while
 	// memory is short or nothing schedules.
@@ -1494,6 +1512,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
 	out.Release = s.release
 	out.Scheduling = s.scheduling
+	poolGrowth := s.poolGrowth
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
@@ -1527,6 +1546,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.CFOUpdate = s.cfoUpdateView(cfo.since)
 	}
 	out.Comeback = s.comebackView()
+	out.PCRestart = s.pcRestartView()
 	if view, issue := s.startAtLoginView(); issue != "" {
 		out.Issues = append(slices.Clone(out.Issues), issue)
 	} else {
@@ -1854,7 +1874,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
-			memory.Floor, memory.Next = memoryFloor, memoryNext
+			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {
