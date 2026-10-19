@@ -237,12 +237,22 @@ export interface PauseCondition { reason: string; until: string; at: string }
 export interface Wait { kind: string; target: string; until: string; bytes: number; problem: string }
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
-// at which the next queued task starts; with the kernel's pools and, while
-// commit is the tighter, the apps holding the most of it.
+// at which the next queued task starts; with the kernel's pools, the line past
+// which the PC is better restarted (0 when the snapshot names none) and the
+// pool tags that grew most since the sign-in began, and, while commit is the
+// tighter, the apps holding the most of it.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
-  paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
+  paged_pool: number; nonpaged_pool: number; pool_line: number; pool_growth: PoolGrowth[];
+  floor: number; next: number; holders: CommitHolder[];
 }
+// PoolGrowth is a kernel pool tag that grew in one pool, paged or nonpaged,
+// since the sign-in began: how much, and how much it holds now.
+export interface PoolGrowth { tag: string; pool: string; grown: number; holds: number }
+// PCRestart is the restart of the PC his Restart PC began: stopping while the
+// fleet stops, restarting once Windows was asked to, and stopped when it
+// stopped short, with the problem.
+export interface PCRestart { state: "stopping" | "restarting" | "stopped"; problem: string; at: string }
 // CIDuration is how long one finished CI run or deploy took in a repository.
 export interface CIDuration { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
@@ -395,6 +405,8 @@ export interface Snapshot {
   browser_signins?: BrowserSignIn[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // pc_restart is absent until the Overlord's Restart PC began one.
+  pc_restart: PCRestart | null;
   ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
@@ -682,6 +694,11 @@ export function number(value: unknown): number {
     throw new Error("Invalid response number");
   return value;
 }
+function pcRestartState(value: unknown): PCRestart["state"] {
+  const state = string(value);
+  if (state !== "stopping" && state !== "restarting" && state !== "stopped") throw new Error("Invalid restart state");
+  return state;
+}
 export function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("Invalid response boolean");
   return value;
@@ -862,11 +879,14 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     cfo_configured: v.cfo_configured === undefined ? false : boolean(v.cfo_configured),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
-      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
+      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
+      pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
+      floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
+    pc_restart: v.pc_restart == null ? null : ((restart) => ({ state: pcRestartState(restart.state), problem: string(restart.problem), at: string(restart.at) }))(object(v.pc_restart)),
     ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),

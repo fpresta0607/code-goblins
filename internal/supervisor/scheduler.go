@@ -254,6 +254,8 @@ func (s *Service) pauseCleared(ctx context.Context, condition state.PauseConditi
 		completed := watched.Checks[target]
 		isCurrent := !completed.ReportedAt.Before(condition.At)
 		return strings.HasPrefix(completed.Signature, head+"|") && !completed.ReportedAt.IsZero() && isCurrent, nil
+	case "restart":
+		return s.restartedSince(condition.Until)
 	case "overlord":
 		return false, nil
 	}

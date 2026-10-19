@@ -691,7 +691,7 @@ func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t
 		t.Fatal(err)
 	}
 	want := reading
-	want.Floor, want.Next = 4*gigabyte, 5*gigabyte
+	want.Floor, want.Next, want.PoolLine = 4*gigabyte, 5*gigabyte, 15*gigabyte/2
 	if !reflect.DeepEqual(snapshot.Memory, &want) {
 		t.Fatalf("memory = %+v, want %+v", snapshot.Memory, want)
 	}

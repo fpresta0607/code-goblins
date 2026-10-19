@@ -187,7 +187,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	var comeback *supervisor.Comeback
 	var startAtLogin *supervisor.StartAtLogin
 	var devDrive *supervisor.DevDrive
+	// Restart PC restarts Windows itself, so an example board never can.
+	var restartWindows func() error
 	if !*example {
+		restartWindows = supervisor.RestartWindows
 		// The board's Dev Drive setting reads this machine; an example board
 		// shows none.
 		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive}
@@ -260,7 +263,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		OpenPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Open,
 		BoardAssets:      assets,
 		FirstRun:         firstRun,
-		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, Spawn: spawnFromBoard},
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
 		CI:       execx.OSRunner{},
@@ -279,6 +282,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Tree:               tree,
 		Releases:           releases,
 		KeyPages:           keyPages,
+		RestartWindows:     restartWindows,
+		EndHeavyRuns:       supervisor.EndHeavyRuns,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

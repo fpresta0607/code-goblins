@@ -25,6 +25,10 @@ func NewPauseCondition(reason, until string, at time.Time) (PauseCondition, erro
 		if _, err := time.Parse(time.RFC3339, until); err != nil {
 			return condition, errors.New("allowance pause requires --until <reset time in RFC3339>")
 		}
+	case "restart":
+		if _, err := time.Parse(time.RFC3339, until); err != nil {
+			return condition, errors.New("restart pause requires --until <when this Windows sign-in began, in RFC3339>")
+		}
 	case "dependency":
 		kind, target, _ := strings.Cut(until, ":")
 		switch kind {
@@ -57,7 +61,7 @@ func NewPauseCondition(reason, until string, at time.Time) (PauseCondition, erro
 			return condition, err
 		}
 	default:
-		return condition, errors.New("pause requires --reason memory, allowance, overlord, dependency, question, ci or deploy")
+		return condition, errors.New("pause requires --reason memory, allowance, overlord, dependency, question, ci, deploy or restart")
 	}
 	return condition, nil
 }
@@ -96,6 +100,8 @@ func (condition PauseCondition) Description() string {
 		return "Paused for memory; resumes after two readings with 5 GB of memory and commit free"
 	case "allowance":
 		return "Paused for the allowance; resumes at " + condition.Until
+	case "restart":
+		return "Paused for the PC's restart; resumes once the PC has restarted"
 	case "overlord":
 		return "Paused by the Overlord; resumes on Resume"
 	case "question":
