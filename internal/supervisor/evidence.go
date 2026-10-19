@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
@@ -787,9 +788,19 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 }
 
 // GitHubPullRequestState asks GitHub, through gh, whether a pull request is
-// OPEN, CLOSED or MERGED, for as long as the caller's context allows.
+// OPEN, CLOSED or MERGED, for as long as the caller's context allows. A
+// merged pull request stays merged, so it is asked about once: the board,
+// its scheduler and AFK mode each ask again every minute or two.
 func GitHubPullRequestState(commands execx.Runner) func(context.Context, string) (PullRequestInfo, error) {
+	var mu sync.Mutex
+	merged := map[string]PullRequestInfo{}
 	return func(ctx context.Context, url string) (PullRequestInfo, error) {
+		mu.Lock()
+		known, isMerged := merged[url]
+		mu.Unlock()
+		if isMerged {
+			return known, nil
+		}
 		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state,title"}})
 		if err != nil {
 			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %w", url, err)
@@ -802,7 +813,12 @@ func GitHubPullRequestState(commands execx.Runner) func(context.Context, string)
 			return PullRequestInfo{}, errors.New("gh returned incomplete pull request details")
 		}
 		switch answer.State {
-		case "OPEN", "CLOSED", "MERGED":
+		case "MERGED":
+			mu.Lock()
+			merged[url] = answer
+			mu.Unlock()
+			return answer, nil
+		case "OPEN", "CLOSED":
 			return answer, nil
 		default:
 			return PullRequestInfo{}, fmt.Errorf("gh answered %q for the state of %s", answer.State, url)
