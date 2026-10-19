@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -305,14 +307,17 @@ func removeRecord(stateDir, id string, hostPID int) {
 	if err != nil || record.HostPID != hostPID {
 		return
 	}
-	for deadline := time.Now().Add(removeWait); ; time.Sleep(20 * time.Millisecond) {
+	waiting, cancel := awake.WithTimeout(context.Background(), removeWait)
+	defer cancel()
+	for ; ; time.Sleep(20 * time.Millisecond) {
 		err := os.Remove(recordPath(stateDir, id))
-		if err == nil || errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+		if err == nil || errors.Is(err, os.ErrNotExist) || waiting.Err() != nil {
 			return
 		}
 	}
 }
 
 // removeWait is how long a record's removal outlasts the readers that refuse
-// it.
+// it. Only time the machine ran spends it (awake), since a pause of the
+// whole machine stops the readers too.
 const removeWait = 2 * time.Second

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -489,7 +490,8 @@ const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
 // submission to be shown taken before the delivery is left sent and awaiting
-// that; nativeConfirmPoll spaces the looks.
+// that, in time the machine ran (awake), since a pause of the whole machine
+// stops the CFO's harness too; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
@@ -550,7 +552,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err := delivery.Write([]byte(instruction)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
 	}
-	for deadline := time.Now().Add(nativeConfirm); ; {
+	shown, cancelShown := awake.WithTimeout(context.Background(), nativeConfirm)
+	defer cancelShown()
+	for {
 		screen, err := read(record)
 		if err != nil {
 			return Evaluation{}, fmt.Errorf("the message was typed but the CFO's input cannot be read: %w", err)
@@ -561,7 +565,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		if screens.Shows(screen, instruction) {
 			break
 		}
-		if time.Now().After(deadline) {
+		if shown.Err() != nil {
 			return Evaluation{}, errors.New("The answer was typed but never showed in the CFO's input. Inspect its terminal; nothing was submitted.")
 		}
 		select {
@@ -599,7 +603,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	digest := monitor.TextDigest(instruction)
 	session := cfoSession(c.State, primary)
 	conversation := monitor.Conversation{Harness: primary.Agent, Session: session}
-	for deadline := time.Now().Add(nativeConfirm); ; {
+	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)
+	defer cancelTaken()
+	for {
 		if busy && conversations().Took(ctx, conversation, digest, submitted) {
 			return Evaluation{Reason: "Taken by the CFO at its next tool call, as its own record of the conversation shows."}, nil
 		}
@@ -616,7 +622,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		if !busy && !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
 		}
-		if time.Now().After(deadline) {
+		if taken.Err() != nil {
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
