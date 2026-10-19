@@ -26,8 +26,11 @@ const (
 	lintPassed    = `{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-09-30T12:03:00Z","detailsUrl":"https://github.com/o/r/actions/runs/5/job/51"}`
 	scanFailed    = `{"__typename":"StatusContext","context":"GitGuardian Security Checks","state":"FAILURE","targetUrl":"https://dashboard.gitguardian.com/workspace/1/incidents"}`
 	scanPassed    = `{"__typename":"StatusContext","context":"GitGuardian Security Checks","state":"SUCCESS","targetUrl":"https://dashboard.gitguardian.com/workspace/1"}`
-	deployLimited = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment rate limited - retry in 24 hours","targetUrl":"https://vercel.com/o/r"}`
-	deployFailed  = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment has failed","targetUrl":"https://vercel.com/o/r"}`
+	// deployLimited is the Vercel entry gh returned live for a head the host
+	// rate limited, but for the team's name: no description, only the target
+	// of its upgrade page for that limit (#1194).
+	deployLimited = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"}`
+	deployFailed  = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects/app/9xYzBuildFailed"}`
 )
 
 // cardChecks reads the hosted checks the board's snapshot shows on a task's
@@ -79,7 +82,7 @@ func TestHostedChecksReachTheCardOfTheGoblinWhosePullRequestTheyAreOn(t *testing
 		{"all passed and approved", "APPROVED", []string{testPassed, lintPassed, scanPassed}, map[string]any{"state": "passed", "head": "3d7072f8aa", "checks": float64(3), "approved": true}},
 		{"a rate-limited deploy among passing checks", "", []string{testPassed, deployLimited}, map[string]any{"state": "passed", "head": "3d7072f8aa", "checks": float64(1), "rate_limited": []any{"Vercel"}}},
 		{"a rate-limited deploy beside a real failure", "", []string{testFailed, deployLimited}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(1), "failed": []any{"test"}, "rate_limited": []any{"Vercel"}, "link": "https://github.com/o/r/actions/runs/5/job/50"}},
-		{"a deploy that failed for another reason", "", []string{testPassed, deployFailed}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"Vercel"}, "link": "https://vercel.com/o/r"}},
+		{"a deploy that failed for another reason", "", []string{testPassed, deployFailed}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"Vercel"}, "link": "https://vercel.com/acme-projects/app/9xYzBuildFailed"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

@@ -949,8 +949,7 @@ func (c *ghChecks) UnmarshalJSON(data []byte) error {
 }
 
 // ghCheck is one entry of a pull request's check rollup: a check run, with a
-// status and a conclusion, or a commit status context, with a state and a
-// description.
+// status and a conclusion, or a commit status context, with a state.
 type ghCheck struct {
 	Kind        string `json:"__typename"`
 	Name        string `json:"name"`
@@ -958,7 +957,6 @@ type ghCheck struct {
 	Status      string `json:"status"`
 	Conclusion  string `json:"conclusion"`
 	State       string `json:"state"`
-	Description string `json:"description"`
 	CompletedAt string `json:"completedAt"`
 	StartedAt   string `json:"startedAt"`
 	DetailsURL  string `json:"detailsUrl"`
@@ -986,7 +984,7 @@ func (c ghCheck) concluded() bool {
 // rateLimited reports whether the check is a deploy the host rate limited
 // (train.IsRateLimitedDeploy).
 func (c ghCheck) rateLimited() bool {
-	return c.Kind == "StatusContext" && train.IsRateLimitedDeploy(c.State, c.Description)
+	return c.Kind == "StatusContext" && train.IsRateLimitedDeploy(c.State, c.TargetURL)
 }
 
 // passed reports whether a finished check passed: a success, or a check that

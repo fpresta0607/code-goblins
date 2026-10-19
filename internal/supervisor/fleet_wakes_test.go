@@ -476,11 +476,7 @@ func TestCIFinishedWaitsForThePullRequestsWorkflows(t *testing.T) {
 // hiding it. Any other failed deploy still fails, and a head whose only check
 // is a rate-limited deploy is never said to have passed.
 func TestCIFinishedCountsARateLimitedDeployAsNotRun(t *testing.T) {
-	const (
-		deployLimited = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment rate limited - retry in 24 hours"}`
-		deployFailed  = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment has failed"}`
-		said          = "the host rate limited the deploy of Vercel, which never built this head and counts as not run"
-	)
+	const said = "the host rate limited the deploy of Vercel, which never built this head and counts as not run"
 	for name, test := range map[string]struct {
 		checks       []string
 		want, refuse string
