@@ -37,6 +37,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/quota"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
@@ -109,6 +110,11 @@ type Options struct {
 	// CI runs gh and git for the CI wakes; without it no CI is watched.
 	CI       execx.Runner
 	Progress execx.Runner
+	// Reads answers the git reads the board repeats while the files git
+	// reads for them are unchanged, and CI and Progress run through the same
+	// cache (readcache.Runner); without it every read of a task's worktree
+	// runs git.
+	Reads *readcache.Cache
 	// Defender reads what Microsoft Defender recorded since a time, for the
 	// wake that tells the CFO of each new detection and upload under the
 	// fleet's folders. It only reads.
@@ -407,7 +413,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
