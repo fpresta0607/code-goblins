@@ -1586,6 +1586,8 @@ Waiting on the Overlord is the one wait that wakes the CFO: it also opens a revi
 Nothing the goblin reports after it closes it, done included, since he may not have seen it yet.
 A question the goblin asks while it waits (`--blocked`) replaces no wait: the goblin waits on the Overlord and on the question at once, the item stays, the task reads blocked while the question is open, and once it is answered the task reads the wait it still stands on.
 So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
+A card in his Command Center asks him something or lets him act, so a wait on him gets its item only when it names what he acts on: a page (`--lavish`), the page he takes the step on (`--link`), a command (`--run`, whose run card is the wait), a step card the goblin filed, a file it delivered, or an open decision it follows.
+One that names none of them wakes the CFO with ` (no card: it names nothing he acts on)` at the end of its line and opens no item, and the goblin is told how to put the step itself in front of him; on 2026-10-18 he met such waits, a goblin's need for two grants among them, as cards with nothing to press but Skip.
 A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
 Scrawl is the Overlord's name for the review page he annotates and answers on.
@@ -1782,6 +1784,7 @@ The goblin's notify leaves the command in `state/goblin-runs-inbox`, and the sup
 The CFO's own run items still reach the board only over the supervisor's pipe, and the folder they once came through stays unread.
 When the command ends the goblin, not the CFO, is told that he ran it and its exit code; a goblin's command nobody ran is withdrawn once its goblin reports, after it, done, failed or a newer wait on him, is replaced or is gone, as its wait would be, and reads Withdrawn.
 Before a command is published, by `cfo run-request` or `cfo notify --run`, its own shell parses it without running any of it, and a command that does not parse is refused with the line the shell names, since it would run nothing at his click.
+A PowerShell command whose param block makes a parameter mandatory is refused too, naming it: Run starts the command with no arguments, so it would stop at PowerShell's prompt for the value, as the install card for main-6b7e7bc9 did on 2026-10-18.
 A failed item's card says in one line why it failed and that the CFO, or the goblin that asked, has its output and takes the next step.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
 The registered CFO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CFO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
@@ -2228,7 +2231,9 @@ Its `answer` line in `afk.audit` carries the page as `link`, with the goblin's q
 A page item a goblin filed before it turned on stays his and is held, and closes with the CFO's answer only to the question AFK mode makes of that same page, never with an answer to any other question of the goblin's.
 Nothing is asked of him, while he is away or when he is back, as the Overlord ruled on 2026-10-12: `cfo question` refuses while AFK mode is on, and nothing the CFO logs becomes a Command Center question.
 A step only he can take is a `his` line.
+`cfo afk log` takes a `his` line only with what its card does it with: a `command` from `--run`, or a `link` to the page he takes it on, and it refuses one whose `what` names a command (`cfo`, `goblins`, `gh`, `git`, `npm`, `npx`, `pnpm`, `winget` or `no-mistakes` with a subcommand, a `powershell -` or `pwsh -` call, or a `.ps1`, `.sh`, `.cmd` or `.bat` file) without one, since Done on its card would run nothing.
 When AFK mode turns off each open one becomes a card, made by the supervisor under the registered CFO's identity: a run item when the line carries a `command` and its `shell`, from `cfo afk log --kind his --run <file>`, and otherwise a question titled with the step and its link in backticks, whose choices are Done and Later.
+A line an older build logged with neither, or naming a command, becomes no card: the CFO's notice names it as a line that could not become a card, with why.
 The card's id is `afk-his-` and the line's `at`, so a line is one card however often it is made, and a card that cannot be made leaves its line under Needs you.
 When he closes the card, in whichever way, the supervisor appends a settle line to the log for it, once, with how the card ended, and the report counts the step as Settled.
 When the stretch ends, each decision the CFO answered in his place is settled: its question goes straight to History as the CFO's own, `afk-left-<when it was logged>`, closed as `succeeded` with the CFO's answer as `answered_option`, `answered_by: cfo`, `answered_away` and `answered_at` when the line was logged, so it never waits on him, his recap lists it under Decided for you, For you, and the CFO is told which it settled and which it could not.

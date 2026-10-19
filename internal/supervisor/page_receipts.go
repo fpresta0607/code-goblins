@@ -349,7 +349,7 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 		}
 		feedback = fmt.Sprintf("his feedback could not be saved (%v); durable receipt %s is in %s: %s", err, answer.ID, s.Store.pageReceiptsPath(), output)
 	}
-	asked := strings.Join(poll.Prompts, "\n")
+	asked := chainedNotes(poll)
 	if asked == "" {
 		asked = feedback
 	}
@@ -377,7 +377,7 @@ func (s *Service) pageMessage(answer pageAnswer) (text, detail, delivered, reaso
 			detail = on + "; " + feedback + ", act on it"
 			reason = "You answered on its page; the CFO has it."
 		}
-		delivered = on + "; " + feedback + ", the goblin has it: " + bounded(strings.Join(poll.Prompts, "\n"), 2000)
+		delivered = on + "; " + feedback + ", the goblin has it: " + pageWords(poll)
 		if err != nil {
 			detail = on + ", relay it to the goblin; " + feedback
 			if r.Task == "" {

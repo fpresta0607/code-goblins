@@ -34,6 +34,47 @@ func TestARunCommandItsShellCannotParseIsRefused(t *testing.T) {
 	}
 }
 
+// installCandidate is the start of the command of the Overlord's install card
+// for main-6b7e7bc9, 2026-10-18: Run started it with no arguments, so it
+// stopped at PowerShell's prompt "Supply values for the following
+// parameters: Short:" and installed nothing.
+const installCandidate = "param([Parameter(Mandatory = $true)][string]$Short)\n" +
+	"$ErrorActionPreference = 'Stop'\n" +
+	"$cand = Join-Path 'C:\\dev\\code-goblins\\scratch\\candidates' (\"cand-$Short\\cfo.exe\")\n"
+
+// Run starts a command with no arguments, so a PowerShell script whose param
+// block makes a parameter mandatory would stop at a prompt for its value: it
+// is refused, naming the parameter, as a command that does not parse is. A
+// parameter that is optional, or mandatory only $false, is taken.
+func TestARunCommandThatWouldStopAtAPromptForAValueIsRefused(t *testing.T) {
+	for name, test := range map[string]struct {
+		command string
+		refused string
+	}{
+		"a mandatory parameter":         {installCandidate, "makes Short mandatory"},
+		"a bare Mandatory":              {"param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][int]$Port)\n\"$Id $Port\"\n", "makes Id, Port mandatory"},
+		"an optional parameter":         {"param([string]$Short = '3278b62b')\n\"cand-$Short\"\n", ""},
+		"a parameter mandatory $false":  {"param([Parameter(Mandatory = $false)][string]$Short)\n\"cand-$Short\"\n", ""},
+		"a function's mandatory value": {"function Install { param([Parameter(Mandatory)][string]$Short) \"cand-$Short\" }\nInstall -Short 3278b62b\n", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			err := CheckRunCommand("powershell", test.command)
+
+			// Assert
+			if test.refused == "" {
+				if err != nil {
+					t.Errorf("CheckRunCommand = %v, want it taken", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.refused) || !strings.Contains(err.Error(), "stop at a prompt") {
+				t.Errorf("CheckRunCommand = %v, want it refused saying it %s and would stop at a prompt", err, test.refused)
+			}
+		})
+	}
+}
+
 func TestARunCommandItsShellParsesIsTaken(t *testing.T) {
 	for shell, command := range map[string]string{
 		"powershell": "Set-Location 'C:\\dev'\n\"exit code: $LASTEXITCODE\"\n",
