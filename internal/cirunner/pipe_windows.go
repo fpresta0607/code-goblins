@@ -14,6 +14,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 const (
@@ -94,8 +96,20 @@ func (p *Pipe) Serve(ctx context.Context, s *Service) error {
 func (s *Service) answer(ctx context.Context, connection *os.File) {
 	defer connection.Close()
 	reply := json.NewEncoder(connection)
-	_ = connection.SetReadDeadline(time.Now().Add(requestLimit))
+	// The read ends once requestLimit of time the machine ran is spent
+	// (awake): a client a pause of the whole machine stopped before it sent
+	// its line had no time to send it.
+	limit, cancelLimit := awake.WithTimeout(context.Background(), requestLimit)
+	limited := make(chan struct{})
+	stopLimit := context.AfterFunc(limit, func() {
+		_ = connection.SetReadDeadline(time.Now())
+		close(limited)
+	})
 	line, err := bufio.NewReaderSize(io.LimitReader(connection, maxRequest), maxRequest).ReadBytes('\n')
+	if !stopLimit() {
+		<-limited
+	}
+	cancelLimit()
 	if err != nil {
 		return
 	}

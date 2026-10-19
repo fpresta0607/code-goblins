@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 // AtomicWriteFile replaces path with data by writing a temp file in the same
@@ -88,7 +90,7 @@ func (s *Staged) CommitContext(ctx context.Context) error {
 }
 
 func retryTransientContext(ctx context.Context, op func() error) error {
-	ctx, cancel := context.WithTimeout(ctx, transientBudget)
+	ctx, cancel := awake.WithTimeout(ctx, transientBudget)
 	defer cancel()
 	wait := 10 * time.Millisecond
 	// last is the error the try before met. The bound can end while the
@@ -173,7 +175,9 @@ func RemoveAllWithin(path string, budget time.Duration) error {
 }
 
 // transientBudget is how long a state file operation waits out another
-// process holding the file before it reports the failure.
+// process holding the file before it reports the failure. Only time the
+// machine ran spends it (awake), since a pause of the whole machine stops
+// the holder too.
 var transientBudget = 5 * time.Second
 
 // longestPause is the longest a state file operation sleeps between two
@@ -195,17 +199,22 @@ func retryTransient(op func() error) error {
 }
 
 // retryTransientWithin is retryTransient with budget for transientBudget.
+// The budget starts once another process is seen holding the file, so a try
+// that goes through costs no watch of it.
 func retryTransientWithin(budget time.Duration, op func() error) error {
-	deadline := time.Now().Add(budget)
-	wait := 10 * time.Millisecond
-	for {
-		err := op()
-		if err == nil || !heldByAnother(err) || time.Now().Add(wait).After(deadline) {
+	err := op()
+	if err == nil || !heldByAnother(err) {
+		return err
+	}
+	waiting, cancel := awake.WithTimeout(context.Background(), budget)
+	defer cancel()
+	for wait := 10 * time.Millisecond; waiting.Left() >= wait; wait = min(2*wait, longestPause) {
+		sleep(wait)
+		if err = op(); err == nil || !heldByAnother(err) {
 			return err
 		}
-		sleep(wait)
-		wait = min(2*wait, longestPause)
 	}
+	return err
 }
 
 // WaitOut runs op, one operation on a fleet file, with the wait a replace

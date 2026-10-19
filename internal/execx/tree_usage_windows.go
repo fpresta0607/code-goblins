@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -304,7 +305,7 @@ func (t *Tree) EndAndWait(ctx context.Context) (TreeUsage, []EndedProcess, error
 }
 
 func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUsage, []EndedProcess, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := awake.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -102,7 +103,7 @@ func (turn Turn) ProtectContext(ctx context.Context, runID, evidence string) (gu
 // It tries a busy line's lock again for the turn's limit, and for 5 seconds
 // at most, as Release does.
 func (guard Custody) Complete() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := awake.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return guard.CompleteContext(ctx)
 }
@@ -212,7 +213,7 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 		return nil, err
 	}
 	key = strings.ToLower(key)
-	ctx, cancel := context.WithTimeout(caller, time.Duration(custodyMutationBudget.Load()))
+	ctx, cancel := awake.WithTimeout(caller, time.Duration(custodyMutationBudget.Load()))
 	defer cancel()
 	const name = "custody-mutation"
 	ticker := time.NewTicker(time.Millisecond)
@@ -235,7 +236,7 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 		if err == nil {
 			return func() error {
 				defer custodyMutations.Unlock()
-				releaseContext, cancel := context.WithTimeout(caller, 5*time.Second)
+				releaseContext, cancel := awake.WithTimeout(caller, 5*time.Second)
 				defer cancel()
 				if err := lock.ReleaseExclusiveOwned(releaseContext, dir, name, *owner); err != nil {
 					custodyMutations.pending[key] = *owner
@@ -356,7 +357,7 @@ func (guard Custody) isAbandoned() bool {
 // marked failed and interrupted, so recovery never passes a run. The caller
 // holds the custody mutation.
 func recoverAbandoned(ctx context.Context, guards []Custody) error {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := awake.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	type ending struct {
 		usage   execx.TreeUsage

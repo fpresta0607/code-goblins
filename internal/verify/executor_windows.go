@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -414,7 +415,7 @@ func (executor *Executor) RetryCleanup(ctx context.Context) error {
 }
 
 func (pending *pendingCleanup) retry(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := awake.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := lockBefore(ctx, &pending.mu); err != nil {
 		return err
