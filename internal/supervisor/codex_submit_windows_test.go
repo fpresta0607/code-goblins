@@ -84,7 +84,7 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 		record("error", err.Error())
 		os.Exit(2)
 	}
-	busy := mode == "busy"
+	busy, slow := mode == "busy", mode == "slow"
 	draw := func(text string) {
 		status := "100% context left"
 		if busy {
@@ -167,6 +167,13 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 					draw(draft.String())
 					continue
 				}
+				if slow {
+					// A loaded runner can leave an idle Codex taking its submit
+					// key well after it arrived, while the composer still shows
+					// the text, yet in time for the board to see it taken.
+					time.Sleep(nativeConfirm / 2)
+					slow = false
+				}
 				record("submitted", draft.String())
 				if busy {
 					queued = draft.String()
@@ -209,7 +216,7 @@ func codexSubmitEvents(t *testing.T, path string) []codexSubmitEvent {
 }
 
 func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
-	for _, mode := range []string{"idle", "busy"} {
+	for _, mode := range []string{"idle", "slow", "busy"} {
 		t.Run(mode, func(t *testing.T) {
 			records := useConversations(t)
 			store, _ := testStore(t)

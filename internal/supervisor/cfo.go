@@ -585,7 +585,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	submit := "\r"
 	if primary.Agent == "codex" {
 		// End flushes Codex's paste burst without changing the text; otherwise
-		// Enter can join that paste instead of submitting it.
+		// Enter can join that paste instead of submitting it. It is pressed
+		// once: a Codex can take it late, its text still showing, and an Enter
+		// pressed again would reach it after the answer was submitted.
 		submit = "\x1b[F\r"
 	}
 	if err := delivery.Write([]byte(submit)); err != nil {
@@ -597,7 +599,6 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	digest := monitor.TextDigest(instruction)
 	session := cfoSession(c.State, primary)
 	conversation := monitor.Conversation{Harness: primary.Agent, Session: session}
-	pressed, presses := time.Now(), 0
 	for deadline := time.Now().Add(nativeConfirm); ; {
 		if busy && conversations().Took(ctx, conversation, digest, submitted) {
 			return Evaluation{Reason: "Taken by the CFO at its next tool call, as its own record of the conversation shows."}, nil
@@ -614,12 +615,6 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		_, dialog := screens.Dialog(screen)
 		if !busy && !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
-		}
-		if !busy && !dialog && screens.PasteTakesEnter && !screens.IsWorking(screen) && presses < 3 && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
-			if err := delivery.Write([]byte(submit)); err != nil {
-				return Evaluation{}, fmt.Errorf("the answer is in the CFO's input, and whether its submit key reached it is unknown: %w", err)
-			}
-			pressed, presses = time.Now(), presses+1
 		}
 		if time.Now().After(deadline) {
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
