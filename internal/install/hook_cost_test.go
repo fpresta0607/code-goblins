@@ -16,6 +16,7 @@ type registeredHook struct {
 	Command string
 	Args    []string
 	Shell   bool
+	Timeout int
 }
 
 // terminalHooks is every hook in the settings a Claude Code CFO's terminal
@@ -45,6 +46,7 @@ func registeredHooks(t *testing.T, path string) []registeredHook {
 			Hooks   []struct {
 				Command string    `json:"command"`
 				Args    *[]string `json:"args"`
+				Timeout int       `json:"timeout"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -55,7 +57,7 @@ func registeredHooks(t *testing.T, path string) []registeredHook {
 	for event, groups := range document.Hooks {
 		for _, group := range groups {
 			for _, entry := range group.Hooks {
-				hook := registeredHook{Event: event, Matcher: group.Matcher, Command: entry.Command, Shell: entry.Args == nil}
+				hook := registeredHook{Event: event, Matcher: group.Matcher, Command: entry.Command, Shell: entry.Args == nil, Timeout: entry.Timeout}
 				if entry.Args != nil {
 					hook.Args = *entry.Args
 				}
