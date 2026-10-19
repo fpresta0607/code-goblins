@@ -184,3 +184,47 @@ func TestRidersHoldAReportMadeBeforeARelaunchToTheHeadItWasMadeOf(t *testing.T) 
 		})
 	}
 }
+
+func TestARateLimitedDeployCountsAsNotRunNeverAsFailed(t *testing.T) {
+	t.Parallel()
+	passed := Check{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}
+	failed := Check{Kind: "CheckRun", Name: "lint", Status: "COMPLETED", Conclusion: "FAILURE"}
+	skipped := Check{Kind: "CheckRun", Name: "e2e", Status: "COMPLETED", Conclusion: "SKIPPED"}
+	limited := Check{Kind: "StatusContext", Context: "Vercel", State: "FAILURE", Description: "Deployment rate limited - retry in 24 hours"}
+	broken := Check{Kind: "StatusContext", Context: "Vercel", State: "FAILURE", Description: "Deployment has failed"}
+	for name, test := range map[string]struct {
+		checks  []Check
+		outcome string
+		left    string
+		note    string
+	}{
+		"a rate-limited deploy alone among passing checks rides": {[]Check{passed, limited}, "passed", "", "the host rate limited the deploy of Vercel"},
+		"a rate-limited deploy beside a real failure does not":   {[]Check{passed, failed, limited}, "failed", "its checks failed", ""},
+		"a failed deploy with another description does not":      {[]Check{passed, broken}, "failed", "its checks failed", ""},
+		"only rate-limited and skipped checks do not":            {[]Check{skipped, limited}, "none", "no check ran on its head: every one was skipped, and the host rate limited the deploy of Vercel", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			pr := greenPull(1)
+			pr.Checks = test.checks
+
+			// Act
+			outcome, _ := checksOutcome(pr.Checks)
+			riders, left := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+
+			// Assert
+			if outcome != test.outcome {
+				t.Errorf("checksOutcome = %q, want %q", outcome, test.outcome)
+			}
+			if test.left != "" {
+				if len(riders) != 0 || len(left) != 1 || !strings.Contains(left[0], test.left) {
+					t.Fatalf("riders %v, left %q, want it left out because %s", riders, left, test.left)
+				}
+				return
+			}
+			if len(riders) != 1 || len(left) != 0 || !strings.Contains(riders[0].Note, test.note) {
+				t.Fatalf("riders %+v, left %q, want it riding with a note that says %s", riders, left, test.note)
+			}
+		})
+	}
+}

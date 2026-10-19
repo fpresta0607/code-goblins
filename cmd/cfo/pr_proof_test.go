@@ -192,3 +192,40 @@ func TestVerifyPRReadyPassesOverTheDraftStateCheck(t *testing.T) {
 func readyPRView(checks string) string {
 	return `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"abc123","statusCheckRollup":[` + checks + `]}`
 }
+
+func TestVerifyPRReadyCountsARateLimitedDeployAsNotRunNeverAsFailed(t *testing.T) {
+	const (
+		passed  = `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}`
+		failed  = `{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"}`
+		skipped = `{"__typename":"CheckRun","name":"e2e","status":"COMPLETED","conclusion":"SKIPPED"}`
+		limited = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment rate limited - retry in 24 hours"}`
+		broken  = `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment has failed"}`
+	)
+	cases := []struct {
+		name   string
+		checks string
+		want   string
+	}{
+		{"a rate-limited deploy alone among passing checks passes", passed + "," + limited, ""},
+		{"a rate-limited deploy beside a real failure does not", passed + "," + failed + "," + limited, "lint concluded FAILURE"},
+		{"a failed deploy with another description does not", passed + "," + broken, "Vercel concluded FAILURE"},
+		{"only rate-limited and skipped checks do not", skipped + "," + limited, "no check ran on the PR's head, every one was skipped or neutral, and the host rate limited the deploy of Vercel"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			proof, err := verifyPRReady(context.Background(), "https://github.com/o/r/pull/1", proofRunner{stdout: readyPRView(tc.checks)})
+
+			// Assert
+			if tc.want != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("err=%v, want %q", err, tc.want)
+				}
+				return
+			}
+			if err != nil || proof.Checks != 1 || len(proof.RateLimited) != 1 || proof.RateLimited[0] != "Vercel" {
+				t.Fatalf("proof=%+v err=%v, want one green check and Vercel's deploy named rate limited", proof, err)
+			}
+		})
+	}
+}
