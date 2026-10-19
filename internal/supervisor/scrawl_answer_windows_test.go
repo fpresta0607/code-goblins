@@ -177,8 +177,15 @@ func (s *testScrawl) open(t *testing.T, file string) (page, link string) {
 }
 
 // browse opens link in a headless Chrome of the test's own, ended with the
-// test, and returns its tab once the page's message box shows and the page
-// says a poll listens for what he sends.
+// test, and returns its tab once the page's message box shows, the page says
+// a poll listens for what he sends, and the page it frames has spoken to it
+// since it last loaded, as on a page of his open for minutes. Send & End
+// first asks the framed page for a snapshot of what he sees, and Scrawl
+// waits five seconds for an answer before it sends without one; a press
+// within the tenth of a second before the framed page spoke met that wait on
+// GitHub's runners and here (#1190). artifactLoadToken and artifactSpokeToken
+// are the Scrawl page's own: an answer counts only when it carries the load's
+// token, and the page keeps the token of the last load that spoke.
 func (s *testScrawl) browse(t *testing.T, link string) *cdp.Conn {
 	t.Helper()
 	executable, err := browserlogin.Executable()
@@ -199,11 +206,11 @@ func (s *testScrawl) browse(t *testing.T, link string) *cdp.Conn {
 	tab := firstTab(ctx, t, chrome.URL)
 	t.Cleanup(func() { tab.Close() })
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
-		if pageValue(t, tab, `!!document.getElementById("chatInput") && !document.getElementById("sendAndEnd").disabled && ["Agent listening", "External listener active"].includes(document.getElementById("panelSummary").textContent)`) == "true" {
+		if pageValue(t, tab, `!!document.getElementById("chatInput") && !document.getElementById("sendAndEnd").disabled && ["Agent listening", "External listener active"].includes(document.getElementById("panelSummary").textContent) && typeof artifactLoadToken === "string" && artifactLoadToken !== "" && artifactSpokeToken === artifactLoadToken`) == "true" {
 			return tab
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the Scrawl page at %s never showed its message box with a poll listening: %s", link, pageValue(t, tab, `document.getElementById("panelSummary") ? document.getElementById("panelSummary").textContent : "no summary"`))
+			t.Fatalf("the Scrawl page at %s never showed its message box with a poll listening and its framed page spoken: %s", link, pageValue(t, tab, `(document.getElementById("panelSummary") ? document.getElementById("panelSummary").textContent : "no summary") + "; framed page " + (typeof artifactLoadToken !== "string" ? "load token unknown to this Scrawl" : artifactSpokeToken === artifactLoadToken && artifactLoadToken !== "" ? "spoke" : "silent")`))
 		}
 	}
 }
