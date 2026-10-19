@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // The record of the kernel's pools rides the supervisor's minute memory
@@ -86,5 +89,51 @@ func TestABoardThatReadsNoPoolTagsKeepsNoRecord(t *testing.T) {
 	// Assert
 	if _, err := os.Stat(filepath.Join(h.State, kernelPoolsFile)); !os.IsNotExist(err) {
 		t.Errorf("the record of the pools = %v, want none", err)
+	}
+}
+
+// Each sample keeps how many processes the PC has started and how many
+// tokens the kernel holds, so the record says how many tokens each process
+// start leaves behind, and the record names every process the board itself
+// started by the code that started it, so what the board starts an hour is
+// measured rather than guessed.
+func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	s := handler.Service
+	s.Options.Comeback = &Comeback{SignedIn: func() (time.Time, error) { return time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC), nil }}
+	reads := uint32(0)
+	s.Options.Dispatch.PoolTags = func() ([]PoolTag, error) {
+		reads++
+		return []PoolTag{
+			{Tag: "Proc", Nonpaged: 1 << 20, NonpagedAllocs: 700_000 + 10_000*reads},
+			{Tag: "Toke", Paged: 500 << 20, PagedAllocs: 900_000 + 9_000*reads, PagedFrees: 600_000 + 5_000*reads},
+		}, nil
+	}
+	if err := execx.Command(os.Args[0], "-test.run=^$").Run(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Minute)
+
+	// Act
+	readFleet(t, s, now, 0, 15)
+
+	// Assert
+	record, err := readKernelPools(filepath.Join(h.State, kernelPoolsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got [][2]int64
+	for _, sample := range record.Samples {
+		got = append(got, [2]int64{int64(sample.Processes), sample.Tokens})
+	}
+	if want := [][2]int64{{710_000, 304_000}, {720_000, 308_000}}; !slices.Equal(got, want) {
+		t.Errorf("the samples' processes and tokens = %v, want %v", got, want)
+	}
+	program := strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe")
+	if !slices.ContainsFunc(record.Board, func(start execx.Started) bool {
+		return start.Program == program && strings.Contains(start.Caller, "supervisor/kernel_pools_test.go") && start.Count > 0
+	}) || !record.BoardStarted.Equal(s.Started) {
+		t.Errorf("the record's board starts = %+v since %v, want this test's start of %s since the board started", record.Board, record.BoardStarted, program)
 	}
 }
