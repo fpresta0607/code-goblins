@@ -37,7 +37,8 @@ import (
 // instead of denying or failing the request.
 func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// The goblin hooks run in a goblin's own Claude Code, which starts with
-	// them (install.GoblinHooks), and for a goblin alone: they sit above the
+	// them (install.GoblinHooks: the key alarm runs inside the native hook
+	// after every tool call), and for a goblin alone: they sit above the
 	// checks that keep every other hook to the CFO.
 	switch name {
 	case "goblin-seal", "goblin-key-alarm":

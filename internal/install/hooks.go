@@ -93,10 +93,18 @@ func Hooks(root string) []Hook {
 func NativeHooks(root, stateDir string) []Hook {
 	var hooks []Hook
 	for _, event := range nativehook.Events("claude") {
-		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: 3})
+		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: NativeHookSeconds})
 	}
 	return hooks
 }
+
+// NativeHookSeconds is how long Claude Code lets a native session hook run,
+// and KeyAlarmSeconds how long it lets the key alarm run, its default for a
+// command hook, which the alarm ran under as a hook entry of its own.
+const (
+	NativeHookSeconds = 3
+	KeyAlarmSeconds   = 600
+)
 
 // CFOAutoCompactWindow is the window, in tokens, the CFO compacts in. Claude
 // Code takes it as its autoCompactWindow setting, takes its 20K output
@@ -126,31 +134,34 @@ func CFOSettings(root, stateDir string) ([]byte, error) {
 	return file.render()
 }
 
-// GoblinHooks are the hooks every Claude Code goblin starts with, of the
-// home at root, and the single place they are defined. goblin-seal refuses
-// the goblin's browser commands while a key fetch reads in its browser, and
-// so runs only before a shell call. goblin-key-alarm wakes the CFO when a
-// tool's output holds a secret key, and so runs after every tool call: a
-// key read from a file is as exposed as one a command printed.
-func GoblinHooks(root string) []Hook {
-	hooks := []Hook{
-		{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell"},
-		{Name: "goblin-key-alarm", Event: "PostToolUse", Matcher: "*"},
-	}
-	for i := range hooks {
-		hooks[i].Command = filepath.Join(root, home.BinDir, "cfo.exe")
-		hooks[i].Args = []string{"hook", hooks[i].Name}
+// GoblinHooks are every hook a Claude Code goblin of the home at root, with
+// its state in stateDir, starts with, and the single place they are defined.
+// goblin-seal refuses the goblin's browser commands while a key fetch reads
+// in its browser, and so runs only before a shell call. Then come its native
+// session hooks, and the one after every tool call also raises the key
+// alarm, which wakes the CFO when the tool's output holds a secret key: a key
+// read from a file is as exposed as one a command printed. The native hook
+// and the alarm were two hook entries, two cfo.exe processes after each tool
+// call, each with a console host of its own; as one entry they are one, with
+// the alarm's limit, and the native hook keeps its own limit inside it.
+func GoblinHooks(root, stateDir string) []Hook {
+	hooks := []Hook{{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell", Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"hook", "goblin-seal"}}}
+	for _, hook := range NativeHooks(root, stateDir) {
+		if hook.Event == "PostToolUse" {
+			hook.Args, hook.Timeout = slices.Concat(hook.Args, []string{"--key-alarm"}), KeyAlarmSeconds
+		}
+		hooks = append(hooks, hook)
 	}
 	return hooks
 }
 
 // GoblinSettings is the Claude Code settings document a goblin starts with:
-// the goblin hooks and its native session hooks and nothing else, which
-// Claude Code adds to the user's own settings for that session alone. Each
-// runs the home's hook program where it is the same build as cfo.exe
-// (HookCommand), which Windows starts with no console host.
+// the goblin hooks and nothing else, which Claude Code adds to the user's own
+// settings for that session alone. Each runs the home's hook program where it
+// is the same build as cfo.exe (HookCommand), which Windows starts with no
+// console host.
 func GoblinSettings(root, stateDir string) ([]byte, error) {
-	hooks := append(GoblinHooks(root), NativeHooks(root, stateDir)...)
+	hooks := GoblinHooks(root, stateDir)
 	command := HookCommand(filepath.Join(root, home.BinDir))
 	for index := range hooks {
 		hooks[index].Command = command
