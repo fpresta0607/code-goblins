@@ -8,8 +8,9 @@ argument-hint: <what the artifact should show>
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
 It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
-`cfo doctor` reports it against its floor, the Code Goblins build `0.1.79-codegoblins.16`, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
-The floor is the first build whose page server runs in its own state folder: an older one keeps the folder of the first `lavish-axi` command that started it, so a worktree it started in cannot be removed while it runs.
+`cfo doctor` reports it against its floor, the Code Goblins build `0.1.79-codegoblins.17`, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+The floor is the first build that sends every comment on a page as one batch: each annotation, message and pick waits in the page's notes until Send or Send & End delivers them all in one request, where an older build sent each the moment it was written and a page review woke once per note.
+It also runs its page server in its own state folder: a build before 0.1.79-codegoblins.16 keeps the folder of the first `lavish-axi` command that started it, so a worktree it started in cannot be removed while it runs.
 
 ## Request
 

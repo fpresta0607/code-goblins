@@ -16,7 +16,7 @@ import (
 )
 
 // lavishFile is the release file of the lavish-axi fork the install installs.
-const lavishFile = "lavish-axi-0.1.79-codegoblins.16.tgz"
+const lavishFile = "lavish-axi-0.1.79-codegoblins.17.tgz"
 
 // lavishPin finds the SHA256 the install script pins for that file.
 var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
