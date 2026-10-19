@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -57,32 +58,31 @@ type Label struct {
 	Name string `json:"name"`
 }
 
-// rateLimitedDeploy begins the description of the commit status a deploy
-// host sets on a head it refused to build for its rate limit, as Vercel's
-// does once a day's builds are spent (#1194).
-const rateLimitedDeploy = "Deployment rate limited"
-
-// IsRateLimitedDeploy says whether a commit status, by its state and
-// description, is a deploy the host refused for its rate limit. The host
-// never built the head, so the status says nothing of the change: it counts
-// as not run, like a skipped check, and pushing again for a fresh one spends
-// another build of the same allowance. Any other failed status still fails.
-func IsRateLimitedDeploy(state, description string) bool {
-	return state == "FAILURE" && strings.HasPrefix(description, rateLimitedDeploy)
+// IsRateLimitedDeploy says whether a commit status, by its state and target
+// page, is a deploy the host refused for its rate limit: Vercel, once a day's
+// builds are spent, fails the status and points it at its upgrade page for
+// that limit, upgradeToPro=build-rate-limit (#1194). gh's check rollup gives
+// a status's target but never its description, so the target is what says
+// so. The host never built the head, so the status says nothing of the
+// change: it counts as not run, like a skipped check, and pushing again for a
+// fresh one spends another build of the same allowance. Any other failed
+// status still fails.
+func IsRateLimitedDeploy(state, targetURL string) bool {
+	target, err := url.Parse(targetURL)
+	return state == "FAILURE" && err == nil && target.Host == "vercel.com" && target.Query().Get("upgradeToPro") == "build-rate-limit"
 }
 
 // Check is one entry of a check rollup: a check run, with a status and a
-// conclusion, or a commit status context, with a state and a description.
+// conclusion, or a commit status context, with a state and a target page.
 type Check struct {
-	Kind        string `json:"__typename"`
-	Name        string `json:"name"`
-	Context     string `json:"context"`
-	Status      string `json:"status"`
-	Conclusion  string `json:"conclusion"`
-	State       string `json:"state"`
-	Description string `json:"description"`
-	DetailsURL  string `json:"detailsUrl"`
-	TargetURL   string `json:"targetUrl"`
+	Kind       string `json:"__typename"`
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	State      string `json:"state"`
+	DetailsURL string `json:"detailsUrl"`
+	TargetURL  string `json:"targetUrl"`
 	// StartedAt and CompletedAt are when GitHub says a check run started and
 	// finished. A commit status has only the first, the time it was set.
 	StartedAt   string `json:"startedAt"`
@@ -105,7 +105,7 @@ func (c Check) isConcluded() bool {
 
 // isRateLimited says whether the check is a deploy the host rate limited.
 func (c Check) isRateLimited() bool {
-	return c.Kind == "StatusContext" && IsRateLimitedDeploy(c.State, c.Description)
+	return c.Kind == "StatusContext" && IsRateLimitedDeploy(c.State, c.TargetURL)
 }
 
 // isPassed says whether a concluded check passed: a success, or a check that

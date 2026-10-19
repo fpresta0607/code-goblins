@@ -138,7 +138,7 @@ func TestAnAFKMergeLogsTheMergeWordWithItsEvidenceBeforeItMerges(t *testing.T) {
 // evidence are told of the deploy rather than counting it green.
 func TestAnAFKMergeNamesARateLimitedDeployInItsEvidence(t *testing.T) {
 	// Arrange
-	runner := &afkMergeRunner{rollup: `{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","description":"Deployment rate limited - retry in 24 hours"}`}
+	runner := &afkMergeRunner{rollup: `{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"}`}
 
 	// Act
 	exit, stdout, stderr := runner.merge("--verified", "gate run 41 passed and its test output was read")
