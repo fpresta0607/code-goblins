@@ -288,6 +288,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 func together(first, then axi.PagePoll) axi.PagePoll {
 	whole := first
 	whole.Prompts = append(slices.Clone(first.Prompts), then.Prompts...)
+	whole.Notes = append(slices.Clone(first.Notes), then.Notes...)
 	whole.Picked = first.Picked || then.Picked
 	whole.Output = first.Output + "\n" + then.Output
 	if then.Ended || then.Status == "ended" {
@@ -573,10 +574,56 @@ func (s *Store) closePage(item Review, closed Review) error {
 	return s.save()
 }
 
-// pageWords is what he wrote on a page in one poll's answer, his prompts one
-// to a line, bounded as an item's reason is.
+// pageWords is what he wrote on a page in one answer, as chainedNotes reads it,
+// bounded as an item's reason is.
 func pageWords(poll axi.PagePoll) string {
-	return bounded(strings.Join(poll.Prompts, "\n"), 2000)
+	return bounded(chainedNotes(poll), 2000)
+}
+
+// chainedNotes is what he sent on a page in one answer, one note to a line in
+// the order he wrote them, each with what it is attached to, so a chained set
+// reads as the notes he left where he left them: a set is numbered, a lone
+// note on an element says which, and a lone note on the whole page, or his
+// pick of a choice the page declared, is his words alone. An answer kept
+// before notes were read has its prompts alone.
+func chainedNotes(poll axi.PagePoll) string {
+	notes := poll.Notes
+	if len(notes) == 0 {
+		return strings.Join(poll.Prompts, "\n")
+	}
+	if len(notes) == 1 {
+		if on := noteOn(notes[0]); on != "" && notes[0].Tag != "choice" {
+			return "On " + on + ": " + notes[0].Prompt
+		}
+		return notes[0].Prompt
+	}
+	lines := make([]string, len(notes))
+	for i, note := range notes {
+		on := noteOn(note)
+		if on == "" {
+			on = "the whole page"
+		}
+		lines[i] = fmt.Sprintf("%d. On %s: %s", i+1, on, note.Prompt)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// noteOn names what a note is attached to: a table cell by its row and
+// column, a pick of the page's choices by its question, any other element
+// by its tag and its words. It is empty for a note on the whole page.
+func noteOn(note axi.PageNote) string {
+	words := `"` + bounded(strings.Join(strings.Fields(note.Text), " "), 80) + `"`
+	switch {
+	case note.Tag == "message" || note.Tag == "" && note.Selector == "":
+		return ""
+	case note.Row != "" && note.Column != "":
+		return `the cell in row "` + note.Row + `", column "` + note.Column + `"`
+	case note.Row != "" || note.Column != "":
+		return `the cell "` + note.Row + note.Column + `"`
+	case note.Tag == "choice":
+		return "the choice " + words
+	}
+	return "the " + note.Tag + " " + words
 }
 
 // explainAnswer gives each item of the page key names that closed when he

@@ -36,9 +36,10 @@ type PagePoll struct {
 	// page, agent for an agent that ran lavish-axi end.
 	EndedBy string
 	// Prompts is what the Overlord wrote on the page, one entry per prompt,
-	// when lavish-axi printed its prompts as a table, his changes of an
-	// answer aside.
+	// his changes of an answer aside.
 	Prompts []string
+	// Notes are those prompts, in order, each with what it is attached to.
+	Notes []PageNote
 	// Picked says a prompt picks an option the page declared in its
 	// data-lavish-choices block, which answers the page.
 	Picked bool
@@ -47,6 +48,18 @@ type PagePoll struct {
 	Changes []PageChange
 	// Output is the poll's whole output, which the CFO reads.
 	Output string
+}
+
+// PageNote is one prompt he sent on a page and what it is attached to: an
+// element by its tag, selector and text, with a table cell's row and column,
+// or, for a note from the page's message box, the whole page.
+type PageNote struct {
+	Prompt   string `json:"prompt"`
+	Tag      string `json:"tag,omitempty"`
+	Selector string `json:"selector,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Row      string `json:"row,omitempty"`
+	Column   string `json:"column,omitempty"`
 }
 
 // PageChange is one answer he changed on a page: the question in his History
@@ -120,19 +133,25 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 	if status == "" {
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
-	prompts, tags, texts := promptColumn(output, "prompt"), promptColumn(output, "tag"), promptColumn(output, "text")
 	// A change is no prompt of his for anyone to read: it goes to the
 	// question it changes.
 	var changes []PageChange
 	var written []string
-	for i, prompt := range prompts {
-		if i < len(tags) && tags[i] == pageChangeTag && i < len(texts) {
-			changes = append(changes, PageChange{Question: texts[i], Answer: prompt})
-			continue
+	var notes []PageNote
+	isPicked := false
+	for _, p := range readPrompts(output) {
+		isPicked = isPicked || p.fields["tag"] == "choice"
+		prompt, hasPrompt := p.fields["prompt"]
+		switch {
+		case !hasPrompt:
+		case p.fields["tag"] == pageChangeTag:
+			changes = append(changes, PageChange{Question: p.fields["text"], Answer: prompt})
+		default:
+			written = append(written, prompt)
+			notes = append(notes, PageNote{Prompt: prompt, Tag: p.fields["tag"], Selector: p.fields["selector"], Text: p.fields["text"], Row: p.target["rowLabel"], Column: p.target["columnLabel"]})
 		}
-		written = append(written, prompt)
 	}
-	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: written, Picked: slices.Contains(tags, "choice"), Changes: changes, Output: output}, nil
+	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: written, Notes: notes, Picked: isPicked, Changes: changes, Output: output}, nil
 }
 
 // pageChangeTag is the tag a return page's Change sends its answer under.
@@ -238,33 +257,78 @@ func (l Lavish) SessionAt(link string) (session PageSession, found bool, err err
 	return sessions[i], true, nil
 }
 
-// promptColumn reads one column of the top-level TOON `prompts` table, such as
-// prompt or tag, one entry per row, unquoting a quoted value. Prompts printed
-// as a list, or a table without that column, read as none.
-func promptColumn(output, name string) []string {
-	var texts []string
-	column := -1
-	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
-		if column < 0 {
-			header, ok := strings.CutPrefix(line, "prompts[")
-			_, fields, found := strings.Cut(header, "]{")
-			if ok && found && strings.HasSuffix(fields, "}:") {
-				column = slices.Index(strings.Split(strings.TrimSuffix(fields, "}:"), ","), name)
-				if column < 0 {
-					return nil
-				}
-			}
+// pagePrompt is one entry of a poll's top-level TOON `prompts` array: its own
+// fields, such as prompt, tag and text, and its target's, such as a table
+// cell's rowLabel and columnLabel.
+type pagePrompt struct {
+	fields, target map[string]string
+}
+
+// readPrompts reads the top-level TOON `prompts` array in either form
+// lavish-axi prints it: a table, when every prompt has the same plain fields,
+// or a list, when one carries more, such as a table cell's target. Each value
+// is unquoted when quoted, and fields nested any deeper are passed over.
+func readPrompts(output string) []pagePrompt {
+	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		header, isPrompts := strings.CutPrefix(line, "prompts[")
+		_, form, isArray := strings.Cut(header, "]")
+		if !isPrompts || !isArray {
 			continue
 		}
-		row, ok := strings.CutPrefix(line, "  ")
-		if !ok {
-			break
+		var prompts []pagePrompt
+		if names, isTable := strings.CutPrefix(form, "{"); isTable {
+			columns := strings.Split(strings.TrimSuffix(names, "}:"), ",")
+			for _, line := range lines[i+1:] {
+				row, isRow := strings.CutPrefix(line, "  ")
+				if !isRow {
+					break
+				}
+				p := pagePrompt{fields: map[string]string{}}
+				for column, value := range tableRow(row) {
+					if column < len(columns) {
+						p.fields[columns[column]] = value
+					}
+				}
+				prompts = append(prompts, p)
+			}
+			return prompts
 		}
-		if values := tableRow(row); column < len(values) {
-			texts = append(texts, values[column])
+		isTarget := false
+		for _, line := range lines[i+1:] {
+			switch item, isItem := strings.CutPrefix(line, "  - "); {
+			case isItem:
+				prompts = append(prompts, pagePrompt{fields: map[string]string{}, target: map[string]string{}})
+				isTarget = false
+				promptField(prompts[len(prompts)-1].fields, item)
+			case len(prompts) > 0 && strings.HasPrefix(line, "      "):
+				if isTarget {
+					promptField(prompts[len(prompts)-1].target, strings.TrimPrefix(line, "      "))
+				}
+			case len(prompts) > 0 && strings.HasPrefix(line, "    "):
+				field := strings.TrimPrefix(line, "    ")
+				isTarget = field == "target:"
+				promptField(prompts[len(prompts)-1].fields, field)
+			default:
+				return prompts
+			}
 		}
+		return prompts
 	}
-	return texts
+	return nil
+}
+
+// promptField reads one `name: value` line of a prompt into fields, unquoting
+// a quoted value. A line that opens a nested field holds no value of its own.
+func promptField(fields map[string]string, line string) {
+	name, value, isField := strings.Cut(line, ": ")
+	if !isField {
+		return
+	}
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		value = unquoted
+	}
+	fields[name] = value
 }
 
 // tableRow splits one row of a comma-delimited TOON table, unquoting each
