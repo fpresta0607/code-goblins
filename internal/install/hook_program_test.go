@@ -10,18 +10,8 @@ import (
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
-
-// copyProgram writes a copy of the program at from, a Go program with its
-// build information, to to.
-func copyProgram(t *testing.T, from, to string) {
-	t.Helper()
-	data, err := os.ReadFile(from)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, to, string(data))
-}
 
 // hookPrograms are the programs each hook in a goblin's settings runs.
 func hookPrograms(t *testing.T, settings []byte) map[string]bool {
@@ -52,14 +42,13 @@ func hookPrograms(t *testing.T, settings []byte) map[string]bool {
 // none, or one another build left, they run cfo.exe, so no hook ever runs
 // another build's code.
 func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
-	this := os.Args[0]
 	tests := []struct {
 		name     string
 		hook     func(t *testing.T, path string)
 		wantHook bool
 	}{
 		{"no hook program", func(*testing.T, string) {}, false},
-		{"the same build", func(t *testing.T, path string) { copyProgram(t, this, path) }, true},
+		{"the same build", func(t *testing.T, path string) { standin.Put(t, path) }, true},
 		{"not a program", func(t *testing.T, path string) { writeFile(t, path, "not a program") }, false},
 	}
 	for _, test := range tests {
@@ -67,7 +56,11 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
 			// Arrange
 			root := t.TempDir()
 			bin := filepath.Join(root, home.BinDir)
-			copyProgram(t, this, filepath.Join(bin, "cfo.exe"))
+			if err := os.MkdirAll(bin, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			// The stand-in program is a Go program with its build information.
+			standin.Put(t, filepath.Join(bin, "cfo.exe"))
 			test.hook(t, filepath.Join(bin, HookProgram))
 
 			// Act
