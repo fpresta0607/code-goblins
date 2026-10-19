@@ -388,6 +388,32 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 1
 		}
 	}
+	// A wait beside the goblin's own open step card is that card, whose close
+	// the goblin hears through its own wait on it: a second card would ask him
+	// for the same step again. A wait on a page is its own card, since only its
+	// card gets the page polled.
+	stepCard := ""
+	if verb == "waiting on overlord" && runCommand == "" && page == "" {
+		if stepCard, err = supervisor.OpenStepCard(h.State, id); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: your open step cards cannot be read, so none stands for this wait: "+err.Error())
+		}
+	}
+	// A card in his Command Center asks him something or lets him act, so a
+	// wait on him that names nothing he acts on, no page, link, command, step
+	// card, delivered file or open decision, gets none: it reaches the CFO
+	// alone, which says so on its line. On 2026-10-18 he met such waits as
+	// cards with nothing to press but Skip.
+	isBare := false
+	if verb == "waiting on overlord" && runCommand == "" && page == "" && *link == "" && *follows == "" && stepCard == "" {
+		file, err := supervisor.OpenDeliveredFile(h.State, id)
+		if err != nil {
+			fmt.Fprintln(stderr, "cfo notify: your delivered files cannot be read, so none stands for this wait: "+err.Error())
+		}
+		isBare = file == ""
+	}
+	if isBare {
+		line += " (no card: it names nothing he acts on)"
+	}
 	if err := state.AppendStatus(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
 		return 1
@@ -460,21 +486,13 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
 		}
 	}
-	// A wait beside the goblin's own open step card is that card, whose close
-	// the goblin hears through its own wait on it: a second card would ask him
-	// for the same step again. A wait on a page is its own card, since only its
-	// card gets the page polled.
-	stepCard := ""
-	if verb == "waiting on overlord" && runCommand == "" && page == "" {
-		if stepCard, err = supervisor.OpenStepCard(h.State, id); err != nil {
-			fmt.Fprintln(stderr, "cfo notify: your open step cards cannot be read, so this wait gets a card of its own: "+err.Error())
-		}
-	}
 	switch {
 	case verb == "waiting on overlord" && runCommand != "":
 		// Its run card is the wait.
 	case verb == "waiting on overlord" && stepCard != "":
 		// Its step card is the wait.
+	case verb == "waiting on overlord" && isBare:
+		// The CFO has it, and nothing goes to his Command Center.
 	case verb == "waiting on overlord":
 		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link, *follows); err != nil {
 			if errors.Is(err, supervisor.ErrPageHeld) {
@@ -497,6 +515,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	if stepCard != "" {
 		fmt.Fprintf(stdout, "Your step card %s is open, so it stands for this wait in the Command Center and no second card was opened. Wait on it in the background with cfo auth request --wait-on %s --task %s, which ends when the card closes. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard, stepCard, id)
+	}
+	if isBare {
+		fmt.Fprintf(stdout, "No card went to the Overlord's Command Center: this wait names nothing he acts on there, so the CFO alone has it. To put the step itself in front of him, notify again with --run <command.ps1|command.sh> for a command he runs, --lavish <page.html> for a page he answers, or --link <https-url> for the page he takes it on, or file cfo auth request for a sign-in, a value or another step only he takes. A decision goes to the CFO: cfo notify %s --blocked \"<question>\".\n", id)
 	}
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.

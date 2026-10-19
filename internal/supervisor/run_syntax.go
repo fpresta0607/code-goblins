@@ -18,13 +18,17 @@ import (
 const runSyntaxWait = 30 * time.Second
 
 // powershellParse parses the script the environment names with PowerShell's
-// own parser, runs none of it, and prints each error with its line.
-const powershellParse = `$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:CFO_RUN_SYNTAX, [ref]$null, [ref]$errors); foreach ($e in $errors) { 'line ' + $e.Extent.StartLineNumber + ': ' + $e.Message }; if ($errors.Count) { exit 1 }`
+// own parser, runs none of it, and prints each error with its line, then each
+// parameter its param block makes mandatory.
+const powershellParse = `$errors = $null; $script = [System.Management.Automation.Language.Parser]::ParseFile($env:CFO_RUN_SYNTAX, [ref]$null, [ref]$errors); foreach ($e in $errors) { 'line ' + $e.Extent.StartLineNumber + ': ' + $e.Message }; if ($errors.Count) { exit 1 }; $mandatory = @(foreach ($p in @($script.ParamBlock.Parameters)) { foreach ($a in $p.Attributes) { foreach ($n in @($a.NamedArguments)) { if ($n.ArgumentName -eq 'Mandatory' -and ($n.ExpressionOmitted -or $n.Argument.Extent.Text -ne '$false')) { $p.Name.VariablePath.UserPath } } } }); if ($mandatory.Count) { 'mandatory ' + ($mandatory -join ', '); exit 3 }`
 
 // CheckRunCommand refuses a command its shell cannot parse, with the lines
 // the shell names, before it is published for the Overlord to run: such a
 // command runs nothing at his click and fails, as repair-home-v0.5.3 did on
-// 2026-10-07. The shell parses the command and runs none of it.
+// 2026-10-07. It refuses as well a PowerShell script whose param block makes
+// a parameter mandatory: Run starts the script with no arguments, so it stops
+// at PowerShell's prompt for the value, as the install card for main-6b7e7bc9
+// did on 2026-10-18. The shell parses the command and runs none of it.
 func CheckRunCommand(shell, command string) error {
 	return checkRunCommand(shell, command, runSyntaxWait)
 }
@@ -67,6 +71,9 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 		// of a command that does not parse, so a shell cut off is named as
 		// one that did not answer.
 		return fmt.Errorf("%s did not answer within %s, so the command was not checked: try again", shell, wait)
+	case errors.As(err, &exit) && exit.ExitCode() == 3 && shell != "bash":
+		named := strings.TrimPrefix(strings.TrimSpace(string(output)), "mandatory ")
+		return fmt.Errorf("the command's param block makes %s mandatory, and Run starts it with no arguments, so it would stop at a prompt for the value: put each value in the command itself", bounded(named, 300))
 	case errors.As(err, &exit):
 		said := strings.Join(strings.Fields(strings.ReplaceAll(string(output), path, name)), " ")
 		return fmt.Errorf("the command does not parse in %s, so it would run nothing: %s", shell, bounded(said, 1000))

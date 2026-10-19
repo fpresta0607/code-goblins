@@ -48,6 +48,33 @@ const (
 		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
 		"  \"1\",Use tabs for each section,\"script[data-lavish-choices]\",choice,Which layout should the settings page use?\n" +
 		"next_step: \"Apply the requested changes.\"\n"
+	// The Code Goblins build 0.1.79-codegoblins.16 printed the prompts as a
+	// list once one carried a table cell's target, as on 2026-10-18, when the
+	// Overlord wrote on a cell of a review page's table and then sent a note
+	// on the whole page with Send & End.
+	lavishCellNote = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[2]:\n" +
+		"  - uid: \"1\"\n" +
+		"    prompt: then shouldnt this come first?\n" +
+		"    selector: \"div:nth-of-type(2) > table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"    tag: td\n" +
+		"    text: \"Ships after the security review; the launch waits on it\"\n" +
+		"    target:\n" +
+		"      type: table-cell\n" +
+		"      selector: \"div:nth-of-type(2) > table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"      rowLabel: Step two\n" +
+		"      columnLabel: WHEN\n" +
+		"      text: \"Ships after the security review; the launch waits on it\"\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: \"Ship the plan, with \\\"step two\\\" first\"\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"next_step: \"Apply the requested changes.\"\n"
 	// The Code Goblins build 0.1.79-codegoblins.16 prints this, exiting 0,
 	// when it is asked without --reopen to open a page whose review the
 	// Overlord ended (its createUserEndedOpenOutput).
@@ -155,19 +182,20 @@ func TestLavishPollCarriesAReplyToThePage(t *testing.T) {
 	assertLavishRequest(t, runner, execx.Request{Dir: profileDir(t), Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--agent-reply", reply, "--timeout-ms", "90000"}, KillTree: true})
 }
 
-// A poll's prompts are what the Overlord wrote on the page, read from the
-// prompt column of lavish-axi's prompt table, quoted or not, so a board can
-// say what he answered; a table without that column, or prompts given as a
-// list, read as none, and the whole output is still kept.
+// A poll's prompts are what the Overlord wrote on the page, read from
+// lavish-axi's prompts in either form it prints them, a table or a list,
+// quoted or not, so a board can say what he answered; a table without the
+// prompt column reads as none, and the whole output is still kept.
 func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 	for name, test := range map[string]struct {
 		output string
 		want   []string
 	}{
-		"two prompts, one quoted": {lavishTwoPrompts, []string{"LOVE EVERY BIT OF IT", `Make it bigger, then "ship" it`}},
-		"a declared choice":       {lavishChoice, []string{"Use tabs for each section"}},
-		"no prompt column":        {lavishFeedbackEnded, nil},
-		"no prompts":              {lavishWaiting, nil},
+		"two prompts, one quoted":   {lavishTwoPrompts, []string{"LOVE EVERY BIT OF IT", `Make it bigger, then "ship" it`}},
+		"a declared choice":         {lavishChoice, []string{"Use tabs for each section"}},
+		"prompts printed as a list": {lavishCellNote, []string{"then shouldnt this come first?", `Ship the plan, with "step two" first`}},
+		"no prompt column":          {lavishFeedbackEnded, nil},
+		"no prompts":                {lavishWaiting, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
@@ -176,6 +204,41 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 
 			if err != nil || !slices.Equal(poll.Prompts, test.want) {
 				t.Fatalf("Poll = %+v, %v; want prompts %q", poll, err, test.want)
+			}
+		})
+	}
+}
+
+// Each note he sent keeps what it is attached to, in the order he wrote them:
+// an element by its tag, selector and text, a table cell by its row and
+// column too, and a note from the page's message box as one on the whole
+// page, so whoever reads his set reads each note where he put it.
+func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
+	cell := "div:nth-of-type(2) > table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)"
+	for name, test := range map[string]struct {
+		output string
+		want   []PageNote
+	}{
+		"a cell and the whole page, as a list": {lavishCellNote, []PageNote{
+			{Prompt: "then shouldnt this come first?", Tag: "td", Selector: cell, Text: "Ships after the security review; the launch waits on it", Row: "Step two", Column: "WHEN"},
+			{Prompt: `Ship the plan, with "step two" first`, Tag: "message", Text: "Freeform message"},
+		}},
+		"the page and an element, as a table": {lavishTwoPrompts, []PageNote{
+			{Prompt: "LOVE EVERY BIT OF IT", Tag: "message", Text: "Freeform message"},
+			{Prompt: `Make it bigger, then "ship" it`, Tag: "element", Selector: "h1", Text: "Heading"},
+		}},
+		"no prompts": {lavishWaiting, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
+
+			// Act
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", time.Second)
+
+			// Assert
+			if err != nil || !slices.Equal(poll.Notes, test.want) {
+				t.Fatalf("Poll notes = %+v, %v; want %+v", poll.Notes, err, test.want)
 			}
 		})
 	}

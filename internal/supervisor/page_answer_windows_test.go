@@ -45,6 +45,30 @@ const (
 		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
 		"  u7,Make the header bigger,h1,element,Heading\n" +
 		"next_step: \"Apply the requested changes.\"\n"
+	// His Send & End of a chained set: a note on a cell of a table, then one
+	// on the whole page, as he wrote them on a goblin's review page on
+	// 2026-10-18. The cell's target makes lavish-axi print the prompts as a
+	// list rather than a table.
+	chainedOnThePage = "session:\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[2]:\n" +
+		"  - uid: \"1\"\n" +
+		"    prompt: then shouldnt this come first?\n" +
+		"    selector: \"table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"    tag: td\n" +
+		"    text: \"Ships after the security review; the launch waits on it\"\n" +
+		"    target:\n" +
+		"      type: table-cell\n" +
+		"      rowLabel: Step two\n" +
+		"      columnLabel: WHEN\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: Ship the plan as drawn\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"next_step: \"This was the last feedback before the user ended the session.\"\n"
 	scrawlWaiting        = "session:\n  status: waiting\n"
 	scrawlEnded          = "session:\n  status: ended\n  ended_by: user\n"
 	scrawlEndedByAnAgent = "session:\n  status: ended\n  ended_by: agent\n"
@@ -349,6 +373,37 @@ func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
 	}
 }
 
+// The notes he sends together with Send & End are one answer that reads as
+// the set he wrote: the goblin gets it once, the CFO's wake and the board's
+// answer hold it too, each note on a line of its own, in his order, with
+// what it is on. Read only as a table, the set above was no words at all:
+// the goblin got the feedback file's name alone and the board no answer.
+func TestAChainedSetOfNotesReachesItsGoblinOnceEachNoteWhereHePutIt(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, goblin, connection, page := pageOfAGoblin(t, store)
+	scrawl := newScrawlPage(0)
+	scrawl.send(chainedOnThePage)
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+	cell := `1. On the cell in row "Step two", column "WHEN": then shouldnt this come first?`
+	whole := "2. On the whole page: Ship the plan as drawn"
+
+	// Act
+	s.watchPages(context.Background())
+	s.pageWork.Wait()
+
+	// Assert
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": "+cell+" "+whole) {
+		t.Errorf("the goblin got %q, want the set once, each note where he put it", told)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the goblin has it: "+cell+"\n"+whole) {
+		t.Errorf("review wakes = %+v, want one holding the set, a note to a line", wakes)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Answer != cell+"\n"+whole {
+		t.Errorf("the page's item = %+v, want it answered with the set", got)
+	}
+}
+
 // His pick of the option a page declared answers the page though he does not
 // end the review: its item closes as answered at once, the goblin and the CFO
 // get the pick once, and the page stays watched until he ends it, which then
@@ -422,7 +477,7 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "asked for a revision on the page "+page) || !strings.Contains(wakes[1].Detail, "an agent, not the Overlord, ended the review of "+page) {
 		t.Fatalf("review wakes = %+v, want his revision and then the agent's end, and no answer of his", wakes)
 	}
-	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+": Make the header bigger") {
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+`: On the element "Heading": Make the header bigger`) {
 		t.Fatalf("the goblin got %q, want his note once, as a revision", told)
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.AnsweredBy != "" || got.Reason != "An agent ended the review on its page; the CFO was told." {

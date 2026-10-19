@@ -832,8 +832,8 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 	if exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
 	}
-	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: log in to Stripe" {
-		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: log in to Stripe (no card: it names nothing he acts on)" {
+		t.Fatalf("wake records = %+v %v, want the wait on the Overlord, saying it has no card", records, err)
 	}
 }
 
@@ -1101,6 +1101,63 @@ func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
 	}
 }
 
+// A card in his Command Center asks him something or lets him act. A wait on
+// him that names nothing he acts on there goes to the CFO alone, its line
+// saying it has no card, and the goblin is told how to put the step itself in
+// front of him; a wait that names the page he takes it on is a card. On
+// 2026-10-18 he met waits such as a goblin's need for two grants as cards with
+// nothing to press but Skip.
+func TestNotifyWaitThatNamesNothingHeActsOnIsNoCard(t *testing.T) {
+	for name, c := range map[string]struct {
+		args   []string
+		isCard bool
+	}{
+		"nothing he acts on":    {[]string{"g1", "--waiting-on", "overlord", "Production steps 1, 2 and 4 need the database and bank grants"}, false},
+		"the page he goes to":   {[]string{"g1", "--waiting-on", "overlord", "Add the two DNS records", "--link", "https://dash.cloudflare.com/acme/dns"}, true},
+		"a decision it follows": {[]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store", "--follows", "notify-g1-3"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			nativeGoblin(t, stateDir, "g1")
+			if slices.Contains(c.args, "--follows") {
+				decisionsForG1["the goblin's own question"](t, stateDir)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 0 || stderr.Len() != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the wait taken", exit, stderr.String())
+			}
+			records, err := wake.Pending(stateDir)
+			if err != nil || len(records) != 1 || !strings.HasPrefix(records[0].Detail, "waiting on overlord: ") {
+				t.Fatalf("wake records = %+v %v, want the CFO woken with the wait", records, err)
+			}
+			waits := waitsInTheInbox(t, stateDir)
+			if c.isCard {
+				if len(waits) != 1 || strings.Contains(records[0].Detail, "no card") || strings.Contains(stdout.String(), "No card went") {
+					t.Errorf("waits = %+v, wake = %q, stdout = %q, want the wait as one card", waits, records[0].Detail, stdout.String())
+				}
+				return
+			}
+			if len(waits) != 0 {
+				t.Errorf("waits = %+v, want no card in his Command Center", waits)
+			}
+			if !strings.HasSuffix(records[0].Detail, "(no card: it names nothing he acts on)") {
+				t.Errorf("wake = %q, want it to tell the CFO the wait has no card", records[0].Detail)
+			}
+			for _, said := range []string{"No card went to the Overlord's Command Center", "--run", "--lavish", "--link", "cfo auth request", "cfo notify g1 --blocked"} {
+				if !strings.Contains(stdout.String(), said) {
+					t.Errorf("stdout = %q, want it to say %q", stdout.String(), said)
+				}
+			}
+		})
+	}
+}
+
 // nativeGoblin records goblin id as a native task whose terminal is hosted in
 // stateDir with this test process as its program, so what the test runs is
 // proven to come from inside it and reaches the Command Center's inboxes.
@@ -1252,9 +1309,9 @@ func TestNotifyWaitPublishesWhatItDeclared(t *testing.T) {
 				stateDir := questionHome(t)
 				nativeGoblin(t, stateDir, "g1")
 				id, _ := open(t, stateDir)
-				flags, want := []string{"--separate"}, ""
+				flags, want, line := []string{"--separate", "--link", "https://dashboard.stripe.com/login"}, "", "waiting on overlord: Waiting for your answer on the store (link https://dashboard.stripe.com/login)"
 				if isFollowing {
-					flags, want = []string{"--follows", id}, id
+					flags, want, line = []string{"--follows", id}, id, "waiting on overlord: Waiting for your answer on the store"
 				}
 				var stdout, stderr bytes.Buffer
 
@@ -1268,7 +1325,7 @@ func TestNotifyWaitPublishesWhatItDeclared(t *testing.T) {
 				if waits := waitsInTheInbox(t, stateDir); len(waits) != 1 || waits[0].Follows != want {
 					t.Fatalf("published waits = %+v, want one following %q", waits, want)
 				}
-				if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: Waiting for your answer on the store" {
+				if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != line {
 					t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
 				}
 			})
@@ -1354,7 +1411,7 @@ func TestNotifyWaitWithNoDecisionOpenIsACardOfItsOwn(t *testing.T) {
 			}
 		})
 	}
-	for name, flags := range map[string][]string{"no declaration": nil, "--separate": {"--separate"}} {
+	for name, flags := range map[string][]string{"no declaration": {"--link", "https://dashboard.stripe.com/login"}, "--separate": {"--separate", "--link", "https://dashboard.stripe.com/login"}} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			stateDir := questionHome(t)

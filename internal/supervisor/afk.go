@@ -494,6 +494,12 @@ func (s *Service) cardHisSteps(session string, now time.Time) (carded []afk.Held
 		if step.Kind != afk.KindHis || !afk.NeedsHim(step) {
 			continue
 		}
+		// A line an older build logged may hold a step its card could not
+		// do: it is no card.
+		if err := afk.CheckStep(step); err != nil {
+			failed = append(failed, strconv.Quote(step.What)+" ("+err.Error()+")")
+			continue
+		}
 		if err := s.admitHisCard(step, identity, now); err != nil {
 			failed = append(failed, strconv.Quote(step.What)+" ("+err.Error()+")")
 			continue
