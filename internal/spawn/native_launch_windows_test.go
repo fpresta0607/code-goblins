@@ -52,7 +52,9 @@ const (
 // text can show only once its console is resized ("undrawn"), or the first
 // Enter can be taken as part of the text ("swallow"), where
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
-// Code shows over background work before it exits. With "pi-starting" it is
+// Code shows over background work before it exits. With "claude-lost-enter"
+// it is Claude Code's composer taking the first Enter that ends typed text
+// as a new line, and with "claude-enters-lost" every one. With "pi-starting" it is
 // pi 0.85.1 at its editor while its startup completes for a few seconds,
 // with "pi-stuck" one whose startup never completes, and with "pi-stale" one
 // whose first turn ends with the startup row still in its chat and which then
@@ -182,6 +184,10 @@ func fakeHarness() {
 			startup = time.Hour
 		}
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
+		return
+	}
+	if mode == "claude-lost-enter" || mode == "claude-enters-lost" {
+		claudeComposer(mode == "claude-enters-lost", keys, record, draw)
 		return
 	}
 	composer := func(text string) {
@@ -473,6 +479,45 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 			line.WriteString(key)
 		}
 		editor(line.String())
+	}
+}
+
+// claudeComposer shows Claude Code's composer, between its rules above its
+// permission mode, as a resumed goblin's was on a loaded machine on
+// 2026-10-20: the first Enter that ends typed text, or every one when
+// isEveryEnterLost, is taken as a new line, leaving the text in the composer
+// over an empty row. An Enter that submits the text starts a turn that never
+// ends.
+func claudeComposer(isEveryEnterLost bool, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
+	rule := strings.Repeat("─", 80)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	composer := func(rows ...string) {
+		draw(append(append([]string{"", rule}, rows...), rule, footer)...)
+	}
+	composer(">")
+	var line strings.Builder
+	lost := 0
+	for key := range keys {
+		switch {
+		case key == "\r" && line.Len() > 0 && (isEveryEnterLost || lost == 0):
+			lost++
+			record(codexEvent{Event: "enter taken as a new line", Text: line.String()})
+		case key == "\r" && line.Len() > 0:
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			draw("", "> "+line.String(), "", "✽ Reticulating… (esc to interrupt)", rule, ">", rule, footer)
+			line.Reset()
+			continue
+		case key == "\r":
+			record(codexEvent{Event: "enter on an empty composer"})
+			continue
+		default:
+			line.WriteString(key)
+		}
+		rows := []string{"> " + line.String()}
+		for range lost {
+			rows = append(rows, "")
+		}
+		composer(rows...)
 	}
 }
 
