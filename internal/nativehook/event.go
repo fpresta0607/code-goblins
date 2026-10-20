@@ -18,7 +18,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-const MaxInputBytes = 64 << 10
+// MaxInputBytes bounds a hook's input. Claude Code's PostToolUse input carries
+// the tool's whole response, and its largest, a Read's content or an Edit's
+// original file, are a few MB; a larger input still fails.
+const MaxInputBytes = 64 << 20
+
+// MaxEventBytes bounds a spooled event record. Validate holds each identity in
+// an event to 4096 bytes, so a valid record stays well under it.
+const MaxEventBytes = 64 << 10
 const MaxQueuedEvents = 4096
 
 type Event struct {
@@ -62,7 +69,7 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		return Event{}, err
 	}
 	if len(data) > MaxInputBytes {
-		return Event{}, errors.New("native hook input exceeds 64 KiB")
+		return Event{}, errors.New("native hook input exceeds 64 MiB")
 	}
 	// Only these protocol fields enter the spool. Prompts, transcripts, tool
 	// results, arguments, and environment values are intentionally not retained.
