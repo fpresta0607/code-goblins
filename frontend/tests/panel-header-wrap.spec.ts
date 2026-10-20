@@ -21,6 +21,8 @@ const BERNIE = {
   hosted_checks: { head: "5f52309400", state: "passed", checks: 9, at },
 };
 const BUTTONS = ["Open in VS Code", "Open folder", "Open Ticket #1516: pr open", "Open pull request PrecisionDocs-AI #1523", "Checks passed: All 9 checks passed"];
+// A phone has no VS Code or folder button, since both open on the PC.
+const PHONE_BUTTONS = BUTTONS.slice(2);
 
 // Opens Bernie's panel at a panel width, or maximized for the full width.
 async function open(page: Page, pane: number | "maximized", goblin = BERNIE) {
@@ -42,7 +44,7 @@ function headerReport() {
   const header = document.querySelector<HTMLElement>(".panel-header")!;
   const name = header.querySelector<HTMLElement>("#panel-title")!;
   const title = header.querySelector<HTMLElement>(".panel-goblin-task")!;
-  const actions = [...header.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")];
+  const actions = [...header.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility());
   // The tops of the lines an element's words are drawn on, inside its box.
   const lines = (element: HTMLElement) => {
     const box = element.getBoundingClientRect(), tops = new Set<number>();
@@ -111,7 +113,7 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
 
           // Assert: the Terminal view carries no buttons since 2026-10-17;
           // they are the Task view's.
-          expect(report.buttons).toEqual(view === "Task" ? BUTTONS : []);
+          expect(report.buttons).toEqual(view === "Task" ? where === "a phone" ? PHONE_BUTTONS : BUTTONS : []);
           expect(report.broken).toEqual([]);
           expect(report.nameLines).toBe(1);
           expect(report.titleLines).toBeLessThanOrEqual(2);

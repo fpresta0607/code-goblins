@@ -1,6 +1,7 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { SMALL_SCREEN } from "./small-screen.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -24,7 +25,8 @@ test("a long paste travels in ordered pieces the relay accepts, and nothing is l
   assert.deepEqual(inputMessages(new Uint8Array()), []);
 });
 
-test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys leave it", () => {
+test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys leave it", (t) => {
+  browser(t);
   assert.equal(fontSizeFor("=", 20), 21);
   assert.equal(fontSizeFor("+", MAX_FONT_SIZE), MAX_FONT_SIZE);
   assert.equal(fontSizeFor("-", 20), 19);
@@ -122,13 +124,15 @@ test("a panel too small for a usable grid, or an unmeasured cell, gives no fit",
 });
 
 // browser gives a test this device's storage, which can refuse writes as a
-// private window does, and the page's window.
-function browser(t: TestContext, items = new Map<string, string>(), isRefused = false) {
+// private window does, the page's window, and its screen: a phone's small
+// one, or a wider one.
+function browser(t: TestContext, items = new Map<string, string>(), isRefused = false, isPhone = false) {
   const storage = { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { if (isRefused) throw new Error("storage refused"); items.set(key, value); } };
   const view = new EventTarget();
   Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
   Object.defineProperty(globalThis, "window", { value: view, configurable: true });
-  t.after(() => { Reflect.deleteProperty(globalThis, "localStorage"); Reflect.deleteProperty(globalThis, "window"); });
+  Object.defineProperty(globalThis, "matchMedia", { value: (query: string) => ({ matches: isPhone && query === SMALL_SCREEN }), configurable: true });
+  t.after(() => { for (const name of ["localStorage", "window", "matchMedia"]) Reflect.deleteProperty(globalThis, name); });
   return { items, view };
 }
 
@@ -197,6 +201,22 @@ test("a kept size outside 12 to 28 px, or none, draws at 20 px", (t) => {
     // Assert
     assert.equal(drawn, size, String(kept));
   }
+});
+
+test("on a phone a terminal with no size kept draws at 12 px, Ctrl+0 restores 12, and a kept size still wins", (t) => {
+  const cases: [string | null, number][] = [[null, PHONE_FONT_SIZE], ["11", PHONE_FONT_SIZE], ["abc", PHONE_FONT_SIZE], ["20", 20], ["16", 16]];
+  for (const [kept, size] of cases) {
+    // Arrange
+    browser(t, new Map(kept === null ? [] : [["cfo-terminal-font-size", kept]]), false, true);
+
+    // Act
+    const drawn = storedFontSize();
+
+    // Assert
+    assert.equal(drawn, size, String(kept));
+  }
+  assert.equal(fontSizeFor("0", 22), PHONE_FONT_SIZE);
+  assert.equal(PHONE_FONT_SIZE, 12);
 });
 
 test("every iPhone browser and Safari is WebKit, and Chromium and Firefox elsewhere are not", () => {

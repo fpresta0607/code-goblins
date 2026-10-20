@@ -62,6 +62,9 @@ async function open(page: Page, goblins: object[], name: string) {
 // A card is found by its goblin's name, since another's status can name the
 // same goblin as the one it waits on.
 async function select(page: Page, name: string) {
+  // On a phone an open panel covers the board, and Back returns to it.
+  const back = page.getByRole("button", { name: "Back to Board", exact: true });
+  if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: name }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(name);
   const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });

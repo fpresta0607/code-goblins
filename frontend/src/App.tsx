@@ -38,6 +38,8 @@ import { QuickTourDialog } from "./quick-tour-dialog";
 import { VOICE_HINT_KEY } from "./voice";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TrainPanel } from "./train-panel";
+import { SMALL_SCREEN } from "./small-screen";
+import { useVisualViewport } from "./use-visual-viewport";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -109,7 +111,7 @@ export function App() {
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [switchFocus, setSwitchFocus] = useState(0);
-  const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
+  const [compact, setCompact] = useState(() => matchMedia(SMALL_SCREEN).matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
   // that is starting, so closing it is not undone.
@@ -143,7 +145,7 @@ export function App() {
   const [boardNarrow, setBoardNarrow] = useState(false);
   useEffect(watchTips, []);
   useEffect(() => {
-    const query = matchMedia("(max-width: 40rem)");
+    const query = matchMedia(SMALL_SCREEN);
     const changed = () => setCompact(query.matches);
     query.addEventListener("change", changed);
     return () => query.removeEventListener("change", changed);
@@ -202,10 +204,7 @@ export function App() {
     setPanelView(panel);
     setSelectionEpoch((epoch) => epoch + 1);
     setPaneOpen(true);
-    requestAnimationFrame(() => {
-      pane.current?.focus({ preventScroll: true });
-      if (compact) pane.current?.scrollIntoView({ behavior: "instant", block: "start" });
-    });
+    requestAnimationFrame(() => pane.current?.focus({ preventScroll: true }));
   };
   // A switch, by its keys or from the board, shows that terminal at once and
   // hands it the keyboard, unless the caller keeps the keyboard where it is.
@@ -239,13 +238,12 @@ export function App() {
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, cfoConfigured: snapshot.cfo_configured, choice: firstRunChoice });
   // The first time this browser shows the board of a home whose CFO runs, it
   // opens as the Overlord keeps his own: the Board with the CFO's terminal
-  // beside it and the keyboard in that terminal. A window too narrow for two
-  // columns shows the board with the panel under it, so there the keyboard
-  // stays where it is and the board stays in view. A tour owed takes the
-  // keyboard first.
+  // beside it and the keyboard in that terminal. On a small screen an open
+  // panel takes the whole screen, so there the board shows alone. A tour owed
+  // takes the keyboard first.
   if (opensFirst && snapshot && !firstRun) {
     setOpensFirst(false);
-    if (snapshot.cfo_runs) { setView("Board"); switchTo(CFO_KEY, !compact && !tourDue); }
+    if (snapshot.cfo_runs && !compact) { setView("Board"); switchTo(CFO_KEY, !tourDue); }
   }
   // The tour begins at the CFO's terminal, so a tour owed waits for a CFO
   // that runs, such as one the first-run page started.
@@ -275,6 +273,13 @@ export function App() {
   // shows the review placeholder, which takes no view's choice, so a
   // terminal maximized before a reload never hides the board behind it.
   const panelWide = showsPanel && maximized && !compact;
+  // On a small screen a panel opened on anything, a task, a train or the CFO,
+  // is the whole view below the top bar, and its corner's Back returns to the
+  // board or the graph it was opened from (the Overlord, 2026-10-20: "It
+  // should become the full screen below the header banner"). The tour, which
+  // lights the board and the panel in turn, keeps them stacked.
+  const fillsPhone = compact && showsPanel && !touring && (!!selected || cfoOpen);
+  useVisualViewport(fillsPhone);
   // Back, on the panel of anything but the CFO, returns the panel to the
   // CFO's on the view it last showed, still maximized if it was, and hands
   // the keyboard back to where the panel was opened from, or to the panel
@@ -295,6 +300,8 @@ export function App() {
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
   // own, beside the board; a refusal says so under the button for a moment.
+  // A window on the PC is nothing to a phone, so a small screen has no such
+  // button.
   const shownWindow = snapshot && terminalShown && !child ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
   const shownKey = JSON.stringify(shownWindow);
   const openWindow = async () => {
@@ -312,17 +319,19 @@ export function App() {
     store(MAXIMIZED_KEYS[maximizeView], choice);
   };
   const controls: PanelControl[] = [];
-  if (shownWindow) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
+  if (shownWindow && !compact) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
   const row = {
     controls,
-    corner: backShown
+    corner: fillsPhone
+      ? <button className="labelled-button" aria-label={"Back to " + view} onClick={close}><Icon name="back" /><span>Back</span></button>
+      : backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
       : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
     notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
-  return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
-    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
+  return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
+    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown && !fillsPhone) back(); else close(); }
   }}>
     <header className="topbar">
       <a className="brand" href="/" aria-label="Code Goblins home">
@@ -333,11 +342,13 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView("terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {snapshot && !firstRun && <button className="icon-button" aria-label="Replay the tour" data-tip="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
+        {/* A small screen has no room for the tour's button, nor for the
+            layout's, since a board that narrow is always stacked. */}
+        {snapshot && !firstRun && !compact && <button className="icon-button" aria-label="Replay the tour" data-tip="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
         {/* A kanban board too narrow for columns side by side is stacked, so
             there the button changes nothing and says why; a board stacked by
             choice keeps its way back, since the panel yields to a kanban. */}
-        {!firstRun && view === "Board" && (boardNarrow && boardLayout === "kanban"
+        {!firstRun && view === "Board" && !compact && (boardNarrow && boardLayout === "kanban"
           ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
@@ -345,7 +356,7 @@ export function App() {
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
-        {!paneOpen && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
+        {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
@@ -354,7 +365,7 @@ export function App() {
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} devDrive={snapshot.dev_drive} onStarting={() => setFirstRunChoice("setup")} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
-      <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
+      <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
           : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onSelectTrain={(train, source) => select({ train: train.id }, source, "task")} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
             : compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
