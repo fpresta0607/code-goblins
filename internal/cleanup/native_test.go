@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -131,14 +133,7 @@ func endedPID(t *testing.T) int {
 // until the test ends, and is stopped by the test.
 func reusedPID(t *testing.T) int {
 	t.Helper()
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	command := exec.Command(program, fakeClaude, "idle")
-	if _, err := command.StdinPipe(); err != nil {
-		t.Fatal(err)
-	}
+	command := idleClaudeCommand(t)
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +142,29 @@ func reusedPID(t *testing.T) int {
 		_ = command.Wait()
 	})
 	return command.Process.Pid
+}
+
+// unopenableReusedPID is reusedPID for a process this user may not open, as
+// a system service's conhost.exe that took an ended host's pid after a
+// restart was (issue #1206).
+func unopenableReusedPID(t *testing.T) int {
+	t.Helper()
+	return proctest.StartUnopenable(t, idleClaudeCommand(t))
+}
+
+// idleClaudeCommand is the stand-in Claude waiting at its composer outside
+// any terminal, on input that never comes.
+func idleClaudeCommand(t *testing.T) *exec.Cmd {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := execx.Command(program, fakeClaude, "idle")
+	if _, err := command.StdinPipe(); err != nil {
+		t.Fatal(err)
+	}
+	return command
 }
 
 // assertNoHerdrRequests proves a native cleanup never asks Herdr anything: the
@@ -162,14 +180,16 @@ func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
 
 // A native task whose terminal has ended - its host gone with its record, or
 // its record left behind by a host that ended, even once a later process has
-// its pid - is cleaned like a Herdr one:
+// its pid, one this user may not open included - is cleaned like a Herdr one:
 // its worktree returned and its record retired, with nothing asked of Herdr.
-// cfo cleanup used to refuse every native task as not a Herdr task.
+// cfo cleanup used to refuse every native task as not a Herdr task, and until
+// issue #1206 one whose pid a process this user may not open reused.
 func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	for name, hostPID := range map[string]func(*testing.T) int{
 		"no host record":                          func(*testing.T) int { return 0 },
 		"record of an ended host":                 endedPID,
 		"record whose pid a later process reuses": reusedPID,
+		"record whose pid a later process this user may not open reuses": unopenableReusedPID,
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := nativeCleanupFixture(t, hostPID(t))

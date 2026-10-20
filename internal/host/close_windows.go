@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -94,19 +95,35 @@ func pipeClosing(err error) bool {
 // Running reports whether the host record names may still run: only a
 // process Windows shows as ended, or as never started, does not, and neither
 // does one that started after the host recorded itself, which reuses the pid
-// of a host that ended without removing its record.
+// of a host that ended without removing its record. A process this user may
+// not open, as a system service's is, is judged by the start the machine's
+// process list gives, which needs no handle: a host's pid such a process took
+// after a restart once read as the host for good (issue #1206).
 func Running(record Record) bool {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(record.HostPID))
-	if err != nil {
-		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
-	}
-	defer windows.CloseHandle(handle)
-	var code uint32
-	if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != stillActive {
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return false
 	}
+	if err == nil {
+		defer windows.CloseHandle(handle)
+		var code uint32
+		if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != stillActive {
+			return false
+		}
+	}
 	started, known := proc.StartTime(record.HostPID)
-	return !known || !started.After(record.Started)
+	if !known {
+		processes, err := proc.Processes()
+		if err != nil {
+			return true
+		}
+		index := slices.IndexFunc(processes, func(process proc.Entry) bool { return process.PID == record.HostPID })
+		if index < 0 {
+			return false
+		}
+		started = processes[index].Start
+	}
+	return !started.After(record.Started)
 }
 
 // stillActive is the exit code Windows reports for a process that runs.
