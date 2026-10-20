@@ -69,6 +69,28 @@ const (
 		"    tag: message\n" +
 		"    text: Freeform message\n" +
 		"next_step: \"This was the last feedback before the user ended the session.\"\n"
+	// His pick sent with Send, the review not ended, together with a note on
+	// a cell of the page's table, as toon 2.3.1 prints it: the cell's target
+	// makes the prompts a list, and read only as a table, the pick was a
+	// revision (#1172).
+	pickedWithACellNote = "session:\n" +
+		"  status: feedback\n" +
+		"prompts[2]:\n" +
+		"  - uid: \"1\"\n" +
+		"    prompt: Build it as shown\n" +
+		"    selector: \"script[data-lavish-choices]\"\n" +
+		"    tag: choice\n" +
+		"    text: Build it as shown?\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: then shouldnt this come first?\n" +
+		"    selector: \"table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"    tag: td\n" +
+		"    text: Ships after the security review; the launch waits on it\n" +
+		"    target:\n" +
+		"      type: table-cell\n" +
+		"      rowLabel: Step two\n" +
+		"      columnLabel: WHEN\n" +
+		"next_step: Apply the requested changes.\n"
 	scrawlWaiting        = "session:\n  status: waiting\n"
 	scrawlEnded          = "session:\n  status: ended\n  ended_by: user\n"
 	scrawlEndedByAnAgent = "session:\n  status: ended\n  ended_by: agent\n"
@@ -405,52 +427,63 @@ func TestAChainedSetOfNotesReachesItsGoblinOnceEachNoteWhereHePutIt(t *testing.T
 }
 
 // His pick of the option a page declared answers the page though he does not
-// end the review: its item closes as answered at once, the goblin and the CFO
-// get the pick once, and the page stays watched until he ends it, which then
-// adds nothing.
+// end the review, alone or sent with a note on a table cell: its item closes
+// as answered at once, the goblin and the CFO get the pick once, with his
+// note where he put it, and the page stays watched until he ends it, which
+// then adds nothing.
 func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
-	meta, goblin, connection, page := pageOfAGoblin(t, store)
-	scrawl := newScrawlPage(0)
-	scrawl.send(pickedOnThePage)
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for name, test := range map[string]struct {
+		output string
+		answer string
+	}{
+		"his pick alone":            {pickedOnThePage, "Build it as shown"},
+		"his pick with a cell note": {pickedWithACellNote, `1. On the choice "Build it as shown?": Build it as shown 2. On the cell in row "Step two", column "WHEN": then shouldnt this come first?`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, goblin, connection, page := pageOfAGoblin(t, store)
+			scrawl := newScrawlPage(0)
+			scrawl.send(test.output)
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	// Act
-	s.watchPages(ctx)
-	var answered Review
-	for deadline := time.Now().Add(time.Minute); answered.State != "answered"; time.Sleep(10 * time.Millisecond) {
-		if answered = store.Snapshot().Reviews[0]; time.Now().After(deadline) {
-			t.Fatalf("the page's item after his pick = %+v, want it answered", answered)
-		}
-	}
-	watchedAfterThePick := len(store.watchedPages()) == 1
-	told := goblin.waitForLines(t, 1)
-	for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the CFO was never told his pick")
-		}
-	}
-	scrawl.send(scrawlEnded)
-	s.pageWork.Wait()
+			// Act
+			s.watchPages(ctx)
+			var answered Review
+			for deadline := time.Now().Add(time.Minute); answered.State != "answered"; time.Sleep(10 * time.Millisecond) {
+				if answered = store.Snapshot().Reviews[0]; time.Now().After(deadline) {
+					t.Fatalf("the page's item after his pick = %+v, want it answered", answered)
+				}
+			}
+			watchedAfterThePick := len(store.watchedPages()) == 1
+			told := goblin.waitForLines(t, 1)
+			for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the CFO was never told his pick")
+				}
+			}
+			scrawl.send(scrawlEnded)
+			s.pageWork.Wait()
 
-	// Assert
-	if answered.AnsweredBy != "overlord" || answered.AnsweredIn != "page" || answered.RevisingSince != nil {
-		t.Fatalf("the page's item after his pick = %+v, want it answered by him on its page, no revision", answered)
-	}
-	if !watchedAfterThePick {
-		t.Error("the page stopped being watched at his pick, want it watched until he ends the review")
-	}
-	if len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": Build it as shown") {
-		t.Fatalf("the goblin got %q, want his pick once", told)
-	}
-	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "answered on the page "+page) || !strings.Contains(wakes[0].Detail, "Build it as shown") {
-		t.Fatalf("review wakes = %+v, want the CFO told his pick once", wakes)
-	}
-	if got := store.Snapshot().Reviews[0]; got.PageSettled == nil {
-		t.Errorf("the page's item after he ended the review = %+v, want its page settled", got)
+			// Assert
+			if answered.AnsweredBy != "overlord" || answered.AnsweredIn != "page" || answered.RevisingSince != nil {
+				t.Fatalf("the page's item after his pick = %+v, want it answered by him on its page, no revision", answered)
+			}
+			if !watchedAfterThePick {
+				t.Error("the page stopped being watched at his pick, want it watched until he ends the review")
+			}
+			if len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": "+test.answer) {
+				t.Fatalf("the goblin got %q, want his pick once", told)
+			}
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "answered on the page "+page) || !strings.Contains(wakes[0].Detail, "Build it as shown") {
+				t.Fatalf("review wakes = %+v, want the CFO told his pick once", wakes)
+			}
+			if got := store.Snapshot().Reviews[0]; got.PageSettled == nil {
+				t.Errorf("the page's item after he ended the review = %+v, want its page settled", got)
+			}
+		})
 	}
 }
 

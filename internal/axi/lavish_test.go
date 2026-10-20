@@ -75,6 +75,116 @@ const (
 		"    tag: message\n" +
 		"    text: Freeform message\n" +
 		"next_step: \"Apply the requested changes.\"\n"
+	// The toon 2.3.1 encoder the Code Goblins build 0.1.79-codegoblins.17
+	// prints with also makes his pick of a declared choice a list item when he
+	// sends it with a note on a table cell.
+	lavishPickWithACellNote = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  status: feedback\n" +
+		"prompts[2]:\n" +
+		"  - uid: \"1\"\n" +
+		"    prompt: Build it as shown\n" +
+		"    selector: \"script[data-lavish-choices]\"\n" +
+		"    tag: choice\n" +
+		"    text: Build it as shown?\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: then shouldnt this come first?\n" +
+		"    selector: \"table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"    tag: td\n" +
+		"    text: Ships after the security review; the launch waits on it\n" +
+		"    target:\n" +
+		"      type: table-cell\n" +
+		"      rowLabel: Step two\n" +
+		"      columnLabel: WHEN\n" +
+		"next_step: Apply the requested changes.\n"
+	// Each other kind of note Scrawl sends carries more than a table holds,
+	// nested its own way, as toon 2.3.1 prints them sent together: a text
+	// selection's range, a Mermaid node, a batch of layout issues, a
+	// whiteboard's scene, and the images he attached to a note on an element.
+	lavishEveryKindOfNote = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  status: feedback\n" +
+		"prompts[6]:\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: say when it ships\n" +
+		"    selector: \"main > p:nth-of-type(2)\"\n" +
+		"    tag: text\n" +
+		"    text: the launch waits\n" +
+		"    target:\n" +
+		"      type: text-range\n" +
+		"      text: the launch waits\n" +
+		"      selector: \"main > p:nth-of-type(2)\"\n" +
+		"      commonAncestorSelector: \"main > p:nth-of-type(2)\"\n" +
+		"      start:\n" +
+		"        path[2]: 0,1\n" +
+		"        offset: 4\n" +
+		"      end:\n" +
+		"        path[2]: 0,1\n" +
+		"        offset: 20\n" +
+		"  - uid: m1\n" +
+		"    prompt: rename it Release\n" +
+		"    selector: svg g.node\n" +
+		"    tag: g\n" +
+		"    text: Build\n" +
+		"    target:\n" +
+		"      type: mermaid-node\n" +
+		"      diagramId: d1\n" +
+		"      nodeId: B\n" +
+		"      label: Build\n" +
+		"      selector: svg g.node\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: fix these\n" +
+		"    selector: \"\"\n" +
+		"    tag: layout-warnings\n" +
+		"    text: 2 layout issues\n" +
+		"    target:\n" +
+		"      type: layout-warnings\n" +
+		"      warnings[2]{id,rule,selector,component,axis,overflow_px,viewport_class,viewport_width,status,last_seen_at}:\n" +
+		"        w1,overflow,div.card,Card,horizontal,12,phone,390,open,\"2026-10-19T00:00:00Z\"\n" +
+		"        w2,clip,div.price,\"\",vertical,3.5,desktop,1440,open,\"2026-10-19T00:00:01Z\"\n" +
+		"      artifact_revision: 3\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: Moved Review below Build\n" +
+		"    selector: \"\"\n" +
+		"    tag: whiteboard\n" +
+		"    text: Diagram 1\n" +
+		"    target:\n" +
+		"      type: excalidraw-scene\n" +
+		"      diagramIndex: 0\n" +
+		"      diagramId: d1\n" +
+		"      sourceHash: 5d41402a\n" +
+		"      scenePath: \"C:\\\\work\\\\.lavish\\\\d1.excalidraw\"\n" +
+		"      previewPath: \"C:\\\\work\\\\.lavish\\\\d1.png\"\n" +
+		"      imageFallback: false\n" +
+		"      stats:\n" +
+		"        added: 0\n" +
+		"        removed: 0\n" +
+		"        moved: 1\n" +
+		"  - uid: u7\n" +
+		"    prompt: make it bigger\n" +
+		"    selector: h2\n" +
+		"    tag: h2\n" +
+		"    text: Pricing\n" +
+		"    attachments[2]:\n" +
+		"      - id: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png\n" +
+		"        path: \"C:\\\\work\\\\a.png\"\n" +
+		"        mime: image/png\n" +
+		"        bytes: 1234\n" +
+		"        width: 100\n" +
+		"        height: 50\n" +
+		"      - id: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png\n" +
+		"        name: after.png\n" +
+		"        path: \"C:\\\\work\\\\b.png\"\n" +
+		"        mime: image/png\n" +
+		"        bytes: 2345\n" +
+		"        width: 200\n" +
+		"        height: 100\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: Ship it after these\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"next_step: Apply the requested changes.\n"
 	// The Code Goblins build 0.1.79-codegoblins.16 prints this, exiting 0,
 	// when it is asked without --reopen to open a page whose review the
 	// Overlord ended (its createUserEndedOpenOutput).
@@ -212,7 +322,8 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 // Each note he sent keeps what it is attached to, in the order he wrote them:
 // an element by its tag, selector and text, a table cell by its row and
 // column too, and a note from the page's message box as one on the whole
-// page, so whoever reads his set reads each note where he put it.
+// page, so whoever reads his set reads each note where he put it. What a note
+// carries nested deeper takes none of those fields and ends no note.
 func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
 	cell := "div:nth-of-type(2) > table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)"
 	for name, test := range map[string]struct {
@@ -226,6 +337,14 @@ func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
 		"the page and an element, as a table": {lavishTwoPrompts, []PageNote{
 			{Prompt: "LOVE EVERY BIT OF IT", Tag: "message", Text: "Freeform message"},
 			{Prompt: `Make it bigger, then "ship" it`, Tag: "element", Selector: "h1", Text: "Heading"},
+		}},
+		"every other kind of note, as a list": {lavishEveryKindOfNote, []PageNote{
+			{Prompt: "say when it ships", Tag: "text", Selector: "main > p:nth-of-type(2)", Text: "the launch waits"},
+			{Prompt: "rename it Release", Tag: "g", Selector: "svg g.node", Text: "Build"},
+			{Prompt: "fix these", Tag: "layout-warnings", Text: "2 layout issues"},
+			{Prompt: "Moved Review below Build", Tag: "whiteboard", Text: "Diagram 1"},
+			{Prompt: "make it bigger", Tag: "h2", Selector: "h2", Text: "Pricing"},
+			{Prompt: "Ship it after these", Tag: "message", Text: "Freeform message"},
 		}},
 		"no prompts": {lavishWaiting, nil},
 	} {
@@ -246,17 +365,19 @@ func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
 
 // A poll says when he picked an option the page declared in its
 // data-lavish-choices block, which Scrawl sends tagged choice: that pick
-// answers the page. What he wrote himself, on the page or on an element, is
-// no pick.
+// answers the page, in either form lavish-axi prints the prompts. What he
+// wrote himself, on the page or on an element, is no pick.
 func TestLavishPollSaysWhenHePickedAnOptionThePageDeclared(t *testing.T) {
 	for name, test := range map[string]struct {
 		output   string
 		isPicked bool
 	}{
-		"a declared choice":        {lavishChoice, true},
-		"a message and a note":     {lavishTwoPrompts, false},
-		"a table without its tags": {lavishFeedbackEnded, false},
-		"no prompts":               {lavishWaiting, false},
+		"a declared choice":                       {lavishChoice, true},
+		"a declared choice and a cell, as a list": {lavishPickWithACellNote, true},
+		"a cell and the whole page, as a list":    {lavishCellNote, false},
+		"a message and a note":                    {lavishTwoPrompts, false},
+		"a table without its tags":                {lavishFeedbackEnded, false},
+		"no prompts":                              {lavishWaiting, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
