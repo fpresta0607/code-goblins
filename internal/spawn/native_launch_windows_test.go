@@ -49,8 +49,9 @@ const (
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
 // ("unmoved"), each turn can end a moment after it starts ("turns"), typed
-// text can show only once its console is resized ("undrawn"), or the first
-// Enter can be taken as part of the text ("swallow"), where
+// text can show only once its console is resized ("undrawn"), an Enter with
+// no End before it can be taken as part of the text ("swallow"), or the first
+// submit key can be taken seconds after it arrived ("slow"), where
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
 // Code shows over background work before it exits. With "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
@@ -231,7 +232,7 @@ func fakeHarness() {
 	}
 	composer("Ask Codex to do anything")
 	var line strings.Builder
-	late, swallowed := false, false
+	late, hasPasteEnded, slow := false, false, mode == "slow"
 	resized := make(chan struct{}, 1)
 	if mode == "undrawn" {
 		go watchWidth(resized)
@@ -272,12 +273,20 @@ func fakeHarness() {
 					record(codexEvent{Event: "entered at a late prompt"})
 				}
 				late = true
-			case key == "\r" && mode == "swallow" && !swallowed:
-				// As Codex 0.154 did, the Enter ending a paste is taken as
-				// part of it, and the text stays in the composer.
-				swallowed = true
+			case key == "\r" && mode == "swallow" && !hasPasteEnded:
+				// As Codex 0.154 does, an Enter that no End ended the paste
+				// before is taken as part of it, and the text stays in the
+				// composer.
+				hasPasteEnded = true
 				record(codexEvent{Event: "swallowed enter"})
 			case key == "\r":
+				if slow {
+					// A loaded runner can leave an idle Codex taking its
+					// submit key seconds after it arrived, the text still
+					// showing in its composer.
+					time.Sleep(3 * time.Second)
+					slow = false
+				}
 				record(codexEvent{Event: "submitted", Text: line.String()})
 				// Like codex, it ends at a submitted /exit.
 				if line.String() == "/exit" {
@@ -302,7 +311,10 @@ func fakeHarness() {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
 				}
-			case key == "\x1b[A" || key == "\x1b[B" || key == "\x1b[F":
+			case key == "\x1b[F":
+				// End ends a paste and leaves the text as it is.
+				hasPasteEnded = true
+			case key == "\x1b[A" || key == "\x1b[B":
 			default:
 				line.WriteString(key)
 				if mode == "trickle" {
@@ -835,9 +847,12 @@ func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T
 // nothing that names the fleet's own session: no billing key, no Herdr pane,
 // no Claude Code or Codex session marker. A prompt still drawing, its options
 // not shown yet or its focus not shown for a moment after a move, is read
-// again until its focus shows, and answered as one drawn at once.
+// again until its focus shows, and answered as one drawn at once. A codex
+// that takes its submit key seconds late, the text still in its composer, is
+// sent that key once, so no second Enter reaches it after the instruction
+// (#1171).
 func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testing.T) {
-	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn", "an Enter taken as part of the paste": "swallow"} {
+	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn", "a paste that only End ends": "swallow", "a submit key taken late": "slow"} {
 		t.Run(name, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, mode)
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
