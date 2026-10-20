@@ -69,8 +69,13 @@ func TestHookRejectsMalformedValuesItSkips(t *testing.T) {
 	input := func(response string) string {
 		return `{"session_id":"s","cwd":` + string(cwd) + `,"tool_response":` + response + `,"hook_event_name":"PostToolUse"}`
 	}
-	if _, err := Normalize(strings.NewReader(input(`{"a":[1,-2.5e+3,0,true,false,null,"\u00e9\n\""]}`)), Context{Harness: "claude", Now: time.Now()}); err != nil {
-		t.Fatalf("well-formed input refused: %v", err)
+	for _, response := range []string{
+		`{"a":[1,-2.5e+3,0,true,false,null,"\u00e9\n\""]}`,
+		strings.Repeat("[", maxInputDepth-1) + "1" + strings.Repeat("]", maxInputDepth-1),
+	} {
+		if _, err := Normalize(strings.NewReader(input(response)), Context{Harness: "claude", Now: time.Now()}); err != nil {
+			t.Fatalf("well-formed tool response %.40q refused: %v", response, err)
+		}
 	}
 	for _, response := range []string{
 		`{"a":tru}`, `"\x"`, `"\u00g0"`, "\"a\tb\"", `01`, `1.`, `-`, `1e`, `[1,]`, `{"a"}`, `{"a":1,}`, `[1 2]`, `{"a":1`,

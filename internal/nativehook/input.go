@@ -177,12 +177,12 @@ func (in *hookInput) members(closer byte, member func() error) error {
 
 // value reads one JSON value at the given nesting depth.
 func (in *hookInput) value(depth int) error {
-	if depth > maxInputDepth {
-		return errors.New("hook input nests too deeply")
-	}
 	b, err := in.next()
 	if err != nil {
 		return err
+	}
+	if (b == '{' || b == '[') && depth > maxInputDepth {
+		return errors.New("hook input nests too deeply")
 	}
 	switch {
 	case b == '{':
