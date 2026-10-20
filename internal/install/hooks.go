@@ -93,18 +93,15 @@ func Hooks(root string) []Hook {
 func NativeHooks(root, stateDir string) []Hook {
 	var hooks []Hook
 	for _, event := range nativehook.Events("claude") {
-		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: NativeHookSeconds})
+		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: nativehook.TimeoutSeconds})
 	}
 	return hooks
 }
 
-// NativeHookSeconds is how long Claude Code lets a native session hook run,
-// and KeyAlarmSeconds how long it lets the key alarm run, its default for a
-// command hook, which the alarm ran under as a hook entry of its own.
-const (
-	NativeHookSeconds = 3
-	KeyAlarmSeconds   = 600
-)
+// KeyAlarmSeconds is how long Claude Code lets the key alarm run, its
+// default for a command hook, which the alarm ran under as a hook entry of
+// its own.
+const KeyAlarmSeconds = 600
 
 // CFOAutoCompactWindow is the window, in tokens, the CFO compacts in. Claude
 // Code takes it as its autoCompactWindow setting, takes its 20K output

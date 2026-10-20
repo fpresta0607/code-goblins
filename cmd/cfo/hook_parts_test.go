@@ -151,11 +151,11 @@ func TestAPartRunsOnPastAnotherPartsShorterLimit(t *testing.T) {
 	}
 }
 
-// The limits are those Claude Code held each hook to as an entry of its
-// own: the native hook its three seconds, the key alarm Claude Code's
+// The limits are those Claude Code holds each hook to as an entry of its
+// own: the native hook the native hooks' limit, the key alarm Claude Code's
 // default for a command hook.
 func TestTheMergedHookKeepsEachHooksOwnLimit(t *testing.T) {
-	if nativeHookLimit != 3*time.Second || keyAlarmLimit != 600*time.Second {
-		t.Fatalf("limits = %s and %s, want 3s and 10m0s", nativeHookLimit, keyAlarmLimit)
+	if nativeHookLimit != nativehook.TimeoutSeconds*time.Second || keyAlarmLimit != 600*time.Second {
+		t.Fatalf("limits = %s and %s, want %ds and 10m0s", nativeHookLimit, keyAlarmLimit, nativehook.TimeoutSeconds)
 	}
 }
