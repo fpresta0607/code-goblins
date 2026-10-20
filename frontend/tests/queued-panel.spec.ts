@@ -42,6 +42,9 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
 
 async function select(page: Page, id: string) {
+  // On a phone an open panel covers the board, and Back returns to it.
+  const back = page.getByRole("button", { name: "Back to Board", exact: true });
+  if (await back.count()) await back.click();
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
   const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });

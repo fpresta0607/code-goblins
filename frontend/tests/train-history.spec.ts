@@ -322,6 +322,9 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
 
       for (const [name, number] of [["Rosie - Inline Editor", 517], ["Wes - Train Conductor", 519], ["Dolly - Rank Keeper", 520], ["Pearl - Screen Model", 524]] as const) {
+        // On a phone an open panel covers the board, and Back returns to it.
+        const back = page.getByRole("button", { name: "Back to Board", exact: true });
+        if (await back.count()) await back.click();
         await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: name })).toHaveCount(1);
         await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
         await expect(card(page, name).locator(".hosted-checks")).toHaveCount(0);
@@ -329,6 +332,8 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
         await expect(page.locator(".goblin-panel .panel-header .hosted-checks")).toHaveAttribute("aria-label", /^Landed: /);
       }
+      const back = page.getByRole("button", { name: "Back to Board", exact: true });
+      if (await back.count()) await back.click();
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model"]);
       await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
     });

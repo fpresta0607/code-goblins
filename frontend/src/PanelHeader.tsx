@@ -106,11 +106,12 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
         </div>}
       </div>
       {/* A finished task's checks and deploy are in its panel alone, so its
-          links show there too; only a live one opens its folder. */}
+          links show there too; only a live one opens its folder, and not on
+          a small screen, since VS Code and the folder open on the PC. */}
       {!compact && owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">
         {!!task.generation && <>
-          <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
-          <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
+          <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
+          <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
         </>}
         {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.kind === "browser-signin" ? signInHeading(waiting.signin) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
         {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
