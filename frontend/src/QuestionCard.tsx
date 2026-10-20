@@ -43,6 +43,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
   const asker = question.task ? task ? goblinName(task) : question.task : "The CFO";
   const payload = questionAnswer(question, displayed.selection, displayed.written);
+  const canSend = connected && !!payload && !draft.sending;
   const choices = questionChoices(question);
   const images = choices.filter((choice) => choice.image);
   const mark = outcome ? deliveryMark(outcome, question.task || undefined) : undefined;
@@ -67,7 +68,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
-      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} onText={(written) => onDraft({ written, error: "", receipt: undefined })} />}
+      {displayed.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} instance={snapshot.instance} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     </fieldset>
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       // An answer the board never saw marks no choice, so its line carries the check.
@@ -78,7 +79,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       <ClickFeedback text={feedback} />
       {pager}
       {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip={question.task ? "Skip: " + asker + " goes on without it" : "Skip: answered elsewhere or no longer needed"} onClick={onDismiss}><Icon name="close" /></button>}
-      {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
+      {pending && <button className="primary send-decision" type="submit" disabled={!canSend}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
     </div>
   </form>;
 }

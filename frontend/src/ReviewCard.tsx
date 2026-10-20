@@ -52,6 +52,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const hasBox = !review.lavish && !status;
   const hasPencil = !review.lavish && !!status;
   const answersHere = pending && hasBox;
+  const canSend = connected && !!draft.written.trim() && !draft.sending;
   const target = status ? waitTarget(review, snapshot) : null;
   // The goblin's own words, formatted: its lead line heads the card, and the
   // details, a table of values to enter, or a closing line follow it. Words
@@ -70,7 +71,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
       </button>)}
     </div>}
-    {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} />}
+    {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
@@ -81,7 +82,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
       {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={scrawlLink(target.url)} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}
       {review.lavish && !status && <a className="primary button-link open-page" href={scrawlLink(review.lavish)} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}><Icon name="external" />Open review</a>}
-      {answersHere && <button className="primary send-decision" type="submit" disabled={!connected || !draft.written.trim() || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send answer"}</button>}
+      {answersHere && <button className="primary send-decision" type="submit" disabled={!canSend}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send answer"}</button>}
     </div>
   </form>;
 }
