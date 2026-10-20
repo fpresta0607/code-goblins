@@ -30,6 +30,12 @@ type Screens struct {
 	// take the Enter that ends it as part of the paste, leaving the text in
 	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
 	PasteTakesEnter bool
+	// Resubmits is how many more times Enter is pressed while typed text
+	// still waits in the composer and no turn has started: three for Codex,
+	// which takes the Enter ending a paste as part of it, and one for Claude
+	// Code, which left a resumed goblin's instruction in its composer over an
+	// empty row on a loaded machine, live, on 2026-10-20.
+	Resubmits int
 	// Undrawn says the harness can hold typed text without drawing it until
 	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
 	// on 2026-09-29.
@@ -86,8 +92,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
 			// "✽ Reticulating…". Claude Code draws the spinner from one of
 			// three glyph lists; one has "*" where the others have "✳".
-			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
-			Pasted:  []string{"[Pasted text #"},
+			Working:   regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
+			Pasted:    []string{"[Pasted text #"},
+			Resubmits: 1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules.
 			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
 			RuledComposer: true,
@@ -121,6 +128,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Working:         regexp.MustCompile(`^\s*([•◦]\s+)?[^\s"'›>][^"'›>]*\([^()]*esc to interrupt\)|^\s*[•◦] Working \(`),
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,
+			Resubmits:       3,
 			Undrawn:         true,
 			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
 		}, true
