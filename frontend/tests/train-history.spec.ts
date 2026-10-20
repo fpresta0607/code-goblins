@@ -79,6 +79,11 @@ const column = (page: Page, name: string) => board(page).getByRole("region", { n
 const pausedSection = (page: Page) => column(page, "Paused");
 const card = (page: Page, name: string) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").filter({ hasText: name }) });
 const panel = (page: Page) => page.locator(".train-panel");
+// On a phone an open panel covers the board, and Back returns to it.
+async function backToBoard(page: Page) {
+  const back = page.getByRole("button", { name: "Back to Board", exact: true });
+  if (await back.count()) await back.click();
+}
 // Opening a train hands the keyboard to its panel on the next frame (App's
 // select), so a test that types into the panel waits for that handoff first:
 // one that lands between its focus and its key takes the key from under it.
@@ -322,9 +327,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
 
       for (const [name, number] of [["Rosie - Inline Editor", 517], ["Wes - Train Conductor", 519], ["Dolly - Rank Keeper", 520], ["Pearl - Screen Model", 524]] as const) {
-        // On a phone an open panel covers the board, and Back returns to it.
-        const back = page.getByRole("button", { name: "Back to Board", exact: true });
-        if (await back.count()) await back.click();
+        await backToBoard(page);
         await expect(pausedSection(page).locator(".task-card-shell").filter({ hasText: name })).toHaveCount(1);
         await expect(card(page, name).locator(".card-status-text")).toHaveText(`Paused until PR #${number} merges`);
         await expect(card(page, name).locator(".hosted-checks")).toHaveCount(0);
@@ -332,8 +335,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
         await expect(page.locator(".goblin-panel .panel-header .hosted-checks")).toHaveAttribute("aria-label", /^Landed: /);
       }
-      const back = page.getByRole("button", { name: "Back to Board", exact: true });
-      if (await back.count()) await back.click();
+      await backToBoard(page);
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model"]);
       await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
     });
@@ -363,6 +365,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       const chip = page.locator(".goblin-panel .panel-header a.hosted-checks");
       await expect(chip).toHaveAttribute("aria-label", /^Merging main to fix a conflict: /);
       await expect(chip).toHaveAttribute("href", TRAIN_PR);
+      await backToBoard(page);
       expect(await colours(abe)).not.toContain(AMBER);
     });
 
@@ -376,7 +379,6 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
 
       // Assert
       await expect(page.locator("#panel-title")).toHaveText("Merge train");
-      await expect(trainCard).toHaveClass(/selected/);
       await expect(panel(page).locator(".panel-status")).toHaveText("Landed on run 4");
       await expect(panel(page).getByRole("link", { name: "Open the train's pull request" })).toHaveAttribute("href", TRAIN_PR);
       await expect(panel(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
@@ -392,6 +394,8 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).locator(".panel-activity, .panel-details-row")).toHaveCount(0);
       expect(await colours(panel(page))).not.toContain(AMBER);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await backToBoard(page);
+      await expect(trainCard).toHaveClass(/selected/);
     });
 
     test("a click on a running train's card opens its panel with the runs so far", async ({ page }) => {
@@ -407,6 +411,8 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(panel(page).locator(".panel-status")).toHaveText("CI tests #517, #519, run 4");
       await panel(page).locator("details > summary").click();
       await expect(panel(page).locator(".train-panel-run")).toHaveText([/Run 1.*Main moved/, /Run 2.*Main moved/, /Run 3.*Main moved/, /Run 4.*#517.*#519.*Testing/]);
+      await backToBoard(page);
+      await expect(column(page, "Completed")).toBeVisible();
       await expect(column(page, "Completed").locator(".train-card")).toHaveCount(0);
     });
 
