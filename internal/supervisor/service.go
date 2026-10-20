@@ -804,6 +804,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
+		reconcileErr = errors.Join(reconcileErr, finishTakenResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, s.reconcileTasks(time.Now()))
 	}
 	select {
