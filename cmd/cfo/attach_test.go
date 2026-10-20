@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -576,6 +577,72 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	}
 	if env["USERPROFILE"] == "" {
 		t.Error("the CFO started without the user's USERPROFILE")
+	}
+}
+
+// A rig that started a scratch home's Codex CFO with a stub codex.cmd first on
+// its own PATH started the user's real Codex (#1155): its terminal ran cmd /c
+// codex, which found the codex on the PATH of the user's environment the
+// terminal starts from. The CFO starts the codex the launcher's PATH finds,
+// whatever the terminal's PATH finds.
+func TestANativeCFOStartsTheHarnessTheLauncherFindsNotTheOneOnTheUsersPath(t *testing.T) {
+	// Arrange
+	launcher, users, project := t.TempDir(), t.TempDir(), t.TempDir()
+	ran := filepath.Join(t.TempDir(), "ran.txt")
+	for dir, whose := range map[string]string{launcher: "launcher", users: "user"} {
+		if err := os.WriteFile(filepath.Join(dir, "codex.cmd"), []byte("@echo "+whose+"> \""+ran+"\"\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", launcher)
+	t.Setenv(codexguard.Variable, "")
+	read := userEnvironment
+	userEnvironment = func() ([]string, error) {
+		env, err := read()
+		env = slices.DeleteFunc(env, func(entry string) bool {
+			name, _, _ := strings.Cut(entry, "=")
+			return strings.EqualFold(name, "PATH")
+		})
+		return append(env, "Path="+users), err
+	}
+	t.Cleanup(func() { userEnvironment = read })
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	// The premise: codex started by name in the CFO's terminal is the user's.
+	env, err := cfoTerminalEnvironment(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	premise := execx.Command(os.Getenv("ComSpec"), "/d", "/c", "codex")
+	premise.Dir, premise.Env = project, env
+	if output, err := premise.CombinedOutput(); err != nil {
+		t.Fatalf("codex in the CFO's terminal environment: %v: %s", err, output)
+	}
+	if whose, err := os.ReadFile(ran); err != nil || strings.TrimSpace(string(whose)) != "user" {
+		t.Fatalf("codex in the CFO's terminal environment is not the user's: %q, %v", whose, err)
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = startNativeCFO(h, project, "codex", nil, "")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("startNativeCFO: %v", err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
+		if whose, err := os.ReadFile(ran); err == nil && len(whose) > 0 {
+			if strings.TrimSpace(string(whose)) != "launcher" {
+				t.Errorf("the CFO started the %s's codex, want the launcher's", strings.TrimSpace(string(whose)))
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no codex started in the CFO's terminal within a minute")
+		}
 	}
 }
 
