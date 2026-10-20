@@ -44,6 +44,19 @@ func CheckCapability(harness, version, help string) error {
 
 type InstallConfig struct{ Harness, ConfigDir, Executable, Home, State string }
 
+// TimeoutSeconds is how long Claude Code, Codex and pi let a native hook run
+// before they end it, which loses its event. The hook's own work, reading the
+// payload and writing one file into the spool, took 2 ms at the median and
+// 0.33 s at most on a loaded machine, so what the limit must cover is the
+// start of the process: the harness creates it, Windows maps the program and
+// Defender clears it, each waiting its turn behind the fleet's own builds and
+// tests. Of the 36,191 native hook runs Claude Code recorded on a busy fleet
+// from 2026-10-16 to 10-20, 33 ran past the 3 seconds the hooks had, one for
+// 19 seconds, and the 24 the harness ended lost their events, among them the
+// CFO's own prompts (issue #1211). A hook that finishes sooner ends sooner,
+// so the limit costs time only while the machine itself is stalled.
+const TimeoutSeconds = 30
+
 const ownedMarker = "# CFO native hooks v1"
 
 // Install owns only its exact hook command and helper files. Unrelated JSON
@@ -91,7 +104,7 @@ func Install(c InstallConfig) (string, error) {
 			Type    string `json:"type"`
 			Command string `json:"command"`
 			Timeout int    `json:"timeout"`
-		}{"command", command, 3})
+		}{"command", command, TimeoutSeconds})
 		encoded, _ := json.Marshal(entry)
 		hooks[event] = slices.Insert(kept, stood, json.RawMessage(encoded))
 	}
@@ -308,7 +321,7 @@ func CodexArguments(executable, home, state string) ([]string, error) {
 	}
 	args := []string{"--enable", "hooks"}
 	for _, event := range Events("codex") {
-		args = append(args, "-c", "hooks."+event+"=[{hooks=[{type='command',command='"+command+"',timeout=3}]}]")
+		args = append(args, "-c", "hooks."+event+"=[{hooks=[{type='command',command='"+command+"',timeout="+strconv.Itoa(TimeoutSeconds)+"}]}]")
 	}
 	return args, nil
 }
@@ -420,7 +433,7 @@ export default function (pi: ExtensionAPI) {
     const payload = {hook_event_name: name, session_id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd,
       turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages()};
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
-      input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: 2500,
+      input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(TimeoutSeconds*1000) + `,
     });
     if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");
   };

@@ -88,11 +88,14 @@ It does not change models, gate policy, approval settings, or Codex hook trust.
 Review the exact installed Codex definitions in `/hooks` before they can run.
 
 Claude's helper pipes hook stdin to `cfo native-hook claude` using a bounded PowerShell command.
-Codex runs each hook command inside the session's own shell, `powershell.exe -NoProfile -Command` on Windows, so its hooks run `cfo native-hook codex` directly: a helper there would start a second PowerShell for every event, and live on Codex 0.160 that took longer than the 3-second limit, so every hook timed out.
+Codex runs each hook command inside the session's own shell, `powershell.exe -NoProfile -Command` on Windows, so its hooks run `cfo native-hook codex` directly: a helper there would start a second PowerShell for every event, and live on Codex 0.160 that took longer than the 3-second limit the hooks then had, so every hook timed out.
 The direct command is written without quotes and with forward slashes, which PowerShell, cmd and bash read alike, so where the executable, home or state path would need quoting Codex keeps the helper.
 Pi's extension calls the same executable directly from its native event handlers.
 Hooks record identity and lifecycle metadata, not prompts, tool arguments, or transcripts.
 They atomically spool an event and return without Git, network, gate, or browser work.
+Claude Code, Codex and pi each hold a native hook to 30 seconds (`nativehook.TimeoutSeconds`), and end it there, which loses its event.
+The hook's own work takes milliseconds; the limit is for the start of its process, which on a machine full of the fleet's builds and tests took up to 19 seconds, past the 3 seconds the hooks had until issue #1211, so a session's prompts and turn ends went unrecorded exactly while the machine was busiest.
+A hook that finishes sooner ends sooner, so the limit costs time only while the machine itself is stalled.
 The installer records the absolute executable/home/state paths, so reinstall the owned hooks after moving the executable; a reinstall replaces the hooks an earlier install wrote, in either form.
 
 | Harness signal | Native meaning |

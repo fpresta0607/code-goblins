@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 // nativeHookLimit is how long a native session hook may run, and
 // keyAlarmLimit how long the key alarm may: each the limit Claude Code held
 // it to as a hook entry of its own.
 const (
-	nativeHookLimit = install.NativeHookSeconds * time.Second
+	nativeHookLimit = nativehook.TimeoutSeconds * time.Second
 	keyAlarmLimit   = install.KeyAlarmSeconds * time.Second
 )
 

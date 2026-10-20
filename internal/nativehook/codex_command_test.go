@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -68,8 +69,8 @@ func TestCodexHooksRunCfoWithoutAHelperShell(t *testing.T) {
 	// Assert
 	handlers := codexHandlers(t, dir)
 	for _, event := range codexEvents {
-		if len(handlers[event]) != 1 || handlers[event][0].Command != want || handlers[event][0].Timeout != 3 {
-			t.Errorf("%s handlers = %+v, want only %q with the 3-second limit", event, handlers[event], want)
+		if len(handlers[event]) != 1 || handlers[event][0].Command != want || handlers[event][0].Timeout != TimeoutSeconds {
+			t.Errorf("%s handlers = %+v, want only %q with the %d-second limit", event, handlers[event], want, TimeoutSeconds)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cfo-native-hook.ps1")); !os.IsNotExist(err) {
@@ -172,6 +173,59 @@ func TestUninstallRemovesEitherCodexCommandShape(t *testing.T) {
 			handlers := codexHandlers(t, dir)
 			if len(handlers) != 1 || len(handlers["Stop"]) != 1 || !strings.Contains(handlers["Stop"][0].Command, "native-hook claude") {
 				t.Errorf("handlers after uninstall = %+v, want only the unrelated Stop hook", handlers)
+			}
+		})
+	}
+}
+
+// An install from a build that held the hooks to 3 seconds, or the pi
+// extension to 2.5, gets the native hooks' limit on the next install, with
+// one handler for each event as before.
+func TestAnInstallWithTheOldLimitTakesTheNewOneOnTheNextInstall(t *testing.T) {
+	for _, harness := range []string{"codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			config := InstallConfig{Harness: harness, ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "cfo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+			path, err := Install(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			installed, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The limit is a handler's last member, so a line ends after it.
+			current, older := `"timeout": `+strconv.Itoa(TimeoutSeconds)+"\n", `"timeout": 3`+"\n"
+			if harness == "pi" {
+				current, older = "timeout: "+strconv.Itoa(TimeoutSeconds*1000), "timeout: 2500"
+			}
+			if !strings.Contains(string(installed), current) {
+				t.Fatalf("installed %s holds no %q:\n%s", path, current, installed)
+			}
+			if err := os.WriteFile(path, []byte(strings.ReplaceAll(string(installed), current, older)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			if _, err := Install(config); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			reinstalled, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(reinstalled), older) || !strings.Contains(string(reinstalled), current) {
+				t.Fatalf("reinstalled %s:\n%s\nwant %q in place of %q", path, reinstalled, current, older)
+			}
+			if harness == "codex" {
+				for event, handlers := range codexHandlers(t, dir) {
+					if len(handlers) != 1 || handlers[0].Timeout != TimeoutSeconds {
+						t.Errorf("%s handlers = %+v, want one held to %d seconds", event, handlers, TimeoutSeconds)
+					}
+				}
 			}
 		})
 	}
