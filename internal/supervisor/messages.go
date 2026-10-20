@@ -211,12 +211,19 @@ func withdrawFromResume(stateDir, task, text string) (err error) {
 // messageToCFO gives the CFO a message its goblin could not take, with its
 // words, and says why the message itself failed.
 func (s *Service) messageToCFO(a Action, why string) error {
-	detail := fmt.Sprintf("message not delivered: %s, so it is yours to relay or answer. The Overlord wrote: %s", why, a.Text)
-	if _, err := wake.Append(s.Store.Home.State, "notify", a.TaskID, bounded(detail, 4000)); err != nil {
+	if err := handToCFO(s.Store.Home.State, a.TaskID, why, a.Text); err != nil {
 		return err
 	}
 	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
 		s.publish(err)
 	}
 	return fmt.Errorf("%w: %s; the CFO has it", ErrRejected, why)
+}
+
+// handToCFO puts a message to task that its goblin could not take on the
+// task's notify wake, with its words and why it was not delivered.
+func handToCFO(stateDir, task, why, text string) error {
+	detail := fmt.Sprintf("message not delivered: %s, so it is yours to relay or answer. The Overlord wrote: %s", why, text)
+	_, err := wake.Append(stateDir, "notify", task, bounded(detail, 4000))
+	return err
 }

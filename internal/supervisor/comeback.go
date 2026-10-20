@@ -186,7 +186,11 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	// that planned only goblins with a record left her behind. They come
 	// back in the Overlord's In progress order, the highest first, and an
 	// order that cannot be read is said on the board and leaves them in name
-	// order.
+	// order. A failed resume its goblin took is finished first, so that
+	// goblin comes back too.
+	if err := finishTakenResumes(directory); err != nil {
+		s.publish(err)
+	}
 	evaluations := s.Store.Snapshot().Tasks
 	tasks, err := inProgressOrder(s.Store.Home)
 	if err != nil {

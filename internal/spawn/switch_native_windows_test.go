@@ -632,6 +632,66 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 	})
 }
 
+// On 2026-10-20 a goblin auto-resumed on a loaded machine had its
+// instruction typed into Claude Code's composer, but the Enter did not submit
+// it: the text sat in the composer over an empty row until the resume's
+// window ran out, and the resume was recorded failed while the goblin waited
+// on a key. A resume reads the composer and presses Enter once more while the
+// text still waits there, so the goblin resumes; one whose second Enter is
+// lost too fails within the same window, having pressed it only once more.
+func TestAResumeWhoseFirstEnterWasLostSubmitsOnceMore(t *testing.T) {
+	for _, test := range []struct {
+		mode, wantPhase string
+		wantLost        int
+	}{
+		{mode: "claude-lost-enter", wantPhase: "running", wantLost: 1},
+		{mode: "claude-enters-lost", wantPhase: "failed", wantLost: 2},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			previous := nativeAccepted
+			nativeAccepted = 10 * time.Second
+			t.Cleanup(func() { nativeAccepted = previous })
+			f := newSwitchFixtureOf(t, harness.Claude, harness.Control{})
+			f.userEnv = append(f.userEnv, fakeCodexMode+"="+test.mode)
+			paused := state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, RequestGeneration: f.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+				t.Fatal(err)
+			}
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+			// Assert
+			if result.Phase != test.wantPhase || (err == nil) != (test.wantPhase == "running") {
+				t.Fatalf("resume = %+v, %v; want it %s", result, err, test.wantPhase)
+			}
+			events := f.events(t)
+			if lost := named(events, "enter taken as a new line"); len(lost) != test.wantLost {
+				t.Errorf("Enters taken as a new line = %+v, want %d", lost, test.wantLost)
+			}
+			submitted := named(events, "submitted")
+			if test.wantPhase == "failed" {
+				if len(submitted) != 0 || !strings.Contains(err.Error(), "never showed its harness working") {
+					t.Errorf("submitted = %+v after %v, want nothing taken and the window's error", submitted, err)
+				}
+				return
+			}
+			if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
+				t.Errorf("submitted = %+v, want the resume instruction once", submitted)
+			}
+		})
+	}
+}
+
 // A paused goblin's resume is a refusal, which leaves it paused as it was,
 // for as long as its relaunch has published no replacement generation, and a
 // failed resume from there on. That holds only while a relaunch publishes its

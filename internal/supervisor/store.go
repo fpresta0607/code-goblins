@@ -984,7 +984,7 @@ func (s *Store) Ingest() error {
 		if statErr != nil {
 			return statErr
 		}
-		if info.Size() > nativehook.MaxInputBytes {
+		if info.Size() > nativehook.MaxEventBytes {
 			r.err = errors.New("oversized event")
 		} else {
 			data, readErr := fsx.ReadFile(r.path)

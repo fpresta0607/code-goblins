@@ -32,9 +32,6 @@ import (
 const (
 	spawnLockName = ".spawn.lock"
 	launchSettle  = 300 * time.Millisecond
-	// submitRetries is how many more times a typed brief still in its
-	// composer is submitted after the first Enter.
-	submitRetries = 3
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
