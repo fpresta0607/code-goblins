@@ -18,6 +18,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// MaxInputBytes bounds a hook's input. Claude Code's PostToolUse input carries
+// the tool's whole response, and its largest, a Read's content or an Edit's
+// original file, are a few MB; a larger input still fails.
+const MaxInputBytes = 64 << 20
+
 // MaxEventBytes bounds a spooled event record. Validate holds each identity in
 // an event to 4096 bytes, so a valid record stays well under it.
 const MaxEventBytes = 64 << 10
@@ -59,19 +64,27 @@ type Context struct {
 }
 
 func Normalize(r io.Reader, c Context) (Event, error) {
-	// Only these protocol fields enter the spool. Prompts, transcripts, tool
-	// results, arguments, and environment values are intentionally not retained,
-	// nor read whole: a tool response of any size streams past.
-	var p struct {
-		SessionID, CWD, Event, Source, TurnID string
-		Pending                               bool
-		AgentID, AgentType, Model             string
+	data, err := io.ReadAll(io.LimitReader(r, MaxInputBytes+1))
+	if err != nil {
+		return Event{}, err
 	}
-	if err := readFields(r, map[string]any{
-		"session_id": &p.SessionID, "cwd": &p.CWD, "hook_event_name": &p.Event,
-		"source": &p.Source, "turn_id": &p.TurnID, "pending_messages": &p.Pending,
-		"agent_id": &p.AgentID, "agent_type": &p.AgentType, "model": &p.Model,
-	}); err != nil {
+	if len(data) > MaxInputBytes {
+		return Event{}, errors.New("native hook input exceeds 64 MiB")
+	}
+	// Only these protocol fields enter the spool. Prompts, transcripts, tool
+	// results, arguments, and environment values are intentionally not retained.
+	var p struct {
+		SessionID string `json:"session_id"`
+		CWD       string `json:"cwd"`
+		Event     string `json:"hook_event_name"`
+		Source    string `json:"source"`
+		TurnID    string `json:"turn_id"`
+		Pending   bool   `json:"pending_messages"`
+		AgentID   string `json:"agent_id"`
+		AgentType string `json:"agent_type"`
+		Model     string `json:"model"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
 		return Event{}, fmt.Errorf("native hook JSON: %w", err)
 	}
 	kind := ""

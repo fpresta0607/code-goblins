@@ -3,10 +3,8 @@ package nativehook
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +52,7 @@ func TestHookRejectsMalformedAndPrematureEvents(t *testing.T) {
 		`{`, `{ "session_id": "s", "cwd": "relative", "hook_event_name": "Stop" }`,
 		`{"session_id":"s","cwd":"C:\\project","hook_event_name":"agent_end"}`,
 		`{"session_id":"s","cwd":"C:\\project","hook_event_name":"agent_settled","pending_messages":true}`,
-		strings.Repeat("x", 1<<17),
+		strings.Repeat("x", MaxInputBytes+1),
 	} {
 		if _, err := Normalize(strings.NewReader(input), Context{Harness: "pi", Role: "cfo", Now: time.Now()}); err == nil {
 			t.Fatalf("accepted %q", input[:min(len(input), 100)])
@@ -62,24 +60,18 @@ func TestHookRejectsMalformedAndPrematureEvents(t *testing.T) {
 	}
 }
 
-// A value the hook skips is still checked, so malformed JSON anywhere in the
-// input fails as json.Unmarshal failed it.
-func TestHookRejectsMalformedValuesItSkips(t *testing.T) {
+// Malformed JSON anywhere in the input fails, inside a tool response the hook
+// does not keep too.
+func TestHookRejectsMalformedValuesItDoesNotKeep(t *testing.T) {
 	cwd, _ := json.Marshal(t.TempDir())
 	input := func(response string) string {
 		return `{"session_id":"s","cwd":` + string(cwd) + `,"tool_response":` + response + `,"hook_event_name":"PostToolUse"}`
 	}
-	for _, response := range []string{
-		`{"a":[1,-2.5e+3,0,true,false,null,"\u00e9\n\""]}`,
-		strings.Repeat("[", maxInputDepth-1) + "1" + strings.Repeat("]", maxInputDepth-1),
-	} {
-		if _, err := Normalize(strings.NewReader(input(response)), Context{Harness: "claude", Now: time.Now()}); err != nil {
-			t.Fatalf("well-formed tool response %.40q refused: %v", response, err)
-		}
+	if _, err := Normalize(strings.NewReader(input(`{"a":[1,-2.5e+3,0,true,false,null,"\u00e9\n\""]}`)), Context{Harness: "claude", Now: time.Now()}); err != nil {
+		t.Fatalf("well-formed tool response refused: %v", err)
 	}
 	for _, response := range []string{
 		`{"a":tru}`, `"\x"`, `"\u00g0"`, "\"a\tb\"", `01`, `1.`, `-`, `1e`, `[1,]`, `{"a"}`, `{"a":1,}`, `[1 2]`, `{"a":1`,
-		strings.Repeat("[", maxInputDepth+1) + strings.Repeat("]", maxInputDepth+1),
 	} {
 		if _, err := Normalize(strings.NewReader(input(response)), Context{Harness: "claude", Now: time.Now()}); err == nil {
 			t.Errorf("accepted tool response %.40q", response)
@@ -126,39 +118,6 @@ func TestALargeToolResponseKeepsItsProtocolFields(t *testing.T) {
 			}
 		})
 	}
-}
-
-// The hook streams a tool response past rather than holding it.
-func TestAToolResponseIsNeverHeldWhole(t *testing.T) {
-	const size = 16 << 20
-	cwd, _ := json.Marshal(t.TempDir())
-	input := io.MultiReader(
-		strings.NewReader(`{"session_id":"s","cwd":`+string(cwd)+`,"tool_response":{"stdout":"`),
-		io.LimitReader(repeatedByte('x'), size),
-		strings.NewReader(`"},"hook_event_name":"PostToolUse"}`),
-	)
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-
-	_, err := Normalize(input, Context{Harness: "claude", Now: time.Now()})
-
-	runtime.ReadMemStats(&after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > size/16 {
-		t.Fatalf("reading a %d-byte response allocated %d bytes", size, allocated)
-	}
-}
-
-type repeatedByte byte
-
-func (b repeatedByte) Read(p []byte) (int, error) {
-	for i := range p {
-		p[i] = byte(b)
-	}
-	return len(p), nil
 }
 
 func TestHookDoesNotPersistPromptOrToolCredentials(t *testing.T) {
