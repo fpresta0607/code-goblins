@@ -2,13 +2,15 @@
    their glass, and lists the train's pull requests under what the train is
    doing. Tones follow a pull request's checks: blue while CI runs, mint for
    what landed, red for what breaks CI, grey for what waits for the next
-   train or a merge of main. */
-.train-card { position: relative; min-width: 0; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+   train or a merge of main. A grid shares the height it has to spare among
+   its auto rows, so the train's grids start their rows at the top, as
+   .task-cards does, and a card stays as tall as what it says. */
+.train-card { position: relative; min-width: 0; display: grid; align-content: start; gap: 8px; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 /* A click on the card opens the train's panel, as a goblin's card opens its
    own, and the card stays outlined while its panel shows. */
 .train-card:hover { transform: var(--lift); border-color: var(--glass-border-hover); background: var(--glass-bg-hover), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .train-card.selected { border-color: var(--accent-green); box-shadow: var(--selected-glow); }
-.train-cards { display: grid; gap: 10px; margin-bottom: 10px; }
+.train-cards { display: grid; align-content: start; gap: 10px; margin-bottom: 10px; }
 .train-history { grid-column: 1 / -1; min-width: 0; }
 .train-note { margin: 0; color: var(--muted); font-size: .9375rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .train-head { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; color: inherit; text-align: left; }
