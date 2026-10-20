@@ -3,8 +3,10 @@ package nativehook
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -52,12 +54,106 @@ func TestHookRejectsMalformedAndPrematureEvents(t *testing.T) {
 		`{`, `{ "session_id": "s", "cwd": "relative", "hook_event_name": "Stop" }`,
 		`{"session_id":"s","cwd":"C:\\project","hook_event_name":"agent_end"}`,
 		`{"session_id":"s","cwd":"C:\\project","hook_event_name":"agent_settled","pending_messages":true}`,
-		strings.Repeat("x", MaxInputBytes+1),
+		strings.Repeat("x", 1<<17),
 	} {
 		if _, err := Normalize(strings.NewReader(input), Context{Harness: "pi", Role: "cfo", Now: time.Now()}); err == nil {
 			t.Fatalf("accepted %q", input[:min(len(input), 100)])
 		}
 	}
+}
+
+// A value the hook skips is still checked, so malformed JSON anywhere in the
+// input fails as json.Unmarshal failed it.
+func TestHookRejectsMalformedValuesItSkips(t *testing.T) {
+	cwd, _ := json.Marshal(t.TempDir())
+	input := func(response string) string {
+		return `{"session_id":"s","cwd":` + string(cwd) + `,"tool_response":` + response + `,"hook_event_name":"PostToolUse"}`
+	}
+	if _, err := Normalize(strings.NewReader(input(`{"a":[1,-2.5e+3,0,true,false,null,"\u00e9\n\""]}`)), Context{Harness: "claude", Now: time.Now()}); err != nil {
+		t.Fatalf("well-formed input refused: %v", err)
+	}
+	for _, response := range []string{
+		`{"a":tru}`, `"\x"`, `"\u00g0"`, "\"a\tb\"", `01`, `1.`, `-`, `1e`, `[1,]`, `{"a"}`, `{"a":1,}`, `[1 2]`, `{"a":1`,
+		strings.Repeat("[", maxInputDepth+1) + strings.Repeat("]", maxInputDepth+1),
+	} {
+		if _, err := Normalize(strings.NewReader(input(response)), Context{Harness: "claude", Now: time.Now()}); err == nil {
+			t.Errorf("accepted tool response %.40q", response)
+		}
+	}
+	if _, err := Normalize(strings.NewReader(input(`1`)+` {}`), Context{Harness: "claude", Now: time.Now()}); err == nil {
+		t.Error("accepted data after the object")
+	}
+}
+
+// Claude Code's PostToolUse input carries the tool's whole response: a Bash
+// call's output, an Edit's original file, a Read's content. A response past
+// 64 KiB, with protocol fields both before and after it, still spools them.
+func TestALargeToolResponseKeepsItsProtocolFields(t *testing.T) {
+	large := strings.Repeat(`line \"quoted\" \\ \u00e9 \t tab\n`, 1<<12)
+	for _, tc := range []struct{ tool, input, response string }{
+		{"Bash", `{"command":"cat big.log"}`, `{"stdout":"` + large + `","stderr":"","interrupted":false,"isImage":false}`},
+		{"Edit", `{"file_path":"C:\\big.md","old_string":"a","new_string":"b"}`, `{"filePath":"C:\\big.md","oldString":"a","newString":"b","originalFile":"` + large + `","structuredPatch":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-a","+b"]}],"userModified":false,"replaceAll":false}`},
+		{"Read", `{"file_path":"C:\\big.md"}`, `{"type":"text","file":{"filePath":"C:\\big.md","content":"` + large + `","numLines":4096,"startLine":1,"totalLines":4096}}`},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			dir := t.TempDir()
+			cwd, _ := json.Marshal(dir)
+			input := `{"session_id":"session-1","transcript_path":"C:\\t.jsonl","cwd":` + string(cwd) + `,"tool_name":"` + tc.tool + `","tool_input":` + tc.input + `,"tool_response":` + tc.response + `,"hook_event_name":"PostToolUse","model":"model-1"}`
+			if len(input) <= 64<<10 {
+				t.Fatalf("input is only %d bytes", len(input))
+			}
+
+			e, err := Normalize(strings.NewReader(input), Context{Harness: "claude", Role: "goblin", TaskID: "task-1", Now: time.Now()})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.Kind != "active" || e.SessionID != "session-1" || e.CWD != dir || e.Model != "model-1" {
+				t.Fatalf("event = %+v", e)
+			}
+			stateDir := t.TempDir()
+			if err := Spool(stateDir, e); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(SpoolDir(stateDir), e.ID+".event.json"))
+			if err != nil || strings.Contains(string(data), "quoted") {
+				t.Fatalf("spooled %.200s, %v", data, err)
+			}
+		})
+	}
+}
+
+// The hook streams a tool response past rather than holding it.
+func TestAToolResponseIsNeverHeldWhole(t *testing.T) {
+	const size = 16 << 20
+	cwd, _ := json.Marshal(t.TempDir())
+	input := io.MultiReader(
+		strings.NewReader(`{"session_id":"s","cwd":`+string(cwd)+`,"tool_response":{"stdout":"`),
+		io.LimitReader(repeatedByte('x'), size),
+		strings.NewReader(`"},"hook_event_name":"PostToolUse"}`),
+	)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+
+	_, err := Normalize(input, Context{Harness: "claude", Now: time.Now()})
+
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > size/16 {
+		t.Fatalf("reading a %d-byte response allocated %d bytes", size, allocated)
+	}
+}
+
+type repeatedByte byte
+
+func (b repeatedByte) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(b)
+	}
+	return len(p), nil
 }
 
 func TestHookDoesNotPersistPromptOrToolCredentials(t *testing.T) {
