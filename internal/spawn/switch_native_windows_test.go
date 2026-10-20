@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -321,6 +323,89 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 	}
 	if submitted := submittedLines(t, f, 2); !strings.Contains(delivered(t, submitted[len(submitted)-1]), "Your session was restarted") {
 		t.Errorf("submitted = %q, want the resumed harness told to continue", submitted)
+	}
+}
+
+// A restart brings a goblin back on its own conversation once its terminal's
+// host has ended: when no process holds the host's pid, and when a later
+// process does, one this user may not open included, as a system service's
+// conhost.exe that took a host's pid after a restart was (issue #1206). A
+// host that runs and does not answer may still run its harness, so the
+// restart starts nothing beside it and leaves the task as it was.
+func TestARestartBringsBackAGoblinOnlyOnceItsHostHasEnded(t *testing.T) {
+	previous := nativeCloseWait
+	nativeCloseWait = time.Second
+	t.Cleanup(func() { nativeCloseWait = previous })
+	// Recorded before it ran, so a process that took its pid since started
+	// after the record too.
+	exitedRecorded := time.Now().UTC()
+	exited := exec.Command(os.Args[0], "-test.run=^$")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name          string
+		host          func(*testing.T) (pid int, recorded time.Time)
+		isBroughtBack bool
+	}{
+		{"no process holds its host's pid", func(*testing.T) (int, time.Time) { return exited.ProcessState.Pid(), exitedRecorded }, true},
+		{"a later process this user may not open holds its host's pid", func(t *testing.T) (int, time.Time) {
+			recorded := time.Now().UTC().Add(-time.Second)
+			return proctest.StartUnopenable(t, exec.Command(os.Args[0], sleepChild)), recorded
+		}, true},
+		// Ended before the fixture's own end, which closes the terminal its
+		// record names.
+		{"its host runs and answers nobody", func(t *testing.T) (int, time.Time) {
+			running := exec.Command(os.Args[0], sleepChild)
+			if err := running.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = running.Process.Kill()
+				_ = running.Wait()
+			})
+			return running.Process.Pid, time.Now().UTC()
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			pid, recorded := test.host(t)
+			record, err := json.Marshal(host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: pid, Started: recorded})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(makeDir(t, filepath.Join(f.stateDir, "hosts")), "task-7.json"), string(record))
+
+			// Act
+			result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Generation: f.meta.SpawnGen, Restart: true, ResumeSession: "owned-session-7"})
+
+			// Assert
+			var launches []codexEvent
+			if _, statErr := os.Stat(f.record); statErr == nil {
+				launches = named(f.events(t), "env")
+			}
+			after, metaErr := state.ReadTaskMeta(f.stateDir, "task-7")
+			current, recordErr := host.ReadRecord(f.stateDir, "task-7")
+			if !test.isBroughtBack {
+				if err == nil || !strings.Contains(err.Error(), "no second harness was started") {
+					t.Errorf("Switch = %v, want a refusal saying no second harness was started", err)
+				}
+				if len(launches) != 0 || metaErr != nil || after.SpawnGen != f.meta.SpawnGen || recordErr != nil || current.HostPID != pid {
+					t.Errorf("launches %+v, task generation %q (%v), terminal %+v (%v); want nothing started and the task left on generation %q in host %d", launches, after.SpawnGen, metaErr, current, recordErr, f.meta.SpawnGen, pid)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume owned-session-7 ") {
+				t.Errorf("result %+v, launches %+v; want the same harness started again on owned-session-7", result, launches)
+			}
+			if recordErr != nil || current.HostPID == pid || !host.Running(current) {
+				t.Errorf("the terminal is %+v, %v; want a new host in place of %d", current, recordErr, pid)
+			}
+		})
 	}
 }
 

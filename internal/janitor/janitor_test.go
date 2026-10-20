@@ -193,16 +193,23 @@ func TestSweepTidiesBothFoldersOfAHomeOnADevDrive(t *testing.T) {
 // Once a home's caches moved to a Dev Drive, its own package caches are used
 // only by goblin terminals started before the move, which took their cache
 // variables when they started: the janitor keeps them while one runs, then
-// removes them, and never the voice model, which stays in the home.
+// removes them, and never the voice model, which stays in the home. A
+// terminal's host is the process with its pid only while that process started
+// no later than the host recorded itself, so a host that ended before the move
+// whose pid a later process took keeps nothing (issue #1206).
 func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *testing.T) {
 	for name, test := range map[string]struct {
 		started time.Duration
-		retired bool
-		isBusy  bool
+		// recorded is when the host recorded itself, when its pid's process
+		// started where zero.
+		recorded time.Duration
+		retired  bool
+		isBusy   bool
 	}{
-		"a terminal started before the move still runs": {started: -2 * time.Hour},
-		"every terminal started after the move":         {started: time.Minute, retired: true},
-		"a busy heavy line":                             {started: time.Minute, isBusy: true},
+		"a terminal started before the move still runs":                  {started: -2 * time.Hour},
+		"every terminal started after the move":                          {started: time.Minute, retired: true},
+		"a busy heavy line":                                              {started: time.Minute, isBusy: true},
+		"a terminal from before the move whose pid a later process took": {started: -30 * time.Minute, recorded: -2 * time.Hour, retired: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -217,7 +224,11 @@ func TestSweepRetiresTheHomesOwnCachesOnceNoTerminalFromBeforeTheMoveRuns(t *tes
 			npm := folder(t, filepath.Join(old, "npm", "_cacache"), true)
 			voice := folder(t, filepath.Join(old, "voice", "model"), true)
 			terminal := reap.Process{PID: 4242, CommandLine: `"C:\cg\cfo.exe" host --id goblin`, Start: moved.Add(test.started)}
-			writeHostRecord(t, f.home.State, "goblin", terminal.PID, terminal.Start)
+			recorded := terminal.Start
+			if test.recorded != 0 {
+				recorded = moved.Add(test.recorded)
+			}
+			writeHostRecord(t, f.home.State, "goblin", terminal.PID, recorded)
 			cfg := f.config(reap.Inventory{
 				Tasks:     []reap.Task{{ID: "goblin", Meta: state.TaskMeta{ID: "goblin", Backend: "native"}}},
 				Processes: []reap.Process{selfProcess(t), terminal},
