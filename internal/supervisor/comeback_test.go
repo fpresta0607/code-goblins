@@ -434,6 +434,35 @@ func TestARestartBringsBackEveryGoblinLeftMeantToRunWhateverItsHostRecordSays(t 
 	}
 }
 
+// A goblin that reported from the session its failed resume started took
+// that resume, so it is meant to run: a restart before any reading finished
+// the resume still plans it to come back at the first sign-in.
+func TestARestartPlansTheGoblinOfAFailedResumeItTook(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	started := lastSignIn.Add(time.Hour)
+	meta := workingGoblin(t, h, "resumed", started)
+	meta.ResumeOperation = "resume-resumed"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	failed := started.Add(3 * time.Minute)
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: meta.ResumeOperation, Action: "resume", Phase: "failed", Started: started, Updated: failed}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, state.StatusPath(h.State, meta.ID), failed.Format(time.RFC3339)+" lifecycle-failed: Pause condition cleared\n"+failed.Add(2*time.Minute).Format(time.RFC3339)+" working: Back after restart\n")
+
+	// Act
+	reading(t, service, 0)
+
+	// Assert
+	record, err := state.ReadComeback(h.State)
+	if err != nil || len(record.Goblins) != 1 || !record.Waiting(meta.ID, meta.SpawnGen) {
+		t.Fatalf("comeback %+v, %v; want %s planned to come back", record, err, meta.ID)
+	}
+}
+
 // The CFO a restart ended comes back whatever its host record says: its
 // registration names the program it ran in the sign-in before. One that
 // registered in an older sign-in, or in this one, was not ended by the
