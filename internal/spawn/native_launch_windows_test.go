@@ -32,8 +32,12 @@ import (
 // The test binary plays every part of a native spawn: with nativeSpawnHost
 // first it is the terminal's host, and copied onto PATH as codex.exe,
 // claude.exe or pi.exe it is the harness, which cmd /c or the spawn finds
-// there.
-const nativeSpawnHost = "native-spawn-host"
+// there. With sleepChild first it is a process that only waits, a minute at
+// most.
+const (
+	nativeSpawnHost = "native-spawn-host"
+	sleepChild      = "sleep-child"
+)
 
 // The fake harness records what it sees to the file fakeCodexRecord names, and
 // fakeCodexMode picks what it shows: codex's update prompt, then its trust
@@ -65,6 +69,8 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case len(os.Args) > 1 && os.Args[1] == sleepChild:
+		time.Sleep(time.Minute)
 	case slices.Contains([]string{"codex", "claude", "pi"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
 		fakeHarness()
 	default:
