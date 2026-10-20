@@ -169,7 +169,7 @@ func (c *Console) startProcess(commandLine, dir, env *uint16, processors uintptr
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		windows.CloseHandle(job)
 		return fmt.Errorf("conpty: limit job: %w", err)
 	}

@@ -8,6 +8,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/stacktest"
 )
 
 // waitingTree starts a tree whose command runs for 30 seconds, ended with
@@ -171,38 +173,6 @@ func TestTreeUsageRefusesAPeakOfNothingAfterAProcessRan(t *testing.T) {
 	}
 }
 
-// descend calls read depth frames further down the goroutine's stack.
-//
-//go:noinline
-func descend(depth int, read func()) {
-	if depth == 0 {
-		read()
-		return
-	}
-	descend(depth-1, read)
-}
-
-// depthsReadingNothing calls read on a fresh goroutine below every depth up
-// to 2,000 frames, which brings the point where the stack must grow, and
-// move, to every step of the read through four sizes of stack, and returns
-// the depths at which read says it read nothing.
-func depthsReadingNothing(read func() bool) []int {
-	var empty []int
-	for depth := range 2000 {
-		isRead := false
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			descend(depth, func() { isRead = read() })
-		}()
-		<-done
-		if !isRead {
-			empty = append(empty, depth)
-		}
-	}
-	return empty
-}
-
 // readAccountingAt reads the job's accounting into the memory at
 // information, passed as a bare uintptr, as windows.QueryInformationJobObject
 // takes it.
@@ -239,7 +209,7 @@ func TestTreeReadsTheJobWhereverItsStackMoves(t *testing.T) {
 	}
 	// The sweep must move the stack inside a read: a stack buffer passed as
 	// a bare uintptr reads nothing at some depth.
-	lost := depthsReadingNothing(func() bool {
+	lost := stacktest.FailingDepths(func() bool {
 		var accounting jobAccounting
 		err := readAccountingAt(tree.job, uintptr(unsafe.Pointer(&accounting)))
 		return err == nil && accounting.TotalProcesses > 0
@@ -250,7 +220,7 @@ func TestTreeReadsTheJobWhereverItsStackMoves(t *testing.T) {
 
 	for name, read := range reads {
 		// Act
-		empty := depthsReadingNothing(read)
+		empty := stacktest.FailingDepths(read)
 
 		// Assert
 		if len(empty) > 0 {
