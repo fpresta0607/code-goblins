@@ -610,7 +610,7 @@ The whole crew:
 ### The goblin panel
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, its status, one plain sentence under it, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
-The status is the one place the panel says the task's state, and it is true: a resume or stop that did not finish reads **Resume failed** or **Stop failed** however the goblin last reported, a pause that did not finish shows what the goblin is doing, and a paused task reads **Paused**.
+The status is the one place the panel says the task's state, and it is true: a resume or stop that did not finish reads **Resume failed** or **Stop failed** however the goblin last reported, until a failed resume's goblin reports from the session it resumed into, which finishes the resume, a pause that did not finish shows what the goblin is doing, and a paused task reads **Paused**.
 The sentence under it never repeats the state: it is the goblin's latest report without its leading state word, in sentence case, with no semicolon chains, commit hashes, paths or links, and for a failure, what failed and what to do next with **Open the log**, which opens Activity.
 Under **Working** there is no sentence, at the Overlord's word on 2026-10-05; what it would say is the first thing under **Details**.
 A paused task has no sentence either, since its status already says why it waits and what resumes it.
@@ -623,7 +623,7 @@ When a session is retired, paused or stopped, its Terminal view shows that state
 An open terminal follows its task into retired history instead of losing the panel or trying to reconnect to a retired session.
 A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
-After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
+After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects once the resumed session is live, or once its goblin reports from the session the failed resume started, which finishes that resume.
 A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
 A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
