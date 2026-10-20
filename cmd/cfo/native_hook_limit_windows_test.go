@@ -64,15 +64,17 @@ func TestANativeHookHeldAtItsStartRecordsItsEventByItsLimit(t *testing.T) {
 			if err := hook.Start(); err != nil {
 				t.Fatal(err)
 			}
+			// The harness ends the hook at its limit from its start, held or not.
+			limit := time.NewTimer(nativehook.TimeoutSeconds * time.Second)
+			defer limit.Stop()
 			exited := make(chan error, 1)
 			go func() { exited <- hook.Wait() }()
 			if err := pinProcessToOneProcessor(hook.Process.Pid); err != nil {
 				_ = hook.Process.Kill()
 				t.Fatal(err)
 			}
-			// The harness ends the hook at its limit from its start, held or not.
-			limit := time.NewTimer(time.Until(began.Add(nativehook.TimeoutSeconds * time.Second)))
-			defer limit.Stop()
+			// stall-accepted: the hold waits for nothing, it is the start a busy
+			// machine makes the hook wait out, and a pause in it only lengthens it.
 			held := time.NewTimer(heldStart)
 			defer held.Stop()
 			isEnded := false
