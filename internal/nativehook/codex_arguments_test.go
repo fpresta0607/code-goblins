@@ -2,6 +2,7 @@ package nativehook
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -28,7 +29,7 @@ func TestCodexArgumentsGiveOneSessionItsNativeHooks(t *testing.T) {
 	var events []string
 	for i := 2; i < len(args); i += 2 {
 		event, value, found := strings.Cut(strings.TrimPrefix(args[i+1], "hooks."), "=")
-		if args[i] != "-c" || !found || value != "[{hooks=[{type='command',command='"+command+"',timeout=3}]}]" {
+		if args[i] != "-c" || !found || value != "[{hooks=[{type='command',command='"+command+"',timeout="+strconv.Itoa(TimeoutSeconds)+"}]}]" {
 			t.Errorf("args %q %q, want a -c override running %q", args[i], args[i+1], command)
 		}
 		if strings.ContainsAny(args[i+1], "\"&|<>^%!()") {

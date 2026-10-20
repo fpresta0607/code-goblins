@@ -60,8 +60,8 @@ func TestInstallIncludesNativeCompactLifecycle(t *testing.T) {
 					for _, handler := range group.Hooks {
 						if ownsCommand("codex", directory, handler.Command) {
 							ownedCount++
-							if handler.Timeout != 3 {
-								t.Errorf("%s timeout = %d, want the unchanged 3-second contract", event, handler.Timeout)
+							if handler.Timeout != TimeoutSeconds {
+								t.Errorf("%s timeout = %d, want the native hooks' %d-second limit", event, handler.Timeout, TimeoutSeconds)
 							}
 						} else if strings.HasPrefix(handler.Command, "echo unrelated ") {
 							unrelatedCount++

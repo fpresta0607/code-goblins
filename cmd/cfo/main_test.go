@@ -165,6 +165,11 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "codex-guard" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
+	// A native hook a test starts as a harness does runs this binary as the
+	// home's cfo.exe.
+	if len(os.Args) > 1 && os.Args[1] == "native-hook" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	treetest.Run()
 	// goblins starts its own program as serve. A test that reaches that start
 	// would run this binary, and with it every test again, detached and with
