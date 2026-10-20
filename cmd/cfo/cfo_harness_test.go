@@ -297,7 +297,8 @@ func harnessesOnPath(t *testing.T, names ...string) {
 
 // A native terminal starts a program itself: Claude Code's native build as
 // it is, and the npm script shims codex and pi install through cmd /c, which
-// exits with them. A claude found only as a script is refused.
+// exits with them, each by the path PATH finds it at. A claude found only as
+// a script is refused.
 func TestANativeCFOStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{"claude.exe", "codex.cmd", "pi.cmd"} {
@@ -310,8 +311,8 @@ func TestANativeCFOStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 
 	for harness, want := range map[string][]string{
 		"claude": {filepath.Join(bin, "claude.exe")},
-		"codex":  {`C:\Windows\System32\cmd.exe`, "/c", "codex"},
-		"pi":     {`C:\Windows\System32\cmd.exe`, "/c", "pi"},
+		"codex":  {`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd")},
+		"pi":     {`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "pi.cmd")},
 	} {
 		program, err := nativeCFOProgram(harness)
 		if err != nil || !slices.EqualFunc(program, want, strings.EqualFold) {

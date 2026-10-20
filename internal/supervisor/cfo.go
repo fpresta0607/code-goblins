@@ -184,12 +184,13 @@ func nativeHarness(stateDir, harness string) (primaryRegistration, []proc.Entry,
 		program := ancestry[at].ExeBase
 		harness = strings.TrimSuffix(strings.ToLower(program), ".exe")
 		// Codex and pi install as npm script shims, which a native terminal
-		// runs as cmd /c <name> (spawn.NativeProgram), so cmd's own command
-		// line names the harness.
+		// runs as cmd /c <path> (spawn.NativeProgram), so the base name of
+		// the script cmd's own command line names is the harness.
 		if harness == "cmd" {
 			if identity, err := proc.Identify(ancestry[at].PID, ancestry[at].Start); err == nil && len(identity.Arguments) >= 3 && strings.EqualFold(identity.Arguments[1], "/c") {
-				program += " /c " + identity.Arguments[2]
-				harness = strings.ToLower(identity.Arguments[2])
+				script := identity.Arguments[2]
+				program += " /c " + script
+				harness = strings.ToLower(strings.TrimSuffix(filepath.Base(script), filepath.Ext(script)))
 			}
 		}
 		if harness != "claude" && harness != "codex" && harness != "pi" {

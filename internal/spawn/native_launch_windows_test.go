@@ -1434,6 +1434,82 @@ func TestAShimHarnessNotOnThisProcessPathIsRefused(t *testing.T) {
 	}
 }
 
+// NativeProgram, which starts the CFO's harness and the connection checks',
+// starts a script shim by the path this process's PATH finds it at, so a
+// terminal or command whose PATH is the user's never starts another (#1155),
+// and refuses a name this PATH does not find.
+func TestNativeProgramStartsAShimByThePathThisProcessFinds(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "codex.cmd"), "@echo off\r\n")
+	t.Setenv("PATH", bin)
+	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+
+	// Act
+	program, err := NativeProgram("codex", "mcp", "list")
+	missing, missingErr := NativeProgram("pi", "--help")
+
+	// Assert
+	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd"), "mcp", "list"}) {
+		t.Errorf("codex = %q, %v; want the codex.cmd on PATH through cmd /c", program, err)
+	}
+	if missingErr == nil {
+		t.Errorf("pi not on PATH = %q, want refused", missing)
+	}
+}
+
+// A shim whose path has a space in it is quoted on cmd's command line, and
+// once another argument is quoted too, cmd drops the path's opening quote and
+// runs the path's first word instead. Such a shim starts by its short name,
+// which has no space, and one on a volume that keeps no short names, such as
+// a Dev Drive, is refused, never left to cmd to start another program.
+func TestAShimAtAPathWithASpaceStartsAsItselfOrIsRefused(t *testing.T) {
+	for name, program := range map[string]func() ([]string, error){
+		"a goblin's harness": func() ([]string, error) {
+			return nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--prompt", "a prompt with spaces"}})
+		},
+		"a named program": func() ([]string, error) { return NativeProgram("codex", "--prompt", "a prompt with spaces") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			bin := filepath.Join(t.TempDir(), "npm shims")
+			if err := os.Mkdir(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(bin, "codex.cmd"), "@echo args=[%*]\r\n")
+			t.Setenv("PATH", bin)
+			from, err := windows.UTF16PtrFromString(filepath.Join(bin, "codex.cmd"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			buffer := make([]uint16, windows.MAX_LONG_PATH)
+			length, err := windows.GetShortPathName(from, &buffer[0], uint32(len(buffer)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasShortName := !strings.ContainsAny(windows.UTF16ToString(buffer[:length]), " \t")
+
+			// Act
+			command, err := program()
+
+			// Assert
+			if !hasShortName {
+				if err == nil {
+					t.Errorf("a shim at %s, which has no short name = %q, want refused", bin, command)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a shim at %s: %v", bin, err)
+			}
+			output, err := execx.Command(command[0], command[1:]...).CombinedOutput()
+			if want := `args=[--prompt "a prompt with spaces"]`; err != nil || strings.TrimSpace(string(output)) != want {
+				t.Errorf("%q printed %q, %v; want the shim at %s to print %s", command, output, err, bin, want)
+			}
+		})
+	}
+}
+
 // On 2026-10-17 a rig proving Codex spawns with a stub codex first on its own
 // PATH started six real Codex sessions (#1075): the spawn validated the stub,
 // and its terminal ran cmd /c codex, which found the user's real codex on the

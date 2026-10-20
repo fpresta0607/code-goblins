@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
@@ -226,14 +228,14 @@ func TestAProgramInALiveNativeTerminalRegistersAsTheCFO(t *testing.T) {
 }
 
 // Codex and pi install as npm script shims, which a native terminal runs
-// through cmd /c, so cmd is the terminal's program: plain cfo register, as a
-// CFO runs it, names the harness from the name cmd runs, and refuses any name
-// that is not a harness.
+// through cmd /c by their paths, so cmd is the terminal's program: plain cfo
+// register, as a CFO runs it, names the harness from the base name of the
+// script cmd runs, and refuses any name that is not a harness.
 func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
 	for name, want := range map[string]string{
 		"codex":       "registered codex pid %d in native terminal cfo",
 		"pi":          "registered pi pid %d in native terminal cfo",
-		"goblin-tool": "register error: native terminal cfo runs cmd.exe /c goblin-tool, which is not a harness the board delivers to",
+		"goblin-tool": "register error: native terminal cfo runs cmd.exe /c %s, which is not a harness the board delivers to",
 	} {
 		t.Run(name, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -243,6 +245,10 @@ func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
 
 			if strings.Contains(want, "%d") {
 				want = fmt.Sprintf(want, record.ChildPID)
+			} else if shim, err := exec.LookPath(name); err != nil {
+				t.Fatal(err)
+			} else {
+				want = fmt.Sprintf(want, shim)
 			}
 			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || lines[0] != want {
 				t.Fatalf("the program recorded %q, want %q", lines, want)
@@ -267,7 +273,11 @@ func shimTerminal(t *testing.T, stateDir, name string) (hostedTerminal, host.Rec
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
-	cfo := hostProgram(t, stateDir, "cfo", typed, os.Getenv("ComSpec"), "/c", name)
+	command, err := spawn.NativeProgram(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfo := hostProgram(t, stateDir, "cfo", typed, command...)
 	record, err := host.ReadRecord(stateDir, "cfo")
 	if err != nil {
 		t.Fatal(err)

@@ -370,11 +370,16 @@ func cfoHookArguments(h home.Home, harness string) ([]string, error) {
 	return []string{"--settings", path}, nil
 }
 
+// userEnvironment is the environment Windows gives a new process of this
+// user. A test replaces it, since the user's own PATH finds the user's real
+// harnesses.
+var userEnvironment = spawn.UserEnvironment
+
 // cfoTerminalEnvironment is the environment the CFO's native terminal of
 // home h starts with: the one Windows gives a new process of this user, made
 // the CFO's by nativeCFOEnvironment.
 func cfoTerminalEnvironment(h home.Home) ([]string, error) {
-	userEnv, err := spawn.UserEnvironment()
+	userEnv, err := userEnvironment()
 	if err != nil {
 		return nil, fmt.Errorf("read the user's environment: %w", err)
 	}
@@ -396,8 +401,10 @@ func environmentValue(env []string, name string) string {
 }
 
 // nativeCFOProgram is the command line a native terminal starts harness with
-// as the CFO, as a native goblin's is: codex and pi install as npm script shims
-// and run through cmd /c. Claude Code must be its native build, claude.exe.
+// as the CFO, as a native goblin's is: the program this process's PATH finds,
+// started by its path (spawn.NativeProgram), with codex and pi, which install
+// as npm script shims, run through cmd /c. Claude Code must be its native
+// build, claude.exe.
 func nativeCFOProgram(harness string, args ...string) ([]string, error) {
 	if harness == "claude" {
 		path, err := exec.LookPath(harness)

@@ -621,9 +621,12 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 }
 
 // NativeProgram is the command line a native terminal starts name with,
-// followed by args. CreateProcess runs only executables, so a .exe found on
-// PATH runs as itself, and anything else, such as the npm .cmd shims codex and
-// pi install, runs through cmd /c.
+// followed by args: the program this process's PATH finds, started by its
+// path, so a terminal or command whose PATH is the user's, such as the CFO's,
+// never starts another (#1155), and a name this PATH does not find is
+// refused. CreateProcess runs only executables, so a .exe runs as itself, and
+// anything else, such as the npm .cmd shims codex and pi install, runs
+// through cmd /c.
 func NativeProgram(name string, args ...string) ([]string, error) {
 	path, err := exec.LookPath(name)
 	if err != nil {
@@ -632,23 +635,42 @@ func NativeProgram(name string, args ...string) ([]string, error) {
 	if strings.EqualFold(filepath.Ext(path), ".exe") {
 		return append([]string{path}, args...), nil
 	}
-	return cmdProgram(name, args...)
+	return cmdProgram(path, args...)
 }
 
-// cmdProgram runs name with args through cmd /c, which exits with it. cmd
-// reads its command line itself, so an argument it would interpret is
-// refused.
-func cmdProgram(name string, args ...string) ([]string, error) {
-	for _, arg := range append([]string{name}, args...) {
+// cmdProgram runs the script at path with args through cmd /c, which exits
+// with it. cmd reads its command line itself, so an argument it would
+// interpret is refused. A path with a space in it is quoted on that line, and
+// once another argument is quoted too, cmd drops the path's opening quote and
+// runs the path's first word instead: such a path runs by its short name, and
+// one on a volume that keeps no short names is refused.
+func cmdProgram(path string, args ...string) ([]string, error) {
+	if strings.ContainsAny(path, " \t") {
+		long, err := windows.UTF16PtrFromString(path)
+		if err != nil {
+			return nil, fmt.Errorf("spawn: %s: %w", path, err)
+		}
+		buffer := make([]uint16, windows.MAX_LONG_PATH)
+		length, err := windows.GetShortPathName(long, &buffer[0], uint32(len(buffer)))
+		if err != nil {
+			return nil, fmt.Errorf("spawn: read the short name of %s: %w", path, err)
+		}
+		short := windows.UTF16ToString(buffer[:length])
+		if strings.ContainsAny(short, " \t") {
+			return nil, fmt.Errorf("spawn: %s has a space in its path and no short name without one, so cmd /c cannot start it by its path", path)
+		}
+		path = short
+	}
+	for _, arg := range append([]string{path}, args...) {
 		if arg == "" || strings.ContainsAny(arg, "\"&|<>^%!()\r\n") {
-			return nil, fmt.Errorf("spawn: %s's argument %q is one cmd would read as more than text", name, arg)
+			return nil, fmt.Errorf("spawn: %s's argument %q is one cmd would read as more than text", path, arg)
 		}
 	}
 	shell := os.Getenv("ComSpec")
 	if shell == "" {
 		shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
 	}
-	return append([]string{shell, "/c", name}, args...), nil
+	return append([]string{shell, "/c", path}, args...), nil
 }
 
 // inheritedSessionVariables name what a session marks its own processes with
