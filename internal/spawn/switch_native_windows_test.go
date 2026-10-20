@@ -351,7 +351,7 @@ func TestARestartBringsBackAGoblinOnlyOnceItsHostHasEnded(t *testing.T) {
 		{"no process holds its host's pid", func(*testing.T) (int, time.Time) { return exited.ProcessState.Pid(), exitedRecorded }, true},
 		{"a later process this user may not open holds its host's pid", func(t *testing.T) (int, time.Time) {
 			recorded := time.Now().UTC().Add(-time.Second)
-			return proctest.StartUnopenable(t, exec.Command(os.Args[0], sleepChild)), recorded
+			return proctest.StartUnopenable(t, execx.Command(os.Args[0], sleepChild)), recorded
 		}, true},
 		// Ended before the fixture's own end, which closes the terminal its
 		// record names.

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -159,7 +160,7 @@ func idleClaudeCommand(t *testing.T) *exec.Cmd {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command(program, fakeClaude, "idle")
+	command := execx.Command(program, fakeClaude, "idle")
 	if _, err := command.StdinPipe(); err != nil {
 		t.Fatal(err)
 	}

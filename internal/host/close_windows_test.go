@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 )
@@ -284,7 +285,7 @@ func startSleepChild(t *testing.T) int {
 // not open.
 func startUnopenableSleepChild(t *testing.T) int {
 	t.Helper()
-	return proctest.StartUnopenable(t, exec.Command(os.Args[0], "sleep-child"))
+	return proctest.StartUnopenable(t, execx.Command(os.Args[0], "sleep-child"))
 }
 
 // isStillRunning reports whether pid is in the machine's process list, which

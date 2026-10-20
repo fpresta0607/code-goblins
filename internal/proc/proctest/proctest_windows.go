@@ -13,9 +13,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// StartUnopenable starts command hidden, as a process nobody may open, not
-// even to read when it started, as this user may not open a system service's
-// process, and returns its pid. The test ends it through the handle its start
+// StartUnopenable starts command, which execx.Command made, as a process
+// nobody may open, not even to read when it started, as this user may not
+// open a system service's process, and returns its pid. The test ends it through the handle its start
 // returned, which holds every right whatever its DACL says. A process holding
 // SeDebugPrivilege, as a CI runner's can, opens any process whatever its DACL
 // says, so the privilege stays off until the test ends, and a test whose
@@ -27,10 +27,7 @@ func StartUnopenable(t testing.TB, command *exec.Cmd) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags:     windows.CREATE_NO_WINDOW,
-		ProcessAttributes: &syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: uintptr(unsafe.Pointer(descriptor))},
-	}
+	command.SysProcAttr.ProcessAttributes = &syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: uintptr(unsafe.Pointer(descriptor))}
 	err = command.Start()
 	runtime.KeepAlive(descriptor)
 	if err != nil {
