@@ -358,11 +358,13 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // runs, and runs its prompt hook as it queues it, so only its own record of
 // the conversation proves it taken; with none soon after the submit the
 // error says it is queued for that tool call. Either way it is typed once. A
-// harness that turns it away as still starting, putting it back in its
-// composer, has not taken it: while its screen says so, and did not already
-// say so before the submit, Enter is pressed again until it does, for as long
-// as a harness's startup is given, and its time to show itself working counts
-// from the last press.
+// Codex has its submit key pressed once: it can take that key late, the text
+// still showing in its composer, and a key pressed again would reach it after
+// the instruction, as an empty submission. A harness that turns it away as
+// still starting, putting it back in its composer, has not taken it: while
+// its screen says so, and did not already say so before the submit, Enter is
+// pressed again until it does, for as long as a harness's startup is given,
+// and its time to show itself working counts from the last press.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
@@ -411,12 +413,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 				deadline = startingPressed.Add(within)
 			}
 		}
-		// A harness that took the Enter ending the text as part of it, or
-		// lost it, leaves the text in its composer: Enter is pressed again,
-		// as often as the harness's screens allow and further apart each
-		// time, while the text still shows there and no turn has started. An
-		// Enter on an empty composer submits nothing, so the text is never
-		// handed over twice.
+		// A harness that lost the Enter ending the text leaves the text in its
+		// composer: Enter is pressed again, as often as the harness's screens
+		// allow and further apart each time, while the text still shows there
+		// and no turn has started. An Enter on an empty composer submits
+		// nothing, so the text is never handed over twice.
 		if !busy && presses < screens.Resubmits && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) && !screens.ComposerEmpty(screen) {
 			if err := pressNativeEnter(record); err != nil {
 				return err
