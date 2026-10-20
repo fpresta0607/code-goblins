@@ -137,7 +137,9 @@ async function walk(scope: Locator) {
   return { shown, faults };
 }
 
-for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
+// A phone has no tour, layout, VS Code or folder button, so fewer parts there
+// carry a tip.
+for (const [size, viewport, boardTips, panelTips] of [["wide", { width: 1440, height: 900 }, 14, 3], ["phone", { width: 390, height: 844 }, 12, 1]] as const) {
   test.describe(`on a ${size} window`, () => {
     test.use({ viewport });
 
@@ -145,7 +147,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       test.slow();
       await open(page);
       const { shown, faults } = await walk(page.locator(".app-shell"));
-      expect(shown).toBeGreaterThanOrEqual(14);
+      expect(shown).toBeGreaterThanOrEqual(boardTips);
       expect(faults).toEqual([]);
     });
 
@@ -155,7 +157,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       await expect(page.locator("#panel-title")).toHaveText("working-two");
       await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       const { shown, faults } = await walk(page.locator(".context-pane"));
-      expect(shown).toBeGreaterThanOrEqual(3);
+      expect(shown).toBeGreaterThanOrEqual(panelTips);
       expect(faults).toEqual([]);
     });
 

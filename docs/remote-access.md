@@ -18,7 +18,9 @@ owner account. No personal hostname, account or key is included in the build.
    you come back to the board.
 3. Copy the private HTTPS link shown there. On the phone, connect Tailscale and
    open the link in its browser. Open the CFO terminal to control the existing
-   session. To keep the board beside your apps, use Safari's **Share → Add to
+   session: on the phone a terminal fills the screen below the top bar and
+   stays above the keyboard while you type, and **Back** returns to the board.
+   To keep the board beside your apps, use Safari's **Share → Add to
    Home Screen** on an iPhone, or Chrome's menu **→ Add to Home screen** on
    Android: it becomes a Code Goblins app with the goblin icon. In that app,
    turn **App badge** on under Remote access and allow its notifications: while

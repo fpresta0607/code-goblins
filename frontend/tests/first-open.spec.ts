@@ -281,26 +281,24 @@ test.describe("in the desktop window", () => {
   });
 });
 
-// A window too narrow for two columns shows one: the board, then the panel
-// under it. The first open there chooses the same view, the CFO's terminal,
-// but leaves the keyboard and the scroll where they are, so the board is what
-// he sees first.
+// A window too narrow for two columns, a phone's, shows the board or an open
+// panel across the whole screen, one at a time. The first open there shows
+// the board alone, with the CFO's terminal a tap away on its bar, and leaves
+// the keyboard and the scroll where they are.
 test.describe("in a narrow window", () => {
   test.use({ viewport: { width: 390, height: 800 } });
 
-  test("the first open keeps the board in view, with the CFO's terminal under it and the keyboard left alone", async ({ page }, testInfo) => {
+  test("the first open shows the board alone, with the CFO's terminal a tap away and the keyboard left alone", async ({ page }, testInfo) => {
     // Act
     await open(page);
 
     // Assert
-    await expect(page.locator("#panel-title")).toHaveText("CFO");
-    await expect(page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-pressed", "true");
-    await expect(terminalInput(page)).toBeAttached();
-    await expect(terminalInput(page)).not.toBeFocused();
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
-    const [top, under] = [(await board(page).boundingBox())!, (await panel(page).boundingBox())!];
-    expect(top.y + top.height).toBeLessThanOrEqual(under.y);
+    await expect(page.locator(".task-card").first()).toBeVisible();
     await expect(board(page)).toBeInViewport();
+    await expect(page.locator("#panel-title")).toHaveCount(0);
+    await expect(terminalInput(page)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Open the CFO's terminal" }).first()).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("first-open-narrow.png") });
   });
 });
