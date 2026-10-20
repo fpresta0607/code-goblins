@@ -31,10 +31,12 @@ type Screens struct {
 	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
 	PasteTakesEnter bool
 	// Resubmits is how many more times Enter is pressed while typed text
-	// still waits in the composer and no turn has started: three for Codex,
-	// which takes the Enter ending a paste as part of it, and one for Claude
+	// still waits in the composer and no turn has started: one for Claude
 	// Code, which left a resumed goblin's instruction in its composer over an
-	// empty row on a loaded machine, live, on 2026-10-20.
+	// empty row on a loaded machine, live, on 2026-10-20. Codex has none: End
+	// ends its paste, so the Enter after it submits, and a Codex that takes
+	// that Enter late, the text still showing, would get a second one after
+	// the instruction (#1171).
 	Resubmits int
 	// Undrawn says the harness can hold typed text without drawing it until
 	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
@@ -128,7 +130,6 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Working:         regexp.MustCompile(`^\s*([•◦]\s+)?[^\s"'›>][^"'›>]*\([^()]*esc to interrupt\)|^\s*[•◦] Working \(`),
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,
-			Resubmits:       3,
 			Undrawn:         true,
 			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
 		}, true
