@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, test, type Locator, type Page } from "./site";
 
 // A merge train shows as one card with its pull requests: a running one at
 // the top of In progress, a finished one at the top of Completed. The
@@ -25,7 +25,7 @@ const SNAPSHOT = {
   ],
 };
 
-async function open(page: Page) {
+async function open(page: Page, snapshot: object = SNAPSHOT) {
   await page.addInitScript((data) => {
     class HeldStream extends EventTarget {
       onerror: unknown = null;
@@ -33,12 +33,26 @@ async function open(page: Page) {
       close() {}
     }
     Object.defineProperty(window, "EventSource", { value: HeldStream });
-  }, JSON.stringify(SNAPSHOT));
+  }, JSON.stringify(snapshot));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 }
+
+// A running train with the riders a case names, alone on the board.
+const trainWith = (cars: ReturnType<typeof car>[]) => ({ ...SNAPSHOT, tasks: [], merge_trains: [{ ...SNAPSHOT.merge_trains[0], note: "", cars }] });
+const SHAPES = [
+  { name: "one rider", cars: [car(55, "riding", "Retry the webhook")] },
+  { name: "two riders", cars: [car(55, "riding", "Retry the webhook"), car(56, "riding", "Export the audit trail", "", "Biff", "Terminal Tamer")] },
+  { name: "a waiting rider", cars: [car(55, "riding", "Retry the webhook"), car(57, "returned", "Fix the docs links")] },
+];
+
+// The heights of a card, of each of its parts and of each of its riders.
+const heights = (card: Locator) => card.evaluate((element) => {
+  const heightOf = (part: Element) => Math.round(part.getBoundingClientRect().height);
+  return { card: heightOf(element), parts: [...element.children].map(heightOf), riders: [...element.querySelectorAll(".train-car")].map(heightOf) };
+});
 
 const column = (page: Page, name: string) => page.locator(".board-column").filter({ has: page.getByRole("heading", { name: new RegExp("^" + name) }) });
 
@@ -118,5 +132,36 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(title).toHaveText("Ingrid - Clock Icon Restorer of the Minimal Cards");
       expect(fit).toEqual({ isWhole: true, reachesTheEnd: true });
     });
+
+    // The Overlord, 2026-10-20: "why so much empty space fix ui bug". A
+    // grid hands the height it has over its parts to its rows, so a card in a
+    // grid taller than it, or held taller than its parts, spread them apart.
+    for (const shape of SHAPES) {
+      test(`${shape.name}: a train's card is no taller for a column with height to spare`, async ({ page }) => {
+        // Arrange
+        await open(page, trainWith(shape.cars));
+        const card = column(page, "In progress").locator(".train-card");
+        const before = await heights(card);
+
+        // Act
+        await page.locator(".train-cards").evaluate((element) => element.style.setProperty("height", "900px"));
+
+        // Assert
+        expect(await heights(card)).toEqual(before);
+      });
+
+      test(`${shape.name}: a train's card keeps its rows to their content when held taller than they are`, async ({ page }) => {
+        // Arrange
+        await open(page, trainWith(shape.cars));
+        const card = column(page, "In progress").locator(".train-card");
+        const before = await heights(card);
+
+        // Act
+        await card.evaluate((element) => element.style.setProperty("min-height", "700px"));
+
+        // Assert
+        expect(await heights(card)).toEqual({ ...before, card: 700 });
+      });
+    }
   });
 }
