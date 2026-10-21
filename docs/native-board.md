@@ -112,6 +112,8 @@ The installer records the absolute executable/home/state paths, so reinstall the
 | Pi agent_settled with no pending messages | Settled after continuations and retries |
 | Pi session_shutdown | Session ended |
 
+Claude Code raises SubagentStart only as its Agent tool starts a subagent, with that agent's type, and SubagentStop also as its own forked agents end, compaction, memory and summary among them, with no type and no start before it.
+The supervisor accepts a session's events only after its start, so the hook spools nothing for an untyped Claude Code SubagentStop, which would otherwise wait in the spool until it aged out (issue #1212).
 Distinct hook invocations receive distinct durable IDs, including two Stops within one native turn after a hook-requested continuation.
 Replaying the same spool record retains its ID and is idempotent.
 A Stop never establishes that the task shipped.

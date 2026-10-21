@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -77,6 +78,10 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 // input, to the supervisor of the home at root, whose state is in dir.
 func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, stderr io.Writer) int {
 	e, err := nativehook.Normalize(input, nativehook.Context{Harness: harnessName, Role: os.Getenv("CFO_ROLE"), TaskID: os.Getenv("CFO_TASK_ID"), Generation: os.Getenv("CFO_SPAWN_GEN"), ParentSessionID: os.Getenv("CFO_PARENT_SESSION_ID"), ParentHarness: os.Getenv("CFO_PARENT_HARNESS"), RootSessionID: os.Getenv("CFO_ROOT_SESSION_ID"), HostID: os.Getenv(host.IDVariable)})
+	if errors.Is(err, nativehook.ErrUnstartedSubagent) {
+		fmt.Fprintln(stdout, "{}")
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
