@@ -67,6 +67,29 @@ async function replay(page: Page, screen: Recording): Promise<Relay> {
   return { typed: () => Buffer.concat(typed).toString("latin1"), clear: () => typed.splice(0), write: (text) => write(text) };
 }
 
+// A browser just started on CI's runners stopped answering for 5 to 19 s as
+// it drew its first harness screen, past the 5 s a check waits (#1202). So a
+// test waits for the terminal's first screen as long as the test may, drawn,
+// and times what it checks from there. stall stops the page for ms as the
+// screen first shows, the way that browser did.
+const drawn = (page: Page) => page.locator(".terminal-view:not(.staged)").waitFor();
+
+async function stall(page: Page, ms: number): Promise<void> {
+  await page.route("**/stall", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    await route.fulfill({ body: "" });
+  });
+  await page.addInitScript(() => {
+    new MutationObserver((_, observer) => {
+      if (!document.querySelector(".xterm-rows")?.textContent?.trim()) return;
+      observer.disconnect();
+      const request = new XMLHttpRequest();
+      request.open("GET", "/stall", false);
+      request.send();
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  });
+}
+
 const rows = (page: Page) => page.locator(".terminal-view:not(.staged) > .xterm .xterm-rows > div");
 const pin = (page: Page) => page.locator(".terminal-pin");
 const jump = (page: Page) => page.getByRole("button", { name: "Jump to bottom" });
@@ -78,41 +101,46 @@ async function lastRowWith(page: Page, text: string): Promise<number> {
 }
 
 for (const { name, harness, idle, choices, inputLine, footer, asks } of HARNESSES) {
-  test(name + " keeps its input line and footer on its bottom rows, and the wheel scrolls " + name + ", never the board", async ({ page }) => {
-    // Arrange
-    const screen = recording(idle);
-    const relay = await replay(page, screen);
-    await page.goto("/tests/fixtures/terminal-geometry.html");
-    await expect(rows(page)).toHaveCount(screen.rows);
-    await expect(rows(page).filter({ hasText: footer })).toHaveCount(1);
-    const before = await rows(page).allTextContents();
+  for (const stalled of harness === "claude" ? [0, 6_000] : [0]) {
+    test(name + " keeps its input line and footer on its bottom rows, and the wheel scrolls " + name + ", never the board" + (stalled ? ", in a browser that stops as it draws the screen" : ""), async ({ page }) => {
+      // Arrange
+      const screen = recording(idle);
+      const relay = await replay(page, screen);
+      if (stalled) await stall(page, stalled);
+      await page.goto("/tests/fixtures/terminal-geometry.html");
+      await drawn(page);
+      await expect(rows(page)).toHaveCount(screen.rows);
+      await expect(rows(page).filter({ hasText: footer })).toHaveCount(1);
+      const before = await rows(page).allTextContents();
 
-    // Assert: the footer is on the last two rows, and the input line just
-    // above it. pi's editor has no prompt and sits between two rules across
-    // the screen, so for pi the last full-width rule row, one run of the box
-    // rule character, stands for its input line.
-    expect(await lastRowWith(page, footer)).toBeGreaterThanOrEqual(screen.rows - 2);
-    expect(await lastRowWith(page, inputLine || "─".repeat(screen.cols))).toBeGreaterThanOrEqual(screen.rows - 5);
+      // Assert: the footer is on the last two rows, and the input line just
+      // above it. pi's editor has no prompt and sits between two rules across
+      // the screen, so for pi the last full-width rule row, one run of the box
+      // rule character, stands for its input line.
+      expect(await lastRowWith(page, footer)).toBeGreaterThanOrEqual(screen.rows - 2);
+      expect(await lastRowWith(page, inputLine || "─".repeat(screen.cols))).toBeGreaterThanOrEqual(screen.rows - 5);
 
-    // Act
-    await page.locator(".terminal-view:not(.staged) .xterm-screen").hover();
-    relay.clear();
-    await page.mouse.wheel(0, -400);
+      // Act
+      await page.locator(".terminal-view:not(.staged) .xterm-screen").hover();
+      relay.clear();
+      await page.mouse.wheel(0, -400);
 
-    // Assert: the wheel went to the harness as mouse wheel reports, which is
-    // what scrolls its transcript, and the board scrolled and pinned nothing.
-    await expect.poll(() => relay.typed()).toContain(ESC + "[<64;");
-    await page.waitForTimeout(300);
-    await expect(pin(page)).toBeHidden();
-    await expect(jump(page)).toHaveCount(0);
-    expect(await rows(page).allTextContents()).toEqual(before);
-  });
+      // Assert: the wheel went to the harness as mouse wheel reports, which is
+      // what scrolls its transcript, and the board scrolled and pinned nothing.
+      await expect.poll(() => relay.typed()).toContain(ESC + "[<64;");
+      await page.waitForTimeout(300);
+      await expect(pin(page)).toBeHidden();
+      await expect(jump(page)).toHaveCount(0);
+      expect(await rows(page).allTextContents()).toEqual(before);
+    });
+  }
 
   test("a drag in " + name + " goes to " + name + ", which selects and copies, and Shift and a drag selects in the board's terminal", async ({ page, context }) => {
     // Arrange
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const relay = await replay(page, recording(idle));
     await page.goto("/tests/fixtures/terminal-geometry.html");
+    await drawn(page);
     await expect(rows(page).filter({ hasText: footer })).toHaveCount(1);
     const box = (await page.locator(".terminal-view:not(.staged) .xterm-screen").boundingBox())!;
     relay.clear();
@@ -149,6 +177,7 @@ for (const { name, harness, idle, choices, inputLine, footer, asks } of HARNESSE
       // Arrange
       const relay = await replay(page, recording(choices));
       await page.goto("/tests/fixtures/terminal-input.html?" + new URLSearchParams({ harness, role }) + "#native");
+      await drawn(page);
       await expect(page.locator(".terminal-view:not(.staged) > .xterm .xterm-rows")).toContainText(asks);
       await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
       // The focus report the harness asked for, then nothing until a key.
