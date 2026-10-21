@@ -250,11 +250,15 @@ export class TerminalView {
     this.readyIfDrawn();
   }
 
+  // A view whose connection closed before it was shown is never shown, its
+  // wait for a repaint included: it has no terminal to draw, and an empty one
+  // with a cursor reads as a program at work where its closing says why (a
+  // goblin whose host a restart ended, 2026-10-20).
   private markReady(): void {
     if (this.isReady || this.disposed) return;
     clearTimeout(this.fallback);
     this.isReady = true;
-    requestAnimationFrame(() => { if (!this.disposed) this.events.ready(); });
+    requestAnimationFrame(() => { if (!this.disposed && this.socket.readyState === WebSocket.OPEN) this.events.ready(); });
   }
 
   private refit(): void {
