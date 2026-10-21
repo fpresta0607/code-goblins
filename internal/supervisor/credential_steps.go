@@ -29,6 +29,10 @@ import (
 // closing.
 const credentialWaitTick = 200 * time.Millisecond
 
+// credentialWaitRecheck is every how many looks a wait on a card reads the
+// board's record whatever its stamp says.
+var credentialWaitRecheck = 10
+
 // maxCredentialAnswer is the longest answer he writes on a card instead of
 // its step.
 const maxCredentialAnswer = 4000
@@ -487,7 +491,7 @@ func WaitCredential(ctx context.Context, stateDir, id string, seen func(Credenti
 	// stamp says.
 	for look := 0; ; look++ {
 		info, statErr := os.Stat(filepath.Join(stateDir, ".supervisor.json"))
-		changed := statErr != nil || !info.ModTime().Equal(stamp) || info.Size() != size || look%10 == 0
+		changed := statErr != nil || !info.ModTime().Equal(stamp) || info.Size() != size || look%credentialWaitRecheck == 0
 		if statErr == nil {
 			stamp, size = info.ModTime(), info.Size()
 		}
