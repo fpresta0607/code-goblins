@@ -7,6 +7,7 @@
 package starthook
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -183,12 +185,16 @@ func (e environment) siteHooks(site string, entries []os.DirEntry) ([]Hook, erro
 			case strings.HasPrefix(line, "import ") || strings.HasPrefix(line, "import\t"):
 				isHook = isHook || !e.known(path, strings.TrimRight(line, " \t"))
 			default:
-				added := strings.TrimRight(line, " \t")
-				if !filepath.IsAbs(added) {
-					added = filepath.Join(site, added)
-				}
-				if listed, err := os.ReadDir(added); err == nil {
-					hooks = append(hooks, customizeModules(added, listed)...)
+				added := pathLine(site, line)
+				info, err := os.Stat(added)
+				switch {
+				case err != nil:
+				case info.IsDir():
+					if listed, err := os.ReadDir(added); err == nil {
+						hooks = append(hooks, customizeModules(added, listed)...)
+					}
+				case archiveCustomizes(added):
+					hooks = append(hooks, Hook{Path: added})
 				}
 			}
 		}
@@ -201,6 +207,52 @@ func (e environment) siteHooks(site string, entries []os.DirEntry) ([]Hook, erro
 		hooks[index].Installing = hooks[index].Package == "" && time.Since(e.modified) < installQuiet
 	}
 	return hooks, nil
+}
+
+// pathLine is the folder or archive a .pth file's path line adds to
+// sys.path, found as Python's site.addpackage finds it: the line without the
+// trailing whitespace str.rstrip strips, joined to site as os.path.join
+// joins a Windows path, so a rooted line keeps site's drive and a line that
+// names site's drive with no root is relative to site.
+func pathLine(site, line string) string {
+	line = strings.TrimRightFunc(line, func(r rune) bool { return unicode.IsSpace(r) || r >= 0x1c && r <= 0x1f })
+	volume := filepath.VolumeName(line)
+	rest := line[len(volume):]
+	isRooted := rest != "" && os.IsPathSeparator(rest[0])
+	switch {
+	case volume == "" && isRooted:
+		return filepath.Join(filepath.VolumeName(site), rest)
+	case volume == "", !isRooted && strings.EqualFold(volume, filepath.VolumeName(site)):
+		return filepath.Join(site, rest)
+	}
+	return filepath.Join(volume, rest)
+}
+
+// archiveCustomizes reports whether the file at path is a zip archive that
+// holds a sitecustomize or usercustomize module at its root, which Python's
+// zipimport serves once a path line adds the archive.
+func archiveCustomizes(path string) bool {
+	file, err := fsx.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	archive, err := zip.NewReader(file, info.Size())
+	if err != nil {
+		return false
+	}
+	for _, entry := range archive.File {
+		top, _, _ := strings.Cut(entry.Name, "/")
+		stem, _, _ := strings.Cut(top, ".")
+		if strings.EqualFold(stem, "sitecustomize") || strings.EqualFold(stem, "usercustomize") {
+			return true
+		}
+	}
+	return false
 }
 
 // customizeModules are the sitecustomize and usercustomize modules of one

@@ -1,6 +1,8 @@
 package starthook
 
 import (
+	"archive/zip"
+	"bytes"
 	"io/fs"
 	"net/url"
 	"os"
@@ -137,6 +139,17 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 		{name: "a customize module in a folder a path line adds", arrange: func(t *testing.T, worktree string) {
 			install(t, makeEnvironment(t, worktree, ".venv"), "extras-1.0", map[string]string{"extras.pth": "extras_lib\n", "extras_lib/SiteCustomize.pyc": ""})
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/extras_lib/SiteCustomize.pyc", Package: "extras-1.0"}}},
+		{name: "a customize module in a folder a path line names with a trailing no-break space, which Python strips", arrange: func(t *testing.T, worktree string) {
+			install(t, makeEnvironment(t, worktree, ".venv"), "extras-1.0", map[string]string{"extras.pth": "extras_lib" + string(rune(0xA0)) + "\n", "extras_lib/sitecustomize.py": ""})
+		}, want: []Hook{{Path: ".venv/Lib/site-packages/extras_lib/sitecustomize.py", Package: "extras-1.0"}}},
+		{name: "a customize module in a folder a path line names by the site's drive with no root, and by a root with no drive", arrange: func(t *testing.T, worktree string) {
+			site := makeEnvironment(t, worktree, ".venv")
+			rooted := strings.TrimPrefix(filepath.Join(site, "rooted_lib"), filepath.VolumeName(site))
+			install(t, site, "extras-1.0", map[string]string{"extras.pth": filepath.VolumeName(site) + "drive_lib\n" + rooted + "\n", "drive_lib/sitecustomize.py": "", "rooted_lib/usercustomize.py": ""})
+		}, want: []Hook{{Path: ".venv/Lib/site-packages/drive_lib/sitecustomize.py", Package: "extras-1.0"}, {Path: ".venv/Lib/site-packages/rooted_lib/usercustomize.py", Package: "extras-1.0"}}},
+		{name: "a customize module in a zip archive a path line adds, which zipimport serves", arrange: func(t *testing.T, worktree string) {
+			install(t, makeEnvironment(t, worktree, ".venv"), "extras-1.0", map[string]string{"extras.pth": "extras.zip\nplain.zip\n", "extras.zip": zipped(t, "sitecustomize.py"), "plain.zip": zipped(t, "extras/__init__.py")})
+		}, want: []Hook{{Path: ".venv/Lib/site-packages/extras.zip", Package: "extras-1.0"}}},
 		{name: "a hook no installed package names", arrange: func(t *testing.T, worktree string) {
 			write(t, filepath.Join(makeEnvironment(t, worktree, ".venv"), "zz.pth"), stealerLine)
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/zz.pth"}}},
@@ -177,6 +190,20 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 			}
 		})
 	}
+}
+
+// zipped is a zip archive holding one empty file named name.
+func zipped(t *testing.T, name string) string {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	if _, err := writer.Create(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return archive.String()
 }
 
 // settle dates every folder under root two minutes back, as an install that

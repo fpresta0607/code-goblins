@@ -157,6 +157,28 @@ func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
 	}
 }
 
+// Claude Code's Monitor tool runs a command in the background as Bash runs
+// one, such as a goblin's test run it watches, so a planted start hook
+// stops it before it runs as it stops a shell command.
+func TestGoblinSealStopsAMonitorCommandBeforePythonRuns(t *testing.T) {
+	// Arrange
+	goblinHookHome(t)
+	plantStartHook(t, os.Getenv("CLAUDE_PROJECT_DIR"), "litellm_init.pth,sha256=AAAA,90\n")
+	data, err := json.Marshal(map[string]any{"session_id": "s1", "tool_name": "Monitor", "tool_input": map[string]string{"command": "uv run pytest -q", "description": "the test run"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runHook("goblin-seal", strings.NewReader(string(data)), &stdout, &stderr)
+
+	// Assert
+	if exit != 2 || !strings.Contains(stderr.String(), `"permissionDecision":"deny"`) || !strings.Contains(stderr.String(), "litellm_init.pth, from litellm-1.107.0,") {
+		t.Fatalf("exit = %d, stderr = %q, want the Monitor command refused before it ran", exit, stderr.String())
+	}
+}
+
 // An install writes a file before the RECORD that names its package, so a
 // command run beside an install that finds a start hook no package names
 // yet waits with no wake, and the CFO is told only of one still unnamed
