@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -548,9 +549,14 @@ func TestAGoblinsOpenCardIsWithdrawnOnceNobodyWaitsOnIt(t *testing.T) {
 	}
 }
 
-// A goblin waiting on its card continues within a second of his Done, and
-// reads the plain values he typed straight from its card.
-func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
+// A goblin waiting on its card continues once the board records his Done,
+// and reads the plain values he typed straight from its card. The look
+// whatever the record's stamp says is held off, so only the stamp the press
+// gives the record can end the wait, and no bound on how soon a busy PC gets
+// there is needed to tell the two apart.
+func TestWaitingOnACardEndsWhenTheBoardRecordsItClosed(t *testing.T) {
+	defer func(recheck int) { credentialWaitRecheck = recheck }(credentialWaitRecheck)
+	credentialWaitRecheck = math.MaxInt
 	for _, test := range []struct {
 		name   string
 		change func(*CredentialRequest)
@@ -575,17 +581,20 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 			type outcome struct {
 				request CredentialRequest
 				err     error
-				at      time.Time
 			}
+			looked := make(chan struct{})
 			ended := make(chan outcome, 1)
 			go func() {
-				request, err := WaitCredential(ctx, b.home.State, b.request.ID, nil)
-				ended <- outcome{request, err, time.Now()}
+				request, err := WaitCredential(ctx, b.home.State, b.request.ID, func(CredentialRequest) { close(looked) })
+				ended <- outcome{request, err}
 			}()
-			time.Sleep(300 * time.Millisecond)
+			select {
+			case <-looked:
+			case got := <-ended:
+				t.Fatalf("the wait ended before the press: %+v %v", got.request, got.err)
+			}
 
 			// Act
-			pressed := time.Now()
 			code := test.act(b)
 			got := <-ended
 
@@ -595,10 +604,6 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 			}
 			if got.request.State != test.state {
 				t.Fatalf("the wait ended on %+v, want %s", got.request, test.state)
-			}
-			// stall-accepted: it times the wait, and the slow path it rules out, the look every two seconds whatever the record's stamp says, is too short for a longer bound to tell apart.
-			if waited := got.at.Sub(pressed); waited > time.Second {
-				t.Fatalf("the wait ended %s after the press, want within a second", waited)
 			}
 			if test.state == "saved" && got.request.Values["ACCOUNT_EMAIL"] != "shop-owner@example.com" {
 				t.Fatalf("values = %v, want the email he typed", got.request.Values)
