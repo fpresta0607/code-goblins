@@ -561,6 +561,47 @@ func TestFullQuestionListDropsOnlyTheOldestSuperseded(t *testing.T) {
 	}
 }
 
+// A new question is never refused because closed rows fill the board: with
+// two pending questions and 126 closed ones held, whatever closed them, an
+// answer nobody confirmed included, it takes the oldest closed one's place.
+func TestFullQuestionListDropsTheOldestClosedQuestion(t *testing.T) {
+	for _, status := range []string{"cleared", "succeeded", "failed", "uncertain"} {
+		t.Run(status, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			start := time.Now().UTC().Add(-time.Hour)
+			question := func(i int) Question {
+				return Question{ID: fmt.Sprintf("question-%03d", i), Identity: strings.Repeat("c", 64), Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: start.Add(time.Duration(i) * time.Second)}
+			}
+			for i := 0; i < maxQuestions; i++ {
+				if err := store.acceptQuestion(question(i)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store.mu.Lock()
+			for i := 2; i < maxQuestions; i++ {
+				store.db.Questions[i].AnswerID, store.db.Questions[i].Status = fmt.Sprintf("answer-%03d", i), status
+			}
+			store.mu.Unlock()
+
+			// Act
+			err := store.acceptQuestion(question(maxQuestions))
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a new question beside 126 %s ones = %v, want it admitted", status, err)
+			}
+			got := store.Snapshot().Questions
+			if len(got) != maxQuestions || got[0].Status != "pending" || got[1].Status != "pending" || got[len(got)-1].ID != "question-128" {
+				t.Fatalf("held %d questions, first two %s and %s, last %s; want 128 with both pending ones kept and the new one last", len(got), got[0].Status, got[1].Status, got[len(got)-1].ID)
+			}
+			if slices.ContainsFunc(got, func(q Question) bool { return q.ID == "question-002" }) {
+				t.Fatalf("question-002 was kept; want the oldest %s question dropped", status)
+			}
+		})
+	}
+}
+
 // A goblin's newer report says what it is doing: back at work after a
 // question, or waiting on something. A newer question still wins, and a wait
 // on another task clears once that task reports done.

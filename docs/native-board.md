@@ -1528,7 +1528,7 @@ Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery
 The CFO's work on the board follows the home's CFO, not one CFO process, so closing the CFO and opening it again strands nothing.
 Once another CFO process registers in the home, its open questions, its review items whose answer has not reached it, its run items not yet ended and the deliveries queued to any of them move to that CFO, and nothing of it is superseded.
 While no CFO runs, an answer or review on its way to the CFO waits queued instead of failing, and how a run item ended is kept on the item and told to the CFO once one runs again.
-The store bounds question history at 128 records, retires cleared and answered history first, and defers overflow when all questions remain pending.
+The store bounds question history at 128 records, retires the oldest cleared, answered, failed or unconfirmed (`uncertain`) question first and then the oldest superseded one, and defers overflow only while every held question is pending, has its answer on its way, or has its page still watched.
 The bounded publication inbox is admitted in timestamp order, not hash-filename order, and rollover keeps its cutoff below the incoming timestamp so deferred and same-time questions are not discarded.
 Conflicting, corrupt or oversized inbox records leave bounded diagnostics and cannot stop unrelated native events.
 
