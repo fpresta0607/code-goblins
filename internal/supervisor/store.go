@@ -453,7 +453,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	if e.Prompt {
 		node.PromptAt = e.OccurredAt
 	}
-	s.db.Sessions[key] = node
+	// A compaction starts and ends no turn, so the session's record stays as
+	// its last turn left it.
+	if e.Kind != "compacting" && e.Kind != "compacted" {
+		s.db.Sessions[key] = node
+	}
 	if e.Role == "goblin" {
 		s.db.TaskSessions[e.TaskID] = key
 	}
@@ -956,10 +960,13 @@ func (s *Store) updateQuestionOutcomes() {
 	}
 }
 
-func (s *Store) Ingest() error {
+// Ingest accepts the events waiting in the native inbox and returns each it
+// accepted for the first time, in the order it accepted them, also when it
+// stops short with an error: they have left the inbox.
+func (s *Store) Ingest() ([]nativehook.Event, error) {
 	entries, err := os.ReadDir(nativehook.SpoolDir(s.Home.State))
 	if err != nil {
-		return recoverNativeInbox(s.Home.State, err)
+		return nil, recoverNativeInbox(s.Home.State, err)
 	}
 	type record struct {
 		path  string
@@ -982,14 +989,14 @@ func (s *Store) Ingest() error {
 		r := record{path: filepath.Join(nativehook.SpoolDir(s.Home.State), entry.Name())}
 		info, statErr := entry.Info()
 		if statErr != nil {
-			return statErr
+			return nil, statErr
 		}
 		if info.Size() > nativehook.MaxEventBytes {
 			r.err = errors.New("oversized event")
 		} else {
 			data, readErr := fsx.ReadFile(r.path)
 			if readErr != nil {
-				return readErr
+				return nil, readErr
 			}
 			r.err = json.Unmarshal(data, &r.event)
 		}
@@ -1002,19 +1009,27 @@ func (s *Store) Ingest() error {
 		return records[i].event.OccurredAt.Before(records[j].event.OccurredAt)
 	})
 	consumed := 0
+	var accepted []nativehook.Event
 	for _, r := range records {
 		if consumed >= 256 {
 			break
 		}
 		err := r.err
+		isReplay := false
 		if err == nil {
+			s.mu.Lock()
+			isReplay = slices.Contains(s.db.Seen, r.event.ID)
+			s.mu.Unlock()
 			err = s.Accept(r.event)
 		}
 		if errors.Is(err, ErrStorage) {
-			return err
+			return accepted, err
 		}
 		if errors.Is(err, ErrDeferred) {
 			continue
+		}
+		if err == nil && !isReplay {
+			accepted = append(accepted, r.event)
 		}
 		if err != nil {
 			// Quarantine stores bounded diagnostics only, not raw potentially
@@ -1027,15 +1042,15 @@ func (s *Store) Ingest() error {
 			saveErr := s.save()
 			s.mu.Unlock()
 			if saveErr != nil {
-				return saveErr
+				return accepted, saveErr
 			}
 		}
 		if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+			return accepted, err
 		}
 		consumed++
 	}
-	return nil
+	return accepted, nil
 }
 
 func bounded(s string, n int) string {

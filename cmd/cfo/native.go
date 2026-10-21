@@ -16,7 +16,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -74,22 +73,15 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 }
 
 // nativeHookEvent reports one event of a harness's native hook, read from
-// input, to the supervisor of the home at root, whose state is in dir.
+// input, to the supervisor of the home at root, whose state is in dir. It
+// spools the event and returns: what a Codex or pi CFO's turn end or
+// compaction asks of the fleet, the supervisor does as it ingests the event
+// (supervisor.Service.followNativeCFO), so the harness never waits on it.
 func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, stderr io.Writer) int {
 	e, err := nativehook.Normalize(input, nativehook.Context{Harness: harnessName, Role: os.Getenv("CFO_ROLE"), TaskID: os.Getenv("CFO_TASK_ID"), Generation: os.Getenv("CFO_SPAWN_GEN"), ParentSessionID: os.Getenv("CFO_PARENT_SESSION_ID"), ParentHarness: os.Getenv("CFO_PARENT_HARNESS"), RootSessionID: os.Getenv("CFO_ROOT_SESSION_ID"), HostID: os.Getenv(host.IDVariable)})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
-	}
-	// A compaction starts and ends no turn, so it never enters the session
-	// spool.
-	if e.Kind == "compacting" || e.Kind == "compacted" {
-		if err := compactNativeCFO(home.Home{Root: root, State: dir, Data: filepath.Join(root, "data")}, e, time.Now()); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "{}")
-		return 0
 	}
 	if err := nativehook.Spool(dir, e); err != nil {
 		fmt.Fprintln(stderr, err)
@@ -119,19 +111,10 @@ func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, std
 	// Claude registers from its own SessionStart hook, after the digest has
 	// settled custody. Codex and Pi have only this one, and a failure here
 	// shows on the board as the registration state rather than in the reply.
+	// It stays in the hook: only a process in the CFO's own session can prove
+	// it is one.
 	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv(host.IDVariable) != "" {
 		_, _ = supervisor.Register(dir, e.Harness, e.SessionID)
-	}
-	// A Codex or pi CFO has no Stop hook that reopens its turn, so the turn it
-	// ends idle while work waits raises the idle wake, which the supervisor
-	// types into its terminal as it does every wake. A failure never fails the
-	// hook the harness runs.
-	if e.Kind == "settled" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && supervisor.RunsUnderRegisteredCFO(dir) {
-		if memory, err := hookMemory(); err == nil {
-			if _, err := supervisor.IdleTurnWake(home.Home{Root: root, State: dir, Data: filepath.Join(root, "data")}, memory, time.Now().UTC()); err != nil {
-				fmt.Fprintln(stderr, "idle wake:", err)
-			}
-		}
 	}
 	return 0
 }
@@ -144,27 +127,17 @@ func isOwnSession(stateDir string) bool {
 }
 
 // compactNativeCFO gives a Codex or pi CFO what Claude Code's pre-compact hook
-// and SessionStart digest give a Claude CFO: a checkpoint written before the
-// compaction, then one wake through the queue pointing at it. Only the CFO's
-// own session acts, and only while it holds the home, so a goblin's or another
-// session's compaction neither overwrites the CFO's checkpoint nor wakes it.
+// and SessionStart digest give a Claude CFO: a checkpoint written as the
+// compaction begins, then one wake through the queue pointing at it. cfo serve
+// hands it to the supervisor, which calls it for the compaction events of the
+// registered CFO's own session while that CFO holds the home, so a goblin's or
+// another session's compaction neither overwrites the CFO's checkpoint nor
+// wakes it.
 func compactNativeCFO(h home.Home, e nativehook.Event, now time.Time) error {
-	if e.Role != "cfo" || e.TaskID != "" || !home.IsPrimary(h) {
-		return nil
-	}
-	program, err := supervisor.OwnSession(h.State)
-	if err != nil {
-		return nil
-	}
-	holder, err := lock.Read(h.State)
-	if err != nil || !holder.VerifiedAlive() || holder.PID != program.PID {
-		return nil
-	}
 	if e.Kind == "compacting" {
-		// As on Claude, a checkpoint that cannot be written leaves the
-		// compaction running; the wake after it then says none is fresh.
-		_ = digest.WriteCheckpoint(h, now)
-		return nil
+		// One that cannot be written leaves the wake after the compaction
+		// saying none is fresh.
+		return digest.WriteCheckpoint(h, now)
 	}
 	// The checkpoint's write time tells a replayed event from the next
 	// compaction, which writes a new one first.
@@ -178,7 +151,7 @@ func compactNativeCFO(h home.Home, e nativehook.Event, now time.Time) error {
 	if _, err := wake.AppendOnce(h.State, identity, "check", "compact", detail); err != nil {
 		return err
 	}
-	_, err = wake.PublishEpisode(h.State)
+	_, err := wake.PublishEpisode(h.State)
 	return err
 }
 

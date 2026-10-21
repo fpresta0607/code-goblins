@@ -566,7 +566,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
-- **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and a Codex or pi CFO's native hook queues the wake the supervisor types into its terminal.
+- **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and for a Codex or pi CFO the supervisor queues the wake from the turn end its native hook reported and types it into its terminal.
   The same next work reopens a turn at most once every 30 minutes.
   Read `cfo fleet-view` first, since the scheduler may already be starting it, then start or resume what has not started, or park a row that must not start.
 

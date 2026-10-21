@@ -46,8 +46,9 @@ func WorkWaits(h home.Home) bool {
 // queue. It returns "" when the turn may
 // end: a goblin works, memory is short, nothing could run, or this same next
 // work woke an idle turn less than idleWakeAfter ago. The CFO's turn end is
-// the one moment the supervisor's scheduler cannot see, so the hook that sees
-// it calls this, whatever harness the CFO runs.
+// the one moment the supervisor's scheduler cannot see, so what sees it calls
+// this: a Claude CFO's turn-end guard, and the supervisor itself as it ingests
+// the turn end a Codex or pi CFO's native hook spooled.
 func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 	if memory.shortfall() != "" {
 		return "", nil

@@ -123,13 +123,13 @@ func TestIngestionRecreatesADeletedNativeInbox(t *testing.T) {
 	if err := os.Remove(nativehook.SpoolDir(home.State)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Ingest(); err == nil || !strings.Contains(err.Error(), "recreated") {
+	if _, err := store.Ingest(); err == nil || !strings.Contains(err.Error(), "recreated") {
 		t.Fatalf("missing folder was not reported and recreated: %v", err)
 	}
 	if err := nativehook.Spool(home.State, event(t, home, "SessionStart", "next-session", "", time.Now())); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Ingest(); err != nil || store.Snapshot().Sessions["codex/next-session"].NativeID != "next-session" {
+	if _, err := store.Ingest(); err != nil || store.Snapshot().Sessions["codex/next-session"].NativeID != "next-session" {
 		t.Fatalf("new events require a restart: %v", err)
 	}
 }
@@ -320,7 +320,7 @@ func TestDeletedStateRootIsNeitherRecreatedNorTreatedAsAnInboxProblem(t *testing
 	service := &Service{Store: store, Options: Options{Reconcile: func(context.Context) error { isReconciled = true; return nil }}}
 
 	// Act
-	ingestErr := store.Ingest()
+	_, ingestErr := store.Ingest()
 	service.cycle(context.Background(), true)
 
 	// Assert

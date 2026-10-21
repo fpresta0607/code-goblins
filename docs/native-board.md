@@ -93,6 +93,8 @@ The direct command is written without quotes and with forward slashes, which Pow
 Pi's extension calls the same executable directly from its native event handlers.
 Hooks record identity and lifecycle metadata, not prompts, tool arguments, or transcripts.
 They atomically spool an event and return without Git, network, gate, or browser work.
+A Codex or pi CFO's hooks do no more than a Claude Code session's: the supervisor raises the idle wake from the turn end they spool and writes the compaction checkpoint and its wake from the compaction events, as it ingests them, for the registered CFO's own session (issue #1213).
+Only the SessionStart's registration still runs in the hook, since only a process in the CFO's own session can prove it is one.
 Claude Code, Codex and pi each hold a native hook to 30 seconds (`nativehook.TimeoutSeconds`), and end it there, which loses its event.
 The hook's own work takes milliseconds; the limit is for the start of its process, which on a machine full of the fleet's builds and tests took up to 19 seconds, past the 3 seconds the hooks had until issue #1211, so a session's prompts and turn ends went unrecorded exactly while the machine was busiest.
 A hook that finishes sooner ends sooner, so the limit costs time only while the machine itself is stalled.
@@ -105,8 +107,8 @@ The installer records the absolute executable/home/state paths, so reinstall the
 | Stop | Settled; requests task evaluation |
 | SessionEnd | Harness session ended |
 | Codex Interrupt | Interrupted; requests evaluation |
-| Codex PreCompact / Pi session_before_compact | The CFO's checkpoint is written; no turn starts or ends |
-| Codex PostCompact / Pi session_compact | One wake names the CFO's checkpoint; no turn starts or ends |
+| Codex PreCompact / Pi session_before_compact | The supervisor writes the CFO's checkpoint; no turn starts or ends |
+| Codex PostCompact / Pi session_compact | The supervisor queues one wake naming the CFO's checkpoint; no turn starts or ends |
 | SubagentStart / SubagentStop | Reported child started / settled |
 | Pi session_start / agent_start / tool_execution_end | Started / active |
 | Pi agent_settled with no pending messages | Settled after continuations and retries |
@@ -319,7 +321,7 @@ A snapshot with no commit limit has not reported commit, so the meter shows memo
 The snapshot's `disk` is the free space and size of the drive the home is on, read with `GetDiskFreeSpaceEx`, beside `config/fleet.json`'s disk floor (`disk_floor_gb`, default 15 GB), under which no goblin and no gate test run starts, and the lower mark at which the CFO is woken (`disk_wake_gb`, default 10 GB).
 In the memory meter's box, under memory, **Disk free** shows it as a number and a bar spanning twice the floor, or the whole drive if that is less, marked at the floor and the mark, whose fill turns amber under the floor and red under the mark; Start's tooltip and the Next chip name free disk when it is what is short.
 `idle` (wake kind `idle`), keyed `fleet`: while work the scheduler could not start (a start or resume that failed, or a row that needs the CFO) waits with memory free and nothing started for 30 minutes, `serve` wakes the CFO naming each waiting task and why, and again every 30 minutes it lasts; work that waits on another task, on memory or already finished wakes nobody.
-Keyed `turn`: when the CFO's turn ends with no goblin at work while work that could run waits and memory and commit are free, the turn is reopened with the next work named, a paused goblin whose pause cleared first, then the top of the queue, with the exact `cfo` command; Claude Code's turn-end guard blocks the stop with it, and a Codex or pi CFO's native hook queues it for the supervisor to type into its terminal.
+Keyed `turn`: when the CFO's turn ends with no goblin at work while work that could run waits and memory and commit are free, the turn is reopened with the next work named, a paused goblin whose pause cleared first, then the top of the queue, with the exact `cfo` command; Claude Code's turn-end guard blocks the stop with it, and for a Codex or pi CFO the supervisor queues it from the turn end the native hook spooled and types it into its terminal.
 The same next work reopens a turn at most once every 30 minutes, and only the session holding the home, or the registered native CFO, is reopened.
 `stale_row:` (wake kind `notify`), keyed by the task: a row under `## Queued` whose task the CFO retired, with `cfo cleanup` or `cfo kill`, and that has no brief written since is not started by the scheduler, which wakes the CFO once for that retirement naming the row, so the CFO moves it to `## Done` or queues new work under a new id.
 `disk_low` (wake kind `disk`): `serve` reads the disk with the memory meter, and when free disk falls under the mark it wakes the CFO once with what is free, what each part of the home holds and what the janitor last freed; it wakes again only after a reading back at or above the floor, and never twice within fifteen minutes.
