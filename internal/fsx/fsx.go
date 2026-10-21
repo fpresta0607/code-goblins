@@ -163,7 +163,8 @@ func Remove(path string) error {
 // symbolic link goes as a link and what it points at is never touched, and a
 // path past 260 characters and a read-only file go as any other. The one way
 // it could follow a link is a folder swapped for one while it runs, by a
-// process still writing there.
+// process still writing there. A name of a file a process has loaded goes
+// while another hard link keeps the file, which Go's own removal refuses.
 func RemoveAll(path string) error {
 	return RemoveAllWithin(path, transientBudget)
 }
@@ -171,7 +172,7 @@ func RemoveAll(path string) error {
 // RemoveAllWithin is RemoveAll that waits out a holder for budget at most,
 // for a caller whose own wait is longer or shorter than transientBudget.
 func RemoveAllWithin(path string, budget time.Duration) error {
-	return retryTransientWithin(budget, func() error { return os.RemoveAll(path) })
+	return retryTransientWithin(budget, func() error { return removeAll(path) })
 }
 
 // transientBudget is how long a state file operation waits out another
