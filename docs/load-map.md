@@ -174,8 +174,8 @@ It runs only for the live session that holds the primary home's lock, produces n
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
 The checkpoint warns that holds declared only in conversation are absent; the CFO's own handoff must record them.
 Re-run `cfo install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
-A Codex or pi CFO gets the same checkpoint from its native hooks: Codex `PreCompact` and pi `session_before_compact` write it under the same custody rule.
-Codex `PostCompact` and pi `session_compact` then queue one `check` wake that names the checkpoint, or says no fresh one was written, and the supervisor types it into the idle CFO like any other wake; a replayed event queues nothing new.
+A Codex or pi CFO gets the same checkpoint through its native hooks, which only spool the event: as the supervisor ingests Codex `PreCompact` or pi `session_before_compact` it writes the checkpoint, for the registered CFO while that CFO holds the primary home's lock.
+As it ingests Codex `PostCompact` or pi `session_compact` it queues one `check` wake that names the checkpoint, or says no fresh one was written, and types it into the idle CFO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
 A Codex CFO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CFO.
 The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.

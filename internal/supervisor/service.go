@@ -105,8 +105,13 @@ type Options struct {
 	// machine; without it the board has no dictation of its own.
 	Dictation Dictation
 	// Dispatch is what a queued task's Start reads and runs; without it the
-	// board starts no goblin.
+	// board starts no goblin, and no CFO turn raises the idle wake.
 	Dispatch *Dispatch
+	// CompactCFO writes the compact checkpoint of a registered Codex or pi CFO
+	// as its compaction begins and, as it ends, queues the one wake that names
+	// it, as cfo hook pre-compact and the SessionStart digest do for a Claude
+	// CFO; without it a compaction does neither.
+	CompactCFO func(h home.Home, e nativehook.Event, now time.Time) error
 	// CI runs gh and git for the CI wakes; without it no CI is watched.
 	CI       execx.Runner
 	Progress execx.Runner
@@ -748,9 +753,10 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
-	ingestErr := s.Store.Ingest()
+	events, ingestErr := s.Store.Ingest()
+	followErr := s.followNativeCFO(events)
 	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
-		s.publish(ingestErr)
+		s.publish(errors.Join(ingestErr, followErr))
 		return
 	}
 	wasNativeInboxFailing := s.isNativeInboxFailing
@@ -761,7 +767,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.nativeInboxRepair = nil
 	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
+	reconcileErr := errors.Join(ingestErr, followErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
