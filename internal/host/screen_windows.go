@@ -45,8 +45,9 @@ func requestScreen(record Record) ([]string, error) {
 		return nil, err
 	}
 	defer client.Close()
-	_ = client.pipe.SetReadDeadline(time.Now().Add(screenTimeout + handshakeTimeout))
+	lift := awakeDeadline(client.pipe.SetReadDeadline, screenTimeout+handshakeTimeout)
 	kind, payload, err := readFrame(client.pipe)
+	lift()
 	if err != nil {
 		return nil, err
 	}

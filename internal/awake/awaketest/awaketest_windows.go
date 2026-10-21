@@ -9,6 +9,7 @@ package awaketest
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"regexp"
@@ -18,6 +19,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
@@ -51,6 +53,20 @@ func IsPausedProcess() bool {
 // Ready tells Across that the pause may fall now.
 func Ready() {
 	fmt.Println(readyLine)
+}
+
+// ReadyThenHold says Ready once the wait the pause is to fall in has begun,
+// 100 ms of the time the machine ran from now, and returns 300 ms of running
+// time after that, the time the side that wait waits on still needs once the
+// machine runs again: what its caller does next comes after the pause.
+func ReadyThenHold() {
+	settle, cancelSettle := awake.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelSettle()
+	<-settle.Done()
+	Ready()
+	hold, cancelHold := awake.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancelHold()
+	<-hold.Done()
 }
 
 // Across runs t's test again in another process, pauses that process for
