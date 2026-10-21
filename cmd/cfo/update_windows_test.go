@@ -1621,7 +1621,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 	if code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=swapped"}); code != 9 {
 		t.Fatalf("the update did not end at swapped (exit %d):\n%s", code, output)
 	}
-	stranger := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >NUL")
+	stranger := exec.Command("ping", "-n", "60", "127.0.0.1")
 	if err := stranger.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -1632,7 +1632,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\cmd.exe`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.bin, "goblins.exe")})
+	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\PING.EXE`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.bin, "goblins.exe")})
 	if err := update.Record(u.state, &journal, journal.Phase, ""); err != nil {
 		t.Fatal(err)
 	}

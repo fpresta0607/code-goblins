@@ -222,7 +222,7 @@ func TestAWatcherYieldingToOneServeAnswersTheNextServeToo(t *testing.T) {
 	setHandoverWait(t, 2*time.Second)
 	_, h := testStore(t)
 	hook := startStandIn(t, h.State, "slow-watcher", "cfo.exe", "hook", "stop-autoarm")
-	first := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >NUL")
+	first := exec.Command("ping", "-n", "60", "127.0.0.1")
 	if err := first.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +463,7 @@ func TestServeTakesALockItsHolderLetGoBeforeServeReadWhoHeldIt(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir := t.TempDir()
-			holder := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+			holder := exec.Command("ping", "-n", "30", "127.0.0.1")
 			if err := holder.Start(); err != nil {
 				t.Fatal(err)
 			}

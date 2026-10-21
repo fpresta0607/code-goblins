@@ -1446,7 +1446,7 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 				registered, err = lock.Acquire(h.State)
 				t.Cleanup(func() { _ = lock.Release(h.State) })
 			} else {
-				other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+				other := exec.Command("ping", "-n", "30", "127.0.0.1")
 				if err := other.Start(); err != nil {
 					t.Fatal(err)
 				}
