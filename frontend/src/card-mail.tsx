@@ -12,8 +12,8 @@ const COPIED_MS = 1400;
 // Overlord, 2026-10-17: "you should have a little like copy email body or
 // copy email that I could then send. Instead of having to go to like this
 // file"): where it goes, the address to copy or the page to open, its
-// subject, and its body in a box that reads as the email will, with Copy
-// email, and Copy subject when it has one, each copying exactly that text.
+// subject, and its body in a box that reads as the email will, with Copy,
+// and Copy subject when it has one, each copying exactly that text.
 export function CardMail({ mail }: { mail: Mail }) {
   const [copied, setCopied] = useState("");
   const [feedback, showFeedback] = useClickFeedback();
@@ -30,7 +30,7 @@ export function CardMail({ mail }: { mail: Mail }) {
     <div className="card-mail-actions">
       <ClickFeedback text={feedback} />
       {mail.subject && <button type="button" className="icon-button raised pill-link" onClick={() => void copy("subject", mail.subject)}><Icon name={copied === "subject" ? "check" : "copy"} /><span>{copied === "subject" ? "Copied" : "Copy subject"}</span></button>}
-      <button type="button" className="icon-button raised pill-link" onClick={() => void copy("email", mail.body)}><Icon name={copied === "email" ? "check" : "copy"} /><span>{copied === "email" ? "Copied" : "Copy email"}</span></button>
+      <button type="button" className="icon-button raised pill-link" onClick={() => void copy("body", mail.body)}><Icon name={copied === "body" ? "check" : "copy"} /><span>{copied === "body" ? "Copied" : "Copy"}</span></button>
     </div>
   </section>;
 }
