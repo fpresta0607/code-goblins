@@ -57,7 +57,7 @@ import (
 //
 // A question with choices, or a command, can also carry a message the
 // Overlord sends himself, such as an email, read from --message-file: its
-// card shows the body with Copy email, so he never opens a file. A question
+// card shows the body with Copy, so he never opens a file. A question
 // with choices carries it; a command's run card carries it otherwise.
 //
 // A wait on the Overlord leads with one sentence, and the values he must

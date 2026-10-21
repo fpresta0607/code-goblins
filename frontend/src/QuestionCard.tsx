@@ -24,7 +24,7 @@ export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null
 
 // One question: who asks and how long they have waited, its text with each
 // local path it names a link that opens it, a message he sends himself with
-// Copy email, the choices with the recommendation first, Other for a written
+// Copy, the choices with the recommendation first, Other for a written
 // answer, its own Send, and Skip beside it for one he answered elsewhere or no
 // longer needs, which tells a goblin that asked to go on without it.
 export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {

@@ -20,7 +20,7 @@ import { PathLink, pathLinks, type PathCard } from "./path-link";
 // A command the CFO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, each
 // local path it names a link that opens it, a message he sends himself with
-// Copy email, and one Run button that says where it runs, with Skip and the
+// Copy, and one Run button that says where it runs, with Skip and the
 // pencil beside it for a command he will not run: the pencil sends his answer
 // in words instead. Run turns the card into the
 // command's own terminal, in place of the notice it once showed: he types
