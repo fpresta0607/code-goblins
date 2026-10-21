@@ -453,6 +453,9 @@ A goblin waiting on another goblin names it once, in its card's status line, and
 A wait a goblin reported says what it does until it takes a prompt after that report: while the turn that prompt started runs it reads Working, its own tool calls in the turn that filed the wait end nothing, and once that turn ends with no newer report the wait stands again.
 The prompt is proven by the harness's native hooks; a goblin whose harness reports none keeps its report.
 A delivered goblin is at work again only on a prompt taken after its latest done report, and then its newer reports say what it does.
+A question or a failure a goblin reported is its state until the goblin takes a prompt after it, as an answer that reached it, a steer or an instruction an Enter submitted, and a failure also while its terminal shows its harness at work since.
+An answer on record or an acknowledgement resumes nothing, since an answer can be to stay held, and a hold its own turn is still finishing stays a hold; the line stays in the goblin's history.
+A gate run that finished, passed, failed, cancelled or interrupted, holds no step and asks for no decision, so the step that failed it never reads In review gate or Blocked on a card that reports work or a wait beside it.
 A native session of an earlier generation, such as the Pi session of a goblin since switched to a harness whose hooks are not installed, is no evidence of the current one, and the card reads the goblin's gate and terminal instead.
 Goblins whose standing waits on one another close a circle each read Blocked, naming the goblin whose wait comes back to it, never Waiting on it, and the CFO is woken once for each circle with a `wait_cycle` notify naming every goblin in it; a newer report of any of them is a new circle.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.

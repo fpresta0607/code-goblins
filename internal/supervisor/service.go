@@ -1212,16 +1212,22 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return result, nil
 	}
 	result.PR = p.PR
-	if i := slices.IndexFunc(p.Steps, func(step pipeline.ProgressStep) bool {
-		return step.Status != "completed" && step.Status != "skipped" && step.Status != "pending"
-	}); i >= 0 {
-		result.GateStep = p.Steps[i].Name
-	}
-	for _, step := range p.Steps {
-		if step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed" {
-			result.Phase = "blocked"
-			result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
-			return result, nil
+	// A run that finished holds no step and waits on no decision: the step
+	// that failed it only says how it ended. On 2026-10-21 one cancelled the
+	// night before and one that failed on a fetch each held a goblin's card
+	// at Blocked over everything the goblin reported since.
+	if !p.IsTerminal() {
+		if i := slices.IndexFunc(p.Steps, func(step pipeline.ProgressStep) bool {
+			return step.Status != "completed" && step.Status != "skipped" && step.Status != "pending"
+		}); i >= 0 {
+			result.GateStep = p.Steps[i].Name
+		}
+		for _, step := range p.Steps {
+			if step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed" {
+				result.Phase = "blocked"
+				result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
+				return result, nil
+			}
 		}
 	}
 	if p.Ready(head) {
@@ -1679,9 +1685,17 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		// Answering or acknowledging a report does not resume its task. A
-		// standing dependency wait still survives a question asked beside it.
-		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
+		// A question or a failure the goblin reported is its state until the
+		// goblin takes a prompt after it, as an answer that reached it, a
+		// steer or an instruction an Enter submitted, and a failure also
+		// while its terminal shows its harness at work since. An answer on
+		// record or an acknowledgement resumes nothing, a hold its own turn
+		// is still finishing stays a hold, and the line stays in the goblin's
+		// history. A standing dependency wait still survives a question asked
+		// beside it.
+		kind := reportKind(report)
+		isPastReport := linked && node.PromptAt.Truncate(time.Second).After(reportedAt) || kind == "failed" && runtime.working() && !runtime.At.Before(reportedAt)
+		if !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") && !isPastReport {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
 		}
 		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
