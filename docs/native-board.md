@@ -516,6 +516,7 @@ Where a goblin's terminal cannot take typing, for a goblin paused, resuming or s
 The CFO's Terminal view has no message box: while no CFO runs, closed or between the two terminals of a restart, it shows only why it has no terminal (the Overlord, 2026-10-09: "when cfo is off no message box should exist").
 Holding the box's microphone, or Ctrl+Shift+Space in the box, dictates into it with the terminals' own dictation, on the supervisor's speech model, for as long as it is held.
 A paused goblin's message joins its resume note, which its resume prompt carries, and a goblin pausing, resuming or starting, or whose terminal is not up yet, has it wait, then typed into its terminal, where a busy harness takes it at its next tool call.
+A goblin whose resume failed has the message join its resume note the same way while a Resume of that resume can still run, because it is the session's own or the task's interrupted resume; once a later start, such as a `cfo switch`, replaced the failed resume's session, the goblin runs and the message is typed into its terminal.
 A `message` action that names no task is for the CFO, and the board sends none: it waits until a CFO runs and its input is ready, and goes to whichever CFO that is.
 One that waits ten minutes, or whose goblin ends or stops first, goes to the CFO with its words.
 Each message shows under the box with where it is: Queued, Kept for resume, Sent or With the CFO.

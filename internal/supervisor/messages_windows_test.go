@@ -123,6 +123,66 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 	}
 }
 
+// A message is kept only for a resume that can run: a failed resume of its
+// goblin's own session, or the task's interrupted resume, which a Resume
+// takes up again. A failed resume whose session a later start replaced, as
+// a cfo switch run to rescue the goblin does, is neither, and the goblin
+// runs, so the message is typed into its terminal (issue #1221).
+func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		generation      string
+		resumeOperation string
+		isKept          bool
+	}{
+		{"a failed resume a later start replaced", "g0", "", false},
+		{"a failed resume of its own session", "g1", "", true},
+		{"the task's interrupted resume", "g0", "resume-1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			meta.ResumeOperation = tc.resumeOperation
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: tc.generation, RequestGeneration: tc.generation, Operation: "resume-1", Action: "resume", Phase: "failed", Updated: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			goblin := goblinTerminal(t, h.State, meta.ID)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+			messageTo(t, store, meta, "message-1", "use the staging database")
+
+			// Act
+			err := store.ProcessOne(context.Background(), service.execute)
+			var typed []string
+			if tc.isKept {
+				typed = goblin.lines(t)
+			} else {
+				typed = goblin.waitForLines(t, 1)
+			}
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			isKept := strings.Contains(record.ResumeNote, "use the staging database")
+			action := actionOf(store, "message-1")
+			if tc.isKept && (!isKept || len(typed) != 0 || action.Message != "Kept for its resume.") {
+				t.Fatalf("message = %+v, resume note %q, typed %q, want it kept for its resume with nothing typed", action, record.ResumeNote, typed)
+			}
+			if !tc.isKept && (isKept || len(typed) != 1 || !strings.Contains(typed[0], "use the staging database")) {
+				t.Fatalf("message = %+v, resume note %q, typed %q, want it typed once into its terminal and not kept", action, record.ResumeNote, typed)
+			}
+		})
+	}
+}
+
 // keptForResume has the supervisor keep the Overlord's messages to meta's
 // paused goblin for its resume, in order.
 func keptForResume(t *testing.T, store *Store, meta state.TaskMeta, texts ...string) {

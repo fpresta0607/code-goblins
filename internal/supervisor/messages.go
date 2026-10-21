@@ -71,7 +71,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	switch {
 	case isRecorded && record.Phase == "stopped":
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was stopped before it could take it")
-	case isRecorded && (record.Phase == "paused" && record.Generation == meta.SpawnGen || record.Action == "resume" && record.Phase == "failed"):
+	case isRecorded && waitsForResume(record) && isCurrentRecord(record, meta):
 		isKept, err := keepForResume(stateDir, a.TaskID, text)
 		if err != nil {
 			return Evaluation{}, err
@@ -111,11 +111,15 @@ func keepForResume(stateDir, task, text string) (isKept bool, err error) {
 		return false, nil
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, name)) }()
+	meta, err := state.ReadTaskMeta(stateDir, task)
+	if err != nil {
+		return false, err
+	}
 	record, err := state.ReadLifecycle(stateDir, task)
 	if err != nil {
 		return false, err
 	}
-	if !waitsForResume(record) {
+	if !waitsForResume(record) || !isCurrentRecord(record, meta) {
 		return false, nil
 	}
 	record.ResumeNote = strings.TrimSpace(record.ResumeNote + "\n" + text)
@@ -126,6 +130,15 @@ func keepForResume(stateDir, task, text string) (isKept bool, err error) {
 // the goblin is paused, or its resume failed.
 func waitsForResume(record state.Lifecycle) bool {
 	return record.Phase == "paused" || record.Action == "resume" && record.Phase == "failed"
+}
+
+// isCurrentRecord says record is meta's goblin's own, so a Resume of it can
+// run: it is meta's session's, or the task's interrupted resume. A failed
+// resume whose session a later start replaced, as a cfo switch run to rescue
+// the goblin does, is neither: no Resume of it runs again, and the goblin
+// runs.
+func isCurrentRecord(record state.Lifecycle, meta state.TaskMeta) bool {
+	return record.Generation == meta.SpawnGen || record.IsInterruptedResume(meta)
 }
 
 // keptMessages reads a resume note as what came before the board's first
