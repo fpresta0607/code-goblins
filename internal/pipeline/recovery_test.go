@@ -447,20 +447,6 @@ func TestRecoverKeepLocalCreatesSHA256RecoveryAnchor(t *testing.T) {
 	}
 }
 
-func TestRecoverKeepLocalRefusesNonAncestralCommitsBeforeMutation(t *testing.T) {
-	runner := &recoveryRunner{}
-	reader := newRecoveryReader(t, runner)
-	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err == nil {
-		t.Fatal("non-equivalent divergence accepted")
-	}
-	for _, request := range runner.requests {
-		joined := recoveryRequestCommand(request)
-		if joined == "no-mistakes axi sync --recover --keep-local" || strings.Contains(joined, "update-ref") || strings.Contains(joined, "UPDATE runs") {
-			t.Fatalf("unsafe recovery mutated state: %s", joined)
-		}
-	}
-}
-
 // gateRebaseRunner runs git and sqlite3 for real and stands in for the
 // no-mistakes engine, which returns custody of a failed run only once the
 // run's recorded head is the gate branch's head, as its unverified-head check does.
@@ -509,16 +495,19 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 		branch = "feat/site-plan-sheet-rebuild"
 	)
 	for _, test := range []struct {
-		name         string
-		isRebased    bool
-		hasFixCommit bool
-		isPublished  bool
-		isRecovered  bool
+		name          string
+		isRebased     bool
+		isConflicting bool
+		hasFixCommit  bool
+		remoteHolds   string
+		isRecovered   bool
 	}{
-		{name: "rebase onto published main", isRebased: true, isPublished: true, isRecovered: true},
-		{name: "rebase onto a base no remote holds", isRebased: true},
-		{name: "rebase with a gate fix commit", isRebased: true, hasFixCommit: true, isPublished: true},
-		{name: "gate fix commit on the submitted head", hasFixCommit: true, isPublished: true},
+		{name: "rebase onto published main", isRebased: true, remoteHolds: "upstream", isRecovered: true},
+		{name: "rebase onto a base no remote holds", isRebased: true, remoteHolds: "base"},
+		{name: "rebase with a gate fix commit", isRebased: true, hasFixCommit: true, remoteHolds: "upstream"},
+		{name: "rebase whose conflict the gate resolved", isRebased: true, isConflicting: true, remoteHolds: "upstream"},
+		{name: "gate fix commit on the submitted head", hasFixCommit: true, remoteHolds: "upstream"},
+		{name: "recorded head a remote already holds", hasFixCommit: true, remoteHolds: "recorded", isRecovered: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: the run was submitted at the task branch's head, and the
@@ -528,26 +517,38 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 			for _, setting := range [][2]string{{"user.name", "Pipeline Test"}, {"user.email", "pipeline@example.com"}, {"core.autocrlf", "false"}, {"commit.gpgsign", "false"}} {
 				runPipelineGit(t, work, "config", setting[0], setting[1])
 			}
-			commit := func(file string) string {
-				if err := os.WriteFile(filepath.Join(work, file), []byte(file+"\n"), 0o600); err != nil {
+			commit := func(file, content string) string {
+				if err := os.WriteFile(filepath.Join(work, file), []byte(content), 0o600); err != nil {
 					t.Fatal(err)
 				}
 				runPipelineGit(t, work, "add", file)
 				runPipelineGit(t, work, "commit", "--quiet", "-m", file)
 				return runPipelineGit(t, work, "rev-parse", "HEAD")
 			}
-			commit("base.txt")
+			base := commit("base.txt", "base\n")
 			runPipelineGit(t, work, "switch", "--quiet", "-c", branch)
-			commit("feature-one.txt")
-			submitted := commit("feature-two.txt")
+			commit("feature-one.txt", "feature one\n")
+			submitted := commit("feature-two.txt", "feature two\n")
 			runPipelineGit(t, work, "switch", "--quiet", "main")
-			upstream := commit("upstream.txt")
+			upstream := commit("upstream.txt", "upstream\n")
+			if test.isConflicting {
+				upstream = commit("feature-two.txt", "upstream two\n")
+			}
 			runPipelineGit(t, work, "switch", "--quiet", "--detach", submitted)
-			if test.isRebased {
+			if test.isConflicting {
+				if out, err := exec.Command("git", "-C", work, "rebase", "--quiet", "main").CombinedOutput(); err == nil {
+					t.Fatalf("rebase did not conflict: %s", out)
+				}
+				if err := os.WriteFile(filepath.Join(work, "feature-two.txt"), []byte("feature two\nupstream two\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				runPipelineGit(t, work, "add", "feature-two.txt")
+				runPipelineGit(t, work, "-c", "core.editor=true", "rebase", "--continue")
+			} else if test.isRebased {
 				runPipelineGit(t, work, "rebase", "--quiet", "main")
 			}
 			if test.hasFixCommit {
-				commit("gate-fix.txt")
+				commit("gate-fix.txt", "gate fix\n")
 			}
 			recorded := runPipelineGit(t, work, "rev-parse", "HEAD")
 			runPipelineGit(t, work, "switch", "--quiet", branch)
@@ -556,11 +557,12 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOfTheSubmittedHead(t *
 			database := filepath.Join(root, "state.sqlite")
 			bare := filepath.Join(root, "repos", repo+".git")
 			runPipelineGit(t, root, "init", "--quiet", "--bare", bare)
-			refs := []string{submitted + ":refs/heads/" + branch, recorded + ":refs/fixture/run"}
-			if test.isPublished {
-				refs = append(refs, upstream+":refs/remotes/origin/main")
-			}
-			runPipelineGit(t, work, append([]string{"push", "--quiet", bare}, refs...)...)
+			remote := map[string]string{
+				"upstream": upstream + ":refs/remotes/origin/main",
+				"base":     base + ":refs/remotes/origin/main",
+				"recorded": recorded + ":refs/remotes/origin/" + branch,
+			}[test.remoteHolds]
+			runPipelineGit(t, work, "push", "--quiet", bare, submitted+":refs/heads/"+branch, recorded+":refs/fixture/run", remote)
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,created_at INTEGER,updated_at INTEGER);
 INSERT INTO repos VALUES(` + sqlString(repo) + `,` + sqlString(filepath.ToSlash(work)) + `);
@@ -587,7 +589,7 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 				t.Fatalf("gate branch moved from %s to %s", submitted, gate)
 			}
 			if !test.isRecovered {
-				if err == nil || runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted {
+				if err == nil || !strings.Contains(err.Error(), "neither an ancestor of the submitted head nor the gate's rebase") || runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted {
 					t.Fatalf("unsafe recovery: error=%v native recovered=%t anchor=%q heads=%q", err, runner.isRecovered, anchored, heads)
 				}
 				return

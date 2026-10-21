@@ -221,7 +221,8 @@ For pipeline-owned recovery, it requires a clean worktree whose head exactly mat
 The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
 A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
 The driver accepts such a head only as a pure rebase: its first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
-A gate fix commit on the rebase, or a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that is not already published.
+A gate fix commit or conflict resolution on the rebase, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
+A run under `rebase.strategy: merge` integrates with a merge commit instead, which this proof does not cover, and is refused.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
