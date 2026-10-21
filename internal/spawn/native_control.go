@@ -29,7 +29,7 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	if !fleet.IsCommand(text) {
 		return s.deliverNativeInstruction(ctx, record, screens, meta, text)
 	}
-	if err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text)); err != nil {
+	if _, err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text)); err != nil {
 		return err
 	}
 	return fmt.Errorf("send: %q was typed into native terminal %s and submitted once, but nothing on its screen confirms a command ran; check it with cfo peek %s rather than sending it again", text, meta.ID, meta.ID)
