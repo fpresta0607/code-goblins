@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -115,6 +116,9 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 		{name: "a line that runs on its own after a form feed, which Python's splitlines breaks at", arrange: func(t *testing.T, worktree string) {
 			install(t, makeEnvironment(t, worktree, ".venv"), "helper-2.0", map[string]string{"helper.pth": "helper\f" + stealerLine})
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/helper.pth", Package: "helper-2.0"}}},
+		{name: "a payload after a form feed in a known line's file, which a Python that splits at line ends alone runs as part of that line", arrange: func(t *testing.T, worktree string) {
+			install(t, makeEnvironment(t, worktree, ".venv"), "setuptools-80.9.0", map[string]string{"distutils-precedence.pth": strings.TrimSuffix(distutilsLine, "\n") + "\f__import__('os').system('x')\n"})
+		}, want: []Hook{{Path: ".venv/Lib/site-packages/distutils-precedence.pth", Package: "setuptools-80.9.0"}}},
 		{name: "known lines in files another package installs", arrange: func(t *testing.T, worktree string) {
 			install(t, makeEnvironment(t, worktree, ".venv"), "tools-1.0", map[string]string{"distutils-precedence.pth": distutilsLine, "pywin32.pth": "import pywin32_bootstrap\n", "a1_coverage.pth": coverageLine, "pytest-cov.pth": pytestCovLine, "_distutils_hack/__init__.py": ""})
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/a1_coverage.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/distutils-precedence.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/pytest-cov.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/pywin32.pth", Package: "tools-1.0"}}},
@@ -219,6 +223,28 @@ func settle(t *testing.T, root string) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A .pth file that is not UTF-8 is read in the ANSI code page, where a byte
+// that UTF-8 cannot read is a no-break space Python strips from a path line,
+// so the folder it names is the one Python adds.
+func TestFindReadsAPathLineInTheANSICodePage(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows reads a .pth file in an ANSI code page")
+	}
+	// Arrange
+	worktree := t.TempDir()
+	install(t, makeEnvironment(t, worktree, ".venv"), "extras-1.0", map[string]string{"extras.pth": "extras_lib" + string([]byte{0xa0}) + "\n", "extras_lib/sitecustomize.py": ""})
+	settle(t, worktree)
+
+	// Act
+	hooks, err := Find(worktree)
+
+	// Assert
+	want := []Hook{{Path: filepath.Join(worktree, ".venv", "Lib", "site-packages", "extras_lib", "sitecustomize.py"), Package: "extras-1.0"}}
+	if err != nil || !slices.Equal(hooks, want) {
+		t.Fatalf("hooks = %+v, %v, want %+v", hooks, err, want)
 	}
 }
 

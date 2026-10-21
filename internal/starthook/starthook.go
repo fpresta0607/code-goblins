@@ -61,6 +61,34 @@ var knownHooks = []struct{ file, owner, line string }{
 // lineBreaks are the runes Python's str.splitlines splits a line at.
 var lineBreaks = []rune{'\n', '\r', '\v', '\f', 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029}
 
+// readings are the lines of a .pth file as each Python that may start in an
+// environment reads it. A Python with python/cpython#77102, such as 3.12.10,
+// decodes it as UTF-8 with an optional byte order mark, failing that in the
+// ANSI code page, and splits it with str.splitlines; an older one decodes it
+// in the ANSI code page and splits it at line ends alone. Every line of
+// every reading is looked at, so
+// a payload one reading joins to a known line after a form feed, or a
+// folder one decoding spells differently, is still found.
+func readings(data []byte) []string {
+	texts := []string{strings.TrimPrefix(string(data), string(rune(0xFEFF)))}
+	if text, ok := ansi(data); ok {
+		texts = append(texts, text)
+	}
+	isLineEnd := func(r rune) bool { return r == '\n' || r == '\r' }
+	isLineBreak := func(r rune) bool { return slices.Contains(lineBreaks, r) }
+	var lines []string
+	for _, text := range texts {
+		for _, split := range []func(rune) bool{isLineEnd, isLineBreak} {
+			for _, line := range strings.FieldsFunc(text, split) {
+				if !slices.Contains(lines, line) {
+					lines = append(lines, line)
+				}
+			}
+		}
+	}
+	return lines
+}
+
 // Find returns the start hooks no known package ships in the Python
 // environments of worktree: each folder at its root that holds pyvenv.cfg,
 // and the .venv of each folder one or two levels below its root, where uv
@@ -174,12 +202,7 @@ func (e environment) siteHooks(site string, entries []os.DirEntry) ([]Hook, erro
 			return nil, err
 		}
 		isHook := false
-		// Python decodes a .pth file as UTF-8 with an optional byte order
-		// mark, or failing that in the locale's encoding, and splits it with
-		// str.splitlines. Splitting at every rune that splits a line in either
-		// decoding cuts at least where Python does, so a line it runs is
-		// always a line here.
-		for _, line := range strings.FieldsFunc(strings.TrimPrefix(string(data), string(rune(0xFEFF))), func(r rune) bool { return slices.Contains(lineBreaks, r) }) {
+		for _, line := range readings(data) {
 			switch {
 			case strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "":
 			case strings.HasPrefix(line, "import ") || strings.HasPrefix(line, "import\t"):
