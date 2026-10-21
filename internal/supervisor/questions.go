@@ -1155,13 +1155,15 @@ func (s *Store) admitQuestion(q Question) error {
 		// A question that closed without an answer stays listed until the
 		// Overlord clears it, or until it is the oldest superseded one while
 		// 128 are held: a new question is never refused because closed ones
-		// were not cleared. A pending question is never dropped, nor one whose
-		// page is still watched, as an item's is not.
+		// were not cleared. An answer nobody confirmed (uncertain) is closed
+		// history like a failed one, which he cannot clear, so it goes in
+		// turn. A pending question is never dropped, nor one whose page is
+		// still watched, as an item's is not.
 		isWatched := func(old Question) bool {
 			return old.AsksPageFile != "" && old.PageSettled == nil && s.taskStands(old.Task)
 		}
 		index := slices.IndexFunc(s.db.Questions, func(old Question) bool {
-			return (old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed") && !isWatched(old)
+			return (old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed" || old.Status == "uncertain") && !isWatched(old)
 		})
 		if index < 0 {
 			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" && !isWatched(old) })
