@@ -520,6 +520,7 @@ A relief that fails is said once, and the floor watch goes on without it.
 
 A start whose compose up fails, rather than one cfo ended at the floor, first saves what each service that did not come up says of itself, since the stop that follows takes its container and its log with it.
 For each container that ran and stopped, keeps restarting or runs without passing its health check, it saves the state `docker inspect` reads, with the health check's last output, and the last 500 lines of `docker logs`, both streams in the order written.
+A read docker cannot give, as of a log its logging driver does not keep, is said in its place, and the other containers are saved all the same.
 They go to `services-<project>-<time>.log` in the task's folder under `state\tasktmp\`, and the start's failure names that file, or says why nothing could be saved.
 On 2026-10-20 a backend came up unhealthy twice, and each stop left nothing to read why.
 

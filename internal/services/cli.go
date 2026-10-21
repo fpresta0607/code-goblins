@@ -151,7 +151,9 @@ func (c CLI) Up(ctx context.Context, compose Compose, services []string) error {
 // Failed reads each container of the stack that ran and stopped, keeps
 // restarting, or runs without passing its health check: its state as
 // docker inspect reads it, with its health check's last output, and the end
-// of its log. A container that was created and never ran has neither.
+// of its log. A container that was created and never ran has neither. A read
+// docker cannot give, as of a log its logging driver does not keep, is said
+// in its place, so it costs nothing of the others.
 func (c CLI) Failed(ctx context.Context, compose Compose) ([]Failure, error) {
 	out, err := c.run(ctx, compose.Dir, compose.args("ps", "--all", "--format", "{{.Service}} {{.Name}} {{.State}} {{.Health}}")...)
 	if err != nil {
@@ -171,34 +173,52 @@ func (c CLI) Failed(ctx context.Context, compose Compose) ([]Failure, error) {
 		if (status == "running" || status == "created") && (health == "" || health == "healthy") {
 			continue
 		}
-		state, err := c.run(ctx, "", "inspect", "--format", "{{json .State}}", container)
-		if err != nil {
-			return nil, err
+		failure := Failure{Service: service, Container: container}
+		if failure.State, err = c.state(ctx, container); err != nil {
+			failure.State = "could not be read: " + err.Error()
 		}
-		var indented bytes.Buffer
-		if err := json.Indent(&indented, []byte(strings.TrimSpace(state)), "", "  "); err != nil {
-			return nil, fmt.Errorf("services: read the state docker inspect gave of %s: %w", container, err)
+		if failure.Log, err = c.logTail(ctx, container); err != nil {
+			failure.Log = "could not be read: " + err.Error()
 		}
-		args := []string{"logs", "--tail", failedLogLines, "--timestamps", container}
-		result, err := c.Commands.Run(ctx, execx.Request{Name: "docker", Args: args, KillTree: true})
-		if err != nil {
-			return nil, fmt.Errorf("services: docker %s: %w", strings.Join(args, " "), err)
-		}
-		if result.ExitCode != 0 {
-			return nil, fmt.Errorf("services: docker %s exited %d: %s", strings.Join(args, " "), result.ExitCode, strings.TrimSpace(string(result.Stderr)))
-		}
-		// docker logs writes what the container wrote to each stream to the
-		// same stream, every line after its timestamp, which has one width,
-		// so ordering by it puts the two back in the order they were written.
-		log := append(lines(string(result.Stdout)), lines(string(result.Stderr))...)
-		slices.SortStableFunc(log, func(left, right string) int {
-			leftTime, _, _ := strings.Cut(left, " ")
-			rightTime, _, _ := strings.Cut(right, " ")
-			return strings.Compare(leftTime, rightTime)
-		})
-		failures = append(failures, Failure{Service: service, Container: container, State: indented.String(), Log: strings.Join(log, "\n")})
+		failures = append(failures, failure)
 	}
 	return failures, nil
+}
+
+// state is the container's state as docker inspect reads it, indented, or
+// as docker said it where it is not the JSON asked for.
+func (c CLI) state(ctx context.Context, container string) (string, error) {
+	state, err := c.run(ctx, "", "inspect", "--format", "{{json .State}}", container)
+	if err != nil {
+		return "", err
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, []byte(strings.TrimSpace(state)), "", "  "); err != nil {
+		return strings.TrimSpace(state), nil
+	}
+	return indented.String(), nil
+}
+
+// logTail is the end of the container's log, both its streams.
+func (c CLI) logTail(ctx context.Context, container string) (string, error) {
+	args := []string{"logs", "--tail", failedLogLines, "--timestamps", container}
+	result, err := c.Commands.Run(ctx, execx.Request{Name: "docker", Args: args, KillTree: true})
+	if err != nil {
+		return "", fmt.Errorf("services: docker %s: %w", strings.Join(args, " "), err)
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("services: docker %s exited %d: %s", strings.Join(args, " "), result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+	}
+	// docker logs writes what the container wrote to each stream to the same
+	// stream, every line after its timestamp, which has one width, so
+	// ordering by it puts the two back in the order they were written.
+	log := append(lines(string(result.Stdout)), lines(string(result.Stderr))...)
+	slices.SortStableFunc(log, func(left, right string) int {
+		leftTime, _, _ := strings.Cut(left, " ")
+		rightTime, _, _ := strings.Cut(right, " ")
+		return strings.Compare(leftTime, rightTime)
+	})
+	return strings.Join(log, "\n"), nil
 }
 
 // Down stops and removes services, or the whole stack and its network when

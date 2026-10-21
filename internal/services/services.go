@@ -246,10 +246,12 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 		// A start cfo ended itself failed for cfo's reason, not a service's,
 		// and gives its memory back at once.
 		if !isEnded {
-			if saved, saveErr := s.saveFailures(ctx, compose, project, task, upErr); saveErr != nil {
-				upErr = fmt.Errorf("%w; what its failed services said could not be saved: %w", upErr, saveErr)
-			} else if saved != "" {
+			saved, saveErr := s.saveFailures(ctx, compose, project, task, upErr)
+			if saved != "" {
 				upErr = fmt.Errorf("%w; %s", upErr, saved)
+			}
+			if saveErr != nil {
+				upErr = fmt.Errorf("%w; %w", upErr, saveErr)
 			}
 		}
 		if !stack.Owned {
@@ -308,15 +310,19 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 
 // saveFailures saves what each container of a failed start that did not come
 // up says of itself, its state with its health check's output and the end of
-// its log, to a file in the task's folder, and says where. It runs before the
-// stop that follows, which takes the containers and their logs with it, as
-// it did twice on 2026-10-20 after a backend came up unhealthy. It writes
-// nothing while the task's cleanup holds its folder, as CleanupLockName asks
-// of every writer into a live task's folder.
+// its log, to a file in the task's folder, and says where, or why it could
+// not. It runs before the stop that follows, which takes the containers and
+// their logs with it, as it did twice on 2026-10-20 after a backend came up
+// unhealthy. It writes nothing while the task's cleanup holds its folder, as
+// CleanupLockName asks of every writer into a live task's folder.
 func (s Service) saveFailures(ctx context.Context, compose Compose, project, task string, startErr error) (string, error) {
+	const unsaved = "what its failed services said could not be saved"
 	failures, err := s.Docker.Failed(ctx, compose)
-	if err != nil || len(failures) == 0 {
-		return "", err
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", unsaved, err)
+	}
+	if len(failures) == 0 {
+		return "", nil
 	}
 	now := s.Now().UTC()
 	var text strings.Builder
@@ -330,15 +336,20 @@ func (s Service) saveFailures(ctx context.Context, compose Compose, project, tas
 	cleanup := state.CleanupLockName(task)
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, cleanup); err != nil {
 		if errors.Is(err, lock.ErrHeld) {
-			return "", fmt.Errorf("the task's cleanup holds its folder: %w", err)
+			return "", fmt.Errorf("%s, as the task's cleanup holds its folder: %w", unsaved, err)
 		}
-		return "", err
+		return "", fmt.Errorf("%s: %w", unsaved, err)
 	}
-	err = fsx.AtomicWriteFile(path, []byte(text.String()))
-	if err := errors.Join(err, lock.ReleaseExclusiveNamed(s.StateDir, cleanup)); err != nil {
-		return "", err
+	writeErr := fsx.AtomicWriteFile(path, []byte(text.String()))
+	releaseErr := lock.ReleaseExclusiveNamed(s.StateDir, cleanup)
+	if writeErr != nil {
+		return "", fmt.Errorf("%s: %w", unsaved, errors.Join(writeErr, releaseErr))
 	}
-	return "the state and log of " + strings.Join(names, ", ") + " are saved in " + path, nil
+	saved := "the state and log of " + strings.Join(names, ", ") + " are saved in " + path
+	if releaseErr != nil {
+		return saved, fmt.Errorf("the task's cleanup lock could not be released: %w", releaseErr)
+	}
+	return saved, nil
 }
 
 // upHoldingTheFloor runs compose up, which builds any image the stack lacks,

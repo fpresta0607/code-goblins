@@ -82,11 +82,12 @@ const failedPS = "compose --file docker-compose.dev.yml ps --all --format {{.Ser
 
 func TestCLIFailedReadsTheContainersThatDidNotComeUp(t *testing.T) {
 	// Arrange: redis is healthy, qdrant runs with no health check and the
-	// worker was created and never ran, while the backend runs unhealthy and
-	// the migration exited.
+	// worker was created and never ran, while the backend runs unhealthy, the
+	// migration exited, the proxy keeps restarting and the search has not
+	// passed its health check yet. The proxy's logging driver keeps no log.
 	compose := Compose{Dir: `C:\dev\PrecisionDocs-AI`, File: "docker-compose.dev.yml"}
 	runner := &scriptedDocker{answers: map[string]execx.Result{
-		failedPS: {Stdout: []byte("redis pd-redis-1 running healthy\r\nqdrant pd-qdrant-1 running \r\nworker-light pd-worker-light-1 created \r\nbackend pd-backend-1 running unhealthy\r\nmigrate pd-migrate-1 exited \r\n")},
+		failedPS: {Stdout: []byte("redis pd-redis-1 running healthy\r\nqdrant pd-qdrant-1 running \r\nworker-light pd-worker-light-1 created \r\nbackend pd-backend-1 running unhealthy\r\nmigrate pd-migrate-1 exited \r\nproxy pd-proxy-1 restarting \r\nsearch pd-search-1 running starting\r\n")},
 		"inspect --format {{json .State}} pd-backend-1": {Stdout: []byte(`{"Status":"running","Health":{"Status":"unhealthy","Log":[{"ExitCode":7,"Output":"curl: (7) Failed to connect"}]}}` + "\n")},
 		"logs --tail 500 --timestamps pd-backend-1": {
 			Stdout: []byte("2026-10-20T14:00:00.000000000Z INFO starting\n2026-10-20T14:00:02.000000000Z INFO   still waiting\n"),
@@ -94,6 +95,10 @@ func TestCLIFailedReadsTheContainersThatDidNotComeUp(t *testing.T) {
 		},
 		"inspect --format {{json .State}} pd-migrate-1": {Stdout: []byte(`{"Status":"exited","ExitCode":1}`)},
 		"logs --tail 500 --timestamps pd-migrate-1":     {Stderr: []byte("2026-10-20T13:59:59.000000000Z relation \"users\" does not exist\n")},
+		"inspect --format {{json .State}} pd-proxy-1":   {Stdout: []byte(`{"Status":"restarting","ExitCode":2}`)},
+		"logs --tail 500 --timestamps pd-proxy-1":       {ExitCode: 1, Stderr: []byte("Error response from daemon: configured logging driver does not support reading")},
+		"inspect --format {{json .State}} pd-search-1":  {Stdout: []byte(`{"Status":"running","Health":{"Status":"starting"}}`)},
+		"logs --tail 500 --timestamps pd-search-1":      {Stdout: []byte("2026-10-20T14:00:03.000000000Z loading index\n")},
 	}}
 
 	// Act
@@ -103,8 +108,15 @@ func TestCLIFailedReadsTheContainersThatDidNotComeUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(failures) != 2 || failures[0].Service != "backend" || failures[0].Container != "pd-backend-1" || failures[1].Service != "migrate" {
-		t.Fatalf("failures = %+v, want the backend and the migration and nothing that came up or never ran", failures)
+	var services []string
+	for _, failure := range failures {
+		services = append(services, failure.Service)
+	}
+	if want := []string{"backend", "migrate", "proxy", "search"}; !slices.Equal(services, want) || failures[0].Container != "pd-backend-1" {
+		t.Fatalf("failures = %+v, want %v and nothing that came up or never ran", failures, want)
+	}
+	if !strings.Contains(failures[2].Log, "could not be read") || !strings.Contains(failures[2].Log, "does not support reading") || !strings.Contains(failures[2].State, `"restarting"`) {
+		t.Errorf("proxy = %+v, want its state, and why its log could not be read in the log's place", failures[2])
 	}
 	if !strings.Contains(failures[0].State, `"Output": "curl: (7) Failed to connect"`) {
 		t.Errorf("backend state = %q, want its health check's output, indented", failures[0].State)
@@ -119,8 +131,8 @@ func TestCLIFailedReadsTheContainersThatDidNotComeUp(t *testing.T) {
 	if got := strings.Join(runner.calls[0].Args, " "); got != failedPS || runner.calls[0].Dir != compose.Dir {
 		t.Errorf("first call = %q in %q, want the stack's containers read from the checkout", got, runner.calls[0].Dir)
 	}
-	if len(runner.calls) != 5 {
-		t.Errorf("calls = %d, want the containers listed and two read", len(runner.calls))
+	if len(runner.calls) != 9 {
+		t.Errorf("calls = %d, want the containers listed and four read", len(runner.calls))
 	}
 }
 
@@ -136,13 +148,9 @@ func TestCLIFailedReportsWhatItCouldNotRead(t *testing.T) {
 			want:    `docker compose ps said "backend"`,
 		},
 		{
-			name: "a log docker cannot read",
-			answers: map[string]execx.Result{
-				failedPS: {Stdout: []byte("backend pd-backend-1 exited\n")},
-				"inspect --format {{json .State}} pd-backend-1": {Stdout: []byte(`{"Status":"exited"}`)},
-				"logs --tail 500 --timestamps pd-backend-1":     {ExitCode: 1, Stderr: []byte("Error response from daemon: configured logging driver does not support reading")},
-			},
-			want: "does not support reading",
+			name:    "a stack compose cannot list",
+			answers: map[string]execx.Result{failedPS: {ExitCode: 1, Stderr: []byte("env file .env.docker.local not found")}},
+			want:    "env file .env.docker.local not found",
 		},
 	}
 	for _, tc := range cases {

@@ -697,6 +697,12 @@ func TestAFailedStartSavesWhatItsFailedServicesSaidBeforeItStops(t *testing.T) {
 			t.Errorf("saved %q, want it to hold %q", saved, want)
 		}
 	}
+	cleanup := state.CleanupLockName("task-a")
+	if _, err := lock.AcquireExclusiveNamed(h.service.StateDir, cleanup); err != nil {
+		t.Errorf("the task's cleanup lock is still held after the save: %v", err)
+	} else if err := lock.ReleaseExclusiveNamed(h.service.StateDir, cleanup); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // A failed start whose failed services cannot be saved stops all the same,
@@ -706,6 +712,7 @@ func TestAFailedStartThatCannotSaveItsFailedServicesStopsAndSaysWhy(t *testing.T
 		name    string
 		arrange func(t *testing.T, h *harness)
 		want    string
+		wantIs  error
 	}{
 		{
 			name: "docker cannot read them",
@@ -729,7 +736,7 @@ func TestAFailedStartThatCannotSaveItsFailedServicesStopsAndSaysWhy(t *testing.T
 			arrange: func(t *testing.T, h *harness) {
 				_ = os.RemoveAll(filepath.Join(h.service.StateDir, "tasktmp", "task-a"))
 			},
-			want: "tasktmp",
+			wantIs: os.ErrNotExist,
 		},
 	}
 	for _, tc := range cases {
@@ -749,6 +756,9 @@ func TestAFailedStartThatCannotSaveItsFailedServicesStopsAndSaysWhy(t *testing.T
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), "is unhealthy") || !strings.Contains(err.Error(), "what its failed services said could not be saved") || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want the start's failure and why nothing was saved (%q)", err, tc.want)
+			}
+			if tc.wantIs != nil && !errors.Is(err, tc.wantIs) {
+				t.Errorf("err = %v, want it to be %v", err, tc.wantIs)
 			}
 			if want := []string{"start-engine", "up backend,worker-light", "failed", "down ", "stop-engine"}; !slices.Equal(h.docker.calls, want) {
 				t.Errorf("docker calls = %v, want %v", h.docker.calls, want)
