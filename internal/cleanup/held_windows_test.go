@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -38,15 +39,10 @@ func holdAsWorkingDirectory(t *testing.T, dir string) {
 // code of it runs.
 func loadAsImage(t *testing.T, path string) {
 	t.Helper()
-	program, err := os.Executable()
-	if err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(program)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, path, string(content))
+	standin.Put(t, path)
 	module, err := windows.LoadLibraryEx(path, 0, windows.LOAD_LIBRARY_AS_IMAGE_RESOURCE)
 	if err != nil {
 		t.Fatal(err)
