@@ -252,12 +252,14 @@ func writeRecord(stateDir string, record Record) error {
 
 // End is how the program of a terminal ended, which its host records as it
 // ends and which outlasts the host's record until the terminal's next program
-// ends: the program by pid and creation time, when it ended, its exit code,
-// and whether a viewer closed the terminal, as a restart closes the CFO's, in
-// which case the code is the close's and not the program's own. It tells a
-// CFO that ended unasked from one that was stopped.
+// ends: the host that ran it, the program by pid and creation time, when it
+// ended, its exit code, and whether a viewer closed the terminal, as a restart
+// closes the CFO's, in which case the code is the close's and not the
+// program's own. It tells a CFO that ended unasked from one that was stopped,
+// and a host that served from one that never did.
 type End struct {
 	ID         string    `json:"id"`
+	HostPID    int       `json:"host_pid,omitempty"`
 	ChildPID   int       `json:"child_pid"`
 	ChildStart time.Time `json:"child_start,omitzero"`
 	Ended      time.Time `json:"ended"`
