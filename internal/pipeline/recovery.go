@@ -88,7 +88,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 			return RecoveryResult{}, err
 		}
 		if !safe {
-			return RecoveryResult{}, errors.New("pipeline: recorded head is not an ancestor of the submitted head")
+			return RecoveryResult{}, errors.New("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base")
 		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
@@ -367,7 +367,48 @@ func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submit
 	if ancestry.ExitCode != 1 {
 		return false, errors.New("pipeline: could not establish recovery ancestry")
 	}
-	return false, nil
+	return r.gateRebase(ctx, repo, recorded, submitted)
+}
+
+// gateRebase reports whether recorded is the gate's rebase of submitted: its
+// unpublished commits on top of a base a remote-tracking ref holds carry
+// submitted's changes and nothing else. Keeping submitted then drops no
+// change that is neither in submitted nor already published.
+func (r Reader) gateRebase(ctx context.Context, repo, recorded, submitted string) (bool, error) {
+	unpublished, isSuccess, err := r.gitOutput(ctx, repo, "rev-list", "--count", "--first-parent", recorded, "--not", "--remotes")
+	if err != nil || !isSuccess {
+		return false, err
+	}
+	base, isSuccess, err := r.gitOutput(ctx, repo, "rev-parse", "--verify", "--quiet", recorded+"~"+unpublished+"^{commit}")
+	if err != nil || !isSuccess {
+		return false, err
+	}
+	mergeBase, isSuccess, err := r.gitOutput(ctx, repo, "merge-base", submitted, base)
+	if err != nil || !isSuccess {
+		return false, err
+	}
+	replayedTree, isSuccess, err := r.gitOutput(ctx, repo, "merge-tree", "--write-tree", "--merge-base", mergeBase, base, submitted)
+	if err != nil || !isSuccess {
+		return false, err
+	}
+	recordedTree, isSuccess, err := r.gitOutput(ctx, repo, "rev-parse", recorded+"^{tree}")
+	return isSuccess && replayedTree == recordedTree, err
+}
+
+// gitOutput runs git in the bare repository. Exit 1 is git's no, such as a
+// merge conflict, and any other failure is an error.
+func (r Reader) gitOutput(ctx context.Context, repo string, args ...string) (string, bool, error) {
+	result, err := r.runGit(ctx, repo, true, args...)
+	if err != nil {
+		return "", false, err
+	}
+	switch result.ExitCode {
+	case 0:
+		return strings.TrimSpace(string(result.Stdout)), true, nil
+	case 1:
+		return "", false, nil
+	}
+	return "", false, fmt.Errorf("pipeline: could not establish recovery ancestry: git %s exited %d", args[0], result.ExitCode)
 }
 
 func (r Reader) fetchRecoveryHead(ctx context.Context, bare, worktree, head string) error {

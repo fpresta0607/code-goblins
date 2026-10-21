@@ -218,7 +218,11 @@ Agents must use the driver for managed tasks and must not invoke native mutation
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
 For pipeline-owned recovery, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
-The stale recorded commit must be an ancestor of that preserved head.
+The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
+A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
+The driver accepts such a head only as a pure rebase: its first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
+A gate fix commit or conflict resolution on the rebase, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
+A run under `rebase.strategy: merge` integrates with a merge commit instead, which this proof does not cover, and is refused.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
@@ -233,7 +237,7 @@ Native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
-Pipeline-owned recorded-head repair requires strict ancestry.
+Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
