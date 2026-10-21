@@ -214,9 +214,9 @@ type Observation struct {
 	PromptSince  *time.Time `json:"prompt_since,omitempty"`
 	PromptStatus string     `json:"prompt_status,omitempty"`
 	IdleWokeAt   *time.Time `json:"idle_woke_at,omitempty"`
-	// ScreenUnreadSince is the scan whose read of the goblin's screen failed,
-	// kept until a read works, so one failed read is read again before it
-	// wakes anybody.
+	// ScreenUnreadSince is the scan whose look at the goblin failed, a screen
+	// read that failed or a probe that gave no answer, kept until a look
+	// works, so one failed look is made again before it wakes anybody.
 	ScreenUnreadSince *time.Time `json:"screen_unread_since,omitempty"`
 }
 

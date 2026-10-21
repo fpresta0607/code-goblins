@@ -217,11 +217,21 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 
+		// A scan whose budget ran out has no answer for the goblins it did not
+		// reach, and none for the one it was inspecting: a lapsed deadline is
+		// no evidence about a goblin, so they keep the observation they have
+		// and are inspected on the next scan.
+		if ctx.Err() != nil {
+			continue
+		}
 		observation, sample := s.classify(ctx, meta, prior, now, &tally)
 		observation = s.idleAtPrompt(ctx, meta, sample, observation, led, now)
 		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return ScanResult{}, ctx.Err()
+		}
+		if ctx.Err() != nil {
+			continue
 		}
 		if s.isRetiring(id) {
 			continue
@@ -305,8 +315,24 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	if s.Probe == nil {
 		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now), EndpointSample{}
 	}
+	// A look that fails, whether the probe gave no answer or the screen read
+	// failed, can happen while the goblin works on, as one that times out on a
+	// loaded machine does. One failed look keeps the last reading and is made
+	// again on the next scan; only a second failure in a row is an unknown
+	// endpoint.
+	holdOnce := func(why string) bool {
+		if prior.Health == "" || prior.ScreenUnreadSince != nil {
+			return false
+		}
+		observation.ScreenUnreadSince = timePointer(now)
+		tally.suppress(meta.ID, EndpointUnknown, now.Format(time.RFC3339Nano), "one look failed and is made again next scan: "+why, now)
+		return true
+	}
 	sample, err := s.Probe.Inspect(ctx, meta)
 	if err != nil {
+		if holdOnce(err.Error()) {
+			return observation, sample
+		}
 		return unknownObservation(observation, EndpointUnknown, err.Error(), now), sample
 	}
 	// A native task publishes its metadata before its host starts, and the
@@ -320,13 +346,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			return launchingObservation(observation, now), sample
 		}
 	}
-	// A screen read can fail while the goblin works on, as one that times out
-	// on a loaded machine does, so one failed read keeps the last reading and
-	// is read again on the next scan; only a second failure in a row is an
-	// unknown endpoint.
-	if sample.ReadFailed && prior.Health != "" && prior.ScreenUnreadSince == nil {
-		observation.ScreenUnreadSince = timePointer(now)
-		tally.suppress(meta.ID, EndpointUnknown, now.Format(time.RFC3339Nano), "one screen read failed and is read again next scan: "+sample.Detail, now)
+	if sample.ReadFailed && holdOnce(sample.Detail) {
 		return observation, sample
 	}
 	if !sample.ReadFailed {
