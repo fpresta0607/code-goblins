@@ -215,7 +215,7 @@ func TestAWorktreeManifestThatAgreesWithTheRepositoryPasses(t *testing.T) {
 	// Arrange
 	f := newFixture(t, map[string]string{"requirements.txt": "flask\n"})
 	f.write(".env", "PORT=8000\n")
-	f.manifest("worktree.json", `{"project":"northwind","link":[".env"],"dependencies":{"install":["uv pip install -r requirements.txt"]}}`)
+	f.manifest("worktree.json", `{"project":"northwind","link":[".env"],"dependencies":{"install":["uv venv","uv pip sync --require-hashes requirements.txt"]}}`)
 
 	// Act
 	report := f.check("uv")
@@ -223,7 +223,32 @@ func TestAWorktreeManifestThatAgreesWithTheRepositoryPasses(t *testing.T) {
 	// Assert
 	none(t, report, "worktree-link-missing")
 	none(t, report, "worktree-install-missing")
+	none(t, report, "worktree-install-unlocked")
 	only(t, report, "worktree-agrees")
+}
+
+// An install that resolves versions at a package index gives a goblin no
+// install step, so a project whose manifest names one has goblins with no
+// dependencies until it is locked.
+func TestAWorktreeManifestInstallThatResolvesVersionsIsReported(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	f := newFixture(t, map[string]string{"requirements.txt": "flask\n"})
+	f.manifest("worktree.json", `{"project":"northwind","dependencies":{"install":["uv venv","uv pip install -r requirements.txt"]}}`)
+
+	// Act
+	report := f.check("uv")
+
+	// Assert
+	finding := only(t, report, "worktree-install-unlocked")
+	if finding.Severity != High {
+		t.Errorf("worktree-install-unlocked is %s, want high", finding.Severity)
+	}
+	contains(t, "evidence", finding.Evidence, "uv pip install -r requirements.txt")
+	if strings.Contains(finding.Evidence, "uv venv") {
+		t.Errorf("evidence %q names uv venv, which installs nothing", finding.Evidence)
+	}
+	none(t, report, "worktree-agrees")
 }
 
 // A services manifest agrees with the repository when its compose file is

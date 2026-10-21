@@ -102,6 +102,7 @@ A command that acts as the CFO, such as `cfo spawn`, `cfo send` or a `cfo drain`
 
 `cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, refuses before starting anything while free memory or free disk is under its floor, naming what is free and the floor, acquires a fresh git worktree of the project at `$CFO_HOME\worktrees\<project folder>\<id>` (never the primary checkout, which gains no folder and no file), gives it a scratch folder at `$CFO_HOME\scratch\<id>` that its `TEMP`, `TMPDIR` and `GOTMPDIR` point to, with its `TMP` pointing to `$CFO_HOME\scratch\.tmp`, the one folder every goblin shares, provisions it per the project's worktree manifest (its own read-only copy of each config file the manifest names and of no other, linked dependencies, the token-authenticated subset of the project's `.mcp.json`), starts the goblin's own native terminal, named by its task id, prepares its environment (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
 A project whose dependencies are installed (strategy `install`, below) gets no install from the spawn: the brief instruction tells the goblin to run the install commands in its worktree as its first step, the `spawned` output names them on a `dependencies:` line, and the goblin's card shows `installing its dependencies first` until its own first report.
+Those commands only ever install a lock with hashes: a project whose manifest names an install that resolves versions at a package index gets no install step, a dependency list with no lock of its own gets no install of it, the `dependencies:` line says why, and the goblin is told to ask for a lock in a blocked report rather than resolve the versions itself.
 Starts take turns on the home's spawn lock only for what must be serial: the id's alias check, the admission that counts running terminals, the worktree and branch, the task record and the terminal's launch.
 The credential probes run before the turn, and the harness's startup, the brief's delivery and the goblin's install after it, so a slow start holds up no other start or resume; Resume and the comeback after a restart take the same turn around their terminal's launch only, and are admitted again under it.
 A start that finds another start's turn waits for it, says on standard error which start it waits on and since when, and stops after 10 minutes naming that start, which is then stuck rather than slow.
@@ -420,7 +421,7 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
   "link": [".env", ".env.local", ".env.docker.local"],
   "dependencies": {
     "strategy": "install",
-    "install": ["uv venv", "uv pip install -r requirements.txt -r requirements-dev.txt"]
+    "install": ["uv venv", "uv pip sync --require-hashes requirements.lock"]
   },
   "env": { "PLAYWRIGHT_BROWSERS_PATH": "C:\\cache\\ms-playwright" }
 }
@@ -430,6 +431,10 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
   An entry whose path the worktree already holds (a project that commits `.env`) is refused, because the manifest asked for it to be shared and the repository's own file is in its place.
 - `dependencies.strategy` is `install` (the default: the goblin runs the installer the lockfile implies - pnpm, npm, yarn, or uv - in its own terminal as its first step, against the shared cache root below), `link` (junction the declared `paths` from the primary checkout; instant and zero disk, but a package-manager run in one worktree mutates them all), or `none`.
 - `dependencies.install` overrides the detected install commands; each entry is one command line the goblin runs in order in its worktree, stopping at the first that fails.
+  Each must install exactly what a lock with hashes holds, with nothing chained after it: `npm ci`, `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile` or `--immutable`, `uv sync --locked` or `--frozen`, and `uv pip sync` or `uv pip install` with `--require-hashes`, beside `uv venv` (without `--seed`) and `python -m venv` (without `--upgrade-deps`), which make an empty environment.
+  One that resolves versions at a package index, such as `uv pip install -r requirements.txt`, gives the goblin no install step at all: on 2026-10-21 that command brought a hijacked release to three goblins within ten minutes of its upload.
+  A `package.json`, `pyproject.toml` or `requirements.txt` at the worktree's root with no lockfile of its own that the strategy installs from is installed by no step either, beside the install of a lockfile the worktree does hold, such as a `requirements.txt` beside a `package-lock.json`, and a Go module, whose `go.sum` holds its hashes, needs none.
+  `cfo project check` reports a manifest install that resolves as `worktree-install-unlocked`; a requirements file compiled with `uv pip compile --generate-hashes` is a lock with hashes.
   The spawn runs no installer: an install writes tens of thousands of files, which under on-access scanning took one spawn over 30 minutes while it held the home's spawn lock, so every other start and resume waited behind it.
   In the goblin's own terminal an install holds up only that goblin, its output is on the goblin's screen, and the goblin is the one that can repair a lockfile it fails on.
 - `env` carries environment redirects for large read-only caches into the goblin's pane, where its dependency install runs, and overrides the machine-wide cache redirects below for this project.
@@ -469,6 +474,25 @@ The audit is scoped to the project it is given, so it reports where that project
 A `.venv` or a `node_modules` is never shared or linked between worktrees.
 Both bake absolute paths and compiled native artifacts, and a shared one fails as flaky tests rather than as an honest error, so a worktree always re-materializes its own against the shared store.
 `PLAYWRIGHT_BROWSERS_PATH` is the shape to prefer wherever it applies: a pure environment redirect to a large read-only artifact with nothing path-baked into what it produces.
+
+### A release a week old, never a fresher one
+
+Every goblin's terminal holds its package managers to releases uploaded at least seven days ago, so a hijacked release is found and pulled before a goblin resolves it: `UV_EXCLUDE_NEWER=7 days`, `PIP_UPLOADED_PRIOR_TO=P7D`, and `npm_config_before` at the date seven days before the terminal started, since npm before 11.10 takes no age.
+A spawn and every relaunch set them after the project's `worktree.json` `env` block, so a project that names its own cutoff keeps it, and the goblin is told never to lift them and to ask in a blocked report for a newer release its task needs.
+A locked install is not held back by them: `npm ci` and `uv sync --locked` install what the lock names however new it is, while `uv pip` and pip resolve each pin under the cutoff, so a hashed requirements file that pins a release younger than a week fails until it ages.
+A worktree that tracks a `uv.lock`, at its root or in a subfolder, gets no `UV_EXCLUDE_NEWER`, and the `spawned` output says so on a `cooldown:` line: uv sets aside a lock that does not record the cutoff its environment names, so `uv sync --locked` would fail and `uv run` would rewrite the lock.
+Such a project records its own cutoff as `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml`, which uv keeps in its lock for goblins and CI alike.
+A lock a goblin writes under the terminal's cutoff records it too, and a `uv sync --locked` without it, as in CI, fails until the project records the same cutoff.
+
+### Code that runs at every Python start
+
+A Claude Code goblin's own hook looks at the Python environments of its worktree before each Bash, PowerShell or Monitor call: each folder at its root that holds `pyvenv.cfg`, and the `.venv` of each folder one or two levels below its root, such as `services/api/.venv`, though never under a dot folder or `node_modules`.
+An executable line of a `.pth` file in its `site-packages` or, on Windows, in the environment's own folder, where a wheel's data files land, or a `sitecustomize` or `usercustomize` module there or in a folder or zip archive a `.pth` path line adds, found as Python finds it, runs at every Python start whether or not its package is ever imported, which is how the hijacked release of 2026-10-21 ran a stealer that could read everything the Overlord's account can.
+The ones an environment carries with no release hijacked pass, each only from what makes it: uv's and virtualenv's own `_virtualenv.pth` in an environment its `pyvenv.cfg` says uv or virtualenv made, the start hooks setuptools, pywin32, coverage and pytest-cov before 7.0 ship from those packages, and any line of a project installed editable from a folder of the worktree, as setuptools, meson-python and scikit-build-core write one.
+Any other refuses the call before it runs and every call after it until the file is gone, and wakes you, kind `review`, keyed by the goblin, naming the file and the package whose `RECORD` installed it, never what the file says: once while that wake waits for you, and again once you have acknowledged it and the file is still there.
+A file no package names yet while the environment's `site-packages` changed within the last minute, as while an install still writes, refuses the call with no wake, and wakes you once the install has ended if no package names it then.
+Decide from the package: remove the file once you know it is safe and the goblin's commands run again, or end the task.
+The command that installed the file may have started Python already, which nothing before a shell call can stop, and Codex and pi goblins have no such hook.
 
 ## Project local services
 

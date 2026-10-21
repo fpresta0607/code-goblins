@@ -229,15 +229,24 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 			"the worktree manifest shares something the checkout does not hold, which a spawn passes over without a word",
 			strings.Join(absent, ", "), "create it in the checkout or take it out of "+file)
 	}
-	var faults []string
+	var faults, unlocked []string
 	for _, line := range manifest.Dependencies.Install {
 		faults = append(faults, c.commandFaults(ctx, strings.Fields(line), inWorktree)...)
+		if line = strings.TrimSpace(line); line != "" && !worktree.LockedInstall(line) {
+			unlocked = append(unlocked, line)
+		}
 	}
 	if len(faults) > 0 {
 		clean = false
 		c.add(AreaConfigs, "worktree-install-missing", High,
 			"an install command of the worktree manifest cannot run as written, so a goblin's first step fails",
 			strings.Join(faults, ", "), "name the install the repository really uses in "+file)
+	}
+	if len(unlocked) > 0 {
+		clean = false
+		c.add(AreaConfigs, "worktree-install-unlocked", High,
+			"an install command of the worktree manifest resolves versions at a package index instead of installing a lock with hashes, so a spawn gives the goblin no install step",
+			strings.Join(unlocked, ", "), "lock the project and name its locked install in "+file+", such as npm ci, uv sync --locked, or uv venv then uv pip sync --require-hashes")
 	}
 	if clean {
 		shared := "it shares nothing into a worktree"

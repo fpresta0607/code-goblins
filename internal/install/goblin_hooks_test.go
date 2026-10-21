@@ -34,7 +34,7 @@ func TestAGoblinStartsOneCfoPerHookEvent(t *testing.T) {
 	// Assert
 	executable := filepath.Join(root, home.BinDir, "cfo.exe")
 	want := map[string]registeredHook{
-		"PreToolUse":  {Event: "PreToolUse", Matcher: "Bash|PowerShell", Command: executable, Args: []string{"hook", "goblin-seal"}},
+		"PreToolUse":  {Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", Command: executable, Args: []string{"hook", "goblin-seal"}},
 		"PostToolUse": {Event: "PostToolUse", Command: executable, Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir, "--key-alarm"}, Timeout: KeyAlarmSeconds},
 	}
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
