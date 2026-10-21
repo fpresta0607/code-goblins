@@ -159,9 +159,10 @@ func LifecycleLockName(id string) string {
 	return ".lifecycle-" + id + ".lock"
 }
 
-// CleanupPurpose is what a cleanup records in the lifecycle and record locks
-// it holds, so a command that finds one held says in one line that the task
-// is being cleaned up, and the scheduler knows a resume refused for it.
+// CleanupPurpose is what a cleanup records in the cleanup, lifecycle and
+// record locks it holds, so a command that finds one held says in one line
+// that the task is being cleaned up, the scheduler knows a resume refused for
+// it, and the monitor knows a terminal the cleanup closed for no goblin gone.
 func CleanupPurpose(id string) string {
 	return "the cleanup of " + id
 }
