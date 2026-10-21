@@ -1080,8 +1080,8 @@ func TestTheHostRecordsHowItsTerminalEnded(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadEnd: %v", err)
 			}
-			if end.ChildPID != record.ChildPID || !end.ChildStart.Equal(record.ChildStart) || end.Closed != testCase.wantClosed || !testCase.wantClosed && end.Code != testCase.wantCode {
-				t.Errorf("end = %+v, want program %d started %s, closed %v, code %d", end, record.ChildPID, record.ChildStart, testCase.wantClosed, testCase.wantCode)
+			if end.HostPID != record.HostPID || end.ChildPID != record.ChildPID || !end.ChildStart.Equal(record.ChildStart) || end.Closed != testCase.wantClosed || !testCase.wantClosed && end.Code != testCase.wantCode {
+				t.Errorf("end = %+v, want host %d, program %d started %s, closed %v, code %d", end, record.HostPID, record.ChildPID, record.ChildStart, testCase.wantClosed, testCase.wantCode)
 			}
 		})
 	}
@@ -1325,5 +1325,61 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 	if !exited(pid) {
 		end(pid)
 		t.Errorf("the host pid %d that did not answer in time still runs", pid)
+	}
+}
+
+// A host whose terminal's program ends at once can record itself, serve and
+// end between two of its launch's looks for its record, as hosts did by chance
+// in CI (#1243). It served all the same, and its end names it, so the launch
+// returns that host and never says it ended before it served.
+func TestALaunchReturnsAHostThatServedAndEndedBetweenItsLooks(t *testing.T) {
+	// Arrange
+	usual := launchPoll
+	// The launch looks once, before the host can have recorded itself, and
+	// then waits for the host to end.
+	launchPoll = time.Minute
+	t.Cleanup(func() { launchPoll = usual })
+	stateDir := t.TempDir()
+
+	// Act
+	record, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: "g1", Args: []string{os.Getenv("ComSpec"), "/d", "/c", "exit 3"}, Cols: 80, Rows: 25})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if record.Pipe != "" {
+		t.Fatalf("the launch saw record %+v of a serving host, so it tested no host that ended between its looks", record)
+	}
+	ended, err := ReadEnd(stateDir, "g1")
+	if err != nil {
+		t.Fatalf("ReadEnd: %v", err)
+	}
+	if record.ID != "g1" || record.HostPID != ended.HostPID || record.ChildPID != ended.ChildPID || !record.ChildStart.Equal(ended.ChildStart) || ended.Code != 3 {
+		t.Errorf("Launch returned %+v for a host whose end is %+v, want the host and program that end names, which ended with code 3", record, ended)
+	}
+}
+
+// A host that ends before it serves leaves its reason in its log, and the
+// launch says how the host ended and what its log ends with, rather than only
+// where the log is, which a CI runner keeps to itself.
+func TestALaunchWhoseHostEndsBeforeItServesSaysWhy(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing.exe")
+
+	// Act
+	_, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: "g1", Args: []string{missing}, Cols: 80, Rows: 25})
+
+	// Assert
+	logPath := filepath.Join(stateDir, "hosts", "g1.log")
+	data, readErr := os.ReadFile(logPath)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if readErr != nil || last == "" {
+		t.Fatalf("the host's log is %q (%v), want the reason the host could not start its program", data, readErr)
+	}
+	if want := "host: the host ended before it served (exit status 1); " + logPath + " ends:\n"; !strings.HasPrefix(fmt.Sprint(err), want) || !strings.Contains(fmt.Sprint(err), last) {
+		t.Errorf("err = %v, want %q followed by the log's last line %q", err, want, last)
 	}
 }

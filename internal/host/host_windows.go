@@ -211,7 +211,7 @@ func Run(stateDir string, spec Spec) error {
 	screens.Unlock()
 	// How the program ended is kept before the record goes, so whoever finds
 	// the terminal ended finds how.
-	end := End{ID: spec.ID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: console.ExitCode(), Closed: isClosed}
+	end := End{ID: spec.ID, HostPID: record.HostPID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: console.ExitCode(), Closed: isClosed}
 	if err := writeEnd(stateDir, end); err != nil {
 		fmt.Fprintf(os.Stderr, "host: record how terminal %s ended: %v\n", spec.ID, err)
 	}
