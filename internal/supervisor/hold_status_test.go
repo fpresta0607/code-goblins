@@ -255,7 +255,10 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 		health                     monitor.Health
 		isVerified                 bool
 	}{
-		{name: "prior working runtime", health: monitor.HealthBusy, wantPhase: "failed"},
+		// A goblin whose terminal shows its harness working is not failed,
+		// whatever its last line says, and the line stays its report (the
+		// Overlord, 2026-10-21, of a card that read Failed while it ran).
+		{name: "working runtime after the report", health: monitor.HealthBusy, wantPhase: "working"},
 		{name: "idle runtime", health: monitor.HealthIdle, wantPhase: "failed"},
 		{name: "ended runtime", health: monitor.HealthUnknown, wantPhase: "failed"},
 		{name: "gate held", health: monitor.HealthBusy, gatePhase: "blocked", wantPhase: "blocked"},
@@ -308,7 +311,7 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 			if err != nil || len(after.Tasks) != 1 || after.Tasks[0].Phase != test.wantPhase || after.Tasks[0].Report != "failed" || after.Tasks[0].Verified != test.isVerified || len(after.Decisions) != 0 {
 				t.Fatalf("ACK erased failure or gate custody: tasks=%+v err=%v", after.Tasks, err)
 			}
-			if test.gatePhase == "" && (before.Tasks[0].Phase != "failed" || before.Tasks[0].Reason != "Waiting on the CFO: Retained command exited 1" || after.Tasks[0].Reason != "Retained command exited 1") {
+			if test.gatePhase == "" && (before.Tasks[0].Phase != "failed" || before.Tasks[0].Reason != "Waiting on the CFO: Retained command exited 1" || test.wantPhase == "failed" && after.Tasks[0].Reason != "Retained command exited 1") {
 				t.Errorf("failure receipt confused with resumption: before=%+v after=%+v", before.Tasks[0], after.Tasks[0])
 			}
 			if test.gatePhase != "" && after.Tasks[0].Reason != "Independent gate evidence" {
