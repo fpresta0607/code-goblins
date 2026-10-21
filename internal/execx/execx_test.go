@@ -23,10 +23,6 @@ func TestOSRunnerHelper(t *testing.T) {
 		os.Exit(7)
 	case "sleep":
 		time.Sleep(10 * time.Second)
-	case "answer-then-sleep":
-		fmt.Fprintln(os.Stdout, "answered")
-		fmt.Fprintln(os.Stderr, "still working")
-		time.Sleep(10 * time.Second)
 	case "orphan-stdout":
 		// Like an npm .cmd shim: the direct child starts a grandchild that
 		// inherits its stdout, so killing the direct child leaves the pipe open.
@@ -38,7 +34,11 @@ func TestOSRunnerHelper(t *testing.T) {
 			os.Exit(9)
 		}
 		time.Sleep(30 * time.Second)
-	case "hold-stdout":
+	case "hold-stdout", "answer-then-hold":
+		if os.Getenv("EXECX_MODE") == "answer-then-hold" {
+			fmt.Fprintln(os.Stdout, "answered")
+			fmt.Fprintln(os.Stderr, "still working")
+		}
 		marker := os.Getenv("EXECX_MARKER")
 		if err := os.WriteFile(marker+".held", nil, 0o600); err != nil {
 			os.Exit(9)
@@ -161,19 +161,42 @@ func TestOSRunnerReturnsStartError(t *testing.T) {
 	}
 }
 
-func TestOSRunnerReturnsContextCancellationWithTheOutputSoFar(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second) // stall-accepted: the test means this context to run out.
-	defer cancel()
+// cancelOnceHeld cancels ctx once the helper that marker names says it
+// holds, which it says only after it wrote what it writes first, so the
+// test's context ends after that however slowly a loaded machine started the
+// helper. The channel it returns says it cancelled.
+func cancelOnceHeld(ctx context.Context, cancel context.CancelFunc, marker string) <-chan struct{} {
+	cancelled := make(chan struct{}, 1)
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(marker + ".held"); err == nil {
+				cancelled <- struct{}{}
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	return cancelled
+}
 
-	result, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-sleep"}))
-	if err == nil {
-		t.Fatal("Run returned nil error after context cancellation")
+func TestOSRunnerReturnsContextCancellationWithTheOutputSoFar(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "child")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelled := cancelOnceHeld(ctx, cancel, marker)
+
+	result, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-hold", "EXECX_MARKER=" + marker}))
+	select {
+	case <-cancelled:
+	default:
+		t.Fatalf("Run returned before the process answered: %v", err)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("error = %v, want context deadline exceeded", err)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context canceled", err)
 	}
 	if string(result.Stdout) != "answered\n" || string(result.Stderr) != "still working\n" || result.ExitCode != 0 {
-		t.Errorf("result = {Stdout: %q, Stderr: %q, ExitCode: %d}, want what the process wrote before the deadline and no exit code", result.Stdout, result.Stderr, result.ExitCode)
+		t.Errorf("result = {Stdout: %q, Stderr: %q, ExitCode: %d}, want what the process wrote before its context ended and no exit code", result.Stdout, result.Stderr, result.ExitCode)
 	}
 }
 
@@ -311,24 +334,36 @@ func TestOSRunnerStreamWritesTheOutputAndReturnsTheExitCode(t *testing.T) {
 }
 
 // A streamed run its context ended is ended with it and says so, with what
-// the process wrote before then already handed over.
+// the process wrote before then already handed over. The process holds until
+// the test releases it, which it never does, so Stream returning before the
+// process finished by itself proves Stream ended it.
 func TestOSRunnerStreamEndsTheProcessWhenItsContextEnds(t *testing.T) {
 	// Arrange
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second) // stall-accepted: the test means this context to run out.
+	marker := filepath.Join(t.TempDir(), "child")
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	cancelled := cancelOnceHeld(ctx, cancel, marker)
 	var stdout, stderr strings.Builder
-	request := helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-sleep"})
+	request := helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=answer-then-hold", "EXECX_MARKER=" + marker})
 	request.KillTree = true
 
 	// Act
-	started := time.Now()
 	_, err := (OSRunner{}).Stream(ctx, request, &stdout, &stderr)
+	_, releasedErr := os.Stat(marker + ".released")
 
 	// Assert
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("error = %v, want context deadline exceeded", err)
+	select {
+	case <-cancelled:
+	default:
+		t.Fatalf("Stream returned before the process answered: %v", err)
 	}
-	if stdout.String() != "answered\n" || time.Since(started) > time.Minute {
-		t.Errorf("Stream returned after %s with stdout %q; want what the process wrote before the deadline, and the process ended at it", time.Since(started), stdout.String())
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context canceled", err)
+	}
+	if stdout.String() != "answered\n" {
+		t.Errorf("stdout = %q, want what the process wrote before its context ended", stdout.String())
+	}
+	if !os.IsNotExist(releasedErr) {
+		t.Errorf("Stream returned only once the process finished by itself (%v), want it ended when its context ended", releasedErr)
 	}
 }
