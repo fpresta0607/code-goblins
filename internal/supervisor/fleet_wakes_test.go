@@ -200,6 +200,42 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 	}
 }
 
+// A queued task the scheduler is starting could start no more, though cfo
+// spawn writes its task record only once its worktree exists, so memory_ready
+// names the work after it. On 2026-10-19 the wake named root-pocketpiggies-161
+// as the next task to dispatch while the scheduler's start of it was under
+// way, and the hold the CFO put on its row seconds later read as one the
+// scheduler ignored (#1182).
+func TestMemoryReadyLeavesOutTheTaskBeingStarted(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	s := handler.Service
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Ship it (repo: code-goblins)\n- **second-task** - Ship that (repo: code-goblins)\n")
+	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief)
+	writeFile(t, filepath.Join(h.Data, "second-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "second-task"))
+	defer func() {
+		close(spawner.release)
+		awaitDispatch(t, s, spawner, 1)
+	}()
+	now := time.Date(2026, 10, 19, 2, 0, 0, 0, time.UTC)
+
+	// Act: the first reading over the mark starts next-task, whose spawn is
+	// still under way at the second, which wakes the CFO.
+	for range 2 {
+		now = now.Add(time.Minute)
+		if err := s.checkFleet(t.Context(), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	records := fleetWakeRecords(t, h, "memory")
+	if len(records) != 1 || strings.Contains(records[0].Detail, "next-task") || !strings.HasSuffix(records[0].Detail, "next: dispatch the next queued task, second-task") {
+		t.Fatalf("memory wakes=%+v, want one naming second-task and not next-task, which is starting", records)
+	}
+}
+
 // fakeForge answers gh and git the way GitHub and a checkout would for one
 // repository and the one goblin worktree in it, from canned output the test
 // changes between polls, and counts that repository's pull request listings.
