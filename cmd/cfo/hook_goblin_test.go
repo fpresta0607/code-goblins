@@ -179,6 +179,28 @@ func TestGoblinSealStopsAMonitorCommandBeforePythonRuns(t *testing.T) {
 	}
 }
 
+// A goblin told the CFO knows ends its turn and waits for him, so when no
+// wake could be queued it is asked to run the command again, which tries
+// once more, rather than to wait for a CFO who was never told.
+func TestGoblinSealAsksForTheCommandAgainWhenTheCFOCouldNotBeTold(t *testing.T) {
+	// Arrange
+	stateDir := goblinHookHome(t)
+	t.Setenv("CFO_TASK_ID", "")
+	plantStartHook(t, os.Getenv("CLAUDE_PROJECT_DIR"), "litellm_init.pth,sha256=AAAA,90\n")
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runHook("goblin-seal", shellCall(t, `.venv\Scripts\python.exe -m pytest`), &stdout, &stderr)
+
+	// Assert
+	if exit != 2 || !strings.Contains(stderr.String(), "The CFO could not be told of it yet, so run the command again in a minute") || strings.Contains(stderr.String(), "has been told") {
+		t.Fatalf("exit = %d, stderr = %q, want the command refused and asked for again", exit, stderr.String())
+	}
+	if pending, err := wake.Pending(stateDir); err != nil || len(pending) != 0 {
+		t.Fatalf("wakes = %+v, %v, want none", pending, err)
+	}
+}
+
 // An install writes a file before the RECORD that names its package, so a
 // command run beside an install that finds a start hook no package names
 // yet waits with no wake, and the CFO is told only of one still unnamed

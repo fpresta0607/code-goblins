@@ -79,20 +79,28 @@ func startHookRefusal(worktree, task string) string {
 		return "This command waits: " + strings.Join(named, " and ") + " runs at every Python start, and no installed package names it yet, as while an install is still writing." +
 			" Run the command again once the install has ended; if no package names it then, the CFO is told."
 	}
-	if h, err := home.Resolve(); err == nil && state.ValidTaskID(task) == nil {
-		for index, hook := range hooks {
-			if hook.Installing {
-				continue
-			}
-			detail := task + " was stopped before its next shell command: " + named[index] + " runs at every Python start of its worktree, which is how a hijacked release reads what this account can reach." +
-				" Remove the file once you know its package is safe, and the goblin's commands run again; otherwise end the task. Python that the command which installed it started may already have run it."
-			if _, isNew, err := wake.AppendUnlessQueued(h.State, "start-hook "+task+" "+hook.Path+" "+hook.Package, "review", task, detail); err == nil && isNew {
-				_, _ = wake.PublishEpisode(h.State)
-			}
+	// A wake that could not be queued, as when another writer holds the
+	// queue past its lock's budget, leaves the CFO untold, so the goblin is
+	// asked to run the command again, which tries once more.
+	h, err := home.Resolve()
+	isTold := err == nil && state.ValidTaskID(task) == nil
+	for index, hook := range hooks {
+		if !isTold || hook.Installing {
+			continue
 		}
+		detail := task + " was stopped before its next shell command: " + named[index] + " runs at every Python start of its worktree, which is how a hijacked release reads what this account can reach." +
+			" Remove the file once you know its package is safe, and the goblin's commands run again; otherwise end the task. Python that the command which installed it started may already have run it."
+		_, isNew, err := wake.AppendUnlessQueued(h.State, "start-hook "+task+" "+hook.Path+" "+hook.Package, "review", task, detail)
+		if err == nil && isNew {
+			_, err = wake.PublishEpisode(h.State)
+		}
+		isTold = err == nil
 	}
-	return "Stopped before Python could start: " + strings.Join(named, " and ") + " runs at every Python start, which is how a hijacked release reads what this account can reach." +
-		" The CFO has been told. Every shell command waits while it is there, so end your turn and wait for his word."
+	stopped := "Stopped before Python could start: " + strings.Join(named, " and ") + " runs at every Python start, which is how a hijacked release reads what this account can reach."
+	if !isTold {
+		return stopped + " The CFO could not be told of it yet, so run the command again in a minute, which tells him; every shell command waits while it is there."
+	}
+	return stopped + " The CFO has been told. Every shell command waits while it is there, so end your turn and wait for his word."
 }
 
 // startHookPackage names the package a start hook came from.

@@ -228,14 +228,15 @@ func settle(t *testing.T, root string) {
 
 // A .pth file that is not UTF-8 is read in the ANSI code page, where a byte
 // that UTF-8 cannot read is a no-break space Python strips from a path line,
-// so the folder it names is the one Python adds.
+// so the folder it names is the one Python adds, and a NUL byte before it
+// ends no reading early.
 func TestFindReadsAPathLineInTheANSICodePage(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("only Windows reads a .pth file in an ANSI code page")
 	}
 	// Arrange
 	worktree := t.TempDir()
-	install(t, makeEnvironment(t, worktree, ".venv"), "extras-1.0", map[string]string{"extras.pth": "extras_lib" + string([]byte{0xa0}) + "\n", "extras_lib/sitecustomize.py": ""})
+	install(t, makeEnvironment(t, worktree, ".venv"), "extras-1.0", map[string]string{"extras.pth": string([]byte{'#', 0, '\n'}) + "extras_lib" + string([]byte{0xa0}) + "\n", "extras_lib/sitecustomize.py": ""})
 	settle(t, worktree)
 
 	// Act
