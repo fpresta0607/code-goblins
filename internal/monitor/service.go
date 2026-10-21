@@ -218,9 +218,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 
 		// A scan whose budget ran out has no answer for the goblins it did not
-		// reach, and none for the one it was inspecting: a lapsed deadline is
-		// no evidence about a goblin, so they keep the observation they have
-		// and are inspected on the next scan.
+		// reach: a lapsed deadline is no evidence about a goblin, so they keep
+		// the observation they have and are inspected on the next scan. The one
+		// whose probe was still waiting when it lapsed is held to the same
+		// grace as any probe that gave no answer.
 		if ctx.Err() != nil {
 			continue
 		}
@@ -229,9 +230,6 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return ScanResult{}, ctx.Err()
-		}
-		if ctx.Err() != nil {
-			continue
 		}
 		if s.isRetiring(id) {
 			continue
