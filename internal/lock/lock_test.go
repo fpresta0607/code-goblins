@@ -274,7 +274,7 @@ func localHostnameForTest(t *testing.T) string {
 
 func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
 
 func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
 
 func TestAcquireOwnerContendedByLiveForeignOwner(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +586,7 @@ func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) 
 	t.Run("live foreign process", func(t *testing.T) {
 		dir := t.TempDir()
 		name := ".spawn-task.lock"
-		cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+		cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -612,7 +612,7 @@ func TestAcquireExclusiveNamedTakesALockReleasedBetweenRefusalAndReclaim(t *test
 	// Arrange
 	dir := t.TempDir()
 	name := ".watch.lock"
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

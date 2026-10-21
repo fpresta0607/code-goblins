@@ -211,7 +211,7 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	// stealing the singleton later, exactly as
 	// TestRunReturnsQuietlyWhenSingletonStolen does: a throwaway child
 	// process stands in for a live successor's identity.
-	cmd := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

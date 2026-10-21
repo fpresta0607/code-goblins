@@ -854,7 +854,7 @@ func sweptJustNow(t *testing.T, state string) {
 // internal/lock, internal/watch and internal/proc's own tests already use.
 func startLiveForeignProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
