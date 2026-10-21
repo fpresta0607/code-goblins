@@ -31,12 +31,14 @@ type Screens struct {
 	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
 	PasteTakesEnter bool
 	// Resubmits is how many more times Enter is pressed while typed text
-	// still waits in the composer and no turn has started: one for Claude
-	// Code, which left a resumed goblin's instruction in its composer over an
-	// empty row on a loaded machine, live, on 2026-10-20. Codex has none: End
-	// ends its paste, so the Enter after it submits, and a Codex that takes
-	// that Enter late, the text still showing, would get a second one after
-	// the instruction (#1171).
+	// still waits in a ruled composer over the empty row an Enter taken as a
+	// new line added, and no turn has started: one for Claude Code, which
+	// left a resumed goblin's instruction in its composer over an empty row
+	// on a loaded machine, live, on 2026-10-20. Text that still shows over no
+	// new row is also what a harness that takes its Enter late shows, and
+	// pressed again it would get a second Enter after the instruction
+	// (#1232). Codex has none: End ends its paste, so the Enter after it
+	// submits (#1171).
 	Resubmits int
 	// Undrawn says the harness can hold typed text without drawing it until
 	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
@@ -224,16 +226,10 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	if !s.RuledComposer {
 		return s.Empty != nil && anyRow(screen, s.Empty)
 	}
-	var rules []int
-	for i, row := range screen {
-		if isRule(row) {
-			rules = append(rules, i)
-		}
-	}
-	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
+	composer, isRead := ruledComposer(screen)
+	if !isRead {
 		return false
 	}
-	composer := screen[rules[len(rules)-2]+1 : rules[len(rules)-1]]
 	if s.Empty != nil {
 		return len(composer) == 1 && s.Empty.MatchString(strings.TrimSpace(composer[0]))
 	}
@@ -243,6 +239,54 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 		}
 	}
 	return true
+}
+
+// TookEnterAsNewLine reports whether screen shows the harness's ruled
+// composer holding text over more empty rows at its end than submitted, the
+// screen as Enter was pressed, did: the harness took that Enter as a new
+// line, not a submit, as Claude Code did on a loaded machine, live, on
+// 2026-10-20, leaving a resumed goblin's instruction over an empty row. A
+// composer that shows no row the Enter added has not taken it yet, or took it
+// some way this cannot read. It is false whenever either composer cannot be
+// read.
+func (s Screens) TookEnterAsNewLine(submitted, screen []string) bool {
+	if !s.RuledComposer {
+		return false
+	}
+	before, isRead := ruledComposer(submitted)
+	if !isRead {
+		return false
+	}
+	after, isRead := ruledComposer(screen)
+	if !isRead {
+		return false
+	}
+	empty := emptyRowsAtEnd(after)
+	return empty < len(after) && empty > emptyRowsAtEnd(before)
+}
+
+// ruledComposer returns the rows between screen's last two full-width rules,
+// and false when there are no such rows.
+func ruledComposer(screen []string) ([]string, bool) {
+	var rules []int
+	for i, row := range screen {
+		if isRule(row) {
+			rules = append(rules, i)
+		}
+	}
+	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
+		return nil, false
+	}
+	return screen[rules[len(rules)-2]+1 : rules[len(rules)-1]], true
+}
+
+// emptyRowsAtEnd counts the empty rows rows ends with.
+func emptyRowsAtEnd(rows []string) int {
+	count := 0
+	for count < len(rows) && strings.TrimSpace(rows[len(rows)-1-count]) == "" {
+		count++
+	}
+	return count
 }
 
 // isRule reports whether row is a full-width rule: box-drawing dashes and

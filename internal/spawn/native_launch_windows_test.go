@@ -55,7 +55,8 @@ const (
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
 // Code shows over background work before it exits. With "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
-// as a new line, and with "claude-enters-lost" every one. With "pi-starting" it is
+// as a new line, with "claude-enters-lost" every one, and with
+// "claude-late-enter" taking the first seconds late. With "pi-starting" it is
 // pi 0.85.1 at its editor while its startup completes for a few seconds,
 // with "pi-stuck" one whose startup never completes, and with "pi-stale" one
 // whose first turn ends with the startup row still in its chat and which then
@@ -187,8 +188,8 @@ func fakeHarness() {
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
-	if mode == "claude-lost-enter" || mode == "claude-enters-lost" {
-		claudeComposer(mode == "claude-enters-lost", keys, record, draw)
+	if mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" {
+		claudeComposer(mode, keys, record, draw)
 		return
 	}
 	composer := func(text string) {
@@ -496,11 +497,14 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 
 // claudeComposer shows Claude Code's composer, between its rules above its
 // permission mode, as a resumed goblin's was on a loaded machine on
-// 2026-10-20: the first Enter that ends typed text, or every one when
-// isEveryEnterLost, is taken as a new line, leaving the text in the composer
-// over an empty row. An Enter that submits the text starts a turn that never
+// 2026-10-20: in mode "claude-lost-enter" the first Enter that ends typed
+// text, and in "claude-enters-lost" every one, is taken as a new line,
+// leaving the text in the composer over an empty row. In
+// "claude-late-enter" the first Enter that ends typed text is taken seconds
+// after it arrived, the text showing in the composer as it was until then,
+// and submits it. An Enter that submits the text starts a turn that never
 // ends.
-func claudeComposer(isEveryEnterLost bool, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
+func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
 	rule := strings.Repeat("─", 80)
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
 	composer := func(rows ...string) {
@@ -508,13 +512,17 @@ func claudeComposer(isEveryEnterLost bool, keys <-chan string, record func(codex
 	}
 	composer(">")
 	var line strings.Builder
-	lost := 0
+	lost, isLate := 0, mode == "claude-late-enter"
 	for key := range keys {
 		switch {
-		case key == "\r" && line.Len() > 0 && (isEveryEnterLost || lost == 0):
+		case key == "\r" && line.Len() > 0 && (mode == "claude-enters-lost" || (mode == "claude-lost-enter" && lost == 0)):
 			lost++
 			record(codexEvent{Event: "enter taken as a new line", Text: line.String()})
 		case key == "\r" && line.Len() > 0:
+			if isLate {
+				time.Sleep(3 * time.Second)
+				isLate = false
+			}
 			record(codexEvent{Event: "submitted", Text: line.String()})
 			draw("", "> "+line.String(), "", "✽ Reticulating… (esc to interrupt)", rule, ">", rule, footer)
 			line.Reset()
