@@ -1978,7 +1978,7 @@ cfo auth request --project acme-shop --task shop-signup --why "Sign in to the sh
 - A card that asks for no input has a Done button, `POST /api/credentials/close` with `"action": "done"`, and its heading is what it is for.
 - `--message-file <file>` puts a message he sends himself on the card, such as an email, read once when the card is filed: the file's optional `To:` line (an email address, or an https page with no credentials, query or fragment) and `Subject:` line, a blank line, then a body of at most 4000 characters.
   A word of the subject or body shaped like a key is refused without being repeated, as in a step, and an assignment is judged by its value.
-  The record carries it as `mail`, with `to`, `subject` and `body`, and the card shows the address with its copy button or the page as a link, the subject, and the body in a box, with **Copy email**, which copies the body exactly, and **Copy subject** when it has one.
+  The record carries it as `mail`, with `to`, `subject` and `body`, and the card shows the address with its copy button or the page as a link, the subject, and the body in a box, with **Copy**, which copies the body exactly, and **Copy subject** when it has one.
   A card whose step is only sending that message needs no page, step or input.
 - A goblin's step card is its wait on the Overlord: a `cfo notify --waiting-on overlord` without a page while a card the goblin filed itself is open opens no second item, and the notify names the card and tells the goblin to wait on it in the background with `cfo auth request --wait-on <card> --task <id>`, which ends when the card closes.
   The board reads the goblin as waiting until it reports again, as for a wait on a run card.

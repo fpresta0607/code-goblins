@@ -8,7 +8,7 @@ import (
 )
 
 // A card's message is read once from its file: To and Subject lines, a blank
-// line, then the body, which his Copy email copies exactly.
+// line, then the body, which his Copy copies exactly.
 func TestReadMailTakesItsHeadersAndExactBody(t *testing.T) {
 	for name, c := range map[string]struct {
 		file string
