@@ -26,8 +26,18 @@ const consoleWindowRead = 10 * time.Second
 // only to a process attached to the console, so this program starts itself
 // with no console of its own as proc.ConsoleWindowRole, which attaches to
 // pid's console and prints the window, rather than attach the supervisor,
-// whose own starts would then share a console that shows.
+// whose own starts would then share a console that shows. The console of a
+// process that runs above the supervisor, as a program the Overlord let run
+// as an administrator does, is out of its reach: Windows lets it attach to
+// none, and it hides nothing.
 func hideConsoleOnDesktop(pid int) (bool, error) {
+	isAbove, err := proc.RunsAbove(pid)
+	if err != nil {
+		return false, fmt.Errorf("start watch: read the console window of pid %d: %w", pid, err)
+	}
+	if isAbove {
+		return false, nil
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return false, fmt.Errorf("start watch: find this program to read a console's window: %w", err)

@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -99,6 +102,94 @@ func TestHideConsoleOnDesktopTakesACarelessConsoleOffTheDesktop(t *testing.T) {
 	}
 	if _, isRunning := proc.StartTime(command.Process.Pid); !isRunning {
 		t.Fatal("the program ended; want it running on")
+	}
+}
+
+// hideConsolePIDVariable names the console program's pid to
+// TestHideConsoleOnDesktopFixture.
+const hideConsolePIDVariable = "CFO_TEST_HIDE_CONSOLE_PID"
+
+// TestHideConsoleOnDesktopFixture is not a test: it is the supervisor
+// TestHideConsoleOnDesktopLeavesAConsoleAboveItsReach starts, which prints
+// what hideConsoleOnDesktop answered.
+func TestHideConsoleOnDesktopFixture(t *testing.T) {
+	pid, err := strconv.Atoi(os.Getenv(hideConsolePIDVariable))
+	if err != nil {
+		return
+	}
+	isHidden, err := hideConsoleOnDesktop(pid)
+	fmt.Printf("hidden=%t err=%v\n", isHidden, err)
+	os.Exit(0)
+}
+
+// Windows lets no process attach to the console of one that runs above its
+// integrity level, as a program the Overlord let run as an administrator
+// runs above the supervisor, so its console is out of the supervisor's
+// reach, and the supervisor leaves it without failing (#1189). Here the
+// supervisor runs at low integrity, below a console program at this test's
+// own, so nothing asks for an administrator's rights, and the console shows
+// no window.
+func TestHideConsoleOnDesktopLeavesAConsoleAboveItsReach(t *testing.T) {
+	// Arrange
+	program := standin.Program(t)
+	record := filepath.Join(t.TempDir(), "started")
+	console := exec.Command(program, "quiet")
+	console.Env = append(os.Environ(), standin.Env(record, standin.Rule{Any: true, Hold: true})...)
+	console.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	if err := console.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = console.Process.Kill(); _ = console.Wait() })
+	// A stand-in records itself once it runs, by when its console is its.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if data, _ := os.ReadFile(record); len(data) != 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in never recorded that it runs")
+		}
+	}
+	var own windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE|windows.TOKEN_QUERY|windows.TOKEN_ADJUST_DEFAULT|windows.TOKEN_ASSIGN_PRIMARY, &own); err != nil {
+		t.Fatal(err)
+	}
+	defer own.Close()
+	var below windows.Token
+	if err := windows.DuplicateTokenEx(own, 0, nil, windows.SecurityImpersonation, windows.TokenPrimary, &below); err != nil {
+		t.Fatal(err)
+	}
+	defer below.Close()
+	low, err := windows.CreateWellKnownSid(windows.WinLowLabelSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	label := windows.Tokenmandatorylabel{Label: windows.SIDAndAttributes{Sid: low, Attributes: windows.SE_GROUP_INTEGRITY}}
+	if err := windows.SetTokenInformation(below, windows.TokenIntegrityLevel, (*byte)(unsafe.Pointer(&label)), label.Size()); err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := strconv.Itoa(console.Process.Pid)
+	reader := exec.Command(self, pid)
+	reader.Args[0] = proc.ConsoleWindowRole
+	reader.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS, Token: syscall.Token(below)}
+	if output, err := reader.CombinedOutput(); err == nil || !strings.Contains(string(output), windows.ERROR_ACCESS_DENIED.Error()) {
+		t.Fatalf("a console reader below the console's program read %q, %v; want Windows to refuse it: the premise of this test does not hold", output, err)
+	}
+	supervisor := exec.Command(self, "-test.run=^TestHideConsoleOnDesktopFixture$")
+	supervisor.Env = append(os.Environ(), hideConsolePIDVariable+"="+pid)
+	supervisor.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS, Token: syscall.Token(below)}
+	var stderr strings.Builder
+	supervisor.Stderr = &stderr
+
+	// Act
+	output, err := supervisor.Output()
+
+	// Assert
+	if got := strings.TrimSpace(string(output)); err != nil || got != "hidden=false err=<nil>" {
+		t.Fatalf("hideConsoleOnDesktop below the console's program answered %q (%v: %s); want nothing hidden and no error", got, err, stderr.String())
 	}
 }
 

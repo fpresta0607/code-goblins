@@ -133,6 +133,45 @@ func ConsoleHost(pid int) (int, error) {
 	return int(host &^ 3), nil
 }
 
+// RunsAbove says process pid runs at a higher integrity level than this
+// process, as a program the Overlord let run as an administrator runs above
+// the fleet. Windows lets no process attach to the console of one that runs
+// above it.
+func RunsAbove(pid int) (bool, error) {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false, fmt.Errorf("proc: open process %d: %w", pid, err)
+	}
+	defer windows.CloseHandle(handle)
+	var token windows.Token
+	if err := windows.OpenProcessToken(handle, windows.TOKEN_QUERY, &token); err != nil {
+		return false, fmt.Errorf("proc: open process %d's token: %w", pid, err)
+	}
+	defer token.Close()
+	level, err := integrityLevel(token)
+	if err != nil {
+		return false, fmt.Errorf("proc: read process %d's integrity level: %w", pid, err)
+	}
+	own, err := integrityLevel(windows.GetCurrentProcessToken())
+	if err != nil {
+		return false, fmt.Errorf("proc: read this process's integrity level: %w", err)
+	}
+	return level > own, nil
+}
+
+// integrityLevel is the integrity level token runs at, the last part of its
+// mandatory label's SID: 0x2000 for medium and 0x3000 for high.
+func integrityLevel(token windows.Token) (uint32, error) {
+	// The label and the one-part SID it points at, which follows it.
+	buffer := make([]byte, 64)
+	var size uint32
+	if err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel, &buffer[0], uint32(len(buffer)), &size); err != nil {
+		return 0, err
+	}
+	sid := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buffer[0])).Label.Sid
+	return sid.SubAuthority(uint32(sid.SubAuthorityCount()) - 1), nil
+}
+
 // queryProcess reads one class of what Windows keeps of process pid into
 // the size bytes at into.
 func queryProcess(pid int, class int32, into unsafe.Pointer, size uintptr) error {
