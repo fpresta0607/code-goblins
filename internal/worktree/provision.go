@@ -56,6 +56,10 @@ type ProvisionResult struct {
 	// runs in the worktree as its first step; empty when the project needs
 	// none. See installCommands.
 	Install []string
+	// InstallRefused says why the worktree has no install step although it
+	// needs one: its manifest names an install that resolves versions, or it
+	// holds a dependency list with no lock. See InstallPlan.
+	InstallRefused string
 }
 
 // Provision makes one freshly acquired worktree ready for its goblin: it
@@ -115,11 +119,11 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 			}
 		}
 	case StrategyInstall:
-		install, err := s.installCommands(ctx, git, manifest, worktreePath)
+		install, refused, err := s.installCommands(ctx, git, manifest, worktreePath)
 		if err != nil {
 			return result, err
 		}
-		result.Install = install
+		result.Install, result.InstallRefused = install, refused
 	}
 
 	plan, err := PlanMCP(project, hasVariable, mcpServers...)
@@ -337,17 +341,17 @@ func (s Service) junction(ctx context.Context, source, destination string) error
 // What the commands will create is registered as ignored now, while
 // provisioning still owns the clone's info/exclude, so the goblin's git status
 // stays clean once they have run.
-func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) ([]string, error) {
-	commands := InstallPlan(manifest, func(name string) bool {
+func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) (commands []string, refused string, err error) {
+	commands, refused = InstallPlan(manifest, func(name string) bool {
 		_, err := os.Stat(filepath.Join(worktreePath, name))
 		return err == nil
 	})
 	for _, output := range InstallOutputs(commands) {
 		if err := s.ensureIgnored(ctx, git, worktreePath, output); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
-	return commands, nil
+	return commands, refused, nil
 }
 
 // InstallPlan returns the install commands a goblin runs as its first step
@@ -356,18 +360,90 @@ func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Ma
 // the worktree holds a file at its root. It is what a spawn names and what
 // `cfo project check` reads, so the two cannot disagree about what a
 // worktree will hold.
-func InstallPlan(manifest Manifest, has func(name string) bool) (commands []string) {
+//
+// Every command it names installs a lock with hashes and resolves no version
+// range, because a range resolved at a package index takes whatever was
+// uploaded last: on 2026-10-21 three goblins installed a hijacked release
+// within ten minutes of its upload through a manifest's
+// `uv pip install -r requirements.txt`. A manifest command that resolves
+// gives no install step at all, and a dependency list with no lock of its
+// own beside it, such as a requirements.txt beside a package-lock.json, is
+// left out of the one the lockfile names, and refused says why.
+func InstallPlan(manifest Manifest, has func(name string) bool) (commands []string, refused string) {
 	for _, command := range manifest.Dependencies.Install {
-		if strings.TrimSpace(command) != "" {
-			commands = append(commands, strings.TrimSpace(command))
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		if !LockedInstall(command) {
+			return nil, ManifestFileName + " names the install \"" + command + "\", which resolves versions at a package index instead of installing a lock with hashes"
+		}
+		commands = append(commands, command)
+	}
+	if len(commands) > 0 {
+		return commands, ""
+	}
+	if detected := detectInstallCommand(has); detected != "" {
+		commands = []string{detected}
+	}
+	var unlocked []string
+	for _, list := range dependencyLists {
+		if has(list.name) && !slices.ContainsFunc(list.locks, has) {
+			unlocked = append(unlocked, list.name)
 		}
 	}
-	if len(commands) == 0 {
-		if detected := detectInstallCommand(has); detected != "" {
-			commands = []string{detected}
-		}
+	if len(unlocked) > 0 {
+		refused = "the worktree holds " + strings.Join(unlocked, " and ") + " and no lockfile a spawn installs from"
 	}
-	return commands
+	return commands, refused
+}
+
+// dependencyLists are the files at a worktree's root that list dependencies,
+// each with the lockfiles detectInstallCommand installs it from.
+var dependencyLists = []struct {
+	name  string
+	locks []string
+}{
+	{name: "package.json", locks: []string{"pnpm-lock.yaml", "package-lock.json", "yarn.lock"}},
+	{name: "pyproject.toml", locks: []string{"uv.lock"}},
+	{name: "requirements.txt", locks: []string{"uv.lock"}},
+}
+
+// lockedInstalls are the commands a dependency step may run: each installs
+// exactly what a lock with hashes holds, and fails rather than resolve a
+// version range, or makes an empty environment for one that does. A command
+// is one of them when it starts with its words and carries one of its flags,
+// if it names any, and none of the flags that would make it resolve.
+var lockedInstalls = []struct{ words, flags, resolving []string }{
+	{words: []string{"npm", "ci"}},
+	{words: []string{"pnpm", "install"}, flags: []string{"--frozen-lockfile"}},
+	{words: []string{"yarn", "install"}, flags: []string{"--frozen-lockfile", "--immutable"}},
+	{words: []string{"uv", "sync"}, flags: []string{"--locked", "--frozen"}},
+	{words: []string{"uv", "pip", "sync"}, flags: []string{"--require-hashes"}},
+	{words: []string{"uv", "pip", "install"}, flags: []string{"--require-hashes"}},
+	// --seed and --upgrade-deps install the newest pip and setuptools into
+	// the environment.
+	{words: []string{"uv", "venv"}, resolving: []string{"--seed"}},
+	{words: []string{"python", "-m", "venv"}, resolving: []string{"--upgrade-deps"}},
+}
+
+// LockedInstall reports whether command is one a dependency step may run,
+// one of lockedInstalls and nothing chained to it: a second command after a
+// shell operator would run unchecked.
+func LockedInstall(command string) bool {
+	if strings.ContainsAny(command, "&|;<>`$()\r\n") {
+		return false
+	}
+	fields := strings.Fields(command)
+	for _, form := range lockedInstalls {
+		if len(fields) < len(form.words) || !slices.Equal(fields[:len(form.words)], form.words) {
+			continue
+		}
+		rest := fields[len(form.words):]
+		isLocked := len(form.flags) == 0 || slices.ContainsFunc(rest, func(field string) bool { return slices.Contains(form.flags, field) })
+		return isLocked && !slices.ContainsFunc(rest, func(field string) bool { return slices.Contains(form.resolving, field) })
+	}
+	return false
 }
 
 // detectInstallCommand maps a lockfile to the install command that honors it.

@@ -129,8 +129,12 @@ func (c *checker) worktreePlan() *worktreePlan {
 	case worktree.StrategyNone:
 		c.plan.why = worktree.ManifestFileName + " sets the dependency strategy none"
 	default:
-		c.plan.install = worktree.InstallPlan(manifest, func(name string) bool { return c.repo.tracked[name] })
+		var refused string
+		c.plan.install, refused = worktree.InstallPlan(manifest, func(name string) bool { return c.repo.tracked[name] })
 		c.plan.why = worktree.ManifestFileName + " names no install command and " + c.repo.at() + " has no lockfile a spawn installs from"
+		if refused != "" {
+			c.plan.why = "a spawn gives the worktree no install step: " + refused
+		}
 	}
 	return c.plan
 }

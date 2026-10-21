@@ -39,8 +39,10 @@ type Dependencies struct {
 	// Install overrides the detected install commands for strategy install,
 	// for projects whose bootstrap is not the lockfile default. Each entry is
 	// one command line run in order in the worktree, so a project whose
-	// lockfile command does not materialize its environment (a uv.lock without
-	// a [project] table) can declare ["uv venv", "uv pip install -r ..."].
+	// requirements are compiled with hashes can declare
+	// ["uv venv", "uv pip sync --require-hashes requirements.txt"]. A command
+	// that resolves versions instead of installing a lock is refused (see
+	// LockedInstall).
 	Install []string `json:"install,omitempty"`
 	// Paths lists the dependency directories strategy link junctions from
 	// the primary checkout.

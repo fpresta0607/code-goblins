@@ -231,7 +231,7 @@ func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 	dataDir := t.TempDir()
 	writeManifest(t, dataDir, project, Manifest{
 		Project:      "demo",
-		Dependencies: Dependencies{Install: []string{"uv venv", " ", "uv pip install -r requirements.txt"}},
+		Dependencies: Dependencies{Install: []string{"uv venv", " ", "uv pip sync --require-hashes requirements.txt"}},
 	})
 	gitDir := filepath.Join(project, ".git")
 	runner.results = unignoredScript(gitDir, ".venv")
@@ -240,11 +240,100 @@ func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if want := []string{"uv venv", "uv pip install -r requirements.txt"}; !slices.Equal(result.Install, want) {
-		t.Errorf("Install = %q, want the manifest override %q in order, blank lines dropped", result.Install, want)
+	if want := []string{"uv venv", "uv pip sync --require-hashes requirements.txt"}; !slices.Equal(result.Install, want) || result.InstallRefused != "" {
+		t.Errorf("Install = %q, refused %q, want the manifest override %q in order, blank lines dropped", result.Install, result.InstallRefused, want)
 	}
 	if len(runner.results) != 0 {
 		t.Errorf("unused scripted answers %v, want .venv's ignore check asked", runner.results)
+	}
+}
+
+// On 2026-10-21 three goblins ran a manifest's
+// `uv pip install -r requirements.txt` within ten minutes of a hijacked
+// release, and each resolved the project's version ranges to it. An install
+// that resolves at an index gives the worktree no install step, and a
+// dependency list with no lock of its own is left out of the install the
+// lockfile names, each saying why; a project with no dependency list, such as
+// a Go module, needs none and is told nothing.
+func TestProvisionInstallsNothingThatResolvesVersions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		install []string
+		files   []string
+		want    []string
+		refused string
+	}{
+		{name: "the incident's install", install: []string{"uv venv", "uv pip install -r requirements.txt -r requirements-dev.txt"}, files: []string{"requirements.txt"}, refused: `worktree.json names the install "uv pip install -r requirements.txt -r requirements-dev.txt", which resolves versions at a package index instead of installing a lock with hashes`},
+		{name: "an editable install of the project", install: []string{"uv venv", "uv pip install -e ."}, refused: `"uv pip install -e ."`},
+		{name: "a lock install with a resolve chained after it", install: []string{"npm ci && npm install left-pad"}, refused: `"npm ci && npm install left-pad"`},
+		{name: "requirements with no lock", files: []string{"requirements.txt"}, refused: "the worktree holds requirements.txt and no lockfile a spawn installs from"},
+		{name: "a pyproject with no lock", files: []string{"pyproject.toml"}, refused: "the worktree holds pyproject.toml and no lockfile a spawn installs from"},
+		{name: "a package.json with no lock", files: []string{"package.json"}, refused: "the worktree holds package.json and no lockfile a spawn installs from"},
+		{name: "requirements beside a lock of another installer", files: []string{"package.json", "package-lock.json", "requirements.txt"}, want: []string{"npm ci"}, refused: "the worktree holds requirements.txt and no lockfile a spawn installs from"},
+		{name: "requirements beside the uv.lock that locks them", files: []string{"pyproject.toml", "requirements.txt", "uv.lock"}, want: []string{"uv sync --locked"}},
+		{name: "a Go module", files: []string{"go.mod", "go.sum"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			project, worktreePath, taskTmp, runner := provisionFixture(t)
+			dataDir := t.TempDir()
+			writeManifest(t, dataDir, project, Manifest{Project: "demo", Dependencies: Dependencies{Install: test.install}})
+			for _, name := range test.files {
+				writeFileLine(t, filepath.Join(worktreePath, name), "x")
+			}
+			runner.results = ignoredScript(len(InstallOutputs(test.want)))
+
+			// Act
+			result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Provision: %v", err)
+			}
+			if !slices.Equal(result.Install, test.want) || !strings.Contains(result.InstallRefused, test.refused) || (test.refused == "") != (result.InstallRefused == "") {
+				t.Errorf("Install = %q, refused %q, want %q and %q", result.Install, result.InstallRefused, test.want, test.refused)
+			}
+			if len(runner.results) != 0 {
+				t.Errorf("unused scripted answers %v, want an ignore check for each folder the install makes and nothing else", runner.results)
+			}
+		})
+	}
+}
+
+// A dependency step installs exactly what a lock with hashes holds, or makes
+// an empty environment for one, and nothing it chains after that.
+func TestLockedInstallTakesOnlyInstallsOfALock(t *testing.T) {
+	for command, isLocked := range map[string]bool{
+		"npm ci":                                               true,
+		"npm ci --ignore-scripts":                              true,
+		"pnpm install --frozen-lockfile":                       true,
+		"yarn install --frozen-lockfile":                       true,
+		"yarn install --immutable":                             true,
+		"uv sync --locked":                                     true,
+		"uv sync --frozen --all-extras":                        true,
+		"uv venv":                                              true,
+		"uv venv --python 3.12":                                true,
+		"python -m venv .venv":                                 true,
+		"uv pip sync --require-hashes requirements.txt":        true,
+		"uv pip install --require-hashes -r requirements.lock": true,
+		"npm install":                                          false,
+		"pnpm install":                                         false,
+		"yarn install":                                         false,
+		"uv sync":                                              false,
+		"uv venv --seed":                                       false,
+		"python -m venv --upgrade-deps .venv":                  false,
+		"uv pip sync requirements.txt":                         false,
+		"uv pip install -r requirements.txt":                   false,
+		"pip install --require-hashes -r requirements.txt":     false,
+		"npm ci; npm install left-pad":                         false,
+		"npm ci | tee install.log":                             false,
+		"uv sync --locked\nuv add requests":                    false,
+		"uv pip sync --require-hashes $env:REQUIREMENTS":       false,
+		"": false,
+	} {
+		if got := LockedInstall(command); got != isLocked {
+			t.Errorf("LockedInstall(%q) = %t, want %t", command, got, isLocked)
+		}
 	}
 }
 
