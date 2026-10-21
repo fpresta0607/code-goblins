@@ -80,15 +80,13 @@ func startHookRefusal(worktree, task string) string {
 			" Run the command again once the install has ended; if no package names it then, the CFO is told."
 	}
 	if h, err := home.Resolve(); err == nil && state.ValidTaskID(task) == nil {
-		pending, err := wake.Pending(h.State)
 		for index, hook := range hooks {
-			identity := "start-hook " + task + " " + hook.Path + " " + hook.Package + " "
-			if err != nil || hook.Installing || slices.ContainsFunc(pending, func(record wake.Record) bool { return strings.HasPrefix(record.Once, identity) }) {
+			if hook.Installing {
 				continue
 			}
 			detail := task + " was stopped before its next shell command: " + named[index] + " runs at every Python start of its worktree, which is how a hijacked release reads what this account can reach." +
 				" Remove the file once you know its package is safe, and the goblin's commands run again; otherwise end the task. Python that the command which installed it started may already have run it."
-			if _, isNew, err := wake.AppendFirst(h.State, identity+time.Now().UTC().Format(time.RFC3339Nano), "review", task, detail); err == nil && isNew {
+			if _, isNew, err := wake.AppendUnlessQueued(h.State, "start-hook "+task+" "+hook.Path+" "+hook.Package, "review", task, detail); err == nil && isNew {
 				_, _ = wake.PublishEpisode(h.State)
 			}
 		}

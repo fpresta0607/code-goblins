@@ -37,29 +37,53 @@ func AppendFirst(directory, identity, kind, key, detail string) (Record, bool, e
 			record = noticed
 			return err
 		}
-		records, err := readAll(directory)
-		if err != nil {
-			return err
-		}
-		for _, prior := range records {
-			if prior.Once == identity {
-				record = prior
-				return nil
-			}
-		}
-		isNew = true
-		floor, err := readAckFloor(directory)
-		if err != nil {
-			return err
-		}
-		next := floor + 1
-		if len(records) > 0 {
-			next = max(next, records[len(records)-1].Seq+1)
-		}
-		record = Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail, Once: identity}
-		return writeQueue(directory, append(records, record))
+		record, isNew, err = appendUnlessQueued(directory, identity, kind, key, detail)
+		return err
 	})
 	return record, isNew && err == nil, err
+}
+
+// AppendUnlessQueued appends a wake for identity unless one for it is still
+// queued, and reports whether it did. Unlike AppendFirst it appends again
+// once the earlier one has been acknowledged, for a condition that can come
+// back after the CFO has read of it. The look and the append hold the
+// queue's lock together, so callers running at once append one wake between
+// them.
+func AppendUnlessQueued(directory, identity, kind, key, detail string) (Record, bool, error) {
+	if identity == "" || !kinds[kind] {
+		return Record{}, false, errors.New("a notice identity and known wake kind are required")
+	}
+	var record Record
+	isNew := false
+	err := withLock(directory, func() (err error) {
+		record, isNew, err = appendUnlessQueued(directory, identity, kind, key, detail)
+		return err
+	})
+	return record, isNew && err == nil, err
+}
+
+// appendUnlessQueued is AppendUnlessQueued for a caller that holds the
+// queue's lock.
+func appendUnlessQueued(directory, identity, kind, key, detail string) (Record, bool, error) {
+	records, err := readAll(directory)
+	if err != nil {
+		return Record{}, false, err
+	}
+	for _, prior := range records {
+		if prior.Once == identity {
+			return prior, false, nil
+		}
+	}
+	floor, err := readAckFloor(directory)
+	if err != nil {
+		return Record{}, false, err
+	}
+	next := floor + 1
+	if len(records) > 0 {
+		next = max(next, records[len(records)-1].Seq+1)
+	}
+	record := Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail, Once: identity}
+	return record, true, writeQueue(directory, append(records, record))
 }
 
 func sameNotice(record Record, identity, kind, key, detail string) error {

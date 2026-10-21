@@ -55,6 +55,7 @@ func editable(t *testing.T, site, distribution, folder string) {
 const (
 	distutilsLine = "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = os.environ.get(var, 'local') == 'local'; enabled and __import__('_distutils_hack').add_shim(); \n"
 	coverageLine  = `import sys; exec('import os\n\nif os.getenv("COVERAGE_PROCESS_START") or os.getenv("COVERAGE_PROCESS_CONFIG"):\n try:\n  import coverage\n except:\n  pass\n else:\n  coverage.process_startup(slug="pth")')` + "\r\n"
+	pytestCovLine = `import os, sys;exec('if \'COV_CORE_SOURCE\' in os.environ:\n try:\n  from pytest_cov.embed import init\n  init()\n except Exception as exc:\n  sys.stderr.write(\n   "pytest-cov: Failed to setup subprocess coverage. "\n   "Environ: {0!r} "\n   "Exception: {1!r}\\n".format(\n    dict((k, v) for k, v in os.environ.items() if k.startswith(\'COV_CORE\')),\n    exc\n   )\n  )\n')` + "\n"
 	finderLine    = "import __editable___shop_0_1_0_finder; __editable___shop_0_1_0_finder.install()"
 	stealerLine   = "import os, subprocess; subprocess.Popen(['python', os.path.join(os.path.dirname(__file__), 'init.py')])\n"
 )
@@ -81,6 +82,7 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 			install(t, site, "setuptools-80.9.0", map[string]string{"distutils-precedence.pth": distutilsLine})
 			install(t, site, "pywin32-311", map[string]string{"pywin32.pth": "# .pth file for the PyWin32 extensions\nwin32\nwin32\\lib\nPythonwin\nimport pywin32_bootstrap\n"})
 			install(t, site, "coverage-7.13.4", map[string]string{"a1_coverage.pth": coverageLine})
+			install(t, site, "pytest_cov-6.3.0", map[string]string{"pytest-cov.pth": pytestCovLine})
 		}},
 		{name: "the project installed editable from its folder, by setuptools and by meson-python", arrange: func(t *testing.T, worktree string) {
 			site := makeEnvironment(t, worktree, ".venv")
@@ -112,8 +114,8 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 			install(t, makeEnvironment(t, worktree, ".venv"), "helper-2.0", map[string]string{"helper.pth": "helper\f" + stealerLine})
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/helper.pth", Package: "helper-2.0"}}},
 		{name: "known lines in files another package installs", arrange: func(t *testing.T, worktree string) {
-			install(t, makeEnvironment(t, worktree, ".venv"), "tools-1.0", map[string]string{"distutils-precedence.pth": distutilsLine, "pywin32.pth": "import pywin32_bootstrap\n", "a1_coverage.pth": coverageLine, "_distutils_hack/__init__.py": ""})
-		}, want: []Hook{{Path: ".venv/Lib/site-packages/a1_coverage.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/distutils-precedence.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/pywin32.pth", Package: "tools-1.0"}}},
+			install(t, makeEnvironment(t, worktree, ".venv"), "tools-1.0", map[string]string{"distutils-precedence.pth": distutilsLine, "pywin32.pth": "import pywin32_bootstrap\n", "a1_coverage.pth": coverageLine, "pytest-cov.pth": pytestCovLine, "_distutils_hack/__init__.py": ""})
+		}, want: []Hook{{Path: ".venv/Lib/site-packages/a1_coverage.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/distutils-precedence.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/pytest-cov.pth", Package: "tools-1.0"}, {Path: ".venv/Lib/site-packages/pywin32.pth", Package: "tools-1.0"}}},
 		{name: "uv's own line in an environment python -m venv made, which writes none", arrange: func(t *testing.T, worktree string) {
 			site := makeEnvironment(t, worktree, ".venv")
 			write(t, filepath.Join(worktree, ".venv", "pyvenv.cfg"), "home = C:\\Python312\ninclude-system-site-packages = false\nversion = 3.12.10\n")

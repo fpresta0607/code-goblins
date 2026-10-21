@@ -53,6 +53,7 @@ var knownHooks = []struct{ file, owner, line string }{
 	{file: "distutils-precedence.pth", owner: "setuptools", line: "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = os.environ.get(var, 'local') == 'local'; enabled and __import__('_distutils_hack').add_shim();"},
 	{file: "pywin32.pth", owner: "pywin32", line: "import pywin32_bootstrap"},
 	{file: "a1_coverage.pth", owner: "coverage", line: `import sys; exec('import os\n\nif os.getenv("COVERAGE_PROCESS_START") or os.getenv("COVERAGE_PROCESS_CONFIG"):\n try:\n  import coverage\n except:\n  pass\n else:\n  coverage.process_startup(slug="pth")')`},
+	{file: "pytest-cov.pth", owner: "pytest_cov", line: `import os, sys;exec('if \'COV_CORE_SOURCE\' in os.environ:\n try:\n  from pytest_cov.embed import init\n  init()\n except Exception as exc:\n  sys.stderr.write(\n   "pytest-cov: Failed to setup subprocess coverage. "\n   "Environ: {0!r} "\n   "Exception: {1!r}\\n".format(\n    dict((k, v) for k, v in os.environ.items() if k.startswith(\'COV_CORE\')),\n    exc\n   )\n  )\n')`},
 }
 
 // lineBreaks are the runes Python's str.splitlines splits a line at.
