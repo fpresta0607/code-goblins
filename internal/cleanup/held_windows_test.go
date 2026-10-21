@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -30,6 +31,60 @@ func holdAsWorkingDirectory(t *testing.T, dir string) {
 	t.Cleanup(func() { windows.CloseHandle(handle) })
 	if err := os.Remove(dir); err == nil || !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
 		t.Fatalf("removing the held folder = %v; want it refused as in use", err)
+	}
+}
+
+// loadAsImage puts a program at path and maps it, until the test ends, as
+// Windows maps a program or a DLL a process loads: as an image, though no
+// code of it runs.
+func loadAsImage(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	standin.Put(t, path)
+	module, err := windows.LoadLibraryEx(path, 0, windows.LOAD_LIBRARY_AS_IMAGE_RESOURCE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { windows.FreeLibrary(module) })
+}
+
+// #1226, 2026-10-20: four retired goblins' worktrees of one Python project
+// stayed on disk, each left for the janitor, which failed the same way. uv
+// links one file of its cache into every goblin's .venv, another goblin's
+// pytest had the module loaded, and Go's own removal refuses every name of a
+// loaded file. The worktree's name of it goes, and the file lives on under
+// the names the cache and the other goblin hold.
+func TestCleanupReturnsAWorktreeWhoseVenvLinksAModuleAnotherGoblinLoaded(t *testing.T) {
+	// Arrange
+	task := newHomeTask(t)
+	ignore(t, task.project, ".venv")
+	cached := filepath.Join(t.TempDir(), "uv-cache", "curl_cffi", "_wrapper.pyd")
+	loadAsImage(t, cached)
+	linked := filepath.Join(task.worktree, ".venv", "Lib", "site-packages", "curl_cffi", "_wrapper.pyd")
+	if err := os.MkdirAll(filepath.Dir(linked), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(cached, linked); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	result, err := task.service.Cleanup(context.Background(), "g1")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if exists(t, task.worktree) || strings.Contains(result.Output, "for the janitor") {
+		t.Errorf("output = %q; want the worktree %s returned, not left for the janitor", result.Output, task.worktree)
+	}
+	if listed := realGit(t, task.project, "worktree", "list"); strings.Count(listed, "\n") != 0 {
+		t.Errorf("the project still registers worktrees:\n%s", listed)
+	}
+	if err := os.Remove(cached); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Errorf("removing the cache's own name of the module = %v; want it refused, as it is loaded and now its only name", err)
 	}
 }
 
