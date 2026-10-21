@@ -821,7 +821,9 @@ func runFakeClaude() int {
 // On Windows a pid names whatever process holds it when it is opened, and a
 // host that has ended gives its pid to the next process to start, so the
 // process opened is the host only when it started no later than the host
-// recorded itself. Held open, it keeps its pid while that is checked.
+// recorded itself. Held open, it keeps its pid while that is checked. A host
+// whose program ended at once can remove its record and end after the record
+// is read, and its pid then names no process: it has nothing left to close.
 func closeNativeTerminal(t *testing.T, stateDir, id string) {
 	t.Helper()
 	record, err := host.ReadRecord(stateDir, id)
@@ -829,6 +831,9 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 		return
 	}
 	hostProcess, err := os.FindProcess(record.HostPID)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return
+	}
 	if err != nil {
 		t.Errorf("find host pid %d: %v", record.HostPID, err)
 		return
