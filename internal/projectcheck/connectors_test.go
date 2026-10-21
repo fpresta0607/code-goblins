@@ -92,6 +92,36 @@ func TestAConnectorUsedAndUndeclaredIsReported(t *testing.T) {
 	}
 }
 
+// The check reads auth.json alone for an undeclared credential, so its fix
+// offers only a declaration there. It once also offered a note in the
+// project's instructions, which the check never reads, and a project that
+// wrote one kept the finding at every run.
+func TestAnUndeclaredCredentialIsClearedByTheOneRemedyItsFixOffers(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	files := map[string]string{
+		"app/search.py": "import os\nbrave = os.getenv(\"BRAVE_API_KEY\")\n",
+		"AGENTS.md":     "The code reads BRAVE_API_KEY from its own env file, so it needs none from the fleet.\n",
+	}
+	explained := newFixture(t, files)
+	explained.manifest("auth.json", `{"project":"northwind","services":[]}`)
+	declared := newFixture(t, files)
+	declared.manifest("auth.json", `{"project":"northwind","services":[
+		{"name":"brave","method":"env","env":["BRAVE_API_KEY"],"optional":true,"note":"read from the project's own env file, so no task needs it from the fleet"}
+	]}`)
+
+	// Act
+	before, after := explained.check(), declared.check()
+
+	// Assert
+	finding := only(t, before, "connector-undeclared")
+	contains(t, "fix", finding.Fix, "declare each in a service of", "auth.json", "optional", "note")
+	if strings.Contains(finding.Fix, "instructions") {
+		t.Errorf("fix %q offers the project's instructions, which the check never reads", finding.Fix)
+	}
+	none(t, after, "connector-undeclared")
+}
+
 // An MCP connector authenticates with the credential its entry names, and a
 // goblin receives it only when a service declares that credential.
 func TestAnMCPConnectorWhoseCredentialNoServiceDeclaresIsReported(t *testing.T) {
