@@ -1334,11 +1334,12 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 // returns that host and never says it ended before it served.
 func TestALaunchReturnsAHostThatServedAndEndedBetweenItsLooks(t *testing.T) {
 	// Arrange
-	usual := launchPoll
-	// The launch looks once, before the host can have recorded itself, and
-	// then waits for the host to end.
-	launchPoll = time.Minute
-	t.Cleanup(func() { launchPoll = usual })
+	usual := readLaunchRecord
+	// The launch never finds the record, as when the host records itself,
+	// serves and ends between two of its looks. The host runs in a process of
+	// its own, which reads its records as it always does.
+	readLaunchRecord = func(string, string) (Record, error) { return Record{}, os.ErrNotExist }
+	t.Cleanup(func() { readLaunchRecord = usual })
 	stateDir := t.TempDir()
 
 	// Act
@@ -1347,9 +1348,6 @@ func TestALaunchReturnsAHostThatServedAndEndedBetweenItsLooks(t *testing.T) {
 	// Assert
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
-	}
-	if record.Pipe != "" {
-		t.Fatalf("the launch saw record %+v of a serving host, so it tested no host that ended between its looks", record)
 	}
 	ended, err := ReadEnd(stateDir, "g1")
 	if err != nil {
@@ -1362,10 +1360,17 @@ func TestALaunchReturnsAHostThatServedAndEndedBetweenItsLooks(t *testing.T) {
 
 // A host that ends before it serves leaves its reason in its log, and the
 // launch says how the host ended and what its log ends with, rather than only
-// where the log is, which a CI runner keeps to itself.
+// where the log is, which a CI runner keeps to itself. The end an earlier host
+// of the terminal left names that host, so it never passes for this one's.
 func TestALaunchWhoseHostEndsBeforeItServesSaysWhy(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnd(stateDir, End{ID: "g1", HostPID: os.Getpid(), ChildPID: 1, Ended: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
 	missing := filepath.Join(t.TempDir(), "missing.exe")
 
 	// Act

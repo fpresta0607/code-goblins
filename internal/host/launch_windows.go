@@ -30,11 +30,11 @@ func Arguments(stateDir string, spec Spec) []string {
 	return append(append(args, "--"), spec.Args...)
 }
 
-// launchTimeout bounds how long a new host takes to record itself, and
-// launchPoll is how long a launch waits between looks for that record.
+// launchTimeout bounds how long a new host takes to record itself, and a
+// launch looks for that record through readLaunchRecord.
 var (
-	launchTimeout = 15 * time.Second
-	launchPoll    = 25 * time.Millisecond
+	launchTimeout    = 15 * time.Second
+	readLaunchRecord = ReadRecord
 )
 
 // Launch starts a host for spec in a process of its own and returns the
@@ -92,8 +92,8 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
-	for deadline := time.Now().Add(launchTimeout); time.Now().Before(deadline); {
-		if record, err := ReadRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
+	for deadline := time.Now().Add(launchTimeout); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if record, err := readLaunchRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
 			record.Contained = contained
 			return record, nil
 		}
@@ -110,7 +110,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 				err = errors.New("exit status 0")
 			}
 			return Record{}, fmt.Errorf("host: the host ended before it served (%v); %s ends:\n%s", err, logPath, logTail(logPath))
-		case <-time.After(launchPoll):
+		default:
 		}
 	}
 	_ = cmd.Process.Kill()
