@@ -917,9 +917,9 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 	brief := filepath.Join(t.TempDir(), "brief.md")
 
 	for name, instruction := range map[string]string{
-		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil),
-		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil),
-		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil),
+		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil, ""),
+		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil, ""),
+		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil, ""),
 		"a goblin taking over": handoffInstruction(filepath.Join(t.TempDir(), "handoff.md"), brief, state.TaskMeta{ID: "task-7", Kind: "ship"}),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -952,9 +952,9 @@ func TestAGoblinIsToldWhatItStartsIsItsOwnToEnd(t *testing.T) {
 	brief := filepath.Join(t.TempDir(), "brief.md")
 
 	for name, instruction := range map[string]string{
-		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil),
-		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil),
-		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil),
+		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil, ""),
+		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil, ""),
+		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil, ""),
 		"a goblin taking over": handoffInstruction(filepath.Join(t.TempDir(), "handoff.md"), brief, state.TaskMeta{ID: "task-7", Kind: "ship"}),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1356,12 +1356,17 @@ type commandRunner struct {
 	installer       string
 	installerStderr string
 	mcpTracked      bool
+	// uvLocks is what the worktree's listing of its uv.lock files prints.
+	uvLocks string
 }
 
 func (r *commandRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
 		return execx.Result{}, nil
+	}
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" && !slices.Contains(req.Args, "--error-unmatch") {
+		return execx.Result{Stdout: []byte(r.uvLocks)}, nil
 	}
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" {
 		if r.mcpTracked {

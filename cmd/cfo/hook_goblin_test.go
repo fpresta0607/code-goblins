@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,12 +18,14 @@ import (
 )
 
 // goblinHookHome is a scratch home whose goblin pd-keys runs the goblin
-// hooks, as its terminal names them.
+// hooks, as its terminal names them, in a worktree of its own that holds
+// nothing yet.
 func goblinHookHome(t *testing.T) string {
 	t.Helper()
 	root := useScratchHome(t)
 	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
 	t.Setenv("CFO_TASK_ID", "pd-keys")
+	t.Setenv("CLAUDE_PROJECT_DIR", t.TempDir())
 	stateDir := filepath.Join(root, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -95,6 +98,68 @@ func TestGoblinHooksReadNothingForAnOrdinaryCall(t *testing.T) {
 	}
 	if opened, listed = fsx.Opens()-opened, proc.Lists()-listed; opened != 0 || listed != 0 {
 		t.Fatalf("the hooks opened %d file(s) and listed processes %d time(s), want neither", opened, listed)
+	}
+}
+
+// On 2026-10-21 a hijacked release's .pth file ran a stealer at every Python
+// start of the goblins that installed it. A fresh install that leaves such a
+// file stops the goblin before its next shell command, which is the first
+// that could start Python, and every command after it until the file is
+// gone, and wakes the CFO once with the file and its package.
+func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
+	// Arrange
+	stateDir := goblinHookHome(t)
+	site := filepath.Join(os.Getenv("CLAUDE_PROJECT_DIR"), ".venv", "Lib", "site-packages")
+	marker := filepath.Join(t.TempDir(), "stolen")
+	planted := filepath.Join(site, "litellm_init.pth")
+	for path, content := range map[string]string{
+		filepath.Join(site, "..", "..", "pyvenv.cfg"): "version_info = 3.12.10\n",
+		planted: "import pathlib; pathlib.Path(" + strconv.Quote(marker) + ").write_text('read')\n",
+		filepath.Join(site, "litellm-1.107.0.dist-info", "RECORD"): "litellm_init.pth,sha256=AAAA,90\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exits := []int{
+		runHook("goblin-seal", shellCall(t, `.venv\Scripts\python.exe -m pytest`), &stdout, &stderr),
+		runHook("goblin-seal", shellCall(t, "git status"), &stdout, &stderr),
+	}
+	if err := os.Remove(planted); err != nil {
+		t.Fatal(err)
+	}
+	after := runHook("goblin-seal", shellCall(t, `.venv\Scripts\python.exe -m pytest`), &stdout, &stderr)
+
+	// Assert
+	for index, exit := range exits {
+		if exit != 2 {
+			t.Fatalf("command %d exit = %d, want it refused before it ran", index+1, exit)
+		}
+	}
+	refusals := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+	for _, refusal := range refusals {
+		if !strings.Contains(refusal, `"permissionDecision":"deny"`) || !strings.Contains(refusal, "Stopped before Python could start") || !strings.Contains(refusal, "litellm_init.pth, from litellm-1.107.0,") {
+			t.Fatalf("refusal = %q, want the planted file and its package named", refusal)
+		}
+	}
+	if after != 0 || len(refusals) != 2 {
+		t.Fatalf("exit once the file is gone = %d, refusals = %d, want the command let through", after, len(refusals))
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the planted start hook ran")
+	}
+	pending, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "pd-keys" || !strings.Contains(pending[0].Detail, "pd-keys was stopped before its next shell command: "+planted+", from litellm-1.107.0,") || strings.Contains(pending[0].Detail, "pathlib") {
+		t.Fatalf("wakes = %+v, want one naming the file and its package, never its code", pending)
 	}
 }
 

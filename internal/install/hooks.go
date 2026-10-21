@@ -134,7 +134,9 @@ func CFOSettings(root, stateDir string) ([]byte, error) {
 // GoblinHooks are every hook a Claude Code goblin of the home at root, with
 // its state in stateDir, starts with, and the single place they are defined.
 // goblin-seal refuses the goblin's browser commands while a key fetch reads
-// in its browser, and so runs only before a shell call. Then come its native
+// in its browser, and every command while its worktree's Python
+// environments hold code that runs at every Python start that no known
+// package ships, and so runs only before a shell call. Then come its native
 // session hooks, and the one after every tool call also raises the key
 // alarm, which wakes the CFO when the tool's output holds a secret key: a key
 // read from a file is as exposed as one a command printed. The native hook

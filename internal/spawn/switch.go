@@ -519,6 +519,11 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// without the caches the spawned one had.
 	mergeProvisionEnv(launch.Env, redirects)
 	mergeProvisionEnv(launch.Env, preflight.Caches)
+	cooldown, _, err := s.Worktrees.Cooldown(ctx, worktreePath, time.Now())
+	if err != nil {
+		return "", false, host.Record{}, fmt.Errorf("switch: %w", err)
+	}
+	mergeProvisionEnv(launch.Env, cooldown)
 	s.nativeEnvironment(launch.Env, meta)
 
 	if resumed {
