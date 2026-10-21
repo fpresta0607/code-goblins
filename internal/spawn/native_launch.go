@@ -358,13 +358,15 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // runs, and runs its prompt hook as it queues it, so only its own record of
 // the conversation proves it taken; with none soon after the submit the
 // error says it is queued for that tool call. Either way it is typed once. A
-// Codex has its submit key pressed once: it can take that key late, the text
-// still showing in its composer, and a key pressed again would reach it after
-// the instruction, as an empty submission. A harness that turns it away as
-// still starting, putting it back in its composer, has not taken it: while
-// its screen says so, and did not already say so before the submit, Enter is
-// pressed again until it does, for as long as a harness's startup is given,
-// and its time to show itself working counts from the last press.
+// Codex has its submit key pressed once, and a Claude Code once more only
+// once its composer shows that key taken as a new line: either can take the
+// key late, the text still showing in its composer, and a key pressed again
+// then would reach it after the instruction, as an empty submission. A
+// harness that turns it away as still starting, putting it back in its
+// composer, has not taken it: while its screen says so, and did not already
+// say so before the submit, Enter is pressed again until it does, for as long
+// as a harness's startup is given, and its time to show itself working counts
+// from the last press.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
@@ -372,7 +374,8 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	}
 	busy := screens.IsWorking(before)
 	submitted := time.Now()
-	if err := s.submitNative(ctx, record, screens, instruction, launchSettle); err != nil {
+	atPress, err := s.submitNative(ctx, record, screens, instruction, launchSettle)
+	if err != nil {
 		return err
 	}
 	within := nativeAccepted
@@ -413,16 +416,18 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 				deadline = startingPressed.Add(within)
 			}
 		}
-		// A harness that lost the Enter ending the text leaves the text in its
-		// composer: Enter is pressed again, as often as the harness's screens
-		// allow and further apart each time, while the text still shows there
-		// and no turn has started. An Enter on an empty composer submits
-		// nothing, so the text is never handed over twice.
-		if !busy && presses < screens.Resubmits && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) && !screens.ComposerEmpty(screen) {
+		// A harness that took the last Enter as a new line leaves the text in
+		// its composer over the row that Enter added to the screen as it was
+		// pressed: Enter is pressed again, as often as the harness's screens
+		// allow and further apart each time, while the text shows over that
+		// row and no turn has started. Text that shows over no new row may
+		// wait on an Enter the harness has not taken yet, so it gets none
+		// that would reach it after the instruction.
+		if !busy && presses < screens.Resubmits && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen) {
 			if err := pressNativeEnter(record); err != nil {
 				return err
 			}
-			pressed, presses = time.Now(), presses+1
+			atPress, pressed, presses = screen, time.Now(), presses+1
 		}
 		if time.Now().After(deadline) {
 			if busy {
@@ -451,21 +456,26 @@ func pressNativeEnter(record host.Record) error {
 
 // submitNative types the instruction into the harness's composer and submits
 // it settle after the composer shows it, since a dialog that opened meanwhile
-// would take the Enter as its answer.
-func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) error {
+// would take the Enter as its answer. It returns the screen as the Enter was
+// pressed.
+func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) ([]string, error) {
 	client, err := host.Dial(record)
 	if err != nil {
-		return fmt.Errorf("spawn: type into native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, err)
+		return nil, fmt.Errorf("spawn: type into native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, err)
 	}
 	defer client.Close()
 	if err := client.Input([]byte(instruction)); err != nil {
-		return fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
 	}
 	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
-		return fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
 	if err := s.sleep(ctx, settle); err != nil {
-		return err
+		return nil, err
+	}
+	atPress, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return nil, err
 	}
 	submit := "\r"
 	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
@@ -473,9 +483,9 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		submit = "\x1b[F\r"
 	}
 	if err := client.Input([]byte(submit)); err != nil {
-		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
-	return nil
+	return atPress, nil
 }
 
 // awaitTyped reads the terminal's screen until it shows typed, for at most

@@ -637,15 +637,20 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 // it: the text sat in the composer over an empty row until the resume's
 // window ran out, and the resume was recorded failed while the goblin waited
 // on a key. A resume reads the composer and presses Enter once more while the
-// text still waits there, so the goblin resumes; one whose second Enter is
-// lost too fails within the same window, having pressed it only once more.
-func TestAResumeWhoseFirstEnterWasLostSubmitsOnceMore(t *testing.T) {
+// text still waits there over the empty row the lost Enter left, so the
+// goblin resumes; one whose second Enter is lost too fails within the same
+// window, having pressed it only once more. A Claude Code that takes its
+// Enter seconds late shows the text in its composer as it was until then,
+// over no new row, and is pressed no Enter that would reach it after the
+// instruction (#1232).
+func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 	for _, test := range []struct {
 		mode, wantPhase string
 		wantLost        int
 	}{
 		{mode: "claude-lost-enter", wantPhase: "running", wantLost: 1},
 		{mode: "claude-enters-lost", wantPhase: "failed", wantLost: 2},
+		{mode: "claude-late-enter", wantPhase: "running", wantLost: 0},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
@@ -677,6 +682,9 @@ func TestAResumeWhoseFirstEnterWasLostSubmitsOnceMore(t *testing.T) {
 			events := f.events(t)
 			if lost := named(events, "enter taken as a new line"); len(lost) != test.wantLost {
 				t.Errorf("Enters taken as a new line = %+v, want %d", lost, test.wantLost)
+			}
+			if empty := named(events, "enter on an empty composer"); len(empty) != 0 {
+				t.Errorf("Enters on an empty composer = %+v, want none after the instruction", empty)
 			}
 			submitted := named(events, "submitted")
 			if test.wantPhase == "failed" {

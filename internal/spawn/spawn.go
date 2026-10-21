@@ -9,8 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -449,6 +452,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// builds against the fleet's single store. They are not secrets, so they
 	// ride the launch environment rather than the restricted credentials file.
 	mergeProvisionEnv(launch.Env, preflight.Caches)
+	// The release cooldown comes after the project's redirects, so a project
+	// that names its own cutoff keeps it.
+	cooldown, uvLocks, err := s.Worktrees.Cooldown(ctx, wt.Path, time.Now())
+	if err != nil {
+		return fail(result, fmt.Errorf("spawn: %w", err))
+	}
+	mergeProvisionEnv(launch.Env, cooldown)
 	s.nativeEnvironment(launch.Env, result.Meta)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
@@ -461,7 +471,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return result, err
 		}
 	}
-	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install)
+	launch.Instruction = spawnInstruction(req.BriefPath, result.Meta, provision.Install, provision.InstallRefused)
+	launch.Instruction += cooldownInstruction(cooldown)
 	launch.Instruction += launch.SubagentInstruction
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
@@ -500,6 +511,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if len(provision.Install) > 0 {
 		result.Output += "\ndependencies: the goblin installs them as its first step, in its own terminal: " + strings.Join(provision.Install, " && ")
+	}
+	if provision.InstallRefused != "" {
+		result.Output += "\n" + installRefusedLine(project, provision.Install, provision.InstallRefused)
+	}
+	if len(uvLocks) > 0 {
+		result.Output += "\n" + uvLockCooldownLine(uvLocks)
 	}
 	if isServicesNeeded {
 		result.Output += "\nservices: the goblin holds " + auth.ProjectName(project) + "'s local services for its full-stack check with cfo services up, and releases them with cfo services down"
@@ -545,6 +562,33 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 func envHeldLine(project string, held []string) string {
 	return "env: the checkout holds " + strings.Join(held, ", ") + ", which this worktree was not given. A worktree gets an env file only when " +
 		worktree.ManifestPath("data", project) + " names it: \"link\": [\"" + strings.Join(held, "\", \"") + "\"]"
+}
+
+// installRefusedLine says why the goblin was given no install step, or none
+// for what has no lock beside the one it was given, and the installs a
+// manifest may name instead.
+func installRefusedLine(project string, install []string, refused string) string {
+	left := "none installed"
+	if len(install) > 0 {
+		left = "the rest not installed"
+	}
+	return "dependencies: " + left + ", since " + refused + ". Lock the project and name its locked install in " + worktree.ManifestPath("data", project) +
+		": npm ci, pnpm install --frozen-lockfile, yarn install --frozen-lockfile, uv sync --locked, or uv venv then uv pip sync --require-hashes for requirements compiled with --generate-hashes"
+}
+
+// uvLockCooldownLine says that uv in the worktree takes no cutoff from the
+// terminal, and where the project sets its own.
+func uvLockCooldownLine(uvLocks []string) string {
+	return "cooldown: uv takes no cutoff from the goblin's terminal, since the worktree tracks " + strings.Join(uvLocks, ", ") +
+		" and uv sets aside a lock that does not record its terminal's cutoff; the project sets its own with [tool.uv] exclude-newer = \"" + strconv.Itoa(worktree.CooldownDays) + " days\" in pyproject.toml"
+}
+
+// cooldownInstruction tells a goblin which variables hold its package
+// managers to releases at least worktree.CooldownDays old, and that a newer
+// release is the CFO's call.
+func cooldownInstruction(cooldown map[string]string) string {
+	return " Your terminal's " + strings.Join(slices.Sorted(maps.Keys(cooldown)), ", ") + " hold its package managers to releases uploaded at least " + strconv.Itoa(worktree.CooldownDays) + " days ago, so a hijacked release is found and pulled before it reaches you." +
+		" Never unset or override them: when your task needs a newer release, say so in a blocked report."
 }
 
 // codexMCPServers names the operator's Codex MCP servers a Codex goblin turns
@@ -874,8 +918,8 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // brief, install the worktree's dependencies first when install names any,
 // then report outcomes through cfo notify so the CFO is woken with the real
 // payload rather than a guess from its screen.
-func spawnInstruction(briefPath string, meta state.TaskMeta, install []string) string {
-	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, refused string) string {
+	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install, refused) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the
@@ -916,17 +960,26 @@ func processInstruction() string {
 // it named none. The spawn leaves the install to the goblin so it holds up no
 // other start; the goblin's tool may cut a long command short, so it is told
 // how long one can take here.
-func dependencyInstruction(worktree string, install []string) string {
-	if len(install) == 0 {
-		return ""
+//
+// When provisioning refused to install what has no lock, the goblin is told
+// why, and that installing it by resolving versions itself is what the
+// refusal stops.
+func dependencyInstruction(worktree string, install []string, refused string) string {
+	instruction := ""
+	if len(install) > 0 {
+		commands := make([]string, len(install))
+		for index, command := range install {
+			commands[index] = "\"" + command + "\""
+		}
+		instruction = " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
+			" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
+			" Install only into this worktree, never another's."
 	}
-	commands := make([]string, len(install))
-	for index, command := range install {
-		commands[index] = "\"" + command + "\""
+	if refused != "" {
+		instruction += " The spawn gave you no step that installs what has no lock: " + refused + "." +
+			" Never install it by resolving versions at a package index yourself: when your task needs it, say so in a blocked report that names the lock the project lacks."
 	}
-	return " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
-		" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
-		" Install only into this worktree, never another's."
+	return instruction
 }
 
 // briefNeedsServices reports whether the brief's Delivery section says the

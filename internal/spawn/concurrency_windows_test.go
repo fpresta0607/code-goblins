@@ -33,6 +33,8 @@ func (g *installGate) Run(_ context.Context, req execx.Request) (execx.Result, e
 	switch {
 	case req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore":
 		return execx.Result{}, nil
+	case req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" && !slices.Contains(req.Args, "--error-unmatch"):
+		return execx.Result{}, nil
 	case req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files":
 		return execx.Result{ExitCode: 1}, nil
 	case req.Name == "npm":

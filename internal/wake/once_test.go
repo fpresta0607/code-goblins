@@ -1,6 +1,9 @@
 package wake
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func TestLifecycleCompletionNoticeIsDeliveredOnceAcrossAcknowledgement(t *testing.T) {
 	directory := t.TempDir()
@@ -25,5 +28,37 @@ func TestLifecycleCompletionNoticeIsDeliveredOnceAcrossAcknowledgement(t *testin
 	}
 	if _, err := AppendOnce(directory, "task:pause-1", "notify", "task", "different operation"); err == nil {
 		t.Fatal("identity was reused with a different notice")
+	}
+}
+
+// A condition that can come back, such as a file a goblin reinstalls after
+// the CFO removed it, wakes him once while that wake is queued, however
+// many callers report it at once, and again once he has acknowledged it.
+func TestAppendUnlessQueuedWakesAgainOnlyOnceAcknowledged(t *testing.T) {
+	// Arrange
+	directory := t.TempDir()
+	var group sync.WaitGroup
+	for range 8 {
+		group.Go(func() {
+			if _, _, err := AppendUnlessQueued(directory, "start-hook task x.pth", "review", "task", "x.pth runs at every start"); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	group.Wait()
+
+	// Act
+	queued, err := Pending(directory)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queued = %+v, %v, want one wake from callers reporting at once", queued, err)
+	}
+	if err := AckThrough(directory, queued[0].Seq); err != nil {
+		t.Fatal(err)
+	}
+	again, isNew, err := AppendUnlessQueued(directory, "start-hook task x.pth", "review", "task", "x.pth runs at every start")
+
+	// Assert
+	if err != nil || !isNew || again.Seq <= queued[0].Seq {
+		t.Fatalf("after acknowledgement = %+v, new %t, %v, want a new wake", again, isNew, err)
 	}
 }

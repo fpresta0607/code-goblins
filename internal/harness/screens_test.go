@@ -503,3 +503,43 @@ func TestClaudesCapturedComposerReadsEmptyWithoutMistakingADraft(t *testing.T) {
 		})
 	}
 }
+
+// Claude Code that takes the Enter ending typed text as a new line leaves the
+// text in its composer over the empty row that Enter added, as a resumed
+// goblin's was on a loaded machine on 2026-10-20. Text that shows over no new
+// row may still wait on an Enter not taken yet, so it never reads as one taken
+// as a new line, and nor does an empty row the composer showed as the Enter
+// was pressed (#1232).
+func TestAnEnterReadsTakenAsANewLineOnlyByTheEmptyRowItAdded(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	typed := []string{rule, "> run the tests", rule, footer}
+	for name, test := range map[string]struct {
+		kind            Kind
+		atPress, screen []string
+		isNewLine       bool
+	}{
+		"a new empty row under the text":     {Claude, typed, []string{rule, "> run the tests", "  ", rule, footer}, true},
+		"a second new empty row":             {Claude, []string{rule, "> run the tests", "  ", rule, footer}, []string{rule, "> run the tests", "  ", " ", rule, footer}, true},
+		"the Enter not taken yet":            {Claude, typed, typed, false},
+		"an empty row there at the press":    {Claude, []string{rule, "> run the tests", "  ", rule, footer}, []string{rule, "> run the tests", "  ", rule, footer}, false},
+		"the composer cleared by the submit": {Claude, typed, []string{"> run the tests", "", rule, ">", rule, footer}, false},
+		"only empty rows":                    {Pi, []string{rule, "run the tests", rule, footer}, []string{rule, "", "", rule, footer}, false},
+		"no composer read at the press":      {Claude, nil, []string{rule, "> run the tests", "  ", rule, footer}, false},
+		"no composer read now":               {Claude, typed, []string{"> run the tests", "  ", footer}, false},
+		"a composer that is not ruled":       {Codex, []string{"› run the tests"}, []string{"› run the tests", ""}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			isNewLine := screens.TookEnterAsNewLine(test.atPress, test.screen)
+
+			// Assert
+			if isNewLine != test.isNewLine {
+				t.Fatalf("TookEnterAsNewLine = %v, want %v", isNewLine, test.isNewLine)
+			}
+		})
+	}
+}
