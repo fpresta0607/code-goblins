@@ -25,7 +25,8 @@ import (
 
 // handshakeTimeout bounds how long a client takes to say hello, and
 // farewellTimeout how long an ending host waits for its viewers to hear how
-// the terminal ended.
+// the terminal ended. Only time the machine ran spends handshakeTimeout
+// (awake), since a pause of the whole machine stops the other side too.
 var (
 	handshakeTimeout = 5 * time.Second
 	farewellTimeout  = 2 * time.Second
@@ -279,8 +280,9 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 // alone.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}, screens *sync.RWMutex) {
 	defer connection.Close()
-	_ = connection.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	lift := awakeDeadline(connection.SetReadDeadline, handshakeTimeout)
 	greeting, err := readHello(connection)
+	lift()
 	if err != nil {
 		return
 	}
@@ -292,7 +294,6 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		_ = writeHello(connection, hello{Version: Version, Error: "the token does not match this host"})
 		return
 	}
-	_ = connection.SetReadDeadline(time.Time{})
 	if greeting.Screen {
 		serveScreen(connection, console, screens)
 		return

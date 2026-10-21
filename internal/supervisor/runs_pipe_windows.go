@@ -56,6 +56,8 @@ func runPipeName(stateDir string) string {
 // firstInstanceWait is how long the supervisor waits for a pipe name another
 // instance still holds to come free: a supervisor that just stopped releases
 // its instances within moments, and a name held longer than this is not ours.
+// Only time the machine ran spends it (awake), since a pause of the whole
+// machine stops the supervisor before too.
 const firstInstanceWait = 2 * time.Second
 
 // serveRunRequests takes run items over the supervisor's named pipe until ctx
@@ -76,7 +78,8 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		s.publish(fmt.Errorf("run requests: %w", err))
 		return
 	}
-	started := time.Now()
+	freeing, cancelFreeing := awake.WithTimeout(context.Background(), firstInstanceWait)
+	defer cancelFreeing()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -101,7 +104,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 			mode |= fileFlagFirstInstance
 		}
 		handle, _, callErr := procCreateNamedPipeW.Call(uintptr(unsafe.Pointer(name)), mode, pipeRejectRemoteClients, pipeUnlimitedInstances, 64<<10, 64<<10, 0, uintptr(unsafe.Pointer(attributes)))
-		if syscall.Handle(handle) == syscall.InvalidHandle && first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) && time.Since(started) < firstInstanceWait {
+		if syscall.Handle(handle) == syscall.InvalidHandle && first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) && freeing.Err() == nil {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}

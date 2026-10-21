@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 // pipeName is a fresh, unguessable pipe for one host.
@@ -111,6 +114,11 @@ func waitForClient(pipe windows.Handle) error {
 	}
 }
 
+// busyPipeWait bounds how long a client waits for a busy host pipe to take
+// it. Only time the machine ran spends it (awake), since a pause of the
+// whole machine stops the host too.
+var busyPipeWait = 5 * time.Second
+
 // dialPipe connects to the host's pipe and proves the host serves it: the
 // pipe's server process must be the host the record names. The connection
 // grants the host no more than identifying this client.
@@ -120,9 +128,11 @@ func dialPipe(name string, hostPID int) (*os.File, error) {
 		return nil, err
 	}
 	flags := uint32(windows.FILE_FLAG_OVERLAPPED | windows.SECURITY_SQOS_PRESENT | windows.SECURITY_IDENTIFICATION)
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	busy, cancelBusy := awake.WithTimeout(context.Background(), busyPipeWait)
+	defer cancelBusy()
+	for ; ; time.Sleep(20 * time.Millisecond) {
 		handle, err := windows.CreateFile(path, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, flags, 0)
-		if errors.Is(err, windows.ERROR_PIPE_BUSY) && time.Now().Before(deadline) {
+		if errors.Is(err, windows.ERROR_PIPE_BUSY) && busy.Err() == nil {
 			continue
 		}
 		if err != nil {
@@ -134,5 +144,26 @@ func dialPipe(name string, hostPID int) (*os.File, error) {
 			return nil, fmt.Errorf("host: %s is not served by host pid %d", name, hostPID)
 		}
 		return os.NewFile(uintptr(handle), name), nil
+	}
+}
+
+// awakeDeadline sets a deadline with set, a pipe's SetReadDeadline or its
+// SetDeadline, that falls once timeout of the time the machine ran is spent
+// (awake): a deadline on the wall clock falls once a pause of the whole
+// machine has passed, though the other side, which the pause stopped too,
+// had no time to act. lift lifts the deadline again; call it once.
+func awakeDeadline(set func(time.Time) error, timeout time.Duration) (lift func()) {
+	limit, cancelLimit := awake.WithTimeout(context.Background(), timeout)
+	limited := make(chan struct{})
+	stopLimit := context.AfterFunc(limit, func() {
+		_ = set(time.Now())
+		close(limited)
+	})
+	return func() {
+		if !stopLimit() {
+			<-limited
+		}
+		cancelLimit()
+		_ = set(time.Time{})
 	}
 }
