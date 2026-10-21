@@ -67,11 +67,11 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Evaluation{}, err
 	}
-	isRecorded := err == nil
+	isRecorded := err == nil && isCurrentRecord(record, meta)
 	switch {
 	case isRecorded && record.Phase == "stopped":
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was stopped before it could take it")
-	case isRecorded && waitsForResume(record) && isCurrentRecord(record, meta):
+	case isRecorded && waitsForResume(record):
 		isKept, err := keepForResume(stateDir, a.TaskID, text)
 		if err != nil {
 			return Evaluation{}, err
@@ -102,9 +102,11 @@ func (s *Service) waitForGoblin(a Action) (Evaluation, error) {
 	return Evaluation{Reason: "Waits for " + a.TaskID + "."}, ErrDeferred
 }
 
-// keepForResume adds text to what a paused goblin's resume tells it, under
-// its lifecycle lock, so a resume that starts meanwhile either carries it or
-// starts after it is kept. A lock a resume holds says nothing is kept yet.
+// keepForResume adds text to what a paused goblin's resume, or a failed
+// resume of its own, tells it, under its lifecycle lock, so a resume that
+// starts meanwhile either carries it or starts after it is kept. A lock a
+// resume holds says nothing is kept yet, and so does a record an earlier
+// session left.
 func keepForResume(stateDir, task, text string) (isKept bool, err error) {
 	name := ".lifecycle-" + task + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(stateDir, name); err != nil {
@@ -132,11 +134,11 @@ func waitsForResume(record state.Lifecycle) bool {
 	return record.Phase == "paused" || record.Action == "resume" && record.Phase == "failed"
 }
 
-// isCurrentRecord says record is meta's goblin's own, so a Resume of it can
-// run: it is meta's session's, or the task's interrupted resume. A failed
-// resume whose session a later start replaced, as a cfo switch run to rescue
-// the goblin does, is neither: no Resume of it runs again, and the goblin
-// runs.
+// isCurrentRecord says record is meta's goblin's own: meta's session's, or
+// the task's interrupted resume. A record an earlier session left says
+// nothing of the goblin, and decides nothing of where its message goes: a
+// failed resume whose session a later start replaced, as a cfo switch run to
+// rescue the goblin does, can never be resumed again.
 func isCurrentRecord(record state.Lifecycle, meta state.TaskMeta) bool {
 	return record.Generation == meta.SpawnGen || record.IsInterruptedResume(meta)
 }

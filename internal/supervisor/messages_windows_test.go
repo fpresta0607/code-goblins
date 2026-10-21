@@ -125,19 +125,22 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 
 // A message is kept only for a resume that can run: a failed resume of its
 // goblin's own session, or the task's interrupted resume, which a Resume
-// takes up again. A failed resume whose session a later start replaced, as
-// a cfo switch run to rescue the goblin does, is neither, and the goblin
-// runs, so the message is typed into its terminal (issue #1221).
+// takes up again. A resume whose session a later start replaced, as a cfo
+// switch run to rescue the goblin does, is neither, and decides nothing of
+// where the message goes, so it is typed into the goblin's running terminal
+// (issue #1221).
 func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
+		phase           string
 		generation      string
 		resumeOperation string
 		isKept          bool
 	}{
-		{"a failed resume a later start replaced", "g0", "", false},
-		{"a failed resume of its own session", "g1", "", true},
-		{"the task's interrupted resume", "g0", "resume-1", true},
+		{"a failed resume a later start replaced", "failed", "g0", "", false},
+		{"a resume cut short that a later start replaced", "resuming", "g0", "", false},
+		{"a failed resume of its own session", "failed", "g1", "", true},
+		{"the task's interrupted resume", "failed", "g0", "resume-1", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -147,7 +150,7 @@ func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: tc.generation, RequestGeneration: tc.generation, Operation: "resume-1", Action: "resume", Phase: "failed", Updated: time.Now().UTC()}); err != nil {
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: tc.generation, RequestGeneration: tc.generation, Operation: "resume-1", Action: "resume", Phase: tc.phase, Updated: time.Now().UTC()}); err != nil {
 				t.Fatal(err)
 			}
 			goblin := goblinTerminal(t, h.State, meta.ID)
