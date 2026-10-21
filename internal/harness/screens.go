@@ -242,18 +242,18 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 }
 
 // TookEnterAsNewLine reports whether screen shows the harness's ruled
-// composer holding text over more empty rows at its end than submitted, the
+// composer holding text over more empty rows at its end than atPress, the
 // screen as Enter was pressed, did: the harness took that Enter as a new
 // line, not a submit, as Claude Code did on a loaded machine, live, on
 // 2026-10-20, leaving a resumed goblin's instruction over an empty row. A
 // composer that shows no row the Enter added has not taken it yet, or took it
 // some way this cannot read. It is false whenever either composer cannot be
 // read.
-func (s Screens) TookEnterAsNewLine(submitted, screen []string) bool {
+func (s Screens) TookEnterAsNewLine(atPress, screen []string) bool {
 	if !s.RuledComposer {
 		return false
 	}
-	before, isRead := ruledComposer(submitted)
+	before, isRead := ruledComposer(atPress)
 	if !isRead {
 		return false
 	}

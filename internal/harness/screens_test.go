@@ -515,9 +515,9 @@ func TestAnEnterReadsTakenAsANewLineOnlyByTheEmptyRowItAdded(t *testing.T) {
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
 	typed := []string{rule, "> run the tests", rule, footer}
 	for name, test := range map[string]struct {
-		kind              Kind
-		submitted, screen []string
-		isNewLine         bool
+		kind            Kind
+		atPress, screen []string
+		isNewLine       bool
 	}{
 		"a new empty row under the text":     {Claude, typed, []string{rule, "> run the tests", "  ", rule, footer}, true},
 		"a second new empty row":             {Claude, []string{rule, "> run the tests", "  ", rule, footer}, []string{rule, "> run the tests", "  ", " ", rule, footer}, true},
@@ -534,7 +534,7 @@ func TestAnEnterReadsTakenAsANewLineOnlyByTheEmptyRowItAdded(t *testing.T) {
 			screens, _ := NativeScreens(test.kind)
 
 			// Act
-			isNewLine := screens.TookEnterAsNewLine(test.submitted, test.screen)
+			isNewLine := screens.TookEnterAsNewLine(test.atPress, test.screen)
 
 			// Assert
 			if isNewLine != test.isNewLine {

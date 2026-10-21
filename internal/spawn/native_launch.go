@@ -419,10 +419,10 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		// A harness that took the last Enter as a new line leaves the text in
 		// its composer over the row that Enter added to the screen as it was
 		// pressed: Enter is pressed again, as often as the harness's screens
-		// allow and further apart each time, while the text shows there so
-		// and no turn has started. Text that shows over no new row may wait
-		// on an Enter the harness has not taken yet, so it gets none that
-		// would reach it after the instruction.
+		// allow and further apart each time, while the text shows over that
+		// row and no turn has started. Text that shows over no new row may
+		// wait on an Enter the harness has not taken yet, so it gets none
+		// that would reach it after the instruction.
 		if !busy && presses < screens.Resubmits && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen) {
 			if err := pressNativeEnter(record); err != nil {
 				return err
@@ -456,7 +456,8 @@ func pressNativeEnter(record host.Record) error {
 
 // submitNative types the instruction into the harness's composer and submits
 // it settle after the composer shows it, since a dialog that opened meanwhile
-// would take the Enter as its answer. It returns the screen that showed it.
+// would take the Enter as its answer. It returns the screen as the Enter was
+// pressed.
 func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) ([]string, error) {
 	client, err := host.Dial(record)
 	if err != nil {
@@ -466,11 +467,14 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if err := client.Input([]byte(instruction)); err != nil {
 		return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
 	}
-	typed, err := s.awaitTyped(ctx, client, record, screens, instruction)
-	if err != nil {
+	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
 		return nil, fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
 	if err := s.sleep(ctx, settle); err != nil {
+		return nil, err
+	}
+	atPress, err := s.readNativeScreen(ctx, record)
+	if err != nil {
 		return nil, err
 	}
 	submit := "\r"
@@ -481,19 +485,19 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if err := client.Input([]byte(submit)); err != nil {
 		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
-	return typed, nil
+	return atPress, nil
 }
 
 // awaitTyped reads the terminal's screen until it shows typed, for at most
-// typedWait, and returns that screen. A harness that can take typed text in
-// slowly is given nativeKeyEffect more each time its screen changes while the
-// text is still arriving, up to nativeTypedCap: live after the 2026-09-29
-// reboot a resumed Codex took a pointer line in at about a character a
-// second. Such a harness, which can also hold typed text undrawn until its
-// next redraw, is made to redraw while the text does not show: every
+// typedWait. A harness that can take typed text in slowly is given
+// nativeKeyEffect more each time its screen changes while the text is still
+// arriving, up to nativeTypedCap: live after the 2026-09-29 reboot a resumed
+// Codex took a pointer line in at about a character a second. Such a harness,
+// which can also hold typed text undrawn until its next redraw, is made to
+// redraw while the text does not show: every
 // nativeRedrawNudge the terminal is widened by one column for a poll and set
 // back, which a harness takes as a resize and never as input.
-func (s Service) awaitTyped(ctx context.Context, client *host.Client, record host.Record, screens harness.Screens, typed string) ([]string, error) {
+func (s Service) awaitTyped(ctx context.Context, client *host.Client, record host.Record, screens harness.Screens, typed string) error {
 	within := typedWait(screens, typed)
 	began := time.Now()
 	deadline := began.Add(within)
@@ -502,10 +506,10 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if screens.Shows(screen, typed) {
-			return screen, nil
+			return nil
 		}
 		if screens.Undrawn && last != nil && !slices.Equal(screen, last) {
 			if extended := time.Now().Add(nativeKeyEffect); extended.After(deadline) {
@@ -517,16 +521,16 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 		}
 		last = screen
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("not within %s, nor %s after its screen last changed; its screen ends:\n%s", within, nativeKeyEffect, host.ScreenTail(screen, 8))
+			return fmt.Errorf("not within %s, nor %s after its screen last changed; its screen ends:\n%s", within, nativeKeyEffect, host.ScreenTail(screen, 8))
 		}
 		if screens.Undrawn && time.Since(nudged) >= nativeRedrawNudge {
 			if err := s.nudgeRedraw(ctx, client, screen); err != nil {
-				return nil, fmt.Errorf("resize native terminal %s so it redraws: %w", record.ID, err)
+				return fmt.Errorf("resize native terminal %s so it redraws: %w", record.ID, err)
 			}
 			nudged = time.Now()
 		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return nil, err
+			return err
 		}
 	}
 }
