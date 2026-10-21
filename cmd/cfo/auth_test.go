@@ -36,7 +36,9 @@ func runCLIWithRuntime(t *testing.T, runtime commandRuntime, args ...string) (in
 }
 
 func TestAuthStoreAndListKeepTwoProjectsApart(t *testing.T) {
-	useFileStore(t)
+	// The store's own path names a project, as a task's temp folder can, so a
+	// listing is judged by what it lists, never by its store line.
+	t.Setenv(auth.StoreDirEnv, filepath.Join(t.TempDir(), "precisiondocs", "credentials"))
 
 	for _, args := range [][]string{
 		{"store", "--project", "precisiondocs", "DATABASE_URL", "postgres://precisiondocs"},
@@ -66,7 +68,7 @@ func TestAuthStoreAndListKeepTwoProjectsApart(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cfo auth list --project = %d: %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "clock-in/DATABASE_URL") || strings.Contains(stdout, "precisiondocs") {
+	if _, listed, _ := strings.Cut(stdout, "\n"); listed != "clock-in/DATABASE_URL\n" {
 		t.Errorf("scoped listing = %q, want only clock-in", stdout)
 	}
 }

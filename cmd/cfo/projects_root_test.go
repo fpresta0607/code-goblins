@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 )
@@ -174,7 +175,9 @@ func TestAuthStoreKeepsANameWhoseFolderIsNoCheckout(t *testing.T) {
 // A recorded root that cannot be read leaves it unknowable whether the name is
 // a checkout, so the store refuses rather than guess a scope.
 func TestAuthStoreRefusesAProjectsRootItCannotRead(t *testing.T) {
-	useFileStore(t)
+	// The store's own path names the project, as a task's temp folder can, so
+	// only what the listing lists can show a credential left behind.
+	t.Setenv(auth.StoreDirEnv, filepath.Join(t.TempDir(), "notes", "credentials"))
 	gone := filepath.Join(t.TempDir(), "gone")
 	deps := commandRuntime{projectsRoot: func() (string, error) { return gone, nil }}
 
@@ -183,7 +186,7 @@ func TestAuthStoreRefusesAProjectsRootItCannotRead(t *testing.T) {
 		t.Fatalf("store under an unreadable root = %d, want a refusal naming it: %s", code, stderr)
 	}
 	code, stdout, stderr := runCLIWithRuntime(t, deps, "list")
-	if code != 0 || strings.Contains(stdout, "notes") {
+	if code != 0 || !strings.Contains(stdout, "no credentials stored") {
 		t.Errorf("the refused store left a credential behind: %d %s%s", code, stdout, stderr)
 	}
 }
