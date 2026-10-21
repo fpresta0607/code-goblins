@@ -15,7 +15,7 @@ import (
 // this one, under session, and returns that process.
 func heldByAnother(t *testing.T, dir, session string) int {
 	t.Helper()
-	other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	other := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}

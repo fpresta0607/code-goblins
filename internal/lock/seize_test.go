@@ -16,7 +16,7 @@ import (
 // pid.
 func liveProcess(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

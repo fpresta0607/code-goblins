@@ -512,7 +512,7 @@ func TestRunClosesOnMonitorEvent(t *testing.T) {
 
 func TestRunSingletonExcludes(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -548,7 +548,7 @@ func liveForeignInfo(t *testing.T, pid int) lock.Info {
 
 func TestRunReturnsQuietlyWhenSingletonStolen(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
