@@ -1,10 +1,13 @@
 package services
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +22,9 @@ const (
 	engineStopSeconds  = "120"
 	stackWaitSeconds   = "900"
 )
+
+// failedLogLines is how much of a failed container's log Failed reads.
+const failedLogLines = "500"
 
 // CLI is Docker through the docker command: Docker Desktop's engine through
 // its desktop plugin, and stacks through compose.
@@ -140,6 +146,59 @@ func (c CLI) Up(ctx context.Context, compose Compose, services []string) error {
 	args := compose.args("up", "--detach", "--wait", "--wait-timeout", stackWaitSeconds)
 	_, err := c.run(ctx, compose.Dir, append(args, services...)...)
 	return err
+}
+
+// Failed reads each container of the stack that ran and stopped, keeps
+// restarting, or runs without passing its health check: its state as
+// docker inspect reads it, with its health check's last output, and the end
+// of its log. A container that was created and never ran has neither.
+func (c CLI) Failed(ctx context.Context, compose Compose) ([]Failure, error) {
+	out, err := c.run(ctx, compose.Dir, compose.args("ps", "--all", "--format", "{{.Service}} {{.Name}} {{.State}} {{.Health}}")...)
+	if err != nil {
+		return nil, err
+	}
+	var failures []Failure
+	for _, line := range lines(out) {
+		// A container with no health check has no health, the last field.
+		fields := strings.Fields(line)
+		if len(fields) != 3 && len(fields) != 4 {
+			return nil, fmt.Errorf("services: docker compose ps said %q, not a service, its container, its state and its health", line)
+		}
+		service, container, status, health := fields[0], fields[1], fields[2], ""
+		if len(fields) == 4 {
+			health = fields[3]
+		}
+		if (status == "running" || status == "created") && (health == "" || health == "healthy") {
+			continue
+		}
+		state, err := c.run(ctx, "", "inspect", "--format", "{{json .State}}", container)
+		if err != nil {
+			return nil, err
+		}
+		var indented bytes.Buffer
+		if err := json.Indent(&indented, []byte(strings.TrimSpace(state)), "", "  "); err != nil {
+			return nil, fmt.Errorf("services: read the state docker inspect gave of %s: %w", container, err)
+		}
+		args := []string{"logs", "--tail", failedLogLines, "--timestamps", container}
+		result, err := c.Commands.Run(ctx, execx.Request{Name: "docker", Args: args, KillTree: true})
+		if err != nil {
+			return nil, fmt.Errorf("services: docker %s: %w", strings.Join(args, " "), err)
+		}
+		if result.ExitCode != 0 {
+			return nil, fmt.Errorf("services: docker %s exited %d: %s", strings.Join(args, " "), result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+		}
+		// docker logs writes what the container wrote to each stream to the
+		// same stream, every line after its timestamp, which has one width,
+		// so ordering by it puts the two back in the order they were written.
+		log := append(lines(string(result.Stdout)), lines(string(result.Stderr))...)
+		slices.SortStableFunc(log, func(left, right string) int {
+			leftTime, _, _ := strings.Cut(left, " ")
+			rightTime, _, _ := strings.Cut(right, " ")
+			return strings.Compare(leftTime, rightTime)
+		})
+		failures = append(failures, Failure{Service: service, Container: container, State: indented.String(), Log: strings.Join(log, "\n")})
+	}
+	return failures, nil
 }
 
 // Down stops and removes services, or the whole stack and its network when

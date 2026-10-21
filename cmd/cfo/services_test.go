@@ -38,6 +38,9 @@ func (d *commandDocker) Up(_ context.Context, _ services.Compose, names []string
 	return nil
 }
 func (d *commandDocker) Relieve(context.Context) error { return nil }
+func (d *commandDocker) Failed(context.Context, services.Compose) ([]services.Failure, error) {
+	return nil, nil
+}
 func (d *commandDocker) Down(_ context.Context, _ services.Compose, names []string) error {
 	d.calls = append(d.calls, "down "+strings.Join(names, ","))
 	d.running = nil

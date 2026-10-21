@@ -39,6 +39,12 @@ every 2 seconds and hands the engine's file cache back every 10 seconds. The
 first reading under the 4 GB floor ends compose up with everything it
 started, and nothing else, and the start then stops what it started.
 
+A start whose compose up fails first saves, for each container that ran and
+stopped, keeps restarting or runs without passing its health check, its
+state from docker inspect with its health check's last output and the end of
+its docker logs, to services-<project>-<time>.log in the task's folder, and
+its failure names that file. Then it stops what it started.
+
 down releases the task's hold. The last release stops what cfo started, and
 the engine when cfo started it. cfo runtime shows each stack, who holds it and
 what it costs.

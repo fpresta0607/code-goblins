@@ -78,6 +78,89 @@ func TestCLILeavesTheEnvFileOutWhenNoneIsDeclared(t *testing.T) {
 	}
 }
 
+const failedPS = "compose --file docker-compose.dev.yml ps --all --format {{.Service}} {{.Name}} {{.State}} {{.Health}}"
+
+func TestCLIFailedReadsTheContainersThatDidNotComeUp(t *testing.T) {
+	// Arrange: redis is healthy, qdrant runs with no health check and the
+	// worker was created and never ran, while the backend runs unhealthy and
+	// the migration exited.
+	compose := Compose{Dir: `C:\dev\PrecisionDocs-AI`, File: "docker-compose.dev.yml"}
+	runner := &scriptedDocker{answers: map[string]execx.Result{
+		failedPS: {Stdout: []byte("redis pd-redis-1 running healthy\r\nqdrant pd-qdrant-1 running \r\nworker-light pd-worker-light-1 created \r\nbackend pd-backend-1 running unhealthy\r\nmigrate pd-migrate-1 exited \r\n")},
+		"inspect --format {{json .State}} pd-backend-1": {Stdout: []byte(`{"Status":"running","Health":{"Status":"unhealthy","Log":[{"ExitCode":7,"Output":"curl: (7) Failed to connect"}]}}` + "\n")},
+		"logs --tail 500 --timestamps pd-backend-1": {
+			Stdout: []byte("2026-10-20T14:00:00.000000000Z INFO starting\n2026-10-20T14:00:02.000000000Z INFO   still waiting\n"),
+			Stderr: []byte("2026-10-20T14:00:01.000000000Z Traceback (most recent call last):\n"),
+		},
+		"inspect --format {{json .State}} pd-migrate-1": {Stdout: []byte(`{"Status":"exited","ExitCode":1}`)},
+		"logs --tail 500 --timestamps pd-migrate-1":     {Stderr: []byte("2026-10-20T13:59:59.000000000Z relation \"users\" does not exist\n")},
+	}}
+
+	// Act
+	failures, err := CLI{Commands: runner}.Failed(context.Background(), compose)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failures) != 2 || failures[0].Service != "backend" || failures[0].Container != "pd-backend-1" || failures[1].Service != "migrate" {
+		t.Fatalf("failures = %+v, want the backend and the migration and nothing that came up or never ran", failures)
+	}
+	if !strings.Contains(failures[0].State, `"Output": "curl: (7) Failed to connect"`) {
+		t.Errorf("backend state = %q, want its health check's output, indented", failures[0].State)
+	}
+	wantLog := "2026-10-20T14:00:00.000000000Z INFO starting\n2026-10-20T14:00:01.000000000Z Traceback (most recent call last):\n2026-10-20T14:00:02.000000000Z INFO   still waiting"
+	if failures[0].Log != wantLog {
+		t.Errorf("backend log = %q, want both streams in the order written, %q", failures[0].Log, wantLog)
+	}
+	if want := `2026-10-20T13:59:59.000000000Z relation "users" does not exist`; failures[1].Log != want {
+		t.Errorf("migrate log = %q, want %q", failures[1].Log, want)
+	}
+	if got := strings.Join(runner.calls[0].Args, " "); got != failedPS || runner.calls[0].Dir != compose.Dir {
+		t.Errorf("first call = %q in %q, want the stack's containers read from the checkout", got, runner.calls[0].Dir)
+	}
+	if len(runner.calls) != 5 {
+		t.Errorf("calls = %d, want the containers listed and two read", len(runner.calls))
+	}
+}
+
+func TestCLIFailedReportsWhatItCouldNotRead(t *testing.T) {
+	cases := []struct {
+		name    string
+		answers map[string]execx.Result
+		want    string
+	}{
+		{
+			name:    "a line that is not a container",
+			answers: map[string]execx.Result{failedPS: {Stdout: []byte("backend\n")}},
+			want:    `docker compose ps said "backend"`,
+		},
+		{
+			name: "a log docker cannot read",
+			answers: map[string]execx.Result{
+				failedPS: {Stdout: []byte("backend pd-backend-1 exited\n")},
+				"inspect --format {{json .State}} pd-backend-1": {Stdout: []byte(`{"Status":"exited"}`)},
+				"logs --tail 500 --timestamps pd-backend-1":     {ExitCode: 1, Stderr: []byte("Error response from daemon: configured logging driver does not support reading")},
+			},
+			want: "does not support reading",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			runner := &scriptedDocker{answers: tc.answers}
+
+			// Act
+			_, err := CLI{Commands: runner}.Failed(context.Background(), Compose{Dir: `C:\p`, File: "docker-compose.dev.yml"})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestCLIStartsTheEngineAndChecksItAnswers(t *testing.T) {
 	cases := []struct {
 		name    string
