@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -185,6 +186,29 @@ const (
 		"    tag: message\n" +
 		"    text: Freeform message\n" +
 		"next_step: Apply the requested changes.\n"
+	// Images that share their fields, each with the name he gave it, toon
+	// 2.3.1 prints as a table: two on a note on an element, and one on a note
+	// on the whole page that has no words.
+	lavishImagesInATable = "session:\n" +
+		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
+		"  status: feedback\n" +
+		"prompts[2]:\n" +
+		"  - uid: u7\n" +
+		"    prompt: make it look like these\n" +
+		"    selector: h2\n" +
+		"    tag: h2\n" +
+		"    text: Pricing\n" +
+		"    attachments[2]{id,type,path,mime,bytes,width,height,name}:\n" +
+		"      aaaa.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\",image/png,1234,100,50,\"before, cropped.png\"\n" +
+		"      bbbb.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\bbbb.png\",image/png,1234,100,50,after.png\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: \"\"\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"    attachments[1]{id,type,path,mime,bytes,width,height,name}:\n" +
+		"      aaaa.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\",image/png,1234,100,50,\"before, cropped.png\"\n" +
+		"next_step: Apply the requested changes.\n"
 	// The Code Goblins build 0.1.79-codegoblins.16 prints this, exiting 0,
 	// when it is asked without --reopen to open a page whose review the
 	// Overlord ended (its createUserEndedOpenOutput).
@@ -322,10 +346,13 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 // Each note he sent keeps what it is attached to, in the order he wrote them:
 // an element by its tag, selector and text, a table cell by its row and
 // column too, and a note from the page's message box as one on the whole
-// page, so whoever reads his set reads each note where he put it. What a note
-// carries nested deeper takes none of those fields and ends no note.
+// page, so whoever reads his set reads each note where he put it. A note
+// keeps the local path of each image he attached to it, in either form
+// lavish-axi prints them, with words or without. What a note carries nested
+// deeper takes none of those fields and ends no note.
 func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
 	cell := "div:nth-of-type(2) > table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)"
+	attachments := `C:\work\.lavish-axi\attachments\c42fd9a0de5ec55d\`
 	for name, test := range map[string]struct {
 		output string
 		want   []PageNote
@@ -343,8 +370,12 @@ func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
 			{Prompt: "rename it Release", Tag: "g", Selector: "svg g.node", Text: "Build"},
 			{Prompt: "fix these", Tag: "layout-warnings", Text: "2 layout issues"},
 			{Prompt: "Moved Review below Build", Tag: "whiteboard", Text: "Diagram 1"},
-			{Prompt: "make it bigger", Tag: "h2", Selector: "h2", Text: "Pricing"},
+			{Prompt: "make it bigger", Tag: "h2", Selector: "h2", Text: "Pricing", Images: []string{`C:\work\a.png`, `C:\work\b.png`}},
 			{Prompt: "Ship it after these", Tag: "message", Text: "Freeform message"},
+		}},
+		"images in a table, with words and without": {lavishImagesInATable, []PageNote{
+			{Prompt: "make it look like these", Tag: "h2", Selector: "h2", Text: "Pricing", Images: []string{attachments + "aaaa.png", attachments + "bbbb.png"}},
+			{Prompt: "", Tag: "message", Text: "Freeform message", Images: []string{attachments + "aaaa.png"}},
 		}},
 		"no prompts": {lavishWaiting, nil},
 	} {
@@ -356,7 +387,7 @@ func TestLavishPollKeepsWhatEachNoteIsAttachedTo(t *testing.T) {
 			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", time.Second)
 
 			// Assert
-			if err != nil || !slices.Equal(poll.Notes, test.want) {
+			if err != nil || !reflect.DeepEqual(poll.Notes, test.want) {
 				t.Fatalf("Poll notes = %+v, %v; want %+v", poll.Notes, err, test.want)
 			}
 		})

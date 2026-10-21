@@ -52,14 +52,16 @@ type PagePoll struct {
 
 // PageNote is one prompt he sent on a page and what it is attached to: an
 // element by its tag, selector and text, with a table cell's row and column,
-// or, for a note from the page's message box, the whole page.
+// or, for a note from the page's message box, the whole page. Images are the
+// local paths lavish-axi gives the images he attached to it.
 type PageNote struct {
-	Prompt   string `json:"prompt"`
-	Tag      string `json:"tag,omitempty"`
-	Selector string `json:"selector,omitempty"`
-	Text     string `json:"text,omitempty"`
-	Row      string `json:"row,omitempty"`
-	Column   string `json:"column,omitempty"`
+	Prompt   string   `json:"prompt"`
+	Tag      string   `json:"tag,omitempty"`
+	Selector string   `json:"selector,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	Row      string   `json:"row,omitempty"`
+	Column   string   `json:"column,omitempty"`
+	Images   []string `json:"images,omitempty"`
 }
 
 // PageChange is one answer he changed on a page: the question in his History
@@ -148,7 +150,7 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 			changes = append(changes, PageChange{Question: p.fields["text"], Answer: prompt})
 		default:
 			written = append(written, prompt)
-			notes = append(notes, PageNote{Prompt: prompt, Tag: p.fields["tag"], Selector: p.fields["selector"], Text: p.fields["text"], Row: p.target["rowLabel"], Column: p.target["columnLabel"]})
+			notes = append(notes, PageNote{Prompt: prompt, Tag: p.fields["tag"], Selector: p.fields["selector"], Text: p.fields["text"], Row: p.target["rowLabel"], Column: p.target["columnLabel"], Images: p.images})
 		}
 	}
 	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: written, Notes: notes, Picked: isPicked, Changes: changes, Output: output}, nil
@@ -258,16 +260,18 @@ func (l Lavish) SessionAt(link string) (session PageSession, found bool, err err
 }
 
 // pagePrompt is one entry of a poll's top-level TOON `prompts` array: its own
-// fields, such as prompt, tag and text, and its target's, such as a table
-// cell's rowLabel and columnLabel.
+// fields, such as prompt, tag and text, its target's, such as a table cell's
+// rowLabel and columnLabel, and the path of each of its attachments.
 type pagePrompt struct {
 	fields, target map[string]string
+	images         []string
 }
 
 // readPrompts reads the top-level TOON `prompts` array in either form
 // lavish-axi prints it: a table, when every prompt has the same plain fields,
-// or a list, when one carries more, such as a table cell's target. Each value
-// is unquoted when quoted, and fields nested any deeper are passed over.
+// or a list, when one carries more, such as a table cell's target or its
+// attachments, which are a table or a list in their turn. Each value is
+// unquoted when quoted, and fields nested any deeper are passed over.
 func readPrompts(output string) []pagePrompt {
 	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
 	for i, line := range lines {
@@ -277,8 +281,7 @@ func readPrompts(output string) []pagePrompt {
 			continue
 		}
 		var prompts []pagePrompt
-		if names, isTable := strings.CutPrefix(form, "{"); isTable {
-			columns := strings.Split(strings.TrimSuffix(names, "}:"), ",")
+		if columns := tableColumns(form); columns != nil {
 			for _, line := range lines[i+1:] {
 				row, isRow := strings.CutPrefix(line, "  ")
 				if !isRow {
@@ -294,20 +297,45 @@ func readPrompts(output string) []pagePrompt {
 			}
 			return prompts
 		}
-		isTarget := false
+		// nested names the prompt's field whose lines follow, deeper in: its
+		// target, or its attachments, a table of them when columns names
+		// their columns.
+		nested, columns := "", []string(nil)
 		for _, line := range lines[i+1:] {
 			switch item, isItem := strings.CutPrefix(line, "  - "); {
 			case isItem:
 				prompts = append(prompts, pagePrompt{fields: map[string]string{}, target: map[string]string{}})
-				isTarget = false
+				nested = ""
 				promptField(prompts[len(prompts)-1].fields, item)
 			case len(prompts) > 0 && strings.HasPrefix(line, "      "):
-				if isTarget {
-					promptField(prompts[len(prompts)-1].target, strings.TrimPrefix(line, "      "))
+				p := &prompts[len(prompts)-1]
+				value := strings.TrimPrefix(line, "      ")
+				switch {
+				case nested == "target":
+					promptField(p.target, value)
+				case nested == "attachments" && columns != nil:
+					if path, row := slices.Index(columns, "path"), tableRow(value); path >= 0 && path < len(row) {
+						p.images = append(p.images, row[path])
+					}
+				case nested == "attachments":
+					// A listed attachment's first line opens with a dash, and
+					// its others line up with the field after it.
+					attachment := map[string]string{}
+					promptField(attachment, strings.TrimLeft(value, "- "))
+					if path, hasPath := attachment["path"]; hasPath {
+						p.images = append(p.images, path)
+					}
 				}
 			case len(prompts) > 0 && strings.HasPrefix(line, "    "):
 				field := strings.TrimPrefix(line, "    ")
-				isTarget = field == "target:"
+				nested, columns = "", nil
+				if field == "target:" {
+					nested = "target"
+				}
+				if header, isAttachments := strings.CutPrefix(field, "attachments["); isAttachments {
+					_, form, _ := strings.Cut(header, "]")
+					nested, columns = "attachments", tableColumns(form)
+				}
 				promptField(prompts[len(prompts)-1].fields, field)
 			default:
 				return prompts
@@ -316,6 +344,17 @@ func readPrompts(output string) []pagePrompt {
 		return prompts
 	}
 	return nil
+}
+
+// tableColumns reads the columns a TOON array's header names after its
+// length, the `{uid,prompt}:` of `prompts[2]{uid,prompt}:`, which make the
+// array a table. A list's header names none.
+func tableColumns(form string) []string {
+	names, isTable := strings.CutPrefix(form, "{")
+	if !isTable {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(names, "}:"), ",")
 }
 
 // promptField reads one `name: value` line of a prompt into fields, unquoting
