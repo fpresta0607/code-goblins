@@ -368,6 +368,111 @@ func TestAFailedScreenReadIsReadAgainBeforeAnEndpointUnknownWake(t *testing.T) {
 	}
 }
 
+// Issue 1303: a probe that timed out raised a stale wake for goblins that
+// were working. One probe error is no answer yet, a look that works in between
+// clears it, and a probe that stays without an answer wakes once for the
+// episode.
+func TestAProbeThatGaveNoAnswerIsAskedAgainBeforeAnEndpointUnknownWake(t *testing.T) {
+	now := time.Date(2026, 10, 21, 19, 30, 0, 0, time.UTC)
+	service, probe, _, meta := progressService(t, &now)
+	scan := func(sample EndpointSample, probeErr error) ScanResult {
+		t.Helper()
+		probe.samples[meta.ID] = sample
+		probe.errs = map[string]error{}
+		if probeErr != nil {
+			probe.errs[meta.ID] = probeErr
+		}
+		now = now.Add(time.Minute)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			if _, err := service.Publish(*result.Event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result
+	}
+	working := sampleForStatus(meta, herdr.AgentWorking, "pane")
+
+	scan(working, nil)
+	for round := range 3 {
+		if r := scan(EndpointSample{}, context.DeadlineExceeded); r.Event != nil || r.Observations[0].Health != HealthBusy {
+			t.Fatalf("round %d: one probe timeout = %+v, want no wake and the last reading kept", round, r)
+		}
+		if r := scan(working, nil); r.Event != nil {
+			t.Fatalf("round %d: a probe that answered again woke the CFO: %+v", round, r.Event)
+		}
+	}
+	if counted := readTally(t, service).Reasons[EndpointUnknown]; counted == nil || counted.Suppressed != 3 || !strings.Contains(counted.LastWhy, "context deadline exceeded") {
+		t.Fatalf("tally = %+v, want three suppressed endpoint_unknown wakes naming the timeout", counted)
+	}
+
+	scan(EndpointSample{}, context.DeadlineExceeded)
+	second := scan(EndpointSample{}, context.DeadlineExceeded)
+	if second.Event == nil || second.Observations[0].Reason != EndpointUnknown || !strings.Contains(second.Event.Detail, "context deadline exceeded") {
+		t.Fatalf("second probe timeout in a row = %+v, want an endpoint_unknown wake", second)
+	}
+}
+
+// A host that is gone is an answer, and a stale wake for it waits for nothing.
+func TestAGoneHostWakesOnTheFirstScanItIsMissing(t *testing.T) {
+	now := time.Date(2026, 10, 21, 19, 30, 0, 0, time.UTC)
+	service, probe, _, meta := progressService(t, &now)
+	probe.samples[meta.ID] = sampleForStatus(meta, herdr.AgentWorking, "pane")
+	now = now.Add(time.Minute)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	probe.samples[meta.ID] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer"}
+	now = now.Add(time.Minute)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Event == nil || result.Observations[0].Reason != EndpointMissing {
+		t.Fatalf("a host that is gone = %+v, want an endpoint_missing wake at once", result)
+	}
+}
+
+// Issue 1303: the budget of a scan is shared by every goblin in it, and a
+// scan that ran out of it read every goblin it had not reached as an unknown
+// endpoint. A lapsed deadline says nothing about a goblin, so the scan leaves
+// those it did not inspect as they were.
+func TestAScanWhoseBudgetRanOutWakesNobodyForTheGoblinsItDidNotReach(t *testing.T) {
+	now := time.Date(2026, 10, 21, 19, 30, 0, 0, time.UTC)
+	service, probe, _, meta := progressService(t, &now)
+	writeTask(t, service.StateDir, metaFor("g2"))
+	probe.samples[meta.ID] = sampleForStatus(meta, herdr.AgentWorking, "pane")
+	probe.samples["g2"] = sampleForStatus(metaFor("g2"), herdr.AgentWorking, "pane")
+	now = now.Add(time.Minute)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	probe.errs = map[string]error{meta.ID: context.DeadlineExceeded, "g2": context.DeadlineExceeded}
+	spent, cancel := context.WithDeadline(context.Background(), now.Add(-time.Second))
+	defer cancel()
+	now = now.Add(time.Minute)
+
+	result, err := service.Scan(spent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Event != nil {
+		t.Fatalf("a scan that ran out of budget raised %+v, want no wake", result.Event)
+	}
+	for _, id := range []string{meta.ID, "g2"} {
+		observation, err := ReadObservation(service.StateDir, id)
+		if err != nil || observation.Health != HealthBusy || observation.PendingEvent != nil || observation.ScreenUnreadSince != nil {
+			t.Fatalf("%s after a scan that ran out of budget = %+v, %v, want its last reading untouched", id, observation, err)
+		}
+	}
+}
+
 // The tally counts the stale wakes raised beside the ones held back, so a
 // detector that stopped seeing reads as silence with nothing examined rather
 // than as a healthy fleet.
