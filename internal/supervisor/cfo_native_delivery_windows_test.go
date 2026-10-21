@@ -206,7 +206,7 @@ func TestNativeCFOBusyAnswersBecomeDeliveredOnlyWhenTheQueuedPromptIsTaken(t *te
 					t.Fatal(err)
 				}
 				terminal.waitForLines(t, 3)
-				if err := reopened.Ingest(); err != nil {
+				if _, err := reopened.Ingest(); err != nil {
 					t.Fatal(err)
 				}
 				if err := reopened.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {

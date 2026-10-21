@@ -236,7 +236,7 @@ func TestIngestPreservesStorageAndMetadataFailuresForRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore := blockStoreWrites(t, s)
-	if err := s.Ingest(); err == nil {
+	if _, err := s.Ingest(); err == nil {
 		t.Fatal("storage failure was hidden")
 	}
 	restore()
@@ -244,7 +244,7 @@ func TestIngestPreservesStorageAndMetadataFailuresForRetry(t *testing.T) {
 	if err := os.Rename(meta, meta+".held"); err != nil {
 		t.Fatal(err)
 	}
-	_ = s.Ingest()
+	_, _ = s.Ingest()
 	files, _ := os.ReadDir(nativehook.SpoolDir(h.State))
 	if len(files) != 1 {
 		t.Fatal("retryable event was discarded")
@@ -252,7 +252,7 @@ func TestIngestPreservesStorageAndMetadataFailuresForRetry(t *testing.T) {
 	if err := os.Rename(meta+".held", meta); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Sessions) != 1 {
@@ -276,7 +276,7 @@ func TestIngestOrdersWholeBoundedBacklogBeforeBatching(t *testing.T) {
 		}
 	}
 	for range 3 {
-		if err := s.Ingest(); err != nil {
+		if _, err := s.Ingest(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -372,7 +372,7 @@ func TestStopContinuationAndSecondStopWithinSameTurn(t *testing.T) {
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Ingest(); err != nil {
+		if _, err := s.Ingest(); err != nil {
 			t.Fatal(err)
 		}
 		if kind == "PostToolUse" && s.Snapshot().Sessions["codex/continuation"].Phase != "active" {
@@ -391,7 +391,7 @@ func TestStopContinuationAndSecondStopWithinSameTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Actions) != count {
@@ -559,7 +559,7 @@ func TestIngestQuarantinesMalformedWithoutLosingValidEvents(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), "broken.event.json"), []byte(`{"schema":`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	v := s.Snapshot()
@@ -593,13 +593,13 @@ func TestIngestRecoversConcurrentSpoolCapacityOvershoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), "z.event.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Sessions) != 0 {
 		t.Fatal("missing start was invented")
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if s.Snapshot().Sessions["codex/overflow"].Phase != "active" {

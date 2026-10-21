@@ -237,7 +237,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 				}
 			}
 			identity := registrationIdentity(t, store.Home.State)
-			if err := store.Ingest(); err != nil {
+			if _, err := store.Ingest(); err != nil {
 				t.Fatal(err)
 			}
 			question := Question{ID: "multiline-decision", Identity: identity, Text: "Choose the recovery approach.\nKeep the existing conversation.\nDo not replay its old answer.", Options: []string{"Fix native submission", "Hold it"}, CreatedAt: time.Now().UTC()}
@@ -306,7 +306,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			}
 			// Codex records the decision it took in the session's rollout.
 			takenInRecord(t, records, "codex", "codex-submit-session", "", want)
-			if err := store.Ingest(); err != nil {
+			if _, err := store.Ingest(); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.settleDeliveries(time.Now(), service.lookAtTerminal); err != nil {
