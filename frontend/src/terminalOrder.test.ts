@@ -64,6 +64,16 @@ test("a failed resume shows no terminal until a retry is resuming", () => {
   }
 });
 
+// Issue 1218: a goblin the restart's comeback left stopped has no terminal
+// host, so its slot says so and opens no view of a terminal that is not there.
+test("a goblin that did not come back after the restart shows that it has no terminal", () => {
+  const stopped = { id: "alpha", state: "stopped" as const, reason: "claude is not on PATH" };
+  const text = "No terminal: this goblin did not come back after the restart. On its Task view, Restart under Harness brings it back and Stop retires it.";
+  assert.deepEqual(goblinView(task("alpha", { backend: "native", comeback: stopped })), { kind: "empty", text });
+  assert.deepEqual(goblinView(task("alpha", { backend: "native", comeback: { ...stopped, state: "waiting" } })), { kind: "host", query: "task=alpha&generation=g1" });
+  assert.deepEqual(goblinView(task("alpha", { backend: "native", phase: "stopping", comeback: stopped })), { kind: "empty", text: "Stopping session..." });
+});
+
 test("the switcher lists the CFO first, then every goblin that has a terminal", () => {
   const order = switchOrder([task("queued", { generation: "" }), task("alpha"), task("history", { archived: true }), task("beta")]);
   assert.deepEqual(order.map((entry) => entry.key), [CFO_KEY, "alpha", "beta"]);
