@@ -22,8 +22,9 @@ import (
 // not, kept with a paused goblin's resume for its resume prompt to carry, or
 // typed into the CFO's terminal once a CFO runs and its input is ready. A
 // goblin pausing, resuming or stopping, or whose terminal is not up yet, has
-// it wait; one that waits longer than messageWait goes to the CFO with its
-// words, so none is lost.
+// it wait; one that waits longer than messageWait, or is kept for a resume
+// whose session a later start replaced, goes to the CFO with its words, so
+// none is lost.
 
 // messageWait is how long a message waits for its goblin's terminal before
 // the CFO is given it instead.
@@ -132,6 +133,75 @@ func keepForResume(stateDir, task, text string) (isKept bool, err error) {
 // the goblin is paused, or its resume failed.
 func waitsForResume(record state.Lifecycle) bool {
 	return record.Phase == "paused" || record.Action == "resume" && record.Phase == "failed"
+}
+
+// handOverReplacedResumes gives the CFO the board messages each task's
+// lifecycle record keeps for a resume whose session a later start replaced.
+func handOverReplacedResumes(stateDir string) error {
+	var problems error
+	for _, meta := range liveTasks(stateDir) {
+		problems = errors.Join(problems, handOverReplacedResume(stateDir, meta.ID))
+	}
+	return problems
+}
+
+// handOverReplacedResume gives the CFO, with their words, the board messages
+// task id's record keeps for a resume once a later start, such as a cfo
+// switch, has replaced the session that resume was for, since no resume of
+// that record runs again. The start publishes its session without the
+// lifecycle lock, so a message is kept for the replaced session both before
+// the start and while it runs. It works under the task's lifecycle lock, so a
+// message kept meanwhile is either handed on here or never kept, and a lock
+// held by a pause, resume or stop under way leaves the record to it for the
+// next reading. The messages are handed on before they leave the note, so a
+// hand-off that fails leaves them for the next reading, and what the note
+// held before them, such as an answer given while paused, stays.
+func handOverReplacedResume(stateDir, id string) (err error) {
+	if _, isReplaced, err := replacedResume(stateDir, id); err != nil || !isReplaced {
+		return err
+	}
+	name := state.LifecycleLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(stateDir, name); err != nil {
+		return nil
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, name)) }()
+	record, isReplaced, err := replacedResume(stateDir, id)
+	if err != nil || !isReplaced {
+		return err
+	}
+	why := id + "'s session was replaced by a later start while it was paused, so the resume the message was kept for never runs"
+	if record.Action == "resume" {
+		why = id + "'s session was replaced by a later start after its resume failed, so that resume never runs again; a message kept before it began at " + record.Started.UTC().Format(time.RFC3339) + " went with it, and one kept after it failed did not"
+	}
+	before, messages := keptMessages(record.ResumeNote)
+	for _, message := range messages {
+		if err := handToCFO(stateDir, id, why, message); err != nil {
+			return err
+		}
+	}
+	_, published := wake.PublishEpisode(stateDir)
+	record.ResumeNote = before
+	return errors.Join(published, state.WriteLifecycle(stateDir, record))
+}
+
+// replacedResume reads task id's lifecycle record and says whether it keeps
+// board messages for a resume a later start's session replaced: it waits for
+// a resume, as a paused goblin's or a failed resume's does, and is neither
+// the task's current session's nor its interrupted resume.
+func replacedResume(stateDir, id string) (state.Lifecycle, bool, error) {
+	record, err := state.ReadLifecycle(stateDir, id)
+	if errors.Is(err, os.ErrNotExist) {
+		return record, false, nil
+	}
+	if err != nil || !waitsForResume(record) {
+		return record, false, err
+	}
+	meta, err := state.ReadTaskMeta(stateDir, id)
+	if err != nil {
+		return record, false, err
+	}
+	_, messages := keptMessages(record.ResumeNote)
+	return record, len(messages) > 0 && !isCurrentRecord(record, meta), nil
 }
 
 // isCurrentRecord says record is meta's goblin's own: meta's session's, or
