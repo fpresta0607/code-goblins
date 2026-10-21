@@ -250,7 +250,7 @@ type commandRuntime struct {
 	// repositoryOf names the GitHub repository a checkout's origin is, for
 	// cfo tickets --allow-public-tickets.
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
-	// github runs gh for cfo issue file; nil runs the machine's.
+	// github runs gh and git for cfo issue file; nil runs the machine's.
 	github execx.Runner
 	// requestHelper asks the supervisor for a goblin's helper.
 	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)

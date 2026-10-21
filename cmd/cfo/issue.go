@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -73,8 +75,9 @@ func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 // fileRoot files root on the repository of the project projectArg names,
 // a name or a path, through the screen of what the issue may say: the one
-// filing path the command, a merge train and the supervisor share. A
-// refusal is an error that says what the screen found.
+// filing path the command, a merge train and the supervisor share. It
+// refuses a repository the fleet does not own and one with issues turned
+// off. A refusal is an error that says what it found.
 func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, root tickets.Root, now time.Time) (tickets.FiledRoot, error) {
 	if runtime.resolveHome == nil || runtime.repositoryOf == nil {
 		return tickets.FiledRoot{}, errors.New("command runtime is incomplete")
@@ -96,7 +99,17 @@ func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, ro
 		commands = execx.OSRunner{}
 	}
 	github := tickets.GitHub{Commands: commands}
-	screen, err := issueScreen(ctx, github, runtime, h, checkout, repository, root)
+	read, err := github.ReadRepository(ctx, repository)
+	if err != nil {
+		return tickets.FiledRoot{}, err
+	}
+	if err := refuseAnotherOwner(ctx, github, h, checkout, repository, read.Owner); err != nil {
+		return tickets.FiledRoot{}, err
+	}
+	if !read.HasIssues {
+		return tickets.FiledRoot{}, fmt.Errorf("refused: %s has issues turned off, so no issue can go on it", repository)
+	}
+	screen, err := issueScreen(ctx, github, runtime, h, checkout, repository, read.IsPublic, root)
 	if err != nil {
 		return tickets.FiledRoot{}, err
 	}
@@ -110,12 +123,58 @@ func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, ro
 	return github.FileRoot(ctx, repository, root, now)
 }
 
-// issueScreen is what a root issue filed on repository may not say: every
-// credential value this terminal's environment carries, and on a public
-// repository the fleet's other projects whose repositories are not public,
-// the teammates the supervisor has read, and the repository's owner, whom it
-// may mention. Only the projects the issue names are asked about.
-func issueScreen(ctx context.Context, github tickets.GitHub, runtime commandRuntime, h home.Home, checkout, repository string, root tickets.Root) (tickets.Screen, error) {
+// refuseAnotherOwner refuses repository, which the checkout's origin names
+// and owner owns, unless the fleet owns it: owner is the account gh works as
+// or one config/fleet.json's github_owners names, the rule the supervisor's
+// pull request watch keeps. A checkout of a fork may keep origin on the
+// fork's parent, another owner's repository, so the refusal names each
+// remote of the checkout whose repository the fleet owns, where the issue
+// belongs instead.
+func refuseAnotherOwner(ctx context.Context, github tickets.GitHub, h home.Home, checkout, repository, owner string) error {
+	account, err := ghText(ctx, github.Commands, "api", "user", "--jq", ".login")
+	if err == nil && account == "" {
+		err = errors.New("gh named no account it works as")
+	}
+	if err != nil {
+		return fmt.Errorf("read the account gh works as, whose repositories an issue may go on: %w", err)
+	}
+	if strings.EqualFold(owner, account) {
+		return nil
+	}
+	settings, err := fleetconfig.Read(h.Root)
+	if err != nil {
+		return fmt.Errorf("%s is not %s's, the account gh works as, and config/fleet.json, whose github_owners name the fleet's other owners, cannot be read: %w", repository, account, err)
+	}
+	isFleets := func(name string) bool {
+		return strings.EqualFold(name, account) || slices.ContainsFunc(settings.GitHubOwners, func(named string) bool { return strings.EqualFold(named, name) })
+	}
+	if isFleets(owner) {
+		return nil
+	}
+	refusal := fmt.Sprintf("refused: the issue would go on %s, which origin names, and its owner %s is neither %s, the account gh works as, nor an owner config/fleet.json names", repository, owner, account)
+	remotes, err := github.Remotes(ctx, checkout)
+	if err != nil {
+		return fmt.Errorf("%s; %w", refusal, err)
+	}
+	var fleets []string
+	for _, remote := range remotes {
+		if remoteOwner, _, _ := strings.Cut(remote.Repository, "/"); isFleets(remoteOwner) {
+			fleets = append(fleets, remote.Repository+", which remote "+remote.Name+" names")
+		}
+	}
+	if len(fleets) == 0 {
+		return errors.New(refusal + "; no remote of the checkout names a repository the fleet owns")
+	}
+	return errors.New(refusal + "; the fleet owns " + strings.Join(fleets, ", and "))
+}
+
+// issueScreen is what a root issue filed on repository, public or not, may
+// not say: every credential value this terminal's environment carries, and
+// on a public repository the fleet's other projects whose repositories are
+// not public, the teammates the supervisor has read, and the repository's
+// owner, whom it may mention. Only the projects the issue names are asked
+// about.
+func issueScreen(ctx context.Context, github tickets.GitHub, runtime commandRuntime, h home.Home, checkout, repository string, isPublic bool, root tickets.Root) (tickets.Screen, error) {
 	var screen tickets.Screen
 	for _, variable := range os.Environ() {
 		name, value, _ := strings.Cut(variable, "=")
@@ -123,15 +182,12 @@ func issueScreen(ctx context.Context, github tickets.GitHub, runtime commandRunt
 			screen.Secrets = append(screen.Secrets, value)
 		}
 	}
-	isPublic, err := github.IsPublic(ctx, repository)
-	if err != nil {
-		return tickets.Screen{}, err
-	}
 	if screen.IsPublic = isPublic; !isPublic {
 		return screen, nil
 	}
 	owner, name, _ := strings.Cut(repository, "/")
 	screen.Account = owner
+	var err error
 	if screen.People, err = tickets.Teammates(h.State); err != nil {
 		return tickets.Screen{}, err
 	}
@@ -178,8 +234,8 @@ func isPublicProject(ctx context.Context, github tickets.GitHub, runtime command
 	if err != nil {
 		return false
 	}
-	isPublic, err := github.IsPublic(ctx, repository)
-	return err == nil && isPublic
+	read, err := github.ReadRepository(ctx, repository)
+	return err == nil && read.IsPublic
 }
 
 // fileRootFrom is the supervisor's filing path, the one cfo issue file uses,

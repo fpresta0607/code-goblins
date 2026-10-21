@@ -1029,6 +1029,7 @@ Every brief `cfo brief` writes says so in its Constraints.
 The fleet also files what its own signals name: each test a merge train saw fail once and pass on its second try, each red push run of a default branch by its workflow and failed jobs, and an error the supervisor meets again an hour after it first met it.
 The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds as a task of its own with a brief built from the issue, `Fixes #<number>` in its pull request and `mode: direct-PR` as its delivery, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
 On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
+It files only on a repository the fleet owns, the account `gh` works as or an organization `config/fleet.json` lists as `github_owners`: a checkout whose `origin` is another owner's, such as your fork kept with `origin` on the upstream, is refused with the remote of the checkout whose repository is yours, when one is, and so is a repository with issues turned off.
 
 ### Working beside teammates
 

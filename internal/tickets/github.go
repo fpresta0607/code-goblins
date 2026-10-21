@@ -62,6 +62,33 @@ func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, erro
 	return match[1], nil
 }
 
+// Remote is a remote of a checkout that fetches from a GitHub repository.
+type Remote struct {
+	Name       string
+	Repository string
+}
+
+// Remotes names each remote of checkout that fetches from a GitHub
+// repository, in the order git lists them, and leaves out the others.
+func (g GitHub) Remotes(ctx context.Context, checkout string) ([]Remote, error) {
+	result, err := g.Commands.Run(ctx, execx.Request{Name: "git", Args: []string{"-C", checkout, "remote", "-v"}})
+	if err != nil {
+		return nil, fmt.Errorf("read the remotes of %s: %w", checkout, err)
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("read the remotes of %s: %s", checkout, strings.TrimSpace(string(result.Stderr)))
+	}
+	var remotes []Remote
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		name, address, _ := strings.Cut(line, "\t")
+		address, isFetch := strings.CutSuffix(strings.TrimSpace(address), " (fetch)")
+		if match := githubRemote.FindStringSubmatch(address); isFetch && match != nil {
+			remotes = append(remotes, Remote{Name: name, Repository: match[1]})
+		}
+	}
+	return remotes, nil
+}
+
 // activityQuery reads everything in one round; later rounds include only the
 // connections that still have pages.
 const activityQuery = `query($owner:String!,$name:String!,$since:GitTimestamp!,$first:Boolean!,$issues:Boolean!,$issuesAfter:String,$pulls:Boolean!,$pullsAfter:String,$refs:Boolean!,$refsAfter:String){

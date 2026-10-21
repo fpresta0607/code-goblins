@@ -1167,6 +1167,7 @@ A root issue is a cause the fleet meets while it runs that the work at hand does
 It becomes a GitHub issue on the repository it belongs to, labelled `ops-root`, so it is fixed where it starts instead of being carried by hand.
 You and every goblin file one with `cfo issue file --project <project> --title <title> --body-file <file>` and name the address it prints in your report, never only mention it.
 Write the body for a public repository: what happens, the cause when known, and when it is done, with no private project name, teammate, path on this machine or secret, which the command refuses on a public repository anyway.
+It files only on the repository the checkout's `origin` names, and only when the fleet owns it, by the rule the pull request watch keeps: a checkout whose `origin` is another owner's, such as a fork kept with `origin` on its parent, is refused with the remote of the checkout whose repository the fleet owns, when one does, and so is a repository with issues turned off.
 A root met again is filed the same way: the command finds the open issue of the same root and adds a dated comment with the new evidence.
 A goblin whose terminal carries no GitHub credential cannot file, so its report gives the title and body and you file it.
 

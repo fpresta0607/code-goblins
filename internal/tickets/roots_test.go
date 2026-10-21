@@ -216,6 +216,39 @@ func TestOpenRootsReadsAssigneesLabelsAndAuthorStanding(t *testing.T) {
 	}
 }
 
+func TestReadRepositoryReadsWhoseItIsAndWhetherItTakesIssues(t *testing.T) {
+	cases := []struct {
+		name, answer string
+		want         Repository
+		isErr        bool
+	}{
+		{name: "a public fork with issues turned off", answer: `{"owner":{"login":"Acme"},"private":false,"has_issues":false,"fork":true}`, want: Repository{Owner: "Acme", IsPublic: true}},
+		{name: "a private repository that takes issues", answer: `{"owner":{"login":"acme"},"private":true,"has_issues":true}`, want: Repository{Owner: "acme", HasIssues: true}},
+		{name: "an answer that says nothing of issues", answer: `{"owner":{"login":"acme"},"private":false}`, isErr: true},
+		{name: "an answer that names no owner", answer: `{"private":false,"has_issues":true}`, isErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fake := &fakeGitHub{rest: map[string]string{"repos/" + rootRepository: tc.answer}}
+
+			// Act
+			got, err := GitHub{Commands: fake}.ReadRepository(context.Background(), rootRepository)
+
+			// Assert
+			if tc.isErr {
+				if err == nil {
+					t.Fatalf("ReadRepository = %+v, want an error", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("ReadRepository = %+v, %v, want %+v", got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestRootKeyFallsBackToTheTitleAndCannotEndItsMarker(t *testing.T) {
 	cases := map[string]Root{
 		"a train  may not start":    {Title: "A Train may not\tstart"},
