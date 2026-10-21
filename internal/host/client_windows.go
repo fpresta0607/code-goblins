@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 )
 
 // Client is one viewer of a host's terminal.
@@ -99,7 +98,8 @@ func dial(record Record, greeting hello) (*Client, hello, error) {
 	if err != nil {
 		return nil, hello{}, err
 	}
-	_ = pipe.SetDeadline(time.Now().Add(handshakeTimeout))
+	lift := awakeDeadline(pipe.SetDeadline, handshakeTimeout)
+	defer lift()
 	if err := writeHello(pipe, greeting); err != nil {
 		pipe.Close()
 		return nil, hello{}, fmt.Errorf("host: say hello: %w", err)
@@ -113,7 +113,6 @@ func dial(record Record, greeting hello) (*Client, hello, error) {
 		pipe.Close()
 		return nil, hello{}, fmt.Errorf("host: refused the connection: %s", answer.Error)
 	}
-	_ = pipe.SetDeadline(time.Time{})
 	return &Client{pipe: pipe}, answer, nil
 }
 
