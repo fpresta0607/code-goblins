@@ -64,7 +64,7 @@ func (c *checker) connectors(ctx context.Context) error {
 		c.add(AreaConnectors, "connector-undeclared", Medium,
 			"the repository reads "+count(len(undeclared), "credential")+" no service declares, which no goblin's terminal carries and no preflight checks",
 			strings.Join(undeclared, ", ")+". Read at "+c.repo.asRead(),
-			"declare each in a service of "+file+", or say in the project's instructions why the code needs none of them from the fleet")
+			"declare each in a service of "+file+", marked optional with a note that says why when the fleet need not supply it")
 	}
 
 	var names []string
