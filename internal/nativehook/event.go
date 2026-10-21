@@ -28,6 +28,17 @@ const MaxInputBytes = 64 << 20
 const MaxEventBytes = 64 << 10
 const MaxQueuedEvents = 4096
 
+// ErrUnstartedSubagent is a Claude Code SubagentStop of an agent it raised no
+// SubagentStart for, which the hook spools nothing for. Claude Code 2.1.306
+// raises SubagentStart only as its Agent tool starts a subagent, with that
+// agent's type, and SubagentStop as any agent of a session ends, its own
+// forked compaction, memory and summary agents among them, whose type falls
+// back to the main thread's agent, which no fleet session names. The
+// supervisor accepts a session's events only after its start, so each such
+// stop waited in the spool until it aged out, 1,103 of them on a fleet home
+// on 2026-10-20 (issue #1212).
+var ErrUnstartedSubagent = errors.New("no SubagentStart preceded this untyped Claude Code SubagentStop")
+
 type Event struct {
 	Schema          int       `json:"schema"`
 	ID              string    `json:"id"`
@@ -155,6 +166,9 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 	if p.Event == "SubagentStart" || p.Event == "SubagentStop" {
 		if p.AgentID == "" {
 			return Event{}, errors.New("subagent event needs an agent ID")
+		}
+		if c.Harness == "claude" && p.Event == "SubagentStop" && p.AgentType == "" {
+			return Event{}, ErrUnstartedSubagent
 		}
 		e.ParentSessionID, e.ParentHarness, e.SessionID, e.Role, e.Relation = p.SessionID, c.Harness, p.AgentID, "subagent", "delegated"
 	}
