@@ -64,7 +64,8 @@ func TestSpawnHoldsTheGoblinsPackageManagersToReleasesAWeekOld(t *testing.T) {
 }
 
 // A relaunch builds its terminal's environment again, so the cooldown is
-// there only if the relaunch sets it too.
+// there only if the relaunch sets it too, and a goblin taking the task over
+// in a new conversation is told of it as a new goblin is.
 func TestSwitchHoldsTheGoblinsPackageManagersToReleasesAWeekOld(t *testing.T) {
 	// Arrange
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
@@ -78,6 +79,9 @@ func TestSwitchHoldsTheGoblinsPackageManagersToReleasesAWeekOld(t *testing.T) {
 	env := named(f.events(t), "env")[0].Env
 	if value(env["UV_EXCLUDE_NEWER"]) != "7 days" || value(env["PIP_UPLOADED_PRIOR_TO"]) != "P7D" || value(env["npm_config_before"]) == "" {
 		t.Errorf("the new harness started with UV_EXCLUDE_NEWER = %q, PIP_UPLOADED_PRIOR_TO = %q, npm_config_before = %q, want the cooldown", value(env["UV_EXCLUDE_NEWER"]), value(env["PIP_UPLOADED_PRIOR_TO"]), value(env["npm_config_before"]))
+	}
+	if _, written := typedBrief(t, f.fixture, f.meta.ID); !strings.Contains(written, "Read the handoff") || !strings.Contains(written, "hold its package managers to releases uploaded at least 7 days ago") || !strings.Contains(written, "Never unset or override them") {
+		t.Errorf("instruction = %q, want the handoff to name the cooldown and keep it", written)
 	}
 }
 
@@ -99,7 +103,7 @@ func TestSpawnGivesTheGoblinNoInstallStepThatResolvesVersions(t *testing.T) {
 	if !strings.Contains(result.Output, "\ndependencies: none installed, since worktree.json names the install \"uv pip install -r requirements.txt\", which resolves versions at a package index instead of installing a lock with hashes. Lock the project") || strings.Contains(result.Output, "installs them as its first step") {
 		t.Errorf("output = %q, want the refused install named", result.Output)
 	}
-	if _, written := typedBrief(t, f.fixture, "task-7"); !strings.Contains(written, "the spawn gave you no step that installs them: worktree.json names the install") || !strings.Contains(written, "Never install them by resolving versions at a package index yourself") || strings.Contains(written, "before you build or test anything, run") {
+	if _, written := typedBrief(t, f.fixture, "task-7"); !strings.Contains(written, "The spawn gave you no step that installs what has no lock: worktree.json names the install") || !strings.Contains(written, "Never install it by resolving versions at a package index yourself") || strings.Contains(written, "before you build or test anything, run") {
 		t.Errorf("instruction = %q, want no install step and the refusal", written)
 	}
 	if status, err := state.TailStatus(f.stateDir, "task-7", 20); err != nil || strings.Contains(strings.Join(status, "\n"), "installing its dependencies first") {

@@ -365,9 +365,10 @@ func (s Service) installCommands(ctx context.Context, git RunnerGit, manifest Ma
 // range, because a range resolved at a package index takes whatever was
 // uploaded last: on 2026-10-21 three goblins installed a hijacked release
 // within ten minutes of its upload through a manifest's
-// `uv pip install -r requirements.txt`. A manifest command that resolves,
-// and a worktree that holds a dependency list with no lock beside it, give
-// no install step at all, and refused says why.
+// `uv pip install -r requirements.txt`. A manifest command that resolves
+// gives no install step at all, and a dependency list with no lock of its
+// own beside it, such as a requirements.txt beside a package-lock.json, is
+// left out of the one the lockfile names, and refused says why.
 func InstallPlan(manifest Manifest, has func(name string) bool) (commands []string, refused string) {
 	for _, command := range manifest.Dependencies.Install {
 		command = strings.TrimSpace(command)
@@ -383,14 +384,29 @@ func InstallPlan(manifest Manifest, has func(name string) bool) (commands []stri
 		return commands, ""
 	}
 	if detected := detectInstallCommand(has); detected != "" {
-		return []string{detected}, ""
+		commands = []string{detected}
 	}
-	for _, list := range []string{"package.json", "pyproject.toml", "requirements.txt"} {
-		if has(list) {
-			return nil, "the worktree holds " + list + " and no lockfile a spawn installs from"
+	var unlocked []string
+	for _, list := range dependencyLists {
+		if has(list.name) && !slices.ContainsFunc(list.locks, has) {
+			unlocked = append(unlocked, list.name)
 		}
 	}
-	return nil, ""
+	if len(unlocked) > 0 {
+		refused = "the worktree holds " + strings.Join(unlocked, " and ") + " and no lockfile a spawn installs from"
+	}
+	return commands, refused
+}
+
+// dependencyLists are the files at a worktree's root that list dependencies,
+// each with the lockfiles detectInstallCommand installs it from.
+var dependencyLists = []struct {
+	name  string
+	locks []string
+}{
+	{name: "package.json", locks: []string{"pnpm-lock.yaml", "package-lock.json", "yarn.lock"}},
+	{name: "pyproject.toml", locks: []string{"uv.lock"}},
+	{name: "requirements.txt", locks: []string{"uv.lock"}},
 }
 
 // lockedInstalls are the commands a dependency step may run: each installs
@@ -405,9 +421,10 @@ var lockedInstalls = []struct{ words, flags, resolving []string }{
 	{words: []string{"uv", "sync"}, flags: []string{"--locked", "--frozen"}},
 	{words: []string{"uv", "pip", "sync"}, flags: []string{"--require-hashes"}},
 	{words: []string{"uv", "pip", "install"}, flags: []string{"--require-hashes"}},
-	// --seed installs the newest pip and setuptools into the environment.
+	// --seed and --upgrade-deps install the newest pip and setuptools into
+	// the environment.
 	{words: []string{"uv", "venv"}, resolving: []string{"--seed"}},
-	{words: []string{"python", "-m", "venv"}},
+	{words: []string{"python", "-m", "venv"}, resolving: []string{"--upgrade-deps"}},
 }
 
 // LockedInstall reports whether command is one a dependency step may run,

@@ -251,14 +251,16 @@ func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 // On 2026-10-21 three goblins ran a manifest's
 // `uv pip install -r requirements.txt` within ten minutes of a hijacked
 // release, and each resolved the project's version ranges to it. An install
-// that resolves at an index gives the worktree no install step, and so does
-// a dependency list with no lock beside it, each saying why; a project with
-// no dependency list, such as a Go module, needs none and is told nothing.
-func TestProvisionGivesNoInstallStepThatResolvesVersions(t *testing.T) {
+// that resolves at an index gives the worktree no install step, and a
+// dependency list with no lock of its own is left out of the install the
+// lockfile names, each saying why; a project with no dependency list, such as
+// a Go module, needs none and is told nothing.
+func TestProvisionInstallsNothingThatResolvesVersions(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		install []string
 		files   []string
+		want    []string
 		refused string
 	}{
 		{name: "the incident's install", install: []string{"uv venv", "uv pip install -r requirements.txt -r requirements-dev.txt"}, files: []string{"requirements.txt"}, refused: `worktree.json names the install "uv pip install -r requirements.txt -r requirements-dev.txt", which resolves versions at a package index instead of installing a lock with hashes`},
@@ -267,6 +269,8 @@ func TestProvisionGivesNoInstallStepThatResolvesVersions(t *testing.T) {
 		{name: "requirements with no lock", files: []string{"requirements.txt"}, refused: "the worktree holds requirements.txt and no lockfile a spawn installs from"},
 		{name: "a pyproject with no lock", files: []string{"pyproject.toml"}, refused: "the worktree holds pyproject.toml and no lockfile a spawn installs from"},
 		{name: "a package.json with no lock", files: []string{"package.json"}, refused: "the worktree holds package.json and no lockfile a spawn installs from"},
+		{name: "requirements beside a lock of another installer", files: []string{"package.json", "package-lock.json", "requirements.txt"}, want: []string{"npm ci"}, refused: "the worktree holds requirements.txt and no lockfile a spawn installs from"},
+		{name: "requirements beside the uv.lock that locks them", files: []string{"pyproject.toml", "requirements.txt", "uv.lock"}, want: []string{"uv sync --locked"}},
 		{name: "a Go module", files: []string{"go.mod", "go.sum"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -277,6 +281,7 @@ func TestProvisionGivesNoInstallStepThatResolvesVersions(t *testing.T) {
 			for _, name := range test.files {
 				writeFileLine(t, filepath.Join(worktreePath, name), "x")
 			}
+			runner.results = ignoredScript(len(InstallOutputs(test.want)))
 
 			// Act
 			result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
@@ -285,11 +290,11 @@ func TestProvisionGivesNoInstallStepThatResolvesVersions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Provision: %v", err)
 			}
-			if len(result.Install) != 0 || !strings.Contains(result.InstallRefused, test.refused) || (test.refused == "") != (result.InstallRefused == "") {
-				t.Errorf("Install = %q, refused %q, want no install step and %q", result.Install, result.InstallRefused, test.refused)
+			if !slices.Equal(result.Install, test.want) || !strings.Contains(result.InstallRefused, test.refused) || (test.refused == "") != (result.InstallRefused == "") {
+				t.Errorf("Install = %q, refused %q, want %q and %q", result.Install, result.InstallRefused, test.want, test.refused)
 			}
-			if len(runner.calls) != 0 {
-				t.Errorf("calls = %#v, want nothing excluded for an install that is not given", runner.calls)
+			if len(runner.results) != 0 {
+				t.Errorf("unused scripted answers %v, want an ignore check for each folder the install makes and nothing else", runner.results)
 			}
 		})
 	}
@@ -316,6 +321,7 @@ func TestLockedInstallTakesOnlyInstallsOfALock(t *testing.T) {
 		"yarn install":                                         false,
 		"uv sync":                                              false,
 		"uv venv --seed":                                       false,
+		"python -m venv --upgrade-deps .venv":                  false,
 		"uv pip sync requirements.txt":                         false,
 		"uv pip install -r requirements.txt":                   false,
 		"pip install --require-hashes -r requirements.txt":     false,

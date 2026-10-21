@@ -92,6 +92,9 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 		{name: "a line that runs on its own after a bare carriage return", arrange: func(t *testing.T, worktree string) {
 			install(t, environment(t, worktree, ".venv"), "helper-2.0", map[string]string{"helper.pth": "helper\r" + stealerLine})
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/helper.pth", Package: "helper-2.0"}}},
+		{name: "a line that runs on its own after a form feed, which Python's splitlines breaks at", arrange: func(t *testing.T, worktree string) {
+			install(t, environment(t, worktree, ".venv"), "helper-2.0", map[string]string{"helper.pth": "helper\f" + stealerLine})
+		}, want: []Hook{{Path: ".venv/Lib/site-packages/helper.pth", Package: "helper-2.0"}}},
 		{name: "a known line in a file another package installs", arrange: func(t *testing.T, worktree string) {
 			install(t, environment(t, worktree, ".venv"), "tools-1.0", map[string]string{"distutils-precedence.pth": distutilsLine, "_distutils_hack/__init__.py": ""})
 		}, want: []Hook{{Path: ".venv/Lib/site-packages/distutils-precedence.pth", Package: "tools-1.0"}}},
@@ -112,7 +115,8 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 		{name: "environments under other names and in a project's subfolder", arrange: func(t *testing.T, worktree string) {
 			install(t, environment(t, worktree, "env"), "a-1.0", map[string]string{"a.pth": stealerLine})
 			install(t, environment(t, worktree, filepath.Join("backend", ".venv")), "b-1.0", map[string]string{"b.pth": stealerLine})
-		}, want: []Hook{{Path: "backend/.venv/Lib/site-packages/b.pth", Package: "b-1.0"}, {Path: "env/Lib/site-packages/a.pth", Package: "a-1.0"}}},
+			install(t, environment(t, worktree, filepath.Join("services", "api", ".venv")), "c-1.0", map[string]string{"c.pth": stealerLine})
+		}, want: []Hook{{Path: "backend/.venv/Lib/site-packages/b.pth", Package: "b-1.0"}, {Path: "env/Lib/site-packages/a.pth", Package: "a-1.0"}, {Path: "services/api/.venv/Lib/site-packages/c.pth", Package: "c-1.0"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

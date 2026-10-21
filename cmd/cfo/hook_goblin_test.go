@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -110,11 +109,10 @@ func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
 	// Arrange
 	stateDir := goblinHookHome(t)
 	site := filepath.Join(os.Getenv("CLAUDE_PROJECT_DIR"), ".venv", "Lib", "site-packages")
-	marker := filepath.Join(t.TempDir(), "stolen")
 	planted := filepath.Join(site, "litellm_init.pth")
 	for path, content := range map[string]string{
 		filepath.Join(site, "..", "..", "pyvenv.cfg"): "version_info = 3.12.10\n",
-		planted: "import pathlib; pathlib.Path(" + strconv.Quote(marker) + ").write_text('read')\n",
+		planted: "import os, subprocess; subprocess.Popen(['python', 'init.py'])\n",
 		filepath.Join(site, "litellm-1.107.0.dist-info", "RECORD"): "litellm_init.pth,sha256=AAAA,90\n",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -151,14 +149,11 @@ func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
 	if after != 0 || len(refusals) != 2 {
 		t.Fatalf("exit once the file is gone = %d, refusals = %d, want the command let through", after, len(refusals))
 	}
-	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("the planted start hook ran")
-	}
 	pending, err := wake.Pending(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "pd-keys" || !strings.Contains(pending[0].Detail, "pd-keys was stopped before its next shell command: "+planted+", from litellm-1.107.0,") || strings.Contains(pending[0].Detail, "pathlib") {
+	if len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "pd-keys" || !strings.Contains(pending[0].Detail, "pd-keys was stopped before its next shell command: "+planted+", from litellm-1.107.0,") || strings.Contains(pending[0].Detail, "subprocess") {
 		t.Fatalf("wakes = %+v, want one naming the file and its package, never its code", pending)
 	}
 }

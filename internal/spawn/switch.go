@@ -319,6 +319,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err := s.stillThere(ctx, git, meta.ID, project, worktreePath); err != nil {
 		return SwitchResult{}, err
 	}
+	// The release cooldown is read before the old harness stops, so a
+	// worktree git cannot list leaves the task running as it was.
+	cooldown, _, err := s.Worktrees.Cooldown(ctx, worktreePath, time.Now())
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w", err)
+	}
 	// A native terminal ends with its harness, and its job ends what the
 	// harness started in it, so nothing is left to wait on.
 	if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
@@ -404,7 +410,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, preflight, userEnv, mcp.Held, req, endTurn)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, cooldown, preflight, userEnv, mcp.Held, req, endTurn)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -498,9 +504,10 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 // relaunch's turn once its host runs. Every step after the old harness has
 // stopped lives here, so any failure returns through the same empty-terminal
 // recovery. Anything knowable before the stop is resolved by Switch and handed
-// in: the built launch, the project's redirects, its credentials, the user's
-// environment and the MCP servers withheld from the task.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
+// in: the built launch, the project's redirects, the release cooldown, its
+// credentials, the user's environment and the MCP servers withheld from the
+// task.
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects, cooldown map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	// Claude Code, Codex and pi each resume a recorded conversation, so the
 	// resume of a pause does wherever its pause recorded one, and pi only once
@@ -519,10 +526,6 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// without the caches the spawned one had.
 	mergeProvisionEnv(launch.Env, redirects)
 	mergeProvisionEnv(launch.Env, preflight.Caches)
-	cooldown, _, err := s.Worktrees.Cooldown(ctx, worktreePath, time.Now())
-	if err != nil {
-		return "", false, host.Record{}, fmt.Errorf("switch: %w", err)
-	}
 	mergeProvisionEnv(launch.Env, cooldown)
 	s.nativeEnvironment(launch.Env, meta)
 
@@ -544,7 +547,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		if err != nil {
 			return "", false, host.Record{}, err
 		}
-		launch.Instruction = handoffInstruction(handoff, briefPath, meta)
+		launch.Instruction = handoffInstruction(handoff, briefPath, meta) + cooldownInstruction(cooldown)
 	}
 	// What the task carries is said before any note the relaunch is given,
 	// so the note stays the instruction's last word.

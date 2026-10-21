@@ -42,11 +42,17 @@ var knownHooks = []struct{ file, owner, line string }{
 	{file: "a1_coverage.pth", owner: "coverage", line: `import sys; exec('import os\n\nif os.getenv("COVERAGE_PROCESS_START") or os.getenv("COVERAGE_PROCESS_CONFIG"):\n try:\n  import coverage\n except:\n  pass\n else:\n  coverage.process_startup(slug="pth")')`},
 }
 
+// lineBreaks are the runes Python's str.splitlines splits a line at.
+var lineBreaks = []rune{'\n', '\r', '\v', '\f', 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029}
+
 // Find returns the start hooks no known package ships in the Python
 // environments of worktree: each folder at its root that holds pyvenv.cfg,
-// and the .venv of each folder at its root, where uv makes one for a project
-// in a subfolder. A worktree with neither costs one listing of its root and
-// two looks at each of its entries.
+// and the .venv of each folder one or two levels below its root, where uv
+// makes one for a project in a subfolder such as services/api. The second
+// level is looked for under the root's own folders, never under a dot
+// folder, node_modules or a linked folder. A worktree with no environment
+// costs a listing of its root and of each such folder, and a look at each
+// entry they hold.
 func Find(worktree string) ([]Hook, error) {
 	entries, err := os.ReadDir(worktree)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -55,22 +61,40 @@ func Find(worktree string) ([]Hook, error) {
 	if err != nil {
 		return nil, err
 	}
-	var hooks []Hook
+	var environments []string
 	for _, entry := range entries {
 		// A linked dependency folder is a junction, which is no directory
 		// entry, and is looked into all the same.
-		for _, environment := range []string{filepath.Join(worktree, entry.Name()), filepath.Join(worktree, entry.Name(), ".venv")} {
-			if _, err := os.Lstat(filepath.Join(environment, "pyvenv.cfg")); err != nil {
-				continue
+		folder := filepath.Join(worktree, entry.Name())
+		environments = append(environments, folder, filepath.Join(folder, ".venv"))
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
+			continue
+		}
+		subfolders, err := os.ReadDir(folder)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, subfolder := range subfolders {
+			if subfolder.IsDir() {
+				environments = append(environments, filepath.Join(folder, subfolder.Name(), ".venv"))
 			}
-			sites, _ := filepath.Glob(filepath.Join(environment, "lib", "python*", "site-packages"))
-			for _, site := range append([]string{filepath.Join(environment, "Lib", "site-packages")}, sites...) {
-				found, err := siteHooks(site)
-				if err != nil {
-					return nil, err
-				}
-				hooks = append(hooks, found...)
+		}
+	}
+	var hooks []Hook
+	for _, environment := range environments {
+		if _, err := os.Lstat(filepath.Join(environment, "pyvenv.cfg")); err != nil {
+			continue
+		}
+		sites, _ := filepath.Glob(filepath.Join(environment, "lib", "python*", "site-packages"))
+		for _, site := range append([]string{filepath.Join(environment, "Lib", "site-packages")}, sites...) {
+			found, err := siteHooks(site)
+			if err != nil {
+				return nil, err
 			}
+			hooks = append(hooks, found...)
 		}
 	}
 	return hooks, nil
@@ -98,9 +122,12 @@ func siteHooks(site string) ([]Hook, error) {
 			return nil, err
 		}
 		isHook := false
-		// Python reads a .pth file with universal newlines, and from 3.13
-		// drops a byte order mark first.
-		for _, line := range strings.FieldsFunc(strings.TrimPrefix(string(data), string(rune(0xFEFF))), func(r rune) bool { return r == '\n' || r == '\r' }) {
+		// Python decodes a .pth file as UTF-8 with an optional byte order
+		// mark, or failing that in the locale's encoding, and splits it with
+		// str.splitlines. Splitting at every rune that splits a line in either
+		// decoding cuts at least where Python does, so a line it runs is
+		// always a line here.
+		for _, line := range strings.FieldsFunc(strings.TrimPrefix(string(data), string(rune(0xFEFF))), func(r rune) bool { return slices.Contains(lineBreaks, r) }) {
 			switch {
 			case strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "":
 			case strings.HasPrefix(line, "import ") || strings.HasPrefix(line, "import\t"):

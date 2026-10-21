@@ -513,7 +513,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		result.Output += "\ndependencies: the goblin installs them as its first step, in its own terminal: " + strings.Join(provision.Install, " && ")
 	}
 	if provision.InstallRefused != "" {
-		result.Output += "\n" + installRefusedLine(project, provision.InstallRefused)
+		result.Output += "\n" + installRefusedLine(project, provision.Install, provision.InstallRefused)
 	}
 	if len(uvLocks) > 0 {
 		result.Output += "\n" + uvLockCooldownLine(uvLocks)
@@ -564,10 +564,15 @@ func envHeldLine(project string, held []string) string {
 		worktree.ManifestPath("data", project) + " names it: \"link\": [\"" + strings.Join(held, "\", \"") + "\"]"
 }
 
-// installRefusedLine says why the goblin was given no install step, and the
-// installs a manifest may name instead.
-func installRefusedLine(project, refused string) string {
-	return "dependencies: none installed, since " + refused + ". Lock the project and name its locked install in " + worktree.ManifestPath("data", project) +
+// installRefusedLine says why the goblin was given no install step, or none
+// for what has no lock beside the one it was given, and the installs a
+// manifest may name instead.
+func installRefusedLine(project string, install []string, refused string) string {
+	left := "none installed"
+	if len(install) > 0 {
+		left = "the rest not installed"
+	}
+	return "dependencies: " + left + ", since " + refused + ". Lock the project and name its locked install in " + worktree.ManifestPath("data", project) +
 		": npm ci, pnpm install --frozen-lockfile, yarn install --frozen-lockfile, uv sync --locked, or uv venv then uv pip sync --require-hashes for requirements compiled with --generate-hashes"
 }
 
@@ -956,23 +961,25 @@ func processInstruction() string {
 // other start; the goblin's tool may cut a long command short, so it is told
 // how long one can take here.
 //
-// When provisioning refused the install, the goblin is told why, and that
-// installing by resolving versions itself is what the refusal stops.
+// When provisioning refused to install what has no lock, the goblin is told
+// why, and that installing it by resolving versions itself is what the
+// refusal stops.
 func dependencyInstruction(worktree string, install []string, refused string) string {
+	instruction := ""
+	if len(install) > 0 {
+		commands := make([]string, len(install))
+		for index, command := range install {
+			commands[index] = "\"" + command + "\""
+		}
+		instruction = " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
+			" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
+			" Install only into this worktree, never another's."
+	}
 	if refused != "" {
-		return " Your worktree's dependencies are not installed, and the spawn gave you no step that installs them: " + refused + "." +
-			" Never install them by resolving versions at a package index yourself: when your task needs them, say so in a blocked report that names the lock the project lacks."
+		instruction += " The spawn gave you no step that installs what has no lock: " + refused + "." +
+			" Never install it by resolving versions at a package index yourself: when your task needs it, say so in a blocked report that names the lock the project lacks."
 	}
-	if len(install) == 0 {
-		return ""
-	}
-	commands := make([]string, len(install))
-	for index, command := range install {
-		commands[index] = "\"" + command + "\""
-	}
-	return " Your worktree's dependencies are not installed yet: before you build or test anything, run " + strings.Join(commands, ", then ") + " in " + worktree + ", stopping at the first that fails." +
-		" On this machine an install can take many minutes, so run it where your tool's time limit cannot cut it short, such as in the background, and wait for it to end." +
-		" Install only into this worktree, never another's."
+	return instruction
 }
 
 // briefNeedsServices reports whether the brief's Delivery section says the
