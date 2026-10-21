@@ -223,6 +223,9 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return ScanResult{}, ctx.Err()
 		}
+		if s.isRetiring(id) {
+			continue
+		}
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
 		}
@@ -1271,6 +1274,24 @@ func (s Service) isRelaunching(meta state.TaskMeta) bool {
 func (s Service) isStoppedOnRequest(meta state.TaskMeta) bool {
 	record, err := state.ReadLifecycle(s.StateDir, meta.ID)
 	return err == nil && record.Generation == meta.SpawnGen && record.Phase == "failed" && (record.Action == "pause" || record.Action == "stop")
+}
+
+// isRetiring reports whether a cleanup holds the task or has retired its
+// record, read once its terminal has been read. A cleanup closes the goblin's
+// terminal and retires the record only seconds later, once its worktree is
+// returned, so a scan that read the record before the cleanup took it read a
+// terminal the cleanup may have closed, and on 2026-10-20 woke the CFO twice
+// to bring back a goblin that was retired (issue #1225). The cleanup holds its
+// lock from before it closes the terminal to after the record is gone, so this
+// read sees the one or the other, and nothing the scan read of the task is
+// kept or raised. A cleanup that refuses lets go of the task, and the next
+// scan reads it again.
+func (s Service) isRetiring(id string) bool {
+	if _, err := os.Stat(state.TaskMetaPath(s.StateDir, id)); errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	holder, err := lock.ReadNamed(s.StateDir, state.CleanupLockName(id))
+	return err == nil && holder.Purpose == state.CleanupPurpose(id) && holder.Alive()
 }
 
 // lifecycleObservation is a goblin a pause, stop or resume accounts for,
