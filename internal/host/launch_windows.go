@@ -1,12 +1,15 @@
 package host
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -27,8 +30,12 @@ func Arguments(stateDir string, spec Spec) []string {
 	return append(append(args, "--"), spec.Args...)
 }
 
-// launchTimeout bounds how long a new host takes to record itself.
-var launchTimeout = 15 * time.Second
+// launchTimeout bounds how long a new host takes to record itself, and a
+// launch looks for that record through readLaunchRecord.
+var (
+	launchTimeout    = 15 * time.Second
+	readLaunchRecord = ReadRecord
+)
 
 // Launch starts a host for spec in a process of its own and returns the
 // host's record once it is serving. command runs a host (cfo.exe and "host"
@@ -38,7 +45,11 @@ var launchTimeout = 15 * time.Second
 // whatever launched it. Where the job forbids it, the host starts inside the
 // job and ends when the job closes: the record Launch returns says so as
 // Contained, and so does the host's log. Its output goes to
-// state/hosts/<id>.log.
+// state/hosts/<id>.log. A host whose terminal's program ends at once can
+// serve and end before Launch sees its record: it returns the record that
+// host's end keeps, with no pipe to dial, since the host is gone. A host that
+// ends before it serves fails the launch with how it ended and the end of its
+// log.
 func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	if len(command) == 0 {
 		return Record{}, errors.New("host: the command that runs a host is required")
@@ -67,6 +78,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	// and one class above the work from its start, which this launch waits
 	// on.
 	flags := uint32(windows.CREATE_NO_WINDOW|windows.CREATE_NEW_PROCESS_GROUP) | priority.StartAboveTheWork()
+	launched := time.Now()
 	cmd, err := start(flags | windows.CREATE_BREAKAWAY_FROM_JOB)
 	contained := errors.Is(err, windows.ERROR_ACCESS_DENIED)
 	if contained {
@@ -81,16 +93,57 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	for deadline := time.Now().Add(launchTimeout); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
-		if record, err := ReadRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
+		if record, err := readLaunchRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
 			record.Contained = contained
 			return record, nil
 		}
 		select {
 		case err := <-exited:
-			return Record{}, fmt.Errorf("host: the host ended before it served (%v); see %s", err, logPath)
+			// A host that served removes its record as it ends, which can
+			// fall between two looks, and leaves its end, which names it. An
+			// end from before this launch is an earlier host's, whose pid
+			// this one may have been given.
+			if end, endErr := ReadEnd(stateDir, spec.ID); endErr == nil && end.HostPID == cmd.Process.Pid && end.Ended.After(launched) {
+				return Record{ID: spec.ID, HostPID: end.HostPID, ChildPID: end.ChildPID, ChildStart: end.ChildStart, Contained: contained}, nil
+			}
+			if err == nil {
+				err = errors.New("exit status 0")
+			}
+			return Record{}, fmt.Errorf("host: the host ended before it served (%v); %s ends:\n%s", err, logPath, logTail(logPath))
 		default:
 		}
 	}
 	_ = cmd.Process.Kill()
 	return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s; see %s", cmd.Process.Pid, launchTimeout, logPath)
+}
+
+// logTailSize bounds how much of a host's log a failed launch shows: every
+// host of a terminal appends to its log, and the one that just ended wrote
+// last.
+const logTailSize = 2 << 10
+
+// logTail is the end of the host log at path, from its first whole line in
+// the last logTailSize bytes.
+func logTail(path string) string {
+	file, err := fsx.Open(path)
+	if err != nil {
+		return err.Error()
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err.Error()
+	}
+	from := max(0, info.Size()-logTailSize)
+	data, err := io.ReadAll(io.NewSectionReader(file, from, info.Size()-from))
+	if err != nil {
+		return err.Error()
+	}
+	if _, rest, found := bytes.Cut(data, []byte("\n")); from > 0 && found {
+		data = rest
+	}
+	if text := strings.TrimSpace(string(data)); text != "" {
+		return text
+	}
+	return "(nothing)"
 }
