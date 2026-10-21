@@ -104,30 +104,31 @@ func TestGoblinHooksReadNothingForAnOrdinaryCall(t *testing.T) {
 // start of the goblins that installed it. A fresh install that leaves such a
 // file stops the goblin before its next shell command, which is the first
 // that could start Python, and every command after it until the file is
-// gone, and wakes the CFO once with the file and its package.
+// gone. It wakes the CFO with the file and its package once while that wake
+// waits for him, and again once he has acknowledged it and the file is
+// still there.
 func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
 	// Arrange
 	stateDir := goblinHookHome(t)
-	site := filepath.Join(os.Getenv("CLAUDE_PROJECT_DIR"), ".venv", "Lib", "site-packages")
-	planted := filepath.Join(site, "litellm_init.pth")
-	for path, content := range map[string]string{
-		filepath.Join(site, "..", "..", "pyvenv.cfg"): "version_info = 3.12.10\n",
-		planted: "import os, subprocess; subprocess.Popen(['python', 'init.py'])\n",
-		filepath.Join(site, "litellm-1.107.0.dist-info", "RECORD"): "litellm_init.pth,sha256=AAAA,90\n",
-	} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	planted := plantStartHook(t, os.Getenv("CLAUDE_PROJECT_DIR"), "litellm_init.pth,sha256=AAAA,90\n")
 	var stdout, stderr bytes.Buffer
 
 	// Act
 	exits := []int{
 		runHook("goblin-seal", shellCall(t, `.venv\Scripts\python.exe -m pytest`), &stdout, &stderr),
 		runHook("goblin-seal", shellCall(t, "git status"), &stdout, &stderr),
+	}
+	first, err := wake.Pending(stateDir)
+	if err != nil || len(first) == 0 {
+		t.Fatalf("wakes = %+v, %v, want the CFO woken", first, err)
+	}
+	if err := wake.AckThrough(stateDir, first[len(first)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+	exits = append(exits, runHook("goblin-seal", shellCall(t, "uv sync --locked"), &stdout, &stderr))
+	again, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Remove(planted); err != nil {
 		t.Fatal(err)
@@ -146,16 +147,61 @@ func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
 			t.Fatalf("refusal = %q, want the planted file and its package named", refusal)
 		}
 	}
-	if after != 0 || len(refusals) != 2 {
+	if after != 0 || len(refusals) != 3 {
 		t.Fatalf("exit once the file is gone = %d, refusals = %d, want the command let through", after, len(refusals))
 	}
-	pending, err := wake.Pending(stateDir)
-	if err != nil {
-		t.Fatal(err)
+	for name, wakes := range map[string][]wake.Record{"before he acknowledged it": first, "after he acknowledged it": again} {
+		if len(wakes) != 1 || wakes[0].Kind != "review" || wakes[0].Key != "pd-keys" || !strings.Contains(wakes[0].Detail, "pd-keys was stopped before its next shell command: "+planted+", from litellm-1.107.0,") || strings.Contains(wakes[0].Detail, "subprocess") {
+			t.Fatalf("wakes %s = %+v, want one naming the file and its package, never its code", name, wakes)
+		}
 	}
-	if len(pending) != 1 || pending[0].Kind != "review" || pending[0].Key != "pd-keys" || !strings.Contains(pending[0].Detail, "pd-keys was stopped before its next shell command: "+planted+", from litellm-1.107.0,") || strings.Contains(pending[0].Detail, "subprocess") {
-		t.Fatalf("wakes = %+v, want one naming the file and its package, never its code", pending)
+}
+
+// An install writes a file before the RECORD that names its package, so a
+// command run beside an install that finds a start hook no package names
+// yet waits with no wake, and the CFO is told only of one still unnamed
+// once the install has ended.
+func TestGoblinSealWaitsOutAnInstallBeforeWakingTheCFO(t *testing.T) {
+	// Arrange
+	stateDir := goblinHookHome(t)
+	plantStartHook(t, os.Getenv("CLAUDE_PROJECT_DIR"), "")
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runHook("goblin-seal", shellCall(t, "Get-Content install.log -Tail 5"), &stdout, &stderr)
+
+	// Assert
+	if exit != 2 || !strings.Contains(stderr.String(), "no installed package names it yet, as while an install is still writing") {
+		t.Fatalf("exit = %d, stderr = %q, want the command to wait out the install", exit, stderr.String())
 	}
+	if pending, err := wake.Pending(stateDir); err != nil || len(pending) != 0 {
+		t.Fatalf("wakes = %+v, %v, want none while an install may still name it", pending, err)
+	}
+}
+
+// plantStartHook makes the environment a fresh install of the hijacked
+// release leaves in worktree, its RECORD as record says, and returns the
+// planted .pth file.
+func plantStartHook(t *testing.T, worktree, record string) string {
+	t.Helper()
+	site := filepath.Join(worktree, ".venv", "Lib", "site-packages")
+	planted := filepath.Join(site, "litellm_init.pth")
+	files := map[string]string{
+		filepath.Join(site, "..", "..", "pyvenv.cfg"): "uv = 0.9.30\nversion_info = 3.12.10\n",
+		planted: "import os, subprocess; subprocess.Popen(['python', 'init.py'])\n",
+	}
+	if record != "" {
+		files[filepath.Join(site, "litellm-1.107.0.dist-info", "RECORD")] = record
+	}
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return planted
 }
 
 func sealTask(task string, lasting time.Duration) func(*testing.T, string) {

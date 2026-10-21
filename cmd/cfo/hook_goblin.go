@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,10 +53,13 @@ func hookGoblinSeal(stdin io.Reader, stderr io.Writer) int {
 // started in, holds code that runs at every Python start and that no known
 // package ships, or empty when none does. The command is refused before
 // anything it starts can run Python, and so is every one after it until the
-// file is gone. The CFO is woken once for each such file, with the file and
-// the package that installed it, never its content, which the package
-// wrote. Environments that cannot be read refuse too, without a wake, since
-// what they hold is unknown.
+// file is gone. The CFO is woken for each such file with the file and the
+// package that installed it, never its content, which the package wrote:
+// once while that wake waits for him, and again once he has acknowledged it
+// and the file is still there, as after a goblin reinstalls what he removed.
+// A file no package names yet while an install still writes is refused with
+// no wake, since its RECORD may yet name it. Environments that cannot be
+// read refuse too, without a wake, since what they hold is unknown.
 func startHookRefusal(worktree, task string) string {
 	if worktree == "" {
 		return ""
@@ -71,11 +75,20 @@ func startHookRefusal(worktree, task string) string {
 	for index, hook := range hooks {
 		named[index] = hook.Path + ", " + startHookPackage(hook) + ","
 	}
+	if !slices.ContainsFunc(hooks, func(hook starthook.Hook) bool { return !hook.Installing }) {
+		return "This command waits: " + strings.Join(named, " and ") + " runs at every Python start, and no installed package names it yet, as while an install is still writing." +
+			" Run the command again once the install has ended; if no package names it then, the CFO is told."
+	}
 	if h, err := home.Resolve(); err == nil && state.ValidTaskID(task) == nil {
+		pending, err := wake.Pending(h.State)
 		for index, hook := range hooks {
+			identity := "start-hook " + task + " " + hook.Path + " " + hook.Package + " "
+			if err != nil || hook.Installing || slices.ContainsFunc(pending, func(record wake.Record) bool { return strings.HasPrefix(record.Once, identity) }) {
+				continue
+			}
 			detail := task + " was stopped before its next shell command: " + named[index] + " runs at every Python start of its worktree, which is how a hijacked release reads what this account can reach." +
 				" Remove the file once you know its package is safe, and the goblin's commands run again; otherwise end the task. Python that the command which installed it started may already have run it."
-			if _, isNew, err := wake.AppendFirst(h.State, "start-hook "+task+" "+hook.Path+" "+hook.Package, "review", task, detail); err == nil && isNew {
+			if _, isNew, err := wake.AppendFirst(h.State, identity+time.Now().UTC().Format(time.RFC3339Nano), "review", task, detail); err == nil && isNew {
 				_, _ = wake.PublishEpisode(h.State)
 			}
 		}

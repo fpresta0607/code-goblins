@@ -10,10 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -26,7 +29,17 @@ type Hook struct {
 	// .dist-info folder names it, such as litellm-1.107.0, or empty when no
 	// installed distribution names it.
 	Package string
+	// Installing reports that no installed distribution names it while its
+	// environment's site-packages changed within installQuiet, as it does
+	// while an install has written a file and not yet the RECORD that names
+	// it.
+	Installing bool
 }
+
+// installQuiet is how long an environment's site-packages stays unchanged
+// before a hook no distribution names is taken as left there rather than as
+// one an install is still writing.
+const installQuiet = time.Minute
 
 // knownHooks are the start hooks an environment carries with no release
 // hijacked: each by its file, its executable line, and the distribution
@@ -34,8 +47,8 @@ type Hook struct {
 // lines into a file of its own, or over the file of the package that ships
 // it, is still found.
 var knownHooks = []struct{ file, owner, line string }{
-	// uv and virtualenv write it when they make the environment; no
-	// distribution installs it.
+	// uv and virtualenv write it when they make the environment, and say so
+	// in its pyvenv.cfg; no distribution installs it.
 	{file: "_virtualenv.pth", line: "import _virtualenv"},
 	{file: "distutils-precedence.pth", owner: "setuptools", line: "import os; var = 'SETUPTOOLS_USE_DISTUTILS'; enabled = os.environ.get(var, 'local') == 'local'; enabled and __import__('_distutils_hack').add_shim();"},
 	{file: "pywin32.pth", owner: "pywin32", line: "import pywin32_bootstrap"},
@@ -61,12 +74,12 @@ func Find(worktree string) ([]Hook, error) {
 	if err != nil {
 		return nil, err
 	}
-	var environments []string
+	var folders []string
 	for _, entry := range entries {
 		// A linked dependency folder is a junction, which is no directory
 		// entry, and is looked into all the same.
 		folder := filepath.Join(worktree, entry.Name())
-		environments = append(environments, folder, filepath.Join(folder, ".venv"))
+		folders = append(folders, folder, filepath.Join(folder, ".venv"))
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
 			continue
 		}
@@ -79,45 +92,81 @@ func Find(worktree string) ([]Hook, error) {
 		}
 		for _, subfolder := range subfolders {
 			if subfolder.IsDir() {
-				environments = append(environments, filepath.Join(folder, subfolder.Name(), ".venv"))
+				folders = append(folders, filepath.Join(folder, subfolder.Name(), ".venv"))
 			}
 		}
 	}
 	var hooks []Hook
-	for _, environment := range environments {
-		if _, err := os.Lstat(filepath.Join(environment, "pyvenv.cfg")); err != nil {
+	for _, folder := range folders {
+		if _, err := os.Lstat(filepath.Join(folder, "pyvenv.cfg")); err != nil {
 			continue
 		}
-		sites, _ := filepath.Glob(filepath.Join(environment, "lib", "python*", "site-packages"))
-		for _, site := range append([]string{filepath.Join(environment, "Lib", "site-packages")}, sites...) {
-			found, err := siteHooks(site)
-			if err != nil {
-				return nil, err
-			}
-			hooks = append(hooks, found...)
+		found, err := environmentHooks(worktree, folder)
+		if err != nil {
+			return nil, err
 		}
+		hooks = append(hooks, found...)
 	}
 	return hooks, nil
 }
 
-// siteHooks are the start hooks of one site-packages folder, which Python
-// reads at start: each .pth file there, and a customize module there or in a
-// folder a .pth file's path line adds.
-func siteHooks(site string) ([]Hook, error) {
-	entries, err := os.ReadDir(site)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+// environment is one Python environment as the scan reads it.
+type environment struct {
+	worktree, folder string
+	// packages is its site-packages folder, which holds each installed
+	// distribution's .dist-info folder, listed in distributions.
+	packages      string
+	distributions []os.DirEntry
+	modified      time.Time
+}
+
+// environmentHooks are the start hooks of the environment in folder. Python
+// reads its site-packages folder at start and, on Windows, the
+// environment's own folder as well, where a wheel's data files land.
+func environmentHooks(worktree, folder string) ([]Hook, error) {
+	sites, _ := filepath.Glob(filepath.Join(folder, "lib", "python*", "site-packages"))
+	for _, packages := range append([]string{filepath.Join(folder, "Lib", "site-packages")}, sites...) {
+		info, err := os.Stat(packages)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		entries, err := os.ReadDir(packages)
+		if err != nil {
+			return nil, err
+		}
+		e := environment{worktree: worktree, folder: folder, packages: packages, distributions: distributions(entries, ""), modified: info.ModTime()}
+		hooks, err := e.siteHooks(packages, entries)
+		if err != nil {
+			return nil, err
+		}
+		root, err := os.ReadDir(folder)
+		if err != nil {
+			return nil, err
+		}
+		rootHooks, err := e.siteHooks(folder, root)
+		if err != nil {
+			return nil, err
+		}
+		return append(hooks, rootHooks...), nil
 	}
-	if err != nil {
-		return nil, err
-	}
+	return nil, nil
+}
+
+// siteHooks are the start hooks of one site folder, whose entries are
+// listed: each .pth file there, and a customize module there or in a folder
+// a .pth file's path line adds.
+func (e environment) siteHooks(site string, entries []os.DirEntry) ([]Hook, error) {
 	hooks := customizeModules(site, entries)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".pth") {
 			continue
 		}
-		data, err := fsx.ReadFile(filepath.Join(site, name))
+		path := filepath.Join(site, name)
+		data, err := fsx.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +180,7 @@ func siteHooks(site string) ([]Hook, error) {
 			switch {
 			case strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "":
 			case strings.HasPrefix(line, "import ") || strings.HasPrefix(line, "import\t"):
-				isHook = isHook || !known(site, entries, name, strings.TrimRight(line, " \t"))
+				isHook = isHook || !e.known(path, strings.TrimRight(line, " \t"))
 			default:
 				added := strings.TrimRight(line, " \t")
 				if !filepath.IsAbs(added) {
@@ -143,13 +192,12 @@ func siteHooks(site string) ([]Hook, error) {
 			}
 		}
 		if isHook {
-			hooks = append(hooks, Hook{Path: filepath.Join(site, name)})
+			hooks = append(hooks, Hook{Path: path})
 		}
 	}
 	for index := range hooks {
-		if relative, err := filepath.Rel(site, hooks[index].Path); err == nil && !strings.HasPrefix(relative, "..") {
-			hooks[index].Package = owner(site, entries, filepath.ToSlash(relative))
-		}
+		hooks[index].Package = e.owner(e.distributions, hooks[index].Path)
+		hooks[index].Installing = hooks[index].Package == "" && time.Since(e.modified) < installQuiet
 	}
 	return hooks, nil
 }
@@ -168,31 +216,68 @@ func customizeModules(folder string, entries []os.DirEntry) []Hook {
 	return hooks
 }
 
-// known reports whether line of the .pth file named file is a start hook a
-// known package ships, from that package: one of knownHooks, or the finder
-// setuptools writes for a project installed editable from a folder, which
-// its distribution's direct_url.json says it is.
-func known(site string, entries []os.DirEntry, file, line string) bool {
+// known reports whether line of the .pth file at path is a start hook a
+// known package ships, from that package: one of knownHooks, or any line of
+// a distribution installed editable from a folder of this worktree, which is
+// the project's own code and which its build backend's editable loader
+// needs, as setuptools, meson-python and scikit-build-core write one.
+func (e environment) known(path, line string) bool {
 	for _, hook := range knownHooks {
-		if file == hook.file && line == hook.line {
-			return hook.owner == "" || owner(site, distributions(entries, hook.owner+"-"), file) != ""
+		if filepath.Base(path) == hook.file && line == hook.line {
+			if hook.owner == "" {
+				return filepath.Dir(path) == e.packages && e.madeByVirtualenv()
+			}
+			return e.owner(distributions(e.distributions, hook.owner+"-"), path) != ""
 		}
 	}
-	distribution, isEditable := strings.CutPrefix(strings.TrimSuffix(file, ".pth"), "__editable__.")
-	module, rest, _ := strings.Cut(strings.TrimPrefix(line, "import "), "; ")
-	if !isEditable || !strings.HasPrefix(module, "__editable___") || !strings.HasSuffix(module, "_finder") || rest != module+".install()" {
+	for _, distribution := range e.distributions {
+		data, err := fsx.ReadFile(filepath.Join(e.packages, distribution.Name(), "direct_url.json"))
+		var direct struct {
+			URL     string `json:"url"`
+			DirInfo struct {
+				Editable bool `json:"editable"`
+			} `json:"dir_info"`
+		}
+		if err != nil || json.Unmarshal(data, &direct) != nil || !direct.DirInfo.Editable || !e.inWorktree(direct.URL) {
+			continue
+		}
+		if e.owner([]os.DirEntry{distribution}, path) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// madeByVirtualenv reports whether uv or virtualenv made the environment,
+// which each records in its pyvenv.cfg, as python -m venv does not.
+func (e environment) madeByVirtualenv() bool {
+	data, err := fsx.ReadFile(filepath.Join(e.folder, "pyvenv.cfg"))
+	if err != nil {
 		return false
 	}
-	if owner(site, distributions(entries, distribution+".dist-info"), file) == "" {
+	for _, line := range strings.Split(string(data), "\n") {
+		key, _, _ := strings.Cut(line, "=")
+		if key = strings.TrimSpace(key); key == "uv" || key == "virtualenv" {
+			return true
+		}
+	}
+	return false
+}
+
+// inWorktree reports whether address, a direct_url.json url, is a folder of
+// this worktree. An index serves no such address, and a release cannot know
+// the worktree's folder.
+func (e environment) inWorktree(address string) bool {
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Scheme != "file" {
 		return false
 	}
-	data, err := fsx.ReadFile(filepath.Join(site, distribution+".dist-info", "direct_url.json"))
-	var direct struct {
-		DirInfo struct {
-			Editable bool `json:"editable"`
-		} `json:"dir_info"`
+	folder := filepath.FromSlash(parsed.Path)
+	if runtime.GOOS == "windows" {
+		folder = strings.TrimPrefix(folder, `\`)
 	}
-	return err == nil && json.Unmarshal(data, &direct) == nil && direct.DirInfo.Editable
+	relative, err := filepath.Rel(e.worktree, folder)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 // distributions are the .dist-info folders among entries whose name starts
@@ -206,19 +291,24 @@ func distributions(entries []os.DirEntry, prefix string) []os.DirEntry {
 	})
 }
 
-// owner is the distribution among the .dist-info folders of entries whose
-// RECORD installs relative, a path under site written with slashes, or
-// empty when none does.
-func owner(site string, entries []os.DirEntry, relative string) string {
-	for _, entry := range distributions(entries, "") {
-		data, err := fsx.ReadFile(filepath.Join(site, entry.Name(), "RECORD"))
+// owner is the distribution among dists whose RECORD installs path, which
+// a RECORD names relative to the site-packages folder, as ../../name for a
+// data file in the environment's own folder, or empty when none does.
+func (e environment) owner(dists []os.DirEntry, path string) string {
+	relative, err := filepath.Rel(e.packages, path)
+	if err != nil {
+		return ""
+	}
+	relative = filepath.ToSlash(relative)
+	for _, distribution := range dists {
+		data, err := fsx.ReadFile(filepath.Join(e.packages, distribution.Name(), "RECORD"))
 		if err != nil {
 			continue
 		}
 		for _, line := range strings.Split(string(data), "\n") {
-			path, _, _ := strings.Cut(line, ",")
-			if path == relative || strings.HasPrefix(path, relative+"/") {
-				return strings.TrimSuffix(entry.Name(), ".dist-info")
+			recorded, _, _ := strings.Cut(line, ",")
+			if recorded == relative || strings.HasPrefix(recorded, relative+"/") {
+				return strings.TrimSuffix(distribution.Name(), ".dist-info")
 			}
 		}
 	}
