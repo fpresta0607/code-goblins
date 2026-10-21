@@ -143,10 +143,10 @@ func compactNativeCFO(h home.Home, e nativehook.Event, now time.Time) error {
 	// compaction, which writes a new one first.
 	path, written, isFresh := digest.FreshCheckpoint(h.State, now)
 	identity := fmt.Sprintf("compact/%s/%s/%d", e.Harness, e.SessionID, written.UnixNano())
-	detail := fmt.Sprintf("compacted: the %s CFO's context was just compacted; read %s, written %s before it, then cfo fleet-view and cfo drain before any fleet action", e.Harness, path, written.UTC().Format(time.RFC3339))
+	detail := fmt.Sprintf("compacted: the %s CFO's context was just compacted; read %s, written %s as it began, then cfo fleet-view and cfo drain before any fleet action", e.Harness, path, written.UTC().Format(time.RFC3339))
 	if !isFresh {
 		identity = fmt.Sprintf("compact/%s/%s/%s", e.Harness, e.SessionID, e.TurnID)
-		detail = fmt.Sprintf("compacted: the %s CFO's context was just compacted and no fresh checkpoint was written before it; reconcile from cfo fleet-view and cfo drain before any fleet action", e.Harness)
+		detail = fmt.Sprintf("compacted: the %s CFO's context was just compacted and no fresh checkpoint was written for it; reconcile from cfo fleet-view and cfo drain before any fleet action", e.Harness)
 	}
 	if _, err := wake.AppendOnce(h.State, identity, "check", "compact", detail); err != nil {
 		return err

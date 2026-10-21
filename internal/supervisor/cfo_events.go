@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -18,7 +19,8 @@ import (
 // counts, and a compaction only while that CFO holds the primary home, so a
 // goblin's or another session's events change nothing.
 func (s *Service) followNativeCFO(events []nativehook.Event) error {
-	if len(events) == 0 {
+	isCFOs := func(e nativehook.Event) bool { return e.Role == "cfo" && e.TaskID == "" }
+	if !slices.ContainsFunc(events, isCFOs) {
 		return nil
 	}
 	h := s.Store.Home
@@ -30,7 +32,7 @@ func (s *Service) followNativeCFO(events []nativehook.Event) error {
 	isSettled := false
 	var err error
 	for _, e := range events {
-		if e.Harness+"/"+e.SessionID != session {
+		if !isCFOs(e) || e.Harness+"/"+e.SessionID != session {
 			continue
 		}
 		switch e.Kind {
@@ -50,7 +52,7 @@ func (s *Service) followNativeCFO(events []nativehook.Event) error {
 	}
 	memory, readErr := dispatch.Memory()
 	if readErr != nil {
-		return err
+		return errors.Join(err, readErr)
 	}
 	_, wakeErr := IdleTurnWake(h, memory, time.Now().UTC())
 	return errors.Join(err, wakeErr)

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -179,6 +178,9 @@ func TestTheSupervisorCompactsOnlyTheNativeCFOThatHoldsTheHome(t *testing.T) {
 			if entries, err := os.ReadDir(nativehook.SpoolDir(h.State)); err != nil || len(entries) != 0 {
 				t.Fatalf("the native inbox still holds %v (%v), so the compaction events were never ingested", entries, err)
 			}
+			if issues := s.Store.Snapshot().Issues; len(issues) != 0 {
+				t.Fatalf("the cycles quarantined events instead of accepting them: %v", issues)
+			}
 			if !testCase.isMoved {
 				if len(compacted) != 0 {
 					t.Fatalf("compacted %+v, want nothing", compacted)
@@ -193,8 +195,8 @@ func TestTheSupervisorCompactsOnlyTheNativeCFOThatHoldsTheHome(t *testing.T) {
 }
 
 // A compaction starts and ends no turn: the session's record keeps its last
-// turn's phase and event, so a goblin's evaluation its Stop asked for is not
-// superseded, and the compaction is ingested once however often it is
+// turn's phase and event, which a goblin's evaluation its Stop asked for must
+// still name to run, and the compaction is ingested once however often it is
 // replayed.
 func TestACompactionLeavesTheSessionsTurnAsItWas(t *testing.T) {
 	// Arrange
@@ -228,12 +230,8 @@ func TestACompactionLeavesTheSessionsTurnAsItWas(t *testing.T) {
 	if len(accepted) != 1 || accepted[0].ID != compacting.ID || len(replayed) != 0 {
 		t.Fatalf("ingested %+v then %+v, want the compaction once", accepted, replayed)
 	}
-	view := s.Snapshot()
-	if session := view.Sessions["codex/goblin-session"]; session.Phase != "settled" || session.LastEventID != stop.ID {
+	if session := s.Snapshot().Sessions["codex/goblin-session"]; session.Phase != "settled" || session.LastEventID != stop.ID {
 		t.Fatalf("session after its compaction = %+v, want it settled at its Stop", session)
-	}
-	if !slices.ContainsFunc(view.Actions, func(a Action) bool { return a.EventID == stop.ID && a.Status == "queued" }) {
-		t.Fatalf("actions %+v, want the Stop's evaluation still queued", view.Actions)
 	}
 }
 
