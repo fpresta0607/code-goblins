@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
@@ -54,8 +55,8 @@ func (h *HTTP) ReplaceDictation() {
 // soon after the keys are let go. It takes no body, and answers at once; a
 // dictation that could not run says why when it is sent.
 func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
-	if offMachine(r, h.Host) != "" {
-		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+	if dictationRefused(r, h.Host) {
+		apiError(w, http.StatusForbidden, dictationRefusal)
 		return
 	}
 	if r.ContentLength != 0 {
@@ -182,14 +183,25 @@ func (h *HTTP) dictationStatus(w http.ResponseWriter) {
 	respond(w, 200, status)
 }
 
+// dictationRefused says whether a request may not dictate. The board's own
+// page on this machine may, and so may the Overlord's private board on his
+// phone, which the remote access gate admitted as his own login: its sound
+// crosses his tailnet to this machine alone and is recognised here, so what
+// he says never reaches anyone else's service.
+func dictationRefused(r *http.Request, board string) bool {
+	return offMachine(r, board) != "" && !remoteaccess.Admitted(r)
+}
+
+const dictationRefusal = "The board dictates only on the PC it runs on, from its own page at 127.0.0.1 or your private board, so what you say never leaves your own devices."
+
 // dictate returns the words in the sound the board's page recorded. It takes
-// a sound only from the board's own page on this machine, so what is said
-// never leaves it, and runs one engine at a time. A body that is not a WAV
+// a sound only from the board's own page on this machine or the Overlord's
+// private board, and runs one engine at a time. A body that is not a WAV
 // sound is a bad request before anything of it is read, as every board
 // endpoint refuses a body it does not take.
 func (h *HTTP) dictate(w http.ResponseWriter, r *http.Request) {
-	if offMachine(r, h.Host) != "" {
-		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+	if dictationRefused(r, h.Host) {
+		apiError(w, http.StatusForbidden, dictationRefusal)
 		return
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "audio/wav") {

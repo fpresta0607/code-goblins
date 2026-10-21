@@ -103,6 +103,26 @@ test("releasing the keys types every final phrase heard while they were held, on
   assert.deepEqual(heard, ["open the pull request"]);
 });
 
+test("a dictation stopped to send says so with its words, and one released does not", () => {
+  // Arrange
+  FakeRecognizer.made = [];
+  const heard: [string, boolean][] = [];
+  const subject = new Dictation({ heard: (text, isSent) => heard.push([text, isSent]), listening: () => {}, problem: () => {}, failed: () => {} }, () => FakeRecognizer, "en-GB");
+
+  // Act
+  subject.start();
+  assert.equal(subject.isListening, true);
+  FakeRecognizer.made[0].hear("send it");
+  subject.stop(true);
+  subject.start();
+  FakeRecognizer.made[1].hear("only type it");
+  subject.stop();
+
+  // Assert
+  assert.equal(subject.isListening, false);
+  assert.deepEqual(heard, [["send it", true], ["only type it", false]]);
+});
+
 test("a blocked microphone is reported and types nothing", () => {
   const { subject, heard, problems } = dictation();
   subject.start();

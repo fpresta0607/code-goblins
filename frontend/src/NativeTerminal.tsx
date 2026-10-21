@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { message, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
+import { attachDictatedInput } from "./dictated-input";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
@@ -81,8 +82,8 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   }, [inHistory]);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const pasteText = useRef<((text: string) => void) | null>(null);
-  const dictation = useDictation((text) => pasteText.current?.(text), instance);
+  const pasteText = useRef<((text: string, isSent?: boolean) => void) | null>(null);
+  const dictation = useDictation((text, isSent) => pasteText.current?.(text, isSent), instance);
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
@@ -356,8 +357,11 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     term.onData(send);
     // Typing in the history types into the pane and returns to its live screen.
     past.onData((text) => { closeHistory(); send(text); });
-    const typePaste = (text: string) => {
-      try { const paste = bracketedPaste(text); closeHistory(); send(paste); }
+    const detachDictatedInput = attachDictatedInput(term, (keys) => term.input(keys, true));
+    const detachPastDictatedInput = attachDictatedInput(past, (keys) => past.input(keys, true));
+    // A dictation stopped to send is typed and then entered.
+    const typePaste = (text: string, isSent = false) => {
+      try { const paste = bracketedPaste(text); closeHistory(); send(paste); if (isSent) send("\r"); }
       catch (error) { showFeedback(message(error)); }
     };
     pasteText.current = typePaste;
@@ -633,7 +637,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); detachDictatedInput(); detachPastDictatedInput(); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate, showFeedback]);
   if (unavailable) return <TerminalEmpty text="Terminal unavailable" />;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
@@ -648,7 +652,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       </span>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
-    <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
+    <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
     {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

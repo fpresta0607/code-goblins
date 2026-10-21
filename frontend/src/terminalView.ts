@@ -2,6 +2,7 @@ import { type IDisposable, Terminal } from "@xterm/xterm";
 import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
+import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
@@ -92,6 +93,7 @@ export class TerminalView {
   private isCursorShown = true;
   private readonly stopFollowing: () => void;
   private readonly stopZooming: () => void;
+  private readonly detachDictatedInput: () => void;
 
   constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
     this.events = events;
@@ -130,6 +132,7 @@ export class TerminalView {
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
+    this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
@@ -169,6 +172,12 @@ export class TerminalView {
     if (this.isSendable()) this.term.paste(stripPasteEscapes(text));
   }
 
+  // enter presses Enter in the terminal, as a dictation stopped to send does
+  // after typing its words.
+  enter(): void {
+    if (this.isSendable()) this.term.input("\r", true);
+  }
+
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
   // xterm scrolls from the position its viewport last drew, which it brings
   // up to a resize only on its next frame, so a jump in between lands short
@@ -192,6 +201,7 @@ export class TerminalView {
     cancelAnimationFrame(this.pinFrame);
     this.stopFollowing();
     this.stopZooming();
+    this.detachDictatedInput();
     this.pin.dispose();
     clearTimeout(this.settle);
     clearTimeout(this.fallback);
