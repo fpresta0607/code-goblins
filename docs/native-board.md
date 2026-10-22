@@ -129,6 +129,8 @@ If that folder cannot be read or recreated, the board reports the folder problem
 One slow reconciliation pass runs each minute; there is no browser-driven task polling engine.
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
 Verified terminal tasks leave that polling path until new session activity supplies a reason to reevaluate.
+A task whose harness is at work is left out of that pass, and a card reads its gate from the task's evaluation, so the progress watch, which reads each goblin's gate run once a minute, has the task evaluated again whenever that run moved: a step that changed status, a run that ended or a pull request whose state changed.
+A run that did not move starts no evaluation, so a decision the goblin answers mid-turn stops reading Blocked within a minute while the turn still runs (#1305).
 
 Fresh, matching Herdr monitor evidence distinguishes a working harness from an unavailable or stale one.
 An abrupt process crash does not change the recorded native event into an invented end event.

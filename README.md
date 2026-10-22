@@ -573,7 +573,7 @@ On the board, a paused card says in place of Paused why it waits and what resume
 Under the 5 GB mark, Start and Resume say what they need on the card instead of being refused after the click; the memory meter shows no count of goblins or cap.
 **Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, the highest in your In progress order first, then the top of the queue, passing over a task whose last start failed, which waits for its Start.
 A live goblin with no real progress for 20 minutes says for how long on its card.
-After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
+After 20 minutes with no new commit, push, change in its gate run, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
 Any of them resets it, and intentional pauses do not raise it.
 A goblin waiting by design, on a background shell, monitor or sub-agent of its own or on its run in the machine's heavy line, is raised only once that wait has shown nothing new for an hour, and the wake names the wait; a run still waiting its turn in the heavy line shows something new each time the line moves.
 A goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and the clock a harness redraws by itself on its screen is not output.
