@@ -57,9 +57,9 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		if err := r.returnCustodyAtRecordedHead(ctx, worktree, branch, env, run); err != nil {
 			return RecoveryResult{}, err
 		}
-		returned, err := r.latestRecoveryRun(ctx, project, branch)
-		if err != nil {
-			return RecoveryResult{}, err
+		returned, runErr := r.latestRecoveryRun(ctx, project, branch)
+		if runErr != nil {
+			return RecoveryResult{}, runErr
 		}
 		if returned.RunID != run.RunID {
 			return RecoveryResult{}, errors.New("pipeline: another run took the branch during custody recovery")
@@ -174,6 +174,11 @@ func (r Reader) returnCustodyAtRecordedHead(ctx context.Context, worktree, branc
 	}
 	if len(verified) != 1 || verified[0].At == 0 {
 		return errors.New("pipeline: the engine never verified the run's recorded head, and native recovery of an unverified head can move the task branch")
+	}
+	// The gate alignment after native recovery needs the submitted head here,
+	// and a custody return it cannot finish would refuse every retry.
+	if err := r.requireCommit(ctx, worktree, run.SubmittedHead, false); err != nil {
+		return fmt.Errorf("pipeline: local recovery commit is unavailable: %w", err)
 	}
 	native, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
 	if err != nil {
@@ -341,9 +346,11 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 	return nil
 }
 
+// readRecoverySync reads native custody status. A check exits 1 for a blocked
+// state, such as a run that still owns the branch, and still prints the state.
 func (r Reader) readRecoverySync(ctx context.Context, worktree string, env []string) (recoverySync, []byte, error) {
 	result, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--check"}})
-	if err != nil || result.ExitCode != 0 {
+	if err != nil || result.ExitCode != 0 && result.ExitCode != 1 {
 		return recoverySync{}, nil, errors.New("pipeline: native custody status check failed")
 	}
 	var status struct {
@@ -351,6 +358,9 @@ func (r Reader) readRecoverySync(ctx context.Context, worktree string, env []str
 	}
 	if yaml.Unmarshal(result.Stdout, &status) != nil {
 		return recoverySync{}, nil, errors.New("pipeline: invalid native custody status")
+	}
+	if result.ExitCode != 0 && status.BranchSync.State == "" {
+		return recoverySync{}, nil, errors.New("pipeline: native custody status check failed")
 	}
 	return status.BranchSync, append(append([]byte(nil), result.Stdout...), result.Stderr...), nil
 }

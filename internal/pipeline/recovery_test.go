@@ -612,9 +612,9 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 
 // recordedHeadRunner runs git and sqlite3 for real and stands in for the
 // no-mistakes engine after a restart ended a run whose recorded head it had
-// verified: it offers plain sync --recover only while the task branch holds
-// that head, and its recovery anchors the head and stamps custody returned
-// without moving the gate branch.
+// verified: its check exits 1 while the run owns the branch, offering plain
+// sync --recover only while the task branch holds that head, and its recovery
+// anchors the head and stamps custody returned without moving the gate branch.
 type recordedHeadRunner struct {
 	database, work, run string
 	recoveries          int
@@ -652,13 +652,13 @@ func (r *recordedHeadRunner) Run(ctx context.Context, request execx.Request) (ex
 		r.recoveries++
 		return execx.Result{Stdout: []byte("custody returned\n")}, nil
 	case "axi sync --check":
-		state, safety, action := "pipeline_owned", "blocked_recover_manual_reconciliation", "no-mistakes axi status"
+		state, safety, action, exitCode := "pipeline_owned", "blocked_recover_manual_reconciliation", "no-mistakes axi status", 1
 		if isReturned {
-			state, safety, action = "custody_returned", "custody_returned", `no-mistakes axi run --intent "<what the user set out to accomplish>"`
+			state, safety, action, exitCode = "custody_returned", "custody_returned", `no-mistakes axi run --intent "<what the user set out to accomplish>"`, 0
 		} else if head == recorded {
 			safety, action = "blocked_pipeline_owned_recoverable", "no-mistakes axi sync --recover"
 		}
-		return execx.Result{Stdout: []byte("branch_sync:\n  state: " + state + "\n  safety: " + safety + "\n  local:\n    head: " + head + "\n    clean: true\n  pipeline:\n    run: \"" + r.run + "\"\n    submitted_head: " + submitted + "\n    current_head: " + recorded + "\n  next_action:\n    command: '" + action + "'\n")}, nil
+		return execx.Result{ExitCode: exitCode, Stdout: []byte("branch_sync:\n  state: " + state + "\n  safety: " + safety + "\n  local:\n    head: " + head + "\n    clean: true\n  pipeline:\n    run: \"" + r.run + "\"\n    submitted_head: " + submitted + "\n    current_head: " + recorded + "\n  next_action:\n    command: '" + action + "'\n")}, nil
 	}
 	return execx.Result{}, errors.New("unexpected command: " + recoveryRequestCommand(request))
 }
@@ -675,14 +675,14 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 		branch = "fix/gate-rebase-recovery"
 	)
 	for _, test := range []struct {
-		name          string
-		isGateMoved   bool
-		isUnverified  bool
-		isRecoverable bool
+		name         string
+		isGateMoved  bool
+		isUnverified bool
+		refusal      string
 	}{
-		{name: "gate branch at the submitted head", isRecoverable: true},
-		{name: "gate branch moved off the submitted head", isGateMoved: true},
-		{name: "recorded head the engine never verified", isUnverified: true},
+		{name: "gate branch at the submitted head"},
+		{name: "gate branch moved off the submitted head", isGateMoved: true, refusal: "preserved gate branch is unsafe"},
+		{name: "recorded head the engine never verified", isUnverified: true, refusal: "never verified the run's recorded head"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: the gate rebased the submitted head onto a newer main and
@@ -745,8 +745,8 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 			if local := runPipelineGit(t, work, "rev-parse", "HEAD"); local != recorded {
 				t.Fatalf("local head moved from %s to %s", recorded, local)
 			}
-			if !test.isRecoverable {
-				if err == nil || runner.recoveries != 0 || strings.TrimSpace(string(row)) != recorded+" "+submitted+" 0" {
+			if test.refusal != "" {
+				if err == nil || !strings.Contains(err.Error(), test.refusal) || runner.recoveries != 0 || strings.TrimSpace(string(row)) != recorded+" "+submitted+" 0" {
 					t.Fatalf("unsafe recovery: error=%v native recoveries=%d run=%q", err, runner.recoveries, row)
 				}
 				if moved := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); moved != gate {
