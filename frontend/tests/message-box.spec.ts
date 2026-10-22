@@ -149,6 +149,32 @@ test("a message his resume will carry has a delete button, which withdraws it, a
   await expect(box.getByRole("listitem")).toHaveText([/merge 512 first/]);
 });
 
+// Two goblins whose Start waits its turn, both shown in the deck's one slot
+// for a task with no terminal yet.
+const waiting = (id: string, name: string) => ({
+  id, title: "Wait for a turn to start", goblin_name: name, goblin_title: "Queue Keeper", project: "code-goblins", backend: "native", harness: "claude", phase: "queued", starting: true, verified: false, at: PAUSED_AT,
+});
+
+test("two goblins waiting to start each keep their own draft, and Send goes to the one shown", async ({ page }) => {
+  // Arrange
+  const { posted } = await open(page, { healthy: true, instance: "message-box-proof", revision: 1, cfo_runs: true, tasks: [waiting("ann", "Ann"), waiting("rex", "Rex")], actions: [] });
+  const box = (name: string) => page.getByRole("region", { name: "Messages to " + name + " - Queue Keeper" });
+  const draft = (name: string) => box(name).getByRole("textbox", { name: "Message " + name + " - Queue Keeper" });
+  await page.locator(".task-card").filter({ hasText: "Ann" }).click();
+  await draft("Ann").fill("merge 512 first");
+
+  // Act
+  await page.locator(".task-card").filter({ hasText: "Rex" }).click();
+  await expect(draft("Rex")).toHaveValue("");
+  await draft("Rex").fill("rebase first");
+  await box("Rex").getByRole("button", { name: "Send", exact: true }).click();
+  await page.locator(".task-card").filter({ hasText: "Ann" }).click();
+
+  // Assert
+  await expect(draft("Ann")).toHaveValue("merge 512 first");
+  expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message", task_id: "rex", generation: "", text: "rebase first" } }]);
+});
+
 // The Overlord, 2026-10-09, after a restart of the CFO showed a box to send
 // it a message: "when cfo is off no message box should exist". The CFO's
 // slot says why it has no terminal and offers nothing to write in.

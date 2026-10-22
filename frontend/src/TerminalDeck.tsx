@@ -46,8 +46,10 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, behind =
   if (next.length !== live.length || next.some((entry, index) => entry !== live[index])) setLive(next);
   const idle = idleView(task, node, task && taskStatus(task, snapshot).text);
   const slot = (key: string, here: boolean, view: ReactNode) => <div className="deck-slot" key={key} hidden={!here}>{view}</div>;
+  // A box is keyed by its goblin, since the idle slot shows one goblin after
+  // another and each keeps a draft of its own.
   const messaging = (key: string, here: boolean, view: ReactNode, to: Task) => messagesQuery(snapshot, to) ? slot(key, here, view)
-    : <div className="deck-slot with-messages" key={key} hidden={!here}>{view}<Composer snapshot={snapshot} task={to} name={goblinName(to)} terminal={to.id} /></div>;
+    : <div className="deck-slot with-messages" key={key} hidden={!here}>{view}<Composer key={to.id} snapshot={snapshot} task={to} name={goblinName(to)} terminal={to.id} /></div>;
   return <div className={"terminal-deck" + (behind ? " behind" : "")} hidden={!shown}>
     <div className="deck-stage">
       {live.map((entry) => {
