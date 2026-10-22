@@ -1231,6 +1231,33 @@ func TestANativeViewClosesWithTheReasonItCannotOpen(t *testing.T) {
 	}
 }
 
+// A host that does not answer may be starting or busy, so its view is told
+// to try again, which the board does by itself a few times, rather than
+// refused, which it leaves to Reconnect.
+func TestANativeViewOfAHostThatDoesNotAnswerIsToldToTryAgain(t *testing.T) {
+	// Arrange: a record naming a pipe no host serves.
+	h, server := nativeBoard(t, "direct")
+	record, err := json.Marshal(host.Record{ID: "task-1", Pipe: `\\.\pipe\cg-test-no-host-` + strconv.Itoa(os.Getpid()), Token: "unanswered", Version: host.Version, HostPID: os.Getpid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := filepath.Join(h.Service.Store.Home.State, "hosts")
+	if err := os.MkdirAll(hosts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hosts, "task-1.json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	closed := openNativeView(t, server, viewQuery).waitForClose(t)
+
+	// Assert
+	if closed.Code != websocket.StatusTryAgainLater || closed.Reason != "The terminal of this task did not answer." {
+		t.Errorf("the view closed with %d %q, want a try-again close saying the terminal did not answer", closed.Code, closed.Reason)
+	}
+}
+
 // The board shows a starting goblin's session the moment its task record is
 // written, a second or more before its terminal's host runs, and opens its
 // terminal then: the view waits for the host while the start runs, rather
@@ -1298,10 +1325,13 @@ func TestANativeViewClosesWhenItsTaskIsReplaced(t *testing.T) {
 	}
 }
 
-// Custody is checked when a view opens rather than per key: a view of a task
-// whose gate owns it shows the terminal, and a key closes it with the gate's
-// reason, with nothing typed.
-func TestANativeTerminalRefusesTypingWhileAGateOwnsTheTask(t *testing.T) {
+// A view of a task whose gate owns it stays open and live: it is told typing
+// is held, and what it sends is dropped with nothing typed, a key or input
+// xterm makes by itself, such as a focus report or a reply to a query. Until
+// 22 October 2026 the first of them closed the view, so a goblin a gate owned
+// showed only Reconnect as its panel opened (#1304).
+func TestANativeViewUnderAGateStaysOpenAndTypesNothing(t *testing.T) {
+	// Arrange
 	h, server := nativeBoard(t, "no-mistakes")
 	gitFixture(t, taskWorktree(t, h))
 	h.Service.Options.Gate = fakeProgress{value: pipeline.Progress{Status: "running"}}
@@ -1309,20 +1339,29 @@ func TestANativeTerminalRefusesTypingWhileAGateOwnsTheTask(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 
-	v.send(t, websocket.MessageBinary, "typed under the gate\r")
+	// Act: a focus report, a reply to a device attributes query, and a key.
+	for _, input := range []string{"\x1b[I", "\x1b[?62;22c", "typed under the gate\r"} {
+		v.send(t, websocket.MessageBinary, input)
+	}
 
-	closed := v.waitForClose(t)
-	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "pipeline retains custody" {
-		t.Errorf("the view closed with %d %q, want the gate's reason", closed.Code, closed.Reason)
+	// Assert: the relay answers a ping only after its loop has handled the
+	// input before it, so the pong proves the view stayed open through it.
+	v.waitFor(t, `{"type":"held","reason":"pipeline retains custody"}`)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("the view closed under the gate: %v", err)
 	}
 	if typed := terminal.exit(t); len(typed) != 0 {
 		t.Errorf("the terminal received %q under the gate, want nothing", typed)
 	}
 }
 
-// Custody is checked again on every tick, so a gate that takes a task over
-// after its view opened refuses the next key.
-func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
+// Custody is checked again on every tick: a gate that takes a task over after
+// its view opened holds its typing, and one that lets it go frees it, and the
+// view is told each time while it stays open.
+func TestANativeViewIsToldOfAGateTakingOverAndLettingGoOnItsTick(t *testing.T) {
+	// Arrange
 	h, server := nativeBoard(t, "no-mistakes")
 	gitFixture(t, taskWorktree(t, h))
 	gate := &takingGate{}
@@ -1333,22 +1372,24 @@ func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "before\r")
 	terminal.waitForLines(t, 1)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
+	// Act: a key while the gate owns the task, handled before it lets go.
 	gate.taken.Store(true)
-	// The first refusal is kept before the next check starts.
-	for deadline := time.Now().Add(time.Minute); gate.refused.Load() < 2; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("no tick checked custody after the gate took over")
-		}
-	}
+	v.waitFor(t, `{"type":"held","reason":"pipeline owns this task"}`)
 	v.send(t, websocket.MessageBinary, "after\r")
-
-	closed := v.waitForClose(t)
-	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "pipeline owns this task" {
-		t.Errorf("the view closed with %d %q, want the gate's reason", closed.Code, closed.Reason)
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("the view closed under the gate: %v", err)
 	}
-	if typed := terminal.exit(t); !reflect.DeepEqual(typed, []string{"before"}) {
-		t.Errorf("the terminal received %q, want only the line typed before the gate", typed)
+	gate.taken.Store(false)
+	v.waitFor(t, `{"type":"held","reason":""}`)
+	v.send(t, websocket.MessageBinary, "again\r")
+
+	// Assert
+	terminal.waitForLines(t, 2)
+	if typed := terminal.exit(t); !reflect.DeepEqual(typed, []string{"before", "again"}) {
+		t.Errorf("the terminal received %q, want the lines typed before and after the gate", typed)
 	}
 }
 

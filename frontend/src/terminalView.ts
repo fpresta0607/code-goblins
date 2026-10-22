@@ -6,7 +6,7 @@ import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize, parseUnread } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseSize, parseUnread } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
 
@@ -40,6 +40,10 @@ export interface ViewEvents {
   // Key presses have sat unread in the terminal's input, as a busy program
   // leaves them, or its program has read them.
   unread: (isUnread: boolean) => void;
+  // Why typing is held while the screen stays live, as while a gate owns the
+  // task, or an empty reason once it is free. Typing meanwhile reaches no
+  // one: the relay drops it.
+  held: (reason: string) => void;
   // A key was typed while the view had no open connection, so it was not
   // sent: a key sent once the view is back could act on a screen he no
   // longer sees.
@@ -80,6 +84,8 @@ export class TerminalView {
   // Whether key presses sit unread in the terminal's input, as the relay
   // last said, which may be before this view is whole.
   private isUnread = false;
+  // Why typing is held, as the relay last said, or empty while it is free.
+  private heldReason = "";
   private isShown = false;
   private fit: FitState = { isDrawn: true, isClaimPending: false };
   private disposed = false;
@@ -148,6 +154,8 @@ export class TerminalView {
   get ready(): boolean { return this.isReady; }
 
   get unread(): boolean { return this.isUnread; }
+
+  get held(): string { return this.heldReason; }
 
   // show draws this view in the panel or keeps it live out of sight; a view
   // coming into sight is fitted to the panel and drawn again whole.
@@ -227,6 +235,8 @@ export class TerminalView {
       if (history !== null) { this.history = history; return; }
       const unread = parseUnread(data);
       if (unread !== null) { this.isUnread = unread; this.events.unread(unread); return; }
+      const held = parseHeld(data);
+      if (held !== null) { this.heldReason = held; this.events.held(held); return; }
       // The terminal took a size here in its output. xterm parses writes in
       // order and calls back after each, so the grid changes once the output
       // before the size is drawn, and before the output after it.
