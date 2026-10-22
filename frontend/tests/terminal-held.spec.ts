@@ -8,6 +8,9 @@ import { expect, test, type Page } from "./site";
 // says typing is held; the view shows the live screen with that notice, and a
 // view that truly cannot connect says why beside Reconnect.
 
+// xterm draws in the DOM, where a test reads it, without WebGL.
+test.use({ launchOptions: { args: ["--disable-webgl"] } });
+
 const SCREEN = "\x1b[2J\x1b[HGate review running\r\n$ ";
 const NOTICE = "The review gate owns this goblin's work right now, so typing is paused. The screen stays live.";
 
@@ -44,7 +47,7 @@ test("the notice goes once the gate lets typing go", async ({ page }) => {
   await open(page, (socket) => {
     send = socket.send;
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
-    socket.send(JSON.stringify({ type: "held", reason: "pipeline retains custody" }));
+    socket.send(JSON.stringify({ type: "held", reason: "pipeline custody has not been returned; use cfo pipeline recover" }));
     socket.send(Buffer.from(SCREEN));
   });
   const terminal = page.getByRole("region", { name: "Goblin terminal" });
