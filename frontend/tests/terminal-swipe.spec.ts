@@ -36,7 +36,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 // openNative opens a native terminal whose program printed 300 lines, in
-// view, and returns its rows.
+// view, and returns its rows. Its rows hold the text while the view is still
+// staged under the Connecting cover, which a finger would land on instead.
 async function openNative(page: Page) {
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     let isPrinted = false;
@@ -52,6 +53,7 @@ async function openNative(page: Page) {
   await page.goto("/tests/fixtures/terminal-input.html#native");
   const rows = page.locator(".terminal-view > .xterm .xterm-rows");
   await expect(rows).toContainText("line 300");
+  await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
   await page.evaluate((room) => scrollTo(0, room), ROOM);
   return rows;
 }
@@ -101,7 +103,7 @@ test("a swipe down a Herdr pane opens its history and not the page", async ({ pa
   await page.route("**/api/terminal/input", async (route) => route.fulfill({ json: { seq: route.request().postDataJSON().seq } }));
   await page.route("**/api/terminal/history", (route) => route.fulfill({ json: { text: Array.from({ length: 300 }, (_, index) => "line " + (index + 1)).join("\n") + "\n$", agent: "codex" } }));
   await page.goto("/tests/fixtures/terminal-input.html#herdr");
-  await expect(page.getByText("Connecting", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
   await page.evaluate((room) => scrollTo(0, room), ROOM);
 
   // Act
