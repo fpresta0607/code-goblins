@@ -25,7 +25,7 @@ func newCIRunnerWatch(stateDir, pipe string) (*ciRunnerWatch, error) {
 	if name := strings.ToLower(filepath.Base(executable)); pipe == cirunner.PipeName && (strings.HasSuffix(name, ".test") || strings.HasSuffix(name, ".test.exe")) {
 		return nil, errors.New("a test watches only a desktop CI runner of its own")
 	}
-	dir := ciRunnerFolder(stateDir)
+	dir := CIRunnerFolder(stateDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
