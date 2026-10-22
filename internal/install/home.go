@@ -146,10 +146,12 @@ func (s Service) writeHome(report *reporter) error {
 
 // narrowFolders keeps the home, and the Dev Drive folder its worktrees,
 // scratch and caches moved to when they did, to the account the install runs
-// as, SYSTEM and Administrators. A folder made under a drive's root lets
-// Authenticated Users modify it, so any second account on the machine could
-// read and write the fleet's records and every goblin's work. A Dev Drive
-// that is not attached is narrowed by the next install that finds it.
+// as, SYSTEM and Administrators. A folder made under a drive's root, as a
+// home CFO_HOME puts there or a Dev Drive folder is, lets Authenticated Users
+// modify it, so any second account on the machine could read and write the
+// fleet's records and every goblin's work. A Dev Drive that is not attached,
+// and what a narrowing could not change, are narrowed by the next install
+// that finds them.
 func (s Service) narrowFolders(report *reporter) error {
 	config, err := home.ReadDevDriveConfig(s.Root)
 	if err != nil {
@@ -176,11 +178,11 @@ func (s Service) narrowFolders(report *reporter) error {
 		var unchanged *access.Unchanged
 		switch err := access.Narrow(folder); {
 		case errors.As(err, &unchanged):
-			report.change("access", folder+" now open only to you, SYSTEM and Administrators, but "+unchanged.Error()+"; an administrator can make each take its access from its folder")
+			report.change("access", folder+" now open only to you, SYSTEM and Administrators, but "+unchanged.Error()+"; the next install tries them again, once an administrator lets you change their access")
 		case err != nil:
 			return fmt.Errorf("install: keep %s to you, SYSTEM and Administrators: %w", folder, err)
 		default:
-			report.change("access", folder+" and everything in it now open only to you, SYSTEM and Administrators")
+			report.change("access", folder+" and everything in it that takes its access from it now open only to you, SYSTEM and Administrators")
 		}
 	}
 	return nil

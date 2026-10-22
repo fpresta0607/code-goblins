@@ -1,11 +1,11 @@
-// Package access keeps the fleet's folders to the accounts their work needs:
-// the person the fleet runs as, SYSTEM and Administrators. A folder made at
-// a drive's root, or under one, takes Authenticated Users Modify from it, so
-// any second account on the machine could read and write it.
 package access
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +13,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // The accounts every narrowed folder admits beside the one the fleet runs
@@ -35,8 +37,8 @@ const (
 	progressInvokeOnError = 3
 )
 
-// shownUnchanged is how many of the objects Limit could not change its error
-// names.
+// shownUnchanged is how many of the objects a narrowing could not change its
+// error names.
 const shownUnchanged = 3
 
 var treeSetNamedSecurityInfo = windows.NewLazySystemDLL("advapi32.dll").NewProc("TreeSetNamedSecurityInfoW")
@@ -48,9 +50,6 @@ var (
 	walking  sync.Mutex
 	callback = sync.OnceValue(func() uintptr {
 		return syscall.NewCallback(func(object *uint16, status uint32, _ *uint32, _ uintptr, _ int32) uintptr {
-			if status == 0 {
-				return 0
-			}
 			unchanged.count++
 			if len(unchanged.paths) < shownUnchanged {
 				unchanged.paths = append(unchanged.paths, windows.UTF16PtrToString(object)+": "+syscall.Errno(status).Error())
@@ -64,15 +63,59 @@ var (
 	}
 )
 
-// Limit gives path, and everything made in it, to the accounts sids name
+// Narrow gives path, and everything in it that takes its access from its
+// folder, to SYSTEM, Administrators and the account this process runs as
 // alone, each with full control: its access list names no one else and
-// inherits nothing from the folder above it. Windows hands the new list on
-// to everything already in path that takes its access from its folder, and
-// never through a link to what the link points at. Anything in path whose
-// list could not be changed, such as a file another account owns that does
-// not let this one change its list, makes it return an *Unchanged naming
-// the first few; the rest is changed all the same.
-func Limit(path string, sids ...string) error {
+// inherits nothing from the folder above it. Windows walks everything in
+// path to hand the list on, which takes minutes for a folder holding
+// hundreds of thousands of files, and never follows a link to what it points
+// at. A file or folder whose list cannot be changed, such as one another
+// account owns that does not let this one change its list, keeps its access
+// and makes Narrow return an *Unchanged naming the first few; the rest is
+// changed all the same, and UnfinishedMarker keeps the folder from reading
+// as narrowed until a later Narrow changes everything.
+func Narrow(path string) error {
+	sids, err := narrowed()
+	if err != nil {
+		return err
+	}
+	if err := limit(path, sids); err != nil {
+		var left *Unchanged
+		if errors.As(err, &left) {
+			if markErr := fsx.AtomicWriteFile(filepath.Join(path, UnfinishedMarker), []byte(left.Error()+"\r\n")); markErr != nil {
+				return errors.Join(err, markErr)
+			}
+		}
+		return err
+	}
+	if err := os.Remove(filepath.Join(path, UnfinishedMarker)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// IsNarrow reports whether path is narrowed already: its own access list
+// admits only SYSTEM, Administrators and the account this process runs as,
+// inheriting nothing, and no narrowing of it was left unfinished. It reads
+// only path itself and that marker.
+func IsNarrow(path string) (bool, error) {
+	sids, err := narrowed()
+	if err != nil {
+		return false, err
+	}
+	if limited, err := isLimited(path, sids); err != nil || !limited {
+		return false, err
+	}
+	_, err = os.Lstat(filepath.Join(path, UnfinishedMarker))
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	return false, err
+}
+
+// limit gives path and everything made in it to the accounts sids name
+// alone, each with full control, reporting what it could not change.
+func limit(path string, sids []string) error {
 	dacl, err := fullControl(sids)
 	if err != nil {
 		return err
@@ -94,60 +137,18 @@ func Limit(path string, sids ...string) error {
 	return nil
 }
 
-// Unchanged is Limit's error when it changed a folder's list but left some
-// of what the folder holds with the access it had.
-type Unchanged struct {
-	// Count is how many files and folders kept their access.
-	Count int
-	// Examples name the first few, each with why.
-	Examples []string
-}
-
-func (u *Unchanged) Error() string {
-	return fmt.Sprintf("%d of the files and folders in it kept their access, such as %s", u.Count, strings.Join(u.Examples, "; "))
-}
-
-// Narrow limits path to SYSTEM, Administrators and the account this process
-// runs as. Windows walks everything in path to hand the list on, which takes
-// minutes for a folder holding hundreds of thousands of files.
-func Narrow(path string) error {
-	sids, err := narrowed()
-	if err != nil {
-		return err
-	}
-	return Limit(path, sids...)
-}
-
-// IsNarrow reports whether path is limited to SYSTEM, Administrators and the
-// account this process runs as already, reading only path itself.
-func IsNarrow(path string) (bool, error) {
-	sids, err := narrowed()
-	if err != nil {
-		return false, err
-	}
-	return isLimited(path, sids)
-}
-
-// narrowed are the SIDs a narrowed folder admits.
+// narrowed are the SIDs a narrowed folder admits, sorted and each once, as a
+// process that runs as SYSTEM is SYSTEM.
 func narrowed() ([]string, error) {
-	self, err := currentUser()
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return nil, err
 	}
-	return []string{systemSID, administratorsSID, self}, nil
+	return slices.Compact(slices.Sorted(slices.Values([]string{systemSID, administratorsSID, user.User.Sid.String()}))), nil
 }
 
-// currentUser is the SID of the account this process runs as.
-func currentUser() (string, error) {
-	user, err := windows.GetCurrentProcessToken().GetTokenUser()
-	if err != nil {
-		return "", err
-	}
-	return user.User.Sid.String(), nil
-}
-
-// fullControl is the access list that allows each of sids full control of a
-// folder and everything made in it.
+// fullControl is the protected access list that allows each of sids full
+// control of a folder and everything made in it.
 func fullControl(sids []string) (*windows.ACL, error) {
 	var sddl strings.Builder
 	sddl.WriteString("D:P")
@@ -163,7 +164,7 @@ func fullControl(sids []string) (*windows.ACL, error) {
 }
 
 // isLimited reports whether path's access list takes nothing from its
-// folder and allows sids, and no one else, full control of it and of
+// folder and allows sids, sorted, and no one else, full control of it and of
 // everything made in it.
 func isLimited(path string, sids []string) (bool, error) {
 	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
@@ -190,5 +191,5 @@ func isLimited(path string, sids []string) (bool, error) {
 		allowed = append(allowed, (*windows.SID)(unsafe.Pointer(&entry.SidStart)).String())
 	}
 	slices.Sort(allowed)
-	return slices.Equal(allowed, slices.Sorted(slices.Values(sids))), nil
+	return slices.Equal(allowed, sids), nil
 }

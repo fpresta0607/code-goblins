@@ -39,8 +39,8 @@ func DriveRootLike(t *testing.T) string {
 }
 
 // Unchangeable makes dir's folder sub one this account may not change the
-// access list of, unless it runs elevated: dir grants it nothing of its own,
-// and sub lets its owner only read it.
+// access list of, even as its owner and elevated: dir grants it nothing of
+// its own, and sub lets its owner only read it.
 func Unchangeable(t *testing.T, dir, sub string) {
 	t.Helper()
 	SetList(t, dir, "D:(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;"+AuthenticatedUsers+")", true)

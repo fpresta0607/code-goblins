@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/fpresta0607/code-goblins/internal/access/accesstest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -85,12 +83,9 @@ func TestInstallWithItsDevDriveDetachedNarrowsTheHomeAndSaysSo(t *testing.T) {
 	}
 }
 
-// A file in the home the install may not narrow is named, and the install
-// narrows the rest and finishes.
-func TestInstallThatCannotNarrowAFolderInTheHomeNamesItAndFinishes(t *testing.T) {
-	if windows.GetCurrentProcessToken().IsElevated() {
-		t.Skip("an elevated administrator may change any list here")
-	}
+// A folder in the home the install may not narrow is named, the install
+// narrows the rest and finishes, and the next install tries it again.
+func TestInstallThatCannotNarrowAFolderInTheHomeNamesItAndTriesAgain(t *testing.T) {
 	// Arrange
 	f := homeUnderADriveRoot(t)
 	stuck := filepath.Join(f.root, home.WorktreesDir, "stuck")
@@ -102,7 +97,7 @@ func TestInstallThatCannotNarrowAFolderInTheHomeNamesItAndFinishes(t *testing.T)
 	output := f.install()
 
 	// Assert
-	if !strings.Contains(output, "but 1 of the files and folders in it kept their access, such as "+stuck+": ") {
+	if !strings.Contains(output, "but 1 of the files and folders in it kept their access, with everything those folders hold, such as "+stuck+": ") {
 		t.Errorf("the install does not name the folder it could not narrow:\n%s", output)
 	}
 	if sids, _ := accesstest.Allowed(t, filepath.Join(f.root, home.CachesDir, "module.zip")); !slices.Equal(sids, accesstest.Narrowed(t)) {
@@ -110,5 +105,8 @@ func TestInstallThatCannotNarrowAFolderInTheHomeNamesItAndFinishes(t *testing.T)
 	}
 	if !primary(f.root) {
 		t.Error("the install did not finish setting up the home")
+	}
+	if again := f.install(); !strings.Contains(again, "kept their access, with everything those folders hold, such as "+stuck+": ") {
+		t.Errorf("a second install does not try the folder again:\n%s", again)
 	}
 }

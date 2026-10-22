@@ -25,6 +25,9 @@ func Move(m Machine, h home.Home, folder string, now time.Time) (string, error) 
 		return "", fmt.Errorf("%s is not an absolute folder", folder)
 	}
 	folder = filepath.Clean(folder)
+	if folder == filepath.VolumeName(folder)+`\` {
+		return "", fmt.Errorf("%s is a drive's root; the folder goes at a Dev Drive's root, such as D:\\CodeGoblins, and only it is kept to you, SYSTEM and Administrators", folder)
+	}
 	if strings.EqualFold(h.DevDrive, folder) {
 		return "already moved: new goblins' worktrees, scratch and package caches are in " + folder + "; nothing changed", nil
 	}
@@ -54,7 +57,7 @@ func Move(m Machine, h home.Home, folder string, now time.Time) (string, error) 
 	// A folder at a drive's root lets Authenticated Users modify it, so any
 	// second account could read and write every goblin's work there.
 	if err := access.Narrow(folder); err != nil {
-		return "", fmt.Errorf("keep %s to you, SYSTEM and Administrators: %w", folder, err)
+		return "", fmt.Errorf("keep %s to you, SYSTEM and Administrators, so nothing moved: %w", folder, err)
 	}
 	probe := filepath.Join(folder, home.ScratchDir, ".cfo-write-probe")
 	if err := os.WriteFile(probe, []byte("Code Goblins can write here\n"), 0o644); err != nil {

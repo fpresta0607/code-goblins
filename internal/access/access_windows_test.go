@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/access/accesstest"
 )
@@ -34,7 +32,6 @@ func TestNarrowLeavesAFolderAndWhatItHoldsToItsOwnerSystemAndAdministrators(t *t
 	if sids, _ := accesstest.Allowed(t, held); !slices.Contains(sids, accesstest.AuthenticatedUsers) {
 		t.Fatalf("the file starts with access for %v, want Authenticated Users among them for the test to mean anything", sids)
 	}
-
 	if isNarrow, err := access.IsNarrow(folder); err != nil || isNarrow {
 		t.Fatalf("IsNarrow before = %v, %v; want false", isNarrow, err)
 	}
@@ -90,50 +87,76 @@ func TestNarrowNeverReachesThroughAJunction(t *testing.T) {
 	}
 }
 
-func TestIsNarrowRefusesAFolderThatLetsAnotherAccountIn(t *testing.T) {
-	// Arrange
-	folder := filepath.Join(t.TempDir(), "CodeGoblins")
-	if err := os.MkdirAll(folder, 0o755); err != nil {
-		t.Fatal(err)
+func TestIsNarrowReadsOnlyTheExactNarrowedListAsNarrowed(t *testing.T) {
+	self := accesstest.Self(t)
+	cases := map[string]struct {
+		sddl        string
+		isProtected bool
+		want        bool
+	}{
+		"narrowed":                             {"D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;" + self + ")", true, true},
+		"another account let in too":           {"D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;" + self + ")(A;OICI;FA;;;AU)", true, false},
+		"another account in the owner's place": {"D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;AU)", true, false},
+		"not handed on to what it holds":       {"D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" + self + ")", true, false},
+		"modify rather than full control":      {"D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;" + self + ")", true, false},
+		"taking access from its folder too":    {"D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;" + self + ")", false, false},
 	}
-	if err := access.Limit(folder, accesstest.System, accesstest.Administrators, accesstest.Self(t), accesstest.AuthenticatedUsers); err != nil {
-		t.Fatal(err)
-	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			folder := filepath.Join(accesstest.DriveRootLike(t), "CodeGoblins")
+			if err := os.MkdirAll(folder, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			accesstest.SetList(t, folder, test.sddl, test.isProtected)
 
-	// Act
-	isNarrow, err := access.IsNarrow(folder)
+			// Act
+			isNarrow, err := access.IsNarrow(folder)
 
-	// Assert
-	if err != nil || isNarrow {
-		t.Errorf("IsNarrow = %v, %v; want a folder that also lets Authenticated Users in read as not narrow", isNarrow, err)
+			// Assert
+			if err != nil || isNarrow != test.want {
+				t.Errorf("IsNarrow = %v, %v; want %v", isNarrow, err, test.want)
+			}
+		})
 	}
 }
 
-// A folder this account may not change the list of is named, and the rest
-// is changed all the same.
-func TestNarrowNamesWhatItCouldNotChangeAndChangesTheRest(t *testing.T) {
-	if windows.GetCurrentProcessToken().IsElevated() {
-		t.Skip("an elevated administrator may change any list here")
-	}
+// A folder this account may not change the list of is named, the rest is
+// changed all the same, and the folder reads as not narrowed until a
+// narrowing changes everything.
+func TestNarrowNamesWhatItCouldNotChangeAndTriesAgainLater(t *testing.T) {
 	// Arrange
 	parent := t.TempDir()
 	folder := filepath.Join(parent, "CodeGoblins")
+	stuck := filepath.Join(folder, "stuck")
 	for _, name := range []string{"a", "stuck", "z"} {
 		writeFile(t, filepath.Join(folder, name, "main.go"))
 	}
-	accesstest.Unchangeable(t, parent, filepath.Join(folder, "stuck"))
+	accesstest.Unchangeable(t, parent, stuck)
 
 	// Act
 	err := access.Narrow(folder)
 
 	// Assert
 	var unchanged *access.Unchanged
-	if !errors.As(err, &unchanged) || unchanged.Count != 1 || len(unchanged.Examples) != 1 || !strings.HasPrefix(unchanged.Examples[0], filepath.Join(folder, "stuck")+": ") {
+	if !errors.As(err, &unchanged) || unchanged.Count != 1 || len(unchanged.Examples) != 1 || !strings.HasPrefix(unchanged.Examples[0], stuck+": ") {
 		t.Fatalf("Narrow = %v, want it to name the one folder whose list it could not change", err)
 	}
 	for _, name := range []string{"a", "z"} {
 		if sids, _ := accesstest.Allowed(t, filepath.Join(folder, name, "main.go")); !slices.Equal(sids, accesstest.Narrowed(t)) {
 			t.Errorf("%s allows %v, want only %v", name, sids, accesstest.Narrowed(t))
 		}
+	}
+	if isNarrow, err := access.IsNarrow(folder); err != nil || isNarrow {
+		t.Errorf("IsNarrow after an unfinished narrowing = %v, %v; want false, so the next look narrows it again", isNarrow, err)
+	}
+	if err := os.RemoveAll(stuck); err != nil {
+		t.Fatal(err)
+	}
+	if err := access.Narrow(folder); err != nil {
+		t.Fatalf("Narrow once nothing is left unchangeable = %v", err)
+	}
+	if isNarrow, err := access.IsNarrow(folder); err != nil || !isNarrow {
+		t.Errorf("IsNarrow after a finished narrowing = %v, %v; want true", isNarrow, err)
 	}
 }
