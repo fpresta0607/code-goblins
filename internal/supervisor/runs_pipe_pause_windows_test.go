@@ -1,8 +1,10 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"os"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -74,5 +76,70 @@ func TestTheRunPipeIsServedOnceTheSupervisorBeforeLetsGoAcrossAPauseOfTheWholeMa
 			t.Fatal("the supervisor did not serve the run pipe within 5 s of the one before letting go")
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// shorten sets *wait to length for the test.
+func shorten(t *testing.T, wait *time.Duration, length time.Duration) {
+	t.Helper()
+	previous := *wait
+	*wait = length
+	t.Cleanup(func() { *wait = previous })
+}
+
+// A client that connected sends its request across a pause, since the pause
+// stopped it with the supervisor, and is answered (#1247).
+func TestARunRequestSentAfterAPauseOfTheWholeMachineIsAnswered(t *testing.T) {
+	if !awaketest.IsPausedProcess() {
+		awaketest.Across(t)
+		return
+	}
+	// Arrange: the client connects and sends its request only after the
+	// pause.
+	store, h := testStore(t)
+	shorten(t, &runReadTimeout, time.Second)
+	runPipe(t, &Service{Store: store})
+	client := dialRunPipe(t, h.State)
+	defer client.Close()
+	awaketest.ReadyThenHold()
+
+	// Act
+	_, err := client.Write([]byte("not a request\n"))
+	var answer string
+	if err == nil {
+		answer, err = bufio.NewReader(client).ReadString('\n')
+	}
+
+	// Assert
+	if err != nil || !strings.Contains(answer, "not valid JSON") {
+		t.Fatalf("the supervisor answered %q, %v across a pause of %s to a request sent after it; want its refusal of the request", answer, err, awaketest.Length)
+	}
+}
+
+// A client waits across a pause for the supervisor's answer, since the pause
+// stopped the supervisor too (#1247).
+func TestARunRequestWaitsForTheSupervisorsAnswerAcrossAPauseOfTheWholeMachine(t *testing.T) {
+	if !awaketest.IsPausedProcess() {
+		awaketest.Across(t)
+		return
+	}
+	// Arrange: the supervisor's loop takes the look the request asks for
+	// only after the pause.
+	store, h := testStore(t)
+	shorten(t, &runReplyTimeout, time.Second)
+	s := &Service{Store: store, looks: make(chan chan struct{})}
+	runPipe(t, s)
+	go func() {
+		looked := <-s.looks
+		awaketest.ReadyThenHold()
+		close(looked)
+	}()
+
+	// Act
+	_, err := askPipe(h.State, runPipeRequest{Kind: "reported"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the request gave up across a pause of %s on a supervisor that answered after it: %v", awaketest.Length, err)
 	}
 }

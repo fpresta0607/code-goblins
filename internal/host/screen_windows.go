@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 )
 
@@ -45,7 +46,7 @@ func requestScreen(record Record) ([]string, error) {
 		return nil, err
 	}
 	defer client.Close()
-	lift := awakeDeadline(client.pipe.SetReadDeadline, screenTimeout+handshakeTimeout)
+	lift := awake.Deadline(client.pipe.SetReadDeadline, screenTimeout+handshakeTimeout)
 	kind, payload, err := readFrame(client.pipe)
 	lift()
 	if err != nil {

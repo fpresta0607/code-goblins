@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
@@ -16,6 +17,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -25,8 +27,8 @@ import (
 
 // handshakeTimeout bounds how long a client takes to say hello, and
 // farewellTimeout how long an ending host waits for its viewers to hear how
-// the terminal ended. Only time the machine ran spends handshakeTimeout
-// (awake), since a pause of the whole machine stops the other side too.
+// the terminal ended. Only time the machine ran spends either (awake), since
+// a pause of the whole machine stops the other side too.
 var (
 	handshakeTimeout = 5 * time.Second
 	farewellTimeout  = 2 * time.Second
@@ -220,9 +222,11 @@ func Run(stateDir string, spec Spec) error {
 		viewers.Wait()
 		close(farewell)
 	}()
+	farewelling, cancelFarewelling := awake.WithTimeout(context.Background(), farewellTimeout)
+	defer cancelFarewelling()
 	select {
 	case <-farewell:
-	case <-time.After(farewellTimeout):
+	case <-farewelling.Done():
 	}
 	return closeErr
 }
@@ -280,7 +284,7 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 // alone.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}, screens *sync.RWMutex) {
 	defer connection.Close()
-	lift := awakeDeadline(connection.SetReadDeadline, handshakeTimeout)
+	lift := awake.Deadline(connection.SetReadDeadline, handshakeTimeout)
 	greeting, err := readHello(connection)
 	lift()
 	if err != nil {

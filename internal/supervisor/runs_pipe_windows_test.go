@@ -162,6 +162,27 @@ func TestRunRequestFromAProcessStartedAfterItsConnectionIsRefused(t *testing.T) 
 	}
 }
 
+// A client the supervisor does not answer in time gives up once its time for
+// the answer has run out. A deadline set on a pipe after File.Fd does
+// nothing, since Fd takes the pipe off the runtime's I/O completion port, and
+// such a client waited for as long as the supervisor took.
+func TestARunRequestGivesUpOnAnAnswerThatDoesNotComeInTime(t *testing.T) {
+	// Arrange: the supervisor's loop never takes the look the request asks
+	// for, so the supervisor answers only once its own bound on the work runs
+	// out.
+	store, h := testStore(t)
+	shorten(t, &runReplyTimeout, time.Second)
+	runPipe(t, &Service{Store: store, looks: make(chan chan struct{})})
+
+	// Act
+	_, err := askPipe(h.State, runPipeRequest{Kind: "reported"})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "did not answer the run request within 1s") {
+		t.Fatalf("askPipe = %v, want it to give up on the answer within 1s, before the supervisor's own %s bound on the work answers", err, runRequestTimeout)
+	}
+}
+
 // A client that connects and sends nothing is disconnected once its time to
 // send has passed, so it holds no pipe instance.
 func TestRunPipeDropsAClientThatSendsNothing(t *testing.T) {

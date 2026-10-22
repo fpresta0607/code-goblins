@@ -139,3 +139,24 @@ func (c *Context) end(err error) {
 		close(c.done)
 	}
 }
+
+// Deadline sets a deadline with set, a file's SetReadDeadline or its
+// SetDeadline, that falls once timeout of the time the machine ran is spent:
+// a deadline on the wall clock falls once a pause of the whole machine has
+// passed, though the other side, which the pause stopped too, had no time to
+// act. lift lifts the deadline again; call it once.
+func Deadline(set func(time.Time) error, timeout time.Duration) (lift func()) {
+	limit, cancelLimit := WithTimeout(context.Background(), timeout)
+	limited := make(chan struct{})
+	stopLimit := context.AfterFunc(limit, func() {
+		_ = set(time.Now())
+		close(limited)
+	})
+	return func() {
+		if !stopLimit() {
+			<-limited
+		}
+		cancelLimit()
+		_ = set(time.Time{})
+	}
+}
