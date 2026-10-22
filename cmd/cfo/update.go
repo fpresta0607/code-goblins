@@ -948,7 +948,7 @@ func unprovedSupervisor(h home.Home) error {
 	var err error
 	var unread *os.PathError
 	for reads, first := 1, time.Now(); ; reads++ {
-		holder, err = lock.ReadNamed(h.State, ".watch.lock")
+		holder, err = readWatchLock(h.State, ".watch.lock")
 		if err == nil || errors.As(err, &unread) || reads >= 3 && time.Since(first) >= 150*time.Millisecond {
 			break
 		}
@@ -974,6 +974,10 @@ func unprovedSupervisor(h home.Home) error {
 	}
 	return nil
 }
+
+// readWatchLock is how unprovedSupervisor reads the watcher lock's record, a
+// seam for a test that finishes writing the record between two of its reads.
+var readWatchLock = lock.ReadNamed
 
 // provedHomeSupervisor proves the running process this home's supervisor by
 // the identity it runs with.
