@@ -768,6 +768,7 @@ A goblin paused, resuming or starting has a message box in its Terminal view: wh
 The CFO has none: while it is off or restarting, its Terminal view only says so.
 Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
 A message kept for a paused goblin's resume has a delete button until the resume carries it.
+A goblin stopped or cleaned up before it resumes hands each such message to the CFO with its words.
 While goblins' questions have waited on the CFO for ten minutes, the CFO's bar says how many and how long the oldest has waited, in place of All quiet, and they wait in your Command Center too; that is never an alert.
 While the board's tab is hidden or its window is minimized, a new item raises a Windows notification once you allow them, naming who asks and saying what in one plain line; the board asks once, with the first item, and clicking the notification opens that item in the Command Center.
 An unfocused window that is still visible sends no Windows notification.
