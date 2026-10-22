@@ -96,21 +96,19 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(column(page, "In progress").locator(".train-card")).toHaveCount(1);
     });
 
-    test("a train's card stays inside its column and a long title is cut, not wrapped over its state", async ({ page }) => {
+    test("a train's card stays inside its column and a long title wraps, never over its state", async ({ page }) => {
       await open(page);
 
       const card = column(page, "In progress").locator(".train-card");
       const fits = await card.evaluate((element) => {
         const frame = element.getBoundingClientRect();
-        const rows = [...element.querySelectorAll(".train-car")].map((row) => row.getBoundingClientRect());
         const states = [...element.querySelectorAll(".train-car-state")].map((state) => state.getBoundingClientRect());
         return {
           inside: [...element.children].every((child) => { const box = child.getBoundingClientRect(); return box.left >= frame.left - 1 && box.right <= frame.right + 1; }),
-          oneLine: rows.every((row) => row.height < 40),
           statesInside: states.every((state) => state.right <= frame.right + 1),
         };
       });
-      expect(fits).toEqual({ inside: true, oneLine: true, statesInside: true });
+      expect(fits).toEqual({ inside: true, statesInside: true });
     });
 
     // The Overlord, 2026-10-17: "don't need to have landed in #1073 lines in
@@ -163,5 +161,91 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
         expect(await heights(card)).toEqual({ ...before, card: 700 });
       });
     }
+  });
+}
+
+// The Overlord, 2026-10-21, of a train's card: "need to wrap the 1997 like
+// title goblins to not cause spacing issue", then, of a rider whose name broke
+// inside its words with "Rides the next train" keeping its width: "this is
+// hideous fix layout and formatting". A rider's words wrap inside their own
+// column at any card width: the name breaks only at spaces, where the rider
+// stands goes under the name when the row is too narrow for both, and the
+// rows keep their gaps.
+const LONG_RIDERS = [
+  car(1995, "riding", "Tidy the logs"),
+  car(1997, "riding", "merging main to fix a conflict in the billing sync exporter before it retries the whole run"),
+  car(1998, "riding", "retry-the-webhook-after-every-timeout-in-the-billing-sync-exporter-without-spaces"),
+  car(2000, "riding", "Cache the rates", "", "Wendell", "Deploy Doctor of the Long Running Checks"),
+  car(2003, "returned", "Rename the sync job", "it was labelled hold", "Wendell", "Deploy Doctor"),
+];
+
+for (const width of [260, 395, 520]) {
+  test(`at ${width}px wide a rider's words wrap inside their column, whole, clear of its icon, with its rows at their natural height`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await open(page, trainWith(LONG_RIDERS));
+    const card = column(page, "In progress").locator(".train-card");
+    await card.evaluate((element, size) => element.style.setProperty("width", size + "px"), width);
+
+    // Act
+    const rows = await card.locator(".train-car").evaluateAll((items) => items.map((item) => {
+      const title = item.querySelector(".train-car-title")!, state = item.querySelector(".train-car-state");
+      const avatar = item.querySelector(".goblin-avatar")!.getBoundingClientRect(), text = title.getBoundingClientRect(), row = item.getBoundingClientRect();
+      // A word a line break falls inside makes two boxes. A word longer than
+      // the column has no other way to fit, so it alone may break.
+      const words = [...title.textContent!.matchAll(/\S+/g)].map((match) => {
+        const range = document.createRange();
+        range.setStart(title.firstChild!, match.index!);
+        range.setEnd(title.firstChild!, match.index! + match[0].length);
+        return { isBroken: range.getClientRects().length > 1, isLong: match[0].length > 24 };
+      });
+      return {
+        isWhole: title.scrollWidth <= title.clientWidth + 1 && (!state || state.scrollWidth <= state.clientWidth + 1),
+        isClearOfIcon: text.left >= avatar.right - 1,
+        isInsideRow: text.right <= row.right + 1 && (!state || state.getBoundingClientRect().right <= row.right + 1),
+        isNameInWholeWords: words.every((word) => !word.isBroken || word.isLong),
+        top: row.top, bottom: row.bottom,
+      };
+    }));
+    const frame = await card.evaluate((element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
+
+    // Assert
+    const GOOD = { isWhole: true, isClearOfIcon: true, isInsideRow: true, isNameInWholeWords: true };
+    expect(rows.map((row) => ({ isWhole: row.isWhole, isClearOfIcon: row.isClearOfIcon, isInsideRow: row.isInsideRow, isNameInWholeWords: row.isNameInWholeWords }))).toEqual(rows.map(() => GOOD));
+    expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    for (let index = 1; index < rows.length; index++) expect(rows[index].top - rows[index - 1].bottom).toBeLessThanOrEqual(8);
+  });
+}
+
+for (const width of [320, 420, 560]) {
+  test(`with its riders ${width}px wide a train's panel keeps each rider's name in whole words, with where it stands giving way first`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await open(page, trainWith(LONG_RIDERS));
+    await column(page, "In progress").locator(".train-card .train-title").click();
+    const rows = page.locator(".train-panel .train-panel-car");
+    await expect(rows).toHaveCount(LONG_RIDERS.length);
+    await page.locator(".train-panel .train-panel-rows").evaluate((element, size) => element.style.setProperty("width", size + "px"), width);
+
+    // Act
+    const fits = await rows.evaluateAll((items) => items.map((item) => {
+      const name = item.querySelector(".train-panel-name")!, state = item.querySelector(".train-panel-state")!;
+      const avatar = item.querySelector(".goblin-avatar")!.getBoundingClientRect(), text = name.getBoundingClientRect(), row = item.getBoundingClientRect();
+      const words = [...name.textContent!.matchAll(/\S+/g)].map((match) => {
+        const range = document.createRange();
+        range.setStart(name.firstChild!, match.index!);
+        range.setEnd(name.firstChild!, match.index! + match[0].length);
+        return { isBroken: range.getClientRects().length > 1, isLong: match[0].length > 24 };
+      });
+      return {
+        isNameInWholeWords: words.every((word) => !word.isBroken || word.isLong),
+        isClearOfIcon: text.left >= avatar.right - 1,
+        isInsideRow: text.right <= row.right + 1 && state.getBoundingClientRect().right <= row.right + 1,
+        isNameTheWiderPart: text.width >= state.getBoundingClientRect().width * 0.5,
+      };
+    }));
+
+    // Assert
+    expect(fits).toEqual(fits.map(() => ({ isNameInWholeWords: true, isClearOfIcon: true, isInsideRow: true, isNameTheWiderPart: true })));
   });
 }

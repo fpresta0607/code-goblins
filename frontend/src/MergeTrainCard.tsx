@@ -41,11 +41,13 @@ export function MergeTrainCard({ train, tasks, now, selected, onSelect }: { trai
         const c = carLook(car), goblin = tasks.find((task) => task.id === car.task);
         return <li key={car.number} className={"train-car train-" + c.tone} {...(c.tip ? { "data-tip": c.tip } : {})}>
           {c.url ? <a className="train-car-number" href={c.url} target="_blank" rel="noreferrer">{c.label}</a> : <span className="train-car-number">{c.label}</span>}
-          <span className="train-car-goblin" {...(car.goblin ? { "data-tip": goblin ? taskName(goblin) : car.title } : {})}>
-            <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
-            <span className={"train-car-title" + (car.goblin ? " goblin-called" : "")}>{carName(car)}</span>
+          <span className="train-car-text">
+            <span className="train-car-goblin" {...(car.goblin ? { "data-tip": goblin ? taskName(goblin) : car.title } : {})}>
+              <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
+              <span className="train-car-title">{carName(car)}</span>
+            </span>
+            {car.state !== said && <span className="train-car-state">{c.text}</span>}
           </span>
-          {car.state !== said && <span className="train-car-state">{c.text}</span>}
         </li>;
       })}
     </ol>}
