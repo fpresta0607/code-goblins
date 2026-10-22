@@ -897,6 +897,86 @@ func TestResumeRetryCompletesAnExistingLaunchBelowTheMemoryThreshold(t *testing.
 	}
 }
 
+// A Resume that finds the terminal its interrupted resume started already up
+// relaunches nothing, so it hands that resume's record to HandOverRelaunched
+// before it writes its own record over it: a hand-off that hands nothing on
+// refuses the Resume and leaves the record as it was for a later Resume, and
+// what one met after it handed them on is named. A Resume that relaunches
+// carries the record's note in its instruction instead (issue #1281).
+func TestAResumeOfAResumeAlreadyUpHandsOnItsRecordBeforeOverwritingIt(t *testing.T) {
+	publishFailure := errors.New("the wake episode cannot be published")
+	queueFailure := errors.New("the wake queue cannot be written")
+	for _, tc := range []struct {
+		name      string
+		isRunning bool
+		isHanded  bool
+		failure   error
+	}{
+		{name: "its terminal is up", isRunning: true, isHanded: true},
+		{name: "its terminal is up and the hand-off fails", isRunning: true, failure: queueFailure},
+		{name: "its terminal is up and the hand-off fails after the messages", isRunning: true, isHanded: true, failure: publishFailure},
+		{name: "its terminal has ended"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			meta.ResumeOperation = "resume-1"
+			if err := state.WriteTaskMeta(service.StateDir, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: meta.ResumeOperation, Action: "resume", Phase: "failed", ResumeNote: "Message from the Overlord, typed on the board: use the staging database", NoticeSent: true}); err != nil {
+				t.Fatal(err)
+			}
+			failed, err := state.ReadLifecycle(service.StateDir, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var handed, recorded []state.Lifecycle
+			service.Operations.HandOverRelaunched = func(prior state.Lifecycle) (bool, error) {
+				onDisk, err := state.ReadLifecycle(service.StateDir, meta.ID)
+				if err != nil {
+					t.Error(err)
+				}
+				handed, recorded = append(handed, prior), append(recorded, onDisk)
+				return tc.isHanded, tc.failure
+			}
+			service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return tc.isRunning, nil }
+			var carried []string
+			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+				carried = append(carried, prior.ResumeNote)
+				return nil
+			}
+
+			// Act
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume"})
+			after, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+
+			// Assert
+			if !tc.isRunning {
+				if len(handed) != 0 || !slices.Equal(carried, []string{failed.ResumeNote}) || err != nil || readErr != nil || after.Phase != "running" {
+					t.Fatalf("resume = %+v, %v, handed over %+v, relaunch carried %q; want it running with the note carried and nothing handed over", after, errors.Join(err, readErr), handed, carried)
+				}
+				return
+			}
+			if len(handed) != 1 || !reflect.DeepEqual(handed[0], failed) || !reflect.DeepEqual(recorded[0], failed) || len(carried) != 0 {
+				t.Fatalf("handed over %+v while the record read %+v, relaunch carried %q; want %+v handed over once before it was overwritten and nothing relaunched", handed, recorded, carried, failed)
+			}
+			if !tc.isHanded {
+				if !errors.Is(err, tc.failure) || readErr != nil || !reflect.DeepEqual(after, failed) {
+					t.Fatalf("resume = %+v, %v, record %+v, %v; want it refused with the record as it was", record, err, after, readErr)
+				}
+				return
+			}
+			if err != nil || readErr != nil || after.Operation != "resume-2" || after.Phase != "running" {
+				t.Fatalf("resume = %+v, %v, record %+v, %v; want the task running under the new Resume", record, err, after, readErr)
+			}
+			if isNamed := slices.Contains(after.Problems, publishFailure.Error()); isNamed != (tc.failure != nil) {
+				t.Fatalf("problems = %q, want %q named only when the hand-off met it", after.Problems, publishFailure)
+			}
+		})
+	}
+}
+
 func TestGateRecoverySurvivesAFailedResumeButNotASuccessfulOne(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	isGateOpen := true

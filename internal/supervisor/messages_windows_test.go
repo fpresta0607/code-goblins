@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -415,6 +416,74 @@ func TestAReplacedSessionsMessagesGoToTheCFOOnceWhenTheirWakeFailsToPublish(t *t
 	told := toldCFO(t, h.State, meta.ID)
 	if second != nil || len(told) != 2 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") || !strings.HasSuffix(told[1], "The Overlord wrote: and skip the migration") {
 		t.Fatalf("second pass = %v, the CFO was told %q, want each message once", second, told)
+	}
+}
+
+// A Resume of a failed resume whose relaunched terminal is already up
+// relaunches nothing, so it hands each board message kept for that resume to
+// the CFO, with its words and that resume's start, before it finishes the
+// task as running. Before, the messages rode into the running record's note,
+// which nothing reads again, so neither the goblin nor the CFO had them (issue
+// #1281). A Resume that relaunches carries them in its instruction, so the
+// CFO is told nothing.
+func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCFO(t *testing.T) {
+	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	kept := []string{"use the staging database", "and skip the migration"}
+	for _, tc := range []struct {
+		name        string
+		isRunning   bool
+		wantCarried []string
+		wantTold    []string
+	}{
+		{name: "its relaunched terminal is already up", isRunning: true, wantTold: kept},
+		{name: "its relaunched terminal has ended", isRunning: false, wantCarried: kept},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			meta.ResumeOperation = "resume-1"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: meta.ResumeOperation, Action: "resume", Phase: "failed", Started: started, Updated: started.Add(3 * time.Minute)}); err != nil {
+				t.Fatal(err)
+			}
+			keptForResume(t, store, meta, kept...)
+			var carried []string
+			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
+				IsRunning: func(context.Context, state.TaskMeta) (bool, error) { return tc.isRunning, nil },
+				Memory:    func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },
+				Resume: func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+					_, carried = keptMessages(prior.ResumeNote)
+					return nil
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+				HandOver: func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+					return HandOverReplacedNote(h.State, current, prior)
+				},
+				HandOverRelaunched: func(prior state.Lifecycle) (bool, error) {
+					return HandOverRelaunchedNote(h.State, prior)
+				},
+			}}
+
+			// Act
+			record, err := controller.Run(context.Background(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume", Reason: "overlord"})
+
+			// Assert
+			if err != nil || record.Phase != "running" || !slices.Equal(carried, tc.wantCarried) {
+				t.Fatalf("resume = %+v, %v, relaunch carried %q; want it running with %q carried", record, err, carried, tc.wantCarried)
+			}
+			told := toldCFO(t, h.State, meta.ID)
+			if len(told) != len(tc.wantTold) {
+				t.Fatalf("the CFO was told %q, want each of %q once", told, tc.wantTold)
+			}
+			for i, words := range tc.wantTold {
+				if !strings.HasPrefix(told[i], "message not delivered: task-1's failed resume was finished as running because a Resume found the terminal it started already up") || !strings.Contains(told[i], "a message kept before that resume began at "+started.Format(time.RFC3339)) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
+					t.Fatalf("the CFO was told %q, want %q with why it was not delivered and the resume's start", told[i], words)
+				}
+			}
+		})
 	}
 }
 
