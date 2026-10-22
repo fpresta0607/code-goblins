@@ -371,6 +371,54 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   expect(await page.evaluate(() => getSelection()?.toString().trim())).toBe("That matches. Running the phone spec now.");
 });
 
+// Where an element lies, and where its contents do, its words and icons, as
+// against its own box, and how much area two of them share.
+interface Box { left: number; right: number; top: number; bottom: number }
+const box = (element: Locator) => element.evaluate((each): Box => {
+  const { left, right, top, bottom } = each.getBoundingClientRect();
+  return { left, right, top, bottom };
+});
+const contents = (element: Locator) => element.evaluate((each): Box => {
+  const range = document.createRange();
+  range.selectNodeContents(each);
+  const { left, right, top, bottom } = range.getBoundingClientRect();
+  return { left, right, top, bottom };
+});
+const shared = (one: Box, other: Box) => Math.max(0, Math.min(one.right, other.right) - Math.max(one.left, other.left)) * Math.max(0, Math.min(one.bottom, other.bottom) - Math.max(one.top, other.top));
+
+test.describe("on a phone's touch screen", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("Copy, always shown, covers no word or call state of a reply, and lies beside a reply's name", async ({ page }) => {
+    await open(page);
+    await openGoblin(page);
+    await view(page, "Messages").click();
+    const talk = list(page, "Zeke - Touch Wrangler");
+    await expect(talk.locator("[data-message]")).toHaveCount(11);
+
+    // Two replies after the last one, so neither is led by the name, one
+    // with a path that breaks across the whole width and one led by a call.
+    await send(page, "messages", [
+      reply(11, { kind: "text", text: "Changed frontend/src/terminal-touch-handlers/hand-a-vertical-swipe-to-the-history-and-keep-a-long-press-for-paste.ts" }),
+      reply(12, { kind: "call", tool: "Bash", subject: "npx playwright test phone-terminal.spec.ts", state: "running" }, { kind: "text", text: "Running the phone terminal spec." }),
+    ]);
+
+    const named = talk.locator('[data-message="m10"]');
+    const words = talk.locator('[data-message="m11"]');
+    const called = talk.locator('[data-message="m12"]');
+    await expect(called).toBeVisible();
+    for (const row of [named, words, called]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCSS("opacity", "1");
+    await expect(words.locator(".message-from")).toHaveCount(0);
+    await expect(called.locator(".message-from")).toHaveCount(0);
+    expect(shared(await box(words.getByRole("button", { name: "Copy" })), await contents(words.locator(".message-words"))), "Copy covers no word of the reply's text").toBe(0);
+    expect(shared(await box(called.getByRole("button", { name: "Copy" })), await box(called.locator(".call-end"))), "Copy covers no call state").toBe(0);
+    const header = await box(named.locator(".message-from"));
+    const copy = await box(named.getByRole("button", { name: "Copy" }));
+    expect(copy.top >= header.top - 1 && copy.bottom <= header.bottom + 1, "Copy lies on the name's line").toBe(true);
+    expect(shared(copy, await contents(named.locator(".message-from"))), "Copy covers nothing of the name").toBe(0);
+  });
+});
+
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
   await openCfo(page);

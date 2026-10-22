@@ -66,10 +66,10 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
 .disclosure.message-thinking > summary, .message-compaction > .disclosure > summary { width: max-content; max-width: 100%; cursor: pointer; font-size: .9375em; font-style: italic; }
 .disclosure.message-thinking > summary > .icon, .message-compaction > .disclosure > summary > .icon { width: 1.1em; height: 1.1em; }
 .disclosure.message-thinking > .disclosure-content, .message-compaction > .disclosure > .disclosure-content { margin-top: .375em; padding: 0 0 0 1em; border-left: 2px solid var(--border); font-size: .9375em; }
-.message-compaction { position: relative; align-self: stretch; }
+.message-compaction { position: relative; align-self: stretch; padding: 0 40px; }
 .message-compaction > .disclosure > summary { margin: 0 auto; }
 .message-notice, .message-interrupt { align-self: center; max-width: 46em; margin: 0; color: var(--muted); font-size: .9375em; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
-.message-notice { position: relative; width: 100%; }
+.message-notice { position: relative; width: 100%; padding: 0 40px; }
 .message-interrupt { font-style: italic; }
 .message-pictures { display: flex; flex-wrap: wrap; gap: .5em; }
 .message-pictures img { max-width: min(100%, 24em); max-height: 18em; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; object-fit: contain; }
@@ -79,6 +79,7 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
 .message-copy .icon { width: 16px; height: 16px; }
 :is(.message, .message-compaction, .message-notice):is(:hover, :focus-within) .message-copy { opacity: 1; }
 :is(.message-reply, .message-compaction, .message-notice) > .message-copy { position: absolute; top: 0; right: 0; z-index: 1; border: 1px solid var(--glass-border); background: var(--hero-surface); }
+.message-reply > .message-copy:first-child + * { padding-right: 40px; }
 @media (pointer: coarse) { .message-copy { opacity: 1; } }
 .message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: rgba(3, 5, 10, 0.92); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; }
 .message-jump .icon { width: 16px; height: 16px; }
