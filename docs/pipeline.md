@@ -554,6 +554,7 @@ A headless Chrome puts most of its processes each in a job of its own, which end
 A process that exits, ends itself, or is ended by its handle or by the job it runs in stays listed until it has ended.
 A sample takes the list as it is.
 An end that spares a machine service goes by what the job holds to show that nothing else still runs, so it also reads the machine's processes for the job's members the list leaves out: `internal/proc.EndJob`, which `End`, `EndAndWait`, a terminal's close and a browser login's end use, is done only once those have ended too, within the end's own deadline, and a goblin's stop ends them as it ends any other process in its terminal's job.
+It reads the machine again only once each process it ended has exited: on a machine whose cores other work fills those exits take a while and one read can take seconds, so a read begun before them found them still there and the next began past the end's deadline, which then named them as outliving it (issue 1275).
 `EndAndWait` also lets the job's handle close only once the job counts nothing beyond the list.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.

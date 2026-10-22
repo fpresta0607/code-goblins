@@ -48,6 +48,33 @@ func TestEndJobBesideAMachineServiceEndsAProcessTheJobNoLongerLists(t *testing.T
 	}
 }
 
+// On a machine whose cores other work fills, a process an end beside a
+// machine service ends takes a while to finish exiting, and each of the
+// end's own reads of the machine's processes can take seconds: a read begun
+// as soon as it asked found the processes still ending, and the next began
+// past the end's bound, so it named them as outliving it (issue 1275). The
+// end reads again only once what it ended has exited, so a read that takes
+// longer than its whole bound finds them gone.
+func TestEndJobBesideAMachineServiceWaitsOutTheExitsItAskedForBeforeItReads(t *testing.T) {
+	// Arrange
+	job, pids, held := standinJob(t, "com.docker.standin", "worker")
+	proc.LoadForTest(t, 500*time.Millisecond, proc.EndJobFor+500*time.Millisecond)
+
+	// Act
+	ended, spared, err := proc.EndJob(context.Background(), job)
+
+	// Assert
+	if err != nil || len(ended) != 1 || ended[0].PID != pids["worker"] || len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
+		t.Fatalf("EndJob ended %+v and spared %+v, %v; want the worker %d ended and the machine service %d spared", ended, spared, err, pids["worker"], pids["com.docker.standin"])
+	}
+	if event, err := windows.WaitForSingleObject(held["worker"], 0); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatal("the worker still runs after the job's end")
+	}
+	if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatal("the machine service was ended by an end that spares it")
+	}
+}
+
 // A goblin's stop reads the jobs its terminal's host held (proc.HoldJobs)
 // and ends their processes one by one beside a machine service, so the read
 // names a process Windows still holds in a job but lists no more, as it does
