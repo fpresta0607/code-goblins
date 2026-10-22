@@ -1,17 +1,16 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
-import { CFO_ROOT, lineageFamily, nodeStatus } from "./workflow";
+import { CFO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
 import { taskStatus } from "./task-status";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 import { goblinName, taskName, withoutHarness } from "./task-words";
-import { hasRunningChildren, isHelperHeld } from "./fleet-tree";
+import { hasRunningChildren } from "./fleet-tree";
 import { TreeUnder } from "./TreeUnder";
 import { CardFacts } from "./card-facts";
-import { CardRouting } from "./card-routing";
 import { CfoCardFacts } from "./cfo-card-facts";
 
 // child is a baby goblin of the task's goblin, by its id in the goblin's
@@ -41,11 +40,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
   const family = lineageFamily(snapshot, project);
   const sessions = family.sessions;
   const cfoID = family.cfo?.cfo ? CFO_ROOT : family.cfo?.session?.id;
-  const tasks = snapshot.tasks.filter((task) => !task.archived && (!project || task.project === project));
+  const tasks = snapshot.tasks.filter((task) => isInProgress(task) && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks.filter((task) => !isHelperHeld(snapshot, task.id)), snapshot.sessions);
   const taskOf = (node: Session) => snapshot.tasks.find((task) => task.id === node.task_id);
-  // A helper no family tree holds, such as one whose parent is paused, hangs
-  // under its parent's own session or, with none reported, its parent's task.
+  // A helper no family tree holds hangs under its parent's own session or,
+  // with none reported, its parent's task.
   const hasItem = (id: string) => sessions.some((node) => node.task_id === id && ownsTaskSession(node, taskOf(node))) || taskOnly.some((task) => task.id === id);
   const isHelperItem = (task?: Task) => !!task?.parent && hasItem(task.parent);
   const helperSessions = sessions.filter((node) => ownsTaskSession(node, taskOf(node)) && isHelperItem(taskOf(node)));
@@ -96,7 +95,6 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
             <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
-            {owner && task && <CardRouting task={task} />}
           </button>
           {owner && task && <div className="node-facts"><CardFacts task={task} now={now} /></div>}
           {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={now} onOpenCfo={onOpenCfo} /></div>}
@@ -124,7 +122,6 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
             <Avatar persona={personaFor(task)} small /><span className="node-role">Task</span><strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,undefined,task))&&<span className="browser-indicator">Browser active</span>}{task.project && <span className="project-label">{task.project}</span>}
             {task.goblin_name && <span className="node-task">Task: {taskName(task)}</span>}
             <span className="node-status">{taskStatus(task, snapshot).text}</span>
-            <CardRouting task={task} />
           </button>
           <div className="node-facts"><CardFacts task={task} now={now} /></div>
         </div>

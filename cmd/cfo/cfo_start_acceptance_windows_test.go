@@ -117,7 +117,11 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		named = p.claudeArguments(t)
 	}
 	start := func(args []string) host.Record {
-		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, args)...)
+		screen, err := cfoScreenArguments(p.cfo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, slices.Concat(args, screen), "")...)
 		if err != nil {
 			t.Fatal(err)
 		}

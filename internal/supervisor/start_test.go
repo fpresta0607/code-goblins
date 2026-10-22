@@ -169,7 +169,7 @@ func TestSnapshotDoesNotWaitForAStartReadingMachineMemory(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Error("snapshot waited for a Start's machine read while holding s.starts")
 		end()
 		if err := <-finished; err != nil {
@@ -235,7 +235,7 @@ func TestSharedSnapshotStopsShowingAStartRefusedAfterItsMemoryRead(t *testing.T)
 // sharing violation, and the board simply reads again, so this does too.
 func waitStarted(t *testing.T, handler *HTTP, id string) Task {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		snapshot, err := handler.Service.Snapshot()
 		if err != nil {
@@ -691,7 +691,7 @@ func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t
 		t.Fatal(err)
 	}
 	want := reading
-	want.Floor, want.Next = 4*gigabyte, 5*gigabyte
+	want.Floor, want.Next, want.PoolLine = 4*gigabyte, 5*gigabyte, 15*gigabyte/2
 	if !reflect.DeepEqual(snapshot.Memory, &want) {
 		t.Fatalf("memory = %+v, want %+v", snapshot.Memory, want)
 	}

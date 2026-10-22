@@ -34,6 +34,7 @@ type overlapForge struct {
 	failure           string
 	moveHead          bool
 	moveBase          bool
+	runListFailure    string
 	// churnHead moves the head on every diff, as a goblin committing
 	// through both reads would; nextBranch is the branch the goblin
 	// switches to once its branch was first read.
@@ -55,6 +56,8 @@ func (f *overlapForge) Run(ctx context.Context, request execx.Request) (execx.Re
 			f.branch, f.nextBranch = f.nextBranch, ""
 		}
 		return execx.Result{Stdout: []byte(branch + "\n")}, nil
+	case f.runListFailure != "" && strings.HasPrefix(command, "gh run list"):
+		return execx.Result{ExitCode: 1, Stderr: []byte(f.runListFailure)}, nil
 	case request.Name == "gh" && strings.Contains(command, "recentIssues"):
 		f.activityCalls++
 		if deadline, ok := ctx.Deadline(); ok {
@@ -1206,5 +1209,57 @@ func TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow(t *testing.T
 	}
 	if forge.activityCalls != 3 {
 		t.Fatalf("the failing read was asked %d times in three polls, want once a poll", forge.activityCalls)
+	}
+}
+
+// GitHub refused a poll's listing of main's push runs, which held every later
+// read of the repository until the refusal was waited out, and the overlap
+// read, which the poll runs after it, still asked for a page: the hold refused
+// it, each such poll counted it a failing read, and on the third the
+// supervisor met the hold as an overlap read error, although the refusal was
+// already kept as ci_unreadable (#1160). The overlap read waits out the hold,
+// and reads once it is over.
+func TestAnOverlapReadAsksNothingWhileItsRepositoryWaitsOutARefusal(t *testing.T) {
+	// Arrange
+	service, h, forge, meta, now := overlapFixture(t)
+	service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	forge.runListFailure = "gh: forbidden (HTTP 403)"
+	at := now
+
+	for poll := range failingPasses {
+		overlapLive(t, h, meta, at)
+
+		// Act
+		err := service.checkFleet(context.Background(), at)
+		service.cycle(context.Background(), true)
+
+		// Assert
+		persisted, readErr := readFleetWakes(h.State)
+		if readErr != nil || !persisted.BackOff[forge.repo].After(at) || persisted.Unreadable[forge.repo].Failure == "" {
+			t.Fatalf("poll %d: GitHub's refusal held no read or was not kept as ci_unreadable: %v, %v, %v", poll+1, persisted.BackOff, persisted.Unreadable, readErr)
+		}
+		if err != nil && strings.Contains(err.Error(), "overlap read") {
+			t.Fatalf("poll %d: the overlap read met the hold: %v", poll+1, err)
+		}
+		for read := range persisted.Failing {
+			if strings.HasPrefix(read, "overlap:") {
+				t.Fatalf("poll %d: failing reads %v, want none of the overlap read", poll+1, persisted.Failing)
+			}
+		}
+		if len(persisted.OverlapUnread) != 0 {
+			t.Fatalf("poll %d: overlap unread %v, want none", poll+1, persisted.OverlapUnread)
+		}
+		at = persisted.BackOff[forge.repo].Add(time.Minute)
+	}
+	if wakes := overlapErrorWakes(t, service); len(wakes) != 0 {
+		t.Fatalf("the hold reached the CFO as a supervisor error: %q", wakes)
+	}
+	forge.runListFailure = ""
+	overlapLive(t, h, meta, at)
+	if err := service.checkFleet(context.Background(), at); err != nil {
+		t.Fatal(err)
+	}
+	if wakes := fleetWakeRecords(t, h, "pr"); forge.activityCalls != 1 || len(wakes) != 1 {
+		t.Fatalf("once the hold was over: activity reads %d, pr wakes %+v, want one read that found the teammate's pull request", forge.activityCalls, wakes)
 	}
 }

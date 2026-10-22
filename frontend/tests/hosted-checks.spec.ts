@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "./site";
 
 // A live goblin's hosted checks and its change's newest cfo gate test run
-// beside its pull request, on its card and in its panel. The supervisor is
-// played by one held snapshot.
+// beside its pull request in its panel, and never on its card (the Overlord,
+// 2026-10-17: "we don't need to have the test checks as an icon. That can be
+// in the task panel"). The supervisor is played by one held snapshot.
 const REPO = "https://github.com/northwind/northwind-api";
 const JOB = REPO + "/actions/runs/5/job/50";
 const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", harness: "claude", since: new Date(Date.now() - 42 * 60_000).toISOString(), ...fields });
@@ -34,12 +35,18 @@ async function open(page: Page) {
 }
 
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
+async function openPanel(page: Page, title: string) {
+  await card(page, title).locator(".task-card").click();
+  const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+  if (await taskView.count()) await taskView.click();
+  return page.locator(".panel-header");
+}
 
 // The parts of a card's pull request row, as boxes: none covers another and
 // none leaves its card.
 const crowded = (page: Page, title: string) => card(page, title).evaluate((shell) => {
   const frame = shell.getBoundingClientRect();
-  const parts = [...shell.querySelectorAll(".card-pr, .card-checks, .card-ticket")].map((part) => part.getBoundingClientRect());
+  const parts = [...shell.querySelectorAll(".card-pr, .card-ticket, .hosted-checks, .local-checks, .deployment")].map((part) => part.getBoundingClientRect());
   const outside = parts.filter((box) => box.left < frame.left - 1 || box.right > frame.right + 1 || box.top < frame.top - 1 || box.bottom > frame.bottom + 1).length;
   let overlaps = 0;
   for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
@@ -53,41 +60,42 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
   test.describe(viewport.name, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
-    test("a card says where its pull request's checks stand and opens the failed check's page", async ({ page }) => {
+    test("a card shows no checks, and its panel says where its pull request's checks stand and opens the failed check's page", async ({ page }) => {
       await open(page);
 
-      const failed = card(page, "Say why a billing sync fails").locator("a.card-checks.hosted-checks");
-      await expect(failed).toHaveText("Checks failed");
+      await expect(page.locator(".task-card-shell").locator(".hosted-checks, .local-checks, .deployment")).toHaveCount(0);
+      expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 2, outside: 0, overlaps: 0 });
+      const header = await openPanel(page, "Say why a billing sync fails");
+      const failed = header.locator("a.hosted-checks");
+      await expect(failed).toHaveAttribute("aria-label", /^Checks failed: /);
       await expect(failed).toHaveAttribute("href", JOB);
       await expect(failed).toHaveAttribute("data-tip", "Failed: go (rest), frontend");
       await expect(failed).toHaveClass(/hosted-failed/);
-      const passed = card(page, "Export the audit trail").locator(".card-checks");
-      await expect(passed).toHaveText(["Local tests passed", "Checks passed", "Approved"]);
-      await expect(passed.nth(1)).toHaveAttribute("href", REPO + "/pull/56/checks");
-      await expect(card(page, "Retry the webhook").locator("a.card-checks")).toHaveText("Testing");
-      await expect(card(page, "Fix the docs links").locator(".hosted-checks")).toHaveCount(0);
-      const local = card(page, "Say why a billing sync fails").locator("a.local-checks");
-      await expect(local).toHaveText("Local tests failed");
+      const local = header.locator("a.local-checks");
+      await expect(local).toHaveAttribute("aria-label", /^Local tests failed: /);
       await expect(local).toHaveAttribute("href", "/api/tasks/nw-sync/checks");
       await expect(local).toHaveAttribute("data-tip", "Failed: internal/supervisor. Affected level, 18m, 5m of it waiting for its turn");
-      expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 4, outside: 0, overlaps: 0 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
   });
 }
 
-// A merged task's deploy shows beside its pull request, in the checks' look
-// and apart from them: on a finished card in Completed, and on a live one.
-test("a merged task's card says how its deploy stands and opens the run", async ({ page }) => {
+// A merged task's deploy shows beside its pull request in its panel, in the
+// checks' look and apart from them: a finished task's in Completed, and a
+// live one's.
+test("a merged task's panel says how its deploy stands and opens the run", async ({ page }) => {
   await open(page);
 
-  const failed = card(page, "Ship the export").locator("a.deployment");
-  await expect(failed).toHaveText("Deploy failed");
+  const finished = await openPanel(page, "Ship the export");
+  const failed = finished.locator("a.deployment");
+  await expect(failed).toHaveAttribute("aria-label", /^Deploy failed: /);
   await expect(failed).toHaveAttribute("href", REPO + "/actions/runs/82");
   await expect(failed).toHaveAttribute("data-tip", "Deploy API, Deploy worker at ccc333d");
   await expect(failed).toHaveClass(/hosted-failed/);
-  await expect(card(page, "Fix the docs links").locator("a.deployment")).toHaveText("Deploying");
-  await expect(card(page, "Say why a billing sync fails").locator(".deployment")).toHaveCount(0);
+  const live = await openPanel(page, "Fix the docs links");
+  await expect(live.locator("a.deployment")).toHaveAttribute("aria-label", /^Deploying: /);
+  const unshipped = await openPanel(page, "Say why a billing sync fails");
+  await expect(unshipped.locator(".deployment")).toHaveCount(0);
 });
 
 test("the panel shows the checks beside its pull request", async ({ page }) => {

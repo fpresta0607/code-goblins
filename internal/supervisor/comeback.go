@@ -13,8 +13,9 @@ import (
 )
 
 // After a restart or sign-out, which end every terminal of the sign-in, the
-// supervisor brings the fleet back by itself: first the CFO, in its terminal
-// on its own conversation, then each goblin that was working, in its own
+// supervisor brings the fleet back by itself: first the CFO, in its terminal,
+// on its own conversation where that is small enough and on a new one where
+// not, then each goblin that was working, in its own
 // session, one at a time as memory allows. What it brings back is what the
 // sign-in before this one left: the CFO, when it ran in that sign-in or an
 // earlier comeback had not reached it, and every goblin left meant to run
@@ -22,13 +23,19 @@ import (
 // goblin that finished, was paused or stopped, or is retired.
 
 // Comeback is how the supervisor brings the fleet back after a restart or
-// sign-out; without it nothing comes back by itself.
+// sign-out, and the CFO after its terminal ended unasked; without it nothing
+// comes back by itself.
 type Comeback struct {
 	// SignedIn is when this Windows sign-in began.
 	SignedIn func() (time.Time, error)
-	// CFO brings the CFO back in its terminal on its own conversation, never
-	// on a new one, and says why it did not.
+	// CFO brings the CFO back in its terminal after a restart or sign-out, on
+	// its own conversation where that is small enough and on a new one where
+	// not, and says why it did not come back.
 	CFO func(ctx context.Context) error
+	// CFOEnded brings the CFO back the same way after its terminal ended in
+	// this sign-in while nobody asked it to stop, telling it why, and says
+	// why it did not come back.
+	CFOEnded func(ctx context.Context, why string) error
 	// Goblin brings one goblin back in place, in its own session, and tells
 	// it the machine restarted.
 	Goblin func(ctx context.Context, id string) GoblinComeback
@@ -132,12 +139,8 @@ func (s *Service) launchRoom(memory Memory) error {
 // marks where this sign-in began. The caller holds s.comeback.
 func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	directory := s.Store.Home.State
-	if s.signedIn.IsZero() {
-		signedIn, err := s.Options.Comeback.SignedIn()
-		if err != nil {
-			return state.Comeback{}, false, fmt.Errorf("nothing comes back after a restart: %w", err)
-		}
-		s.signedIn = signedIn
+	if _, err := s.signInBegan(); err != nil {
+		return state.Comeback{}, false, fmt.Errorf("nothing comes back after a restart: %w", err)
 	}
 	prior, err := state.ReadComeback(directory)
 	switch {
@@ -183,7 +186,11 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	// that planned only goblins with a record left her behind. They come
 	// back in the Overlord's In progress order, the highest first, and an
 	// order that cannot be read is said on the board and leaves them in name
-	// order.
+	// order. A failed resume its goblin took is finished first, so that
+	// goblin comes back too.
+	if err := finishTakenResumes(directory); err != nil {
+		s.publish(err)
+	}
 	evaluations := s.Store.Snapshot().Tasks
 	tasks, err := inProgressOrder(s.Store.Home)
 	if err != nil {

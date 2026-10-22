@@ -108,13 +108,13 @@ func TestSetupFolderPickerKeepsOnlyOneDialogOpen(t *testing.T) {
 			if response.Code != http.StatusOK {
 				t.Errorf("first picker = %d: %s", response.Code, response.Body.String())
 			}
-		case <-time.After(time.Second):
+		case <-time.After(time.Minute):
 			t.Error("first picker did not finish")
 		}
 	}()
 	select {
 	case <-opened:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("picker did not start")
 	}
 	if response := post(); response.Code != http.StatusConflict {

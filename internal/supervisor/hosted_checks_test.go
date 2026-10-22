@@ -26,6 +26,11 @@ const (
 	lintPassed    = `{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-09-30T12:03:00Z","detailsUrl":"https://github.com/o/r/actions/runs/5/job/51"}`
 	scanFailed    = `{"__typename":"StatusContext","context":"GitGuardian Security Checks","state":"FAILURE","targetUrl":"https://dashboard.gitguardian.com/workspace/1/incidents"}`
 	scanPassed    = `{"__typename":"StatusContext","context":"GitGuardian Security Checks","state":"SUCCESS","targetUrl":"https://dashboard.gitguardian.com/workspace/1"}`
+	// deployLimited is the Vercel entry gh returned live for a head the host
+	// rate limited, but for the team's name: no description, only the target
+	// of its upgrade page for that limit (#1194).
+	deployLimited = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"}`
+	deployFailed  = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects/app/9xYzBuildFailed"}`
 )
 
 // cardChecks reads the hosted checks the board's snapshot shows on a task's
@@ -75,6 +80,9 @@ func TestHostedChecksReachTheCardOfTheGoblinWhosePullRequestTheyAreOn(t *testing
 		{"a status context failed", "", []string{testPassed, scanFailed}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"GitGuardian Security Checks"}, "link": "https://dashboard.gitguardian.com/workspace/1/incidents"}},
 		{"one was cancelled", "", []string{testCancelled, lintPassed}, map[string]any{"state": "cancelled", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"test"}, "link": "https://github.com/o/r/actions/runs/5/job/50"}},
 		{"all passed and approved", "APPROVED", []string{testPassed, lintPassed, scanPassed}, map[string]any{"state": "passed", "head": "3d7072f8aa", "checks": float64(3), "approved": true}},
+		{"a rate-limited deploy among passing checks", "", []string{testPassed, deployLimited}, map[string]any{"state": "passed", "head": "3d7072f8aa", "checks": float64(1), "rate_limited": []any{"Vercel"}}},
+		{"a rate-limited deploy beside a real failure", "", []string{testFailed, deployLimited}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(1), "failed": []any{"test"}, "rate_limited": []any{"Vercel"}, "link": "https://github.com/o/r/actions/runs/5/job/50"}},
+		{"a deploy that failed for another reason", "", []string{testPassed, deployFailed}, map[string]any{"state": "failed", "head": "3d7072f8aa", "checks": float64(2), "failed": []any{"Vercel"}, "link": "https://vercel.com/acme-projects/app/9xYzBuildFailed"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -153,6 +161,14 @@ func TestHostedChecksShowNothingForAPullRequestWhoseEveryCheckWasSkipped(t *test
 	ran := cardChecks(t, s, "cg-wakes", now)
 	forge.pulls = hostedRollup("", testSkipped)
 	skipped := cardChecks(t, s, "cg-wakes", now.Add(ciPollEvery))
+	// A draft's run, whose draft job succeeded while every other job was
+	// skipped: that job reads whether the pull request is a draft and tests
+	// nothing (#963).
+	forge.pulls = hostedRollup("", draftStatePassed, testSkipped)
+	drafted := cardChecks(t, s, "cg-wakes", now.Add(2*ciPollEvery))
+	// A deploy the host rate limited never built the head either.
+	forge.pulls = hostedRollup("", testSkipped, deployLimited)
+	limited := cardChecks(t, s, "cg-wakes", now.Add(3*ciPollEvery))
 
 	// Assert
 	if ran == nil || ran["state"] != "passed" {
@@ -160,6 +176,12 @@ func TestHostedChecksShowNothingForAPullRequestWhoseEveryCheckWasSkipped(t *test
 	}
 	if skipped != nil {
 		t.Errorf("hosted checks = %v for a pull request whose every check was skipped, want none", skipped)
+	}
+	if drafted != nil {
+		t.Errorf("hosted checks = %v for a pull request whose only other check than the draft job's was skipped, want none", drafted)
+	}
+	if limited != nil {
+		t.Errorf("hosted checks = %v for a pull request whose checks were skipped or a rate-limited deploy, want none", limited)
 	}
 }
 

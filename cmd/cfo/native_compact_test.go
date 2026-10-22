@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/digest"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
-	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -90,22 +90,22 @@ func TestCodexCompactStartRehydratesOnlyTheCFO(t *testing.T) {
 	}
 }
 
-// runNativeCompact feeds one native compact event to the hook entry as the
-// harness's own hook would.
-func runNativeCompact(t *testing.T, harness, event, root string) string {
+// compactNatively hands compactNativeCFO one native compact event of the
+// CFO's session, as the supervisor does once it ingests the event the hook
+// spooled.
+func compactNatively(t *testing.T, harness, event, root string) {
 	t.Helper()
 	payload, err := json.Marshal(map[string]string{"hook_event_name": event, "session_id": "cfo-thread", "turn_id": "turn-1", "cwd": root, "trigger": "auto", "prompt": "must-not-persist"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var output, diagnostics bytes.Buffer
-	if exit := runNativeHook([]string{harness, "--home", root, "--state", filepath.Join(root, "state")}, bytes.NewReader(payload), &output, &diagnostics, commandRuntime{}); exit != 0 {
-		t.Fatalf("%s %s exit=%d: %s", harness, event, exit, diagnostics.String())
+	e, err := nativehook.Normalize(bytes.NewReader(payload), nativehook.Context{Harness: harness})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.TrimSpace(output.String()) != "{}" {
-		t.Fatalf("%s %s reply = %q, want {} so compaction proceeds unchanged", harness, event, output.String())
+	if err := compactNativeCFO(home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}, e, time.Now()); err != nil {
+		t.Fatalf("%s %s: %v", harness, event, err)
 	}
-	return diagnostics.String()
 }
 
 func clearNativeCFOEnvironment(t *testing.T) {
@@ -122,21 +122,15 @@ func TestNativeCFOCompactWritesACheckpointThenWakesOnce(t *testing.T) {
 	} {
 		t.Run(test.harness, func(t *testing.T) {
 			// Arrange
-			root := newCFOHome(t)
+			root := newPrimaryHome(t)
 			stateDirectory := filepath.Join(root, "state")
-			clearNativeCFOEnvironment(t)
-			t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
-			if _, err := lock.AcquireOwner(stateDirectory, os.Getpid(), "cfo-thread"); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = lock.Release(stateDirectory) })
 			checkpoint := filepath.Join(stateDirectory, digest.CheckpointFile)
 
 			// Act
-			runNativeCompact(t, test.harness, test.before, root)
+			compactNatively(t, test.harness, test.before, root)
 			data, checkpointErr := os.ReadFile(checkpoint)
-			runNativeCompact(t, test.harness, test.after, root)
-			runNativeCompact(t, test.harness, test.after, root)
+			compactNatively(t, test.harness, test.after, root)
+			compactNatively(t, test.harness, test.after, root)
 
 			// Assert
 			if checkpointErr != nil || !strings.Contains(string(data), "== FLEET ==") {
@@ -147,18 +141,15 @@ func TestNativeCFOCompactWritesACheckpointThenWakesOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(pending) != 1 {
-				t.Fatalf("pending wakes = %+v, want exactly one after a replayed post-compact event", pending)
+				t.Fatalf("pending wakes = %+v, want exactly one after a second post-compact event", pending)
 			}
 			if !strings.Contains(pending[0].Detail, checkpoint) || !strings.Contains(pending[0].Detail, "cfo drain") || strings.Contains(pending[0].Detail, "must-not-persist") {
 				t.Fatalf("post-compact wake = %q, want the checkpoint path and the next step without prompt text", pending[0].Detail)
 			}
-			if entries, err := os.ReadDir(nativehook.SpoolDir(stateDirectory)); err == nil && len(entries) != 0 {
-				t.Fatalf("compact events entered the session spool: %v", entries)
-			}
 
 			// A later compaction writes a fresh checkpoint and wakes again.
-			runNativeCompact(t, test.harness, test.before, root)
-			runNativeCompact(t, test.harness, test.after, root)
+			compactNatively(t, test.harness, test.before, root)
+			compactNatively(t, test.harness, test.after, root)
 			if pending, err = wake.Pending(stateDirectory); err != nil || len(pending) != 2 {
 				t.Fatalf("pending wakes after a second compaction = %+v, %v; want two", pending, err)
 			}
@@ -166,71 +157,13 @@ func TestNativeCFOCompactWritesACheckpointThenWakesOnce(t *testing.T) {
 	}
 }
 
-func TestNativeCompactActsOnlyForTheHomesCustodian(t *testing.T) {
-	for _, test := range []struct {
-		name                   string
-		role, task, generation string
-		isPrimary, isLocked    bool
-		isForeignHolder        bool
-	}{
-		{name: "goblin", role: "goblin", task: "fixture", generation: "g1", isPrimary: true, isLocked: true},
-		{name: "worker", role: "worker", isPrimary: true, isLocked: true},
-		{name: "no custody", isPrimary: true},
-		{name: "another process holds the home", isPrimary: true, isLocked: true, isForeignHolder: true},
-		{name: "not the primary home", isLocked: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			root := newCFOHome(t)
-			stateDirectory := filepath.Join(root, "state")
-			if !test.isPrimary {
-				if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
-					t.Fatal(err)
-				}
-			}
-			clearNativeCFOEnvironment(t)
-			t.Setenv("CFO_ROLE", test.role)
-			t.Setenv("CFO_TASK_ID", test.task)
-			t.Setenv("CFO_SPAWN_GEN", test.generation)
-			if test.isLocked {
-				holder := os.Getpid()
-				if test.isForeignHolder {
-					holder = startLiveForeignProcess(t).Process.Pid
-				}
-				if _, err := lock.AcquireOwner(stateDirectory, holder, "cfo-thread"); err != nil {
-					t.Fatal(err)
-				}
-				t.Cleanup(func() { _ = lock.Release(stateDirectory) })
-			}
-
-			// Act
-			runNativeCompact(t, "codex", "PreCompact", root)
-			runNativeCompact(t, "codex", "PostCompact", root)
-
-			// Assert
-			if _, err := os.Stat(filepath.Join(stateDirectory, digest.CheckpointFile)); !os.IsNotExist(err) {
-				t.Fatalf("a session without the home's custody wrote the CFO checkpoint: %v", err)
-			}
-			if pending, err := wake.Pending(stateDirectory); err != nil || len(pending) != 0 {
-				t.Fatalf("a session without the home's custody woke the CFO: %+v, %v", pending, err)
-			}
-		})
-	}
-}
-
 func TestNativeCompactWithoutACheckpointSaysSo(t *testing.T) {
 	// Arrange
-	root := newCFOHome(t)
+	root := newPrimaryHome(t)
 	stateDirectory := filepath.Join(root, "state")
-	clearNativeCFOEnvironment(t)
-	t.Setenv(host.IDVariable, supervisor.NativeCFOTerminal)
-	if _, err := lock.AcquireOwner(stateDirectory, os.Getpid(), "cfo-thread"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lock.Release(stateDirectory) })
 
 	// Act
-	runNativeCompact(t, "codex", "PostCompact", root)
+	compactNatively(t, "codex", "PostCompact", root)
 
 	// Assert
 	pending, err := wake.Pending(stateDirectory)

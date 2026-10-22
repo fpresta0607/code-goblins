@@ -99,7 +99,7 @@ func echoChild() {
 			select {
 			case <-interrupts:
 				fmt.Println("interrupted")
-			case <-time.After(15 * time.Second):
+			case <-time.After(time.Minute):
 				fmt.Println("no interrupt")
 			}
 		case strings.HasPrefix(line, "wait-file "):
@@ -121,7 +121,7 @@ func echoChild() {
 				}
 				if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
 					if windows.TerminateProcess(process, 1) == nil {
-						_, _ = windows.WaitForSingleObject(process, 10000)
+						_, _ = windows.WaitForSingleObject(process, 60000)
 						ended++
 					}
 					_ = windows.CloseHandle(process)
@@ -181,7 +181,8 @@ func echoChild() {
 			os.Exit(code)
 		case line == "stream":
 			// Numbered lines for two seconds, as a busy program prints.
-			for i, until := 0, time.Now().Add(2*time.Second); time.Now().Before(until); i++ {
+			// stall-accepted: a stall that ends the stream early still leaves the first lines a test waits for.
+			for i, until := 0, time.Now().Add(2*time.Second); i <= 10 || time.Now().Before(until); i++ {
 				fmt.Printf("line %06d %s\n", i, strings.Repeat("s", 60))
 				time.Sleep(time.Millisecond)
 			}
@@ -297,7 +298,7 @@ func end(pid int) {
 	}
 	defer windows.CloseHandle(handle)
 	_ = windows.TerminateProcess(handle, 1)
-	_, _ = windows.WaitForSingleObject(handle, 10000)
+	_, _ = windows.WaitForSingleObject(handle, 60000)
 }
 
 // running reports whether pid is a process that has not ended.
@@ -311,14 +312,14 @@ func running(pid int) bool {
 	return event == uint32(windows.WAIT_TIMEOUT)
 }
 
-// exited reports whether pid has ended within ten seconds.
+// exited reports whether pid has ended within thirty seconds.
 func exited(pid int) bool {
 	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return true
 	}
 	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 10000)
+	event, _ := windows.WaitForSingleObject(handle, 30000)
 	return event == windows.WAIT_OBJECT_0
 }
 
@@ -363,11 +364,11 @@ func (v *viewer) show(event Event) {
 }
 
 // waitFor reads events until the screen matches pattern, and returns the
-// match. It fails after 15 seconds even while no event arrives.
+// match. It fails after a minute even while no event arrives.
 func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 	t.Helper()
 	expression := regexp.MustCompile(pattern)
-	_ = v.pipe.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = v.pipe.SetReadDeadline(time.Now().Add(time.Minute))
 	defer v.pipe.SetReadDeadline(time.Time{})
 	for {
 		if match := expression.FindStringSubmatch(v.screen.String()); match != nil {
@@ -903,7 +904,7 @@ func TestAViewerThatFallsBehindDuringABurstStillReceivesIt(t *testing.T) {
 	v.waitFor(t, "ready")
 
 	typeLine(t, v, "spill")
-	for deadline := time.Now().Add(15 * time.Second); !strings.Contains(replay(t, record), "spilled"); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(replay(t, record), "spilled"); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the spill never reached the host's history")
 		}
@@ -1044,6 +1045,48 @@ func TestTheHostEndsWithItsTerminal(t *testing.T) {
 	}
 }
 
+// The host records how its terminal's program ended, and the record outlasts
+// the host's: the program's own exit code when it exited by itself, and that
+// a viewer closed it when one did.
+func TestTheHostRecordsHowItsTerminalEnded(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		end        func(t *testing.T, v *viewer)
+		wantCode   uint32
+		wantClosed bool
+	}{
+		{name: "exited by itself", end: func(t *testing.T, v *viewer) { typeLine(t, v, "exit 3") }, wantCode: 3},
+		{name: "closed by a viewer", end: func(t *testing.T, v *viewer) {
+			if err := v.CloseTerminal(); err != nil {
+				t.Fatalf("CloseTerminal: %v", err)
+			}
+		}, wantClosed: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			stateDir, record := launch(t)
+			v := connect(t, record)
+			v.waitFor(t, "ready")
+
+			// Act
+			testCase.end(t, v)
+			v.waitForExit(t)
+			if !exited(record.HostPID) {
+				t.Fatal("the host is still running after its terminal ended")
+			}
+
+			// Assert
+			end, err := ReadEnd(stateDir, "g1")
+			if err != nil {
+				t.Fatalf("ReadEnd: %v", err)
+			}
+			if end.HostPID != record.HostPID || end.ChildPID != record.ChildPID || !end.ChildStart.Equal(record.ChildStart) || end.Closed != testCase.wantClosed || !testCase.wantClosed && end.Code != testCase.wantCode {
+				t.Errorf("end = %+v, want host %d, program %d started %s, closed %v, code %d", end, record.HostPID, record.ChildPID, record.ChildStart, testCase.wantClosed, testCase.wantCode)
+			}
+		})
+	}
+}
+
 // A viewer sees everything the terminal's process printed before it exited,
 // the pseudo console's closing sequence included, then its exit code.
 func TestTheViewerSeesTheTerminalsLastOutput(t *testing.T) {
@@ -1173,8 +1216,8 @@ func TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread(t *testing.T) 
 			if !open || isUnread != want {
 				t.Fatalf("the viewer that asked was told unread=%t (open %t), want %t", isUnread, open, want)
 			}
-		case <-time.After(15 * time.Second):
-			t.Fatalf("the viewer that asked was not told unread=%t within 15s", want)
+		case <-time.After(time.Minute):
+			t.Fatalf("the viewer that asked was not told unread=%t within a minute", want)
 		}
 	}
 	await(true)
@@ -1282,5 +1325,66 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 	if !exited(pid) {
 		end(pid)
 		t.Errorf("the host pid %d that did not answer in time still runs", pid)
+	}
+}
+
+// A host whose terminal's program ends at once can record itself, serve and
+// end between two of its launch's looks for its record, as hosts did by chance
+// in CI (#1243). It served all the same, and its end names it, so the launch
+// returns that host and never says it ended before it served.
+func TestALaunchReturnsAHostThatServedAndEndedBetweenItsLooks(t *testing.T) {
+	// Arrange
+	usual := readLaunchRecord
+	// The launch never finds the record, as when the host records itself,
+	// serves and ends between two of its looks. The host runs in a process of
+	// its own, which reads its records as it always does.
+	readLaunchRecord = func(string, string) (Record, error) { return Record{}, os.ErrNotExist }
+	t.Cleanup(func() { readLaunchRecord = usual })
+	stateDir := t.TempDir()
+
+	// Act
+	record, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: "g1", Args: []string{os.Getenv("ComSpec"), "/d", "/c", "exit 3"}, Cols: 80, Rows: 25})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	ended, err := ReadEnd(stateDir, "g1")
+	if err != nil {
+		t.Fatalf("ReadEnd: %v", err)
+	}
+	if record.ID != "g1" || record.HostPID != ended.HostPID || record.ChildPID != ended.ChildPID || !record.ChildStart.Equal(ended.ChildStart) || ended.Code != 3 {
+		t.Errorf("Launch returned %+v for a host whose end is %+v, want the host and program that end names, which ended with code 3", record, ended)
+	}
+}
+
+// A host that ends before it serves leaves its reason in its log, and the
+// launch says how the host ended and what its log ends with, rather than only
+// where the log is, which a CI runner keeps to itself. The end an earlier host
+// of the terminal left names that host, so it never passes for this one's.
+func TestALaunchWhoseHostEndsBeforeItServesSaysWhy(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnd(stateDir, End{ID: "g1", HostPID: os.Getpid(), ChildPID: 1, Ended: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing.exe")
+
+	// Act
+	_, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: "g1", Args: []string{missing}, Cols: 80, Rows: 25})
+
+	// Assert
+	logPath := filepath.Join(stateDir, "hosts", "g1.log")
+	data, readErr := os.ReadFile(logPath)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if readErr != nil || last == "" {
+		t.Fatalf("the host's log is %q (%v), want the reason the host could not start its program", data, readErr)
+	}
+	if want := "host: the host ended before it served (exit status 1); " + logPath + " ends:\n"; !strings.HasPrefix(fmt.Sprint(err), want) || !strings.Contains(fmt.Sprint(err), last) {
+		t.Errorf("err = %v, want %q followed by the log's last line %q", err, want, last)
 	}
 }

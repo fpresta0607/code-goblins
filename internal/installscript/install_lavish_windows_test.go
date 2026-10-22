@@ -10,12 +10,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // lavishFile is the release file of the lavish-axi fork the install installs.
-const lavishFile = "lavish-axi-0.1.79-codegoblins.3.tgz"
+const lavishFile = "lavish-axi-0.1.79-codegoblins.17.tgz"
 
 // lavishPin finds the SHA256 the install script pins for that file.
 var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
@@ -68,15 +69,16 @@ func npmCallsFor(recorded string) []string {
 }
 
 // lavish-axi comes from a release file of the fork, which npm installs
-// without checking it. The install downloads the file itself and hands it to
-// npm only when it matches the SHA256 pinned in the script. The comparison is
+// without checking it. The install downloads the file the doctor's hint names
+// itself and hands it to npm only when it matches the SHA256 pinned in the
+// script. The comparison is
 // the script's own, the same whichever PowerShell runs it, so Windows
 // PowerShell alone checks it.
 func TestOneLineInstallRefusesALavishDownloadThatDoesNotMatchItsPin(t *testing.T) {
 	output, recorded, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), nil)
 
-	if !strings.Contains(recorded, "/v0.1.79-codegoblins.3/"+lavishFile) {
-		t.Fatalf("the lavish-axi release was not downloaded:\n%s\n%s", recorded, output)
+	if !strings.Contains(recorded, "download "+doctor.LavishRelease) {
+		t.Fatalf("the install did not download %s, the release the doctor names:\n%s\n%s", doctor.LavishRelease, recorded, output)
 	}
 	if !strings.Contains(output, "does not match the SHA256 this install pins") {
 		t.Errorf("the install does not say the download failed its pin:\n%s", output)

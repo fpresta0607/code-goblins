@@ -216,8 +216,11 @@ func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, []string, 
 		program := filepath.Join(folder, tool.Name+".exe")
 		isThere, _ := there(program)
 		return folder, nil, isThere, func(ctx context.Context) error {
-			// Its daemon holds the program, so it stops first.
-			_ = run(program, "daemon", "stop")(ctx)
+			// Its daemon holds the program, so it stops first, with no update
+			// check: no-mistakes runs a stale one as a program of its own in
+			// the background, which would hold the program and write
+			// ~\.no-mistakes again once both had gone.
+			_, _ = m.Commands.Run(ctx, execx.Request{Name: program, Args: []string{"daemon", "stop"}, Env: append(os.Environ(), "NO_MISTAKES_NO_UPDATE_CHECK=1")})
 			return fsx.RemoveAll(folder)
 		}, nil
 	}

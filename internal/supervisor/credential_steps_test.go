@@ -3,7 +3,11 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -108,6 +112,88 @@ func TestStepCardRefusesAKeyInAPlainField(t *testing.T) {
 	}
 	if found := filesHolding(t, b.home.Root, canary); len(found) != 0 {
 		t.Fatalf("the key is in %v", found)
+	}
+}
+
+// A plain field whose name says it is an ID takes a short identifier, such as
+// an OAuth client ID, without a warning, while a long token shape, a key's
+// prefix or a field not named as an ID still reads as a key, and the refusal
+// says so, so the card can offer him to say the value is no secret.
+func TestStepCardSendsAnIdentifierInAnIDFieldAndWarnsOfAKeyElsewhere(t *testing.T) {
+	for name, c := range map[string]struct {
+		field, value string
+		isRefused    bool
+	}{
+		"a mixed case client ID in an ID field":    {"MADE_UP_CLIENT_ID", "k7Qx9L" + "m2Vb4Rt8Nc", false},
+		"twenty letters and digits in an ID field": {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0", false},
+		"twenty one characters in an ID field":     {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0K", true},
+		"a key's prefix in an ID field":            {"MADE_UP_CLIENT_ID", "ghp" + "_Qx9Lm2Vb4" + "Rt8Nc6Y", true},
+		"a short identifier in a field not an ID":  {"MADE_UP_ACCOUNT_REF", "k7Qx9L" + "m2Vb4Rt8Nc", true},
+		"a long token in an ID field":              {"MADE_UP_CLIENT_ID", "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{c.field} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{c.field: c.value}), nil)
+
+			// Assert
+			if c.isRefused {
+				if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"looks_like_key":true`) {
+					t.Fatalf("save = %d %s, want it refused as a key", response.Code, response.Body)
+				}
+				if strings.Contains(response.Body.String(), c.value) {
+					t.Fatal("the refusal repeats the value")
+				}
+				if request := b.stored(); len(request.Values) != 0 {
+					t.Fatalf("request = %+v, want nothing received", request)
+				}
+				return
+			}
+			if response.Code != http.StatusOK {
+				t.Fatalf("save = %d %s, want the identifier sent", response.Code, response.Body)
+			}
+			if request := b.stored(); request.Values[c.field] != c.value || !slices.Contains(request.Received, c.field) {
+				t.Fatalf("request = %+v, want %s received", request, c.field)
+			}
+		})
+	}
+}
+
+// He can say a value is no secret, which sends it to the goblin though it is
+// shaped like a key, for that field alone.
+func TestStepCardSendsAKeyShapedPlainValueHeSaysIsNoSecret(t *testing.T) {
+	// Arrange
+	b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{"MADE_UP_ACCOUNT_REF", "MADE_UP_OTHER_REF"} })
+	value := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	notSecret := func(names ...string) string {
+		data, err := json.Marshal(struct {
+			ID         string            `json:"id"`
+			Generation string            `json:"generation"`
+			Values     map[string]string `json:"values"`
+			NotSecret  []string          `json:"not_secret"`
+		}{b.request.ID, b.request.Generation, map[string]string{"MADE_UP_ACCOUNT_REF": value}, names})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	// Act
+	refused := b.post(b.handler, notSecret(), nil)
+	forAnother := b.post(b.handler, notSecret("MADE_UP_OTHER_REF"), nil)
+	sent := b.post(b.handler, notSecret("MADE_UP_ACCOUNT_REF"), nil)
+
+	// Assert
+	if refused.Code != http.StatusBadRequest || forAnother.Code != http.StatusBadRequest {
+		t.Fatalf("without his word for the field: %d and %d, want both refused", refused.Code, forAnother.Code)
+	}
+	if sent.Code != http.StatusOK {
+		t.Fatalf("with his word: %d %s, want it sent", sent.Code, sent.Body)
+	}
+	if request := b.stored(); request.Values["MADE_UP_ACCOUNT_REF"] != value || !slices.Contains(request.Received, "MADE_UP_ACCOUNT_REF") {
+		t.Fatalf("request = %+v, want the value received", request)
 	}
 }
 
@@ -545,9 +631,14 @@ func TestAGoblinsOpenCardIsWithdrawnOnceNobodyWaitsOnIt(t *testing.T) {
 	}
 }
 
-// A goblin waiting on its card continues within a second of his Done, and
-// reads the plain values he typed straight from its card.
-func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
+// A goblin waiting on its card continues once the board records his Done,
+// and reads the plain values he typed straight from its card. The look
+// whatever the record's stamp says is held off, so only the stamp the press
+// gives the record can end the wait, and no bound on how soon a busy PC gets
+// there is needed to tell the two apart.
+func TestWaitingOnACardEndsWhenTheBoardRecordsItClosed(t *testing.T) {
+	defer func(recheck int) { credentialWaitRecheck = recheck }(credentialWaitRecheck)
+	credentialWaitRecheck = math.MaxInt
 	for _, test := range []struct {
 		name   string
 		change func(*CredentialRequest)
@@ -567,22 +658,25 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			b := stepCard(t, test.change)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			type outcome struct {
 				request CredentialRequest
 				err     error
-				at      time.Time
 			}
+			looked := make(chan struct{})
 			ended := make(chan outcome, 1)
 			go func() {
-				request, err := WaitCredential(ctx, b.home.State, b.request.ID, nil)
-				ended <- outcome{request, err, time.Now()}
+				request, err := WaitCredential(ctx, b.home.State, b.request.ID, func(CredentialRequest) { close(looked) })
+				ended <- outcome{request, err}
 			}()
-			time.Sleep(300 * time.Millisecond)
+			select {
+			case <-looked:
+			case got := <-ended:
+				t.Fatalf("the wait ended before the press: %+v %v", got.request, got.err)
+			}
 
 			// Act
-			pressed := time.Now()
 			code := test.act(b)
 			got := <-ended
 
@@ -592,9 +686,6 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 			}
 			if got.request.State != test.state {
 				t.Fatalf("the wait ended on %+v, want %s", got.request, test.state)
-			}
-			if waited := got.at.Sub(pressed); waited > time.Second {
-				t.Fatalf("the wait ended %s after the press, want within a second", waited)
 			}
 			if test.state == "saved" && got.request.Values["ACCOUNT_EMAIL"] != "shop-owner@example.com" {
 				t.Fatalf("values = %v, want the email he typed", got.request.Values)
@@ -608,7 +699,7 @@ func TestWaitingOnACardEndsWithinASecondOfDone(t *testing.T) {
 func TestWaitingOnACardTheBoardNeverTookEnds(t *testing.T) {
 	// Arrange
 	_, h := testStore(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -620,5 +711,124 @@ func TestWaitingOnACardTheBoardNeverTookEnds(t *testing.T) {
 	}
 	if ctx.Err() != nil {
 		t.Fatal("the wait ran out its time instead of ending")
+	}
+}
+
+// Done on a goblin's step card, by the Overlord or the CFO, or its inputs
+// arriving, also closes its wait on the Overlord that was opened while the
+// card was open, which asked him for the same step, saying who closed it. A wait opened before the card, a wait on a page and
+// another goblin's wait are cards of their own and stay open, and a card the
+// CFO filed for the goblin closes none of its waits.
+func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
+	sent := func(response *httptest.ResponseRecorder) error {
+		if response.Code != http.StatusOK {
+			return fmt.Errorf("%d %s", response.Code, response.Body)
+		}
+		return nil
+	}
+	done := func(b *credentialBoard) error {
+		return sent(b.send(b.handler, "/api/credentials/close", b.closeBody("done"), nil))
+	}
+	byGoblin := func(r *CredentialRequest) { r.By = "goblin" }
+	for _, tc := range []struct {
+		name   string
+		change func(*CredentialRequest)
+		close  func(*credentialBoard) error
+		want   string
+		reason string
+	}{
+		{"done by the Overlord", byGoblin, done, "answered", "You pressed Done"},
+		{"done by the CFO", byGoblin, func(b *credentialBoard) error {
+			_, err := b.service.closeCredential(b.request.ID, "", "done", "cfo", "")
+			return err
+		}, "answered", "The CFO closed"},
+		{"saved", func(r *CredentialRequest) { r.By, r.Plain = "goblin", []string{"ACCOUNT_EMAIL"} }, func(b *credentialBoard) error {
+			return sent(b.post(b.handler, b.body(map[string]string{"ACCOUNT_EMAIL": "shop-owner@example.com"}), nil))
+		}, "answered", "its inputs arrived"},
+		{"answered by the Overlord", byGoblin, func(b *credentialBoard) error {
+			data, err := json.Marshal(map[string]string{"id": b.request.ID, "generation": b.request.Generation, "action": "answer", "text": "which plan?"})
+			if err != nil {
+				return err
+			}
+			return sent(b.send(b.handler, "/api/credentials/close", string(data), nil))
+		}, "answered", "You wrote on its step card"},
+		{"filed by the CFO", nil, done, "open", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, tc.change)
+			wait := func(id, task string, opened time.Duration, page string) Review {
+				r := openReview(id, task)
+				r.CreatedAt = b.request.CreatedAt.Add(opened)
+				r.UpdatedAt = r.CreatedAt
+				if page != "" {
+					r.Lavish, r.LavishPage = "http://127.0.0.1:4387/session/f26e", page
+				}
+				return r
+			}
+			for _, r := range []Review{
+				wait("waiting-task-1-7", "task-1", time.Second, ""),
+				wait("waiting-task-1-3", "task-1", -time.Minute, ""),
+				wait("waiting-task-1-8", "task-1", time.Second, `C:\work\.lavish\plan.html`),
+				wait("waiting-task-2-9", "task-2", time.Second, ""),
+			} {
+				if err := b.service.Store.acceptReview(r); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			err := tc.close(b)
+			b.service.credentialWork.Wait()
+
+			// Assert
+			if err != nil || b.stored().State == "open" {
+				t.Fatalf("close = %v, card %s", err, b.stored().State)
+			}
+			want := map[string]string{"waiting-task-1-7": tc.want, "waiting-task-1-3": "open", "waiting-task-1-8": "open", "waiting-task-2-9": "open"}
+			for _, r := range b.service.Store.Snapshot().Reviews {
+				if r.State != want[r.ID] {
+					t.Errorf("wait %s = %s, want %s", r.ID, r.State, want[r.ID])
+				}
+				if r.ID == "waiting-task-1-7" && r.State == "answered" && (r.AnsweredIn == "" || !strings.Contains(r.Reason, b.request.ID) || !strings.Contains(r.Reason, tc.reason)) {
+					t.Errorf("the closed wait = %+v, want it answered on the card it names, saying %q", r, tc.reason)
+				}
+			}
+		})
+	}
+}
+
+// A goblin's open step card is found on the board's record and in its inbox
+// before the board takes it, and a closed card, another goblin's or one the
+// CFO filed for it is not.
+func TestOpenStepCardFindsTheGoblinsOpenCard(t *testing.T) {
+	// Arrange
+	b := stepCard(t, func(r *CredentialRequest) { r.By = "goblin" })
+	byCFO := CredentialRequest{ID: "cred-2222222222222222", Identity: strings.Repeat("e", 64), By: "cfo", Task: "task-4", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
+	if _, err := b.service.acceptCredentialRequest(byCFO); err != nil {
+		t.Fatal(err)
+	}
+	spooled := CredentialRequest{ID: "cred-1111111111111111", Identity: strings.Repeat("d", 64), By: "goblin", Task: "task-2", Project: "throwaway", Why: "Tick the App Group", Link: "https://developer.apple.com/account"}
+	if err := spoolCredentialRequest(b.home.State, spooled); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	onBoard, boardErr := OpenStepCard(b.home.State, "task-1")
+	inInbox, inboxErr := OpenStepCard(b.home.State, "task-2")
+	none, noneErr := OpenStepCard(b.home.State, "task-3")
+	cfoCard, cfoErr := OpenStepCard(b.home.State, "task-4")
+	if _, err := b.service.closeCredential(b.request.ID, "", "done", "cfo", ""); err != nil {
+		t.Fatal(err)
+	}
+	b.service.credentialWork.Wait()
+	closed, closedErr := OpenStepCard(b.home.State, "task-1")
+
+	// Assert
+	if err := errors.Join(boardErr, inboxErr, noneErr, cfoErr, closedErr); err != nil {
+		t.Fatal(err)
+	}
+	if onBoard != b.request.ID || inInbox != spooled.ID || none != "" || cfoCard != "" || closed != "" {
+		t.Fatalf("open cards = %q, %q, %q, %q, %q after Done; want %s, %s and none for the rest", onBoard, inInbox, none, cfoCard, closed, b.request.ID, spooled.ID)
 	}
 }

@@ -111,7 +111,7 @@ func TestAgentTerminalServesEachChildsOwnOutput(t *testing.T) {
 	server.Start()
 	defer server.Close()
 	stream := func(t *testing.T, node string) func(want string) {
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		t.Cleanup(cancel)
 		request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/tasks/"+meta.ID+"/agent?node="+url.QueryEscape(node)+"&stream=1", nil)
 		if err != nil {

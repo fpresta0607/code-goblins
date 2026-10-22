@@ -101,7 +101,9 @@ type launcherSnapshot struct {
 		RevisingSince string `json:"revising_since"`
 	} `json:"reviews"`
 	Runs []struct {
-		State string `json:"state"`
+		State             string `json:"state"`
+		CredentialRequest string `json:"credential_request"`
+		RemoteFix         string `json:"remote_fix"`
 	} `json:"runs"`
 }
 
@@ -194,7 +196,7 @@ func launchAppBoard(runtime commandRuntime, h home.Home, stdout, stderr io.Write
 		return board, true
 	}
 	if err == nil {
-		err = reopenCFO(h, runtime.startNativeCFO, runtime.nativeTerminalRuns)
+		err = reopenCFO(h, "the Overlord opened the board, which reopened it", runtime.startNativeCFO, runtime.nativeTerminalRuns)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "goblins: the CFO could not be reopened: %v\nOpen the board at %s to try Reopen again.\n", err, board)
@@ -374,8 +376,9 @@ func anotherSupervisorStarting(stateDir string) bool {
 // goblins are working, and how much waits on the Overlord: the header badge's
 // count of pending questions, open review items and run items ready or
 // running, where a question its goblin asked about its own open review page
-// is that page's one item, and a page he sent a revision on waits on its
-// goblin's next version, not on him.
+// is that page's one item, a page he sent a revision on waits on its
+// goblin's next version, not on him, and a terminal a credential card or the
+// Remote access setting opened shows there, not as an item.
 func statusLine(snapshot launcherSnapshot) string {
 	cfo := "CFO supervising"
 	if snapshot.Registration != "" {
@@ -399,7 +402,7 @@ func statusLine(snapshot launcherSnapshot) string {
 		}
 	}
 	for _, run := range snapshot.Runs {
-		if run.State == "ready" || run.State == "running" {
+		if (run.State == "ready" || run.State == "running") && run.CredentialRequest == "" && run.RemoteFix == "" {
 			waiting++
 		}
 	}

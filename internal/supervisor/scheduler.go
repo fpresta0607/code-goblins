@@ -177,6 +177,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	if waitsOnProcessors != "" && starting == "" && len(changing) == 0 && len(asked) == 0 && defect == "" {
 		busy = s.processorsBusy()
 	}
+	var startErr error
 	switch {
 	case starting != "":
 		record.Text = starting + " is starting"
@@ -191,7 +192,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		s.runAsked()
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
-		problems = errors.Join(problems, s.startQueued(defect, false))
+		startErr = s.startQueued(defect, false)
 	case busy != "":
 		record.Waiting = append(record.Waiting, WaitingWork{ID: waitsOnProcessors, Why: busy})
 		record.Text = "nothing starts: " + bounded(busy, 120)
@@ -200,7 +201,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		problems = errors.Join(problems, s.resumeAutomatically(ready[0]))
 	case len(queued) > 0 && memoryPending == "":
 		record.Text = "starting " + queued[0]
-		problems = errors.Join(problems, s.startQueued(queued[0], false))
+		startErr = s.startQueued(queued[0], false)
 	case memoryPending != "":
 		record.Text = memoryPending + " resumes first, once memory reads 5 GB twice"
 	case len(record.Waiting) > 0:
@@ -215,10 +216,16 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Text = ""
 	}
 	var refusal StartRefusal
-	if errors.As(problems, &refusal) {
+	if errors.As(startErr, &refusal) {
 		record.Text = "nothing starts: " + bounded(refusal.Reason, 120)
+		// A refusal that passes, such as memory the start's own reading
+		// found short after this reading cleared it, is the start waiting
+		// for the next reading, which tries it again: no error (#1203).
+		if refusal.Passing {
+			startErr = nil
+		}
 	}
-	return record, problems
+	return record, errors.Join(problems, startErr)
 }
 
 // changingVerbs says what a task in the middle of a change is doing.
@@ -254,6 +261,8 @@ func (s *Service) pauseCleared(ctx context.Context, condition state.PauseConditi
 		completed := watched.Checks[target]
 		isCurrent := !completed.ReportedAt.Before(condition.At)
 		return strings.HasPrefix(completed.Signature, head+"|") && !completed.ReportedAt.IsZero() && isCurrent, nil
+	case "restart":
+		return s.restartedSince(condition.Until)
 	case "overlord":
 		return false, nil
 	}

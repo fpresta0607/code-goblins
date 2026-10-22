@@ -5,10 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 )
 
 // Conversation names the record a harness keeps of one agent's
@@ -74,23 +75,9 @@ func (h *HostProgress) conversationFiles(ctx context.Context, c Conversation) []
 	case "codex":
 		return h.nativeCodexRollouts(ctx, c.Dir, c.Started)
 	case "pi":
-		return h.piSessions(c.Dir)
+		return fleettree.PiSessions(h.Home, c.Dir)
 	}
 	return nil
-}
-
-// piFolderCharacters are the characters pi 0.85 writes as a hyphen in the
-// folder it keeps a working folder's sessions in, which it wraps in two
-// hyphens: C:\dev\x is --C--dev-x--.
-var piFolderCharacters = strings.NewReplacer(`\`, "-", "/", "-", ":", "-")
-
-// piSessions is every session pi keeps in the folder for dir.
-func (h *HostProgress) piSessions(dir string) []string {
-	if h.Home == "" || !filepath.IsAbs(dir) {
-		return nil
-	}
-	matches, _ := filepath.Glob(filepath.Join(h.Home, ".pi", "agent", "sessions", "--"+piFolderCharacters.Replace(dir)+"--", "*.jsonl"))
-	return matches
 }
 
 // handedText reads entry, one line of harness's record, as text handed to

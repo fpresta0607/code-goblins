@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -248,6 +250,55 @@ func writeRecord(stateDir string, record Record) error {
 	return fsx.AtomicWriteFile(recordPath(stateDir, record.ID), data)
 }
 
+// End is how the program of a terminal ended, which its host records as it
+// ends and which outlasts the host's record until the terminal's next program
+// ends: the host that ran it, the program by pid and creation time, when it
+// ended, its exit code, and whether a viewer closed the terminal, as a restart
+// closes the CFO's, in which case the code is the close's and not the
+// program's own. It tells a CFO that ended unasked from one that was stopped,
+// and a host that served from one that never did.
+type End struct {
+	ID         string    `json:"id"`
+	HostPID    int       `json:"host_pid,omitempty"`
+	ChildPID   int       `json:"child_pid"`
+	ChildStart time.Time `json:"child_start,omitzero"`
+	Ended      time.Time `json:"ended"`
+	Code       uint32    `json:"code"`
+	Closed     bool      `json:"closed,omitempty"`
+}
+
+func endPath(stateDir, id string) string {
+	return filepath.Join(stateDir, "hosts", id+".end")
+}
+
+// ReadEnd reads how the last program of terminal id ended; a terminal no
+// program has ended in returns an error that is os.ErrNotExist.
+func ReadEnd(stateDir, id string) (End, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return End{}, err
+	}
+	data, err := fsx.ReadFile(endPath(stateDir, id))
+	if err != nil {
+		return End{}, err
+	}
+	var end End
+	if err := json.Unmarshal(data, &end); err != nil {
+		return End{}, fmt.Errorf("host: how terminal %s ended is unreadable: %w", id, err)
+	}
+	if end.ID != id || end.ChildPID <= 0 || end.Ended.IsZero() {
+		return End{}, fmt.Errorf("host: how terminal %s ended is incomplete", id)
+	}
+	return end, nil
+}
+
+func writeEnd(stateDir string, end End) error {
+	data, err := json.Marshal(end)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(endPath(stateDir, end.ID), data)
+}
+
 // removeRecord removes the record of terminal id only while it still names
 // hostPID, so a host that ends never removes its successor's record. Windows
 // refuses to delete a file another process has open without delete sharing,
@@ -258,14 +309,17 @@ func removeRecord(stateDir, id string, hostPID int) {
 	if err != nil || record.HostPID != hostPID {
 		return
 	}
-	for deadline := time.Now().Add(removeWait); ; time.Sleep(20 * time.Millisecond) {
+	waiting, cancel := awake.WithTimeout(context.Background(), removeWait)
+	defer cancel()
+	for ; ; time.Sleep(20 * time.Millisecond) {
 		err := os.Remove(recordPath(stateDir, id))
-		if err == nil || errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+		if err == nil || errors.Is(err, os.ErrNotExist) || waiting.Err() != nil {
 			return
 		}
 	}
 }
 
 // removeWait is how long a record's removal outlasts the readers that refuse
-// it.
+// it. Only time the machine ran spends it (awake), since a pause of the
+// whole machine stops the readers too.
 const removeWait = 2 * time.Second

@@ -54,7 +54,7 @@ func TestProcessPollsOnlyExcludesProvenIsolatedScrawl(t *testing.T) {
 					select {
 					case <-r.Context().Done():
 						return
-					case <-time.After(time.Second):
+					case <-time.After(time.Minute):
 					}
 				}
 				app, directory := "lavish-axi", scratchState

@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
@@ -55,6 +56,9 @@ type pageAnswer struct {
 	Reason     string       `json:"reason,omitempty"`
 	IsPageEnd  bool         `json:"is_page_end,omitempty"`
 	Closed     Review       `json:"closed,omitempty"`
+	// SentAt is when the answer was typed into its goblin's terminal, from
+	// when the record its harness keeps shows whether the goblin took it.
+	SentAt time.Time `json:"sent_at,omitempty"`
 }
 
 // watchPages keeps one poller for each page the supervisor watches: the
@@ -172,7 +176,12 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 		}
 		polled = r
 		poll, err := s.Options.PollPage(ctx, r.LavishPage, reply, timeout)
+		// A question that stands for the page is no item, so it is read as
+		// it stands for the page now: one the CFO answered during the poll
+		// takes what he sent as a note.
 		if now, ok := s.Store.review(r.ID); ok && samePageVersion(now, r) {
+			r = now
+		} else if now, ok := s.Store.watchedPages()[key]; ok && samePageVersion(now, r) {
 			r = now
 		}
 		if err == nil {
@@ -279,6 +288,7 @@ func (s *Service) watchPage(ctx context.Context, key string) {
 func together(first, then axi.PagePoll) axi.PagePoll {
 	whole := first
 	whole.Prompts = append(slices.Clone(first.Prompts), then.Prompts...)
+	whole.Notes = append(slices.Clone(first.Notes), then.Notes...)
 	whole.Picked = first.Picked || then.Picked
 	whole.Output = first.Output + "\n" + then.Output
 	if then.Ended || then.Status == "ended" {
@@ -288,14 +298,66 @@ func together(first, then axi.PagePoll) axi.PagePoll {
 }
 
 // answeredOnPage closes the captured version and its older cards the moment
-// a poll reads his answer there, before anyone is told it, and nothing else:
-// a question its goblin asked stays its own. The boards are told at once:
-// the supervisor's cycle tells them only of what the cycle itself changed.
+// a poll reads his answer there, with what he wrote, before anyone is told
+// it, and nothing else: a question its goblin asked stays its own, except the
+// question AFK mode made of the page, which is the page. The boards are told
+// at once: the supervisor's cycle tells them only of what the cycle itself
+// changed.
 func (s *Service) answeredOnPage(answer pageAnswer) {
-	if err := s.Store.closePage(answer.Item, Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived}); err != nil {
+	if err := s.Store.closePage(answer.Item, Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: pageAnswerReceived, Answer: pageWords(answer.Poll)}); err != nil {
 		s.publish(err)
 	}
+	s.answerPageQuestion(answer)
 	s.notify()
+}
+
+// answerPageQuestion records his answer on a page AFK mode asked as a
+// goblin's question as that question's answer, since the question is the
+// page: its card leaves Waiting on you at once, the CFO's notify reads
+// answered, and the goblin gets what he wrote through the page, as from any
+// page. A pick of an option the question offers is that option.
+func (s *Service) answerPageQuestion(answer pageAnswer) {
+	q, found := s.Store.pageQuestion(answer.Item)
+	if !found {
+		return
+	}
+	unlock, err := answerLock(s.Store.Home.State, q.Seq)
+	if err != nil {
+		// The CFO is answering it with cfo answer; what he wrote reaches the
+		// goblin all the same.
+		s.publish(err)
+		return
+	}
+	defer unlock()
+	pending, err := wake.Pending(s.Store.Home.State)
+	if err != nil {
+		s.publish(err)
+		return
+	}
+	if i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }); i >= 0 && pending[i].Answered != "" {
+		// The CFO answered it first; what he wrote reaches the goblin all
+		// the same.
+		return
+	}
+	text, kind := pageWords(answer.Poll), "other"
+	if i := slices.IndexFunc(q.Options, func(option string) bool { return slices.Contains(answer.Poll.Prompts, option) }); i >= 0 {
+		text, kind = q.Options[i], "option"
+	}
+	if text == "" {
+		// A notify whose answer is empty reads unanswered.
+		text = "Ended the review with no words"
+	}
+	isRecorded, err := s.Store.answerQuestionOnPage(q.ID, text, kind, time.Now().UTC())
+	if err != nil {
+		s.publish(err)
+		return
+	}
+	if !isRecorded {
+		return
+	}
+	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, wake.AnsweredByOverlord, text); err != nil {
+		s.publish(err)
+	}
 }
 
 // passOnAnswer releases a settled answer to its durable, ordered teller.
@@ -407,9 +469,29 @@ func (s *Store) taskStands(id string) bool {
 
 // watchedPages maps the key of each page the supervisor watches to the item
 // that stands for it: the newest open item naming it, else the newest item.
+// A page AFK mode asked as a goblin's question has no item, so the question
+// stands for it, open while it is pending, until the review on it settles:
+// his answer on it reaches the supervisor the moment he sends it. A page
+// another reporter's open item shows stays that reporter's, as a second item
+// for it is refused (refuseHeldPage).
 func (s *Store) watchedPages() map[string]Review {
 	pages := map[string]Review{}
-	for _, r := range s.Snapshot().Reviews {
+	snapshot := s.Snapshot()
+	items := snapshot.Reviews
+	for _, q := range snapshot.Questions {
+		isHeld := slices.ContainsFunc(snapshot.Reviews, func(r Review) bool {
+			return r.State == "open" && r.Task != q.Task && r.LavishPage != "" && pageKey(r.LavishPage) == pageKey(q.AsksPageFile)
+		})
+		if q.AsksPageFile == "" || q.PageSettled != nil || isHeld {
+			continue
+		}
+		state := "answered"
+		if q.Status == "pending" {
+			state = "open"
+		}
+		items = append(items, Review{ID: q.ID, Identity: q.Identity, Task: q.Task, Title: q.Text, Lavish: q.AsksPage, LavishPage: q.AsksPageFile, State: state, CreatedAt: q.CreatedAt})
+	}
+	for _, r := range items {
 		if !s.watchesPage(r) {
 			continue
 		}
@@ -420,6 +502,42 @@ func (s *Store) watchedPages() map[string]Review {
 		}
 	}
 	return pages
+}
+
+// pageQuestion is the pending question that stands for page item, which is
+// the page AFK mode asked as that question, if any.
+func (s *Store) pageQuestion(item Review) (Question, bool) {
+	questions := s.Snapshot().Questions
+	i := slices.IndexFunc(questions, func(q Question) bool {
+		return q.ID == item.ID && q.Status == "pending" && q.AsksPageFile != "" && pageKey(q.AsksPageFile) == pageKey(item.LavishPage)
+	})
+	if i < 0 {
+		return Question{}, false
+	}
+	return questions[i], true
+}
+
+// answerQuestionOnPage records answer, of kind option or other, as his answer
+// on its page to question id, at at, and closes the waits that follow it. It
+// records nothing once the question has an answer, his on the board included,
+// and reports whether it recorded and saved his.
+func (s *Store) answerQuestionOnPage(id, answer, kind string, at time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == id && q.Status == "pending" && q.AnswerID == "" })
+	if i < 0 {
+		return false, nil
+	}
+	q := &s.db.Questions[i]
+	q.Status, q.Answer, q.AnswerKind, q.AnsweredBy, q.AnsweredAt, q.AnsweredIn, q.Message = "succeeded", answer, kind, "overlord", &at, "page", "You answered on its page."
+	if kind == "option" {
+		q.AnsweredOption = answer
+	}
+	s.closeFollowUps(*q, "overlord", at)
+	if err := s.save(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // review returns item id as it stands now.
@@ -444,7 +562,7 @@ func (s *Store) closePage(item Review, closed Review) error {
 		if r.State != "open" || r.PageSettled != nil || !pageVersionIncludes(item, *r) {
 			continue
 		}
-		r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, at
+		r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.Answer, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, closed.Answer, at
 		if r.State == "cleared" {
 			s.auditClear(*r)
 		}
@@ -456,10 +574,78 @@ func (s *Store) closePage(item Review, closed Review) error {
 	return s.save()
 }
 
+// pageWords is what he wrote on a page in one answer, as chainedNotes reads it,
+// bounded as an item's reason is.
+func pageWords(poll axi.PagePoll) string {
+	return bounded(chainedNotes(poll), 2000)
+}
+
+// chainedNotes is what he sent on a page in one answer, one note to a line in
+// the order he wrote them, each with what it is attached to and the images he
+// attached to it, so a chained set reads as the notes he left where he left
+// them: a set is numbered, a lone note on an element says which, and a lone
+// note on the whole page, or his pick of a choice the page declared, is his
+// words alone. An answer kept before notes were read has its prompts alone.
+func chainedNotes(poll axi.PagePoll) string {
+	notes := poll.Notes
+	if len(notes) == 0 {
+		return strings.Join(poll.Prompts, "\n")
+	}
+	if len(notes) == 1 {
+		if on := noteOn(notes[0]); on != "" && notes[0].Tag != "choice" {
+			return "On " + on + ": " + noteWords(notes[0])
+		}
+		return noteWords(notes[0])
+	}
+	lines := make([]string, len(notes))
+	for i, note := range notes {
+		on := noteOn(note)
+		if on == "" {
+			on = "the whole page"
+		}
+		lines[i] = fmt.Sprintf("%d. On %s: %s", i+1, on, noteWords(note))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// noteWords is what he wrote in a note, followed by the local path of each
+// image he attached to it, which is all a note of images alone says.
+func noteWords(note axi.PageNote) string {
+	if len(note.Images) == 0 {
+		return note.Prompt
+	}
+	images := "his image " + note.Images[0]
+	if len(note.Images) > 1 {
+		images = "his images " + strings.Join(note.Images, ", ")
+	}
+	if note.Prompt == "" {
+		return images
+	}
+	return note.Prompt + " (" + images + ")"
+}
+
+// noteOn names what a note is attached to: a table cell by its row and
+// column, a pick of the page's choices by its question, any other element
+// by its tag and its words. It is empty for a note on the whole page.
+func noteOn(note axi.PageNote) string {
+	words := `"` + bounded(strings.Join(strings.Fields(note.Text), " "), 80) + `"`
+	switch {
+	case note.Tag == "message" || note.Tag == "" && note.Selector == "":
+		return ""
+	case note.Row != "" && note.Column != "":
+		return `the cell in row "` + note.Row + `", column "` + note.Column + `"`
+	case note.Row != "" || note.Column != "":
+		return `the cell "` + note.Row + note.Column + `"`
+	case note.Tag == "choice":
+		return "the choice " + words
+	}
+	return "the " + note.Tag + " " + words
+}
+
 // explainAnswer gives each item of the page key names that closed when he
 // answered there, and says only that, the reason that says who has his
-// answer, now that it was passed on.
-func (s *Store) explainAnswer(item Review, reason string) error {
+// answer, now that it was passed on, and all he wrote with it.
+func (s *Store) explainAnswer(item Review, reason, words string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
@@ -468,7 +654,7 @@ func (s *Store) explainAnswer(item Review, reason string) error {
 		if r.State != "answered" || r.Reason != pageAnswerReceived || !pageVersionIncludes(item, *r) {
 			continue
 		}
-		r.Reason, changed = reason, true
+		r.Reason, r.Answer, changed = reason, words, true
 	}
 	if !changed {
 		return nil
@@ -494,6 +680,14 @@ func (s *Store) settlePage(item Review, closed Review) error {
 			if r.State == "cleared" {
 				s.auditClear(*r)
 			}
+		}
+	}
+	// The reporter's questions on the page up to this one are watched no
+	// more, as its older cards are; one still pending stays the CFO's to
+	// answer.
+	for i := range s.db.Questions {
+		if q := &s.db.Questions[i]; q.AsksPageFile != "" && q.PageSettled == nil && q.Task == item.Task && q.Identity == item.Identity && pageKey(q.AsksPageFile) == pageKey(item.LavishPage) && !q.CreatedAt.After(item.CreatedAt) {
+			q.PageSettled, changed = &at, true
 		}
 	}
 	if !changed {

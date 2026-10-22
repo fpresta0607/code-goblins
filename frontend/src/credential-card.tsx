@@ -14,12 +14,23 @@ import "./browser-signin-card.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
+import { CardMail } from "./card-mail";
+import { inlineElements } from "./messageText";
+import { copyValues } from "./CopyValue";
+import { pathLinks } from "./path-link";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
 function heldNames(error: unknown): string[] {
   const cause = error instanceof Error && typeof error.cause === "object" && error.cause !== null ? object(error.cause) : {};
   return strings(cause.existing);
+}
+
+// Whether the board refused a plain value for its shape, a key's, which he can
+// answer by saying it is no secret.
+function looksLikeKey(error: unknown): boolean {
+  const cause = error instanceof Error && typeof error.cause === "object" && error.cause !== null ? object(error.cause) : {};
+  return cause.looks_like_key === true;
 }
 
 // Text as a cell shows it: a long one wraps after each separator, never
@@ -30,8 +41,10 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 
 // The card for a step only he can take: its header says how, as the page to
 // open, or the goblin's own browser window to bring to him, and the asker's
-// steps, numbered in order. Its table has a row for each input, by its label:
-// a field to paste each secret into, with a check once the value is in the
+// steps, numbered in order, each local path they name a link that opens it,
+// and a message he sends himself, with Copy. Its table has a row for
+// each input, by its label: a field to paste each secret into, with a check
+// once the value is in the
 // project's vault, and a field for each plain value, which goes back to the
 // goblin. A card that asks for nothing has Done instead, and every open card
 // has Dismiss, which tells its goblin to go on without it. A pasted secret is
@@ -40,6 +53,8 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // are in the tips. Below the table the cfo auth store lines have Copy and Run
 // to type them in a terminal on this PC instead. Values are typed only on the
 // board on this PC; a board opened from another machine shows the commands. A
+// plain value the board refuses as a key shows its refusal with a button to send
+// it anyway once he says it is no secret. A
 // secret is kept by the card, never in its field or the page's markup, until
 // its row's save sends it once; the board answers with names, and the row's
 // field empties after every answer. A stored value is replaced only once he
@@ -56,6 +71,9 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   // Why the board refused a row's value, shown under its field until he
   // pastes again.
   const [refusals, setRefusals] = useState<Record<string, string>>({});
+  // The plain fields whose value the board refused as a key, which he can send
+  // anyway by saying it is no secret.
+  const [keyShaped, setKeyShaped] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -86,6 +104,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   };
   const ask = (names: string[], action: Confirm["action"], confirmed: string[]) => setConfirm({ names, action, confirmed });
   const warnings = (name: string, value: string) => valueWarnings(request.hints.find((hint) => hint.name === name), value);
+  const paths = pathLinks({ kind: "credential", id: request.id, instance: snapshot.instance });
 
   // store sends one row's value, the one pasted or the one its field holds.
   const store = async (name: string, replace: string[], pasted?: string) => {
@@ -126,16 +145,18 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     finally { setIsFetching(false); }
   };
   // A plain value goes to the goblin when he presses Enter or Send.
-  const sendPlain = async (name: string) => {
+  const sendPlain = async (name: string, isNotSecret = false) => {
     const value = (plainValues[name] || "").trim();
     if (!value || storing.includes(name)) return;
-    setStoring((prior) => [...prior, name]); showFeedback(""); setRefusals((prior) => ({ ...prior, [name]: "" }));
+    setStoring((prior) => [...prior, name]); showFeedback(""); setRefusals((prior) => ({ ...prior, [name]: "" })); setKeyShaped((prior) => prior.filter((candidate) => candidate !== name));
     try {
-      const answer = object(await call("/api/credentials/save", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, values: { [name]: value }, replace: [] }) }));
+      const answer = object(await call("/api/credentials/save", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, values: { [name]: value }, replace: [], ...(isNotSecret ? { not_secret: [name] } : {}) }) }));
       setAnswered((prior) => [...prior, ...strings(answer.received)]);
       setPlainValues((prior) => { const rest = { ...prior }; delete rest[name]; return rest; });
-    } catch (failure: unknown) { setRefusals((prior) => ({ ...prior, [name]: message(failure) })); }
-    finally { setStoring((prior) => prior.filter((candidate) => candidate !== name)); }
+    } catch (failure: unknown) {
+      setRefusals((prior) => ({ ...prior, [name]: message(failure) }));
+      if (looksLikeKey(failure)) setKeyShaped((prior) => [...prior, name]);
+    } finally { setStoring((prior) => prior.filter((candidate) => candidate !== name)); }
   };
   // Done, Dismiss and the window button each post once and wait for the
   // board, whose snapshot then closes the card or shows the window.
@@ -143,6 +164,16 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     setPressing(what); showFeedback("");
     try { await call(path, undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, ...body }) }); }
     catch (failure: unknown) { showFeedback(message(failure)); }
+    finally { setPressing(""); }
+  };
+  // His words from Something else? close the card as sent; a refusal goes back
+  // to his window, which keeps them.
+  const answer = async (text: string) => {
+    setPressing("answer"); showFeedback("");
+    try {
+      await call("/api/credentials/close", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, action: "answer", text }) });
+      return "";
+    } catch (failure: unknown) { return message(failure); }
     finally { setPressing(""); }
   };
   const offer = open && local && request.fetch && request.fetch.names.some((name) => needed.includes(name)) ? request.fetch : null;
@@ -167,15 +198,16 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span></p>
     <header className="credential-heading">
-      <h3 id={"credential-" + request.id} tabIndex={-1}>{credentialHeading(request)}</h3>
-      {request.why && inputs.length > 0 && <p className="credential-why">{request.why}</p>}
+      <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>
+      {request.why && inputs.length > 0 && <p className="credential-why">{inlineElements(request.why, copyValues, paths)}</p>}
       {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
         {request.link && (request.window
           ? <li>Press Open the browser window below</li>
           : <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{wrappable(linkLabel(request.link), "/")}</span><Icon name="external" /></a></li>)}
-        {request.steps.map((step, index) => <li key={index}>{stepText(step)}</li>)}
+        {request.steps.map((step, index) => <li key={index}>{inlineElements(stepText(step), copyValues, paths)}</li>)}
       </ol>}
     </header>
+    {request.mail && <CardMail mail={request.mail} />}
     {open && request.window && <div className="step-window">
       {local
         ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="external" />Open the browser window</button>
@@ -205,11 +237,12 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
             {!open ? <span className="muted">Not sent</span>
               : !local ? <span className="credential-pill"><Icon name="lock" />Type it on your PC</span>
               : <input className="credential-input plain-input" type="text" value={plainValues[name] || ""} placeholder="Type it here" disabled={!connected || storing.includes(name)} autoComplete="off" spellCheck={false} aria-label={inputLabel(request, name)}
-                onChange={(event) => { const next = event.currentTarget.value; setPlainValues((prior) => ({ ...prior, [name]: next })); setRefusals((prior) => ({ ...prior, [name]: "" })); }}
+                onChange={(event) => { const next = event.currentTarget.value; setPlainValues((prior) => ({ ...prior, [name]: next })); setRefusals((prior) => ({ ...prior, [name]: "" })); setKeyShaped((prior) => prior.filter((candidate) => candidate !== name)); }}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendPlain(name); } }} />}
             {open && local && <button type="button" className="icon-button raised credential-store" aria-label={"Send " + inputLabel(request, name)} data-tip={"Send it to " + asker} disabled={!connected || !(plainValues[name] || "").trim() || storing.includes(name)} onClick={() => void sendPlain(name)}><Icon name="send" /></button>}
           </div>}
           {refusals[name] && <p className="credential-refusal" role="alert"><Icon name="warning" />{refusals[name]}</p>}
+          {refusals[name] && keyShaped.includes(name) && <button type="button" className="raised pill-link credential-not-secret" disabled={!connected || storing.includes(name)} onClick={() => void sendPlain(name, true)}>It is not a secret: send it anyway</button>}
         </td>
       </tr>)}{request.names.map((name) => {
         const value = values[name] || "";
@@ -252,7 +285,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       <ClickFeedback text={feedback} />
       {pager}
       {open && <SkipWithNote asker={request.task ? asker : "the CFO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
-        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={(text) => void press("/api/credentials/close", { action: "answer", text }, "answer")} />}
+        onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={answer} />}
       {canPressDone(request) && <button type="button" className="primary step-done" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "done" }, "done")}><Icon name={pressing === "done" ? "clock" : "check"} />Done</button>}
     </div>}
     {confirm && <CredentialReplaceDialog names={confirm.names} project={request.project} action={confirm.action} onCancel={() => setConfirm(null)}

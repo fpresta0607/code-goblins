@@ -109,6 +109,8 @@ textarea { resize: vertical; line-height: 1.6; }
 ::placeholder { color: #869da9; }
 ::selection { background: rgba(16, 185, 129, 0.30); }
 a { color: var(--mint); text-decoration: none; }
+/* An address in a message reads as a link. */
+.message-link { text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
 code, pre, .mono { font-family: var(--font-mono); }
 h1, h2, h3, p { margin: 0; }
 /* Pixelify Sans stays at 400: heavier weights close its C and G into O. */
@@ -222,13 +224,16 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column h2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); }
 .task-cards { container-type: inline-size; display: grid; align-content: start; gap: 16px; }
-/* A task card's portrait sits beside its head, the chip and title, and every
-   line under them takes the card's whole width. */
-.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
-.task-card > .goblin-avatar { grid-column: 1; grid-row: 1; }
+/* A task card's portrait sits beside its head, the chip and its name, and
+   under them its status in at most two lines and its project. */
+.task-card { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "face head" "face status"; align-items: center; gap: 2px 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
+.task-card > .goblin-avatar { grid-area: face; }
 .task-card > .card-copy { display: contents; }
-.task-card .card-head { grid-column: 2; grid-row: 1; align-self: center; display: grid; justify-items: start; gap: 4px; min-width: 0; }
-.task-card > .card-copy > :not(.card-head) { grid-column: 1 / -1; }
+.task-card .card-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.task-card .card-head > :not(.card-title) { flex: none; max-width: 100%; }
+.task-card > .card-copy > .plain-status { grid-area: status; align-items: flex-start; min-width: 0; color: var(--muted); font-weight: 600; }
+.task-card .plain-status .status-dot { margin-top: 7px; }
+.task-card .card-status-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .task-card-shell:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); border-color: var(--glass-border-hover); background: var(--glass-bg-hover), var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .task-card-shell:has(> .task-card:active), .workflow-node:active { transform: none; box-shadow: var(--glass-shadow); }
 .task-card .goblin-avatar { width: 44px; height: 44px; }
@@ -237,21 +242,30 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .card-copy strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .card-copy small { font-size: .9375rem; color: var(--muted); }
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
-/* A task card is a grid: what the card says, with its pull request on a row of
-   its own under it, and its controls beside them, or under them on a narrow
-   card. Every part has its own place. */
-.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card side" "card mark" "links mark"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+/* A task card is one row, like a conversation in a list: what the card says,
+   with its clock at the top right and its icons under it, ending with the
+   mark of the harness its goblin runs, which names the harness, model and
+   effort in its tip. Every part has its own place. */
+.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card time" "repo icons"; align-items: start; column-gap: 12px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
-.task-card-shell > .card-links { grid-area: links; }
-.task-card-shell > .task-controls { grid-area: side; }
-/* The mark of the harness a goblin runs sits in the card's corner, under its
-   controls, and names the harness, model and effort in its tip. */
-.task-card-shell > .card-harness { grid-area: mark; align-self: end; justify-self: end; margin-top: 10px; }
+.task-card-shell > .card-clock { grid-area: time; justify-self: end; white-space: nowrap; }
+.task-card-shell > .card-icons { grid-area: icons; justify-self: end; align-self: end; display: flex; align-items: center; gap: 10px; }
+.card-icons .icon { width: 18px; height: 18px; }
 .card-harness .mark { width: 40px; height: 40px; }
 .card-harness .mark svg, .card-harness .mark .icon { width: 22px; height: 22px; }
+.card-icons .card-harness .mark { width: 30px; height: 30px; }
+.card-icons .card-harness .mark svg, .card-icons .card-harness .mark .icon { width: 17px; height: 17px; }
 .task-card-shell > .task-card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
-.card-links > *, .task-card-shell > .task-controls > *, .task-card-shell > .card-harness { position: relative; z-index: 1; }
-.card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; }
+.card-icons > * { position: relative; z-index: 1; }
+/* A list too narrow for a card's clock and icons beside its name and status,
+   such as a column beside the CFO's panel, puts them on a line of their own
+   under its status, the clock at the left and the icons at the right, so its
+   name and status keep the card's whole width. */
+@container (max-width: 360px) {
+  .task-card-shell { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "card card" "repo repo" "time icons"; align-items: center; }
+  .task-card-shell > .card-clock { justify-self: start; margin-top: 6px; }
+  .task-card-shell > .card-icons { margin-top: 6px; }
+}
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
 .card-pr:hover, .card-pr:focus-visible { text-decoration: underline; }
@@ -363,9 +377,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node .project-label, .flow-node .card-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node .card-copy:has(.browser-indicator, small) strong { -webkit-line-clamp: 1; }
 .flow-node .card-copy:has(.browser-indicator):has(small) .card-status-text { -webkit-line-clamp: 1; }
-.flow-node .card-engine { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.flow-node .card-engine, .flow-node .card-route { width: 100%; line-height: 1.25; }
-.flow-node .card-route { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-disclosure { position: absolute; left: 50%; bottom: -18px; transform: translateX(-50%); display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border-color: var(--glass-border); border-radius: 50%; background: var(--glass-bg), var(--hero-surface); color: #bed2d9; }
 .node-disclosure svg { display: block; width: 18px; height: 18px; }
 /* On the canvas a goblin's chevron folds its branches too, so it hangs low
@@ -638,13 +649,33 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .connection { font-size: .9375rem; }
   .task-cards { grid-template-columns: minmax(0, 1fr); }
 }
+/* A small screen's top bar is the brand with the Command Center and the
+   connection beside it, the view switch under them; the tour, the layout
+   button and Open CFO are left off there (App.tsx), and while a panel fills
+   the screen the switch goes too, so the bar is one row. */
 @media (max-width: 40rem) {
-  .topbar { grid-template-columns: minmax(0, 1fr); }
-  .brand { gap: 10px; }
-  .example-label { max-width: none; margin-left: auto; }
-  .topbar-controls { grid-row: 2; justify-content: space-between; }
-  .view-switch { grid-row: 3; }
-  .command-center-updates { left: 0; right: auto; }
+  .topbar { min-height: 0; padding: 8px 12px; }
+  .brand { flex-wrap: wrap; gap: 4px 10px; }
+  .fills-phone .view-switch { display: none; }
+}
+/* On a small screen a panel opened on anything is the whole view below the
+   top bar, and the shell is held to the visual viewport, which a phone's
+   on-screen keyboard shrinks, so a terminal's input line and last rows stay
+   above the keyboard and take the room back when it closes; the viewport's
+   height and top come from use-visual-viewport.ts. */
+.app-shell.fills-phone { position: fixed; inset: var(--visual-top, 0px) 0 auto; height: var(--visual-height, 100dvh); min-height: 0; padding: 6px; gap: 6px; }
+.fills-phone .context-pane { flex: 1; min-height: 0; max-height: none; }
+/* There the Terminal view's header keeps its picture, name, task and status
+   at smaller sizes, so the terminal keeps the room above the keyboard. */
+.fills-phone .panel-header.compact { gap: 2px 12px; padding: 6px 14px 8px; }
+.fills-phone .panel-header.compact .goblin-avatar { width: 36px; height: 36px; }
+.fills-phone .panel-header.compact h2 { font-size: 1.125rem; }
+.fills-phone .panel-header.compact .panel-identity { gap: 0; }
+.fills-phone .panel-header.compact :is(.panel-goblin-task, .panel-status) { font-size: .9375rem; line-height: 1.35; }
+/* VS Code and a task's folder open on the PC, so a small screen has neither,
+   and a row of the panel's buttons left with nothing in it takes no room. */
+@media (max-width: 40rem) {
+  .opens-on-pc, .panel-actions:not(:has(> :not(.opens-on-pc))) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
@@ -865,6 +896,14 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .terminal-history.away { visibility: hidden; pointer-events: none; }
 /* No terminal shows a scroll bar; the wheel still scrolls a native one. */
 .terminal-surface .xterm-scrollable-element > .scrollbar { display: none; }
+/* xterm keeps its text box far off the screen, so on a touch screen nothing
+   under a finger on a terminal could be typed into and a long press offered
+   no Paste. There the box lies, unseen, over the whole screen: a long press
+   pastes into it and a tap types into it. */
+@media (pointer: coarse) {
+  .terminal-surface .xterm .xterm-helpers { inset: 0; }
+  .terminal-surface .xterm .xterm-helper-textarea { left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; color: transparent; caret-color: transparent; resize: none; }
+}
 .terminal-overlay { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 8px; z-index: 2; }
 .terminal-state { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: rgba(3, 5, 10, 0.9); box-shadow: var(--glass-shadow); color: var(--muted); font-weight: 700; }
 .terminal-state .status-dot { background: #a6beda; }
@@ -1095,6 +1134,18 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .inbox-history li.unfolded .history-detail { grid-area: detail; margin-top: 0; }
 .history-detail { display: grid; margin-top: 4px; }
 .history-detail[hidden] { display: none; }
+/* A card whose values are stored unfolds its steps and its values, each
+   already stored, with no field to change one. Its steps are not History
+   rows, so they drop the row's box. */
+.history-stored { display: grid; gap: 8px; margin-top: 6px; }
+.inbox-history .history-stored li { display: list-item; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.history-stored-values { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.inbox-history .history-stored-values li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.history-stored-values li > :first-child { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+.history-stored-state { display: inline-flex; align-items: center; gap: 6px; color: var(--mint); font-weight: 700; }
+.history-stored-state .icon { width: 14px; height: 14px; }
+.history-stored-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.history-stored-note { display: inline-flex; align-items: center; gap: 8px; }
 .history-actions { display: flex; align-items: center; gap: 4px; }
 .inbox-history .history-actions .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .history-open svg { width: 16px; height: 16px; color: var(--muted); }
@@ -1112,14 +1163,21 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
   .question-card { padding: 16px; }
 }
 .question-card h3:focus { outline: none; }
-/* A task card: its title, up to three lines, then a muted line with the
-   repo and the status, which wrap onto further lines rather than ending in an
-   ellipsis. */
+/* A goblin's name and title wrap onto further lines rather than ending in an
+   ellipsis, and so does its project. A task with no goblin yet keeps its
+   title to one line, in full in its tip. */
 .task-card .browser-indicator { font-size: 1rem; }
-.task-card .card-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
-.card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--muted); font-size: 1rem; line-height: 1.4; }
+.task-card .card-title { flex: 1 1 8rem; min-width: 0; overflow-wrap: anywhere; font-size: 1rem; font-weight: 700; line-height: 1.4; }
+.task-card .card-task-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
-.card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
+/* A card's project sits under its status, past the portrait, and GitHub's
+   mark beside it opens the repository; a press anywhere else on the line
+   opens the card's panel. */
+.task-card-shell > .card-repo { grid-area: repo; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0 0 56px; color: var(--muted); font-size: 1rem; line-height: 1.4; }
+.numbered .ranked-item .task-card-shell > .card-repo { margin-left: 90px; }
+.card-repo-link { position: relative; z-index: 1; display: inline-flex; flex: none; width: 18px; height: 18px; }
+.card-repo-link svg { width: 18px; height: 18px; fill: currentColor; }
+.card-repo-link:hover, .card-repo-link:focus-visible { color: var(--bone); }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
 /* In progress shows every card. Any other board list shows up to ten whole;
    past ten it shows a page, as many as fit the visible board and never fewer
@@ -1195,9 +1253,10 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
 /* A ranked card's number sits before its portrait, so the lines under them
-   still take the card's whole width. */
-.ranked-item .render-error { padding-left: 44px; }
-.ranked-item .task-card > .goblin-avatar { margin-left: 34px; }
+   still take the card's whole width. Paused moves its cards the same way with
+   no numbers. */
+.numbered .ranked-item .render-error { padding-left: 44px; }
+.numbered .ranked-item .task-card > .goblin-avatar { margin-left: 34px; }
 @media (hover: hover) and (pointer: fine) {
   .ranked-item .task-card { cursor: grab; }
   .task-cards.sorting .task-card { cursor: grabbing; }
@@ -1321,9 +1380,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .labelled-button.danger { border-color: #fa727266; }
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
-.card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.card-engine, .card-route { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-.card-engine { color: inherit; font-weight: 600; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--muted); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: #a6beda; }
 .phase-stopped, .phase-stopping { color: var(--muted); }
@@ -1352,15 +1408,3 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 dialog > .preservation-notice { margin-top: 18px; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
-@container (max-width: 420px) {
-  .task-card-shell { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card card" "links links" "side mark"; }
-  .task-card-shell > .card-harness { align-self: center; }
-  .task-card-shell > .task-controls { margin-top: 10px; }
-}
-/* A card as narrow as a column beside the CFO's panel in the Overlord's window
-   keeps its four controls and its harness mark on one row. */
-@container (max-width: 300px) {
-  .task-card-shell > .task-controls { gap: 6px; }
-  .task-card-shell > .task-controls .icon-button { width: 36px; height: 36px; min-height: 36px; }
-  .task-card-shell > .card-harness .mark { width: 36px; height: 36px; }
-}

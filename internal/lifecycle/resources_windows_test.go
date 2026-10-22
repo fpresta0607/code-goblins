@@ -420,7 +420,7 @@ func TestStoppingAParentStopsWhatRunsInItsHelpersWorktree(t *testing.T) {
 	if slices.Contains(resources.Directories, other.Worktree) {
 		t.Errorf("directories = %v, want none of g2's", resources.Directories)
 	}
-	if result, _ := windows.WaitForSingleObject(helperHandle, 10000); result != windows.WAIT_OBJECT_0 {
+	if result, _ := windows.WaitForSingleObject(helperHandle, 30000); result != windows.WAIT_OBJECT_0 {
 		t.Errorf("the helper's process pid %d still runs after its parent stopped; stopped %v, error %v", helperProcess.Process.Pid, stopped, stopErr)
 	}
 	if result, _ := windows.WaitForSingleObject(otherHandle, 0); result != uint32(windows.WAIT_TIMEOUT) {

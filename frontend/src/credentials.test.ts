@@ -9,7 +9,7 @@ import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
   project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], plain: [], labels: {}, why: "Charge test cards", link: "", steps: [],
-  window: false, window_state: "", received: [],
+  window: false, window_state: "", received: [], mail: null,
   env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",
   created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", fetch: null, ...changes,
 });
@@ -95,7 +95,7 @@ test("a card offers to fetch the keys a reviewed page reads, saying where from a
 
 test("values are typed only on the board on this PC", () => {
   for (const host of ["127.0.0.1", "localhost", "[::1]"]) assert.equal(onThisMachine(host), true, host);
-  for (const host of ["sermon.tailcc4238.ts.net", "100.101.102.103", "goblins.local", "board.localhost"]) assert.equal(onThisMachine(host), false, host);
+  for (const host of ["pc.example.ts.net", "100.101.102.103", "goblins.local", "board.localhost"]) assert.equal(onThisMachine(host), false, host);
 });
 
 test("a new request alerts once, naming who asks and what, and opens its card", () => {

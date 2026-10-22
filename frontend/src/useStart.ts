@@ -1,10 +1,10 @@
 import type { Snapshot, Task } from "./types";
 import { object } from "./types";
-import type { CardStart } from "./TaskCard";
 import { message, reportToCfo, request } from "./api";
 import { startBlock, type AcceptedStart } from "./start";
 import { isOnItsWay, recordClick } from "./use-task-clicks";
 
+export interface CardStart { blocked: string; onStart: () => void }
 export type CardStarter = (task: Task) => CardStart;
 
 // Start on a queued task, one click: the card says Starting in the frame he

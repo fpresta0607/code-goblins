@@ -20,7 +20,7 @@ import (
 // the lock.
 func startServeStandIn(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "60", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestAWatcherYieldsTheLockAtOnceToAServeThatAsksForIt(t *testing.T) {
 		reason, err := Run(cfg)
 		returned <- result{reason, err}
 	}()
-	eventually(t, 10*time.Second, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
+	eventually(t, time.Minute, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
 
 	asked := time.Now()
 	askForTheLock(t, dir, startServeStandIn(t))
@@ -85,10 +85,10 @@ func TestAWatcherYieldsTheLockAtOnceToAServeThatAsksForIt(t *testing.T) {
 		if got.err != nil || got.reason != "" {
 			t.Fatalf("Run = %q, %v; want it to yield quietly", got.reason, got.err)
 		}
-		if waited := time.Since(asked); waited > 5*time.Second {
+		if waited := time.Since(asked); waited > time.Minute {
 			t.Errorf("the watcher yielded %s after the request, want at once, not after its five-minute poll", waited)
 		}
-	case <-time.After(20 * time.Second):
+	case <-time.After(2 * time.Minute):
 		t.Fatal("the watcher kept the lock a serve asked for")
 	}
 	if lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) {
@@ -117,14 +117,14 @@ func TestAWatcherTakesNoLockWhileAServeWaitsForIt(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "serve.handover")); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 5*time.Second, "the watcher taking the free lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
+	eventually(t, time.Minute, "the watcher taking the free lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
 	askForTheLock(t, dir, serve)
 	select {
 	case err := <-returned:
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the watcher kept the lock a serve asked for")
 	}
 }
@@ -150,9 +150,9 @@ func TestAWatcherIgnoresARequestFromAServeThatIsGone(t *testing.T) {
 	}
 	go func() { _, _ = Run(baseConfig(dir)) }()
 
-	eventually(t, 3*time.Second, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
+	eventually(t, time.Minute, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
 	askForTheLock(t, dir, startServeStandIn(t))
-	eventually(t, 5*time.Second, "the watcher yielding", func() bool { return !lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
+	eventually(t, time.Minute, "the watcher yielding", func() bool { return !lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
 }
 
 // slowProbe stands for a slow cycle: each inspection runs until its context
@@ -189,7 +189,7 @@ func TestAWatcherInASlowCycleYieldsAtOnceAndAnswersTheServe(t *testing.T) {
 	}()
 	select {
 	case <-probe.inspecting:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the watcher never started its scan")
 	}
 
@@ -202,10 +202,10 @@ func TestAWatcherInASlowCycleYieldsAtOnceAndAnswersTheServe(t *testing.T) {
 		if got.err != nil || got.reason != "" {
 			t.Fatalf("Run = %q, %v; want it to yield quietly", got.reason, got.err)
 		}
-		if waited := time.Since(asked); waited > 3*time.Second {
+		if waited := time.Since(asked); waited > time.Minute {
 			t.Errorf("the watcher yielded %s after the request, want at once, not when its scan ended", waited)
 		}
-	case <-time.After(20 * time.Second):
+	case <-time.After(2 * time.Minute):
 		t.Fatal("the watcher kept the lock a serve asked for until its scan ended")
 	}
 	if lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) {

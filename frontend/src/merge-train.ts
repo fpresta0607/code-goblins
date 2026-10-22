@@ -32,8 +32,8 @@ const batchRunCount = (train: MergeTrain) => train.earlier.reduce((count, earlie
 
 // trainLook says in plain words where a train stands: what CI tests now and
 // in which run of its batch, or how it ended. A train that landed anything
-// says so, since its card lists only what it landed; one that landed nothing
-// says why.
+// says so, and its card says what it could not merge; one that landed
+// nothing says why.
 export function trainLook(train: MergeTrain): TrainLook {
   const url = safeGitHubLink(train.pr);
   const runs = batchRunCount(train);
@@ -68,16 +68,6 @@ const CAR_WORDS: Record<string, [string, Tone]> = {
 export function carLook(car: TrainCar): CarLook {
   const [text, tone] = CAR_WORDS[car.state] ?? [car.state, "pending"];
   return { label: "#" + car.number, url: safeGitHubLink(car.url), text, tone, tip: car.note };
-}
-
-// The pull requests a train's card lists: what it tests, what waits its turn
-// and what it landed. One it could not merge, left for the next train or
-// found broken shows on its goblin's card instead.
-const ON_CARD = new Set(["riding", "waiting", "landed"]);
-
-// cardCars are the pull requests a train's card lists, in train order.
-export function cardCars(train: MergeTrain): TrainCar[] {
-  return train.cars.filter((car) => ON_CARD.has(car.state));
 }
 
 // batchCars are every pull request of a train's batch, each once, where it

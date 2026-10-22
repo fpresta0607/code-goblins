@@ -1,8 +1,9 @@
 import type { Disk, Gpu, Memory, Processors } from "./types";
 import { DiskMeter } from "./DiskMeter";
 import { GpuMeter } from "./GpuMeter";
+import { PoolMeter } from "./pool-meter";
 import { ProcessorMeter } from "./ProcessorMeter";
-import { freeGigabytes, holdersLine, memoryMarks, meterScale, meterState, poolWarning, tighter } from "./start";
+import { freeGigabytes, holdersLine, memoryMarks, meterScale, meterState, tighter } from "./start";
 
 // Free memory at the head of Tasks: its name and value, and a bar marked with
 // the floor under which nothing starts and the mark at which the next task
@@ -10,10 +11,12 @@ import { freeGigabytes, holdersLine, memoryMarks, meterScale, meterState, poolWa
 // colour says which side of them memory is on, and the same in words is for a
 // screen reader. While commit (memory plus page file) is the tighter of the
 // two, the meter shows commit instead, and its bar's tip names the apps
-// holding the most of it; a leaking paged pool is named there too. Free disk,
-// when the snapshot has it, is the second meter in the same box, under
-// memory, then how free the processors are and how free the GPU is, as the
-// Overlord asked on 2026-10-09 ("a meter bar for CPU and GPU as well ...
+// holding the most of it. The kernel's pools are the second meter in the same
+// box, beside memory, when the snapshot names their line (the Overlord,
+// 2026-10-18: "the header shows the restart button in terminal cfo for safe
+// pc restart"). Free disk, when the snapshot has it, comes next, then how free
+// the processors are and how free the GPU is, as the Overlord asked on
+// 2026-10-09 ("a meter bar for CPU and GPU as well ...
 // matching styling and layout of memory free and disk space in same
 // container"). No text sits under a bar or between two meters, whatever the
 // scheduler did, as the Overlord ruled on 2026-10-07 ("dont need extra text
@@ -21,7 +24,7 @@ import { freeGigabytes, holdersLine, memoryMarks, meterScale, meterState, poolWa
 // text"): why nothing starts reaches the CFO as a wake.
 export function MemoryMeter({ memory, disk = null, processors = null, gpu = null }: { memory: Memory; disk?: Disk | null; processors?: Processors | null; gpu?: Gpu | null }) {
   const state = meterState(memory), scale = meterScale(memory), shown = tighter(memory);
-  const tip = [memoryMarks(memory), holdersLine(memory), poolWarning(memory)].filter(Boolean).join(" ");
+  const tip = [memoryMarks(memory), holdersLine(memory)].filter(Boolean).join(" ");
   return <div className="memory" role="group" aria-label="Memory">
     <div className="memory-line"><span>{shown.isCommit ? "Commit free (memory plus page file)" : "Memory free"}</span><strong>{freeGigabytes(shown.free)} GB</strong></div>
     <div className="memory-bar" data-tip={tip}>
@@ -30,6 +33,7 @@ export function MemoryMeter({ memory, disk = null, processors = null, gpu = null
       <span className="memory-mark" style={{ left: `${scale.next}%` }} />
     </div>
     <p className="sr-only">{state.text} {tip}</p>
+    {memory.pool_line > 0 && <PoolMeter memory={memory} />}
     {disk && <DiskMeter disk={disk} />}
     {processors && <ProcessorMeter processors={processors} />}
     {gpu && <GpuMeter gpu={gpu} />}

@@ -251,10 +251,11 @@ func TestServiceSIDIsTheServicesOwn(t *testing.T) {
 func TestWaitForFirstBootWaitsForThePowerOff(t *testing.T) {
 	for name, row := range map[string]struct {
 		offAt   int
+		limit   time.Duration
 		wantErr string
 	}{
-		"the setup ends": {offAt: 3},
-		"it never ends":  {wantErr: "did not power it off within 50ms"},
+		"the setup ends": {offAt: 3, limit: time.Minute},
+		"it never ends":  {limit: 50 * time.Millisecond, wantErr: "did not power it off within 50ms"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -262,12 +263,12 @@ func TestWaitForFirstBootWaitsForThePowerOff(t *testing.T) {
 			sleep := func(ctx context.Context, _ time.Duration) {
 				select {
 				case <-ctx.Done():
-				case <-time.After(5 * time.Millisecond):
+				case <-time.After(5 * time.Millisecond): // stall-accepted: a stand-in sleep that only spaces the polls, so a stall cannot fail the test.
 				}
 			}
 
 			// Act
-			err := waitForFirstBoot(context.Background(), vm, sleep, 50*time.Millisecond)
+			err := waitForFirstBoot(context.Background(), vm, sleep, row.limit)
 
 			// Assert
 			if row.wantErr == "" && err != nil || row.wantErr != "" && (err == nil || !strings.Contains(err.Error(), row.wantErr)) {
@@ -374,10 +375,11 @@ func TestKeepAppWritesWhatTheServiceReads(t *testing.T) {
 func TestReadyWaitsForTheServiceToAnswer(t *testing.T) {
 	for name, row := range map[string]struct {
 		answersAt int
+		limit     time.Duration
 		wantErr   string
 	}{
-		"it answers":       {answersAt: 3},
-		"it never answers": {wantErr: "did not answer within 50ms"},
+		"it answers":       {answersAt: 3, limit: time.Minute},
+		"it never answers": {limit: 50 * time.Millisecond, wantErr: "did not answer within 50ms"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -392,12 +394,12 @@ func TestReadyWaitsForTheServiceToAnswer(t *testing.T) {
 			sleep := func(ctx context.Context, _ time.Duration) {
 				select {
 				case <-ctx.Done():
-				case <-time.After(5 * time.Millisecond):
+				case <-time.After(5 * time.Millisecond): // stall-accepted: a stand-in sleep that only spaces the asks, so a stall cannot fail the test.
 				}
 			}
 
 			// Act
-			err := ready(context.Background(), ask, sleep, 50*time.Millisecond)
+			err := ready(context.Background(), ask, sleep, row.limit)
 
 			// Assert
 			if row.wantErr == "" && err != nil || row.wantErr != "" && (err == nil || !strings.Contains(err.Error(), row.wantErr) || !errors.Is(err, ErrNotServing)) {

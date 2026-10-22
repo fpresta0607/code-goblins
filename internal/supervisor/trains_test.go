@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -293,6 +294,53 @@ func TestATrainsAccountReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.
 	}
 }
 
+// On 2026-10-17 GitHub refused one of a poll's reads of a repository, which
+// held every later read of it until the refusal was waited out, and the
+// merge train, which the poll runs after its other reads, still asked for
+// the account gh works as: the hold refused it, each such poll counted it a
+// failing read, and the supervisor met the hold as a train error (#1085).
+// The train waits out the hold, and asks once it is over.
+func TestATrainAsksNothingWhileItsRepositoryWaitsOutARefusal(t *testing.T) {
+	// Arrange
+	service, h, forge, now := healthService(t, true)
+	pull := `{"number":%d,"url":"https://github.com/o/r/pull/%[1]d","headRefName":"feat/%[1]d","headRefOid":"head-%[1]d","baseRefName":"main","mergeable":"MERGEABLE","author":{"login":"o"},"statusCheckRollup":[]}`
+	forge.pulls = "[" + fmt.Sprintf(pull, 11) + "," + fmt.Sprintf(pull, 12) + "]"
+	forge.comparisons = `{"data":{"repository":{"ref":{` +
+		`"pr11":{"behindBy":0,"headTarget":{"oid":"head-11"},"baseTarget":{"oid":"base-head"}},` +
+		`"pr12":{"behindBy":0,"headTarget":{"oid":"head-12"},"baseTarget":{"oid":"base-head"}}}}}}`
+	reportDone(t, h, "g11", forge.repo, "done: PR https://github.com/o/r/pull/11")
+	reportDone(t, h, "g12", forge.repo, "done: PR https://github.com/o/r/pull/12")
+	forge.failureOn, forge.failure = "gh run list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}
+	at := now
+
+	for poll := range failingPasses {
+		// Act
+		err := service.checkFleet(context.Background(), at)
+
+		// Assert
+		persisted, readErr := readFleetWakes(h.State)
+		if readErr != nil || !persisted.BackOff[forge.repo].After(at) {
+			t.Fatalf("poll %d: GitHub's refusal held no read: %v, %v", poll+1, persisted.BackOff, readErr)
+		}
+		if err != nil && strings.Contains(err.Error(), "merge train") {
+			t.Fatalf("poll %d: the train met the hold: %v", poll+1, err)
+		}
+		for read := range persisted.Failing {
+			if strings.HasPrefix(read, "train ") {
+				t.Fatalf("poll %d: failing reads %v, want none of the train's", poll+1, persisted.Failing)
+			}
+		}
+		at = persisted.BackOff[forge.repo].Add(time.Minute)
+	}
+	forge.failureOn = ""
+	_ = service.checkFleet(context.Background(), at)
+	if !slices.ContainsFunc(forge.requests, func(request execx.Request) bool {
+		return len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user"
+	}) {
+		t.Fatal("the train never asked for the account gh works as once the hold was over")
+	}
+}
+
 // A train's cars name the goblins whose pull requests ride, by the names
 // their records hold.
 func TestTrainGoblinsCarryEachGoblinsNameAndTitle(t *testing.T) {
@@ -465,6 +513,7 @@ func TestALineTheCFOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testi
 		t.Fatal(err)
 	}
 	engine.Landed(context.Background(), landed, train.Car{Number: 11, URL: "https://github.com/o/r/pull/11"})
+	// stall-accepted: the time written on the CFO's line, a second after the train's, which no wait compares with the clock.
 	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindMerge, What: "PR 11 landed on merge train 900", Link: landed.PR, Evidence: "One CI run, all checks passed."}, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -606,12 +655,11 @@ func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Res
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected")}, nil
 }
 
-// runningTrain writes a train testing its pull request in a checkout no
-// goblin works in.
-func runningTrain(t *testing.T, h home.Home) train.Train {
+// runningTrain writes a train testing its pull request in checkout.
+func runningTrain(t *testing.T, h home.Home, checkout string) train.Train {
 	t.Helper()
 	running := train.Train{
-		Schema: train.Schema, ID: "r-20261007-160000", Repository: "o/r", Checkout: t.TempDir(), Base: "main", Branch: train.BranchPrefix + "20261007-160000",
+		Schema: train.Schema, ID: "r-20261007-160000", Repository: "o/r", Checkout: checkout, Base: "main", Branch: train.BranchPrefix + "20261007-160000",
 		PR: "https://github.com/o/r/pull/900", State: train.StateTesting, Head: "abc1234", BaseSHA: "1234567", Pushed: time.Now().UTC(), Runs: 1,
 		Cars: []train.Car{{Number: 11, URL: "https://github.com/o/r/pull/11", State: train.CarRiding}},
 	}
@@ -631,7 +679,7 @@ func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *t
 	service, h := fleetService(t)
 	runner := &trainCIRunner{timeouts: 3}
 	service.Options.CI = runner
-	running := runningTrain(t, h)
+	running := runningTrain(t, h, t.TempDir())
 	now := time.Now().UTC()
 
 	for poll, shouldReport := range []bool{false, false, true, false} {
@@ -654,7 +702,7 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	service, h := fleetService(t)
 	runner := &trainCIRunner{}
 	service.Options.CI = runner
-	running := runningTrain(t, h)
+	running := runningTrain(t, h, t.TempDir())
 
 	// Act
 	err := service.checkFleet(context.Background(), time.Now())
@@ -669,6 +717,35 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	kept, err := train.Read(h.State, running.ID)
 	if err != nil || kept.State != train.StateTesting || kept.Errors != 0 {
 		t.Fatalf("train = %+v, %v, want it still testing with no error", kept, err)
+	}
+}
+
+// A train running in a repository whose reads wait out a refusal another
+// read of the poll met takes no step on that poll either: the hold refused
+// its read of CI, which counted against the train as a failed step, and five
+// of them in a row stop a train.
+func TestARunningTrainTakesNoStepWhileItsRepositoryWaitsOutARefusal(t *testing.T) {
+	// Arrange
+	service, h, forge, now := healthService(t, true)
+	forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
+	forge.failureOn, forge.failure = "gh run list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}
+	running := runningTrain(t, h, forge.repo)
+	// The store's own goblin works in a checkout the forge also says is o/r,
+	// whose poll would take the train's step without any hold.
+	if err := state.RemoveTaskMeta(h.State, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_ = service.checkFleet(context.Background(), now)
+
+	// Assert
+	if persisted, err := readFleetWakes(h.State); err != nil || !persisted.BackOff[forge.repo].After(now) {
+		t.Fatalf("GitHub's refusal held no read: %v, %v", persisted.BackOff, err)
+	}
+	kept, err := train.Read(h.State, running.ID)
+	if err != nil || kept.State != train.StateTesting || kept.Errors != 0 {
+		t.Fatalf("train = %+v, %v, want it testing with no failed step while its repository waits out the refusal", kept, err)
 	}
 }
 
@@ -923,6 +1000,126 @@ func TestADoneReportMadeBeforeItsGoblinsRestartStillRides(t *testing.T) {
 			}
 			if !test.isRider && (len(left) != 1 || !strings.Contains(left[0], test.why)) {
 				t.Errorf("left out %q, want it to say %q", left, test.why)
+			}
+		})
+	}
+}
+
+func TestTrainRepositoryLetsALoneRiderLandOnItsOwnRunOnlyWhereTheManifestSaysSo(t *testing.T) {
+	cases := map[string]struct {
+		manifest  string
+		isLanding bool
+		isRefused bool
+		// wait is the lone rider wait it reads, loneRiderWait when unset.
+		wait time.Duration
+	}{
+		"no manifest":                    {},
+		"a manifest that leaves it off":  {manifest: `{"project": "app"}`},
+		"a manifest that turns it on":    {manifest: `{"project": "app", "trains": {"land_lone_rider_on_its_run": true, "lone_rider_wait_minutes": 30}}`, isLanding: true, wait: 30 * time.Minute},
+		"a manifest that cannot be read": {manifest: `{"project": "app", "trains": {"land_every_rider": true}}`, isRefused: true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			project := newTrainProject(t)
+			data := t.TempDir()
+			if c.manifest != "" {
+				dir := filepath.Join(data, "projects", filepath.Base(project.checkout))
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "project.json"), []byte(c.manifest), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			repository, err := TrainRepository(context.Background(), project, data, project.checkout)
+
+			// Assert
+			if c.isRefused {
+				if err == nil {
+					t.Fatalf("repository = %+v, want a manifest it cannot read refused", repository)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			wait := cmp.Or(c.wait, loneRiderWait)
+			if repository.Slug != "o/r" || repository.Base != "main" || repository.LandsLoneRider != c.isLanding || repository.LoneRiderWait != wait {
+				t.Fatalf("repository = %+v, want o/r's main with LandsLoneRider %v and LoneRiderWait %s", repository, c.isLanding, wait)
+			}
+		})
+	}
+}
+
+func TestALoneRiderRidesOnceItWaitedItsProjectsWaitOrSoonerWhenItCanLandOnItsOwnRun(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		waited, wait   time.Duration
+		standsOnOwnRun bool
+		isRiding       bool
+		isAsked        bool
+	}{
+		{name: "waited less than the shortest wait", waited: 5 * time.Minute, wait: 30 * time.Minute, standsOnOwnRun: true},
+		{name: "waited the shortest wait and lands on its own run", waited: 15 * time.Minute, wait: 30 * time.Minute, standsOnOwnRun: true, isRiding: true, isAsked: true},
+		{name: "waited the shortest wait and needs a train run", waited: 15 * time.Minute, wait: 30 * time.Minute, isAsked: true},
+		{name: "waited its project's wait", waited: 31 * time.Minute, wait: 30 * time.Minute, isRiding: true},
+		{name: "waited a project's wait shorter than the default", waited: 6 * time.Minute, wait: 5 * time.Minute, isRiding: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			car := train.Car{URL: "https://github.com/o/r/pull/21"}
+			goblins := []train.Goblin{{Task: "g21", Done: map[string]time.Time{car.URL: time.Now().Add(-test.waited)}}}
+			isAsked := false
+
+			// Act
+			isRiding := ridesAlone(goblins, car, test.wait, func() bool { isAsked = true; return test.standsOnOwnRun })
+
+			// Assert
+			if isRiding != test.isRiding || isAsked != test.isAsked {
+				t.Fatalf("rides = %v, asked GitHub = %v; want %v and %v", isRiding, isAsked, test.isRiding, test.isAsked)
+			}
+		})
+	}
+}
+
+func TestALoneRiderThatCannotLandOnItsOwnRunWaitsItsProjectsWaitBeforeATrainRun(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		waited   time.Duration
+		isRiding bool
+	}{
+		{name: "before the project's wait", waited: 15 * time.Minute},
+		{name: "after the project's wait", waited: 31 * time.Minute, isRiding: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			project := newTrainProject(t)
+			lone := project.pull(21)
+			dir := filepath.Join(h.Data, "projects", filepath.Base(project.checkout))
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			manifest := `{"project": "app", "trains": {"land_lone_rider_on_its_run": true, "lone_rider_wait_minutes": 30}}`
+			if err := os.WriteFile(filepath.Join(dir, "project.json"), []byte(manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reportDone(t, h, "g21", project.checkout)
+			writeFile(t, state.StatusPath(h.State, "g21"), time.Now().Add(-test.waited).UTC().Format(time.RFC3339)+" done: PR "+lone.URL+"\n")
+
+			// Act
+			err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{lone})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			trains, err := train.List(h.State)
+			if err != nil || (len(trains) == 1) != test.isRiding || test.isRiding && project.created != 1 {
+				t.Fatalf("trains = %+v, %v, train pull requests opened %d: want a train run %v", trains, err, project.created, test.isRiding)
 			}
 		})
 	}

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
@@ -106,7 +106,7 @@ func (k *keptHome) install(build string) (int, string, []byte) {
 	cmd.Dir = machine
 	cmd.Env = append(os.Environ(),
 		"CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_HANDOVER_WAIT=2s",
-		install.UserEnvFileVariable+"="+k.environment,
+		installbase.UserEnvFileVariable+"="+k.environment,
 		"LOCALAPPDATA="+filepath.Join(machine, "Local"), "APPDATA="+filepath.Join(machine, "Roaming"),
 		"USERPROFILE="+filepath.Join(machine, "profile"), "HOME="+filepath.Join(machine, "profile"))
 	var output bytes.Buffer

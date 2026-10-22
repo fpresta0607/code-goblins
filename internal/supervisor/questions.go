@@ -75,11 +75,30 @@ type Question struct {
 	// the CFO as this question, so an answer to it is the answer to that page.
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
+	// AsksPageFile is that page's HTML file, which the supervisor polls until
+	// the review on it settles, at PageSettled, so his answer on the page
+	// answers the question at once.
+	AsksPageFile string     `json:"asks_page_file,omitempty"`
+	PageSettled  *time.Time `json:"page_settled,omitempty"`
+	// ForTask names the goblin whose decision the CFO's own question puts
+	// to the Overlord: while the question is open, a wait on him that goblin
+	// raises declares whether it follows it (Review.Follows). It is empty for
+	// a goblin's question, whose Task names it.
+	ForTask string `json:"for_task,omitempty"`
+	// Mail is a message the question gives him to send himself, such as an
+	// email, which his card copies with one click.
+	Mail *Mail `json:"mail,omitempty"`
 }
 
 func validQuestion(q Question) error {
 	if len(q.ID) < 8 || len(q.ID) > 128 || strings.ContainsAny(q.ID, "\x00\r\n") || len(q.Identity) != 64 || strings.TrimSpace(q.Text) == "" || len(q.Text) > 4000 || len(q.Options) > 8 || q.CreatedAt.IsZero() || q.CreatedAt.After(time.Now().Add(5*time.Minute)) {
 		return errors.New("question requires an ID, registered CFO identity, timestamp, bounded text and at most eight choices")
+	}
+	if q.AsksPageFile != "" {
+		extension := strings.ToLower(filepath.Ext(q.AsksPageFile))
+		if q.AsksPage == "" || !filepath.IsAbs(q.AsksPageFile) || filepath.Clean(q.AsksPageFile) != q.AsksPageFile || extension != ".html" && extension != ".htm" {
+			return errors.New("a question's page file is the absolute HTML file of the page it asks")
+		}
 	}
 	seen := map[string]bool{}
 	for _, option := range q.Options {
@@ -94,6 +113,9 @@ func validQuestion(q Question) error {
 	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
+	if q.ForTask != "" && (q.Task != "" || state.ValidTaskID(q.ForTask) != nil) {
+		return errors.New("only the CFO's own question names a goblin it decides for, by its task ID")
+	}
 	if len(q.Images) > 0 && (q.Task == "" || len(q.Images) != len(q.Options)) {
 		return errors.New("only a goblin's question takes images, one for each choice it offers")
 	}
@@ -102,11 +124,11 @@ func validQuestion(q Question) error {
 			return errors.New("a review image must be an absolute, clean path")
 		}
 	}
-	return nil
+	return mailProblem(q.Mail)
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && slices.Equal(a.Images, b.Images)
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && a.ForTask == b.ForTask && slices.Equal(a.Images, b.Images) && sameMail(a.Mail, b.Mail)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane
@@ -178,8 +200,10 @@ func goblinPipeCaller(stateDir, taskID string, pid int, connected time.Time) err
 // detail is the notify as the goblin wrote it: the queue holds record's
 // one-line form, and the question keeps its own line breaks. page is the link
 // of the goblin's page AFK mode asks of the CFO as this question, and empty
-// for any other question.
-func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page string, images []string) error {
+// for any other question, and pageFile is its HTML file, which the supervisor
+// polls for his answer on it, or empty when lavish-axi named none. mail is a
+// message the question gives him to send, or nil.
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page, pageFile string, images []string, mail *Mail) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -191,7 +215,7 @@ func SurfaceNotify(stateDir, taskID string, record wake.Record, detail, page str
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images, AsksPage: page, AsksPageFile: pageFile, Mail: mail}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
@@ -614,8 +638,9 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 }
 
 // recordAnswer tells the board which choice closed a goblin's question. It
-// closes only that question: the goblin's waits on the Overlord, such as a
-// sign-in only he can clear, stay his.
+// closes that question and only the waits the goblin declared to follow it
+// (cfo notify --follows): its other waits on the Overlord, such as a sign-in
+// only he can clear, stay his.
 func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
@@ -736,6 +761,63 @@ func readQuestion(stateDir, id string) (Question, error) {
 	return q, nil
 }
 
+// OpenDecisions lists the decisions open for goblin task: its own pending
+// question with choices and the CFO's pending questions for it (cfo question
+// --for), on the board's record or waiting in the inbox for the board to take
+// them. It only reads, as readQuestion does. The inbox is read first, as
+// reportedReview reads it, since the board records a question before it
+// removes the inbox copy, so one of the two reads always sees it.
+func OpenDecisions(stateDir, task string) ([]Question, error) {
+	dir := filepath.Join(stateDir, "questions-inbox")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	var questions []Question
+	for _, entry := range entries[:min(len(entries), maxQuestions)] {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			// The board took it meanwhile, and its record has it from now.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var q Question
+		if json.Unmarshal(data, &q) == nil {
+			questions = append(questions, q)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
+		if info.Size() > maxStateBytes {
+			return nil, errors.New("supervisor state exceeds its bound")
+		}
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		if err != nil {
+			return nil, err
+		}
+		var db Database
+		if err := json.Unmarshal(data, &db); err != nil {
+			return nil, errors.New("supervisor question history is unreadable")
+		}
+		for _, q := range db.Questions {
+			if i := slices.IndexFunc(questions, func(spooled Question) bool { return spooled.ID == q.ID }); i >= 0 {
+				questions[i] = q
+			} else {
+				questions = append(questions, q)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return slices.DeleteFunc(questions, func(q Question) bool {
+		return q.Status != "pending" || !(q.Task == task && len(q.Options) > 0 || q.ForTask == task)
+	}), nil
+}
+
 // ingestAnswers refuses every answer file in the old answer inbox, since the
 // CFO's answers reach the board only over the supervisor's pipe and a file
 // there was written by some other process of this user, and records each
@@ -854,6 +936,7 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	} else {
 		s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	}
+	s.closeFollowUps(*q, q.AnsweredBy, at)
 	return nil
 }
 
@@ -933,15 +1016,23 @@ func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
-func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended string) error {
+// forTask, when set, is the goblin task whose decision the question puts to
+// the Overlord, which the fleet must know. mail is a message the question
+// gives him to send, or nil.
+func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string, mail *Mail) error {
 	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
 	}
 	defer release()
-	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending"}
+	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", ForTask: forTask, Mail: mail}
 	if err := validQuestion(q); err != nil {
 		return err
+	}
+	if forTask != "" {
+		if _, err := state.ReadTaskMeta(c.State, forTask); err != nil {
+			return fmt.Errorf("the question decides for %s, which the fleet does not know: %w", forTask, err)
+		}
 	}
 	return sendPipeRequest(c.State, runPipeRequest{Kind: "question", Question: &q})
 }
@@ -1064,12 +1155,26 @@ func (s *Store) admitQuestion(q Question) error {
 		// A question that closed without an answer stays listed until the
 		// Overlord clears it, or until it is the oldest superseded one while
 		// 128 are held: a new question is never refused because closed ones
-		// were not cleared. A pending question is never dropped.
+		// were not cleared. An answer nobody confirmed (uncertain) is closed
+		// history like a failed one, which he cannot clear, so it goes in
+		// turn. A pending question is never dropped, nor one whose page is
+		// still watched, as an item's is not, nor one whose answer he changed
+		// while that change is queued or running: until it is handed over the
+		// question keeps the status of the answer before it, and the change
+		// needs the question to reach whoever acts on it.
+		isWatched := func(old Question) bool {
+			return old.AsksPageFile != "" && old.PageSettled == nil && s.taskStands(old.Task)
+		}
+		isChanging := func(old Question) bool {
+			return slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+				return a.Kind == "answer_change" && a.QuestionID == old.ID && (a.Status == "queued" || a.Status == "running")
+			})
+		}
 		index := slices.IndexFunc(s.db.Questions, func(old Question) bool {
-			return old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed"
+			return (old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed" || old.Status == "uncertain") && !isWatched(old) && !isChanging(old)
 		})
 		if index < 0 {
-			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" })
+			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" && !isWatched(old) })
 		}
 		if index < 0 {
 			return ErrDeferred
@@ -1210,6 +1315,7 @@ func (s *Store) supersedeQuestions() error {
 			at := time.Now().UTC()
 			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CFO.", "cfo", &at, switched.On
 			s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question.")
+			s.closeFollowUps(*q, "cfo", at)
 			changed = true
 		}
 	}

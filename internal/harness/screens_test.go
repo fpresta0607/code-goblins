@@ -193,6 +193,40 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	}
 }
 
+// Claude Code's footer names the session's permission mode, which a CFO the
+// Overlord opens chooses for itself, so its composer reads as ready, and its
+// turn as working, in every mode. The rows are Claude Code 2.1.302's, read
+// from its build; the manual one is a live capture's, where it holds no
+// cycle hint.
+func TestClaudeCodesComposerIsReadInEveryPermissionMode(t *testing.T) {
+	screens, _ := NativeScreens(Claude)
+	for mode, footer := range map[string]string{
+		"manual":             "⏸ manual mode on · ? for shortcuts · ← 2 agents",
+		"plan":               "⏸ plan mode on (shift+tab to cycle)",
+		"accept edits":       "⏵⏵ accept edits on (shift+tab to cycle)",
+		"bypass permissions": "⏵⏵ bypass permissions on (shift+tab to cycle)",
+		"don't ask":          "⏵⏵ don't ask on (shift+tab to cycle)",
+		"auto":               "⏵⏵ auto mode on (shift+tab to cycle)",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			idle := claudeScreen([]string{"● Done. The branch is pushed."}, footer)
+			working := claudeScreen([]string{"✽ Reticulating… (3s · esc to interrupt)"}, footer)
+
+			// Act
+			idleReady, workingReady := screens.IsReady(idle), screens.IsReady(working)
+
+			// Assert
+			if !idleReady || !screens.ComposerEmpty(idle) {
+				t.Errorf("idle under %q: ready %v, empty %v; want an empty composer ready for input", footer, idleReady, screens.ComposerEmpty(idle))
+			}
+			if workingReady || !screens.IsWorking(working) {
+				t.Errorf("in a turn under %q: ready %v, working %v; want working", footer, workingReady, screens.IsWorking(working))
+			}
+		})
+	}
+}
+
 // Codex 0.154's composer, captured live on a native terminal: its footer names
 // the model and folder, not the context left, so the empty composer's
 // placeholder is what shows it ready, at start and after a turn; its working
@@ -242,6 +276,40 @@ func TestCodexWorkingIsReadOnlyFromItsStatusRow(t *testing.T) {
 			// Assert
 			if working != test.working {
 				t.Fatalf("working = %v, want %v for %q", working, test.working, test.row)
+			}
+		})
+	}
+}
+
+// Codex 0.160 on its alternate screen and pi 0.85.1 with --tui-mode
+// fullscreen, as goblins and the CFO start them since 2026-10-17, read in a
+// native terminal on that day: the rows a turn shows and the rows after it,
+// with the scratch folder's path shortened. They read as their inline screens
+// did, ready only while no turn runs.
+func TestFullScreenCodexAndPiReadAsReadyOnlyWhileNoTurnRuns(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	codexFooter := "  ? for shortcuts                                    ⚠ 5 warnings · f2 to view"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)             (openrouter) deepseek/deepseek-v4.1-flash • high"
+	for name, test := range map[string]struct {
+		kind                  Kind
+		screen                []string
+		ready, working, empty bool
+	}{
+		"codex in a turn": {Codex, []string{"› Count from 1 to 300, one number per line, nothing else.", "", "", "Working (2s • esc to interrupt)", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · ⠋`, codexFooter}, false, true, true},
+		"codex after it":  {Codex, []string{"• done", "", "  Worked for 10s • 10:28 PM", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · Count to 300`, codexFooter}, true, false, true},
+		"pi in a turn":    {Pi, []string{" Reply from 127.0.0.1: bytes=32 time<1ms TTL=128", " Elapsed 2.0s", "", "", "── ⠸ Working " + rule, "", rule, `~\work\task`, piFooter}, false, true, false},
+		"pi after it":     {Pi, []string{" Took 5.7s", "", " done", "", rule, "", rule, `~\work\task`, piFooter}, true, false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			ready, working, empty := screens.IsReady(test.screen), screens.IsWorking(test.screen), screens.ComposerEmpty(test.screen)
+
+			// Assert
+			if ready != test.ready || working != test.working || empty != test.empty {
+				t.Fatalf("ready %v, working %v, empty %v; want %v, %v, %v", ready, working, empty, test.ready, test.working, test.empty)
 			}
 		})
 	}
@@ -431,6 +499,46 @@ func TestClaudesCapturedComposerReadsEmptyWithoutMistakingADraft(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := screens.ComposerEmpty(test.screen); got != test.empty {
 				t.Fatalf("ComposerEmpty = %v, want %v", got, test.empty)
+			}
+		})
+	}
+}
+
+// Claude Code that takes the Enter ending typed text as a new line leaves the
+// text in its composer over the empty row that Enter added, as a resumed
+// goblin's was on a loaded machine on 2026-10-20. Text that shows over no new
+// row may still wait on an Enter not taken yet, so it never reads as one taken
+// as a new line, and nor does an empty row the composer showed as the Enter
+// was pressed (#1232).
+func TestAnEnterReadsTakenAsANewLineOnlyByTheEmptyRowItAdded(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	typed := []string{rule, "> run the tests", rule, footer}
+	for name, test := range map[string]struct {
+		kind            Kind
+		atPress, screen []string
+		isNewLine       bool
+	}{
+		"a new empty row under the text":     {Claude, typed, []string{rule, "> run the tests", "  ", rule, footer}, true},
+		"a second new empty row":             {Claude, []string{rule, "> run the tests", "  ", rule, footer}, []string{rule, "> run the tests", "  ", " ", rule, footer}, true},
+		"the Enter not taken yet":            {Claude, typed, typed, false},
+		"an empty row there at the press":    {Claude, []string{rule, "> run the tests", "  ", rule, footer}, []string{rule, "> run the tests", "  ", rule, footer}, false},
+		"the composer cleared by the submit": {Claude, typed, []string{"> run the tests", "", rule, ">", rule, footer}, false},
+		"only empty rows":                    {Pi, []string{rule, "run the tests", rule, footer}, []string{rule, "", "", rule, footer}, false},
+		"no composer read at the press":      {Claude, nil, []string{rule, "> run the tests", "  ", rule, footer}, false},
+		"no composer read now":               {Claude, typed, []string{"> run the tests", "  ", footer}, false},
+		"a composer that is not ruled":       {Codex, []string{"› run the tests"}, []string{"› run the tests", ""}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			isNewLine := screens.TookEnterAsNewLine(test.atPress, test.screen)
+
+			// Assert
+			if isNewLine != test.isNewLine {
+				t.Fatalf("TookEnterAsNewLine = %v, want %v", isNewLine, test.isNewLine)
 			}
 		})
 	}

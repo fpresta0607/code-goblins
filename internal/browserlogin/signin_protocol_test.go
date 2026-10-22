@@ -57,7 +57,7 @@ func TestSignedInRetriesAChangingPageAndRefusesOtherProtocolFailures(t *testing.
 			}))
 			defer page.Close()
 			address = page.URL
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			isSignedIn, _, err := SignedIn(ctx, address, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})
@@ -90,7 +90,7 @@ func TestSignedInRefusesUnusablePageLists(t *testing.T) {
 				_, _ = w.Write([]byte(test.body))
 			}))
 			defer page.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			isSignedIn, _, err := SignedIn(ctx, page.URL, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/test/apikeys$"})

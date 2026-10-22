@@ -64,7 +64,7 @@ func onAHiddenDesktop(t *testing.T, prove func(*testing.T)) {
 	defer windows.CloseHandle(held)
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(held, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(held, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CFO_HIDDEN_DESKTOP_PROOF", t.Name())
@@ -170,7 +170,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 		}
 		return 1
 	})
-	for deadline := time.Now().Add(10 * time.Second); !isVisible && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !isVisible && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		user32.NewProc("EnumDesktopWindows").Call(desktop, callback, 0)
 	}
 	if !isVisible {

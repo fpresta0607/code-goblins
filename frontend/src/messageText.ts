@@ -1,13 +1,16 @@
 import { createElement, Fragment, type ReactNode } from "react";
+import { scrawlLink } from "./scrawl-link.ts";
 
 // A question or message as its asker wrote it, with the little structure the
 // question contract allows: **bold** for the verdict or the blocking item,
 // `code` for a value to enter somewhere, a blank line between paragraphs,
 // "- " at the start of a bullet line, and a Markdown pipe table (a header
 // row, a separator row of dashes, then its rows) for values that belong
-// together, such as DNS records. Everything else is text, so markup in a
-// message is shown, never run.
-export interface Span { text: string; bold: boolean; code?: true }
+// together, such as DNS records. An http or https address is a link (the
+// Overlord, 2026-10-17: "I should be able to click it as a hyperlink to
+// navigate to it"). Everything else is text, so markup in a message is shown,
+// never run.
+export interface Span { text: string; bold: boolean; code?: true; link?: true }
 export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][] } | { kind: "table"; header: Span[][]; rows: Span[][][] };
 
 // A mark opens only before text and closes only after it, so "5 ** 2" and a
@@ -18,6 +21,29 @@ const CODE = /`([^`\n]+)`/g;
 const BULLET = /^- /;
 const TABLE_ROW = /^\|.*\|$/;
 const TABLE_SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+$/;
+// An address ends at a space or a quote, and the punctuation that ends its
+// sentence after it is not its own.
+const WEB_LINK = /\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]/g;
+
+export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(value);
+
+// webLink opens an address in a new tab, which the desktop window hands to
+// his default browser. A phone validates a Scrawl session's private route;
+// the displayed and copied address stays as the asker wrote it.
+export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer" }, address);
+
+// Text with each address in it a link span of its own.
+function linkSpans(text: string, bold: boolean): Span[] {
+  const out: Span[] = [];
+  let at = 0;
+  for (const match of text.matchAll(WEB_LINK)) {
+    if (match.index > at) out.push({ text: text.slice(at, match.index), bold });
+    out.push({ text: match[0], bold, link: true });
+    at = match.index + match[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at), bold });
+  return out;
+}
 
 function spans(text: string): Span[] {
   const codes = [...text.matchAll(CODE)];
@@ -26,11 +52,11 @@ function spans(text: string): Span[] {
     for (const code of codes) {
       const end = code.index + code[0].length;
       if (end <= from || code.index >= to) continue;
-      if (code.index > from) out.push({ text: text.slice(from, code.index), bold });
+      if (code.index > from) out.push(...linkSpans(text.slice(from, code.index), bold));
       out.push({ text: code[1], bold, code: true });
       from = end;
     }
-    if (from < to) out.push({ text: text.slice(from, to), bold });
+    if (from < to) out.push(...linkSpans(text.slice(from, to), bold));
   };
   // Bold is looked for with each code value covered, so marks inside a value
   // stay its own and a bold phrase can run across one.
@@ -81,15 +107,58 @@ export function messageBlocks(text: string): Block[] {
 }
 
 // renderCode draws a code value, such as with a button that copies it; a
-// plain code element otherwise.
+// plain code element otherwise, or a link for an address.
 export type CodeRenderer = (value: string, key: number) => ReactNode;
-const plainCode: CodeRenderer = (value, key) => createElement("code", { key }, value);
+const plainCode: CodeRenderer = (value, key) => isWebLink(value) ? webLink(value, key) : createElement("code", { key }, value);
+
+// renderPath draws a local file or folder path the text names, such as a
+// link that opens it in File Explorer; as an icon alone beside a code value,
+// which keeps its own button that copies it.
+export type PathRenderer = (path: string, key: number, isIcon?: boolean) => ReactNode;
+
+// A local file or folder path, found by the rules the supervisor opens one by
+// (internal/supervisor/card_paths.go): a drive letter, a colon and a
+// separator, then everything up to a space or a character no Windows path
+// holds, without the punctuation that ends a sentence (a closing bracket only
+// when the path opened none it closes); or a whole code value that is such a
+// path, spaces and all. A space is what Go's \s is, so both sides cut a path
+// in the same place.
+const TEXT_PATH = /(?<![\w\\/])[A-Za-z]:[\\/][^ \t\n\f\r<>"|?*:`]*/g;
+const CODE_PATH = /^[A-Za-z]:[\\/][^<>"|?*:`\n]*$/;
+const PATH_END = ".,;!?)]}'";
+
+// trimPathEnd drops the punctuation that ends a sentence from a path found in
+// text, keeping a closing parenthesis the path itself opened.
+function trimPathEnd(path: string): string {
+  const count = (text: string, mark: string) => text.split(mark).length - 1;
+  while (path && PATH_END.includes(path.at(-1) ?? "") && !(path.endsWith(")") && count(path, "(") >= count(path, ")"))) path = path.slice(0, -1);
+  return path;
+}
+
+// Text as it reads, with each local path it names drawn by path.
+export function pathElements(text: string, path: PathRenderer): ReactNode[] {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const match of text.matchAll(TEXT_PATH)) {
+    const found = trimPathEnd(match[0]);
+    if (match.index > at) out.push(text.slice(at, match.index));
+    out.push(path(found, out.length));
+    at = match.index + found.length;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
 
 // Neighbouring bold spans, such as the words around a code value, are one
-// bold phrase.
-function inline(parts: Span[], code: CodeRenderer): ReactNode[] {
+// bold phrase. With path, each local path is drawn by it; a code value that
+// is one keeps its own button, which copies it, with the path's icon beside
+// it, since a command can start the way a path does.
+function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNode[] {
   const out: ReactNode[] = [];
-  const piece = (at: number) => parts[at].code ? code(parts[at].text, at) : parts[at].text;
+  const piece = (at: number) => parts[at].code
+    ? path && CODE_PATH.test(parts[at].text) ? createElement(Fragment, { key: at }, code(parts[at].text, 0), path(parts[at].text, 1, true)) : code(parts[at].text, at)
+    : parts[at].link ? webLink(parts[at].text, at)
+    : path ? createElement(Fragment, { key: at }, ...pathElements(parts[at].text, path)) : parts[at].text;
   for (let n = 0; n < parts.length; n++) {
     if (!parts[n].bold) { out.push(piece(n)); continue; }
     const start = n;
@@ -101,14 +170,14 @@ function inline(parts: Span[], code: CodeRenderer): ReactNode[] {
   return out;
 }
 
-export function messageElements(text: string, code: CodeRenderer = plainCode): ReactNode {
+export function messageElements(text: string, code: CodeRenderer = plainCode, path?: PathRenderer): ReactNode {
   return createElement(Fragment, null, ...messageBlocks(text).map((block, n) => block.kind === "paragraph"
-    ? createElement("p", { key: n }, ...inline(block.spans, code))
+    ? createElement("p", { key: n }, ...inline(block.spans, code, path))
     : block.kind === "list"
-      ? createElement("ul", { key: n }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code))))
+      ? createElement("ul", { key: n }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path))))
       : createElement("div", { key: n, className: "message-table" }, createElement("table", null,
-        createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code))))),
-        createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code))))))))));
+        createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code, path))))),
+        createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code, path))))))))));
 }
 
 // A message's lead, its first line, as inline text for a card's heading, and
@@ -120,7 +189,10 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
   return TABLE_ROW.test(lead) ? { lead: "", rest: lines.join("\n") } : { lead, rest: lines.slice(1).join("\n") };
 }
 
-export const inlineElements = (text: string, code: CodeRenderer = plainCode): ReactNode => createElement(Fragment, null, ...inline(spans(text), code));
+export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text), code, path));
+
+// Plain text, such as a History row's line, with each address in it a link.
+export const linkedText = (text: string): ReactNode => createElement(Fragment, null, ...inline(linkSpans(text, false), plainCode));
 
 // The message on one line, for a list row: marks dropped, each bullet a
 // sentence of its own, and a table left out, since its values only read in

@@ -14,3 +14,8 @@
 .cfo-update-line .icon { flex: none; width: 16px; height: 16px; color: var(--amber); }
 .cfo-update-line.problem { display: block; color: var(--amber); }
 @media (prefers-reduced-motion: reduce) { .harness-update { transition: none; } }
+/* Restart PC wears the same pill in amber, the colour of a meter past its
+   mark, and its question lists what the restart does in order. */
+.harness-update.pc-restart { border-color: var(--amber); box-shadow: 0 0 14px #f3c5782a; }
+.harness-update.pc-restart .icon { color: var(--amber); }
+.restart-pc-steps { margin: 14px 0 0; padding-left: 1.4em; text-align: left; line-height: 1.55; }

@@ -900,7 +900,7 @@ func TestASecondUpdateOfAHomeIsRefusedWhileOneRuns(t *testing.T) {
 func TestRollbackTakesTheLockFromAHookBeforeStartingThePreviousBuild(t *testing.T) {
 	u := newUpdateHome(t, "previous", "crash")
 	hook := u.start(filepath.Join(u.bin, "cfo.exe"), "hook", "stop-autoarm")
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
 		if _, err := lock.AcquireNamedOwner(u.state, ".watch.lock", hook.Process.Pid, watch.WatcherSession); err == nil {
 			break
 		}
@@ -946,7 +946,7 @@ func TestAnEndedProcessIsNotRunningWhileAHandleToItStaysOpen(t *testing.T) {
 	}
 	ended := serveProcess{pid: child.Process.Pid, start: start}
 
-	for deadline := time.Now().Add(10 * time.Second); processIs(ended); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); processIs(ended); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("a process that ended still reads as running while a handle to it is open")
 		}
@@ -1155,10 +1155,11 @@ func TestTheHoldSeamHoldsTheAliasOrFails(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		releaseIn time.Duration
+		wait      time.Duration
 		isHeld    bool
 	}{
-		{"another handle lets go in time", 300 * time.Millisecond, true},
-		{"another handle never lets go", 0, false},
+		{"another handle lets go in time", 300 * time.Millisecond, time.Minute, true},
+		{"another handle never lets go", 0, time.Second, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "goblins.exe")
@@ -1169,18 +1170,24 @@ func TestTheHoldSeamHoldsTheAliasOrFails(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			returned := make(chan struct{})
 			released := make(chan struct{})
 			go func() {
 				defer close(released)
 				if test.isHeld {
 					time.Sleep(test.releaseIn)
 				} else {
-					time.Sleep(1500 * time.Millisecond)
+					select {
+					case <-returned:
+					case <-time.After(time.Minute):
+					}
 				}
 				_ = syscall.CloseHandle(other)
 			}()
 
-			held, err := holdExclusively(path, time.Second)
+			// stall-accepted: the row whose handle is never let go means its second to run out, and the other row waits a minute.
+			held, err := holdExclusively(path, test.wait)
+			close(returned)
 			<-released
 
 			if !test.isHeld {
@@ -1531,7 +1538,7 @@ func TestRecoverAfterARestartFinishesADegradedUpdateWithTheBoardServing(t *testi
 	// Ended only as the process the journal names, never one that took its
 	// pid since.
 	_ = proc.TerminateVerified(last.PID, last.Start, func([]string) error { return nil })
-	for deadline := time.Now().Add(10 * time.Second); processIs(serveProcess{pid: last.PID, start: last.Start}); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); processIs(serveProcess{pid: last.PID, start: last.Start}); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the backup's supervisor did not end")
 		}
@@ -1614,7 +1621,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 	if code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=swapped"}); code != 9 {
 		t.Fatalf("the update did not end at swapped (exit %d):\n%s", code, output)
 	}
-	stranger := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >NUL")
+	stranger := exec.Command("ping", "-n", "60", "127.0.0.1")
 	if err := stranger.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -1625,7 +1632,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\cmd.exe`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.bin, "goblins.exe")})
+	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\PING.EXE`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.bin, "goblins.exe")})
 	if err := update.Record(u.state, &journal, journal.Phase, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1690,8 +1697,10 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	u.awaitBoard()
 	running := serveProcess{pid: candidateServe.Process.Pid, start: u.started[candidateServe]}
 
+	// Refused once on main's CI (merge train for PR 972) as "being used by
+	// another process", which names no one (#973).
 	if err := os.Rename(alias, alias+".candidate-aside"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v: %s", err, holdersOf(alias))
 	}
 	if err := os.WriteFile(alias, u.previous, 0o755); err != nil {
 		t.Fatal(err)

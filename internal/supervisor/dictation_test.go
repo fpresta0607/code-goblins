@@ -3,12 +3,16 @@ package supervisor
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -211,7 +215,7 @@ func TestDictationTakesSoundOnlyFromTheBoardsOwnPageOnThisMachine(t *testing.T) 
 	// dictates nothing: the sound would have left the machine it was said on.
 	speech := &fakeSpeech{text: "never typed"}
 	store, _ := testStore(t)
-	shared := NewHTTP(&Service{Store: store, Instance: "test-instance", Options: Options{Dictation: speech}}, "goblins.tailnet.ts.net:443", nil)
+	shared := NewHTTP(&Service{Store: store, Instance: "test-instance", Options: Options{Dictation: speech}}, "goblins.example.ts.net:443", nil)
 	response := dictate(shared, []byte("RIFF-sound"), nil)
 	if _, _, problem := answer(t, response); response.Code != http.StatusForbidden || !strings.Contains(problem, "never leaves") || speech.heard() != 0 {
 		t.Fatalf("a shared board answered %d %s", response.Code, response.Body)
@@ -297,7 +301,7 @@ func TestADownloadThatStallsIsGivenUpSoTheNextDictationCanTryAgain(t *testing.T)
 }
 
 func TestANetworkTimeoutInsideTheLimitKeepsTheFetchsOwnWords(t *testing.T) {
-	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out inside the dial.
 	defer cancel()
 	// Hold the dial before connect so a refusal cannot race its deadline.
 	dialer := net.Dialer{ControlContext: func(connectionContext context.Context, _, _ string, _ syscall.RawConn) error {
@@ -335,5 +339,82 @@ func TestASupervisorWithoutAnEngineSaysDictationIsNotSetUp(t *testing.T) {
 	}
 	if _, state, _ := dictationStatus(t, handler); state != "none" {
 		t.Fatalf("the status reads %s", state)
+	}
+}
+
+// boardSound is a WAV as the board's page writes one, a second at 16 kHz in
+// one channel of 16-bit samples: a 200 Hz hum at amplitude, which is speech
+// to the engine's judgement when it is loud enough, with a different first
+// sample per mark so two sounds are told apart.
+func boardSound(amplitude float64, mark int16) []byte {
+	const rate = 16000
+	data := binary.LittleEndian.AppendUint16(nil, uint16(mark))
+	for index := 1; index < rate; index++ {
+		data = binary.LittleEndian.AppendUint16(data, uint16(int16(amplitude*32767*math.Sin(2*math.Pi*200*float64(index)/rate))))
+	}
+	header := append([]byte("RIFF"), binary.LittleEndian.AppendUint32(nil, uint32(36+len(data)))...)
+	header = append(header, "WAVEfmt "...)
+	for _, field := range []any{uint32(16), uint16(1), uint16(1), uint32(rate), uint32(2 * rate), uint16(2), uint16(16)} {
+		header, _ = binary.Append(header, binary.LittleEndian, field)
+	}
+	header = append(header, "data"...)
+	header = binary.LittleEndian.AppendUint32(header, uint32(len(data)))
+	return append(header, data...)
+}
+
+// A dictation with speech in it that the engine answered no words for is
+// kept on this PC, in the home's state folder, until the next one replaces
+// it, so the sound behind the board's "no words" report can be played again.
+// A sound with nothing loud in it, or one the engine heard words in, is not
+// kept and leaves the last one in place.
+func TestTheLastDictationWithSpeechAnsweredNoWordsIsKeptForReplay(t *testing.T) {
+	// Arrange
+	speech := &fakeSpeech{}
+	handler := dictationBoard(t, speech)
+	kept := filepath.Join(handler.Service.Store.Home.State, "dictation-no-words.wav")
+	first, second := boardSound(0.3, 1), boardSound(0.3, 2)
+	for _, step := range []struct {
+		name  string
+		sound []byte
+		text  string
+		want  []byte
+	}{
+		{"speech answered no words", first, "", first},
+		{"later speech answered no words", second, "", second},
+		{"a quiet hold answered no words", boardSound(0.00001, 3), "", second},
+		{"speech answered with words", boardSound(0.3, 4), "open the pull request", second},
+	} {
+		speech.mu.Lock()
+		speech.text = step.text
+		speech.mu.Unlock()
+
+		// Act
+		response := dictate(handler, step.sound, nil)
+
+		// Assert
+		if text, _, _ := answer(t, response); response.Code != 200 || text != step.text {
+			t.Fatalf("%s: answered %d %s", step.name, response.Code, response.Body)
+		}
+		if got, err := os.ReadFile(kept); err != nil || !bytes.Equal(got, step.want) {
+			t.Fatalf("%s: state/dictation-no-words.wav holds %d bytes (%v), want the %d of the last speech answered no words", step.name, len(got), err, len(step.want))
+		}
+	}
+}
+
+// A no-words answer whose sound cannot be kept says so, as every failure the
+// board sees goes to the CFO, rather than leaving nothing to replay unsaid.
+func TestANoWordsSoundThatCannotBeKeptIsAFailure(t *testing.T) {
+	// Arrange
+	handler := dictationBoard(t, &fakeSpeech{})
+	if err := os.Mkdir(filepath.Join(handler.Service.Store.Home.State, "dictation-no-words.wav"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	response := dictate(handler, boardSound(0.3, 1), nil)
+
+	// Assert
+	if _, _, problem := answer(t, response); response.Code != http.StatusInternalServerError || !strings.Contains(problem, "answered no words") || !strings.Contains(problem, "could not be kept") {
+		t.Fatalf("answered %d %s", response.Code, response.Body)
 	}
 }

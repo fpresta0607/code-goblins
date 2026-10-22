@@ -11,19 +11,20 @@ export function credentialSettled(request: CredentialRequest): string {
   if (request.state === "saved") return sent.charAt(0).toUpperCase() + sent.slice(1);
   if (request.state === "done") return "Done";
   if (request.state === "dismissed") return "Closed. " + closedLine(request);
-  if (request.state === "answered") return "You answered: " + request.reason;
+  if (request.state === "answered") return "You wrote: " + request.reason;
   if (request.state === "withdrawn") return "Withdrawn: " + request.reason;
   return request.reason;
 }
 
 // How a card that closed while he looked at it finishes: every input in, his
-// Done or his Dismiss. A card that closed any other way, or is open, does not
+// Done, his Dismiss, or his words from Something else?, sent as a question's
+// answer is. A card that closed any other way, or is open, does not
 // finish this way.
 export function credentialFinish(request: CredentialRequest): { heading: string; label: string } | null {
   if (request.state === "saved") return { heading: request.saved.length ? "Stored" : "Sent", label: credentialSettled(request) };
   if (request.state === "done") return { heading: "Done", label: request.task ? "Its goblin goes on now." : "" };
   if (request.state === "dismissed") return { heading: "Closed", label: (request.task ? "Its goblin goes on without it. " : "") + closedLine(request) };
-  if (request.state === "answered") return { heading: "Answered", label: (request.task ? "Its goblin" : "The CFO") + " has your answer." };
+  if (request.state === "answered") return { heading: "Sent", label: credentialSettled(request) };
   return null;
 }
 

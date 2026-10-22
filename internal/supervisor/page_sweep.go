@@ -179,7 +179,9 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 		if err != nil || poll.Status != "feedback" {
 			return err
 		}
-		answer := pageAnswer{ID: rand.Text(), Item: Review{ID: owner.key, Task: owner.task, Identity: identity, LavishPage: file}, Poll: poll, Status: "collecting"}
+		// The note was written by the time it is taken, so a task that
+		// reuses the id later never gets it (tellAnswer).
+		answer := pageAnswer{ID: rand.Text(), Item: Review{ID: owner.key, Task: owner.task, Identity: identity, LavishPage: file, CreatedAt: time.Now().UTC()}, Poll: poll, Status: "collecting"}
 		if !s.keepAnswer(ctx, answer) {
 			return errors.New("page feedback could not be kept")
 		}
@@ -199,9 +201,10 @@ type pageOwner struct {
 }
 
 // pageOwners returns how a sweep tells whose page a file is: the item that
-// last presented it, else the task whose worktree, data folder or scratch
-// folder in the state holds it, when the fleet knows that task, running,
-// paused or retired. A file none of them holds is no fleet task's page.
+// last presented it, else the task whose worktree, data folder, scratch folder
+// in the state or scratch folder under a scratch root holds it, when the fleet
+// knows that task, running, paused or retired. A file none of them holds is no
+// fleet task's page.
 func (s *Service) pageOwners() (func(file string) (pageOwner, bool), error) {
 	h := s.Store.Home
 	presented := map[string]Review{}
@@ -255,7 +258,7 @@ func (s *Service) pageOwners() (func(file string) (pageOwner, bool), error) {
 		if place, found := home.LocateWorktree(h.WorktreeRoots(), file); found && id == "" {
 			id = place.Name
 		}
-		for _, folder := range []string{h.Data, filepath.Join(h.State, "tasktmp")} {
+		for _, folder := range append([]string{h.Data, filepath.Join(h.State, "tasktmp")}, h.ScratchRoots()...) {
 			if rel, err := filepath.Rel(folder, file); err == nil && filepath.IsLocal(rel) && id == "" {
 				if parts := strings.Split(rel, string(filepath.Separator)); len(parts) >= 2 {
 					id = parts[0]

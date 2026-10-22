@@ -54,6 +54,14 @@ func (s *Service) workspaceDetail(ctx context.Context, taskID, generation string
 	}
 	out.Branch, err = s.Git.Branch(ctx, meta.Worktree)
 	if err != nil {
+		if detached, _ := s.Git.Detached(ctx, meta.Worktree); detached {
+			var head string
+			if head, err = s.Git.Head(ctx, meta.Worktree); err == nil {
+				out.Branch = "detached at " + head[:min(len(head), 12)]
+			}
+		}
+	}
+	if err != nil {
 		out.Notes = append(out.Notes, "Branch information is unavailable.")
 	}
 	out.Notes = append(out.Notes, credentialsNote(meta))

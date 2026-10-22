@@ -185,6 +185,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openCredentialTerminal(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
+	case r.URL.Path == "/api/cards/open-path" && r.Method == "POST":
+		h.openCardPath(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
 	case r.URL.Path == "/api/answer-images" && r.Method == "POST":
@@ -197,6 +199,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.moveWindowFromBoard(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/afk/report/") && r.Method == "GET":
 		h.afkReportFile(w, r)
+	case r.URL.Path == "/api/pc/restart" && r.Method == "POST":
+		h.restartPCFromBoard(w, r)
 	case r.URL.Path == "/api/afk" && r.Method == "POST":
 		h.switchAFKFromBoard(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
@@ -232,6 +236,14 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.reportBoardError(w, r)
 	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
 		h.setStartAtLogin(w, r)
+	case r.URL.Path == "/api/remote/scrawl-link" && r.Method == "GET":
+		h.remoteScrawlLink(w, r)
+	case r.URL.Path == "/api/remote/machines" && r.Method == "GET":
+		h.remoteMachines(w, r)
+	case r.URL.Path == "/api/push" && (r.Method == "GET" || r.Method == "POST"):
+		h.push(w, r)
+	case r.URL.Path == "/api/remote" && (r.Method == "GET" || r.Method == "POST"):
+		h.remoteAccess(w, r)
 	case r.URL.Path == "/api/dev-drive" && r.Method == "POST":
 		h.setDevDrive(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
@@ -245,12 +257,17 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		apiError(w, 404, "Unknown endpoint or method")
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/manifest.webmanifest" {
+		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/push-worker.js" {
 			http.NotFound(w, r)
 			return
 		}
 		if r.URL.Path == "/manifest.webmanifest" {
 			w.Header().Set("Content-Type", "application/manifest+json")
+		}
+		// A browser registers a worker only as JavaScript, which Windows may
+		// name otherwise in its registry, such as text/plain.
+		if r.URL.Path == "/push-worker.js" {
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		}
 		if r.URL.Path == "/" {
 			data, err := fs.ReadFile(h.Assets, "index.html")

@@ -474,7 +474,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		{Kind: afk.KindMerge, What: pr, Evidence: "gate run 41 passed"},
 		{Kind: afk.KindMerge, What: pr, Evidence: "gh pr merge", Outcome: afk.OutcomeMerged},
 		{Kind: afk.KindAnswer, What: "notify-pd-billing-12", Task: "pd-billing", Evidence: "asked: Which store? answered: SQLite"},
-		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in"},
+		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in"},
 	} {
 		if _, err := afk.Log(h.State, entry, time.Now()); err != nil {
 			t.Fatal(err)
@@ -525,6 +525,7 @@ func TestAFKStatusListsALandingTheCFOWroteOfWithItsMerge(t *testing.T) {
 		{Kind: afk.KindMerge, What: pr, Link: pr, Evidence: "merge train api-20261010-120000: CI passed on https://github.com/acme/api/pull/900 at abcdef1, built on main at 1234567", Outcome: afk.OutcomeMerged},
 		{Kind: afk.KindMerge, What: "PR 12 landed on merge train 900", Link: "https://github.com/acme/api/pull/900", Evidence: "One CI run, all checks passed."},
 	} {
+		// stall-accepted: a record's timestamp, which nothing compares with the clock while the test runs.
 		if _, err := afk.Log(h.State, entry, time.Now().Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}

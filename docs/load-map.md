@@ -54,6 +54,8 @@ Hooks merge across every settings scope: managed settings, `--settings`, `.claud
 A `SessionStart` hook's output is injected into the session; output larger than 10,000 characters is saved to a file and only a preview of about 2 KB is injected.
 The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
 The CFO's hooks are in no settings file of the user: a Claude Code CFO's terminal starts with them, `claude --settings <home>\state\cfo-claude-settings.json`, which the start writes anew each time, and Claude Code adds that file's hooks to the user's own for that session alone.
+The same file sets `autoCompactWindow` to 400,000 tokens, which wins over a window the user's settings hold, one `/autocompact` saved included, so the CFO compacts at about 342K under a `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of 90, or 367K without one, rather than near its model's 1M; only `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment beats it.
+A Claude Code resume of a transcript past 5 MiB loads only what follows its last compaction, so a CFO comes back on its conversation by the context that resume loads, at most 400K tokens, whatever the transcript's size on disk.
 `cfo install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
 They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
@@ -95,7 +97,7 @@ Codex 0.154 has no loader for `~/.codex/prompts`; commands reach Codex as skills
 Codex reads `hooks.json` and the `[hooks]` table of `config.toml` from each enabled layer: system, user, and each trusted project `.codex`.
 A worktree takes its project hooks from the main checkout's `.codex`.
 A hook runs only when its hash is trusted in the user configuration (review it in `/hooks`).
-`cfo hooks install codex` writes the CFO's native hooks into `~/.codex/hooks.json`.
+A Codex session the fleet starts, the CFO's included, takes the board's native hooks as `-c` overrides of its own launch, and `cfo hooks install codex` writes them into `~/.codex/hooks.json` for one it did not start ([native hook setup](native-board.md#native-hook-setup)).
 
 **MCP.**
 Servers come only from `[mcp_servers]` in the `config.toml` layers; a project `.mcp.json` is never read.
@@ -134,9 +136,10 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 1. **The worktree.** `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMPDIR` and `GOTMPDIR` in the task's scratch folder, `TMP` in `scratch\.tmp`, the folder every goblin shares, since Git Bash makes the `TMP` of its first shell `/tmp` for every shell of the user, the shared cache roots, and the credentials of the services the task's brief names, which ride the terminal's environment rather than being typed.
+   Its `PATH` begins with the task's codex guard folder, `state\codex-guard\<id>`, which the supervisor arms while Codex's included allowance is used up, so a `codex` the goblin starts by name is refused rather than billed to paid credits ([Pausing and automatic resume](../AGENTS.md#pausing-and-automatic-resume)).
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, drawn in the interface the operator's `tui` setting names, as the CFO is, with `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, so Claude Code does not end a goblin's background shells for low memory, among them its queued `cfo gate turn`: the line ends the run it lets use the machine's spare memory instead ([docs/pipeline.md](pipeline.md#any-command-in-the-line)).
-   Codex: `--no-daemon --dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it runs its own app-server under the terminal that started it instead of joining a shared background one an earlier session left running, and it draws inline with its history in the terminal's own scrollback, where a drag selects text as it does for Claude.
-   Pi: `--tui-mode regular`.
+   Codex: `--no-daemon --dangerously-bypass-approvals-and-sandbox -c tui.copy_on_select=always`, so it runs its own app-server under the terminal that started it instead of joining a shared background one an earlier session left running, and it draws on its own full screen and copies what a drag selects when the button is released.
+   Pi: `--tui-mode fullscreen`, where its help offers it, so it draws on its own full screen too.
    Model and effort flags follow the lane table in `data/routing.json`.
    Each harness's trust dialog is confirmed automatically.
 4. **MCP.** The token-authenticated subset of the project's `.mcp.json`, written under the task's temporary directory: Claude receives it by flag, and Codex and Pi do not use it.
@@ -171,10 +174,10 @@ It runs only for the live session that holds the primary home's lock, produces n
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
 The checkpoint warns that holds declared only in conversation are absent; the CFO's own handoff must record them.
 Re-run `cfo install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
-A Codex or pi CFO gets the same checkpoint from its native hooks: Codex `PreCompact` and pi `session_before_compact` write it under the same custody rule.
-Codex `PostCompact` and pi `session_compact` then queue one `check` wake that names the checkpoint, or says no fresh one was written, and the supervisor types it into the idle CFO like any other wake; a replayed event queues nothing new.
+A Codex or pi CFO gets the same checkpoint through its native hooks, which only spool the event: as the supervisor ingests Codex `PreCompact` or pi `session_before_compact` it writes the checkpoint, for the registered CFO while that CFO holds the primary home's lock.
+As it ingests Codex `PostCompact` or pi `session_compact` it queues one `check` wake that names the checkpoint, or says no fresh one was written, and types it into the idle CFO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
-Re-run `cfo hooks install codex` or `cfo hooks install pi` to add these events; the Codex reinstall also rewrites every Codex hook to run `cfo` directly, and Codex runs the changed definitions only once they are trusted in `/hooks`.
+A Codex CFO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CFO.
 The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
 Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.

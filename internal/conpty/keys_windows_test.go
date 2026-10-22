@@ -147,7 +147,7 @@ func TestEachKeyTheBoardSendsReachesAProgramThatReadsKeyRecordsAsThatKey(t *test
 
 		// Assert
 		var records []string
-		for deadline := time.Now().Add(2 * time.Second); len(records) == 0 && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); len(records) == 0 && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 			records = read()[before:]
 		}
 		// A key that became two records would show its second one here.

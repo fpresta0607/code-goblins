@@ -173,17 +173,30 @@ func (g GitHub) OpenRoots(ctx context.Context, repository string) ([]OpenRoot, e
 	return nil, fmt.Errorf("%s has more than %d open %s issues, so they cannot all be read", repository, maxPageRounds*100, RootLabel)
 }
 
-// IsPublic reads whether anyone can see repository, owner/name.
-func (g GitHub) IsPublic(ctx context.Context, repository string) (bool, error) {
+// Repository is what GitHub says of a repository: the account or
+// organization that owns it, whether anyone can see it, and whether it
+// takes issues.
+type Repository struct {
+	Owner     string
+	IsPublic  bool
+	HasIssues bool
+}
+
+// ReadRepository reads what GitHub says of repository, owner/name.
+func (g GitHub) ReadRepository(ctx context.Context, repository string) (Repository, error) {
 	out, err := g.api(ctx, "GET", "repos/"+repository)
 	if err != nil {
-		return false, err
+		return Repository{}, err
 	}
 	var answer struct {
-		Private *bool `json:"private"`
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Private   *bool `json:"private"`
+		HasIssues *bool `json:"has_issues"`
 	}
-	if err := json.Unmarshal(out, &answer); err != nil || answer.Private == nil {
-		return false, fmt.Errorf("GitHub did not say whether %s is private: %v", repository, err)
+	if err := json.Unmarshal(out, &answer); err != nil || answer.Owner.Login == "" || answer.Private == nil || answer.HasIssues == nil {
+		return Repository{}, fmt.Errorf("GitHub did not say whose %s is, whether it is private and whether it takes issues: %v", repository, err)
 	}
-	return !*answer.Private, nil
+	return Repository{Owner: answer.Owner.Login, IsPublic: !*answer.Private, HasIssues: *answer.HasIssues}, nil
 }

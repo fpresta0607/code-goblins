@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,10 +44,14 @@ func switchStandIns(t *testing.T, h home.Home) {
 	t.Setenv("CFO_STATE_OVERRIDE", h.State)
 	t.Setenv("CFO_PROJECTS_ROOT", filepath.Join(h.Root, "projects"))
 	t.Setenv("PATH", h.Root)
+	rules, err := json.Marshal([]standin.Rule{{Args: "--help", Stdout: "Options:\n  --tui-mode <mode>              TUI mode: regular or fullscreen\n"}, {Any: true, Hold: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, harness := range []string{"codex", "pi"} {
 		program := filepath.Join(h.Root, harness+"-standin.exe")
 		standin.Put(t, program)
-		script := "@echo off\r\nset \"CFO_STANDIN_RULES=[{\"any\":true,\"hold\":true}]\"\r\n" +
+		script := "@echo off\r\nset \"CFO_STANDIN_RULES=" + string(rules) + "\"\r\n" +
 			"set \"CFO_STANDIN_RECORD=" + filepath.Join(h.Root, "switch-arguments.txt") + "\"\r\n" +
 			"\"" + program + "\" %*\r\n"
 		if err := os.WriteFile(filepath.Join(h.Root, harness+".cmd"), []byte(script), 0o700); err != nil {
@@ -59,17 +65,17 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	h := home.Home{Root: t.TempDir()}
 	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
 	switchStandIns(t, h)
-	if err := startNativeCFO(h, h.Root, "codex", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "codex", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		arguments, err := os.ReadFile(filepath.Join(h.Root, "switch-arguments.txt"))
 		if err == nil && len(arguments) > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the initial CFO recorded no arguments within 10s")
+			t.Fatal("the initial CFO recorded no arguments within a minute")
 		}
 	}
 	before, err := host.ReadRecord(h.State, supervisor.NativeCFOTerminal)
@@ -150,17 +156,35 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(arguments)), "\r\n")
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(arguments)), "\r\n") {
+		if !strings.HasSuffix(line, "-standin --help") {
+			lines = append(lines, line)
+		}
+	}
 	if len(lines) != 3 {
 		t.Fatalf("harness starts = %q, want three", lines)
+	}
+	codexHooks, err := cfoHookArguments(h, "codex")
+	if err != nil {
+		t.Fatal(err)
 	}
 	for index, harness := range []string{"codex", "pi", "codex"} {
 		want := harness + "-standin "
 		if harness == "codex" {
-			want += "--no-daemon --no-alt-screen "
+			want += strings.Join(slices.Concat(codexHooks, cfoCompactArguments("codex"), []string{"-c", "tui.copy_on_select=always", "--no-daemon"}), " ") + " "
 		}
-		if lines[index] != want+cfoFirstPrompt {
-			t.Errorf("start %d = %q, want fresh arguments %q", index, lines[index], want+cfoFirstPrompt)
+		if harness == "pi" {
+			want += "--tui-mode fullscreen "
+		}
+		// The first start is the home's first CFO; each switch restarts it,
+		// told why.
+		prompt := cfoFirstPrompt
+		if index > 0 {
+			prompt = cfoBackPrompt(harness, restartedWhy, "The CFO starts a new conversation in "+harness+" because its harness changed.")
+		}
+		if lines[index] != want+prompt {
+			t.Errorf("start %d = %q, want fresh arguments %q", index, lines[index], want+prompt)
 		}
 	}
 }
@@ -254,8 +278,8 @@ func TestGoblinsResumeSwitchesHarnessAndTheBoardSwitchesBack(t *testing.T) {
 	if host.Running(record) {
 		t.Fatal("the earlier Codex CFO still runs")
 	}
-	if arguments := waitForFakeClaudeArguments(t, h.Root, nil); strings.Join(arguments, " ") != "" {
-		t.Fatalf("Claude arguments = %q, want fresh startup", arguments)
+	if arguments, want := waitForFakeClaudeArguments(t, h.Root, nil), cfoBackPrompt("claude", restartedWhy, "The CFO starts a new conversation in claude because its harness changed."); !slices.Equal(arguments, []string{want}) {
+		t.Fatalf("Claude arguments = %q, want fresh startup told why", arguments)
 	}
 	if saved, err := cfoHarness(h.State); err != nil || saved != "claude" {
 		t.Fatalf("remembered harness = %q, %v", saved, err)
@@ -324,8 +348,8 @@ func TestCFORestartWithTheSameHarnessResumesItsConversationThroughHTTP(t *testin
 				t.Fatalf("restart = %d %s", response.Code, response.Body.String())
 			}
 			arguments := waitForFakeClaudeArguments(t, h.Root, nil)
-			if strings.Join(arguments, " ") != "--resume current-session" {
-				t.Fatalf("arguments = %q, want the running conversation", arguments)
+			if !slices.Equal(arguments, []string{"--resume", "current-session", cfoBackPrompt("claude", restartedWhy, "")}) {
+				t.Fatalf("arguments = %q, want the running conversation, told why it started again", arguments)
 			}
 		})
 	}

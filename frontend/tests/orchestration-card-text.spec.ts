@@ -16,7 +16,7 @@ interface Fit {
 // The parts of the cards on the canvas, by the element each sits in, the
 // first that holds it naming it.
 const PARTS: [string, string][] = [
-  [".card-engine, .tree-child-model", "model"], [".card-route", "route"],
+  [".tree-child-model", "model"],
   [".card-status-text, .card-copy > .plain-status", "status"], [".tree-child-runs", "runs"], [".state-chip", "state"], [".tree-memory", "memory"],
   [".card-clock", "clock"], [".card-pr", "pull request"], [".subscription-dial", "dial"], ["strong", "title"], [".browser-indicator", "browser"],
   [".project-label", "project"], ["small", "relation"], [".node-role", "role"], [".node-task", "task"], [".node-status", "status"],
@@ -123,7 +123,7 @@ test("a goblin's card holds its whole title, project and status, as in the Overl
   const seen = await card(page, "Woody").evaluate(fit, PARTS);
 
   // Assert
-  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Allowance: resumes Oct 14, 4:05 AM", "model: claude-opus-5-5 · xhigh", "route: strong fallback"]);
+  expect(describe(seen)).toEqual(["title: Woody - Tour Guide", "project: code-goblins", "status: Waiting on Jules - Process Keeper", "clock: 1h 35m"]);
   expect(seen.spills).toEqual([]);
   expect(seen.cut).toEqual([]);
   expect(seen.truncated).toEqual([]);
@@ -151,9 +151,9 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
 // Text a card cannot hold may end in an ellipsis, but none of it is painted
 // beyond the card, whatever it says, and no part of it goes unseen.
 for (const [title, parts] of [
-  ["Wilhelmina", ["title", "browser", "project", "status", "model", "route"]],
-  ["Cornelius", ["title", "browser", "project", "status", "model", "route"]],
-  ["Bartholomew", ["title", "project", "status", "model", "route", "clock", "pull request"]],
+  ["Wilhelmina", ["title", "browser", "project", "status", "clock"]],
+  ["Cornelius", ["title", "browser", "project", "status", "clock"]],
+  ["Bartholomew", ["title", "project", "status", "clock", "pull request"]],
   ["CFO", ["title", "status", "dial"]],
 ] as const) {
   test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
@@ -243,23 +243,25 @@ function facts(card: Element, selectors: Record<string, string>): Record<string,
     .map((node) => node.textContent).join("").replace(/\s+/g, " ").trim();
   return Object.fromEntries(Object.entries(selectors).map(([fact, selector]) => {
     const element = card.querySelector(selector);
-    return [fact, !element ? "" : fact === "harness" ? element.getAttribute("aria-label") || "" : fact === "pull request" ? text(element) + " " + element.getAttribute("href") : text(element)];
+    return [fact, !element ? "" : fact === "harness" ? element.getAttribute("aria-label") || "" : fact === "pull request" ? element.getAttribute("href") || "" : text(element)];
   }));
 }
 
 // The Overlord, 2026-10-12: a card on the canvas shows the same facts as
-// that goblin's card on the board, its name and title, project and status,
-// how long it has run, its pull request and its harness mark.
+// that goblin's card on the board, its name and title, its status, how long
+// it has run, its pull request and its harness mark. The board's card is one
+// row since 2026-10-17, so its project is in its panel, and its pull request
+// is an icon: what both open is compared.
 for (const title of ["Olive - Billing Baron", "Woody - Tour Guide", "Bartholomew - Distinguished Infrastructure Archivist", "Jules - Process Keeper"]) {
   test(`${title}'s canvas card says what its board card says`, async ({ page }) => {
     // Arrange
     await open(page, "board");
     const board = await page.locator(".task-card-shell").filter({ has: page.locator(".card-title", { hasText: title }) })
-      .evaluate(facts, { title: ".card-title", project: ".card-repo", status: ".card-status-text", model: ".card-engine", route: ".card-route", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
+      .evaluate(facts, { title: ".card-title", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
     await open(page);
 
     // Act
-    const canvas = await card(page, title).evaluate(facts, { title: "strong", project: ".project-label", status: ".card-status-text", model: ".card-engine", route: ".card-route", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
+    const canvas = await card(page, title).evaluate(facts, { title: "strong", status: ".card-status-text", clock: ".card-clock", "pull request": ".card-pr", harness: ".card-harness .mark" });
 
     // Assert
     expect(board.title).toBe(title);

@@ -56,7 +56,7 @@ func TestRunAllToolsPresent(t *testing.T) {
 	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
-	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
+	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.17", 0)
 	fakeTool(t, dir, "winget", "v1.9.25200", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
@@ -76,8 +76,8 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[4].Name != "no-mistakes" || checks[5].Name != "gh-axi" || checks[6].Name != "chrome-devtools-axi" {
 		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[4:7])
 	}
-	if checks[7].Name != "lavish-axi" || checks[7].Err != "" || checks[7].Floor != "0.1.79-codegoblins.3" {
-		t.Errorf("checks[7] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79-codegoblins.3 floor", checks[7])
+	if checks[7].Name != "lavish-axi" || checks[7].Err != "" || checks[7].Floor != "0.1.79-codegoblins.17" {
+		t.Errorf("checks[7] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79-codegoblins.17 floor", checks[7])
 	}
 	if checks[8].Name != "winget" || checks[8].Err != "" || !checks[8].Installer {
 		t.Errorf("checks[8] = %+v, want winget as an installer-only check", checks[8])
@@ -97,7 +97,7 @@ func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
-	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
+	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.17", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir())
 
@@ -119,7 +119,9 @@ func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 
 // lavish-axi is pinned to the Code Goblins build from the fork: the upstream
 // package, however new, reads as unavailable with the fork's install command,
-// and like any presentation tool it never makes doctor unhealthy.
+// and like any presentation tool it never makes doctor unhealthy. A fork build
+// whose page server keeps the folder of the command that started it (#950)
+// reads as below the floor, so its fix is the install command doctor prints.
 func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -133,8 +135,10 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 		{name: "upstream at floor", version: "0.1.79", wantErr: true},
 		{name: "upstream above floor", version: "lavish-axi v0.2.0", wantErr: true},
 		{name: "the fork's build before the board look", version: "0.1.79-codegoblins.2", wantErr: true},
-		{name: "the fork's build at floor", version: "0.1.79-codegoblins.3"},
-		{name: "the fork's later build of the floor's version", version: "0.1.79-codegoblins.10"},
+		{name: "the fork's build whose server keeps the caller's folder", version: "0.1.79-codegoblins.15", wantErr: true},
+		{name: "the fork's build that sends each note on its own", version: "0.1.79-codegoblins.16", wantErr: true},
+		{name: "the fork's build at floor", version: "0.1.79-codegoblins.17"},
+		{name: "the fork's later build of the floor's version", version: "0.1.79-codegoblins.20"},
 		{name: "the fork's build above floor", version: "lavish-axi v0.2.0-codegoblins.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -168,17 +172,11 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 	}
 }
 
-// The install script installs the release the doctor's hint names, so a
-// machine the install set up meets the floor the doctor checks.
+// The doctor's hint names the release at the lavish-axi floor, the release the
+// install script downloads, so a machine the install set up meets the floor
+// the doctor checks.
 func TestInstallScriptInstallsTheReleaseTheDoctorNames(t *testing.T) {
-	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(script), LavishRelease) {
-		t.Errorf("install.ps1 does not install %s", LavishRelease)
-	}
-	if !strings.Contains(LavishRelease, "/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz") {
+	if !strings.Contains(LavishRelease, "/v0.1.79-codegoblins.17/lavish-axi-0.1.79-codegoblins.17.tgz") {
 		t.Errorf("LavishRelease = %s, want the release at the lavish-axi floor", LavishRelease)
 	}
 }

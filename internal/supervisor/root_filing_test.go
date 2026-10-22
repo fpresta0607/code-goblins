@@ -35,7 +35,7 @@ func nextFiling(t *testing.T, filings chan filedRoot) filedRoot {
 	select {
 	case filing := <-filings:
 		return filing
-	case <-time.After(3 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("no root was filed")
 	}
 	return filedRoot{}
@@ -71,7 +71,7 @@ func TestARepeatingSupervisorErrorIsFiledOnceOnTheHomesRepository(t *testing.T) 
 	select {
 	case again := <-filings:
 		t.Fatalf("filed again: %+v, want one filing a class in a run", again)
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond): // stall-accepted: no second filing is meant to arrive, so a stall only makes the wait longer.
 	}
 }
 
@@ -84,7 +84,7 @@ func TestAFilingThatFailsTellsTheCFOAndIsNoErrorOfTheSupervisors(t *testing.T) {
 	nextFiling(t, filings)
 
 	// Assert
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		for _, record := range fleetWakeRecords(t, service.Store.Home, "check") {
 			if strings.HasPrefix(record.Detail, "root_unfiled: go is red on the default branch: job go (rest) was not filed: refused:") {

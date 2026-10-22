@@ -265,9 +265,19 @@ export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boo
 
 // Why an input was refused, in the Overlord's words.
 const GATE_CUSTODY = /pipeline owns this task|pipeline custody has not been returned/i;
+const DETACHED_HOLD = /^HEAD is detached at (\S+?),/;
 export function typingHeldReason(raw: string): string {
   if (GATE_CUSTODY.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
+  const detached = raw.match(DETACHED_HOLD);
+  if (detached) return `This goblin's worktree is on a detached HEAD at ${detached[1]}, so typing is held until it is on a branch. Reconnect to watch the screen.`;
   return raw;
+}
+
+// A goblin whose worktree is on a detached HEAD, as a new task's starts, has
+// typing held until it makes a branch. That is its state, not a failure, so
+// it shows on the terminal and wakes nobody (#1015).
+export function isDetachedHold(raw: string): boolean {
+  return /^HEAD is detached at /.test(raw);
 }
 
 // Why the wheel cannot scroll a pane whose take was refused, in the

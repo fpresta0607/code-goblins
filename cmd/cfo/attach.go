@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -15,11 +16,16 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -227,34 +233,93 @@ func detachAt(keys []byte) int {
 // session's start is the contract's, which the harness reads from AGENTS.md.
 const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session, and wait for the Overlord."
 
+// cfoBackPrompt is the first instruction of a CFO started again in a home
+// whose CFO ran before, which nobody types into: that it is that home's CFO,
+// why it started again, why it is on a new conversation when fresh says so,
+// and to take up the fleet's work at once. Claude Code's SessionStart hook
+// registers it and prints the digest; a Codex or pi CFO registers itself. It
+// passes through cmd /c for Codex and pi, so it holds none of the characters
+// cmd reads (spawn's cmdProgram).
+func cfoBackPrompt(harness, why, fresh string) string {
+	prompt := "You are the CFO of this Code Goblins home, started again because " + why + "."
+	if fresh != "" {
+		prompt += " " + fresh
+	}
+	prompt += " This instruction came with the start, not from the Overlord."
+	if supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
+		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session."
+	} else {
+		prompt += " Your SessionStart hook registered you and printed the session digest: read the file it names and act on it."
+	}
+	return prompt + " Run cfo drain, handle each wake it shows and acknowledge them, and carry on with the fleet without waiting for the Overlord."
+}
+
 // cfoStartArguments are the arguments a CFO's harness starts with: args, such
-// as the ones that resume a conversation, and for a harness the supervisor
-// wakes by typing, the first prompt that registers it, last. Codex draws
-// inline, as a Codex goblin does, so its history stays in the board
-// terminal's scrollback and a drag there selects text, and it runs without the
-// shared background server, which would otherwise leave the cfo commands its
-// harness runs under a detached process an earlier session had started, where
-// no custody check can prove them (2026-10-16).
-func cfoStartArguments(harness string, args []string) []string {
+// as the ones that resume a conversation, and its first instruction, prompt,
+// last. With none, a harness the supervisor wakes by typing starts with the
+// first prompt that registers it, and a Claude Code CFO waits for the
+// Overlord, as on a home's first start. Codex runs without the shared
+// background server, which would otherwise leave the cfo commands its harness
+// runs under a detached process an earlier session had started, where no
+// custody check can prove them (2026-10-16).
+func cfoStartArguments(harness string, args []string, prompt string) []string {
 	args = slices.Clone(args)
 	if harness == "codex" {
-		args = append(args, "--no-daemon", "--no-alt-screen")
+		args = append(args, "--no-daemon")
 	}
-	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
+	if prompt == "" && supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
+		prompt = cfoFirstPrompt
+	}
+	if prompt == "" {
 		return args
 	}
-	return append(args, cfoFirstPrompt)
+	return append(args, prompt)
+}
+
+// cfoScreenArguments are the arguments that start a CFO's harness on its own
+// full screen, as a goblin's starts and as Claude Code's does, which keeps
+// the input line and footer on the bottom rows while the transcript scrolls
+// above them: Codex's alternate screen, copying what a drag selects when the
+// button is released, and pi's fullscreen mode where its help offers it.
+func cfoScreenArguments(agent string) ([]string, error) {
+	switch agent {
+	case "codex":
+		return []string{"-c", "tui.copy_on_select=always"}, nil
+	case "pi":
+		return harness.PiScreenArgs(context.Background(), execx.OSRunner{})
+	}
+	return nil, nil
+}
+
+// cfoCompactArguments are the arguments that have a CFO's harness compact
+// within the CFO's window (install.CFOAutoCompactWindow), long before its
+// model's own fills: Codex's -c override of its auto-compact limit, at 90
+// percent of that window, as Codex limits a model's own window, which keeps
+// the lower of the two. A Claude Code CFO takes the window from its settings
+// file (cfoHookArguments), and pi has no setting for it: it compacts once its
+// context passes the model's window less compaction.reserveTokens, which also
+// sizes the summary it writes.
+func cfoCompactArguments(agent string) []string {
+	if agent != "codex" {
+		return nil
+	}
+	return []string{"-c", fmt.Sprintf("model_auto_compact_token_limit=%d", install.CFOAutoCompactWindow*9/10)}
 }
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
 // in project, in a host of its own that outlives this console, with args,
-// such as the arguments that resume a conversation.
-func startNativeCFO(h home.Home, project, harness string, args []string) error {
+// such as the arguments that resume a conversation, and prompt as its first
+// instruction (cfoStartArguments).
+func startNativeCFO(h home.Home, project, harness string, args []string, prompt string) error {
 	hooks, err := cfoHookArguments(h, harness)
 	if err != nil {
 		return err
 	}
-	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, append(hooks, args...))...)
+	screen, err := cfoScreenArguments(harness)
+	if err != nil {
+		return err
+	}
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, cfoCompactArguments(harness), args, screen), prompt)...)
 	if err != nil {
 		return err
 	}
@@ -281,12 +346,23 @@ const cfoSettingsFile = "cfo-claude-settings.json"
 // alone. They were in the user's settings until 2026-10, where every Claude
 // Code session on the machine ran them: each Bash call, turn end and start
 // started cfo.exe, about 0.1 s each, only for the hook to leave on its
-// environment. A Codex or pi CFO has its native hooks (cfo hooks install).
+// environment. A Codex CFO takes its native hooks as -c overrides of its own
+// session, and a pi CFO has its extension (cfo hooks install pi). A home whose
+// paths a Codex hook command cannot hold starts its Codex CFO without them, as
+// every Codex CFO started before they came with its launch, and cfo hooks
+// install codex writes them for it with its helper instead.
 func cfoHookArguments(h home.Home, harness string) ([]string, error) {
+	if harness == "codex" {
+		hooks, err := nativehook.CodexArguments(filepath.Join(h.Root, home.BinDir, "cfo.exe"), h.Root, h.State)
+		if err != nil {
+			return nil, nil
+		}
+		return hooks, nil
+	}
 	if harness != "claude" {
 		return nil, nil
 	}
-	settings, err := install.CFOSettings(h.Root)
+	settings, err := install.CFOSettings(h.Root, h.State)
 	if err != nil {
 		return nil, err
 	}
@@ -300,11 +376,16 @@ func cfoHookArguments(h home.Home, harness string) ([]string, error) {
 	return []string{"--settings", path}, nil
 }
 
+// userEnvironment is the environment Windows gives a new process of this
+// user. A test replaces it, since the user's own PATH finds the user's real
+// harnesses.
+var userEnvironment = spawn.UserEnvironment
+
 // cfoTerminalEnvironment is the environment the CFO's native terminal of
 // home h starts with: the one Windows gives a new process of this user, made
 // the CFO's by nativeCFOEnvironment.
 func cfoTerminalEnvironment(h home.Home) ([]string, error) {
-	userEnv, err := spawn.UserEnvironment()
+	userEnv, err := userEnvironment()
 	if err != nil {
 		return nil, fmt.Errorf("read the user's environment: %w", err)
 	}
@@ -313,9 +394,23 @@ func cfoTerminalEnvironment(h home.Home) ([]string, error) {
 	return nativeCFOEnvironment(userEnv, os.Environ(), h, projects), nil
 }
 
+// environmentValue is the value env, a process's environment, gives name, or
+// empty when it gives none. Names compare without case, as Windows compares
+// them.
+func environmentValue(env []string, name string) string {
+	for _, entry := range env {
+		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
+			return value
+		}
+	}
+	return ""
+}
+
 // nativeCFOProgram is the command line a native terminal starts harness with
-// as the CFO, as a native goblin's is: codex and pi install as npm script shims
-// and run through cmd /c. Claude Code must be its native build, claude.exe.
+// as the CFO, as a native goblin's is: the program this process's PATH finds,
+// started by its path (spawn.NativeProgram), with codex and pi, which install
+// as npm script shims, run through cmd /c. Claude Code must be its native
+// build, claude.exe.
 func nativeCFOProgram(harness string, args ...string) ([]string, error) {
 	if harness == "claude" {
 		path, err := exec.LookPath(harness)
@@ -340,12 +435,21 @@ func nativeCFOProgram(harness string, args ...string) ([]string, error) {
 // configuration without its pane, so the CFO registers its native terminal
 // and a herdr it starts is not refused as nested inside that pane. Its
 // browser session is its own, named for its terminal as a goblin's is, never
-// the tool's unnamed one that every program of the user shares. Names
-// compare without case, as Windows compares them.
+// the tool's unnamed one that every program of the user shares. A CFO a
+// goblin's rig starts, in a scratch home, keeps the codex guard the rig runs
+// under first on its PATH (codexguard). Names compare without case, as
+// Windows compares them.
 func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRoot string) []string {
 	pinned := [][2]string{{"CFO_HOME", h.Root}, {"CFO_STATE_OVERRIDE", h.State}}
 	if projectsRoot != "" {
 		pinned = append(pinned, [2]string{install.ProjectsRootVariable, projectsRoot})
+	}
+	if guards := codexguard.Chain("", environmentValue(launcherEnv, codexguard.Variable)); guards != "" {
+		path := guards
+		if userPath := environmentValue(userEnv, "PATH"); userPath != "" {
+			path += string(os.PathListSeparator) + userPath
+		}
+		pinned = append(pinned, [2]string{codexguard.Variable, guards}, [2]string{"PATH", path})
 	}
 	pinned = append(pinned, [2]string{spawn.BrowserSessionVariable, supervisor.NativeCFOTerminal})
 	env := slices.DeleteFunc(slices.Clone(userEnv), func(entry string) bool {
@@ -361,5 +465,5 @@ func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRo
 	for _, pin := range pinned {
 		env = append(env, pin[0]+"="+pin[1])
 	}
-	return env
+	return remoteaccess.LocalScrawlEnvironment(env)
 }

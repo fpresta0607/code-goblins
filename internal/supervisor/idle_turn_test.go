@@ -127,6 +127,77 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 	}
 }
 
+// A queued task the supervisor is starting could start no more, though cfo
+// spawn writes its task record only once its worktree exists, so an idle turn
+// names the work after it, or none. The CFO's turn-end guard runs apart from
+// cfo serve and cannot read the start the supervisor holds in memory, so on
+// 2026-10-21 it could name a start under way as work to dispatch (#1246).
+func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
+	cases := []struct {
+		name           string
+		isSecondQueued bool
+		want           []string
+	}{
+		{name: "work queued after it", isSecondQueued: true, want: []string{"next: start second-task with cfo spawn second-task"}},
+		{name: "nothing queued after it"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange: the first reading over the mark starts next-task, whose
+			// spawn has written no task record yet.
+			spawner := &spawnRecorder{release: make(chan struct{})}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			s := handler.Service
+			if err := os.Remove(state.TaskMetaPath(h.State, "task-1")); err != nil {
+				t.Fatal(err)
+			}
+			rows := "- **next-task** - Ship it (repo: code-goblins)"
+			if testCase.isSecondQueued {
+				rows += "\n- **second-task** - Ship that (repo: code-goblins)"
+				writeFile(t, filepath.Join(h.Data, "second-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "second-task"))
+			}
+			queueBriefedTask(t, h, rows, plainBrief)
+			defer func() {
+				close(spawner.release)
+				awaitDispatch(t, s, spawner, 1)
+			}()
+			now := time.Date(2026, 10, 21, 2, 0, 0, 0, time.UTC)
+			if err := s.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+			s.starts.Lock()
+			starting := s.starting
+			s.starts.Unlock()
+			if starting != "next-task" {
+				t.Fatalf("starting %q, want the start of next-task under way", starting)
+			}
+
+			// Act
+			detail, err := IdleTurnWake(h, Memory{Available: 8 * gigabyte, CommitAvailable: 40 * gigabyte}, now)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			wakes := fleetWakeRecords(t, h, "idle")
+			if len(testCase.want) == 0 {
+				if detail != "" || len(wakes) != 0 {
+					t.Fatalf("detail %q, wakes %v; want the turn left to end while next-task starts", detail, wakes)
+				}
+				return
+			}
+			if strings.Contains(detail, "next-task") || len(wakes) != 1 || wakes[0].Detail != detail {
+				t.Fatalf("detail %q, wakes %v; want one idle wake that leaves out next-task, which is starting", detail, wakes)
+			}
+			for _, want := range testCase.want {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q, want %q", detail, want)
+				}
+			}
+		})
+	}
+}
+
 // The same next work wakes an idle turn once per idleWakeAfter, so a CFO that
 // cannot start it is not woken at every turn end; other next work wakes it
 // at once.

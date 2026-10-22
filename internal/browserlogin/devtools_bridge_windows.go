@@ -62,7 +62,7 @@ func (b *devToolsBridge) serve(w http.ResponseWriter, r *http.Request) {
 	case "/json/version":
 		var version struct{ Product, ProtocolVersion, UserAgent, JSVersion string }
 		if err := b.pipe.call(ctx, "Browser.getVersion", nil, &version); err != nil {
-			http.Error(w, "the browser did not answer", http.StatusServiceUnavailable)
+			http.Error(w, "the browser did not answer: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{"Browser": version.Product, "Protocol-Version": version.ProtocolVersion, "User-Agent": version.UserAgent, "V8-Version": version.JSVersion, "webSocketDebuggerUrl": socket + "/devtools/browser"})
@@ -74,7 +74,7 @@ func (b *devToolsBridge) serve(w http.ResponseWriter, r *http.Request) {
 			} `json:"targetInfos"`
 		}
 		if err := b.pipe.call(ctx, "Target.getTargets", nil, &result); err != nil {
-			http.Error(w, "the browser did not answer", http.StatusServiceUnavailable)
+			http.Error(w, "the browser did not answer: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 		targets := make([]map[string]string, 0, len(result.Targets))

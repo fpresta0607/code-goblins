@@ -1,6 +1,4 @@
-import { useState } from "react";
 import type { Snapshot } from "./types";
-import { message, request } from "./api";
 import { Avatar } from "./Avatar";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
@@ -8,7 +6,7 @@ import { cfoSummary } from "./cfoSummary";
 import { CfoHarnessMark } from "./cfo-harness-mark";
 import { SubscriptionDials } from "./subscription-dials";
 import "./cfo-pin.css";
-import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { ReopenCfoButton } from "./reopen-cfo-button";
 
 // The CFO pinned above the board's columns: at rest a plain bar, a card like
 // the columns under it, that says how many goblins are at work, with its
@@ -34,25 +32,11 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 // many wait is its one way to whatever is there.
 export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
-  const [reopening, setReopening] = useState(false);
-  const [feedback, showFeedback] = useClickFeedback();
-  // The board shows the reopened CFO from its next snapshot, so a reopen
-  // that worked has nothing more to do here.
-  const reopen = async () => {
-    setReopening(true);
-    showFeedback("");
-    try {
-      await request("/api/cfo/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: "{}" });
-    } catch (error: unknown) { showFeedback(message(error)); } finally {
-      setReopening(false);
-    }
-  };
   if (snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs) return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
       <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
-      <button className="labelled-button primary" disabled={reopening} onClick={reopen}><Icon name="play" />{reopening ? "Reopening the CFO…" : "Reopen the CFO"}</button>
-      <ClickFeedback text={feedback} />
+      <ReopenCfoButton snapshot={snapshot} />
     </div>
   </div>;
   const absent = !snapshot.cfo_runs;

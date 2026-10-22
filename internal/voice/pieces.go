@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"encoding/binary"
 	"math"
 	"slices"
 )
@@ -51,14 +52,7 @@ func pieces(samples []float32, rate int) [][]float32 {
 		return nil
 	}
 	frame := max(1, rate/FRAMES_A_SECOND)
-	power := make([]float64, (len(samples)+frame-1)/frame)
-	for index := range power {
-		part := samples[index*frame : min((index+1)*frame, len(samples))]
-		for _, sample := range part {
-			power[index] += float64(sample) * float64(sample)
-		}
-		power[index] /= float64(len(part))
-	}
+	power := framePower(samples, frame)
 	loud := loudPower(power)
 	isAnyLoud := slices.ContainsFunc(power, func(value float64) bool { return value >= loud })
 	cuts := cutPoints(power)
@@ -75,6 +69,61 @@ func pieces(samples []float32, rate int) [][]float32 {
 		}
 	}
 	return cut
+}
+
+// Spoken says whether sound, a WAV file of 16-bit samples in one channel as
+// the board's page writes, holds speech by the rule pieces cuts it by:
+// anything loud in it. Any other sound is not judged and holds none.
+func Spoken(sound []byte) bool {
+	samples, rate := pcm16(sound)
+	if len(samples) == 0 {
+		return false
+	}
+	power := framePower(samples, max(1, rate/FRAMES_A_SECOND))
+	loud := loudPower(power)
+	return slices.ContainsFunc(power, func(value float64) bool { return value >= loud })
+}
+
+// pcm16 reads the samples and the rate of a WAV file of 16-bit samples in one
+// channel, or none of another.
+func pcm16(sound []byte) ([]float32, int) {
+	if len(sound) < 12 || string(sound[:4]) != "RIFF" || string(sound[8:12]) != "WAVE" {
+		return nil, 0
+	}
+	var format []byte
+	for at := 12; at+8 <= len(sound); {
+		name, size := string(sound[at:at+4]), int(binary.LittleEndian.Uint32(sound[at+4:at+8]))
+		body := sound[at+8 : min(len(sound), at+8+size)]
+		switch name {
+		case "fmt ":
+			format = body
+		case "data":
+			if len(format) < 16 || binary.LittleEndian.Uint16(format[0:]) != 1 || binary.LittleEndian.Uint16(format[2:]) != 1 || binary.LittleEndian.Uint16(format[14:]) != 16 {
+				return nil, 0
+			}
+			samples := make([]float32, len(body)/2)
+			for index := range samples {
+				samples[index] = float32(int16(binary.LittleEndian.Uint16(body[2*index:]))) / 32768
+			}
+			return samples, int(binary.LittleEndian.Uint32(format[4:]))
+		}
+		at += 8 + size + size%2
+	}
+	return nil, 0
+}
+
+// framePower is the power, the mean square, of each frame of samples, the
+// last as long as what is left of them.
+func framePower(samples []float32, frame int) []float64 {
+	power := make([]float64, (len(samples)+frame-1)/frame)
+	for index := range power {
+		part := samples[index*frame : min((index+1)*frame, len(samples))]
+		for _, sample := range part {
+			power[index] += float64(sample) * float64(sample)
+		}
+		power[index] /= float64(len(part))
+	}
+	return power
 }
 
 // loudPower is the power, the mean square of a frame, at which a frame of a

@@ -49,6 +49,18 @@ type Operations struct {
 	Memory     func() (available, commit uint64, err error)
 	Admit      func() error
 	Notify     func(state.Lifecycle) error
+	// HandOver hands on what the task's record keeps for a resume that
+	// never runs, as a resume whose session a later start replaced, before
+	// the operation writes its own record over it, and says whether it did:
+	// one that did not leaves the record as it was, and what one that did
+	// met after it is named in the operation's problems.
+	HandOver func(state.TaskMeta, state.Lifecycle) (bool, error)
+	// HandOverRelaunched hands on what an interrupted resume's record keeps
+	// once a Resume finds the terminal its relaunch started already up, as
+	// the board messages kept since that resume failed: the Resume relaunches
+	// nothing, so no instruction carries them. It runs and answers as
+	// HandOver does.
+	HandOverRelaunched func(state.Lifecycle) (bool, error)
 }
 
 type Service struct {
@@ -175,7 +187,27 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 	}
+	var handedOver error
+	if service.Operations.HandOver != nil {
+		var isHanded bool
+		if isHanded, handedOver = service.Operations.HandOver(meta, prior); !isHanded {
+			return result, handedOver
+		}
+	}
+	// A Resume that finds its interrupted resume's terminal already up
+	// relaunches nothing, so what that resume's record kept since its
+	// relaunch began is handed on here or never.
+	if isAlreadyRunning && service.Operations.HandOverRelaunched != nil {
+		isHanded, err := service.Operations.HandOverRelaunched(prior)
+		if !isHanded {
+			return result, err
+		}
+		handedOver = errors.Join(handedOver, err)
+	}
 	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
+	if handedOver != nil {
+		result.Problems = append(result.Problems, handedOver.Error())
+	}
 	if prior.Phase != "running" {
 		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
 	}

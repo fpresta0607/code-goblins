@@ -11,7 +11,7 @@ import (
 // TerminateVerified ends a process only when the one handle it ends it by
 // shows the start time and the command line it was asked about.
 func TestTerminateVerifiedEndsOnlyTheProcessItWasAskedAbout(t *testing.T) {
-	cmd := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "60", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +32,14 @@ func TestTerminateVerifiedEndsOnlyTheProcessItWasAskedAbout(t *testing.T) {
 		select {
 		case <-exited:
 			return false
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond): // stall-accepted: no exit is meant to arrive, so a stall only makes the wait longer.
 			return true
 		}
 	}
 	var seen []string
 	pingRole := func(arguments []string) error {
 		seen = arguments
-		if len(arguments) > 0 && strings.EqualFold(arguments[0], "cmd") {
+		if len(arguments) > 0 && strings.EqualFold(arguments[0], "ping") {
 			return nil
 		}
 		return errors.New("not the process asked about")
@@ -54,10 +54,23 @@ func TestTerminateVerifiedEndsOnlyTheProcessItWasAskedAbout(t *testing.T) {
 	if err := TerminateVerified(cmd.Process.Pid, start, pingRole); err != nil {
 		t.Fatalf("TerminateVerified = %v, want the process ended", err)
 	}
-	if running() {
+	select {
+	case <-exited:
+	case <-time.After(30 * time.Second):
 		t.Fatal("the process asked about still runs")
 	}
-	if len(seen) < 2 || !strings.EqualFold(seen[1], "/c") {
-		t.Errorf("command line read = %q, want cmd /c ...", seen)
+	if len(seen) < 2 || seen[1] != "-n" {
+		t.Errorf("command line read = %q, want ping -n ...", seen)
+	}
+	// Ended, the process leaves nothing it started running on, which a
+	// verify run would name as the test's leftover.
+	processes, err := Processes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range processes {
+		if entry.ParentPID == cmd.Process.Pid && !entry.Start.Before(start) {
+			t.Errorf("%s pid %d, which the ended process started, still runs", entry.ExeBase, entry.PID)
+		}
 	}
 }

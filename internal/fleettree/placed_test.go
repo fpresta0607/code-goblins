@@ -1,6 +1,7 @@
 package fleettree
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"testing"
@@ -119,5 +120,99 @@ func TestPlacedPutsWhatAHeavyLineRunLeftWithoutAParentInTheRun(t *testing.T) {
 	}
 	if asked[300] != 1 || asked[310] != 1 {
 		t.Errorf("asked whether each runs in a turn %v times over two readings, want once in each process's life", asked)
+	}
+}
+
+// A link the CFO's harness opens, such as a sign-in's, starts the
+// Overlord's default browser under the CFO's terminal when none runs, and
+// that browser is his from then on, with every tab and native messaging host
+// it starts. On 2026-10-16 the start watch blamed four of its windows on the
+// CFO's terminal and advised ending them by pid (#1007). A browser a goblin
+// runs for its work is still the goblin's.
+func TestPlacedLeavesABrowserALinkOpenedToTheOverlord(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	later := func(minutes int) time.Time { return launched.Add(time.Duration(minutes) * time.Minute) }
+	processes := append(goblinProcesses(launched, 0),
+		Process{PID: 600, ParentPID: 1, Exe: "claude.exe", Created: 60, Started: launched},
+		Process{PID: 601, ParentPID: 600, Exe: "node.exe", Created: 61, Started: later(30)},
+		Process{PID: 610, ParentPID: 601, Exe: "chrome.exe", Created: 62, Started: later(31)},
+		Process{PID: 611, ParentPID: 610, Exe: "chrome.exe", Created: 63, Started: later(31)},
+		Process{PID: 612, ParentPID: 610, Exe: "cmd.exe", Created: 64, Started: later(32)},
+		Process{PID: 613, ParentPID: 612, Exe: "conhost.exe", Created: 65, Started: later(32)},
+		Process{PID: 620, ParentPID: 9999, Exe: "msedge.exe", Created: 66, Started: later(40)},
+		Process{PID: 621, ParentPID: 620, Exe: "msedge.exe", Created: 67, Started: later(40)},
+	)
+	commands := maps.Clone(goblinCommands)
+	commands[601] = `node.exe open.js`
+	commands[610] = `"C:\Program Files\Google\Chrome\Application\chrome.exe" --single-argument https://claude.com/cai/oauth/authorize`
+	commands[611] = `"C:\Program Files\Google\Chrome\Application\chrome.exe" --type=renderer`
+	commands[612] = `C:\WINDOWS\system32\cmd.exe /d /s /c ""C:\hosts\host.exe" chrome-extension://abc/ --parent-window=0"`
+	commands[613] = `\??\C:\WINDOWS\system32\conhost.exe 0x4`
+	commands[620] = `"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --single-argument https://example.com/login`
+	commands[621] = `"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --type=gpu-process`
+	reader := Reader{
+		Processes:   func() ([]Process, error) { return processes, nil },
+		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+		Owner:       func(pid int) string { return map[int]string{620: "cfo", 621: "cfo"}[pid] },
+	}
+	owners := []Goblin{
+		{Meta: state.TaskMeta{ID: "tree"}, HarnessPID: 100},
+		{Meta: state.TaskMeta{ID: "cfo"}, HarnessPID: 600},
+	}
+
+	// Act
+	placed, err := reader.Placed(owners)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := map[int]string{}
+	for _, process := range placed {
+		owner[process.PID] = process.Owner
+	}
+	for _, pid := range []int{610, 611, 612, 613, 620, 621} {
+		if mine, isPlaced := owner[pid]; isPlaced {
+			t.Errorf("process %d (%s) placed as %s's, want the Overlord's browser left to him", pid, commands[pid], mine)
+		}
+	}
+	if owner[601] != "cfo" || owner[107] != "tree" {
+		t.Errorf("placed = %v, want the CFO's tool call and the goblin's own browser still placed", owner)
+	}
+}
+
+// The Overlord's browser a link opened under a goblin's harness is his, so
+// its memory is none of the goblin's either, though the opener that started
+// it is the goblin's job and still runs (#1007).
+func TestReadLeavesTheMemoryOfABrowserALinkOpenedOutOfTheGoblins(t *testing.T) {
+	// Arrange
+	launched := at.Add(-time.Hour)
+	processes := append(goblinProcesses(launched, 0),
+		Process{PID: 601, ParentPID: 100, Exe: "node.exe", Created: 61, Started: launched.Add(50 * time.Minute), Memory: 40 * megabyte},
+		Process{PID: 610, ParentPID: 601, Exe: "chrome.exe", Created: 62, Started: launched.Add(51 * time.Minute), Memory: 900 * megabyte},
+		Process{PID: 611, ParentPID: 610, Exe: "chrome.exe", Created: 63, Started: launched.Add(51 * time.Minute), Memory: 600 * megabyte},
+	)
+	commands := maps.Clone(goblinCommands)
+	commands[601] = `node.exe open.js`
+	commands[610] = `"C:\Program Files\Google\Chrome\Application\chrome.exe" --single-argument https://claude.com/cai/oauth/authorize`
+	commands[611] = `"C:\Program Files\Google\Chrome\Application\chrome.exe" --type=renderer`
+	reader := Reader{
+		Home:        t.TempDir(),
+		Processes:   func() ([]Process, error) { return processes, nil },
+		Listeners:   func() (map[int][]int, error) { return map[int][]int{}, nil },
+		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+		Now:         func() time.Time { return at },
+	}
+
+	// Act
+	tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint64(500+80+5+300+200+3+150+400+40) * megabyte; tree.Memory != want {
+		t.Errorf("memory = %d MB, want %d MB: the harness and everything under it but the Overlord's browser", tree.Memory/megabyte, want/megabyte)
 	}
 }

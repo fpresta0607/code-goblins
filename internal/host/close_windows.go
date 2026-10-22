@@ -1,13 +1,16 @@
 package host
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -16,7 +19,9 @@ import (
 // only that host: a terminal its id names that another host runs is left
 // alone. A zero record launched nothing, and a host that has ended has
 // nothing left to close; a running host that does not answer, as one under
-// load can be busy, is dialed again for at most answerWait.
+// load can be busy, is dialed again for at most answerWait. Only time the
+// machine ran spends answerWait and closeEndWait (awake), since a pause of the
+// whole machine stops the host too.
 func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	if launched.HostPID == 0 {
 		return nil
@@ -31,7 +36,8 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	if still, err := recorded(); err != nil || !still {
 		return err
 	}
-	deadline := time.Now().Add(answerWait)
+	answering, cancelAnswering := awake.WithTimeout(context.Background(), answerWait)
+	defer cancelAnswering()
 	client, err := Dial(launched)
 	for err != nil {
 		if !Running(launched) {
@@ -40,7 +46,7 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 		if still, readErr := recorded(); readErr == nil && !still {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if answering.Err() != nil {
 			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", launched.ID, launched.HostPID, err)
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -55,7 +61,9 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	if closeErr != nil && !pipeClosing(closeErr) {
 		return closeErr
 	}
-	for deadline := time.Now().Add(closeEndWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	ending, cancelEnding := awake.WithTimeout(context.Background(), closeEndWait)
+	defer cancelEnding()
+	for ; ending.Err() == nil; time.Sleep(100 * time.Millisecond) {
 		// A host that took the request removes its record as it ends. After
 		// a refused request the record proves nothing, since a host removes
 		// it while winding down and another can replace it: only this host's
@@ -94,19 +102,35 @@ func pipeClosing(err error) bool {
 // Running reports whether the host record names may still run: only a
 // process Windows shows as ended, or as never started, does not, and neither
 // does one that started after the host recorded itself, which reuses the pid
-// of a host that ended without removing its record.
+// of a host that ended without removing its record. A process this user may
+// not open, as a system service's is, is judged by the start the machine's
+// process list gives, which needs no handle: a host's pid such a process took
+// after a restart once read as the host for good (issue #1206).
 func Running(record Record) bool {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(record.HostPID))
-	if err != nil {
-		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
-	}
-	defer windows.CloseHandle(handle)
-	var code uint32
-	if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != stillActive {
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return false
 	}
+	if err == nil {
+		defer windows.CloseHandle(handle)
+		var code uint32
+		if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != stillActive {
+			return false
+		}
+	}
 	started, known := proc.StartTime(record.HostPID)
-	return !known || !started.After(record.Started)
+	if !known {
+		processes, err := proc.Processes()
+		if err != nil {
+			return true
+		}
+		index := slices.IndexFunc(processes, func(process proc.Entry) bool { return process.PID == record.HostPID })
+		if index < 0 {
+			return false
+		}
+		started = processes[index].Start
+	}
+	return !started.After(record.Started)
 }
 
 // stillActive is the exit code Windows reports for a process that runs.

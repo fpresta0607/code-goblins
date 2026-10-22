@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -160,9 +161,14 @@ func TestTheGoblinReportsItsWindowOverThePipe(t *testing.T) {
 // End to end: a goblin in a scratch home drives a real headless Chrome to a
 // sign-up page that asks to prove a human is there, which only the Overlord
 // may do. It files a card whose link is that exact page, waits on it, and
-// goes on in its browser the moment the test presses Done on the board.
+// goes on in its browser when the test presses Done on the board. The look
+// whatever the record's stamp says is held off, so only the stamp Done gives
+// the record can wake it, and no bound on how soon a busy PC gets there is
+// needed to tell the two apart.
 func TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone(t *testing.T) {
 	// Arrange
+	defer func(recheck int) { credentialWaitRecheck = recheck }(credentialWaitRecheck)
+	credentialWaitRecheck = math.MaxInt
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
 	service := &Service{Store: store, Instance: "test-instance", Options: Options{Credentials: auth.OpenStore}}
@@ -210,23 +216,27 @@ func TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone(t *testing.T) {
 	type outcome struct {
 		request CredentialRequest
 		err     error
-		at      time.Time
 	}
+	looked := make(chan struct{})
 	ended := make(chan outcome, 1)
 	go func() {
-		request, err := WaitCredential(ctx, h.State, filed.ID, nil)
-		ended <- outcome{request, err, time.Now()}
+		request, err := WaitCredential(ctx, h.State, filed.ID, func(CredentialRequest) { close(looked) })
+		ended <- outcome{request, err}
 	}()
 	card, _ := store.credential(filed.ID)
-	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-looked:
+	case got := <-ended:
+		t.Fatalf("the wait ended before Done: %+v %v", got.request, got.err)
+	}
 	body, _ := json.Marshal(map[string]string{"id": card.ID, "generation": card.Generation, "action": "done"})
-	pressed := time.Now()
 	press := (&credentialBoard{t: t}).send(handler, "/api/credentials/close", string(body), nil)
 	got := <-ended
+	var after string
 	if got.err == nil {
 		navigate(ctx, t, tab, shop.URL+"/welcome")
+		after = pageText(ctx, t, tab, "Welcome to your new account")
 	}
-	after := pageText(ctx, t, tab, "Welcome to your new account")
 
 	// Assert
 	if !strings.Contains(text, "Verify you are a human") {
@@ -237,9 +247,6 @@ func TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone(t *testing.T) {
 	}
 	if press.Code != http.StatusOK || got.err != nil || got.request.State != "done" {
 		t.Fatalf("Done = %d %s, wait = %+v %v", press.Code, press.Body, got.request, got.err)
-	}
-	if waited := got.at.Sub(pressed); waited > 2*time.Second {
-		t.Fatalf("the goblin went on %s after Done, want within seconds", waited)
 	}
 	if !strings.Contains(after, "Welcome to your new account") {
 		t.Fatalf("after Done the goblin's browser shows %q", after)
@@ -279,11 +286,11 @@ func firstTab(ctx context.Context, t *testing.T, address string) *cdp.Conn {
 }
 
 // pageText is the page's text once it holds want, or what it holds after
-// ten seconds.
+// a minute.
 func pageText(ctx context.Context, t *testing.T, tab *cdp.Conn, want string) string {
 	t.Helper()
 	var text string
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		var result struct {
 			Result struct {
 				Value string `json:"value"`

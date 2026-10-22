@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -168,7 +169,7 @@ func (c *Console) startProcess(commandLine, dir, env *uint16, processors uintptr
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		windows.CloseHandle(job)
 		return fmt.Errorf("conpty: limit job: %w", err)
 	}
@@ -304,7 +305,9 @@ func (c *Console) Read(p []byte) (int, error) {
 // heldEndingWait is how long an ending conhost would hold waits for the next
 // write: cfo attach writes what its console reads 4 KiB at a time, so a key
 // event can be split across two writes, and the rest follows at once, while
-// an Escape typed alone has nothing after it.
+// an Escape typed alone has nothing after it. Only time the machine ran
+// spends it (awake), since a pause of the whole machine between the two
+// writes stops cfo attach too.
 const heldEndingWait = 100 * time.Millisecond
 
 // Write types p into the terminal as the process's input, and tells the
@@ -332,7 +335,9 @@ func (c *Console) Write(p []byte) (int, error) {
 		input = input[:len(input)-ending]
 		c.holds++
 		hold := c.holds
-		time.AfterFunc(heldEndingWait, func() { c.release(hold) })
+		// The wait runs to its end, which frees it, so it is never cancelled.
+		waited, _ := awake.WithTimeout(context.Background(), heldEndingWait)
+		context.AfterFunc(waited, func() { c.release(hold) })
 	}
 	if len(input) == 0 {
 		return len(p), nil

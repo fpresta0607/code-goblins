@@ -457,6 +457,77 @@ func TestReconcileNeverQueuesAnEvaluationBehindOnePending(t *testing.T) {
 	}
 }
 
+// Two reconciles can fall in one minute: a supervisor that restarts
+// reconciles at once, and a slow recovery cycle can be followed by a quick
+// one. A task that changed between them is evaluated again as it is now,
+// where its evaluation reused the minute's request ID and the store refused
+// it as another action's (issue #1086). An unchanged task is evaluated once.
+func TestReconcileTwiceInOneMinuteEvaluatesATaskThatChanged(t *testing.T) {
+	accept := func(kind string) func(*testing.T, *Store, home.Home) {
+		return func(t *testing.T, store *Store, h home.Home) {
+			if err := store.Accept(event(t, h, kind, "s1", kind, time.Now())); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	nothing := func(*testing.T, *Store, home.Home) {}
+	cases := []struct {
+		name          string
+		before, after func(*testing.T, *Store, home.Home)
+		want          int
+	}{
+		{name: "unchanged", before: nothing, after: nothing, want: 1},
+		{name: "its first hook event", before: nothing, after: accept("SessionStart"), want: 2},
+		{name: "a newer hook event", before: accept("SessionStart"), after: accept("UserPromptSubmit"), want: 2},
+		{name: "respawned", before: nothing, after: func(t *testing.T, _ *Store, h home.Home) {
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.SpawnGen = "g2"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+		}, want: 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			service := &Service{Store: store}
+			minute := time.Now().Truncate(time.Minute)
+			tc.before(t, store, h)
+			if err := service.reconcileTasks(minute.Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
+				return Evaluation{Phase: "review", Reason: "Review and test evidence missing"}, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			tc.after(t, store, h)
+			// Act
+			err := service.reconcileTasks(minute.Add(50 * time.Second))
+			// Assert
+			if err != nil {
+				t.Fatalf("second reconcile in the minute: %v", err)
+			}
+			d := store.Snapshot()
+			if len(d.Actions) != tc.want {
+				t.Fatalf("actions = %+v, want %d evaluations", d.Actions, tc.want)
+			}
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			last, session := d.Actions[len(d.Actions)-1], d.TaskSessions["task-1"]
+			if last.Session != session || last.EventID != d.Sessions[session].LastEventID || last.Generation != meta.SpawnGen {
+				t.Fatalf("last evaluation = %+v, want the task as it is now", last)
+			}
+		})
+	}
+}
+
 // Reading a goblin's worktree must never rewrite its index: git status
 // refreshes a stale index under an optional lock, which can fail a git
 // command the goblin runs at the same moment.
@@ -751,7 +822,7 @@ func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
 	defer s.Close()
 	within := func(what string, done func() bool) {
 		t.Helper()
-		for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); !done(); time.Sleep(20 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatal(what)
 			}
@@ -768,7 +839,7 @@ func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
 
 	select {
 	case <-scanning:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the merge scan never started")
 	}
 
@@ -795,7 +866,7 @@ func TestHistoryIsRebuiltWhenATaskFinishesOrMerges(t *testing.T) {
 		t.Helper()
 		select {
 		case <-scans:
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal(why)
 		}
 	}
@@ -804,7 +875,7 @@ func TestHistoryIsRebuiltWhenATaskFinishesOrMerges(t *testing.T) {
 		select {
 		case <-scans:
 			t.Fatal(why)
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond): // stall-accepted: no rebuild is meant to come before the hour is up, so a stall only makes the wait longer.
 		}
 	}
 
@@ -1061,11 +1132,15 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 		}
 	}
 	var asked []string
+	var isBudgeted bool
+	var budgetLeft time.Duration
 	blocking := true
 	service := &Service{Store: store, Options: Options{PullRequestState: func(ctx context.Context, url string) (PullRequestInfo, error) {
 		asked = append(asked, url)
 		if blocking {
 			blocking = false
+			deadline, hasDeadline := ctx.Deadline()
+			isBudgeted, budgetLeft = hasDeadline, time.Until(deadline)
 			<-ctx.Done()
 			return PullRequestInfo{}, ctx.Err()
 		}
@@ -1073,12 +1148,10 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	}}}
 	now := time.Now().UTC()
 
-	started := time.Now()
 	err := service.refreshHistory(t.Context(), now)
-	elapsed := time.Since(started)
 
-	if elapsed > pullRequestBudget+3*time.Second {
-		t.Fatalf("the refresh took %v, want it to end soon after the %v budget", elapsed, pullRequestBudget)
+	if !isBudgeted || budgetLeft > pullRequestBudget {
+		t.Fatalf("the ask GitHub never answers had %v left of its time (deadline %t), want it held to the refresh's %v budget", budgetLeft, isBudgeted, pullRequestBudget)
 	}
 	if err != nil || len(asked) != 1 {
 		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and not reported", err, asked)
@@ -1130,6 +1203,50 @@ func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
 			}
 			if want := []string{"pr", "view", url, "--json", "state,title"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
 				t.Fatalf("ran %s %v, want gh %v", runner.request.Name, runner.request.Args, want)
+			}
+		})
+	}
+}
+
+// countingGh is gh answering one state for every pull request, counting the
+// times it is asked.
+type countingGh struct {
+	state string
+	asked int
+}
+
+func (g *countingGh) Run(context.Context, execx.Request) (execx.Result, error) {
+	g.asked++
+	return execx.Result{Stdout: []byte(`{"state":"` + g.state + `","title":"Task title"}`)}, nil
+}
+
+// A merged pull request stays merged, so gh is asked about it once however
+// often the board, its scheduler and AFK mode ask again; one still open or
+// closed, which can be reopened, is asked about every time.
+func TestGitHubPullRequestStateAsksAboutAMergedPullRequestOnce(t *testing.T) {
+	for _, c := range []struct {
+		state string
+		want  int
+	}{
+		{"MERGED", 1},
+		{"OPEN", 3},
+		{"CLOSED", 3},
+	} {
+		t.Run(c.state, func(t *testing.T) {
+			// Arrange
+			gh := &countingGh{state: c.state}
+			read := GitHubPullRequestState(gh)
+
+			// Act
+			for range 3 {
+				if got, err := read(t.Context(), "https://github.com/o/r/pull/9"); err != nil || got.State != c.state {
+					t.Fatalf("state = %+v, %v; want %s", got, err, c.state)
+				}
+			}
+
+			// Assert
+			if gh.asked != c.want {
+				t.Fatalf("gh was asked %d times, want %d", gh.asked, c.want)
 			}
 		})
 	}

@@ -81,16 +81,20 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
     });
   }
 
+  // Start is in the task's panel, never on its card, and a labelled Start
+  // carries a tip only to say why it cannot run.
   test("a queued task's Start under the floor is one click", async ({ page }) => {
     // Arrange
     const column = await board(page, states.floor);
 
     // Act
-    const start = column.getByRole("button", { name: "Start Polish settings" });
+    await column.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("Polish settings", { exact: true }) }).locator(".task-card").click();
+    const start = page.locator(".goblin-panel").getByRole("button", { name: "Start Polish settings", exact: true });
 
     // Assert
+    await expect(start).toBeVisible();
     await expect(start).not.toHaveAttribute("aria-disabled", "true");
-    await expect(start).toHaveAttribute("data-tip", "Start");
+    await expect(start).not.toHaveAttribute("data-tip");
   });
 
   test("a Start that waits for disk says so on its card", async ({ page }) => {

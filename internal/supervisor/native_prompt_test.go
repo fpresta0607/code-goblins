@@ -60,7 +60,7 @@ func TestNativePromptSinceReadsTheSpoolAndTheStore(t *testing.T) {
 		}
 	}
 
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 

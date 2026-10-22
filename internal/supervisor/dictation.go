@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
@@ -52,8 +55,8 @@ func (h *HTTP) ReplaceDictation() {
 // soon after the keys are let go. It takes no body, and answers at once; a
 // dictation that could not run says why when it is sent.
 func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
-	if offMachine(r, h.Host) != "" {
-		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+	if dictationRefused(r, h.Host) {
+		apiError(w, http.StatusForbidden, dictationRefusal)
 		return
 	}
 	if r.ContentLength != 0 {
@@ -73,6 +76,11 @@ func (h *HTTP) warmDictation(w http.ResponseWriter, r *http.Request) {
 // dictationLimit bounds one dictation's sound: about four minutes of the 16
 // kHz mono sound the board records.
 const dictationLimit = 8 << 20
+
+// noWordsFile is the home's copy of the last sound with speech in it that the
+// engine answered no words for, kept on this PC so it can be played again and
+// replaced by the next.
+const noWordsFile = "dictation-no-words.wav"
 
 // dictationPatience is how long the engine's download may take before it is
 // given up, so one that stalls does not keep every later dictation waiting
@@ -175,14 +183,25 @@ func (h *HTTP) dictationStatus(w http.ResponseWriter) {
 	respond(w, 200, status)
 }
 
+// dictationRefused says whether a request may not dictate. The board's own
+// page on this machine may, and so may the Overlord's private board on his
+// phone, which the remote access gate admitted as his own login: its sound
+// crosses his tailnet to this machine alone and is recognised here, so what
+// he says never reaches anyone else's service.
+func dictationRefused(r *http.Request, board string) bool {
+	return offMachine(r, board) != "" && !remoteaccess.Admitted(r)
+}
+
+const dictationRefusal = "The board dictates only on the PC it runs on, from its own page at 127.0.0.1 or your private board, so what you say never leaves your own devices."
+
 // dictate returns the words in the sound the board's page recorded. It takes
-// a sound only from the board's own page on this machine, so what is said
-// never leaves it, and runs one engine at a time. A body that is not a WAV
+// a sound only from the board's own page on this machine or the Overlord's
+// private board, and runs one engine at a time. A body that is not a WAV
 // sound is a bad request before anything of it is read, as every board
 // endpoint refuses a body it does not take.
 func (h *HTTP) dictate(w http.ResponseWriter, r *http.Request) {
-	if offMachine(r, h.Host) != "" {
-		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
+	if dictationRefused(r, h.Host) {
+		apiError(w, http.StatusForbidden, dictationRefusal)
 		return
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "audio/wav") {
@@ -210,6 +229,11 @@ func (h *HTTP) dictate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text, err := speech.Recognize(r.Context(), sound)
+	if err == nil && text == "" && voice.Spoken(sound) {
+		if keepErr := fsx.AtomicWriteFile(filepath.Join(h.Service.Store.Home.State, noWordsFile), sound); keepErr != nil {
+			err = fmt.Errorf("the engine answered no words for a sound with speech in it, and the sound could not be kept in state/%s: %w", noWordsFile, keepErr)
+		}
+	}
 	var room voice.NoRoom
 	switch {
 	case errors.As(err, &room):

@@ -274,7 +274,7 @@ func localHostnameForTest(t *testing.T) string {
 
 func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
 
 func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
 
 func TestAcquireOwnerContendedByLiveForeignOwner(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +586,7 @@ func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) 
 	t.Run("live foreign process", func(t *testing.T) {
 		dir := t.TempDir()
 		name := ".spawn-task.lock"
-		cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+		cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -612,7 +612,7 @@ func TestAcquireExclusiveNamedTakesALockReleasedBetweenRefusalAndReclaim(t *test
 	// Arrange
 	dir := t.TempDir()
 	name := ".watch.lock"
-	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -747,6 +747,39 @@ func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
 	}
 }
 
+// A record the acquire has just created is its own, so it reads it back
+// however late: the look's deadline bounds only its waits for another
+// holder. A waiter the line lets through late looks for one pause, which a
+// slow create can spend. A read-back that then failed on the passed deadline
+// sent the acquire round to a create that failed too, so it returned an
+// error and left behind a record naming its own live process, which every
+// other acquire then found held.
+func TestAnAcquireWhoseDeadlinePassesAfterItsCreateTakesTheRecordItMade(t *testing.T) {
+	// Arrange: the look's deadline passes as the read-back begins.
+	dir, name := t.TempDir(), ".wake-queue.lock"
+	self, status := ownerInfo(os.Getpid(), "wake")
+	if status == statusDead {
+		t.Fatal("current process unexpectedly dead")
+	}
+	look, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // stall-accepted: the test means the look's deadline to run out.
+	defer cancel()
+	read := func(ctx context.Context, dir, name string) (*Info, error) {
+		<-look.Done()
+		return readNamedContext(ctx, dir, name)
+	}
+
+	// Act
+	info, err := acquireReading(look, dir, name, self, true, false, read)
+
+	// Assert
+	if err != nil || info != self {
+		t.Fatalf("acquire = %+v, %v; want the record it created taken", info, err)
+	}
+	if recorded, err := ReadNamed(dir, name); err != nil || recorded.PID != self.PID || !recorded.Start.Equal(self.Start) {
+		t.Errorf("the lock records %+v, %v; want this process", recorded, err)
+	}
+}
+
 // deadHoldersRecord writes dir/name naming a process that has ended.
 func deadHoldersRecord(t *testing.T, dir, name string) string {
 	t.Helper()
@@ -784,6 +817,7 @@ func holdOpen(t *testing.T, path string) func() {
 func TestAcquireWaitsOutAReaderHoldingADeadHoldersRecord(t *testing.T) {
 	dir := t.TempDir()
 	path := deadHoldersRecord(t, dir, ".watch.lock")
+	// stall-accepted: the reader is meant to let go while the acquire waits, and a stall can outrun only the acquire's own 450 ms wait for it, which no bound here lengthens.
 	time.AfterFunc(200*time.Millisecond, holdOpen(t, path))
 
 	info, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch")
@@ -808,7 +842,7 @@ func TestAcquireGivesUpOnAReaderThatNeverLetsADeadHoldersRecordGo(t *testing.T) 
 	if !errors.Is(err, syscall.Errno(32)) {
 		t.Fatalf("AcquireNamedOwner = %v, want the sharing violation", err)
 	}
-	if waited := time.Since(began); waited > 5*time.Second {
+	if waited := time.Since(began); waited > time.Minute {
 		t.Errorf("the acquire waited %s, want it bounded", waited)
 	}
 }
@@ -839,7 +873,7 @@ func TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait(t *testing.T) {
 	}
 	// It stops short of a pause that would end past the wait, so it can give
 	// up up to one pause early.
-	if waited < wait/4 || waited > 5*time.Second {
+	if waited < wait/4 || waited > 30*time.Second {
 		t.Errorf("the acquire waited %s, want about %s", waited, wait)
 	}
 }

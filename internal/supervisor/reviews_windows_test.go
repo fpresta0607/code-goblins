@@ -89,6 +89,157 @@ func TestReviewItemOutlivesItsSourceTheSupervisorAndTheGoblin(t *testing.T) {
 	}
 }
 
+// A review given its Scrawl link alone is polled on the page lavish-axi
+// serves at that link, as one given its file is, so his answer there closes
+// it. A link to no session lavish-axi keeps is a link alone.
+func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
+	for name, test := range map[string]struct {
+		link, wantPage string
+	}{
+		"a session lavish-axi keeps":   {link: "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
+		"the same session on loopback": {link: "http://127.0.0.1:4387/session/1a4d8f434fcca24b", wantPage: `C:\scratch\task-1\review\index.html`},
+		"a session it does not keep":   {link: "https://pc.example.ts.net:4388/session/0000000000000000"},
+		"a link to no session":         {link: "https://example.com/plan"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":"C:\\scratch\\task-1\\review\\index.html","status":"opened"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := PublishReview(h, meta.ID, "canvas-before-after", "Before and after pictures of the canvas", test.link, "", nil)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			got := store.Snapshot().Reviews
+			if len(got) != 1 || got[0].Lavish != test.link || got[0].LavishPage != test.wantPage {
+				t.Fatalf("reviews = %+v, want the link %s polled on %q", got, test.link, test.wantPage)
+			}
+		})
+	}
+}
+
+// A page another reporter's open item already shows is refused, recording
+// nothing, whichever comes second: his answer there reaches only the reporter
+// whose item stands for it, so the CFO's review of the page a goblin waits on
+// him with would take his answer from the goblin, and a goblin's wait on the
+// page the CFO's review holds would take it from the CFO. The goblin's own
+// review of its page is still its own.
+func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
+	const link = "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b"
+	const page = `C:\scratch\task-1\review\index.html`
+	wait := func(h home.Home) error {
+		return PublishWait(h, "task-1", 7, "pick a layout on the page", link, page, "", "")
+	}
+	review := func(reporter, file string) func(home.Home) error {
+		return func(h home.Home) error {
+			return PublishReview(h, reporter, "layout-review", "Look at the layouts", link, file, nil)
+		}
+	}
+	for name, test := range map[string]struct {
+		first, second    func(home.Home) error
+		holder, reporter string
+		isRefused        bool
+	}{
+		"the CFO's review of a goblin's wait page by its Scrawl link": {first: wait, second: review("", ""), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
+		"the CFO's review of a goblin's wait page by its file":        {first: wait, second: review("", `C:\SCRATCH\task-1\review\index.html`), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
+		"the goblin's own review of its own page":                     {first: wait, second: review("task-1", ""), holder: "waiting-task-1-7"},
+		"the goblin's wait on the page the CFO's review holds":        {first: review("", ""), second: wait, holder: "layout-review", reporter: "the CFO", isRefused: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			_, _, _, cfo := primaryFixture(t, store)
+			servePipe(t, store, cfo)
+			t.Setenv("CFO_SESSION_ID", "actual-primary")
+			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"1a4d8f434fcca24b":{"key":"1a4d8f434fcca24b","file":"C:\\scratch\\task-1\\review\\index.html","status":"opened"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := test.first(h); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := test.second(h)
+
+			// Assert
+			if ingestErr := store.ingestReviews(); ingestErr != nil {
+				t.Fatal(ingestErr)
+			}
+			got := store.Snapshot().Reviews
+			if test.isRefused {
+				if !errors.Is(err, ErrPageHeld) || !strings.Contains(err.Error(), test.reporter+"'s item "+test.holder) || !strings.Contains(err.Error(), "reaches "+test.reporter) {
+					t.Fatalf("the second publication = %v, want refused naming %s's item %s, which his answer on the page reaches", err, test.reporter, test.holder)
+				}
+				if len(got) != 1 || got[0].ID != test.holder {
+					t.Fatalf("reviews = %+v, want only %s recorded", got, test.holder)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 2 || got[1].ID != "layout-review" || got[1].Task != "task-1" || got[1].LavishPage != page {
+				t.Fatalf("reviews = %+v, want the goblin's wait and its own review of the page", got)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-10-17 about 22:10Z, opened a review card the CFO had just
+// published and got Scrawl's "Session ended. Return to your agent to
+// continue.": its page's session had ended a minute before. A review given
+// the link of a session that has ended is refused, recording nothing, with a
+// line naming --reopen.
+func TestAReviewOfAnEndedScrawlSessionIsRefusedNamingReopen(t *testing.T) {
+	for _, endedBy := range []string{"user", "agent"} {
+		t.Run(endedBy, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			lavish := t.TempDir()
+			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+			stored := `{"sessions":{"ad6519f76542da4e":{"key":"ad6519f76542da4e","file":"C:\\scratch\\site\\mockup.html","status":"ended","ended_by":"` + endedBy + `"}}}`
+			if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := PublishReview(h, meta.ID, "itascaunity-site-real-photos", "The site with real photos", "https://pc.example.ts.net:4388/session/ad6519f76542da4e", "", nil)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "has ended") || !strings.Contains(err.Error(), "--reopen") {
+				t.Fatalf("a review of an ended session = %v, want it refused naming --reopen", err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Reviews; len(got) != 0 {
+				t.Fatalf("reviews = %+v, want nothing recorded", got)
+			}
+		})
+	}
+}
+
 // Only the reporter that published an item can withdraw it, and its reason
 // is kept.
 func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
@@ -194,6 +345,46 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews")); err != nil || len(entries) != 1 {
 		t.Fatalf("state/reviews holds %d directories, want only the recorded item's: %v", len(entries), err)
+	}
+}
+
+// His Send and End closes an item, and a reporter that published it again
+// under its ID, as a goblin rerunning cfo review --reopen did, was told it was
+// published while no card appeared. A republish of an item that is no longer
+// open is refused, naming a new --id, and recording nothing; a republish of
+// an open item is still that same item.
+func TestARepublishOfAClosedItemIsRefusedNamingANewID(t *testing.T) {
+	for _, state := range []string{"open", "answered", "withdrawn"} {
+		t.Run(state, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _, _, _ := goblinFixture(t, store)
+			if err := PublishReview(h, meta.ID, "mockup-review-1", "Look at the mockup", "", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			store.db.Reviews[0].State = state
+			err := store.save()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err = PublishReview(h, meta.ID, "mockup-review-1", "Look at the mockup", "", "", nil)
+
+			// Assert
+			isRefused := state != "open"
+			if isRefused != (err != nil) || isRefused && !strings.Contains(err.Error(), "new --id") {
+				t.Fatalf("republishing the %s item = %v, want refused naming a new --id: %t", state, err, isRefused)
+			}
+			if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
+				t.Fatalf("the republish left %d inbox records", len(entries))
+			}
+		})
 	}
 }
 
@@ -443,7 +634,7 @@ func TestAWaitStaysOpenUntilHisAnswerHisDismissOrItsWithdraw(t *testing.T) {
 			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
+			if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", "", ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -488,7 +679,7 @@ func TestAWaitKeepsItsLinesAndTheLinkItGave(t *testing.T) {
 	link := "https://dash.cloudflare.com/precisiondocs/dns"
 
 	// Act
-	err := PublishWait(h, meta.ID, 7, why, "", "", link)
+	err := PublishWait(h, meta.ID, 7, why, "", "", link, "")
 	if err == nil {
 		err = store.ingestReviews()
 	}
@@ -578,10 +769,11 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	}
 }
 
-// The CFO's answer to a goblin's question closes only that question: the
-// goblin's waits on the Overlord stay open, filed before the question or
-// after it, and none is recorded as cleared, since a wait only he can clear,
-// such as a sign-in, is never settled by an answer to a different question.
+// The CFO's answer to a goblin's question closes that question and only the
+// waits the goblin declared to follow it: the goblin's other waits on the
+// Overlord stay open, filed before the question or after it, and none is
+// recorded as cleared, since a wait only he can clear, such as a sign-in, is
+// never settled by an answer to a different question.
 func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -596,16 +788,19 @@ func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	meta, record, _, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	ctx := context.Background()
-	if err := PublishWait(h, meta.ID, earlier.Seq, "log in to Stripe", "", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := PublishWait(h, meta.ID, record.Seq+1, "pick the store", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, earlier.Seq, "log in to Stripe", "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
 	surfaced(t, store, meta, record, connection)
+	if err := PublishWait(h, meta.ID, record.Seq+1, "sign in to the Stripe dashboard in the browser I opened", "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	if _, _, err := connection.AnswerGoblin(ctx, fmt.Sprint(record.Seq), "sqlite", ""); err != nil {
@@ -616,7 +811,11 @@ func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	}
 
 	// Assert
-	for _, got := range store.Snapshot().Reviews {
+	reviews := store.Snapshot().Reviews
+	if len(reviews) != 2 {
+		t.Fatalf("reviews = %+v, want both of the goblin's waits", reviews)
+	}
+	for _, got := range reviews {
 		if got.State != "open" {
 			t.Errorf("the goblin's wait %s after the CFO answered its question = %s (%q), want it open", got.ID, got.State, got.Reason)
 		}

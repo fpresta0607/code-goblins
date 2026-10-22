@@ -259,7 +259,7 @@ func pollsOnce(t *testing.T, page, output string) func(context.Context, string, 
 		select {
 		case <-ctx.Done():
 			return axi.PagePoll{}, ctx.Err()
-		case <-time.After(timeout):
+		case <-time.After(timeout): // stall-accepted: the stand-in poll's own wait, whose end only says nothing new was written.
 			return axi.Lavish{Commands: printed(scrawlWaiting)}.Poll(ctx, file, reply, timeout)
 		}
 	}
@@ -294,7 +294,7 @@ func TestACommentOnTheCFOsDeliveredPictureReachesItAsAReviewWake(t *testing.T) {
 	// Act
 	s.watchPages(ctx)
 	var wakes []wake.Record
-	for deadline := time.Now().Add(10 * time.Second); len(wakes) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); len(wakes) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		wakes = reviewWakes(t, h.State, "board-card-text-fits")
 	}
 	cancel()

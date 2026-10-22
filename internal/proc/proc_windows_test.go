@@ -45,7 +45,7 @@ func TestFindAncestorMissReturnsFalse(t *testing.T) {
 }
 
 func TestAncestryOfChildProcessSeesUs(t *testing.T) {
-	cmd := exec.Command("cmd", "/c", "ping -n 3 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "3", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestAncestryOfChildProcessSeesUs(t *testing.T) {
 // can go straight to Identify. Left zero, every process was refused.
 func TestProcessesGivesEachProcessTheStartIdentifyProvesItBy(t *testing.T) {
 	// Arrange
-	child := exec.Command("cmd", "/c", "ping -n 3 127.0.0.1 >NUL")
+	child := exec.Command("ping", "-n", "3", "127.0.0.1")
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +91,8 @@ func TestProcessesGivesEachProcessTheStartIdentifyProvesItBy(t *testing.T) {
 		t.Fatalf("the child, pid %d, is not listed", child.Process.Pid)
 	}
 	listed := processes[at]
-	if listed.ParentPID != os.Getpid() || !strings.EqualFold(listed.ExeBase, "cmd.exe") || !listed.Start.Equal(created) {
-		t.Fatalf("child = %+v, want parent %d, cmd.exe and start %s", listed, os.Getpid(), created)
+	if listed.ParentPID != os.Getpid() || !strings.EqualFold(listed.ExeBase, "PING.EXE") || !listed.Start.Equal(created) {
+		t.Fatalf("child = %+v, want parent %d, PING.EXE and start %s", listed, os.Getpid(), created)
 	}
 	if _, err := Identify(listed.PID, listed.Start); err != nil {
 		t.Fatalf("Identify refuses the listed child: %v", err)
@@ -113,7 +113,7 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 	t.Cleanup(func() { _ = shell.Process.Kill(); _, _ = shell.Process.Wait() })
 
 	var ping Entry
-	for deadline := time.Now().Add(20 * time.Second); ping.PID == 0 && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); ping.PID == 0 && time.Now().Before(deadline); {
 		time.Sleep(250 * time.Millisecond)
 		jobbed, err := JobProcesses(shell.Process.Pid)
 		if err != nil {
@@ -153,7 +153,7 @@ func TestCPUTimeIsTheProcessorTimeUsedSinceStart(t *testing.T) {
 	if !ok {
 		t.Fatal("StartTime of this process failed")
 	}
-	deadline := time.Now().Add(50 * time.Millisecond)
+	deadline := time.Now().Add(50 * time.Millisecond) // stall-accepted: the test means this busy spell to run out, and one a stall cuts short still spends processor time.
 	for time.Now().Before(deadline) {
 	}
 

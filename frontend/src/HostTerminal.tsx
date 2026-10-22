@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { reportToCfo } from "./api";
 import { Icon } from "./Icon";
+import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
@@ -49,7 +50,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // Whether a key he typed was not sent, since the view had no connection
   // then, until a new connection is whole.
   const [isUnsent, setUnsent] = useState(false);
-  const dictation = useDictation((text) => current.current?.paste(text), instance);
+  const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
   const dictate = dictation.key;
   useEffect(() => {
     shownValue.current = shown;
@@ -106,7 +107,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
           retry = setTimeout(() => setAttempt((prior) => prior + 1), 400 * retries.current);
           return;
         }
-        if (why) reportToCfo(reportAsValue.current, closedReason(code, why));
+        if (why && !isDetachedHold(why)) reportToCfo(reportAsValue.current, closedReason(code, why));
         setReconnecting(false);
         setEndedWhy(ended(code) ? closedReason(code, why) : "");
         setPhase("closed");
@@ -143,7 +144,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     {phase !== "connecting" && isUnsent && <span className="terminal-state terminal-unsent" role="status"><span className="status-dot" />{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</span>}
     {phase === "live" && isUnread && !isUnsent && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
-    {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />}
+    {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />}
     {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

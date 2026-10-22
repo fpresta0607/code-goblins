@@ -20,6 +20,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 // shellFormPrefix opened every hook command installs wrote before the hooks
@@ -82,44 +83,124 @@ func Hooks(root string) []Hook {
 	return hooks
 }
 
+// NativeHooks are the native session hooks of a Claude Code session the
+// fleet starts, of the home at root with its state in stateDir: each
+// lifecycle event runs `cfo native-hook claude`, which reports the session to
+// the supervisor as Codex's and Pi's native hooks report theirs. They ride
+// the session's own settings rather than the user's, which every Claude Code
+// session on the machine loads, the Overlord's own outside the fleet
+// included.
+func NativeHooks(root, stateDir string) []Hook {
+	var hooks []Hook
+	for _, event := range nativehook.Events("claude") {
+		hooks = append(hooks, Hook{Name: "native-hook", Event: event, Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir}, Timeout: nativehook.TimeoutSeconds})
+	}
+	return hooks
+}
+
+// KeyAlarmSeconds is how long Claude Code lets the key alarm run, its
+// default for a command hook, which the alarm ran under as a hook entry of
+// its own.
+const KeyAlarmSeconds = 600
+
+// CFOAutoCompactWindow is the window, in tokens, the CFO compacts in. Claude
+// Code takes it as its autoCompactWindow setting, takes its 20K output
+// reserve off it and compacts 13K short of what is left, or at the percent of
+// that a CLAUDE_AUTOCOMPACT_PCT_OVERRIDE names where that is lower: at 342K
+// under the Overlord's override of 90, 367K without one. On the model's own
+// 1M window the CFO compacted at 882K, and a restart came first in its
+// conversation of 2026-10-18. Measured on the CFO's 16 ended conversations of
+// 2026-09-16 to 10-18: a compaction left it 68K to 96K tokens, and it grew by
+// at most 88K in one request and 368K in one hour, so 342K leaves it at least
+// 246K tokens between compactions, which no request fills: one compaction
+// every 40 minutes in its busiest hour, and every two to seven hours at the
+// pace of its days between compactions.
+const CFOAutoCompactWindow = 400_000
+
 // CFOSettings is the Claude Code settings document the CFO's terminal starts
-// with: the CFO's hooks and nothing else. Claude Code adds what `--settings`
-// names to the user's own settings, for that session alone.
-func CFOSettings(root string) ([]byte, error) {
-	file := &settingsFile{values: map[string]any{}}
-	if err := file.addHooks(Hooks(root)); err != nil {
+// with: the CFO's hooks and its native session hooks, and its auto-compact
+// window. Claude Code adds what `--settings` names to the user's own
+// settings, for that session alone, and its window wins over one theirs set,
+// /autocompact's included; only CLAUDE_CODE_AUTO_COMPACT_WINDOW in the
+// environment beats it.
+func CFOSettings(root, stateDir string) ([]byte, error) {
+	file := &settingsFile{values: map[string]any{"autoCompactWindow": CFOAutoCompactWindow}}
+	if err := file.addHooks(append(Hooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
 	}
 	return file.render()
 }
 
-// GoblinHooks are the hooks every Claude Code goblin starts with, of the
-// home at root, and the single place they are defined. goblin-seal refuses
-// the goblin's browser commands while a key fetch reads in its browser, and
-// so runs only before a shell call. goblin-key-alarm wakes the CFO when a
-// tool's output holds a secret key, and so runs after every tool call: a
-// key read from a file is as exposed as one a command printed.
-func GoblinHooks(root string) []Hook {
-	hooks := []Hook{
-		{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell"},
-		{Name: "goblin-key-alarm", Event: "PostToolUse", Matcher: "*"},
-	}
-	for i := range hooks {
-		hooks[i].Command = filepath.Join(root, home.BinDir, "cfo.exe")
-		hooks[i].Args = []string{"hook", hooks[i].Name}
+// GoblinHooks are every hook a Claude Code goblin of the home at root, with
+// its state in stateDir, starts with, and the single place they are defined.
+// goblin-seal refuses the goblin's browser commands while a key fetch reads
+// in its browser, and every command while its worktree's Python
+// environments hold code that runs at every Python start that no known
+// package ships, and so runs only before a call that runs a command: Bash,
+// PowerShell, and Monitor, which watches one in the background. Then come its native
+// session hooks, and the one after every tool call also raises the key
+// alarm, which wakes the CFO when the tool's output holds a secret key: a key
+// read from a file is as exposed as one a command printed. The native hook
+// and the alarm were two hook entries, two cfo.exe processes after each tool
+// call, each with a console host of its own; as one entry they are one, with
+// the alarm's limit, and the native hook keeps its own limit inside it.
+func GoblinHooks(root, stateDir string) []Hook {
+	hooks := []Hook{{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"hook", "goblin-seal"}}}
+	for _, hook := range NativeHooks(root, stateDir) {
+		if hook.Event == "PostToolUse" {
+			hook.Args, hook.Timeout = slices.Concat(hook.Args, []string{"--key-alarm"}), KeyAlarmSeconds
+		}
+		hooks = append(hooks, hook)
 	}
 	return hooks
 }
 
 // GoblinSettings is the Claude Code settings document a goblin starts with:
 // the goblin hooks and nothing else, which Claude Code adds to the user's own
-// settings for that session alone.
-func GoblinSettings(root string) ([]byte, error) {
+// settings for that session alone. Each runs the home's hook program where it
+// is the same build as cfo.exe (HookCommand), which Windows starts with no
+// console host.
+func GoblinSettings(root, stateDir string) ([]byte, error) {
+	hooks := GoblinHooks(root, stateDir)
+	command := HookCommand(filepath.Join(root, home.BinDir))
+	for index := range hooks {
+		hooks[index].Command = command
+	}
 	file := &settingsFile{values: map[string]any{}}
-	if err := file.addHooks(GoblinHooks(root)); err != nil {
+	if err := file.addHooks(hooks); err != nil {
 		return nil, err
 	}
 	return file.render()
+}
+
+// GoblinPiExtension is the pi extension a pi goblin starts with, beside the
+// native one every pi session of the machine loads: its goblin seal, which
+// runs program, the home's hook program (HookCommand), as cfo hook
+// goblin-seal-pi before each bash call, the one pi tool that runs a command,
+// and blocks the call with the reason the seal gives on stdout. A seal that
+// cannot run or answer within the native hooks' limit blocks the call too,
+// as pi blocks one whose handler throws, since the seal refuses what it
+// cannot read. It is plain JavaScript, which pi loads as it loads
+// TypeScript, so a test runs it in Node as it is.
+func GoblinPiExtension(program string) string {
+	exe, _ := json.Marshal(program)
+	return `// Code Goblins goblin seal, written anew at each pi goblin's launch
+import { spawnSync } from "node:child_process";
+export default function (pi) {
+  pi.on("tool_call", (event, ctx) => {
+    if (event.toolName !== "bash") return;
+    const result = spawnSync(` + string(exe) + `, ["hook", "goblin-seal-pi"], {
+      input: JSON.stringify({cwd: ctx.cwd, tool_name: "bash", tool_input: {command: event.input.command}}),
+      encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(nativehook.TimeoutSeconds*1000) + `,
+    });
+    if (result.error || result.status !== 0) {
+      return {block: true, reason: "This command waits: the check cfo makes before each command could not run (" + (result.error ? result.error.message : "exit " + result.status) + "). Run it again in a minute."};
+    }
+    const answer = result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput : undefined;
+    if (answer && answer.permissionDecision === "deny") return {block: true, reason: answer.permissionDecisionReason};
+  });
+}
+`
 }
 
 // UserHooks is the `cfo hook <name>` of every CFO hook entry the settings file

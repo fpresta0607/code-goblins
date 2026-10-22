@@ -10,7 +10,7 @@ import type { CredentialRequest, Run } from "./types.ts";
 const card = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "shop-signup",
   project: "acme-shop", names: [], plain: [], labels: {}, why: "Create the shop's test account", link: "https://example.com/signup", steps: ["Create the account", "Accept the terms"],
-  window: false, window_state: "", received: [],
+  window: false, window_state: "", received: [], mail: null,
   env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",
   created_at: "2026-10-14T23:00:00Z", expires_at: "2026-10-15T23:00:00Z", closed_at: "", fetch: null, ...changes,
 });
@@ -75,8 +75,8 @@ test("a closed card's place says how to give its secret later, or to bring it ba
 
 // The Overlord, 2026-10-15: Other is his free answer on any card.
 test("a card he answered in words says so, and shows his answer in his history", () => {
-  assert.deepEqual(credentialFinish(card({ state: "answered", reason: "Use the bot token" })), { heading: "Answered", label: "Its goblin has your answer." });
-  assert.equal(credentialSettled(card({ state: "answered", reason: "Use the bot token" })), "You answered: Use the bot token");
+  assert.deepEqual(credentialFinish(card({ state: "answered", reason: "Use the bot token" })), { heading: "Sent", label: "You wrote: Use the bot token" });
+  assert.equal(credentialSettled(card({ state: "answered", reason: "Use the bot token" })), "You wrote: Use the bot token");
   assert.equal(settledIcon({ kind: "credential", key: "credential:x", request: card({ state: "answered" }) }, []).icon, "check-double");
 });
 

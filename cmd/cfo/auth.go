@@ -28,9 +28,9 @@ import (
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin, hidden when typed at a console)
-       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--env-file <file>] [--plain NAME]... [--label NAME="<few words>"]... [--window] [--wait] [NAME...]
-           (one Command Center card for a step only the Overlord can take: the page to open, its steps, and only
-           the inputs he enters, each NAME a secret for the vault and each --plain NAME a value back to you)
+       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--message-file <file>] [--env-file <file>] [--plain NAME]... [--label NAME="<few words>"]... [--window] [--wait] [NAME...]
+           (one Command Center card for a step only the Overlord can take: the page to open, its steps, a message he
+           sends himself, and only the inputs he enters, each NAME a secret for the vault and each --plain NAME a value back to you)
        cfo auth request --wait-on <card> [--task <id>]   wait on a card you filed, again
        cfo auth request --done <card> [--task <id>]   close your card once you see the step done
        cfo auth request --withdraw <card> [--task <id>] --reason "<why>"   take back a card nobody needs
@@ -39,8 +39,10 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
        cfo auth grant <task-id> --mcp <server> [<server>...]   give a running task MCP servers whose entry in the project's .mcp.json holds a value, by name
+       cfo auth grant <task-id> --codex-credits   authorize a running task to spend paid Codex credits, so its codex guard lets Codex start while Codex's included allowance is used up
        cfo auth revoke <task-id> <service> [<service>...]   take services out of a task's record, so no later terminal of it carries them
        cfo auth revoke <task-id> --mcp <server> [<server>...]   take MCP servers out of a task's record, so no later terminal of it is given them
+       cfo auth revoke <task-id> --codex-credits   withdraw a task's authorization to spend paid Codex credits
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 for the services it carries
        cfo auth browser <provider> --task <id> [--release | --sign-in]   drive your project's provider browser, give it back, or ask for a sign-in on the board
        cfo auth fetch <request> --task <id>   have the supervisor read a request's keys from its reviewed key page into the vault
@@ -432,6 +434,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		labels[name] = label
 		return nil
 	})
+	messageFile := flags.String("message-file", "", messageFileUsage)
 	envFile := flags.String("env-file", "", "a gitignored env file at the root of the project's checkout, such as .env.docker.local, where each value is also set")
 	isWindow := flags.Bool("window", false, "the step happens in your own browser session: the card's button shows its window to him, at --link")
 	isWait := flags.Bool("wait", false, "wait on the card and print what came of it the moment it closes")
@@ -445,7 +448,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 2
 	}
 	if card := cmp.Or(*waitOn, *done, *withdraw, *reopen); card != "" {
-		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
+		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || *messageFile != "" || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
 		modes := len(slices.DeleteFunc([]string{*waitOn, *done, *withdraw, *reopen}, func(id string) bool { return id == "" }))
 		switch {
 		case isFiling || modes > 1:
@@ -498,6 +501,12 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	card := supervisor.CredentialRequest{Task: *task, Names: names, Plain: plain, Why: *why, Link: *link, Steps: steps, EnvFile: *envFile, Window: *isWindow}
 	if len(labels) > 0 {
 		card.Labels = labels
+	}
+	if *messageFile != "" {
+		if card.Mail, err = supervisor.ReadMail(*messageFile); err != nil {
+			fmt.Fprintf(stderr, "cfo auth request: --message-file %v\n", err)
+			return 2
+		}
 	}
 	request, err := credentialRequest(runtime, *project, card)
 	if err != nil {
@@ -798,7 +807,14 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 // With --mcp the names are MCP servers of the project's .mcp.json whose entry
 // holds a value. A harness reads its servers when it starts, so the task is
 // given them at its next terminal.
+//
+// With --codex-credits it authorizes the task to spend paid Codex credits, on
+// the Overlord's word: its codex guard lets Codex start while Codex's
+// included allowance is used up, from the supervisor's next fleet reading.
 func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) == 2 && args[1] == "--codex-credits" {
+		return runCodexCredits(args[0], true, stdout, stderr, runtime)
+	}
 	isMCP := len(args) > 1 && args[1] == "--mcp"
 	if isMCP {
 		args = slices.Delete(slices.Clone(args), 1, 2)
@@ -858,7 +874,13 @@ func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntim
 // With --mcp the names are MCP servers the task's record names. A harness
 // reads its servers when it starts, so the one running now keeps them until
 // it ends.
+//
+// With --codex-credits it withdraws the task's authorization to spend paid
+// Codex credits.
 func runAuthRevoke(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) == 2 && args[1] == "--codex-credits" {
+		return runCodexCredits(args[0], false, stdout, stderr, runtime)
+	}
 	isMCP := len(args) > 1 && args[1] == "--mcp"
 	if isMCP {
 		args = slices.Delete(slices.Clone(args), 1, 2)
@@ -902,6 +924,42 @@ func runAuthRevoke(args []string, stdout, stderr io.Writer, runtime commandRunti
 	fmt.Fprintf(stdout, "revoked %s from %s. Its record names %s\n", strings.Join(names, ", "), id, namesOrNone(carried))
 	fmt.Fprintf(stdout, "wrote %s for the services its record names (%d vars)\n", item.Path, item.Vars)
 	fmt.Fprintf(stdout, "A terminal of %s running now keeps what it already holds of them, the values it started with and any it loaded from that script, until it ends. Its next terminal carries only the services its record names: `cfo switch %s --restart` starts one now\n", id, id)
+	return 0
+}
+
+// runCodexCredits authorizes task id to spend paid Codex credits, or withdraws
+// that, for cfo auth grant and revoke --codex-credits. It is the CFO's act on
+// the Overlord's word, refused in a goblin's terminal and a gate agent's.
+func runCodexCredits(id string, isAuthorized bool, stdout, stderr io.Writer, runtime commandRuntime) int {
+	command := "cfo auth revoke"
+	if isAuthorized {
+		command = "cfo auth grant"
+	}
+	if isValueShapedTaskID(strings.TrimPrefix(command, "cfo auth "), id, stderr) {
+		return 2
+	}
+	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
+		fmt.Fprintf(stderr, "%s: authorizing a task to spend paid Codex credits is the CFO's act on the Overlord's word, never a goblin's or a gate agent's. Say why your task needs Codex now in a blocked report\n", command)
+		return 2
+	}
+	if runtime.resolveHome == nil || runtime.authRefresher == nil {
+		fmt.Fprintf(stderr, "%s: command runtime is incomplete\n", command)
+		return 1
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := runtime.authRefresher(h).SetCodexCredits(id, isAuthorized); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", command, err)
+		return 1
+	}
+	if isAuthorized {
+		fmt.Fprintf(stdout, "authorized %s to spend paid Codex credits. Its codex guard lets Codex start while Codex's included allowance is used up from the supervisor's next fleet reading, within a minute\n", id)
+		return 0
+	}
+	fmt.Fprintf(stdout, "withdrew the authorization of %s to spend paid Codex credits. Its codex guard refuses Codex while Codex's included allowance is used up from the supervisor's next fleet reading, within a minute\n", id)
 	return 0
 }
 

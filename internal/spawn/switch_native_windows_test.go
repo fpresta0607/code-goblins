@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +24,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -111,7 +114,7 @@ func TestAContainedNativeSwitchIsReported(t *testing.T) {
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { windows.CloseHandle(job) })
@@ -323,6 +326,89 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 	}
 }
 
+// A restart brings a goblin back on its own conversation once its terminal's
+// host has ended: when no process holds the host's pid, and when a later
+// process does, one this user may not open included, as a system service's
+// conhost.exe that took a host's pid after a restart was (issue #1206). A
+// host that runs and does not answer may still run its harness, so the
+// restart starts nothing beside it and leaves the task as it was.
+func TestARestartBringsBackAGoblinOnlyOnceItsHostHasEnded(t *testing.T) {
+	previous := nativeCloseWait
+	nativeCloseWait = time.Second
+	t.Cleanup(func() { nativeCloseWait = previous })
+	// Recorded before it ran, so a process that took its pid since started
+	// after the record too.
+	exitedRecorded := time.Now().UTC()
+	exited := exec.Command(os.Args[0], "-test.run=^$")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name          string
+		host          func(*testing.T) (pid int, recorded time.Time)
+		isBroughtBack bool
+	}{
+		{"no process holds its host's pid", func(*testing.T) (int, time.Time) { return exited.ProcessState.Pid(), exitedRecorded }, true},
+		{"a later process this user may not open holds its host's pid", func(t *testing.T) (int, time.Time) {
+			recorded := time.Now().UTC().Add(-time.Second)
+			return proctest.StartUnopenable(t, execx.Command(os.Args[0], sleepChild)), recorded
+		}, true},
+		// Ended before the fixture's own end, which closes the terminal its
+		// record names.
+		{"its host runs and answers nobody", func(t *testing.T) (int, time.Time) {
+			running := exec.Command(os.Args[0], sleepChild)
+			if err := running.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = running.Process.Kill()
+				_ = running.Wait()
+			})
+			return running.Process.Pid, time.Now().UTC()
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			pid, recorded := test.host(t)
+			record, err := json.Marshal(host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: pid, Started: recorded})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(makeDir(t, filepath.Join(f.stateDir, "hosts")), "task-7.json"), string(record))
+
+			// Act
+			result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Generation: f.meta.SpawnGen, Restart: true, ResumeSession: "owned-session-7"})
+
+			// Assert
+			var launches []codexEvent
+			if _, statErr := os.Stat(f.record); statErr == nil {
+				launches = named(f.events(t), "env")
+			}
+			after, metaErr := state.ReadTaskMeta(f.stateDir, "task-7")
+			current, recordErr := host.ReadRecord(f.stateDir, "task-7")
+			if !test.isBroughtBack {
+				if err == nil || !strings.Contains(err.Error(), "no second harness was started") {
+					t.Errorf("Switch = %v, want a refusal saying no second harness was started", err)
+				}
+				if len(launches) != 0 || metaErr != nil || after.SpawnGen != f.meta.SpawnGen || recordErr != nil || current.HostPID != pid {
+					t.Errorf("launches %+v, task generation %q (%v), terminal %+v (%v); want nothing started and the task left on generation %q in host %d", launches, after.SpawnGen, metaErr, current, recordErr, f.meta.SpawnGen, pid)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume owned-session-7 ") {
+				t.Errorf("result %+v, launches %+v; want the same harness started again on owned-session-7", result, launches)
+			}
+			if recordErr != nil || current.HostPID == pid || !host.Running(current) {
+				t.Errorf("the terminal is %+v, %v; want a new host in place of %d", current, recordErr, pid)
+			}
+		})
+	}
+}
+
 func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) {
 	// Arrange
 	f := newNativeFixture(t, harness.Codex, "resumed-working")
@@ -347,7 +433,7 @@ func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) 
 		t.Fatal(err)
 	}
 	previous := nativeStartup
-	nativeStartup = 10 * time.Second
+	nativeStartup = time.Minute
 	t.Cleanup(func() { nativeStartup = previous })
 	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
 		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
@@ -544,6 +630,74 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 			}
 		}
 	})
+}
+
+// On 2026-10-20 a goblin auto-resumed on a loaded machine had its
+// instruction typed into Claude Code's composer, but the Enter did not submit
+// it: the text sat in the composer over an empty row until the resume's
+// window ran out, and the resume was recorded failed while the goblin waited
+// on a key. A resume reads the composer and presses Enter once more while the
+// text still waits there over the empty row the lost Enter left, so the
+// goblin resumes; one whose second Enter is lost too fails within the same
+// window, having pressed it only once more. A Claude Code that takes its
+// Enter seconds late shows the text in its composer as it was until then,
+// over no new row, and is pressed no Enter that would reach it after the
+// instruction (#1232).
+func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
+	for _, test := range []struct {
+		mode, wantPhase string
+		wantLost        int
+	}{
+		{mode: "claude-lost-enter", wantPhase: "running", wantLost: 1},
+		{mode: "claude-enters-lost", wantPhase: "failed", wantLost: 2},
+		{mode: "claude-late-enter", wantPhase: "running", wantLost: 0},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			previous := nativeAccepted
+			nativeAccepted = 10 * time.Second
+			t.Cleanup(func() { nativeAccepted = previous })
+			f := newSwitchFixtureOf(t, harness.Claude, harness.Control{})
+			f.userEnv = append(f.userEnv, fakeCodexMode+"="+test.mode)
+			paused := state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, RequestGeneration: f.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+				t.Fatal(err)
+			}
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+			// Assert
+			if result.Phase != test.wantPhase || (err == nil) != (test.wantPhase == "running") {
+				t.Fatalf("resume = %+v, %v; want it %s", result, err, test.wantPhase)
+			}
+			events := f.events(t)
+			if lost := named(events, "enter taken as a new line"); len(lost) != test.wantLost {
+				t.Errorf("Enters taken as a new line = %+v, want %d", lost, test.wantLost)
+			}
+			if empty := named(events, "enter on an empty composer"); len(empty) != 0 {
+				t.Errorf("Enters on an empty composer = %+v, want none after the instruction", empty)
+			}
+			submitted := named(events, "submitted")
+			if test.wantPhase == "failed" {
+				if len(submitted) != 0 || !strings.Contains(err.Error(), "never showed its harness working") {
+					t.Errorf("submitted = %+v after %v, want nothing taken and the window's error", submitted, err)
+				}
+				return
+			}
+			if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
+				t.Errorf("submitted = %+v, want the resume instruction once", submitted)
+			}
+		})
+	}
 }
 
 // A paused goblin's resume is a refusal, which leaves it paused as it was,

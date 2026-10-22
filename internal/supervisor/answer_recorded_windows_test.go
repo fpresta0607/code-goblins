@@ -172,7 +172,7 @@ func TestCFORecordsAnAnswerTheOverlordGaveElsewhere(t *testing.T) {
 		want string
 	}{
 		{name: "the CFO's own question", pick: "stop", want: "Stop them", ask: func(t *testing.T, store *Store, connection *CFOConnection) (Question, *hostedTerminal) {
-			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the 4 stray Herdr panes left from yesterday?", []string{"Stop them", "Leave them"}, "Stop them"); err != nil {
+			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the 4 stray Herdr panes left from yesterday?", []string{"Stop them", "Leave them"}, "Stop them", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestQuestions(); err != nil {
@@ -236,7 +236,7 @@ func TestCFORecordOfItsOwnQuestionNamesWhereTheOverlordAnswered(t *testing.T) {
 			store, _ := testStore(t)
 			_, _, _, connection := primaryFixture(t, store)
 			servePipe(t, store, connection)
-			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, ""); err != nil {
+			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestQuestions(); err != nil {
@@ -267,7 +267,7 @@ func TestTheOverlordDismissesAQuestionHeNoLongerNeeds(t *testing.T) {
 		names string
 	}{
 		{name: "the CFO's own question", names: "your question herdr-strays-20260929", ask: func(t *testing.T, store *Store, connection *CFOConnection) Question {
-			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, ""); err != nil {
+			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestQuestions(); err != nil {

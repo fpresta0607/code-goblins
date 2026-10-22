@@ -494,6 +494,12 @@ func (s *Service) cardHisSteps(session string, now time.Time) (carded []afk.Held
 		if step.Kind != afk.KindHis || !afk.NeedsHim(step) {
 			continue
 		}
+		// A line an older build logged may hold a step its card could not
+		// do: it is no card.
+		if err := afk.CheckStep(step); err != nil {
+			failed = append(failed, strconv.Quote(step.What)+" ("+err.Error()+")")
+			continue
+		}
 		if err := s.admitHisCard(step, identity, now); err != nil {
 			failed = append(failed, strconv.Quote(step.What)+" ("+err.Error()+")")
 			continue
@@ -728,17 +734,24 @@ func waitingOnOverlord(d Database) []heldItem {
 			items = append(items, heldItem{"question", q.ID, q.Task, q.Text, q.Recommended})
 		}
 	}
+	// A wait that follows a decision still open waits on that decision, which
+	// stands for it, as the board shows only the decision.
+	isOpen := map[string]bool{}
+	for _, q := range d.Questions {
+		isOpen[q.ID] = q.Status == "pending"
+	}
 	for _, r := range d.Reviews {
-		if r.State == "open" {
+		if r.State == "open" && !isOpen[r.Follows] {
 			items = append(items, heldItem{"review", r.ID, r.Task, r.Title, ""})
 		}
 	}
 	for _, r := range d.Runs {
-		// A run the board made itself, for a credential card's terminal or a
-		// connection's repair, is ready only for the moment after his own
-		// click, and was never something that waited on him.
-		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" {
-			items = append(items, heldItem{"run", r.ID, "", r.Title, ""})
+		// A run the board made itself, for a credential card's terminal, a
+		// connection's repair or a Remote access fix, is ready only for the
+		// moment after his own click, and was never something that waited on
+		// him.
+		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" && r.RemoteFix == "" {
+			items = append(items, heldItem{"run", r.ID, r.Task, r.Title, ""})
 		}
 	}
 	for _, c := range d.Credentials {
@@ -1037,6 +1050,9 @@ func heldNow(d Database, item string, ended time.Time) (waiting bool, now string
 		}
 		if d.Runs[i].CFOUnwoken != 0 {
 			return true, "still waiting for you to restart the CFO"
+		}
+		if d.Runs[i].CFOStopped {
+			return true, "still waiting for you to reopen the CFO"
 		}
 		return true, "still waiting for you to run it"
 	case "credential":

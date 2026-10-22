@@ -192,9 +192,11 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Its animations are off: in a terminal that says it is an xterm, idle
 	// Codex draws braille dots over every empty cell,
 	// the spaces of its composer included, which hides a message it holds.
-	// It draws inline rather than in the alternate screen, as a claude goblin
-	// does, so its history stays in the terminal's scrollback and a drag
-	// selects text.
+	// It draws on its own full screen, as a claude goblin does, which keeps
+	// its composer and footer on the bottom rows while its transcript scrolls
+	// above them; inline, the footer scrolled away with the history and a
+	// short conversation left the composer at the top. A drag there selects
+	// in Codex, which copies the selection when the button is released.
 	// Codex runs the commands its model asks for under an app-server, and
 	// with no word against it joins a shared background server any earlier
 	// Codex on the machine left running. Every process of the launch then
@@ -205,7 +207,7 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// for hours because its cfo commands descended from a shared app-server
 	// an earlier session had left. --no-daemon keeps each launch on its own
 	// server, under its own terminal, even while another one runs.
-	launch.Args = []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
+	launch.Args = []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always"}
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
@@ -215,6 +217,7 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	for _, name := range spec.CodexMCPServers {
 		launch.Args = append(launch.Args, "-c", "mcp_servers."+name+".enabled=false")
 	}
+	launch.Args = append(launch.Args, spec.CodexHooks...)
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}

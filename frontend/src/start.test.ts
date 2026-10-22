@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, processorMarks, processorScale, processorState, queueBlock, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, isPastPoolLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolMarks, poolScale, poolState, processorMarks, processorScale, processorState, queueBlock, resumeOrder, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Gpu, type Memory, type Processors, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
 // memory is a machine with available GB of memory and, unless given, ample
-// commit and healthy kernel pools.
-const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, floor: 4 * GB, next: 5 * GB, holders: [] });
+// commit and healthy kernel pools under their 7.5 GB line.
+const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, pool_line: 7.5 * GB, pool_growth: [], floor: 4 * GB, next: 5 * GB, holders: [] });
 const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tasks: [{ id: "next-task", phase: "queued", brief: true, starting: false, start_error: "", verified: false, ...changes }] }).tasks[0];
 
 test("the meter says when the next task starts", () => {
@@ -121,23 +121,68 @@ test("the meter names the apps holding the most commit only while commit is the 
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
 });
 
-test("a paged pool past 4 GB says Windows holds it and a restart frees it", () => {
-  assert.equal(poolWarning({ ...memory(7), paged_pool: 4 * GB }), "");
-  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: Windows holds this in its kernel paged pool, where no goblin can use it. Restarting the PC frees it.");
-  assert.match(poolWarning({ ...memory(7), paged_pool: 4 * GB + 1 }), /^Paged pool/);
+// The Overlord, 2026-10-18, after the pools held 11 GB four days into a
+// boot: "the header shows the restart button in terminal cfo for safe pc
+// restart". Both pools together meet the line measured on this PC, and past
+// it the meter turns red and Restart PC shows.
+test("the kernel's pools are past their line once both together reach it", () => {
+  for (const [paged, nonpaged, line, isPast] of [
+    [7.61, 3.35, 7.5, true],
+    [5, 2.5, 7.5, true],
+    [5, 2.49, 7.5, false],
+    [0.68, 1.15, 7.5, false],
+    [15.6, 0, 0, false],
+  ] as const) {
+    const pools = { ...memory(7), paged_pool: paged * GB, nonpaged_pool: nonpaged * GB, pool_line: line * GB };
+    assert.equal(isPastPoolLine(pools), isPast, `${paged} + ${nonpaged} GB against a ${line} GB line`);
+    if (line) assert.equal(poolState(pools).tone, isPast ? "under" : "ready");
+  }
+  assert.equal(isPastPoolLine(null), false, "no reading is never past the line");
+});
+
+test("the pools' bar puts the line at its middle and its tip names each pool and the tags that grew", () => {
+  // Arrange
+  const pools = { ...memory(7), paged_pool: 7.61 * GB, nonpaged_pool: 3.35 * GB, pool_growth: [{ tag: "Toke", pool: "paged", grown: 3.2 * GB, holds: 3.5 * GB }, { tag: "Mdl ", pool: "nonpaged", grown: 40 * 2 ** 20, holds: 60 * 2 ** 20 }] };
+
+  // Act
+  const scale = poolScale(pools), tip = poolMarks(pools);
+
+  // Assert
+  assert.deepEqual(scale, { fill: 73.06666666666666, line: 50 });
+  assert.equal(poolScale({ ...pools, paged_pool: 30 * GB }).fill, 100, "pools far past the line fill the bar");
+  assert.equal(tip, "Paged 7.6 GB, nonpaged 3.4 GB. Red mark: 7.5 GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC. Grew most since sign-in: Toke 3.2 GB paged, Mdl 40 MB nonpaged.");
+  assert.equal(poolState(pools).text, "The kernel's pools hold 11.0 GB, past the 7.5 GB line: Restart PC in the CFO's panel frees them.");
+  assert.doesNotMatch(poolMarks(memory(7)), /Grew most/, "nothing grew, nothing named");
 });
 
 test("the snapshot's memory carries commit, the kernel pools and the apps holding the most commit", () => {
   // Arrange
-  const wire = { available: 1, total: 2, commit_available: 3, commit_limit: 4, paged_pool: 5, nonpaged_pool: 6, floor: 7, next: 8 };
+  const wire = { available: 1, total: 2, commit_available: 3, commit_limit: 4, paged_pool: 5, nonpaged_pool: 6, pool_line: 10, floor: 7, next: 8 };
+  const growth = [{ tag: "Toke", pool: "paged", grown: 11, holds: 12 }];
 
   // Act
-  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, holders: [{ name: "ChatGPT", commit: 9 }] } }).memory;
+  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, pool_growth: growth, holders: [{ name: "ChatGPT", commit: 9 }] } }).memory;
   const withoutHolders = parseSnapshot({ healthy: true, memory: wire }).memory;
 
   // Assert
-  assert.deepEqual(withHolders, { ...wire, holders: [{ name: "ChatGPT", commit: 9 }] });
-  assert.deepEqual(withoutHolders, { ...wire, holders: [] });
+  assert.deepEqual(withHolders, { ...wire, pool_growth: growth, holders: [{ name: "ChatGPT", commit: 9 }] });
+  assert.deepEqual(withoutHolders, { ...wire, pool_growth: [], holders: [] });
+});
+
+// The board shows the restart his Restart PC began until the PC restarts,
+// and why it stopped short when it did.
+test("the snapshot carries the restart of the PC, and none until one began", () => {
+  // Arrange
+  const stopped = { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" };
+
+  // Act
+  const parsed = parseSnapshot({ healthy: true, pc_restart: stopped }).pc_restart;
+  const none = parseSnapshot({ healthy: true }).pc_restart;
+
+  // Assert
+  assert.deepEqual(parsed, stopped);
+  assert.equal(none, null);
+  assert.throws(() => parseSnapshot({ healthy: true, pc_restart: { state: "rebooting" } }), /Invalid restart state/);
 });
 
 test("an accepted Start opens its goblin once its session is up, stops on a failure of this start, and otherwise waits", () => {
@@ -192,6 +237,43 @@ test("Next sits on the card the supervisor's order for a free slot takes first",
 
     // Assert
     assert.deepEqual(next, want, name);
+  }
+});
+
+// The Overlord, 2026-10-17: "make sure that the next up one is the top
+// priority of what will unpause", with the board he looked at, a goblin paused
+// until tomorrow on top and Next up near the bottom.
+test("the Paused group runs in resume order: Next up first, then by time, then what waits on others", () => {
+  // Arrange
+  const now = Date.parse("2026-10-17T18:00:00Z");
+  const paused = (id: string, reason: string, until: string, fields: Record<string, unknown> = {}) => ({ id, phase: "paused", generation: id + "-1", verified: false, ...fields,
+    lifecycle: { phase: "paused", action: "pause", at: "2026-10-17T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at: "2026-10-17T12:00:00Z" } } });
+  const order = (tasks: Record<string, unknown>[], machine = memory(4.2)) => {
+    const snapshot = parseSnapshot({ healthy: true, memory: machine, tasks });
+    const group = snapshot.tasks.filter((task) => task.phase !== "working");
+    return { ids: resumeOrder(group, snapshot.tasks, now).map((task) => task.id), next: nextInOrder(snapshot, now)?.id };
+  };
+  const cases: [string, Record<string, unknown>[], string[]][] = [
+    ["the board he looked at", [
+      paused("wanda", "dependency", "date:2026-10-18T13:00:00Z"), paused("murray", "dependency", "task:wanda"),
+      paused("pearl", "dependency", "date:2026-10-17T19:30:00Z"), paused("duke", "dependency", "date:2026-10-17T19:30:00Z"),
+      paused("oona", "dependency", "date:2026-10-17T18:45:00Z"), paused("greta", "memory", ""), paused("dex", "memory", ""),
+    ], ["greta", "dex", "oona", "pearl", "duke", "wanda", "murray"]],
+    ["an allowance resets at its time", [paused("his", "overlord", ""), paused("late", "allowance", "2026-10-17T22:00:00Z"), paused("soon", "allowance", "2026-10-17T19:00:00Z")], ["soon", "late", "his"]],
+    ["a time that passed resumes with memory, in his order", [paused("memory", "memory", ""), paused("passed", "dependency", "date:2026-10-17T17:00:00Z")], ["memory", "passed"]],
+    ["pull requests, CI, his answer and his own Pause keep his order", [paused("pull", "dependency", "pr:https://github.com/o/r/pull/1"), paused("ci", "ci", "run:x"), paused("asks", "question", "q-1"), paused("yours", "overlord", "")], ["pull", "ci", "asks", "yours"]],
+    ["a goblin resuming and one he resumed come before Next up", [paused("greta", "memory", ""), paused("clicked", "overlord", "", { asked: true }), { id: "back", phase: "resuming", generation: "back-1", verified: false }], ["clicked", "back", "greta"]],
+    ["a helper whose parent runs again resumes with memory", [{ id: "parent", phase: "working", generation: "parent-1", verified: false }, paused("dated", "dependency", "date:2026-10-17T19:00:00Z"), { ...paused("helper", "overlord", ""), parent: "parent", lifecycle: { ...paused("helper", "overlord", "").lifecycle, with_parent: true } }], ["helper", "dated"]],
+    ["nothing paused", [], []],
+  ];
+
+  for (const [name, tasks, want] of cases) {
+    // Act
+    const { ids, next } = order(tasks);
+
+    // Assert
+    assert.deepEqual(ids, want, name);
+    if (ids[0] === "greta") assert.equal(next, "greta", name + ": Next up is the first paused card");
   }
 });
 

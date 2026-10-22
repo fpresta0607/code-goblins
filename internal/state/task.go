@@ -90,6 +90,12 @@ type TaskMeta struct {
 	// task given none of those, which is also every task an older build
 	// spawned. It holds names, never a value.
 	MCPServers []string
+	// CodexCredits says the operator authorized the task to spend paid Codex
+	// credits: cfo auth grant --codex-credits set it, and cfo auth revoke
+	// --codex-credits clears it. Without it, a Codex session the task's
+	// terminal starts while Codex's included allowance is used up is refused
+	// by its codex guard (codexguard).
+	CodexCredits bool
 }
 
 // CarriedServices names, for a table, the services whose credentials the
@@ -153,9 +159,10 @@ func LifecycleLockName(id string) string {
 	return ".lifecycle-" + id + ".lock"
 }
 
-// CleanupPurpose is what a cleanup records in the lifecycle and record locks
-// it holds, so a command that finds one held says in one line that the task
-// is being cleaned up, and the scheduler knows a resume refused for it.
+// CleanupPurpose is what a cleanup records in the cleanup, lifecycle and
+// record locks it holds, so a command that finds one held says in one line
+// that the task is being cleaned up, the scheduler knows a resume refused for
+// it, and the monitor knows a terminal the cleanup closed for no goblin gone.
 func CleanupPurpose(id string) string {
 	return "the cleanup of " + id
 }
@@ -351,6 +358,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 	if servers := kv["mcp"]; servers != "" {
 		meta.MCPServers = strings.Split(servers, credentialsSeparator)
 	}
+	meta.CodexCredits = kv[codexCreditsKey] == codexCreditsAuthorized
 	if meta.Kind == "" {
 		meta.Kind = "ship"
 	}
@@ -440,6 +448,9 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"parent":             meta.Parent,
 		"mcp":                strings.Join(meta.MCPServers, credentialsSeparator),
 	}
+	if meta.CodexCredits {
+		fields[codexCreditsKey] = codexCreditsAuthorized
+	}
 	if meta.Kind == "ship" {
 		fields["mode"] = meta.Mode
 		fields["yolo"] = meta.Yolo
@@ -495,6 +506,32 @@ func WriteTaskMCPServers(stateDir, id string, servers []string) error {
 	}
 	return WriteMeta(path, record)
 }
+
+// WriteTaskCodexCredits records whether task id is authorized to spend paid
+// Codex credits, in its record, and leaves every other line of the record as
+// it is. Its caller holds the record's lock.
+func WriteTaskCodexCredits(stateDir, id string, isAuthorized bool) error {
+	if err := ValidTaskID(id); err != nil {
+		return err
+	}
+	path := TaskMetaPath(stateDir, id)
+	record, err := ReadMeta(path)
+	if err != nil {
+		return err
+	}
+	delete(record, codexCreditsKey)
+	if isAuthorized {
+		record[codexCreditsKey] = codexCreditsAuthorized
+	}
+	return WriteMeta(path, record)
+}
+
+// codexCreditsKey is the record's line for TaskMeta.CodexCredits, which holds
+// codexCreditsAuthorized when it is set and is absent otherwise.
+const (
+	codexCreditsKey        = "codex_credits"
+	codexCreditsAuthorized = "authorized"
+)
 
 func validateTaskMetaValues(meta TaskMeta) error {
 	if meta.Parent != "" {

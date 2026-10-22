@@ -1,7 +1,8 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
-import { WebglAddon } from "@xterm/addon-webgl";
+import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
+import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
@@ -48,8 +49,8 @@ export interface ViewEvents {
 // TerminalView is one connection to a native terminal and the xterm that
 // draws it. It is staged, laid out but invisible, while it replays the host's
 // history and the repaint its first size asks for, so the panel never shows a
-// blank or half-drawn screen. It draws on the GPU where it can and writes a
-// whole redraw at a time.
+// blank or half-drawn screen. It draws on the GPU where it can (drawOnGpu) and
+// writes a whole redraw at a time.
 export class TerminalView {
   readonly element: HTMLDivElement;
   private readonly term: Terminal;
@@ -92,6 +93,7 @@ export class TerminalView {
   private isCursorShown = true;
   private readonly stopFollowing: () => void;
   private readonly stopZooming: () => void;
+  private readonly detachDictatedInput: () => void;
 
   constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
     this.events = events;
@@ -101,13 +103,7 @@ export class TerminalView {
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
     this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
     this.term.open(this.element);
-    try {
-      const gpu = new WebglAddon();
-      gpu.onContextLoss(() => gpu.dispose());
-      this.term.loadAddon(gpu);
-    } catch {
-      // No WebGL here: xterm keeps drawing with its DOM renderer.
-    }
+    drawOnGpu(this.term);
     this.term.textarea?.setAttribute("aria-label", "Terminal input");
     this.term.parser.registerOscHandler(52, () => true);
     this.pin = new PinnedLine(this.element);
@@ -136,6 +132,7 @@ export class TerminalView {
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
+    this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
@@ -175,6 +172,12 @@ export class TerminalView {
     if (this.isSendable()) this.term.paste(stripPasteEscapes(text));
   }
 
+  // enter presses Enter in the terminal, as a dictation stopped to send does
+  // after typing its words.
+  enter(): void {
+    if (this.isSendable()) this.term.input("\r", true);
+  }
+
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
   // xterm scrolls from the position its viewport last drew, which it brings
   // up to a resize only on its next frame, so a jump in between lands short
@@ -198,6 +201,7 @@ export class TerminalView {
     cancelAnimationFrame(this.pinFrame);
     this.stopFollowing();
     this.stopZooming();
+    this.detachDictatedInput();
     this.pin.dispose();
     clearTimeout(this.settle);
     clearTimeout(this.fallback);
@@ -256,11 +260,15 @@ export class TerminalView {
     this.readyIfDrawn();
   }
 
+  // A view whose connection closed before it was shown is never shown, its
+  // wait for a repaint included: it has no terminal to draw, and an empty one
+  // with a cursor reads as a program at work where its closing says why (a
+  // goblin whose host a restart ended, 2026-10-20).
   private markReady(): void {
     if (this.isReady || this.disposed) return;
     clearTimeout(this.fallback);
     this.isReady = true;
-    requestAnimationFrame(() => { if (!this.disposed) this.events.ready(); });
+    requestAnimationFrame(() => { if (!this.disposed && this.socket.readyState === WebSocket.OPEN) this.events.ready(); });
   }
 
   private refit(): void {

@@ -62,7 +62,8 @@ jobs:
       - name: Check third-party licences
         run: go run ./tools/notices -check
       # Every build carries the committed version resource and manifest; a
-      # release stamps its own version into them first. -trimpath keeps the
+      # release stamps its own version into them first, in every program but
+      # the setup, as its comment below says. -trimpath keeps the
       # build machine's folders out of the binary, so one commit builds to one
       # file wherever it is built.
       - name: Build
@@ -78,6 +79,12 @@ jobs:
           if ($info.ProductName -ne 'Code Goblins' -or $info.ProductVersion -ne $env:RELEASE_TAG) {
             throw "cfo.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '$env:RELEASE_TAG'"
           }
+          # The hook program is the same cfo built as a program with no
+          # console: Claude Code starts each of a goblin's hooks hidden, which
+          # gives a console program a console host of its own, a second
+          # process for every hook, and a windowed one none.
+          go build -trimpath -ldflags "-H windowsgui -X main.version=$env:RELEASE_TAG" -o cfo-hook.exe ./cmd/cfo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Push-Location cmd/goblins-window
           go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -86,25 +93,47 @@ jobs:
           # browser menu on a right click.
           go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Push-Location cmd/goblins-setup
-          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Pop-Location
-          # See docs/install.md for setup compatibility and download behavior.
-          go build -trimpath -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }} -X main.tag=$env:RELEASE_TAG" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The desktop CI runner's service, which ci-runner-install.ps1
           # installs on a machine whose Overlord asks for it.
           go build -trimpath -o cg-ci-runner.exe ./cmd/cg-ci-runner
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The setup carries nothing of the release: no version stamped into its
+      # resources or code and no commit, so while its code is the same each
+      # release builds it to the same file, which the publish job then
+      # replaces with the last release's signed copy. It builds with the Go
+      # release go.mod names, not the newest one setup-go installs for the
+      # other programs, so a new Go release changes it only once go.mod is
+      # bumped to it. It names the release it installs from the install
+      # script it downloads. See docs/install.md for setup compatibility and
+      # download behavior.
+      - name: Build the setup
+        shell: pwsh
+        run: |
+          $env:GOTOOLCHAIN = 'go' + (go list -m -f '{{.GoVersion}}')
+          $version = go env GOVERSION
+          if ($version -ne $env:GOTOOLCHAIN) {
+            throw "The setup would build with Go '$version', not $env:GOTOOLCHAIN, the Go release go.mod names."
+          }
+          Write-Host "The setup builds with $version, the Go release go.mod names."
+          go build -trimpath -buildvcs=false -tags production -ldflags "-H windowsgui -X main.repository=${{ github.repository }}" -o CodeGoblinsSetup.exe ./cmd/goblins-setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The no-mistakes the fleet's gate needs, the build install.ps1 pins,
+      # which the install takes from this release once this release signs it,
+      # with the licences of everything compiled into it beside it.
+      - name: Build no-mistakes
+        shell: pwsh
+        run: ./tools/build-no-mistakes.ps1 -Destination no-mistakes.exe -Notices no-mistakes-NOTICES
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unsigned-build
           path: |
             cfo.exe
+            cfo-hook.exe
             goblins-window.exe
             CodeGoblinsSetup.exe
             cg-ci-runner.exe
+            no-mistakes.exe
+            no-mistakes-NOTICES
           if-no-files-found: error
           retention-days: 1
 
@@ -184,13 +213,64 @@ jobs:
           files: |
             ${{ github.workspace }}\CodeGoblinsSetup.exe
             ${{ github.workspace }}\cfo.exe
+            ${{ github.workspace }}\cfo-hook.exe
             ${{ github.workspace }}\goblins-window.exe
             ${{ github.workspace }}\cg-ci-runner.exe
+            ${{ github.workspace }}\no-mistakes.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           description: Code Goblins
           description-url: https://github.com/${{ github.repository }}
+      # A setup whose code is the last release's is the file people already
+      # downloaded, so the release publishes that signed copy again, and
+      # SmartScreen's reputation for it grows with every download instead of
+      # starting over with each release. The two are compared without the
+      # bytes signing writes, the header's checksum and certificate entry and
+      # the signature at the end, which differ with each signing. The copy is
+      # checked below with the rest; a release with no earlier setup, one that
+      # cannot download it, or one whose last setup is unsigned, which that
+      # check would refuse, publishes its own.
+      - name: Publish the last setup again while its code is the same
+        if: steps.signing.outputs.signed == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          function Get-UnsignedHash([string]$Path) {
+            $bytes = [IO.File]::ReadAllBytes($Path)
+            $optional = [BitConverter]::ToInt32($bytes, 0x3C) + 24
+            if ([BitConverter]::ToUInt16($bytes, $optional) -ne 0x20B) { throw "$Path is not a 64-bit Windows program" }
+            $checksum = $optional + 64
+            $certificateEntry = $optional + 144
+            $end = [BitConverter]::ToInt32($bytes, $certificateEntry)
+            # A program with no certificate table is unsigned.
+            if ($end -le 0) { return $null }
+            $sha = [Security.Cryptography.SHA256]::Create()
+            [void]$sha.TransformBlock($bytes, 0, $checksum, $null, 0)
+            [void]$sha.TransformBlock($bytes, $checksum + 4, $certificateEntry - $checksum - 4, $null, 0)
+            [void]$sha.TransformFinalBlock($bytes, $certificateEntry + 8, $end - $certificateEntry - 8)
+            return [BitConverter]::ToString($sha.Hash)
+          }
+          $last = Join-Path $env:RUNNER_TEMP "last-setup"
+          New-Item -ItemType Directory -Force -Path $last | Out-Null
+          gh release download --repo $env:GITHUB_REPOSITORY --pattern CodeGoblinsSetup.exe --dir $last
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No earlier release's setup could be downloaded, so this release publishes its own."
+            exit 0
+          }
+          $previous = Join-Path $last "CodeGoblinsSetup.exe"
+          $lastHash = Get-UnsignedHash $previous
+          if (-not $lastHash) {
+            Write-Host "The last release's setup is unsigned, so this release publishes its own."
+          }
+          elseif ($lastHash -eq (Get-UnsignedHash "CodeGoblinsSetup.exe")) {
+            Copy-Item -LiteralPath $previous -Destination "CodeGoblinsSetup.exe" -Force
+            Write-Host "The setup's code is the last release's, so this release publishes that signed setup again."
+          }
+          else {
+            Write-Host "The setup's code changed since the last release, so this release publishes its own."
+          }
       # Each file must carry a valid, timestamped signature from the expected
       # publisher, checked two ways, or the release stops.
       - name: Verify the signatures
@@ -201,7 +281,7 @@ jobs:
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw "signtool.exe is not on this runner, so the signatures cannot be verified and nothing is published." }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe', 'cg-ci-runner.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             $signature = Get-AuthenticodeSignature -FilePath $file
             if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
             if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$file is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
@@ -259,7 +339,7 @@ jobs:
           if ($status.AMRunningMode -ne 'Normal' -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $preference.ExclusionPath -or $preference.ExclusionExtension) {
             throw "Microsoft Defender is not actively protecting this runner with nothing excluded, so its scan would prove nothing and nothing is published."
           }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe', 'cg-ci-runner.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             $scan = & $scanner -Scan -ScanType 3 -File (Resolve-Path $file).Path -DisableRemediation
             $scan | Write-Host
             if ($LASTEXITCODE -ne 0) { throw "Defender's scan of $file exited with code $LASTEXITCODE (2 is a detection), so nothing is published." }
@@ -272,7 +352,7 @@ jobs:
       - name: Checksum
         shell: pwsh
         run: |
-          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'goblins-window.exe', 'cg-ci-runner.exe') {
+          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
           }
           [IO.File]::WriteAllText("SHA256SUMS", ($lines -join "`n") + "`n")
@@ -381,8 +461,11 @@ jobs:
           files: |
             CodeGoblinsSetup.exe
             cfo.exe
+            cfo-hook.exe
             goblins-window.exe
             cg-ci-runner.exe
+            no-mistakes.exe
+            no-mistakes-NOTICES
             SHA256SUMS
             defender-scan.txt
             LICENSE

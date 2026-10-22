@@ -267,7 +267,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 // every other command already.
 //
 // The cleanup records its purpose in the locks it takes, so the command it
-// keeps out says in one line that the task is being cleaned up.
+// keeps out says in one line that the task is being cleaned up, and the
+// monitor tells its cleanup lock from the same lock another command holds a
+// moment to write into the task's folder.
 func (s Service) holdTask(id string) (release func() error, err error) {
 	var held []string
 	release = func() error {
@@ -279,7 +281,7 @@ func (s Service) holdTask(id string) (release func() error, err error) {
 		}
 		return errs
 	}
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
+	if _, err := lock.AcquireExclusiveNamedFor(s.StateDir, state.CleanupLockName(id), state.CleanupPurpose(id)); err != nil {
 		return nil, fmt.Errorf("cleanup: acquire task lock: %w", err)
 	}
 	held = append(held, state.CleanupLockName(id))

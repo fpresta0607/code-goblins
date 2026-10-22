@@ -200,6 +200,42 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 	}
 }
 
+// A queued task the scheduler is starting could start no more, though cfo
+// spawn writes its task record only once its worktree exists, so memory_ready
+// names the work after it. On 2026-10-19 the wake named root-pocketpiggies-161
+// as the next task to dispatch while the scheduler's start of it was under
+// way, and the hold the CFO put on its row seconds later read as one the
+// scheduler ignored (#1182).
+func TestMemoryReadyLeavesOutTheTaskBeingStarted(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	s := handler.Service
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Ship it (repo: code-goblins)\n- **second-task** - Ship that (repo: code-goblins)\n")
+	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief)
+	writeFile(t, filepath.Join(h.Data, "second-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "second-task"))
+	defer func() {
+		close(spawner.release)
+		awaitDispatch(t, s, spawner, 1)
+	}()
+	now := time.Date(2026, 10, 19, 2, 0, 0, 0, time.UTC)
+
+	// Act: the first reading over the mark starts next-task, whose spawn is
+	// still under way at the second, which wakes the CFO.
+	for range 2 {
+		now = now.Add(time.Minute)
+		if err := s.checkFleet(t.Context(), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	records := fleetWakeRecords(t, h, "memory")
+	if len(records) != 1 || strings.Contains(records[0].Detail, "next-task") || !strings.HasSuffix(records[0].Detail, "next: dispatch the next queued task, second-task") {
+		t.Fatalf("memory wakes=%+v, want one naming second-task and not next-task, which is starting", records)
+	}
+}
+
 // fakeForge answers gh and git the way GitHub and a checkout would for one
 // repository and the one goblin worktree in it, from canned output the test
 // changes between polls, and counts that repository's pull request listings.
@@ -423,6 +459,7 @@ const (
 	scanPassedRun   = `{"__typename":"CheckRun","name":"GitGuardian Security Checks","workflowName":"","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-10-07T03:47:00Z"}`
 	goTestQueued    = `{"__typename":"CheckRun","name":"test","workflowName":"go","status":"QUEUED","conclusion":""}`
 	goTestPassed    = `{"__typename":"CheckRun","name":"test","workflowName":"go","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-10-07T04:01:00Z"}`
+	goTestFailed    = `{"__typename":"CheckRun","name":"test","workflowName":"go","status":"COMPLETED","conclusion":"FAILURE","completedAt":"2026-10-07T04:01:00Z"}`
 	pullRequestFlow = "name: go\non:\n  push:\n    branches: [main]\n  pull_request:\n"
 )
 
@@ -467,6 +504,43 @@ func TestCIFinishedWaitsForThePullRequestsWorkflows(t *testing.T) {
 	finished := pollForge(t, s, h, &now)
 	if len(finished) != 1 || !strings.Contains(finished[0].Detail, "all 2 passed") {
 		t.Fatalf("the workflow finished = %+v, want one wake counting both checks", finished)
+	}
+}
+
+// A deploy the host rate limited never built the head (#1194), so
+// ci_finished counts it as not run, never as failed, and names it rather than
+// hiding it. Any other failed deploy still fails, and a head whose only check
+// is a rate-limited deploy is never said to have passed.
+func TestCIFinishedCountsARateLimitedDeployAsNotRun(t *testing.T) {
+	const said = "the host rate limited the deploy of Vercel, which never built this head and counts as not run"
+	for name, test := range map[string]struct {
+		checks       []string
+		want, refuse string
+	}{
+		"beside passing checks":       {[]string{scanPassedRun, goTestPassed, deployLimited}, "all 2 passed; " + said, "failed"},
+		"beside a real failure":       {[]string{scanPassedRun, goTestFailed, deployLimited}, "1 of 3 failed (test); " + said, "Vercel)"},
+		"a deploy failed for another": {[]string{scanPassedRun, goTestPassed, deployFailed}, "1 of 3 failed (Vercel)", "rate limited"},
+		"alone":                       {[]string{deployLimited}, "no check ran on it; " + said, "passed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, h := fleetService(t)
+			project := t.TempDir()
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			forge.branch, forge.runs = "feat/wakes", "[]"
+			forge.pulls = rollupWith("ed99ac3f00", "MERGEABLE", test.checks...)
+			s.Options.CI = forge
+			now := time.Date(2026, 10, 19, 5, 0, 0, 0, time.UTC)
+
+			// Act
+			finished := pollForge(t, s, h, &now)
+
+			// Assert
+			if len(finished) != 1 || !strings.Contains(finished[0].Detail, test.want) || strings.Contains(finished[0].Detail, test.refuse) {
+				t.Fatalf("ci wakes = %+v, want one saying %q and not %q", finished, test.want, test.refuse)
+			}
+		})
 	}
 }
 
@@ -1121,8 +1195,10 @@ func TestCIUnreadableStaysUpThroughASuccessfulAction(t *testing.T) {
 	}
 	gitFixture(t, meta.Worktree)
 	_ = s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
-	stop := event(t, h, "Stop", "native-stop", "turn", time.Now().Add(time.Millisecond))
-	for _, e := range []nativehook.Event{event(t, h, "SessionStart", "native-stop", "", time.Now()), stop} {
+	now := time.Now()
+	// stall-accepted: the Stop event's timestamp, a moment after its session start's, which no wait compares with the clock.
+	stop := event(t, h, "Stop", "native-stop", "turn", now.Add(time.Millisecond))
+	for _, e := range []nativehook.Event{event(t, h, "SessionStart", "native-stop", "", now), stop} {
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)
 		}

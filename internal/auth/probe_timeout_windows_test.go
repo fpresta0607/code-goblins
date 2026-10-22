@@ -38,11 +38,34 @@ func TestProbeStandInCLI(t *testing.T) {
 	os.Exit(0)
 }
 
+// ranOut is a context that runs out, as a deadline does, once out is closed.
+type ranOut struct {
+	context.Context
+	out chan struct{}
+}
+
+func (r ranOut) Done() <-chan struct{} { return r.out }
+
+func (r ranOut) Err() error {
+	select {
+	case <-r.out:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
 // A CLI installed with npm runs behind a .cmd shim, so a probe of it starts
 // cmd.exe, which starts the CLI. A probe that runs out of time must end the
 // CLI as well as the shim, and must say what the CLI printed before it ran
 // out, since a CLI that answered and then hung is a different fault from one
 // that never answered.
+//
+// The probe runs out once the CLI has printed its answer and is known to run,
+// never on a clock: the CLI is this test binary started again through
+// cmd.exe, and on a loaded runner (PR 1010, run 38974520692) it had not yet
+// started when a three-second limit ran out, so the probe ended it before it
+// printed anything and the test waited for a CLI that never came (#1017).
 func TestATimedOutProbeEndsTheCLIBehindItsShim(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -53,7 +76,8 @@ func TestATimedOutProbeEndsTheCLIBehindItsShim(t *testing.T) {
 	}
 	pidFile := filepath.Join(dir, "cli.pid")
 	t.Setenv(standInCLIVariable, pidFile)
-	checker := Checker{Store: newMemoryStore(nil), Runner: execx.OSRunner{}, Timeout: 3 * time.Second}
+	checker := Checker{Store: newMemoryStore(nil), Runner: execx.OSRunner{}, Timeout: time.Hour}
+	probe := ranOut{Context: context.Background(), out: make(chan struct{})}
 	manifest := Manifest{Services: []Service{{Name: "stand-in", Method: MethodCLI, Probe: []string{shim, "whoami"}}}}
 
 	// Act
@@ -63,10 +87,11 @@ func TestATimedOutProbeEndsTheCLIBehindItsShim(t *testing.T) {
 	}
 	checked := make(chan outcome, 1)
 	go func() {
-		report, err := checker.Check(context.Background(), manifest)
+		report, err := checker.Check(probe, manifest)
 		checked <- outcome{report, err}
 	}()
 	cli := openStandInCLI(t, pidFile)
+	close(probe.out)
 	result := <-checked
 
 	// Assert
@@ -80,7 +105,7 @@ func TestATimedOutProbeEndsTheCLIBehindItsShim(t *testing.T) {
 	if !strings.Contains(status.Detail, "stand-in-user") {
 		t.Errorf("detail = %q, want what the CLI printed before the probe ran out of time", status.Detail)
 	}
-	if event, err := windows.WaitForSingleObject(cli, 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(cli, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Errorf("the CLI behind the shim still runs after its probe ran out of time (wait = %#x, %v)", event, err)
 	}
 }
@@ -106,7 +131,7 @@ func openStandInCLI(t *testing.T, pidFile string) windows.Handle {
 		}
 		t.Cleanup(func() {
 			_ = windows.TerminateProcess(cli, 1)
-			_, _ = windows.WaitForSingleObject(cli, 5000)
+			_, _ = windows.WaitForSingleObject(cli, 60000)
 			_ = windows.CloseHandle(cli)
 		})
 		return cli

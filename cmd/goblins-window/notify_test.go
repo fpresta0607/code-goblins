@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
 // place is where a test puts the window.
@@ -105,10 +107,10 @@ func notifierAt(at place, board *standIn) *raising {
 	return r
 }
 
-var fresh = []Item{{"question:q1@2026-10-01T12:14:58Z", "CFO", "The CFO asks: Which plan?"}, {"run:u1@2026-10-01T12:20:00Z", "CFO", "A command waits for you to run it: Install the tool"}}
+var fresh = []waiting.Item{{ID: "question:q1@2026-10-01T12:14:58Z", Asker: "CFO", Text: "The CFO asks: Which plan?"}, {ID: "run:u1@2026-10-01T12:20:00Z", Asker: "CFO", Text: "A command waits for you to run it: Install the tool"}}
 
 // noteFor is the notification the window raises for item.
-func noteFor(item Item) Note {
+func noteFor(item waiting.Item) Note {
 	return Note{ID: item.ID, Title: item.Asker, Body: item.Text}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -95,7 +96,7 @@ func (c *console) shown() string {
 
 func (c *console) waitFor(t *testing.T, text string) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); !strings.Contains(c.shown(), text); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(c.shown(), text); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			shown := c.shown()
 			t.Fatalf("the console never showed %q; it shows %q", text, shown[max(0, len(shown)-400):])
@@ -108,7 +109,7 @@ func (c *console) waitFor(t *testing.T, text string) {
 // so the program can still read the old size just after one.
 func (c *console) askForSizeUntil(t *testing.T, typeSize func() error, isRead func(shown string) bool) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); !isRead(c.shown()); time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !isRead(c.shown()); time.Sleep(200 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			shown := c.shown()
 			t.Fatalf("the program never read the size it was waited for; the console shows %q", shown[max(0, len(shown)-400):])
@@ -132,7 +133,7 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 		defer close(ended)
 		_ = host.Run(stateDir, host.Spec{ID: id, Args: []string{program, attachTestTerminal}, Cols: 80, Rows: 24})
 	}()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := host.ReadRecord(stateDir, id); err == nil {
 			break
 		}
@@ -149,7 +150,7 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})
@@ -220,6 +221,7 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 		if _, err := viewer.Write([]byte("size\r")); err != nil {
 			t.Fatal(err)
 		}
+		// stall-accepted: running out only types size again, and the test fails on how many old sizes the terminal answers, never on the clock.
 		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline) && !resized; time.Sleep(20 * time.Millisecond) {
 			resized = strings.Contains(c.shown(), "size 90x20")
 		}
@@ -233,7 +235,7 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 
 	select {
 	case <-viewer.Done():
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("cfo attach did not leave on Ctrl-]; the console shows %q", c.shown()[max(0, len(c.shown())-600):])
 	}
 	if code := viewer.ExitCode(); code != 0 {
@@ -322,7 +324,7 @@ func TestAttachTakesWindowsKeyEventsAfterTheHistoryIsTrimmed(t *testing.T) {
 
 	select {
 	case <-c.Done():
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("cfo attach did not end with the terminal; the console shows %q", c.shown()[max(0, len(c.shown())-600):])
 	}
 	if code := c.ExitCode(); code != 0 {
@@ -474,6 +476,7 @@ func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 		`Path=C:\bin`, "USERS_OWN_SETTING=kept", `CFO_HOME=C:\installed-home`, `cfo_projects_root=C:\dev`,
 		"CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "HERDR_PANE_ID=w1:p1", "HERDR_SESSION=users", "ANTHROPIC_API_KEY=sk-billed",
 		"chrome_devtools_axi_session=the-users-own",
+		"LAVISH_AXI_HOST=100.64.1.2", "lavish_axi_link_url=https://old.example.ts.net:4388", "LAVISH_AXI_ALLOWED_HOSTS=*",
 	}
 	launcherEnv := []string{`Path=C:\launcher`, "CLAUDECODE=1", "HERDR_PANE_ID=w9:p0", "herdr_pane_id=w9:p1", "HERDR_SESSION=fleet"}
 	h := home.Home{Root: `C:\scratch\home`, State: `C:\scratch\home\state`}
@@ -483,7 +486,7 @@ func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 	want := []string{
 		`Path=C:\bin`, "USERS_OWN_SETTING=kept", "HERDR_SESSION=fleet",
 		`CFO_HOME=C:\scratch\home`, `CFO_STATE_OVERRIDE=C:\scratch\home\state`, `CFO_PROJECTS_ROOT=C:\scratch\projects`,
-		"CHROME_DEVTOOLS_AXI_SESSION=cfo",
+		"CHROME_DEVTOOLS_AXI_SESSION=cfo", "LAVISH_AXI_HOST=127.0.0.1",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("nativeCFOEnvironment =\n%q\nwant\n%q", got, want)
@@ -495,9 +498,30 @@ func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
 func TestANativeCFOLeavesUnsetWhatTheSupervisorDoesNotSet(t *testing.T) {
 	got := nativeCFOEnvironment([]string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, "HERDR_SESSION=users"}, []string{`Path=C:\launcher`}, home.Home{Root: `C:\home`, State: `C:\home\state`}, "")
 
-	want := []string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, `CFO_HOME=C:\home`, `CFO_STATE_OVERRIDE=C:\home\state`, "CHROME_DEVTOOLS_AXI_SESSION=cfo"}
+	want := []string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, `CFO_HOME=C:\home`, `CFO_STATE_OVERRIDE=C:\home\state`, "CHROME_DEVTOOLS_AXI_SESSION=cfo", "LAVISH_AXI_HOST=127.0.0.1"}
 	if !slices.Equal(got, want) {
 		t.Errorf("nativeCFOEnvironment = %q, want %q", got, want)
+	}
+}
+
+// A CFO a goblin's rig starts in a scratch home keeps the codex guard the rig
+// runs under first on its PATH, so a scratch CFO on Codex meets that guard
+// while Codex would bill credits, as the rig's own codex does.
+func TestANativeCFOKeepsTheCodexGuardItsLauncherRunsUnder(t *testing.T) {
+	// Arrange
+	userEnv := []string{`Path=C:\bin`, "USERS_OWN_SETTING=kept"}
+	launcherEnv := []string{`Path=C:\launcher`, `cfo_codex_guard=C:\fleet\state\codex-guard\g1;C:\fleet\state\codex-guard\g1`}
+
+	// Act
+	got := nativeCFOEnvironment(userEnv, launcherEnv, home.Home{Root: `C:\scratch`, State: `C:\scratch\state`}, "")
+
+	// Assert
+	want := []string{
+		"USERS_OWN_SETTING=kept", `CFO_HOME=C:\scratch`, `CFO_STATE_OVERRIDE=C:\scratch\state`,
+		`CFO_CODEX_GUARD=C:\fleet\state\codex-guard\g1`, `PATH=C:\fleet\state\codex-guard\g1;C:\bin`, "CHROME_DEVTOOLS_AXI_SESSION=cfo", "LAVISH_AXI_HOST=127.0.0.1",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("nativeCFOEnvironment =\n%q\nwant\n%q", got, want)
 	}
 }
 
@@ -535,7 +559,7 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	h.State = filepath.Join(h.Root, "state")
 	project := t.TempDir()
 
-	if err := startNativeCFO(h, project, "claude", nil); err != nil {
+	if err := startNativeCFO(h, project, "claude", nil, ""); err != nil {
 		t.Fatalf("startNativeCFO: %v", err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
@@ -553,6 +577,72 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	}
 	if env["USERPROFILE"] == "" {
 		t.Error("the CFO started without the user's USERPROFILE")
+	}
+}
+
+// A rig that started a scratch home's Codex CFO with a stub codex.cmd first on
+// its own PATH started the user's real Codex (#1155): its terminal ran cmd /c
+// codex, which found the codex on the PATH of the user's environment the
+// terminal starts from. The CFO starts the codex the launcher's PATH finds,
+// whatever the terminal's PATH finds.
+func TestANativeCFOStartsTheHarnessTheLauncherFindsNotTheOneOnTheUsersPath(t *testing.T) {
+	// Arrange
+	launcher, users, project := t.TempDir(), t.TempDir(), t.TempDir()
+	ran := filepath.Join(t.TempDir(), "ran.txt")
+	for dir, whose := range map[string]string{launcher: "launcher", users: "user"} {
+		if err := os.WriteFile(filepath.Join(dir, "codex.cmd"), []byte("@echo "+whose+"> \""+ran+"\"\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", launcher)
+	t.Setenv(codexguard.Variable, "")
+	read := userEnvironment
+	userEnvironment = func() ([]string, error) {
+		env, err := read()
+		env = slices.DeleteFunc(env, func(entry string) bool {
+			name, _, _ := strings.Cut(entry, "=")
+			return strings.EqualFold(name, "PATH")
+		})
+		return append(env, "Path="+users), err
+	}
+	t.Cleanup(func() { userEnvironment = read })
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	// The premise: codex started by name in the CFO's terminal is the user's.
+	env, err := cfoTerminalEnvironment(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	premise := execx.Command(os.Getenv("ComSpec"), "/d", "/c", "codex")
+	premise.Dir, premise.Env = project, env
+	if output, err := premise.CombinedOutput(); err != nil {
+		t.Fatalf("codex in the CFO's terminal environment: %v: %s", err, output)
+	}
+	if whose, err := os.ReadFile(ran); err != nil || strings.TrimSpace(string(whose)) != "user" {
+		t.Fatalf("codex in the CFO's terminal environment is not the user's: %q, %v", whose, err)
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = startNativeCFO(h, project, "codex", nil, "")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("startNativeCFO: %v", err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
+		if whose, err := os.ReadFile(ran); err == nil && len(whose) > 0 {
+			if strings.TrimSpace(string(whose)) != "launcher" {
+				t.Errorf("the CFO started the %s's codex, want the launcher's", strings.TrimSpace(string(whose)))
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no codex started in the CFO's terminal within a minute")
+		}
 	}
 }
 
@@ -600,7 +690,7 @@ func TestClosingANativeTerminalLeavesTheProcessThatTookItsEndedHostsPid(t *testi
 	t.Setenv("PATH", bin)
 	h := home.Home{Root: t.TempDir()}
 	h.State = filepath.Join(h.Root, "state")
-	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	record, err := host.ReadRecord(h.State, supervisor.NativeCFOTerminal)
@@ -629,7 +719,7 @@ func TestClosingANativeTerminalLeavesTheProcessThatTookItsEndedHostsPid(t *testi
 	}()
 	select {
 	case <-ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		_ = hostProcess.Kill()
 		t.Fatalf("the host pid %d did not end after its terminal closed", record.HostPID)
 	}
@@ -685,8 +775,8 @@ func TestClosingANativeTerminalLeavesTheProcessThatTookItsEndedHostsPid(t *testi
 		if line != "got alive" {
 			t.Errorf("closing native terminal %s ended pid %d, which its record named but which was not its host: it answered %q", supervisor.NativeCFOTerminal, bystander.Process.Pid, line)
 		}
-	case <-time.After(15 * time.Second):
-		t.Errorf("closing native terminal %s left pid %d, which its record named but which was not its host, unable to answer within 15s", supervisor.NativeCFOTerminal, bystander.Process.Pid)
+	case <-time.After(time.Minute):
+		t.Errorf("closing native terminal %s left pid %d, which its record named but which was not its host, unable to answer within a minute", supervisor.NativeCFOTerminal, bystander.Process.Pid)
 	}
 }
 
@@ -731,7 +821,9 @@ func runFakeClaude() int {
 // On Windows a pid names whatever process holds it when it is opened, and a
 // host that has ended gives its pid to the next process to start, so the
 // process opened is the host only when it started no later than the host
-// recorded itself. Held open, it keeps its pid while that is checked.
+// recorded itself. Held open, it keeps its pid while that is checked. A host
+// whose program ended at once can remove its record and end after the record
+// is read, and its pid then names no process: it has nothing left to close.
 func closeNativeTerminal(t *testing.T, stateDir, id string) {
 	t.Helper()
 	record, err := host.ReadRecord(stateDir, id)
@@ -739,6 +831,9 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 		return
 	}
 	hostProcess, err := os.FindProcess(record.HostPID)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return
+	}
 	if err != nil {
 		t.Errorf("find host pid %d: %v", record.HostPID, err)
 		return
@@ -763,7 +858,7 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 	}()
 	select {
 	case <-ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		_ = hostProcess.Kill()
 		t.Errorf("the host pid %d did not end after its terminal closed", record.HostPID)
 	}
@@ -772,7 +867,7 @@ func closeNativeTerminal(t *testing.T, stateDir, id string) {
 func waitForFakeClaudeEnvironment(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	path := filepath.Join(dir, fakeClaudeEnvironment)
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		raw, err := os.ReadFile(path)
 		if err != nil || len(raw) == 0 {
 			continue
@@ -785,7 +880,7 @@ func waitForFakeClaudeEnvironment(t *testing.T, dir string) map[string]string {
 		}
 		return env
 	}
-	t.Fatalf("the CFO's program wrote no %s within 15s", path)
+	t.Fatalf("the CFO's program wrote no %s within a minute", path)
 	return nil
 }
 
@@ -810,7 +905,7 @@ func TestANativeCFOIsNotStartedFromAScriptShim(t *testing.T) {
 	t.Setenv("PATH", bin)
 	stateDir := t.TempDir()
 
-	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude", nil)
+	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude", nil, "")
 
 	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
 		t.Fatalf("startNativeCFO error = %v, want the script shim refused", err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"path/filepath"
@@ -83,7 +84,8 @@ func browserSocket(ctx context.Context, address string) (string, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%s/json/version answered %s", address, response.Status)
+		said, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return "", fmt.Errorf("%s/json/version answered %s: %s", address, response.Status, strings.TrimSpace(string(said)))
 	}
 	var version struct {
 		Socket string `json:"webSocketDebuggerUrl"`
@@ -95,10 +97,4 @@ func browserSocket(ctx context.Context, address string) (string, error) {
 		return "", fmt.Errorf("%s gave no DevTools socket on this machine", address)
 	}
 	return version.Socket, nil
-}
-
-// CloseBrowser asks the Chrome at address to close itself, which writes its
-// session to the profile first, and returns once it has taken the command.
-func CloseBrowser(ctx context.Context, address string) error {
-	return callBrowser(ctx, address, "Browser.close", nil, nil)
 }

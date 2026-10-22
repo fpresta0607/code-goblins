@@ -100,6 +100,12 @@ func (r Reader) CanSteer(ctx context.Context, project, worktree, branch string) 
 	return r.requireNativeRecoveryHead(ctx, worktree, bare, "refs/no-mistakes/recover/"+p.RunID, p.Head)
 }
 
+// IsTerminal reports whether the run has finished, so none of its steps runs
+// or waits on a decision any longer.
+func (p Progress) IsTerminal() bool {
+	return terminalRunStatus[p.Status]
+}
+
 func (p Progress) Ready(head string) bool {
 	if head == "" || p.Head != head || p.ReviewedHead != head || p.PushedHead != head || p.PR == "" || p.CIReady == 0 || p.Status == "failed" || p.Status == "cancelled" {
 		return false

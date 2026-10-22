@@ -27,8 +27,12 @@ test("a working goblin glows and a waiting one does not", async ({ page }) => {
 
   // Act
   const glowing = await page.locator(".flow-node.is-working strong").allTextContents();
+  const waiting = page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: "Woody - Tour Guide" }) });
 
-  // Assert
+  // Assert: Woody, who waits on CI, has his card, so it is his that does
+  // not glow.
+  await expect(waiting).toHaveCount(1);
+  await expect(waiting).not.toHaveClass(/is-working/);
   expect(glowing.sort()).toEqual(["Mabel - Email Elf", "Pip - Test Tamer"]);
 });
 

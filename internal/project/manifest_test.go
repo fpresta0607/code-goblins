@@ -112,3 +112,49 @@ func TestReuseTakesAPassForADayUnlessItSaysOtherwise(t *testing.T) {
 		t.Errorf("MaxAge = %s; want 24h", age)
 	}
 }
+
+func TestManifestReadsWhetherATrainLandsALoneRiderOnItsOwnRun(t *testing.T) {
+	cases := map[string]struct {
+		text      string
+		isLanding bool
+	}{
+		"left out":  {text: `{"project":"p"}`},
+		"turned on": {text: `{"project":"p","trains":{"land_lone_rider_on_its_run":true}}`, isLanding: true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, err := loadText(t, c.text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.Trains.LandLoneRiderOnItsRun != c.isLanding {
+				t.Fatalf("LandLoneRiderOnItsRun = %v, want %v", m.Trains.LandLoneRiderOnItsRun, c.isLanding)
+			}
+		})
+	}
+}
+
+func TestManifestReadsALoneRidersWaitWithinItsBounds(t *testing.T) {
+	cases := map[string]struct {
+		text      string
+		wait      int
+		isRefused bool
+	}{
+		"left out":       {text: `{"project":"p"}`},
+		"half an hour":   {text: `{"project":"p","trains":{"lone_rider_wait_minutes":30}}`, wait: 30},
+		"the bound":      {text: `{"project":"p","trains":{"lone_rider_wait_minutes":240}}`, wait: 240},
+		"past the bound": {text: `{"project":"p","trains":{"lone_rider_wait_minutes":241}}`, isRefused: true},
+		"negative":       {text: `{"project":"p","trains":{"lone_rider_wait_minutes":-1}}`, isRefused: true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, err := loadText(t, c.text)
+			if (err != nil) != c.isRefused {
+				t.Fatalf("error = %v, want refused %v", err, c.isRefused)
+			}
+			if !c.isRefused && m.Trains.LoneRiderWaitMinutes != c.wait {
+				t.Fatalf("LoneRiderWaitMinutes = %d, want %d", m.Trains.LoneRiderWaitMinutes, c.wait)
+			}
+		})
+	}
+}

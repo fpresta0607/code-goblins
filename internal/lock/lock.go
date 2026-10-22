@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -144,9 +145,14 @@ func acquireNamedOwnerContext(ctx context.Context, dir, name string, ownerPID in
 // the line takes the record alone: a caller at the head of the line looks
 // for it again 10 ms after the first attempt and twice as long after each
 // next one, up to longestPause, while such a build's process holds it.
+//
+// Only time the machine ran spends wait (awake): a pause of the whole
+// machine stops the holder too, and a waiter that counted it gave up a lock
+// the holder had had no time to let go.
 func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wait time.Duration) (*Info, error) {
-	deadline := time.Now().Add(wait)
-	place, err := lineUp(filepath.Join(dir, name+waitersSuffix), deadline)
+	waiting, cancelWait := awake.WithTimeout(context.Background(), wait)
+	defer cancelWait()
+	place, err := lineUp(filepath.Join(dir, name+waitersSuffix), waiting)
 	if errors.Is(err, errWaitedOut) {
 		if holder, readErr := ReadNamed(dir, name); readErr == nil {
 			return nil, heldError(holder)
@@ -156,10 +162,16 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 	if err != nil {
 		return nil, err
 	}
+	inLine()
 	// Each look waits out another process holding the record only until
 	// the deadline, as a scan of a record just written can hold it for
-	// seconds.
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	// seconds. At the head of the line the record is this caller's to take,
+	// so it takes one look at it however late the line let it through, and
+	// that look waits out a holder for one pause at most: a machine that
+	// stalls can spend the whole wait in a line with nobody ahead, and on a
+	// CI runner that did (train PR 1043) a free wake lock was given up as
+	// "context deadline exceeded" before its record was ever tried.
+	ctx, cancel := awake.WithTimeout(context.Background(), max(waiting.Left(), longestPause))
 	defer cancel()
 	pause := 10 * time.Millisecond
 	for {
@@ -168,7 +180,7 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 			keepPlace(exclusiveLeaseKey(dir, name), place)
 			return info, nil
 		}
-		if !errors.Is(err, ErrHeld) || time.Now().Add(pause).After(deadline) {
+		if !errors.Is(err, ErrHeld) || waiting.Left() < pause {
 			leaveLine(place)
 			return info, err
 		}
@@ -176,6 +188,10 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 		pause = min(2*pause, longestPause)
 	}
 }
+
+// inLine runs as a caller reaches the head of the line, for a test that
+// stalls it there.
+var inLine = func() {}
 
 // longestPause is the longest a caller at the head of the line sleeps between
 // two looks for a record another process holds: what such a hold costs is its
@@ -296,7 +312,7 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 		err := writeInfo(ctx, path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := read(ctx, dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
+			if verified, verr := read(context.WithoutCancel(ctx), dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
 				return self, nil
 			}
 			// Either we lost the race (another acquirer wrote after us) or the
@@ -389,7 +405,7 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 		}
 
 		// The claim holds the exact checked file against writes and replacement.
-		claimContext, cancelClaim := context.WithTimeout(ctx, time.Duration(acquireAttempts-1)*50*time.Millisecond)
+		claimContext, cancelClaim := awake.WithTimeout(ctx, time.Duration(acquireAttempts-1)*50*time.Millisecond)
 		_, rerr := removeMatchingRecord(claimContext, path, *holder2)
 		cancelClaim()
 		if rerr != nil {

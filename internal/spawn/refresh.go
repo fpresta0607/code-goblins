@@ -144,6 +144,39 @@ func (r AuthRefresher) GrantMCP(id string, servers []string) ([]string, error) {
 	return named, r.statusAfterChange(id, "credentials: "+r.actor()+" granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
 }
 
+// SetCodexCredits records whether task id is authorized to spend paid Codex
+// credits, and says so in its status log. While it is, the supervisor keeps
+// the task's codex guard disarmed when Codex's included allowance is used up
+// (codexguard): it reads the record at its next fleet reading, within a
+// minute, which reaches every terminal of the task, the running one
+// included. It changes no other task, a helper the task started included.
+// The record is changed under the lock a switch and a resume hold from start
+// to end.
+func (r AuthRefresher) SetCodexCredits(id string, isAuthorized bool) error {
+	if err := state.ValidTaskID(id); err != nil {
+		return err
+	}
+	if _, err := state.ReadTaskMeta(r.StateDir, id); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("spawn: %s is not a running task, so it has no codex guard", id)
+	} else if err != nil {
+		return fmt.Errorf("spawn: read task metadata: %w", err)
+	}
+	err := r.recordLocked(id, func() error {
+		if err := state.WriteTaskCodexCredits(r.StateDir, id, isAuthorized); err != nil {
+			return fmt.Errorf("spawn: record the Codex credit authorization of %s: %w", id, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	line := "credentials: " + r.actor() + " authorized the task to spend paid Codex credits, so a Codex session its terminal starts while Codex's included allowance is used up runs, billing them"
+	if !isAuthorized {
+		line = "credentials: " + r.actor() + " withdrew the task's authorization to spend paid Codex credits, so its codex guard refuses a Codex session while Codex's included allowance is used up"
+	}
+	return r.statusAfterChange(id, line)
+}
+
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
 // this project and whose worktree, tasktmp, and pane are all still live.
 // A task that is not provably live is skipped: rewriting its file would

@@ -18,7 +18,7 @@ function Pane({ label, shown }: { label: string; shown: boolean }) {
   return <main style={{ display: shown ? "flex" : "none", flexDirection: "column", height: 760 }}>
     <section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
       <textarea className="terminal-surface" aria-label="Terminal input" onKeyDown={(event) => dictation.key(event.nativeEvent)} onKeyUp={(event) => dictation.key(event.nativeEvent)} />
-      <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
+      <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
       {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
     </section>
     <output aria-label="Typed">{typed.join("\n")}</output>

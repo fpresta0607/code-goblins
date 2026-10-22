@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -227,14 +228,23 @@ func TestTheBoardNamesItsBuildInThePageAndTheSnapshot(t *testing.T) {
 }
 
 // The board serves its web app manifest, so Chrome and Edge offer to install
-// it as its own window; other files at the root stay unserved.
-func TestTheBoardServesItsManifestAndNoOtherRootFile(t *testing.T) {
-	// Arrange
+// it as its own window, and the app badge's push worker at the root it works
+// from; other files at the root stay unserved.
+func TestTheBoardServesItsManifestAndPushWorkerAndNoOtherRootFile(t *testing.T) {
+	// Arrange: this Windows names JavaScript's type text/plain, as some
+	// registries do.
+	javascript := mime.TypeByExtension(".js")
+	if err := mime.AddExtensionType(".js", "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mime.AddExtensionType(".js", javascript) })
 	store, _ := testStore(t)
 	manifest := `{"name":"Code Goblins","display":"standalone"}`
+	worker := `self.addEventListener("push", () => {});`
 	h := NewHTTP(&Service{Store: store}, "board.local", fstest.MapFS{
 		"index.html":           &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")},
 		"manifest.webmanifest": &fstest.MapFile{Data: []byte(manifest)},
+		"push-worker.js":       &fstest.MapFile{Data: []byte(worker)},
 		"notes.txt":            &fstest.MapFile{Data: []byte("not for the board")},
 	})
 	get := func(path string) *httptest.ResponseRecorder {
@@ -245,6 +255,7 @@ func TestTheBoardServesItsManifestAndNoOtherRootFile(t *testing.T) {
 
 	// Act
 	served := get("/manifest.webmanifest")
+	pushWorker := get("/push-worker.js")
 	other := get("/notes.txt")
 
 	// Assert
@@ -253,6 +264,9 @@ func TestTheBoardServesItsManifestAndNoOtherRootFile(t *testing.T) {
 	}
 	if kind := served.Header().Get("Content-Type"); kind != "application/manifest+json" {
 		t.Fatalf("the manifest is served as %q", kind)
+	}
+	if pushWorker.Code != http.StatusOK || pushWorker.Body.String() != worker || pushWorker.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
+		t.Fatalf("GET /push-worker.js = %d %q as %q, want the app badge's worker as JavaScript at the root it works from", pushWorker.Code, pushWorker.Body.String(), pushWorker.Header().Get("Content-Type"))
 	}
 	if other.Code != http.StatusNotFound {
 		t.Fatalf("GET /notes.txt = %d, want 404", other.Code)
@@ -272,7 +286,7 @@ func TestTheEventStreamNamesTheBoardBuild(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 

@@ -45,6 +45,109 @@ const (
 		"prompts[1]{uid,prompt,selector,tag,text}:\n" +
 		"  u7,Make the header bigger,h1,element,Heading\n" +
 		"next_step: \"Apply the requested changes.\"\n"
+	// His Send & End of a chained set: a note on a cell of a table, then one
+	// on the whole page, as he wrote them on a goblin's review page on
+	// 2026-10-18. The cell's target makes lavish-axi print the prompts as a
+	// list rather than a table.
+	chainedOnThePage = "session:\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[2]:\n" +
+		"  - uid: \"1\"\n" +
+		"    prompt: then shouldnt this come first?\n" +
+		"    selector: \"table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"    tag: td\n" +
+		"    text: \"Ships after the security review; the launch waits on it\"\n" +
+		"    target:\n" +
+		"      type: table-cell\n" +
+		"      rowLabel: Step two\n" +
+		"      columnLabel: WHEN\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: Ship the plan as drawn\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"next_step: \"This was the last feedback before the user ended the session.\"\n"
+	// His pick sent with Send, the review not ended, together with a note on
+	// a cell of the page's table, as toon 2.3.1 prints it: the cell's target
+	// makes the prompts a list, and read only as a table, the pick was a
+	// revision (#1172).
+	pickedWithACellNote = "session:\n" +
+		"  status: feedback\n" +
+		"prompts[2]:\n" +
+		"  - uid: \"1\"\n" +
+		"    prompt: Build it as shown\n" +
+		"    selector: \"script[data-lavish-choices]\"\n" +
+		"    tag: choice\n" +
+		"    text: Build it as shown?\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: then shouldnt this come first?\n" +
+		"    selector: \"table > tbody > tr:nth-of-type(1) > td:nth-of-type(2)\"\n" +
+		"    tag: td\n" +
+		"    text: Ships after the security review; the launch waits on it\n" +
+		"    target:\n" +
+		"      type: table-cell\n" +
+		"      rowLabel: Step two\n" +
+		"      columnLabel: WHEN\n" +
+		"next_step: Apply the requested changes.\n"
+	// His Send & End of a note on an element with an image he attached, as
+	// toon 2.3.1 prints it (#1236): the image's local path is in the note's
+	// attachments.
+	imageOnANote = "session:\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[1]:\n" +
+		"  - uid: h2\n" +
+		"    prompt: make it look like this\n" +
+		"    selector: h2\n" +
+		"    tag: h2\n" +
+		"    text: Pricing\n" +
+		"    attachments[1]{id,type,path,mime,bytes,width,height,name}:\n" +
+		"      aaaa.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\",image/png,1234,100,50,shot.png\n" +
+		"next_step: This was the last feedback before the user ended the session.\n"
+	// The same note with the image alone and no words.
+	imageWithoutWords = "session:\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[1]:\n" +
+		"  - uid: h2\n" +
+		"    prompt: \"\"\n" +
+		"    selector: h2\n" +
+		"    tag: h2\n" +
+		"    text: Pricing\n" +
+		"    attachments[1]{id,type,path,mime,bytes,width,height,name}:\n" +
+		"      aaaa.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\",image/png,1234,100,50,shot.png\n" +
+		"next_step: This was the last feedback before the user ended the session.\n"
+	// His Send of a note on the whole page with two images, one he named and
+	// one he did not, which toon 2.3.1 prints as a list rather than a table.
+	imagesOnThePage = "session:\n" +
+		"  status: feedback\n" +
+		"prompts[1]:\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: like these\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"    attachments[2]:\n" +
+		"      - id: aaaa.png\n" +
+		"        type: image\n" +
+		"        path: \"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\"\n" +
+		"        mime: image/png\n" +
+		"        bytes: 1234\n" +
+		"        width: 100\n" +
+		"        height: 50\n" +
+		"        name: shot.png\n" +
+		"      - id: bbbb.png\n" +
+		"        type: image\n" +
+		"        path: \"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\bbbb.png\"\n" +
+		"        mime: image/png\n" +
+		"        bytes: 1234\n" +
+		"        width: 100\n" +
+		"        height: 50\n" +
+		"next_step: Apply the requested changes.\n"
 	scrawlWaiting        = "session:\n  status: waiting\n"
 	scrawlEnded          = "session:\n  status: ended\n  ended_by: user\n"
 	scrawlEndedByAnAgent = "session:\n  status: ended\n  ended_by: agent\n"
@@ -89,7 +192,7 @@ func (p *scrawlPage) poll(ctx context.Context, file, reply string, timeout time.
 	select {
 	case <-ctx.Done():
 		return axi.PagePoll{}, ctx.Err()
-	case <-time.After(p.start):
+	case <-time.After(p.start): // stall-accepted: a stand-in poll's start-up time, none or a second, which a stall only lengthens as a slow start would.
 	}
 	p.mu.Lock()
 	p.replies = append(p.replies, reply)
@@ -222,6 +325,7 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 	// Act
 	sent := time.Now()
 	scrawl.send(pickedOnThePage)
+	// stall-accepted: a poll reads his pick first and it closes the item, so when his Send & End comes cannot change what the board shows.
 	time.AfterFunc(betweenHisSends, func() { scrawl.send(approvedAsShown) })
 	var done time.Duration
 	for expired := time.After(time.Minute); done == 0; {
@@ -239,6 +343,7 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 	}
 
 	// Assert
+	// stall-accepted: it times the board against his send, and the waits it rules out, his Send & End 757 ms later, the next poll's second to start and a goblin's turn of up to 5 s, are too short for a longer bound to tell apart.
 	if done > time.Second {
 		t.Fatalf("the board showed his answer done %s after he sent it, want under a second", done.Round(time.Millisecond))
 	}
@@ -259,8 +364,8 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 		expected string
 	}{
 		"his answer closes the item":               {pickedOnThePage, time.Second, func(r Review) bool { return r.State == "answered" }, "answered"},
-		"his revision takes it off Waiting on you": {notedOnThePage, pageAnswerSettle + time.Second, func(r Review) bool { return r.State == "open" && r.RevisingSince != nil }, "open and revising"},
-		"who has his answer shows once it is told": {approvedAsShown, 5 * time.Second, func(r Review) bool { return r.Reason == "You answered on its page; the goblin has it." }, "answered, saying the goblin has it"},
+		"his revision takes it off Waiting on you": {notedOnThePage, time.Minute, func(r Review) bool { return r.State == "open" && r.RevisingSince != nil }, "open and revising"},
+		"who has his answer shows once it is told": {approvedAsShown, time.Minute, func(r Review) bool { return r.Reason == "You answered on its page; the goblin has it." }, "answered, saying the goblin has it"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -282,6 +387,7 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 			scrawl.send(test.sent)
 
 			// Assert
+			// stall-accepted: the other rows wait a minute, and the first row's second times the boards against the 2 s settle it rules out, too short for a longer bound to tell apart.
 			for expired := time.After(test.within); ; {
 				select {
 				case <-board:
@@ -303,6 +409,9 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 // and is never first read as a revision request, as his pick was on
 // 2026-10-09 (wake 1000098, then 1000099).
 func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
+	if pageAnswerSettle <= betweenHisSends {
+		t.Fatalf("a poll waits %s for the rest of his answer, want longer than the %s between his sends on 2026-10-09", pageAnswerSettle, betweenHisSends)
+	}
 	for name, note := range map[string]struct{ sent, text string }{
 		"a pick of the option the page declared": {pickedOnThePage, "Build it as shown"},
 		"a note on an element":                   {notedOnThePage, "Make the header bigger"},
@@ -313,7 +422,7 @@ func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
 			meta, goblin, connection, page := pageOfAGoblin(t, store)
 			scrawl := newScrawlPage(0)
 			scrawl.send(note.sent)
-			time.AfterFunc(betweenHisSends, func() { scrawl.send(approvedAsShown) })
+			scrawl.send(approvedAsShown)
 			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
 
 			// Act
@@ -343,53 +452,143 @@ func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
 	}
 }
 
-// His pick of the option a page declared answers the page though he does not
-// end the review: its item closes as answered at once, the goblin and the CFO
-// get the pick once, and the page stays watched until he ends it, which then
-// adds nothing.
-func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
+// The notes he sends together with Send & End are one answer that reads as
+// the set he wrote: the goblin gets it once, the CFO's wake and the board's
+// answer hold it too, each note on a line of its own, in his order, with
+// what it is on. Read only as a table, the set above was no words at all:
+// the goblin got the feedback file's name alone and the board no answer.
+func TestAChainedSetOfNotesReachesItsGoblinOnceEachNoteWhereHePutIt(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta, goblin, connection, page := pageOfAGoblin(t, store)
 	scrawl := newScrawlPage(0)
-	scrawl.send(pickedOnThePage)
+	scrawl.send(chainedOnThePage)
 	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	cell := `1. On the cell in row "Step two", column "WHEN": then shouldnt this come first?`
+	whole := "2. On the whole page: Ship the plan as drawn"
 
 	// Act
-	s.watchPages(ctx)
-	var answered Review
-	for deadline := time.Now().Add(15 * time.Second); answered.State != "answered"; time.Sleep(10 * time.Millisecond) {
-		if answered = store.Snapshot().Reviews[0]; time.Now().After(deadline) {
-			t.Fatalf("the page's item after his pick = %+v, want it answered", answered)
-		}
-	}
-	watchedAfterThePick := len(store.watchedPages()) == 1
-	told := goblin.waitForLines(t, 1)
-	for deadline := time.Now().Add(15 * time.Second); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the CFO was never told his pick")
-		}
-	}
-	scrawl.send(scrawlEnded)
+	s.watchPages(context.Background())
 	s.pageWork.Wait()
 
 	// Assert
-	if answered.AnsweredBy != "overlord" || answered.AnsweredIn != "page" || answered.RevisingSince != nil {
-		t.Fatalf("the page's item after his pick = %+v, want it answered by him on its page, no revision", answered)
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": "+cell+" "+whole) {
+		t.Errorf("the goblin got %q, want the set once, each note where he put it", told)
 	}
-	if !watchedAfterThePick {
-		t.Error("the page stopped being watched at his pick, want it watched until he ends the review")
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the goblin has it: "+cell+"\n"+whole) {
+		t.Errorf("review wakes = %+v, want one holding the set, a note to a line", wakes)
 	}
-	if len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": Build it as shown") {
-		t.Fatalf("the goblin got %q, want his pick once", told)
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Answer != cell+"\n"+whole {
+		t.Errorf("the page's item = %+v, want it answered with the set", got)
 	}
-	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "answered on the page "+page) || !strings.Contains(wakes[0].Detail, "Build it as shown") {
-		t.Fatalf("review wakes = %+v, want the CFO told his pick once", wakes)
+}
+
+// The images he attaches to a note reach its goblin with the note, each by
+// its local path, with his words or without, as his answer or as a revision,
+// and the CFO's wake that says the goblin has it holds them too. Before
+// #1236 the goblin got his words alone, or, for an image with no words, only
+// what the note was on.
+func TestANotesImagesReachItsGoblinEachByItsPath(t *testing.T) {
+	attachments := `C:\work\.lavish-axi\attachments\c42fd9a0de5ec55d\`
+	for name, test := range map[string]struct {
+		sent, did, note string
+	}{
+		"an image with his words":  {imageOnANote, "answered", `On the h2 "Pricing": make it look like this (his image ` + attachments + `aaaa.png)`},
+		"an image without words":   {imageWithoutWords, "answered", `On the h2 "Pricing": his image ` + attachments + `aaaa.png`},
+		"two images in a revision": {imagesOnThePage, "asked for a revision", "like these (his images " + attachments + "aaaa.png, " + attachments + "bbbb.png)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, goblin, connection, page := pageOfAGoblin(t, store)
+			scrawl := newScrawlPage(0)
+			scrawl.send(test.sent)
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Act
+			s.watchPages(ctx)
+			told := goblin.waitForLines(t, 1)
+			for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the CFO was never told he wrote on the page")
+				}
+			}
+			cancel()
+			s.pageWork.Wait()
+
+			// Assert
+			want := test.did + " on your review page " + page + ": " + test.note
+			if len(told) != 1 || !strings.Contains(told[0], want) {
+				t.Fatalf("the goblin got %q, want %q once", told, want)
+			}
+			images := strings.Count(test.note, attachments)
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "has it") || strings.Count(wakes[0].Detail, attachments) != images {
+				t.Fatalf("review wakes = %+v, want one saying the goblin has his note with its %d image path(s)", wakes, images)
+			}
+		})
 	}
-	if got := store.Snapshot().Reviews[0]; got.PageSettled == nil {
-		t.Errorf("the page's item after he ended the review = %+v, want its page settled", got)
+}
+
+// His pick of the option a page declared answers the page though he does not
+// end the review, alone or sent with a note on a table cell: its item closes
+// as answered at once, the goblin and the CFO get the pick once, with his
+// note where he put it, and the page stays watched until he ends it, which
+// then adds nothing.
+func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
+	for name, test := range map[string]struct {
+		output string
+		answer string
+	}{
+		"his pick alone":            {pickedOnThePage, "Build it as shown"},
+		"his pick with a cell note": {pickedWithACellNote, `1. On the choice "Build it as shown?": Build it as shown 2. On the cell in row "Step two", column "WHEN": then shouldnt this come first?`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, goblin, connection, page := pageOfAGoblin(t, store)
+			scrawl := newScrawlPage(0)
+			scrawl.send(test.output)
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Act
+			s.watchPages(ctx)
+			var answered Review
+			for deadline := time.Now().Add(time.Minute); answered.State != "answered"; time.Sleep(10 * time.Millisecond) {
+				if answered = store.Snapshot().Reviews[0]; time.Now().After(deadline) {
+					t.Fatalf("the page's item after his pick = %+v, want it answered", answered)
+				}
+			}
+			watchedAfterThePick := len(store.watchedPages()) == 1
+			told := goblin.waitForLines(t, 1)
+			for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the CFO was never told his pick")
+				}
+			}
+			scrawl.send(scrawlEnded)
+			s.pageWork.Wait()
+
+			// Assert
+			if answered.AnsweredBy != "overlord" || answered.AnsweredIn != "page" || answered.RevisingSince != nil {
+				t.Fatalf("the page's item after his pick = %+v, want it answered by him on its page, no revision", answered)
+			}
+			if !watchedAfterThePick {
+				t.Error("the page stopped being watched at his pick, want it watched until he ends the review")
+			}
+			if len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": "+test.answer) {
+				t.Fatalf("the goblin got %q, want his pick once", told)
+			}
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "answered on the page "+page) || !strings.Contains(wakes[0].Detail, "Build it as shown") {
+				t.Fatalf("review wakes = %+v, want the CFO told his pick once", wakes)
+			}
+			if got := store.Snapshot().Reviews[0]; got.PageSettled == nil {
+				t.Errorf("the page's item after he ended the review = %+v, want its page settled", got)
+			}
+		})
 	}
 }
 
@@ -416,7 +615,7 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	if len(wakes) != 2 || !strings.Contains(wakes[0].Detail, "asked for a revision on the page "+page) || !strings.Contains(wakes[1].Detail, "an agent, not the Overlord, ended the review of "+page) {
 		t.Fatalf("review wakes = %+v, want his revision and then the agent's end, and no answer of his", wakes)
 	}
-	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+": Make the header bigger") {
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+`: On the element "Heading": Make the header bigger`) {
 		t.Fatalf("the goblin got %q, want his note once, as a revision", told)
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.AnsweredBy != "" || got.Reason != "An agent ended the review on its page; the CFO was told." {
@@ -424,8 +623,10 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	}
 }
 
-// A supervisor that stops while it waits for the rest of his answer passes on
-// what he already sent: the poll consumed it, and Scrawl holds no other copy.
+// A supervisor that stops while it waits for the rest of his answer keeps
+// what he already sent: the poll consumed it and Scrawl holds no other copy,
+// so it stays in the receipts journal as the supervisor goes, never handed on
+// half-delivered, and its next start passes it on once.
 func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 	for name, test := range map[string]struct{ sent, told, text string }{
 		"his pick of the option the page declared": {pickedOnThePage, "answered on the page ", "Build it as shown"},
@@ -449,16 +650,23 @@ func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 			// Act
 			s.watchPages(ctx)
 			s.pageWork.Wait()
+			atStop, kept := reviewWakes(t, h.State, meta.ID), store.pageReceiptsSnapshot().Answers
+			next := &Service{Store: store, Options: Options{CFO: connection}}
+			next.tellPage(context.Background(), pageKey(page))
+			next.pageWork.Wait()
 
 			// Assert
+			if len(atStop) != 0 || len(kept) != 1 || !strings.Contains(kept[0].Poll.Output, test.text) {
+				t.Fatalf("as the supervisor stopped, wakes = %+v and receipts = %+v, want what he sent kept and nothing handed on", atStop, kept)
+			}
 			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, test.told+page) {
-				t.Fatalf("review wakes = %+v, want the CFO told once what he sent before the supervisor stopped", wakes)
+				t.Fatalf("review wakes = %+v, want the CFO told once, at the next start, what he sent before the supervisor stopped", wakes)
 			}
-			kept := feedbackFiles(t, h.State, "waiting-"+meta.ID+"-7")
-			if len(kept) != 1 {
-				t.Fatalf("feedback files = %q, want what he sent kept in one", kept)
+			files := feedbackFiles(t, h.State, "waiting-"+meta.ID+"-7")
+			if len(files) != 1 {
+				t.Fatalf("feedback files = %q, want what he sent kept in one", files)
 			}
-			if data, err := os.ReadFile(kept[0]); err != nil || !strings.Contains(string(data), test.text) {
+			if data, err := os.ReadFile(files[0]); err != nil || !strings.Contains(string(data), test.text) {
 				t.Errorf("the kept feedback = %q, %v, want what he sent: %q", data, err, test.text)
 			}
 		})
@@ -549,7 +757,7 @@ func TestANoteOnAClosedItemIsKeptBeforeItsTurnToBeTold(t *testing.T) {
 	<-typing
 	<-noteTaken
 	var kept []string
-	for deadline := time.Now().Add(5 * time.Second); len(kept) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); len(kept) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		kept = feedbackFiles(t, h.State, meta.ID)
 	}
 	close(release)

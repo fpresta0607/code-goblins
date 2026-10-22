@@ -279,7 +279,10 @@ type fakeGitHub struct {
 	// merged are the goblins' pull requests GitHub shows merged, in the order
 	// main took them.
 	merged []int
-	calls  [][]string
+	// ownRuns are the pull requests whose own CI run GitHub shows, by URL
+	// (own_run_test.go).
+	ownRuns map[string]*riderRun
+	calls   [][]string
 	// commandLines are the command lines gh was started with, as they were.
 	commandLines [][]string
 }
@@ -304,7 +307,7 @@ type pull struct {
 }
 
 func newFakeGitHub(s *scratch) *fakeGitHub {
-	return &fakeGitHub{s: s, pulls: map[string]*pull{}, refuse: map[string]string{}, unanswered: map[string]int{}, lost: map[string]bool{}, mainRuns: "[]", state: map[string]string{}, titles: map[string]string{}, labels: map[string]bool{}, wears: map[string][]string{}}
+	return &fakeGitHub{s: s, pulls: map[string]*pull{}, refuse: map[string]string{}, unanswered: map[string]int{}, lost: map[string]bool{}, mainRuns: "[]", state: map[string]string{}, titles: map[string]string{}, labels: map[string]bool{}, wears: map[string][]string{}, ownRuns: map[string]*riderRun{}}
 }
 
 // open lists a green, mergeable pull request of branch at head.
@@ -385,6 +388,10 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "view" && args[2] == f.trainURL:
 		return f.view()
+	case args[0] == "pr" && args[1] == "view" && f.ownRuns[args[2]] != nil:
+		return f.riderView(args[2])
+	case args[0] == "api" && strings.HasPrefix(args[1], "repos/o/r/actions/"):
+		return f.actionsAPI(args[1])
 	case args[0] == "pr" && args[1] == "merge" && f.state[args[2]] != "":
 		return f.mergeTrain(args)
 	case args[0] == "pr" && args[1] == "merge":

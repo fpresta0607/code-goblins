@@ -43,6 +43,7 @@ func terminalFiles(more map[string]string) map[string]string {
 // carries that the repository reads and no test setup names: what every task
 // carries by default, and what a task carries when its brief names a service.
 func TestTheCredentialsATasksTerminalCarriesAreWithinATestRunsReach(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, terminalFiles(map[string]string{".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"}))
 	f.manifest("auth.json", terminalAuth)
@@ -75,6 +76,7 @@ func TestTheCredentialsATasksTerminalCarriesAreWithinATestRunsReach(t *testing.T
 // How bad the line is follows who carries the credential and what bounds the
 // test step, by the rule the env file line uses.
 func TestHowBadATerminalsReachIsFollowsWhoCarriesItAndWhatBoundsTheTestStep(t *testing.T) {
+	t.Parallel()
 	const named = `{"project":"northwind","services":[{"name":"plaid","method":"env","env":["PLAID_CLIENT_ID","PLAID_SECRET"]}]}`
 	const gate = "commands:\n  test: \"pytest -q\"\n"
 	for _, test := range []struct {
@@ -88,6 +90,7 @@ func TestHowBadATerminalsReachIsFollowsWhoCarriesItAndWhatBoundsTheTestStep(t *t
 		{"carried only when a brief names the service, with the test step an agent's choice", named, "", Medium, "whose brief names"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			files := terminalFiles(nil)
 			if test.gate != "" {
@@ -113,6 +116,7 @@ func TestHowBadATerminalsReachIsFollowsWhoCarriesItAndWhatBoundsTheTestStep(t *t
 // reads it. A test file is such a reader. A document, an env example and a
 // workflow, where GitHub supplies the value, are not.
 func TestOnlyWhatATestRunStartsCountsAsReadingATerminalsCredential(t *testing.T) {
+	t.Parallel()
 	const auth = `{"project":"northwind","services":[{"name":"postgres","method":"env","env":["DATABASE_URL"],"default":true}]}`
 	for _, test := range []struct {
 		name, file, content string
@@ -126,6 +130,7 @@ func TestOnlyWhatATestRunStartsCountsAsReadingATerminalsCredential(t *testing.T)
 		{"a workflow", ".github/workflows/ci.yml", "on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    env:\n      DATABASE_URL: postgres://localhost/test\n    steps:\n      - run: pytest -q\n", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, map[string]string{test.file: test.content, ".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n"})
 			f.manifest("auth.json", auth)
@@ -148,6 +153,7 @@ func TestOnlyWhatATestRunStartsCountsAsReadingATerminalsCredential(t *testing.T)
 // so a test run does not use what the terminal carries for it. The line that
 // passes still says what it examined.
 func TestATerminalsCredentialTheTestSetupNamesIsLeftOut(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, terminalFiles(map[string]string{
 		".no-mistakes.yaml": "commands:\n  test: \"pytest -q\"\n",
@@ -171,6 +177,7 @@ func TestATerminalsCredentialTheTestSetupNamesIsLeftOut(t *testing.T) {
 // A project that declares no services puts no credential in a terminal, and
 // the line says that in place of saying nothing.
 func TestAProjectThatDeclaresNoServicesCarriesNoCredentialIntoATerminal(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, terminalFiles(nil))
 
@@ -187,6 +194,7 @@ func TestAProjectThatDeclaresNoServicesCarriesNoCredentialIntoATerminal(t *testi
 // A manifest with no default service gives a task whose brief has no
 // credentials line nothing, and the line says so by name.
 func TestAManifestWithNoDefaultServiceSaysEveryTaskCarriesNothingByDefault(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, terminalFiles(nil))
 	f.manifest("auth.json", `{"project":"northwind","services":[{"name":"plaid","method":"env","env":["PLAID_CLIENT_ID","PLAID_SECRET"]}]}`)
@@ -202,6 +210,7 @@ func TestAManifestWithNoDefaultServiceSaysEveryTaskCarriesNothingByDefault(t *te
 // as a key that starts sk_test_ is one by its value. A test database a
 // suite is meant to use is not a road to production.
 func TestAVariableNamedForTestsIsNoProductionCredential(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		"tests/db.test.ts":  "const url = process.env.TEST_DATABASE_URL\nconst live = process.env.DATABASE_URL\n",

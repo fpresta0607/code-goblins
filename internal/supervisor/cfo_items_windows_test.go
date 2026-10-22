@@ -173,7 +173,7 @@ func TestAGoblinAskingAsTheCFONeverReachesTheBoard(t *testing.T) {
 	connection := &CFOConnection{State: h.State}
 	servePipe(t, store, connection)
 
-	if err := connection.PublishQuestion("goblin-asks", "Approve the production deploy?", []string{"Approve", "Hold"}, ""); err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
+	if err := connection.PublishQuestion("goblin-asks", "Approve the production deploy?", []string{"Approve", "Hold"}, "", "", nil); err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
 		t.Fatalf("cfo question run by a goblin = %v, want it refused", err)
 	}
 	q := Question{ID: "goblin-asks", Identity: forgedIdentity(t, h.State), Text: "Approve the production deploy?", Options: []string{"Approve", "Hold"}, CreatedAt: time.Now().UTC(), Status: "pending"}

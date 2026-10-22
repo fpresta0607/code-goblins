@@ -358,21 +358,34 @@ test("a refusal while the speech model is being set up is passed on at once, for
   assert.deepEqual(events.errors, [{ error: "setup", message: note }]);
 });
 
-test("speech the engine found no words in is unheard, never nothing heard", async () => {
-  const { Recognition, recorded, answer } = engine({ sound: said(16000, ["speech", 2]), words: "" });
-  const recognizer = new Recognition();
-  const events = listen(recognizer);
-  recognizer.start(track);
-  recorded[0].say(said(16000, ["speech", 60], ["quiet", .3]));
-  await settle();
-  answer();
-  recognizer.stop();
-  await settle();
-  answer();
-  await settle();
-  assert.deepEqual(events.heard, []);
-  assert.deepEqual(events.errors, [{ error: "unheard", message: "The engine answered no words for 62 s of dictation with speech in it." }]);
-});
+// The report says how much was recorded and how long the keys were held, as
+// a microphone that opens at the press records less than the hold.
+for (const { name, speech, rest, held, recorded } of [
+  { name: "a long dictation", speech: 60, rest: 2, held: 64.5, recorded: "62.3" },
+  { name: "a hold the microphone opened late in", speech: 0, rest: 0.3, held: 1.2, recorded: "0.3" },
+]) {
+  test(`speech the engine found no words in is unheard, never nothing heard: ${name}`, async (t) => {
+    // Arrange
+    t.mock.method(performance, "now", () => 100_000);
+    const { Recognition, recorded: recordings, answer } = engine({ sound: said(16000, ["speech", rest]), words: "" });
+    const recognizer = new Recognition();
+    const events = listen(recognizer);
+    recognizer.start(track, 100_000 - held * 1000);
+    if (speech) recordings[0].say(said(16000, ["speech", speech], ["quiet", .3]));
+    await settle();
+    answer();
+
+    // Act
+    recognizer.stop();
+    await settle();
+    answer();
+    await settle();
+
+    // Assert
+    assert.deepEqual(events.heard, []);
+    assert.deepEqual(events.errors, [{ error: "unheard", message: `The engine answered no words for ${recorded} s of dictation with speech in it, recorded in a ${held.toFixed(1)} s hold. Its last sound with speech in it is kept on this PC in state/dictation-no-words.wav until the next.` }]);
+  });
+}
 
 test("the engine is warmed as the recording begins, once a dictation, so its words come soon after the keys are let go", async () => {
   const { Recognition, warmed, answer } = engine();

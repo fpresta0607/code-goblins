@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -186,10 +188,58 @@ func redirect(next *http.Request, via []*http.Request) error {
 	return nil
 }
 
+// downloadAttempts is how many times a download is tried. A server can
+// answer for a moment with a 5xx or a 429, or drop the connection: on
+// 2026-10-17 GitHub's release host answered two CI runners' model downloads
+// 504 Gateway Timeout in the same minute (run 39019600037). The install
+// script tries its own downloads three times, 5 and then 10 seconds apart
+// (Save-Download in install.ps1), and so does this.
+const downloadAttempts = 3
+
 // download writes the part's archive to a file of its own in the temporary
 // folder, where one an ended install leaves is cleared with the rest, and
 // returns it, telling progress how much of it has arrived.
 func (v *Voice) download(ctx context.Context, part Part, progress func(done int64)) (string, error) {
+	for attempt := 1; ; attempt++ {
+		file, err := v.downloadOnce(ctx, part, progress)
+		if err == nil || !isMomentary(err) || attempt == downloadAttempts || ctx.Err() != nil {
+			return file, err
+		}
+		waitToRetry(ctx, time.Duration(5*attempt)*time.Second)
+	}
+}
+
+// isMomentary says whether a download's failure may pass in seconds: the
+// server answered with a 5xx or a 429, or the connection, once made, dropped
+// or timed out. Anything else fails at once: an answer that will not change,
+// such as a 404, a redirect refused, a certificate that does not verify, a
+// file that could not be written, or a connection that could not be made at
+// all, timed out or not, as on a PC with no network, which would only keep
+// the person waiting to be told to connect.
+func isMomentary(err error) bool {
+	var answer serverAnswer
+	if errors.As(err, &answer) {
+		return answer.code >= 500 || answer.code == http.StatusTooManyRequests
+	}
+	var connection *net.OpError
+	if errors.As(err, &connection) {
+		return connection.Op == "read" || connection.Op == "write"
+	}
+	var timeout net.Error
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &timeout) && timeout.Timeout()
+}
+
+// serverAnswer is a download the server answered with a status other than
+// 200 OK.
+type serverAnswer struct {
+	code   int
+	status string
+}
+
+func (a serverAnswer) Error() string { return "the server answered " + a.status }
+
+// downloadOnce downloads a part's archive to a file of its own, once.
+func (v *Voice) downloadOnce(ctx context.Context, part Part, progress func(done int64)) (string, error) {
 	client := v.Client
 	if client == nil {
 		client = &http.Client{CheckRedirect: redirect}
@@ -204,7 +254,7 @@ func (v *Voice) download(ctx context.Context, part Part, progress func(done int6
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("the server answered %s", response.Status)
+		return "", serverAnswer{code: response.StatusCode, status: response.Status}
 	}
 	out, err := os.CreateTemp("", "code-goblins-"+part.Name+"-")
 	if err != nil {
@@ -219,6 +269,15 @@ func (v *Voice) download(ctx context.Context, part Part, progress func(done int6
 		return "", err
 	}
 	return out.Name(), nil
+}
+
+// waitToRetry waits before a download is tried again, or until ctx ends; a
+// test counts the waits instead.
+var waitToRetry = func(ctx context.Context, wait time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(wait):
+	}
 }
 
 // counted tells how many bytes have been read through it.

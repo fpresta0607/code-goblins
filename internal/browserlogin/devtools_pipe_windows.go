@@ -6,11 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 )
 
 const devToolsMessageLimit = 32 << 20
+
+// errPipeClosed is a call's answer when the browser closed its end of the
+// pipe before it answered, as a browser asked to close may.
+var errPipeClosed = errors.New("the private browser pipe closed")
 
 type devToolsMessage struct {
 	ID      int64           `json:"id,omitempty"`
@@ -32,34 +37,50 @@ type devToolsPending struct {
 // devToolsPipe multiplexes private commands and each attached client's
 // sessions over Chrome's inherited, zero-delimited debugging pipe.
 type devToolsPipe struct {
-	reader   io.ReadCloser
-	writer   io.WriteCloser
-	writeMu  sync.Mutex
+	reader io.ReadCloser
+	writer io.WriteCloser
+	// writing holds the turn to write, one command at a time, which a
+	// caller waiting for it can give up when its context ends.
+	writing  chan struct{}
 	mu       sync.Mutex
 	next     int64
 	pending  map[int64]devToolsPending
 	sessions map[string]*devToolsClient
 	done     chan struct{}
 	once     sync.Once
+	// why is what closed the pipe, set before done is closed.
+	why error
 }
 
 func newDevToolsPipe(reader io.ReadCloser, writer io.WriteCloser) *devToolsPipe {
-	pipe := &devToolsPipe{reader: reader, writer: writer, pending: map[int64]devToolsPending{}, sessions: map[string]*devToolsClient{}, done: make(chan struct{})}
+	pipe := &devToolsPipe{reader: reader, writer: writer, pending: map[int64]devToolsPending{}, sessions: map[string]*devToolsClient{}, done: make(chan struct{}), writing: make(chan struct{}, 1)}
 	go pipe.read()
 	return pipe
 }
 
 func (p *devToolsPipe) close() {
+	p.closeFor(errors.New("the bridge closed it"))
+}
+
+// closeFor closes the pipe once, for why, which every caller that then finds
+// it closed is told, so a request the bridge refuses for it says what ended
+// the browser's connection.
+func (p *devToolsPipe) closeFor(why error) {
 	p.once.Do(func() {
+		p.why = why
 		close(p.done)
 		p.reader.Close()
 		p.writer.Close()
 	})
 }
 
+// send writes message for a caller whose context is ctx. A caller that gives
+// up before its write, or after it, leaves the pipe to the others: it is the
+// browser's one connection, which every request of the bridge and every
+// client shares, and closing it for one caller answered every later request
+// with a 503 (#1020). Only a cancel that cuts into the write closes it, since
+// what the browser read of a frame cut short would garble every frame after.
 func (p *devToolsPipe) send(ctx context.Context, message devToolsMessage, pending devToolsPending) (int64, error) {
-	stop := context.AfterFunc(ctx, p.close)
-	defer stop()
 	p.mu.Lock()
 	p.next++
 	message.ID = p.next
@@ -67,12 +88,27 @@ func (p *devToolsPipe) send(ctx context.Context, message devToolsMessage, pendin
 	p.mu.Unlock()
 	data, err := json.Marshal(message)
 	if err == nil {
-		p.writeMu.Lock()
-		err = ctx.Err()
-		if err == nil {
-			_, err = p.writer.Write(append(data, 0))
+		select {
+		case p.writing <- struct{}{}:
+			err = ctx.Err()
+			if err == nil {
+				stop := context.AfterFunc(ctx, func() { p.closeFor(errors.New("a write to it was cut short")) })
+				_, err = p.writer.Write(append(data, 0))
+				stop()
+			}
+			if err != nil {
+				select {
+				case <-p.done:
+					err = p.unaskedError()
+				default:
+				}
+			}
+			<-p.writing
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-p.done:
+			err = p.unaskedError()
 		}
-		p.writeMu.Unlock()
 	}
 	if err != nil {
 		p.mu.Lock()
@@ -113,12 +149,26 @@ func (p *devToolsPipe) call(ctx context.Context, method string, params, result a
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-p.done:
-		return errors.New("the private browser pipe closed")
+		return p.closedError()
 	}
 }
 
+// closedError is what a caller whose command was written is told when the
+// pipe closes before the browser answers.
+func (p *devToolsPipe) closedError() error {
+	return fmt.Errorf("%w: %w", errPipeClosed, p.why)
+}
+
+// unaskedError is what a caller is told when the pipe closed before its
+// command was written: the browser was never asked, so it is no
+// errPipeClosed.
+func (p *devToolsPipe) unaskedError() error {
+	return fmt.Errorf("the browser could not be asked: %w", p.why)
+}
+
 func (p *devToolsPipe) read() {
-	defer p.close()
+	why := errors.New("the browser closed its end")
+	defer func() { p.closeFor(why) }()
 	scanner := bufio.NewScanner(p.reader)
 	scanner.Buffer(make([]byte, 4096), devToolsMessageLimit)
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
@@ -133,9 +183,13 @@ func (p *devToolsPipe) read() {
 	for scanner.Scan() {
 		var message devToolsMessage
 		if json.Unmarshal(scanner.Bytes(), &message) != nil {
+			why = errors.New("the browser sent a message that is not JSON")
 			return
 		}
 		p.deliver(message)
+	}
+	if err := scanner.Err(); err != nil {
+		why = fmt.Errorf("reading the browser: %w", err)
 	}
 }
 

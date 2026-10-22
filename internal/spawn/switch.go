@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -256,6 +257,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
 	}
+	piExtension, err := s.goblinPiExtension(target.Harness)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w; task %s was left running as it was", err, req.ID)
+	}
+	codexHooks, hooksNotice := s.codexHooks(target.Harness)
 	subagents, err := s.subagentRoutes(target.Harness, target.Model)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
@@ -266,9 +272,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		Scratch:         scratch,
 		Model:           target.Model,
 		Effort:          target.Effort,
+		PiExtensionPath: piExtension,
 		MCPConfig:       mcp.Config(meta.TaskTmp),
 		Settings:        settings,
 		CodexMCPServers: codexServers,
+		CodexHooks:      codexHooks,
 		Subagents:       subagents,
 	})
 	if err != nil {
@@ -315,6 +323,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// before anything is stopped, written or started.
 	if err := s.stillThere(ctx, git, meta.ID, project, worktreePath); err != nil {
 		return SwitchResult{}, err
+	}
+	// The release cooldown is read before the old harness stops, so a
+	// worktree git cannot list leaves the task running as it was.
+	cooldown, _, err := s.Worktrees.Cooldown(ctx, worktreePath, time.Now())
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
 	// A native terminal ends with its harness, and its job ends what the
 	// harness started in it, so nothing is left to wait on.
@@ -401,7 +415,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, preflight, userEnv, mcp.Held, req, endTurn)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, worktreePath, briefPath, dirty, req.ID, manifest.Env, cooldown, preflight, userEnv, mcp.Held, req, endTurn)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -455,6 +469,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
+	if hooksNotice != "" {
+		result.Output += "\n" + hooksNotice
+	}
 	result.Output += left + scriptNote
 	if isNarrowed {
 		result.Output += "\nauth: " + narrowedLine(req.ID, project, preflight.Grant)
@@ -492,12 +509,21 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 // relaunch's turn once its host runs. Every step after the old harness has
 // stopped lives here, so any failure returns through the same empty-terminal
 // recovery. Anything knowable before the stop is resolved by Switch and handed
-// in: the built launch, the project's redirects, its credentials, the user's
-// environment and the MCP servers withheld from the task.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
+// in: the built launch, the project's redirects, the release cooldown, its
+// credentials, the user's environment and the MCP servers withheld from the
+// task.
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects, cooldown map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
+	// Claude Code, Codex and pi each resume a recorded conversation, so the
+	// resume of a pause does wherever its pause recorded one, and pi only once
+	// it has written that session's file: pi 0.85.1 writes it when its first
+	// reply ends, and exits on a --session it finds no file for.
 	if request.IsResume {
-		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
+		resumed = request.ResumeSession != ""
+	}
+	if resumed && target.Harness == harness.Pi {
+		userHome, _ := os.UserHomeDir()
+		resumed = fleettree.SessionTranscript(userHome, "pi", request.ResumeSession) != ""
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
@@ -505,13 +531,17 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// without the caches the spawned one had.
 	mergeProvisionEnv(launch.Env, redirects)
 	mergeProvisionEnv(launch.Env, preflight.Caches)
+	mergeProvisionEnv(launch.Env, cooldown)
 	s.nativeEnvironment(launch.Env, meta)
 
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		resumeArgs := []string{"--resume", request.ResumeSession}
-		if target.Harness == harness.Codex {
+		switch target.Harness {
+		case harness.Codex:
 			resumeArgs = []string{"resume", request.ResumeSession}
+		case harness.Pi:
+			resumeArgs = []string{"--session", request.ResumeSession}
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
@@ -522,7 +552,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		if err != nil {
 			return "", false, host.Record{}, err
 		}
-		launch.Instruction = handoffInstruction(handoff, briefPath, meta)
+		launch.Instruction = handoffInstruction(handoff, briefPath, meta) + cooldownInstruction(cooldown)
 	}
 	// What the task carries is said before any note the relaunch is given,
 	// so the note stays the instruction's last word.

@@ -65,12 +65,12 @@ func TestConnectionFixDerivesOAuthURLAndRejectsInjectedOrStaleRepairs(t *testing
 	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"sample","method":"oauth","url":"https://example.invalid/login"}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
+	checks := connections.NewCache(time.Minute, time.Minute, func(context.Context, string) connections.Snapshot {
 		return connections.Snapshot{Entries: []connections.Entry{{ID: "service:sample", Status: "unauthorized", Actions: []string{"login"}}}}
 	})
 	defer checks.Close()
 	checks.Get("task-1\ng1", false)
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for checks.Get("task-1\ng1", false).Checking {
 		if time.Now().After(deadline) {
 			t.Fatal("cache did not finish")
@@ -145,14 +145,14 @@ func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing
 	store, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	var calls atomic.Int32
-	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
+	checks := connections.NewCache(time.Minute, time.Minute, func(context.Context, string) connections.Snapshot {
 		calls.Add(1)
 		return connections.Snapshot{Entries: []connections.Entry{{ID: "credential:TEST_TOKEN", Status: "provided"}}}
 	})
 	defer checks.Close()
 	key := meta.ID + "\n" + meta.SpawnGen
 	checks.Get(key, false)
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for checks.Get(key, false).Checking {
 		if time.Now().After(deadline) {
 			t.Fatal("cache did not finish")
@@ -190,7 +190,7 @@ func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing
 
 func waitForConnectionCheck(t *testing.T, checks *connections.Cache, key string) connections.Snapshot {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		snapshot := checks.Cached(key)
 		if !snapshot.Checking && !snapshot.CheckedAt.IsZero() {
@@ -215,7 +215,7 @@ func TestIdleRepairClickUsesTheShownCheckWithoutStartingAnother(t *testing.T) {
 	}
 	var calls atomic.Int32
 	release := make(chan struct{})
-	checks := connections.NewCache(10*time.Millisecond, time.Second, func(context.Context, string) connections.Snapshot {
+	checks := connections.NewCache(10*time.Millisecond, time.Minute, func(context.Context, string) connections.Snapshot {
 		if calls.Add(1) > 1 {
 			<-release
 		}
@@ -253,7 +253,7 @@ func TestRepairFinishedDuringARunningCheckRechecksAfterIt(t *testing.T) {
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	var calls atomic.Int32
 	release := make(chan struct{})
-	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
+	checks := connections.NewCache(time.Minute, time.Minute, func(context.Context, string) connections.Snapshot {
 		status := "provided"
 		if calls.Add(1) == 1 {
 			<-release

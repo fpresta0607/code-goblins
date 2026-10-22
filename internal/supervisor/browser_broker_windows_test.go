@@ -95,7 +95,7 @@ func TestALoginsBrowserSlowToStartIsStillLentOverThePipe(t *testing.T) {
 		select {
 		case <-ctx.Done():
 			return browserlogin.Process{}, ctx.Err()
-		case <-time.After(runRequestTimeout + 5*time.Second):
+		case <-time.After(runRequestTimeout + 5*time.Second): // stall-accepted: the stand-in Chrome's slow start, and a stall moves the fetch's two minute deadline on as far, so the start still ends inside it.
 		}
 		return start(ctx, launch)
 	}

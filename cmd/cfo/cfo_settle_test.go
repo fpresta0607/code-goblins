@@ -30,6 +30,7 @@ func (s *scriptedCFO) terminal() cfoScreen {
 	shownAt := s.clock
 	return cfoScreen{
 		read: func() ([]string, error) {
+			// stall-accepted: a fake clock, not the runner's.
 			for len(s.screens) > 1 && s.screens[0].lasts > 0 && s.clock.Sub(shownAt) >= s.screens[0].lasts {
 				s.screens, shownAt = s.screens[1:], s.clock
 			}
@@ -133,6 +134,7 @@ func TestTheWatchEndsOnceTheScreenSettles(t *testing.T) {
 	settleCFO("claude", settleScreen(t, harness.Claude), terminal.terminal())
 
 	// Assert
+	// stall-accepted: a fake clock, not the runner's.
 	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet+time.Second {
 		t.Errorf("the watch took %s on a settled screen, want about %s", took, cfoSettleQuiet)
 	}
@@ -204,6 +206,7 @@ func TestADialogShownBeforeTheHarnessIsWorkingIsStillAnswered(t *testing.T) {
 	if want := []string{"Answered the hook review prompt in the CFO's terminal: 3. Continue without trusting."}; !slices.Equal(notes, want) {
 		t.Errorf("notes %q, want %q", notes, want)
 	}
+	// stall-accepted: a fake clock, not the runner's.
 	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet {
 		t.Errorf("the watch took %s, want it to end once the turn shows, before the quiet window %s", took, cfoSettleQuiet)
 	}

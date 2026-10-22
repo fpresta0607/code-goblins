@@ -134,8 +134,13 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 		held[name] = standin.Hold(t, pid)
 	}
 	isRunning := func(name string) bool {
+		// stall-accepted: it checks a process the sweep must leave running, so running out is the passing path and a stall only makes the wait longer.
 		event, _ := windows.WaitForSingleObject(held[name], 2000)
 		return event == uint32(windows.WAIT_TIMEOUT)
+	}
+	isEnded := func(name string) bool {
+		event, _ := windows.WaitForSingleObject(held[name], 30000)
+		return event == windows.WAIT_OBJECT_0
 	}
 	cfg := Config{
 		Home:       h,
@@ -197,7 +202,7 @@ func TestTheSweepEndsAGoneTerminalsStandInAndLeavesAStandInForHisChrome(t *testi
 	cfg.sweepProcesses(ctx, &record)
 
 	// Assert
-	stillRuns := map[string]bool{"server": isRunning("server"), "chrome": isRunning("chrome")}
+	stillRuns := map[string]bool{"server": !isEnded("server"), "chrome": isRunning("chrome")}
 	listed("after the terminal ended and the sweep ran")
 	if stillRuns["server"] {
 		t.Errorf("the gone terminal's server, pid %d, still runs after the sweep: ended %+v, notes %v", started["server"], record.Processes.Ended, record.Notes)

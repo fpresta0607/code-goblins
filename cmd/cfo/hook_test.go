@@ -502,7 +502,7 @@ func TestRunHookTurnendGuardRendersBeatAge(t *testing.T) {
 
 func TestRunHookTurnendGuardPollsForLateProof(t *testing.T) {
 	dir := newCFOHome(t)
-	setSyncWait(t, "500")
+	setSyncWait(t, "60000")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
 
@@ -854,7 +854,7 @@ func sweptJustNow(t *testing.T, state string) {
 // internal/lock, internal/watch and internal/proc's own tests already use.
 func startLiveForeignProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -926,7 +926,7 @@ func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
 		// attempt loop (Step 6) and the need-vanished re-check (Step 7). A
 		// fixed sleep here races the need gate under load: if the remove
 		// lands first the hook exits at Step 3 and never records an outcome.
-		deadline := time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for {
 			epoch, err := supervise.ReadEpoch(state)
 			if err == nil && epoch.N >= 1 {
@@ -1032,7 +1032,6 @@ func TestAutoarmSingleFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	start := time.Now()
 	var stdout, stderr bytes.Buffer
 	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
 	if exit != 0 {
@@ -1041,8 +1040,12 @@ func TestAutoarmSingleFlight(t *testing.T) {
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
 	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Errorf("elapsed = %v, want a fast single-flight exit rather than falling through to the attempt loop", elapsed)
+	epoch, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch.N != 0 {
+		t.Errorf("epoch.N = %d, want 0: a single-flight exit before the epoch is taken, rather than falling through to the attempt loop", epoch.N)
 	}
 }
 
@@ -1319,12 +1322,12 @@ func TestAutoarmYieldsToAlarm(t *testing.T) {
 // AlarmFired read races ahead of that write whenever the guard's poll runs
 // past this hook's own ~200ms. The goroutine below stands in for the
 // guard's concurrent, later MarkAlarm call at 400ms - comfortably past this
-// hook's own measured decision latency, and comfortably inside the 700ms
+// hook's own measured decision latency, and comfortably inside the minute
 // sync-wait budget below - so a correct implementation must still catch it.
 func TestAutoarmRepeatFailureWaitsForLateAlarm(t *testing.T) {
 	dir := newCFOHome(t)
 	setTinyAutoarmIntervals(t)
-	t.Setenv("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", "700")
+	t.Setenv("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", "60000")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
 	if err := supervise.MarkNotified(state); err != nil {

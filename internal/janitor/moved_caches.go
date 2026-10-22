@@ -56,7 +56,9 @@ func (cfg Config) retireMovedCaches(record *Record) {
 }
 
 // terminalStartedBefore names a task whose terminal started before moved and
-// still runs, or "" when there is none.
+// still runs, or "" when there is none. A record names its host by pid, and
+// Windows reuses pids, so the pid counts only while the process holding it
+// started no later than the host recorded itself, as host.Running judges it.
 func (cfg Config) terminalStartedBefore(moved time.Time) string {
 	for _, task := range cfg.Inventory.Tasks {
 		if task.Meta.Backend == "herdr" && !task.Terminal {
@@ -67,7 +69,7 @@ func (cfg Config) terminalStartedBefore(moved time.Time) string {
 			continue
 		}
 		for _, process := range cfg.Inventory.Processes {
-			if process.PID == terminal.HostPID && process.Start.Before(moved) {
+			if process.PID == terminal.HostPID && !process.Start.After(terminal.Started) && process.Start.Before(moved) {
 				return task.ID
 			}
 		}

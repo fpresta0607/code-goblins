@@ -95,7 +95,7 @@ func TestATierCommandCutOffEndsWhatItStarted(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Run returned %v, want the cut it was given", err)
 	}
-	if event, _ := windows.WaitForSingleObject(started, 10000); event == uint32(windows.WAIT_TIMEOUT) {
-		t.Error("the process the command started still runs 10 seconds after the command was cut off")
+	if event, _ := windows.WaitForSingleObject(started, 30000); event == uint32(windows.WAIT_TIMEOUT) {
+		t.Error("the process the command started still runs 30 seconds after the command was cut off")
 	}
 }

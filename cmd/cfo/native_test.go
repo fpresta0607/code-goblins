@@ -47,6 +47,68 @@ func TestNativeHookEntrySpoolsIdentityWithoutPayloadSecrets(t *testing.T) {
 	}
 }
 
+// Claude Code raises SubagentStart only as its Agent tool starts a subagent,
+// with that agent's type, and SubagentStop as any agent ends, its own forked
+// agents with no type among them. The supervisor never accepts a stop no
+// start preceded, so the hook spools none for an untyped agent and still
+// spools a typed subagent's (issue #1212).
+func TestTheClaudeHookSpoolsASubagentStopOnlyForASubagentItStarted(t *testing.T) {
+	for _, test := range []struct {
+		name, agentType string
+		isSpooled       bool
+	}{
+		{"Claude Code's own agent", "", false},
+		{"an Agent tool subagent", "Explore", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			dir := filepath.Join(root, "state")
+			clearNativeCFOEnvironment(t)
+			t.Setenv("CFO_ROLE", "goblin")
+			t.Setenv("CFO_TASK_ID", "fixture")
+			t.Setenv("CFO_SPAWN_GEN", "g1")
+			payload, err := json.Marshal(map[string]any{"hook_event_name": "SubagentStop", "session_id": "parent-session", "agent_id": "a0123456789abcdef", "agent_type": test.agentType, "stop_hook_active": false, "cwd": root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output, diagnostics bytes.Buffer
+
+			// Act
+			exit := runNativeHook([]string{"claude", "--home", root, "--state", dir}, bytes.NewReader(payload), &output, &diagnostics, commandRuntime{})
+
+			// Assert
+			if exit != 0 || strings.TrimSpace(output.String()) != "{}" {
+				t.Fatalf("exit=%d output=%q diagnostics=%q, want {} and exit 0", exit, output.String(), diagnostics.String())
+			}
+			files, err := os.ReadDir(nativehook.SpoolDir(dir))
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if !test.isSpooled {
+				if len(files) != 0 {
+					t.Fatalf("spooled %d events for a stop no start preceded, want none", len(files))
+				}
+				return
+			}
+			if len(files) != 1 {
+				t.Fatalf("spooled %d events for a typed subagent's stop, want one", len(files))
+			}
+			data, err := os.ReadFile(filepath.Join(nativehook.SpoolDir(dir), files[0].Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var event nativehook.Event
+			if err := json.Unmarshal(data, &event); err != nil {
+				t.Fatal(err)
+			}
+			if event.Kind != "settled" || event.Role != "subagent" || event.SessionID != "a0123456789abcdef" || event.ParentSessionID != "parent-session" || event.AgentType != test.agentType {
+				t.Fatalf("wrong event %s", data)
+			}
+		})
+	}
+}
+
 // A Codex CFO's SessionStart in a native terminal registers that terminal, as
 // it registers a Herdr pane.
 func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
@@ -62,7 +124,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 		_ = host.Run(dir, host.Spec{ID: "cfo", Args: []string{shell, "/d", "/q", "/k"}, Cols: 80, Rows: 24})
 	}()
 	var record host.Record
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if record, err = host.ReadRecord(dir, "cfo"); err == nil {
 			break
 		}
@@ -77,7 +139,7 @@ func TestACodexCFOStartingInANativeTerminalRegisters(t *testing.T) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})

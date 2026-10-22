@@ -92,7 +92,7 @@ func TestTreeHoldsNoProcessThatHasExited(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer windows.CloseHandle(process)
-	if event, err := windows.WaitForSingleObject(process, uint32((10 * time.Second).Milliseconds())); err != nil || event != windows.WAIT_OBJECT_0 {
+	if event, err := windows.WaitForSingleObject(process, uint32(time.Minute.Milliseconds())); err != nil || event != windows.WAIT_OBJECT_0 {
 		t.Fatalf("the process did not exit: %d, %v", event, err)
 	}
 

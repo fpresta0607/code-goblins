@@ -36,6 +36,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
   const isStanding = shown.selection === standing.selection && (shown.selection !== "other" || shown.written.trim() === standing.written.trim());
   const who = standingWho(question, draft, snapshot.actions);
   const warning = changeWarning(question, snapshot);
+  const canChange = connected && !!payload && !isStanding && !draft.sending;
   const pick = (selection: string) => onDraft({ selection, error: "" });
   return <form className="question-card change-card" aria-labelledby={"change-" + question.id} onSubmit={(event) => { event.preventDefault(); if (payload && !isStanding) onChange(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asked · {age(question.created_at)}</span></p>
@@ -46,14 +47,14 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
         <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       <label className="question-choice"><input type="radio" name={"change-" + question.id} checked={shown.selection === "other"} onChange={() => onDraft({ selection: "other", written: shown.selection === "other" ? shown.written : standing.written, error: "" })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>
-      {shown.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} />}
+      {shown.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} onSubmit={() => { if (canChange) onChange(); }} />}
     </fieldset>
     <p className="question-outcome answered-by" role="status"><AnswerMark who={who.mark} />{who.label}{who.at && " · " + age(who.at)}</p>
     {warning && <p className="change-warning">{warning}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager || <button type="button" className="icon-button raised" aria-label="Close" data-tip="Close" onClick={onClose}><Icon name="close" /></button>}
-      <button className="primary send-decision" type="submit" disabled={!connected || !payload || isStanding || draft.sending}><Icon name="edit" />Change answer</button>
+      <button className="primary send-decision" type="submit" disabled={!canChange}><Icon name="edit" />Change answer</button>
     </div>
   </form>;
 }

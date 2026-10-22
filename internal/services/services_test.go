@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
@@ -14,6 +16,8 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 const gigabyte = uint64(1) << 30
@@ -31,6 +35,10 @@ type fakeDocker struct {
 	engineCost  uint64
 	serviceCost uint64
 	upErr       error
+	// failures are the containers that did not come up, which Failed reads
+	// while the stack has any, and failedErr is what it fails with.
+	failures  []Failure
+	failedErr error
 	// upHook runs as compose up begins, such as a build taking memory, and
 	// upWait then holds compose up while its build runs, ending it with
 	// what it returns.
@@ -144,6 +152,18 @@ func (f *fakeDocker) Up(ctx context.Context, _ Compose, services []string) error
 		f.start(service)
 	}
 	return nil
+}
+
+func (f *fakeDocker) Failed(context.Context, Compose) ([]Failure, error) {
+	f.calls = append(f.calls, "failed")
+	if f.failedErr != nil {
+		return nil, f.failedErr
+	}
+	// A stack taken down took its containers and their logs with it.
+	if !f.engine || len(f.running) == 0 {
+		return nil, nil
+	}
+	return f.failures, nil
 }
 
 func (f *fakeDocker) Down(_ context.Context, _ Compose, services []string) error {
@@ -626,15 +646,127 @@ func TestAFailedStartStopsWhatItStarted(t *testing.T) {
 	_, err := h.service.Up(context.Background(), h.checkout, "task-a", 0)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "backend exited 1") {
-		t.Fatalf("err = %v, want the start's failure", err)
+	if err == nil || !strings.Contains(err.Error(), "backend exited 1") || strings.Contains(err.Error(), "saved") {
+		t.Fatalf("err = %v, want the start's failure, with nothing saved when no service failed", err)
 	}
-	if want := []string{"start-engine", "up backend,worker-light", "down ", "stop-engine"}; !slices.Equal(h.docker.calls, want) {
+	if want := []string{"start-engine", "up backend,worker-light", "failed", "down ", "stop-engine"}; !slices.Equal(h.docker.calls, want) {
 		t.Errorf("docker calls = %v, want %v", h.docker.calls, want)
 	}
 	record := h.record(t)
 	if record.Stacks["PrecisionDocs-AI"].IsUp() || record.Stacks["PrecisionDocs-AI"].Owned || record.Engine.StartedByCFO {
 		t.Errorf("record = %+v, want nothing left held or owned", record)
+	}
+}
+
+// A start whose service comes up unhealthy saves what that service says of
+// itself to the task's folder before it stops the stack, which takes the
+// container and its log with it, and its failure names the file. On
+// 2026-10-20 two such starts left nothing to read (#1209).
+func TestAFailedStartSavesWhatItsFailedServicesSaidBeforeItStops(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	folder := filepath.Join(h.service.StateDir, "tasktmp", "task-a")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.docker.upErr = errors.New("container precisiondocs-ai-backend-1 is unhealthy")
+	h.docker.failures = []Failure{{
+		Service:   "backend",
+		Container: "precisiondocs-ai-backend-1",
+		State:     `{"Status": "running", "Health": {"Status": "unhealthy", "Log": [{"ExitCode": 7, "Output": "curl: (7) Failed to connect to localhost port 8000"}]}}`,
+		Log:       "2026-10-08T14:00:01.000000000Z ModuleNotFoundError: No module named 'app.settings'",
+	}}
+
+	// Act
+	_, err := h.service.Up(context.Background(), h.checkout, "task-a", 0)
+
+	// Assert
+	if want := []string{"start-engine", "up backend,worker-light", "failed", "down ", "stop-engine"}; !slices.Equal(h.docker.calls, want) {
+		t.Errorf("docker calls = %v, want %v", h.docker.calls, want)
+	}
+	path := filepath.Join(folder, "services-PrecisionDocs-AI-20261008T140000Z.log")
+	if err == nil || !strings.Contains(err.Error(), "is unhealthy") || !strings.Contains(err.Error(), "the state and log of backend are saved in "+path) {
+		t.Fatalf("err = %v, want the start's failure naming %s", err, path)
+	}
+	saved, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, want := range []string{"is unhealthy", "backend, container precisiondocs-ai-backend-1", "curl: (7) Failed to connect", "No module named 'app.settings'"} {
+		if !strings.Contains(string(saved), want) {
+			t.Errorf("saved %q, want it to hold %q", saved, want)
+		}
+	}
+	cleanup := state.CleanupLockName("task-a")
+	if _, err := lock.AcquireExclusiveNamed(h.service.StateDir, cleanup); err != nil {
+		t.Errorf("the task's cleanup lock is still held after the save: %v", err)
+	} else if err := lock.ReleaseExclusiveNamed(h.service.StateDir, cleanup); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A failed start whose failed services cannot be saved stops all the same,
+// and its failure says why nothing was saved.
+func TestAFailedStartThatCannotSaveItsFailedServicesStopsAndSaysWhy(t *testing.T) {
+	cases := []struct {
+		name    string
+		arrange func(t *testing.T, h *harness)
+		want    string
+		wantIs  error
+	}{
+		{
+			name: "docker cannot read them",
+			arrange: func(t *testing.T, h *harness) {
+				h.docker.failedErr = errors.New("docker compose ps exited 1: the engine went away")
+			},
+			want: "the engine went away",
+		},
+		{
+			name: "the task's cleanup holds its folder",
+			arrange: func(t *testing.T, h *harness) {
+				if _, err := lock.AcquireExclusiveNamed(h.service.StateDir, state.CleanupLockName("task-a")); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(h.service.StateDir, state.CleanupLockName("task-a")) })
+			},
+			want: "the task's cleanup holds its folder",
+		},
+		{
+			name: "the task's folder is gone",
+			arrange: func(t *testing.T, h *harness) {
+				_ = os.RemoveAll(filepath.Join(h.service.StateDir, "tasktmp", "task-a"))
+			},
+			wantIs: os.ErrNotExist,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+			if err := os.MkdirAll(filepath.Join(h.service.StateDir, "tasktmp", "task-a"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			h.docker.upErr = errors.New("container precisiondocs-ai-backend-1 is unhealthy")
+			h.docker.failures = []Failure{{Service: "backend", Container: "precisiondocs-ai-backend-1", State: "{}", Log: "starting"}}
+			tc.arrange(t, h)
+
+			// Act
+			_, err := h.service.Up(context.Background(), h.checkout, "task-a", 0)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "is unhealthy") || !strings.Contains(err.Error(), "what its failed services said could not be saved") || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want the start's failure and why nothing was saved (%q)", err, tc.want)
+			}
+			if tc.wantIs != nil && !errors.Is(err, tc.wantIs) {
+				t.Errorf("err = %v, want it to be %v", err, tc.wantIs)
+			}
+			if want := []string{"start-engine", "up backend,worker-light", "failed", "down ", "stop-engine"}; !slices.Equal(h.docker.calls, want) {
+				t.Errorf("docker calls = %v, want %v", h.docker.calls, want)
+			}
+			if record := h.record(t); record.Stacks["PrecisionDocs-AI"].Owned || record.Engine.StartedByCFO {
+				t.Errorf("record = %+v, want nothing left owned", record)
+			}
+		})
 	}
 }
 
@@ -901,13 +1033,13 @@ func TestAStopAfterAFinishedStartMeasuresOnlyItsOwnRise(t *testing.T) {
 }
 
 // buildUntilEnded is a build that runs until it is ended. It gives up after
-// ten seconds, so a start that never ends it fails rather than hangs.
+// a minute, so a start that never ends it fails rather than hangs.
 func buildUntilEnded(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(10 * time.Second):
-		return errors.New("the build ran ten seconds and nothing ended it")
+	case <-time.After(time.Minute):
+		return errors.New("the build ran a minute and nothing ended it")
 	}
 }
 
@@ -988,9 +1120,9 @@ func TestTheReliefRunsOnItsIntervalWhileABuildRuns(t *testing.T) {
 	h.service.ReliefEvery = every
 	h.docker.reliefDelay = every * 3 / 2
 	h.docker.upWait = func(context.Context) error {
-		for deadline := time.Now().Add(10 * time.Second); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
 			if time.Now().After(deadline) {
-				return errors.New("three reliefs did not run in ten seconds")
+				return errors.New("three reliefs did not run in a minute")
 			}
 		}
 		return nil
@@ -1030,9 +1162,9 @@ func TestAFailedReliefIsSaidOnceAndTheStartGoesOn(t *testing.T) {
 	h.service.ReliefEvery = time.Millisecond
 	h.docker.reliefErr = errors.New("wsl.exe exited 1: There is no distribution with the supplied name.")
 	h.docker.upWait = func(context.Context) error {
-		for deadline := time.Now().Add(10 * time.Second); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); len(h.docker.reliefsSoFar()) < 3; time.Sleep(time.Millisecond) {
 			if time.Now().After(deadline) {
-				return errors.New("three reliefs did not run in ten seconds")
+				return errors.New("three reliefs did not run in a minute")
 			}
 		}
 		return nil

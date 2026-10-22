@@ -65,6 +65,7 @@ A no-mistakes build that cannot apply a selection refuses the launch before it t
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
 Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
+It runs `axi sync --recover` first only when the paused run holds gate commits it never pushed, since no-mistakes refuses that recovery for a run whose head is its push binding, and for one whose goblin then pushed follow-up commits over that head; such a run is restarted from the branch as its goblin left it.
 It holds to the driver's checks as well.
 A resume whose replacement run cannot be given its agents, such as one coming back on pi, starts no run and says why.
 A paused task frozen before v6 restarts its run only while the machine config still matches its policy, and is otherwise refused with the `cfo pipeline migrate <id>` that clears it, as `cfo pipeline run` refuses it.
@@ -96,7 +97,8 @@ A task frozen before the fallback was named takes it with `cfo pipeline migrate 
 
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
-The installer pins the upstream release 1.75.1, which has no launch assertion at all, so the checked-in `config/pipeline.json` stays at v5 and a fresh install gates as before.
+The install puts in the build of that fork `install.ps1` pins, commit `bcbb444`, the head of its pull request 9, which carries pull requests 4 and 5, and each release builds and signs it beside its own programs.
+The checked-in `config/pipeline.json` stays at v5, so a fresh install gates as before until the policy moves to v6.
 no-mistakes proves Codex and Claude Code selections only, so a pi goblin has no gate under v6: `cfo spawn` refuses a pi task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to pi.
 
 A cycle means one repair followed by another review, after the initial review.
@@ -216,7 +218,11 @@ Agents must use the driver for managed tasks and must not invoke native mutation
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
 For pipeline-owned recovery, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
-The stale recorded commit must be an ancestor of that preserved head.
+The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
+A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
+The driver accepts such a head only as a pure rebase: its first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
+A gate fix commit or conflict resolution on the rebase, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
+A run under `rebase.strategy: merge` integrates with a merge commit instead, which this proof does not cover, and is refused.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
@@ -231,7 +237,7 @@ Native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
-Pipeline-owned recorded-head repair requires strict ancestry.
+Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
@@ -543,9 +549,13 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
-While a process starts or exits, Windows can briefly count a different number of a job's members than it lists, so `internal/proc.JobProcessIDs` reads the list again at 1 ms intervals, for up to 250 ms, until its count and its length agree.
-A job whose list never agrees in that time is unreadable and the sample fails.
-A list whose count and length disagree is never used, by a sample or by an end that spares a machine service, which goes by the list to show that nothing else still runs before it lets the job's handle close.
+Windows lists no process that a job nested in a job is ending, from the moment that end begins until the process is done, and counts it either no more or for as long as its threads take to end, so `internal/proc.JobProcessIDs` returns the list with how many more members the job counts than it lists.
+A headless Chrome puts most of its processes each in a job of its own, which ends them once the browser has ended: such a process left its browser's job's list with up to 21 threads not yet ended and was done up to 2.5 s later, while the job counted it beyond the list for up to 474 ms or not at all, and a browser run pinned to four busy processors kept the count above the list for over 250 ms, which once ended its run (issues 1025 and 1066).
+A process that exits, ends itself, or is ended by its handle or by the job it runs in stays listed until it has ended.
+A sample takes the list as it is.
+An end that spares a machine service goes by what the job holds to show that nothing else still runs, so it also reads the machine's processes for the job's members the list leaves out: `internal/proc.EndJob`, which `End`, `EndAndWait`, a terminal's close and a browser login's end use, is done only once those have ended too, within the end's own deadline, and a goblin's stop ends them as it ends any other process in its terminal's job.
+It reads the machine again only once each process it ended has exited: on a machine whose cores other work fills those exits take a while and one read can take seconds, so a read begun before them found them still there and the next began past the end's deadline, which then named them as outliving it (issue 1275).
+`EndAndWait` also lets the job's handle close only once the job counts nothing beyond the list.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
 Recovery uses `TerminateAndWait`, which spares nothing.
@@ -685,6 +695,13 @@ It exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise.
 A machine with no runner installed is asked, finds no pipe, and says nothing, and trouble with a runner that is installed is said once an hour in `<state>\ci-runner\watch.log`.
 `cfo ci-runner status` says whether a job runs and how the last one ended.
 
+A hosted job moves to the desktop only once its desktop copy has matched it run after run, and the record of that is the parity record.
+The copies run in a mirror workflow of the repository's own, `desktop-mirror.yml`, which a CI run's completion starts and which reports on the default branch's head, never on a pull request's, so no copy waiting for the desktop holds a merge.
+Its run is titled `Desktop mirror of CI run <id>`, and its job `desktop-<name>` copies the job `<name>` of that CI run on the very merge the hosted job tested: the hosted job's log names it, `HEAD is now at <sha> Merge <head> into <base>`, and the copy's, `desktop mirror: Merge <head> into <base>`.
+`cfo ci-runner parity --repo <owner/name>` reads the mirror's newest finished runs and adds each pair it does not hold yet to `<state>\ci-runner\parity\<owner>-<name>.json`: both conclusions, pytest's counts from each log's summary line, the merge each tested, their times, and from the watcher's log of the desktop job's turn, found by the runner it named, how long the turn waited and what held the line.
+A pair matches when both copies tested the same merge, concluded the same and counted the same, and the desktop's run was not lost.
+It prints, for each job, how many runs in a row matched up to the newest, how many desktop runs were lost and the newest difference, and once 20 in a row matched, that the hosted job may retire, which stays the Supreme Overlord's decision.
+
 ## Before a push
 
 `cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.
@@ -747,7 +764,7 @@ This is the pick for a change to three files of `internal/supervisor`:
 ```text
 cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
 1. imports of 5 packages and their tests (an import cycle fails every test of its package)
-2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills)
+2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name)
 3. guard tests of cmd/cfo (they read every command main.go dispatches)
    - TestEveryCommandSaysWhetherItActsAsTheCFO
    - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose

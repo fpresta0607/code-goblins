@@ -50,8 +50,6 @@ export interface Task extends Evaluation {
   model: string;
   effort: string;
   mode: string;
-  route_lane?: string;
-  route_reason?: string;
   generation: string;
   session: string;
   // waits is what a queued task's row still waits for before the scheduler
@@ -168,8 +166,9 @@ export interface DevDriveView { state: string; line: string; note: string; expla
 // cancelled when they ended with one cancelled, and passed when all passed;
 // failed names the checks that failed or were cancelled and link is the first
 // one's page, or while they run the first running one's; approved says a
-// reviewer approved the pull request.
-export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; link: string; approved: boolean }
+// reviewer approved the pull request; rate_limited names the deploys the host
+// rate limited, which never built the head and checks leaves out.
+export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; rate_limited: string[]; link: string; approved: boolean }
 // LocalChecks is the newest cfo gate test run of a task's change: the commit,
 // the level it ran and the one required, passed or failed, how long it took
 // and waited for its turn, and the packages or commands that failed.
@@ -212,8 +211,10 @@ export interface Person { login: string; name: string; avatar_url: string }
 // Overlap is one piece of a teammate's open work, such as "PR #1446", that
 // changes the files a goblin's branch changes or names its area.
 export interface Overlap extends Person { what: string; url: string }
-// ProjectPeople are the people other than the Overlord, bots aside, active in
-// a project's repository in the last 30 days, most recent first.
+// ProjectPeople is a project on the board whose origin is on GitHub: its
+// repository, and the people other than the Overlord, bots aside, who
+// committed to its default branch or opened a pull request in it in the last
+// 30 days, most recent first, none while only he works there.
 export interface ProjectPeople { name: string; repository: string; contributors: Person[] }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
@@ -237,12 +238,22 @@ export interface PauseCondition { reason: string; until: string; at: string }
 export interface Wait { kind: string; target: string; until: string; bytes: number; problem: string }
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
-// at which the next queued task starts; with the kernel's pools and, while
-// commit is the tighter, the apps holding the most of it.
+// at which the next queued task starts; with the kernel's pools, the line past
+// which the PC is better restarted (0 when the snapshot names none) and the
+// pool tags that grew most since the sign-in began, and, while commit is the
+// tighter, the apps holding the most of it.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
-  paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
+  paged_pool: number; nonpaged_pool: number; pool_line: number; pool_growth: PoolGrowth[];
+  floor: number; next: number; holders: CommitHolder[];
 }
+// PoolGrowth is a kernel pool tag that grew in one pool, paged or nonpaged,
+// since the sign-in began: how much, and how much it holds now.
+export interface PoolGrowth { tag: string; pool: string; grown: number; holds: number }
+// PCRestart is the restart of the PC his Restart PC began: stopping while the
+// fleet stops, restarting once Windows was asked to, and stopped when it
+// stopped short, with the problem.
+export interface PCRestart { state: "stopping" | "restarting" | "stopped"; problem: string; at: string }
 // CIDuration is how long one finished CI run or deploy took in a repository.
 export interface CIDuration { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
@@ -347,6 +358,9 @@ export interface Snapshot {
   cfo_terminal_since: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  // The registered CFO's session, as sessions key it; empty while no CFO is
+  // registered or its registration names no session.
+  cfo_session: string;
   // The conversation the CFO could not resume when it last came back, and how
   // to resume it by hand; empty when it came back on its own.
   cfo_conversation_left: string;
@@ -392,6 +406,8 @@ export interface Snapshot {
   browser_signins?: BrowserSignIn[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // pc_restart is absent until the Overlord's Restart PC began one.
+  pc_restart: PCRestart | null;
   ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
@@ -399,8 +415,8 @@ export interface Snapshot {
   processors: Processors | null;
   gpu: Gpu | null;
   afk: Afk;
-  // projects names who else works in each collaborative project, by the
-  // project name tasks carry.
+  // projects names each live GitHub project's repository and the people
+  // active there, by the project name tasks carry.
   projects: ProjectPeople[];
   // release is a newer published release, or any where this board was built
   // from a clone; null when there is none or the check is off.
@@ -435,6 +451,9 @@ export interface Question {
   answered_option: string; answered_by: string; answered_at: string;
   // task names the goblin that asked; it is empty for the CFO's own question.
   task: string;
+  // for_task names the goblin whose decision the CFO's own question puts to
+  // him (cfo question --for); it is empty for a goblin's question.
+  for_task: string;
   // answered_in says where an answer given outside its card came from, such
   // as "chat".
   answered_in: string;
@@ -446,7 +465,13 @@ export interface Question {
   // change_id is his board action changing the CFO's answer to his own, and
   // replaced_answer the CFO's choice it replaced once the goblin has his.
   answered_away: boolean; change_id: string; replaced_answer: string;
+  // mail is a message the question gives him to send himself, null for none.
+  mail: Mail | null;
 }
+// A message a card gives the Overlord to send himself, such as an email:
+// where it goes, an email address or an https page ("" when the card does not
+// say), its subject ("" for none) and its body, which his card copies whole.
+export interface Mail { to: string; subject: string; body: string }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
 export interface Review {
@@ -454,6 +479,11 @@ export interface Review {
   // link is the web link a goblin's wait gave as the place to go, the only
   // one its card opens.
   link: string;
+  // follows is the ID of the open decision a goblin's wait on him followed
+  // when it was raised, the CFO's question for its task or the goblin's own
+  // with choices: the board shows only that question while it is open, and
+  // its answer closes the wait.
+  follows: string;
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
@@ -484,6 +514,9 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
+  // remote_fix is the row of the Remote access setting whose mending command
+  // the Overlord ran from it, which draws its terminal.
+  remote_fix: string;
   // task is the goblin whose own command this is, empty for the CFO's;
   // terminal is whether the item's terminal runs, which its card draws.
   task: string; terminal: boolean;
@@ -493,6 +526,12 @@ export interface Run {
   // cfo_unwoken is the oldest wake the supervisor could not type into the CFO,
   // on the item that offers the Overlord Restart the CFO; 0 on every other.
   cfo_unwoken: number;
+  // cfo_stopped marks the item that says the supervisor stopped bringing back
+  // a CFO that kept ending, or could not bring it back, and offers him Reopen
+  // the CFO.
+  cfo_stopped: boolean;
+  // mail is a message the item gives him to send himself, null for none.
+  mail: Mail | null;
 }
 // A newer release of Code Goblins, as the Update item offers it: the version
 // this board runs and the one it installs, when that was published, a few
@@ -545,6 +584,8 @@ export interface CredentialRequest {
   created_at: string; expires_at: string; closed_at: string;
   // fetch is what the card offers to fetch from a reviewed key page, null for none.
   fetch: CredentialFetch | null;
+  // mail is a message the card gives him to send himself, null for none.
+  mail: Mail | null;
 }
 // What a request's card offers to fetch: the names a reviewed key page
 // reads, by provider and the login a fetch reads with, a fetch running now
@@ -654,6 +695,11 @@ export function number(value: unknown): number {
     throw new Error("Invalid response number");
   return value;
 }
+function pcRestartState(value: unknown): PCRestart["state"] {
+  const state = string(value);
+  if (state !== "stopping" && state !== "restarting" && state !== "stopped") throw new Error("Invalid restart state");
+  return state;
+}
 export function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("Invalid response boolean");
   return value;
@@ -687,6 +733,11 @@ function parseRuntime(value: unknown): RuntimeEvidence | undefined {
 function parseHarnessUpdate(update: Record<string, unknown>): HarnessUpdate {
   return { harness: string(update.harness), line: update.line === undefined ? "" : string(update.line), installed: update.installed === undefined ? "" : string(update.installed) };
 }
+function parseMail(value: unknown): Mail | null {
+  if (value == null) return null;
+  const m = object(value);
+  return { to: string(m.to), subject: string(m.subject), body: string(m.body) };
+}
 function parseCredentialRequest(value: unknown): CredentialRequest {
   const c = object(value);
   const services: Record<string, string[]> = {};
@@ -705,6 +756,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), fetched: strings(c.fetched), written: strings(c.written), reason: string(c.reason),
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
     fetch: c.fetch == null ? null : (() => { const f = object(c.fetch); return { provider: string(f.provider), login: string(f.login), names: strings(f.names), state: string(f.state), reason: string(f.reason) }; })(),
+    mail: parseMail(c.mail),
   };
 }
 function parseAfkHeld(value: unknown): AfkHeld {
@@ -727,11 +779,11 @@ function itemLists(v: Record<string, unknown>) {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), answered_in: string(q.answered_in),
-        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer) };
+        answered_away: q.answered_away === undefined ? false : boolean(q.answered_away), change_id: string(q.change_id), replaced_answer: string(q.replaced_answer), for_task: string(q.for_task), mail: parseMail(q.mail) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), follows: string(r.follows), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, download }) => ({ name: string(name), size: number(size), kind: string(kind), download: download === true }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         answered_by: string(r.answered_by), answered_in: string(r.answered_in), window_closed_at: string(r.window_closed_at), revising_since: string(r.revising_since),
@@ -743,10 +795,10 @@ function itemLists(v: Record<string, unknown>) {
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
-        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken),
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names), remote_fix: string(r.remote_fix),
+        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken), cfo_stopped: r.cfo_stopped === undefined ? false : boolean(r.cfo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
-          notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)) };
+          notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)), mail: parseMail(r.mail) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     browser_signins: array(v.browser_signins).map((value): BrowserSignIn => {
@@ -816,6 +868,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    cfo_session: v.cfo_session === undefined ? "" : string(v.cfo_session),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
@@ -827,11 +880,14 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     cfo_configured: v.cfo_configured === undefined ? false : boolean(v.cfo_configured),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
-      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
+      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
+      pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
+      floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
+    pc_restart: v.pc_restart == null ? null : ((restart) => ({ state: pcRestartState(restart.state), problem: string(restart.problem), at: string(restart.at) }))(object(v.pc_restart)),
     ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
@@ -872,8 +928,6 @@ export function parseSnapshot(value: unknown): Snapshot {
         backend: string(t.backend),
         model: string(t.model),
         effort: string(t.effort),
-        route_lane: string(t.route_lane),
-        route_reason: string(t.route_reason),
         mode: string(t.mode),
         generation: string(t.generation),
         session: string(t.session),
@@ -902,7 +956,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
-        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
+        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), rate_limited: strings(c.rate_limited), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),
         ...(t.deployment == null ? {} : { deployment: ((d) => ({ commit: string(d.commit), state: string(d.state), workflows: strings(d.workflows), link: string(d.link), at: string(d.at) }))(object(t.deployment)) }),

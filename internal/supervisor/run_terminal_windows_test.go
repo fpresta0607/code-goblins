@@ -271,19 +271,23 @@ func TestAnElevatedRunStartsItsHostHiddenThroughWindows(t *testing.T) {
 }
 
 // A run's terminal is shown only while its command runs, and a credential
-// request's terminal, where values are typed, only to the board's own page on
-// this PC.
+// request's terminal, where values are typed, and a Remote access fix's,
+// which only this PC runs, only to the board's own page on this PC.
 func TestARunTerminalViewOpensOnlyWhileItsCommandRuns(t *testing.T) {
 	store, h := testStore(t)
 	s := &Service{Store: store, Instance: "instance", done: make(chan struct{}), Options: Options{Runs: &fakeRunLauncher{started: liveStart(t)}}}
 	server := runBoard(t, s)
 	ready := commandRun(t, store, strings.Repeat("c", 64), "ready-item-1", "powershell", "Write-Output ready\n", false)
 	credential := commandRun(t, store, strings.Repeat("d", 64), "credential-0123456789", "powershell", "Write-Output values\n", false)
+	fix := commandRun(t, store, strings.Repeat("e", 64), "remote-fix-0123456789", "powershell", "Write-Output mended\n", false)
 	store.mu.Lock()
 	store.db.Runs[1].CredentialRequest = "request-1"
+	store.db.Runs[2].RemoteFix = "tailscale"
 	store.mu.Unlock()
 	pressRun(t, s, credential, "press-credential")
 	hostTerminal(t, runDir(h.State, credential), runTerminal)
+	pressRun(t, s, fix, "press-fix")
+	hostTerminal(t, runDir(h.State, fix), runTerminal)
 	if err := s.finishRuns(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -297,6 +301,7 @@ func TestARunTerminalViewOpensOnlyWhileItsCommandRuns(t *testing.T) {
 		"a command not running":  {query: "run=" + ready.ID + "&token=instance", reason: "This command is not running.", code: websocket.StatusNormalClosure},
 		"an unknown command":     {query: "run=missing-item-1&token=instance", reason: "This command is not running.", code: websocket.StatusNormalClosure},
 		"values through a proxy": {query: "run=" + credential.ID + "&token=instance", header: "Tailscale-User-Login", reason: "Values are typed only on the board's own page on this PC.", code: websocket.StatusPolicyViolation},
+		"a fix through a proxy":  {query: "run=" + fix.ID + "&token=instance", header: "Tailscale-User-Login", reason: "Remote access is mended only on the board's own page on this PC.", code: websocket.StatusPolicyViolation},
 	} {
 		t.Run(name, func(t *testing.T) {
 			conn, _, err := dialNativeWith(server, view.query, view.header)
@@ -318,7 +323,7 @@ func TestARunTerminalViewOpensOnlyWhileItsCommandRuns(t *testing.T) {
 // dialNativeWith opens a view from the board's own origin with header set,
 // as a proxy in front of the board sets it.
 func dialNativeWith(server *httptest.Server, query, header string) (*websocket.Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	headers := http.Header{"Origin": {server.URL}}
 	if header != "" {

@@ -62,6 +62,9 @@ async function open(page: Page, goblins: object[], name: string) {
 // A card is found by its goblin's name, since another's status can name the
 // same goblin as the one it waits on.
 async function select(page: Page, name: string) {
+  // On a phone an open panel covers the board, and Back returns to it.
+  const back = page.getByRole("button", { name: "Back to Board", exact: true });
+  if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: name }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(name);
   const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
@@ -71,16 +74,17 @@ async function select(page: Page, name: string) {
 const panel = (page: Page) => page.locator(".goblin-panel");
 
 // Each pause reason the supervisor records, by the status the panel reads
-// for it. Every one says what resumes the goblin, so nothing under it does.
+// for it. Every one says Paused and why, never Waiting (the Overlord,
+// 2026-10-16), so nothing under it says so again.
 const PAUSES: [string, { reason: string; until?: string } | undefined, string | RegExp][] = [
-  ["Mabel", { reason: "memory" }, "Memory: resumes at 5 GB free"],
-  ["Nettle", { reason: "allowance", until: "2026-10-10T07:00:00Z" }, /^Allowance: resumes /],
-  ["Quill", { reason: "question", until: "q-7" }, "Waiting for your answer"],
-  ["Cogsworth", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Waiting on CI"],
-  ["Dross", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Waiting on deploy"],
-  ["Pip", { reason: "dependency", until: "pr:https://github.com/o/r/pull/331" }, "Waiting on PR #331 to merge"],
-  ["Datura", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, /^Resumes /],
-  ["Tansy", { reason: "dependency", until: "task:pd-whats-new" }, "Waiting on Bernie - Merge Maestro"],
+  ["Mabel", { reason: "memory" }, "Paused for memory"],
+  ["Nettle", { reason: "allowance", until: "2026-10-10T07:00:00Z" }, "Paused for allowance"],
+  ["Quill", { reason: "question", until: "q-7" }, "Paused until you answer"],
+  ["Cogsworth", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Paused until CI finishes"],
+  ["Dross", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Paused until its deploy finishes"],
+  ["Pip", { reason: "dependency", until: "pr:https://github.com/o/r/pull/331" }, "Paused until PR #331 merges"],
+  ["Datura", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, "Paused until Sat"],
+  ["Tansy", { reason: "dependency", until: "task:pd-whats-new" }, "Paused until Bernie delivers"],
 ];
 
 // What Chromium tells a screen reader about the element a selector finds.
@@ -109,8 +113,8 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
         // Act
         await select(page, name);
 
-        // Assert: the status says why it waits and what resumes it, and no
-        // line under it says so again.
+        // Assert: the status says Paused and why, and no line under it says
+        // so again.
         await expect(header.locator(".panel-status"), name).toHaveText(status);
         await expect(header.locator(".panel-activity"), name).toHaveCount(0);
         await expect(header, name).not.toContainText(/It (stays paused|resumes by itself)/);
@@ -128,10 +132,10 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       const header = panel(page).locator(".panel-header");
       const details = header.locator(".raw-details-text");
       const cases: [string, string, string, RegExp][] = [
-        ["Mabel", "Memory: resumes at 5 GB free", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
-        ["Tansy", "Waiting on Bernie - Merge Maestro", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
-        ["Datura", "Resumes ", did("Datura"), /^It resumes by itself on Oct \d+, \d+:00\s[AP]M\.$/],
-        ["Cogsworth", "Waiting on CI", did("Cogsworth"), /^It resumes by itself when its CI run finishes\.$/],
+        ["Mabel", "Paused for memory", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
+        ["Tansy", "Paused until Bernie delivers", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
+        ["Datura", "Paused until Sat", did("Datura"), /^It resumes by itself on Sat\.$/],
+        ["Cogsworth", "Paused until CI finishes", did("Cogsworth"), /^It resumes by itself when its CI run finishes\.$/],
         ["Bernie", "Paused by you", "PR 1523 is green. Answering the two review notes on the connector page.", /^It stays paused until you resume it\.$/],
         ["Old", "Paused", did("Old"), /^It stays paused until you resume it\.$/],
       ];

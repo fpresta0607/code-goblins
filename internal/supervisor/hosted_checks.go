@@ -12,21 +12,23 @@ import (
 // passed. Failed names the checks that failed or were cancelled, and Link is
 // the first one's page, or while they are pending the first running one's,
 // the run that tests the pull request. Approved says a reviewer approved the
-// pull request.
+// pull request. RateLimited names the deploys the host rate limited, which
+// never built the head and count as not run, so Checks leaves them out.
 type HostedChecks struct {
-	Head     string    `json:"head"`
-	State    string    `json:"state"`
-	Checks   int       `json:"checks"`
-	Failed   []string  `json:"failed,omitempty"`
-	Link     string    `json:"link,omitempty"`
-	Approved bool      `json:"approved,omitempty"`
-	At       time.Time `json:"at"`
+	Head        string    `json:"head"`
+	State       string    `json:"state"`
+	Checks      int       `json:"checks"`
+	Failed      []string  `json:"failed,omitempty"`
+	RateLimited []string  `json:"rate_limited,omitempty"`
+	Link        string    `json:"link,omitempty"`
+	Approved    bool      `json:"approved,omitempty"`
+	At          time.Time `json:"at"`
 }
 
 // recordHostedChecks keeps what pr's checks say now, or forgets pr when it has
 // none, which leaves nothing for its card to show. Checks that all concluded
 // skipped or neutral are none: a draft's run skips its jobs, and they tested
-// nothing.
+// nothing. So are those a deploy the host rate limited joins.
 func recordHostedChecks(w *fleetWakes, pr ghPullRequest, now time.Time) {
 	if !slices.ContainsFunc(pr.Checks, func(check ghCheck) bool { return !check.concluded() || check.hasRun() }) {
 		delete(w.Hosted, pr.URL)
@@ -42,6 +44,10 @@ func recordHostedChecks(w *fleetWakes, pr ghPullRequest, now time.Time) {
 			if runningLink == "" {
 				runningLink = check.link()
 			}
+			continue
+		case check.rateLimited():
+			hosted.Checks--
+			hosted.RateLimited = append(hosted.RateLimited, check.name())
 			continue
 		case check.passed():
 			continue

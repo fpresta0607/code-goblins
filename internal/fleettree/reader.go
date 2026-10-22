@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // Reader reads goblins' trees. It keeps what it has read of each goblin's
@@ -58,6 +59,9 @@ type Reader struct {
 	// Console reads the process id of the host of the console a process is
 	// attached to; nil reads it through Windows.
 	Console func(pid int) (int, error)
+	// HeavyLine reads the machine's heavy line: the runs that hold a turn
+	// and the runs that wait for one. Nil reads none.
+	HeavyLine func() (holding, waiting []verify.Standing, err error)
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
@@ -131,6 +135,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	tree := Tree{TaskID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Children: []Node{}, FetchedAt: now}
 
 	processes, harness, isRunning, isReused, processErr := r.harnessOf(goblin)
+	harness = r.withoutLinkBrowsers(harness)
 	switch {
 	case processErr != nil:
 		tree.Unread = append(tree.Unread, "processes: "+processErr.Error())
@@ -178,7 +183,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		}
 	case "pi":
 		// pi 0.85 records no sub-agents and no background jobs; only its
-		// conversation's last write is read, when the terminal names it.
+		// conversation's last write is read.
 		tree.ConversationAt = WrittenAt(path)
 	}
 	if isRunning {
@@ -191,7 +196,14 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 				child.LastLine = "ended with an earlier run of its harness"
 			}
 		}
-		jobs, err := r.jobNodes(harness, commands, tree.Children, now)
+		var line heavyLine
+		if r.HeavyLine != nil {
+			var err error
+			if line.holding, line.waiting, err = r.HeavyLine(); err != nil {
+				tree.Unread = append(tree.Unread, "heavy line: "+err.Error())
+			}
+		}
+		jobs, err := r.jobNodes(harness, commands, tree.Children, line, now)
 		if err != nil {
 			tree.Unread = append(tree.Unread, "listening ports: "+err.Error())
 		}
@@ -210,8 +222,8 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		// replacing its own process, which leaves the program no parent, so
 		// a detached job counts in the child whose processes host the console
 		// it is attached to.
-		detached := r.detachedJobs(meta.ID, processes, harness)
-		left, _ := r.jobNodes(harnessProcesses{jobs: detached}, commands, tree.Children, now)
+		detached := r.withoutLinkBrowsers(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)})
+		left, _ := r.jobNodes(detached, commands, tree.Children, line, now)
 		for i := range left {
 			node := &left[i]
 			node.Detached = true
@@ -220,7 +232,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 			}
 			tree.Memory += node.Memory
 			if node.Parent == "" {
-				node.Parent = countsIn[r.console(detached[i].root.PID)]
+				node.Parent = countsIn[r.console(detached.jobs[i].root.PID)]
 			}
 		}
 		jobs = append(jobs, left...)
@@ -315,10 +327,11 @@ func (r *Reader) harnessOf(goblin Goblin) (processes []Process, harness harnessP
 
 // conversation is the goblin's own conversation file: the session its
 // terminal names, else the one the board recorded for its generation, else
-// for Claude Code the one its running process records for itself, and for
-// Codex its worktree's rollout written last; for Claude Code never merely the
-// newest in its folder. metas is every Codex rollout read, among which a
-// Codex goblin's children are.
+// for Claude Code the one its running process records for itself, for Codex
+// its worktree's rollout written last, and for pi its worktree's session
+// written last, once written since its running pi started; for Claude Code
+// never merely the newest in its folder. metas is every Codex rollout read,
+// among which a Codex goblin's children are.
 func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Process, isRunning bool) (string, map[string]rolloutMeta) {
 	session := goblin.Session
 	if session == "" && r.Recorded != nil {
@@ -334,6 +347,9 @@ func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Proces
 		metas := r.rollouts(ctx)
 		return r.codexConversation(ctx, goblin.Meta.Worktree, session, metas), metas
 	case "pi":
+		if session == "" {
+			return r.piSession(goblin.Meta.Worktree, harness), nil
+		}
 		return SessionTranscript(r.Home, "pi", session), nil
 	}
 	return "", nil
@@ -353,8 +369,10 @@ func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
 // is in, as the harness records it itself, for a switch that resumes it when
 // the board recorded none: Claude Code's record of its own process, or the
 // Codex rollout of the goblin's worktree written last, never a child
-// agent's nor a codex exec's. It is empty while the harness does not run, and for pi, whose
-// conversation no switch resumes.
+// agent's nor a codex exec's, or the pi session of the goblin's worktree
+// written last, once written since pi started: pi writes a session only when
+// its first reply ends, so until then the newest is an earlier pi's. It is
+// empty while the harness does not run.
 func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -377,8 +395,21 @@ func (r *Reader) provedSession(ctx context.Context, goblin Goblin, harness Proce
 		return claudeProcessSession(r.Home, harness)
 	case "codex":
 		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
+	case "pi":
+		return piSessionID(r.piSession(goblin.Meta.Worktree, harness))
 	}
 	return ""
+}
+
+// piSession is the pi session of worktree written last, once written since
+// harness started: pi writes a session only when its first reply ends, so
+// until then the newest is an earlier pi's.
+func (r *Reader) piSession(worktree string, harness Process) string {
+	path := newestFile(PiSessions(r.Home, worktree))
+	if WrittenAt(path).Before(harness.Started) {
+		return ""
+	}
+	return path
 }
 
 // claudeLog keeps one log per goblin, read on from where it stopped while
@@ -439,7 +470,7 @@ func claudeProcessSession(home string, harness Process) string {
 // jobNodes are the jobs the harness started, each with what it is doing,
 // its memory and whether it is using the processor. err says the listening
 // ports could not be read, so no job reads as a dev server.
-func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, children []Node, now time.Time) ([]Node, error) {
+func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, children []Node, line heavyLine, now time.Time) ([]Node, error) {
 	if len(harness.jobs) == 0 {
 		return nil, nil
 	}
@@ -491,7 +522,7 @@ func (r *Reader) jobNodes(harness harnessProcesses, commands map[string]string, 
 		if reading.isWorking {
 			state = Working
 		}
-		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts)}
+		node := Node{ID: fmt.Sprintf("process:%d:%d", job.root.PID, job.root.Created), Kind: KindProcess, Group: group, Label: label, Detail: detail, Task: commandTask(facts.commands[job.root.PID]), State: state, Started: job.root.Started, LastActivity: reading.busy, Memory: job.memory(), SourceUpdatedAt: now, cpu: cpu, process: job.name(), heavyRun: job.isHeavyRun(facts), lineMovedAt: line.movedFor(job)}
 		// A machine service a goblin started works for every goblin, as the
 		// no-mistakes daemon runs every gate's agents: it is shown at work,
 		// and its processor use is no goblin's work.
@@ -752,6 +783,7 @@ func mergeShells(children []Node) []Node {
 				child.process = job.process
 			}
 			child.heavyRun = child.heavyRun || job.heavyRun
+			child.lineMovedAt = later(child.lineMovedAt, job.lineMovedAt)
 			if job.Group != GroupOther {
 				child.Group = job.Group
 			}
@@ -840,7 +872,7 @@ type RecordedSession struct {
 // when session proves no such thing, so nothing reads another task's
 // conversation as this one's.
 func Owned(meta state.TaskMeta, session RecordedSession) string {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude" && meta.Harness != "pi") {
 		return ""
 	}
 	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
@@ -855,7 +887,7 @@ func Owned(meta state.TaskMeta, session RecordedSession) string {
 // proved, for the same generation and harness. A record that cannot be read
 // is an error, never taken as none.
 func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude" && meta.Harness != "pi") {
 		return "", nil
 	}
 	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +36,17 @@ import (
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --run <command.ps1|command.sh>
+//	cfo notify <task-id> --waiting-on overlord "<why>" --follows <question-id> | --separate
+//	cfo notify <task-id> --blocked "<question> options: <answer> | <answer>" --message-file <message.txt>
+//
+// While a decision for the goblin is open, its own question with choices or
+// the CFO's question for it (cfo question --for), a wait on the Overlord
+// declares what it is: --follows <question-id> when it is that decision, so it
+// is hidden while the decision is open and closed by its answer, or
+// --separate when it is a card of its own, as a wait that opens a page, a
+// link, a file it delivered or a command always is. One that declares
+// neither is refused, recording nothing, and names each open decision;
+// nothing ever guesses it.
 //
 // A wait or a question whose answer is a command the Overlord must run, such
 // as a sign-in, names the command's file with --run: his Command Center shows
@@ -42,6 +54,11 @@ import (
 // in a terminal on that card, where he types into it. A .ps1 file runs in
 // Windows PowerShell and a .sh file in Git Bash, in the goblin's worktree,
 // never elevated; the goblin is told how it ended.
+//
+// A question with choices, or a command, can also carry a message the
+// Overlord sends himself, such as an email, read from --message-file: its
+// card shows the body with Copy, so he never opens a file. A question
+// with choices carries it; a command's run card carries it otherwise.
 //
 // A wait on the Overlord leads with one sentence, and the values he must
 // enter somewhere follow it as a Markdown table, each value in backticks:
@@ -86,6 +103,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
 	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a terminal on his card, where he types into it")
+	follows := fs.String("follows", "", "with --waiting-on overlord, the question ID of a decision open for you, your own question with choices or the CFO's question for you, when this wait is that decision: it is hidden while the decision is open and closed by its answer; one of --follows or --separate is required while a decision for you is open")
+	separate := fs.Bool("separate", false, "with --waiting-on overlord, this wait is a card of its own, not a decision open for you, as a wait with --lavish, --link or --run, or one beside a file you delivered, always is; one of --follows or --separate is required while a decision for you is open")
+	messageFile := fs.String("message-file", "", "with a --blocked question with choices or with --run, "+messageFileUsage)
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
@@ -139,6 +159,13 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		}
 		verb, detail = "waiting on "+target, positional[0]
 	}
+	// Only a question, a failure and a wait on the Overlord wake the CFO, so
+	// a question with choices in any other report reaches nobody, and the
+	// goblin waits on it unseen (#984).
+	if (verb == "working" || strings.HasPrefix(verb, "waiting on ") && verb != "waiting on overlord") && wake.OffersChoices(detail) {
+		fmt.Fprintf(stderr, "cfo notify: this report asks a question with choices, and %s wakes nobody; ask it as cfo notify %s --blocked \"<one short question> options: <answer> (Recommended) | <answer>\", or, for a choice you can undo, take it and say which with --working\n", verb, id)
+		return 2
+	}
 	// The record joins the question's lines, so its choices are put last
 	// while its line breaks still show where they end.
 	if verb == "blocked" || verb == "failed" {
@@ -151,6 +178,21 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if _, options, asked := wake.Question(wake.Record{Kind: "notify", Detail: verb + ": " + detail}); asked {
 		if err := choicesAreAnswers(options); err != nil {
 			fmt.Fprintln(stderr, "cfo notify: "+err.Error())
+			return 2
+		}
+	}
+	// Only a wait on the Overlord says whether it is a decision open for him,
+	// and only one that opens nothing can be that decision.
+	if *follows != "" || *separate {
+		switch {
+		case verb != "waiting on overlord":
+			fmt.Fprintln(stderr, "cfo notify: --follows and --separate go with --waiting-on overlord: they say whether the wait is a decision open for him or a card of its own")
+			return 2
+		case *follows != "" && *separate:
+			fmt.Fprintln(stderr, "cfo notify: --follows and --separate do not go together: the wait is that decision or a card of its own")
+			return 2
+		case *follows != "" && (*lavish != "" || *link != "" || *run != ""):
+			fmt.Fprintln(stderr, "cfo notify: --follows goes with a wait that opens nothing: a wait with --lavish, --link or --run is a card of its own, so give --separate instead")
 			return 2
 		}
 	}
@@ -203,6 +245,27 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 2
 		}
 	}
+	// The message is read before anything is recorded, for the card that
+	// shows it: the question's when it offers choices, else the run card's.
+	var questionMail, runMail *supervisor.Mail
+	if *messageFile != "" {
+		_, options, _ := wake.Question(wake.Record{Kind: "notify", Detail: verb + ": " + detail})
+		isQuestionCard := verb == "blocked" && len(options) > 0
+		if !isQuestionCard && runCommand == "" {
+			fmt.Fprintln(stderr, "cfo notify: --message-file goes with a --blocked question with choices or with --run: it puts the message on that card. For a step only he takes, such as sending an email, file cfo auth request --message-file")
+			return 2
+		}
+		mail, err := supervisor.ReadMail(*messageFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo notify: --message-file %v\n", err)
+			return 2
+		}
+		if isQuestionCard {
+			questionMail = mail
+		} else {
+			runMail = mail
+		}
+	}
 	var page, pageURL string
 	if *lavish != "" {
 		if verb != "waiting on overlord" {
@@ -228,6 +291,45 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	// While a decision for the goblin is open the Overlord sees only that
+	// decision, so a wait on him declares whether it is that decision before
+	// anything is recorded: a need he never sees stalls the goblin, and an
+	// extra card does not, so nothing guesses it.
+	if verb == "waiting on overlord" {
+		decisions, err := supervisor.OpenDecisions(h.State, id)
+		if err != nil {
+			fmt.Fprintln(stderr, "cfo notify: the decisions open for you cannot be read, so this wait gets a card of its own: "+err.Error())
+			*follows = ""
+		}
+		var open strings.Builder
+		for _, q := range decisions {
+			first, _, _ := strings.Cut(q.Text, "\n")
+			fmt.Fprintf(&open, "  %s: %s\n", q.ID, strings.TrimSpace(first))
+		}
+		switch isOpen := slices.ContainsFunc(decisions, func(q supervisor.Question) bool { return q.ID == *follows }); {
+		case *follows != "" && !isOpen && len(decisions) == 0:
+			fmt.Fprintf(stderr, "cfo notify: --follows %s names no decision open for %s, and none is, so this wait is a card of its own: leave --follows out\n", *follows, id)
+			return 2
+		case *follows != "" && !isOpen:
+			fmt.Fprintf(stderr, "cfo notify: --follows %s names no decision open for %s. The open ones are:\n%sGive --follows with one of those IDs if this wait is that decision, or --separate if it is a card of its own.\n", *follows, id, open.String())
+			return 2
+		case *follows == "" && !*separate && len(decisions) > 0:
+			fmt.Fprintf(stderr, "cfo notify: a decision for %s is open for the Overlord, so say what this wait is:\n%sGive --follows <id> if this wait is that decision: it is hidden while the decision is open and closed by its answer. Give --separate if it is a card of its own.\n", id, open.String())
+			return 2
+		}
+		// A wait beside a file the goblin delivered opens that file, as a
+		// page or a link does, so it is a card of its own.
+		if *follows != "" {
+			file, err := supervisor.OpenDeliveredFile(h.State, id)
+			if err != nil {
+				fmt.Fprintln(stderr, "cfo notify: your delivered files cannot be read, so this wait gets a card of its own: "+err.Error())
+				*follows = ""
+			} else if file != "" {
+				fmt.Fprintf(stderr, "cfo notify: your delivered file %s is open, and a wait beside it opens that file, so it is a card of its own: give --separate instead of --follows\n", file)
+				return 2
+			}
+		}
 	}
 	// While AFK mode is on the CFO answers a goblin's page in the Overlord's
 	// place: the wait is the goblin's question to the CFO, with the choices
@@ -266,6 +368,12 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			defer fmt.Fprintf(stdout, "You left running %s. End each you no longer need by its pid now, with Stop-Process -Id <pid>, or taskkill /PID <pid> /T /F to end one with what runs under it, and never by its name.\n", named)
 		}
 	}
+	// A helper's question goes to its parent's terminal, where no card shows
+	// a message.
+	if *messageFile != "" && page == "" && helperReport(id, parent, verb, line) != "" {
+		fmt.Fprintf(stderr, "cfo notify: --message-file puts a message on a card, and %s's report goes to its parent %s's terminal instead\n", id, parent)
+		return 2
+	}
 	// Images are checked before anything is recorded, so a bad path fails the
 	// whole notify instead of waking the CFO with a question the Overlord
 	// cannot see.
@@ -279,6 +387,32 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: "+err.Error())
 			return 1
 		}
+	}
+	// A wait beside the goblin's own open step card is that card, whose close
+	// the goblin hears through its own wait on it: a second card would ask him
+	// for the same step again. A wait on a page is its own card, since only its
+	// card gets the page polled.
+	stepCard := ""
+	if verb == "waiting on overlord" && runCommand == "" && page == "" {
+		if stepCard, err = supervisor.OpenStepCard(h.State, id); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: your open step cards cannot be read, so none stands for this wait: "+err.Error())
+		}
+	}
+	// A card in his Command Center asks him something or lets him act, so a
+	// wait on him that names nothing he acts on, no page, link, command, step
+	// card, delivered file or open decision, gets none: it reaches the CFO
+	// alone, which says so on its line. On 2026-10-18 he met such waits as
+	// cards with nothing to press but Skip.
+	isBare := false
+	if verb == "waiting on overlord" && runCommand == "" && page == "" && *link == "" && *follows == "" && stepCard == "" {
+		file, err := supervisor.OpenDeliveredFile(h.State, id)
+		if err != nil {
+			fmt.Fprintln(stderr, "cfo notify: your delivered files cannot be read, so none stands for this wait: "+err.Error())
+		}
+		isBare = file == ""
+	}
+	if isBare {
+		line += " (no card: it names nothing he acts on)"
 	}
 	if err := state.AppendStatus(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
@@ -348,15 +482,23 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// is that card alone, and a question keeps its card beside it.
 	if runCommand != "" {
 		why, _, _ := strings.Cut(strings.TrimSpace(detail), "\n")
-		if err := supervisor.PublishGoblinRun(h, id, record.Seq, why, runShell, runCommand); err != nil {
+		if err := supervisor.PublishGoblinRun(h, id, record.Seq, why, runShell, runCommand, runMail); err != nil {
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
 		}
 	}
 	switch {
 	case verb == "waiting on overlord" && runCommand != "":
 		// Its run card is the wait.
+	case verb == "waiting on overlord" && stepCard != "":
+		// Its step card is the wait.
+	case verb == "waiting on overlord" && isBare:
+		// The CFO has it, and nothing goes to his Command Center.
 	case verb == "waiting on overlord":
-		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link); err != nil {
+		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link, *follows); err != nil {
+			if errors.Is(err, supervisor.ErrPageHeld) {
+				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v); the CFO has the wait, so wait on the CFO for his answer\n", err)
+				return 1
+			}
 			if page != "" {
 				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
 				return 1
@@ -364,13 +506,19 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
 	default:
-		if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), pageURL, images); err != nil {
+		if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), pageURL, page, images, questionMail); err != nil {
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 		}
 	}
 	// The board shows the report now, not at its next refresh.
 	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+	if stepCard != "" {
+		fmt.Fprintf(stdout, "Your step card %s is open, so it stands for this wait in the Command Center and no second card was opened. Wait on it in the background with cfo auth request --wait-on %s --task %s, which ends when the card closes. If you wait on him for something that card does not ask, ask it once the card closes.\n", stepCard, stepCard, id)
+	}
+	if isBare {
+		fmt.Fprintf(stdout, "No card went to the Overlord's Command Center: this wait names nothing he acts on there, so the CFO alone has it. To put the step itself in front of him, notify again with --run <command.ps1|command.sh> for a command he runs, --lavish <page.html> for a page he answers, or --link <https-url> for the page he takes it on, or file cfo auth request for a sign-in, a value or another step only he takes. A decision goes to the CFO: cfo notify %s --blocked \"<question>\".\n", id)
+	}
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.
 	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {

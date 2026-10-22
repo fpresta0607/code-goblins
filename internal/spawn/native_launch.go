@@ -1,6 +1,7 @@
 package spawn
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,10 +17,12 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -63,6 +66,9 @@ var (
 	// a turn waits for the harness's record to show it taken, in case the
 	// tool call running was ending.
 	nativeQueuedProof = 5 * time.Second
+	// nativeStartingPress is how often Enter is pressed again while a harness
+	// turns its instruction away as still starting.
+	nativeStartingPress = time.Second
 )
 
 // maxDialogMoves bounds the focus moves one dialog takes.
@@ -106,7 +112,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if !ok {
 		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
-	untrusted, working, err := s.awaitNativeReady(ctx, record, screens, launch.Resumed)
+	untrusted, working, err := s.awaitNativeReady(ctx, record, screens)
 	if err != nil {
 		return err
 	}
@@ -117,14 +123,20 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	}
 	// A resumed conversation that came back in a turn is at work on its task
 	// already, so its instruction is not typed a second time.
-	if working {
+	if working && launch.Resumed {
 		return nil
 	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
 		return err
 	}
-	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
+	err = s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
+	// A new goblin in a turn holds its instruction for that turn, as a
+	// harness holds any text typed into one.
+	if working && errors.Is(err, fleet.ErrQueuedForToolCall) {
+		return nil
+	}
+	return err
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a
@@ -171,13 +183,15 @@ func instructionPointer(path string) string {
 // from a screen that shows none. The composer counts as ready once it has
 // read so throughout nativeReadySettle: Codex 0.154 drew its composer, then
 // its hook review over it a second later, and a brief typed at the first sight
-// of the composer went into the review. A resumed conversation can come back
-// in a turn, its status row showing it working, as a Codex goblin with a
-// background terminal running did live; once that has held as long as a
-// composer must, it has started and working says so. It returns what a
-// dialog answered without trust left untrusted, in the dialog's own words, or
-// nothing.
-func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens, resumed bool) (untrusted string, working bool, err error) {
+// of the composer went into the review. A harness can be in a turn when it is
+// read, its status row showing it working: a resumed conversation can come
+// back in one, as a Codex goblin with a background terminal running did live,
+// and a new goblin is in one once a cfo send that reached it before its
+// instruction starts it, as cg-cards-stay-open was on 2026-10-15 (#959). Once
+// that has held as long as a composer must, it has started and working says
+// so. It returns what a dialog answered without trust left untrusted, in the
+// dialog's own words, or nothing.
+func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (untrusted string, working bool, err error) {
 	deadline := time.Now().Add(nativeStartup)
 	ready, busy := 0, 0
 	for {
@@ -202,7 +216,7 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 		} else if ready++; ready > readySettleReads() {
 			return untrusted, false, nil
 		}
-		if !resumed || !screens.IsWorking(screen) {
+		if !screens.IsWorking(screen) {
 			busy = 0
 		} else if busy++; busy > readySettleReads() {
 			return untrusted, true, nil
@@ -343,16 +357,25 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // it to its model at its next tool call, never interrupting the call that
 // runs, and runs its prompt hook as it queues it, so only its own record of
 // the conversation proves it taken; with none soon after the submit the
-// error says it is queued for that tool call. Either way it is typed and
-// submitted once.
+// error says it is queued for that tool call. Either way it is typed once. A
+// Codex has its submit key pressed once, and a Claude Code once more only
+// once its composer shows that key taken as a new line: either can take the
+// key late, the text still showing in its composer, and a key pressed again
+// then would reach it after the instruction, as an empty submission. A
+// harness that turns it away as still starting, putting it back in its
+// composer, has not taken it: while its screen says so, and did not already
+// say so before the submit, Enter is pressed again until it does, for as long
+// as a harness's startup is given, and its time to show itself working counts
+// from the last press.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
 	}
 	busy := screens.IsWorking(before)
 	submitted := time.Now()
-	if err := s.submitNative(ctx, record, screens, instruction, launchSettle); err != nil {
+	atPress, err := s.submitNative(ctx, record, screens, instruction, launchSettle)
+	if err != nil {
 		return err
 	}
 	within := nativeAccepted
@@ -361,6 +384,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	}
 	deadline := time.Now().Add(within)
 	pressed, presses := time.Now(), 0
+	var startingSince, startingPressed time.Time
 	for {
 		if busy && s.Took != nil && s.Took(ctx, meta, instruction, submitted) {
 			return nil
@@ -377,16 +401,33 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if !busy && screens.IsWorking(screen) {
 			return nil
 		}
-		// A harness that takes the Enter ending a paste as part of it leaves
-		// the text in its composer: Enter is pressed again while the text
-		// still shows and no turn has started, further apart each time. An
-		// Enter on an empty composer submits nothing, so the text is never
-		// handed over twice.
-		if !busy && screens.PasteTakesEnter && presses < submitRetries && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
+		if !busy && !screens.IsStarting(before) && screens.IsStarting(screen) && !screens.ComposerEmpty(screen) {
+			if startingSince.IsZero() {
+				startingSince = time.Now()
+			}
+			if time.Since(startingSince) > nativeStartup {
+				return fmt.Errorf("spawn: native terminal %s was still starting %s after its harness first turned the instruction away; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
+			}
+			if time.Since(startingPressed) >= nativeStartingPress {
+				if err := pressNativeEnter(record); err != nil {
+					return err
+				}
+				startingPressed = time.Now()
+				deadline = startingPressed.Add(within)
+			}
+		}
+		// A harness that took the last Enter as a new line leaves the text in
+		// its composer over the row that Enter added to the screen as it was
+		// pressed: Enter is pressed again, as often as the harness's screens
+		// allow and further apart each time, while the text shows over that
+		// row and no turn has started. Text that shows over no new row may
+		// wait on an Enter the harness has not taken yet, so it gets none
+		// that would reach it after the instruction.
+		if !busy && presses < screens.Resubmits && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen) {
 			if err := pressNativeEnter(record); err != nil {
 				return err
 			}
-			pressed, presses = time.Now(), presses+1
+			atPress, pressed, presses = screen, time.Now(), presses+1
 		}
 		if time.Now().After(deadline) {
 			if busy {
@@ -415,21 +456,26 @@ func pressNativeEnter(record host.Record) error {
 
 // submitNative types the instruction into the harness's composer and submits
 // it settle after the composer shows it, since a dialog that opened meanwhile
-// would take the Enter as its answer.
-func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) error {
+// would take the Enter as its answer. It returns the screen as the Enter was
+// pressed.
+func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) ([]string, error) {
 	client, err := host.Dial(record)
 	if err != nil {
-		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: type into native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, err)
 	}
 	defer client.Close()
 	if err := client.Input([]byte(instruction)); err != nil {
-		return fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
 	}
 	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
-		return fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
 	if err := s.sleep(ctx, settle); err != nil {
-		return err
+		return nil, err
+	}
+	atPress, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return nil, err
 	}
 	submit := "\r"
 	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
@@ -437,9 +483,9 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		submit = "\x1b[F\r"
 	}
 	if err := client.Input([]byte(submit)); err != nil {
-		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
+		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
-	return nil
+	return atPress, nil
 }
 
 // awaitTyped reads the terminal's screen until it shows typed, for at most
@@ -566,17 +612,19 @@ func (s Service) readNativeScreen(ctx context.Context, record host.Record) ([]st
 	}
 }
 
-// nativeProgram is the command line a native terminal starts the harness with.
-// A harness installed as a script shim names it as its Executable and runs
-// through cmd /c, which finds it in the user environment the host runs with.
-// Any other must be a program: one found only as a script shim is refused.
+// nativeProgram is the command line a native terminal starts the harness with:
+// the program this process's PATH finds, where the spawn validated it, started
+// by its path, so the terminal, whose PATH is the user's, never starts another
+// (#1075). A harness installed as a script shim names it as its Executable and
+// runs through cmd /c. Any other must be a program: one found only as a script
+// shim is refused.
 func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
-	if launch.Executable != "" {
-		return cmdProgram(launch.Executable, launch.Args...)
-	}
-	path, err := exec.LookPath(string(kind))
+	path, err := exec.LookPath(cmp.Or(launch.Executable, string(kind)))
 	if err != nil {
 		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
+	}
+	if launch.Executable != "" {
+		return cmdProgram(path, launch.Args...)
 	}
 	if !strings.EqualFold(filepath.Ext(path), ".exe") {
 		return nil, fmt.Errorf("spawn: %s resolves to %s, which a native terminal cannot start without a shell", kind, path)
@@ -585,9 +633,12 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 }
 
 // NativeProgram is the command line a native terminal starts name with,
-// followed by args. CreateProcess runs only executables, so a .exe found on
-// PATH runs as itself, and anything else, such as the npm .cmd shims codex and
-// pi install, runs through cmd /c.
+// followed by args: the program this process's PATH finds, started by its
+// path, so a terminal or command whose PATH is the user's, such as the CFO's,
+// never starts another (#1155), and a name this PATH does not find is
+// refused. CreateProcess runs only executables, so a .exe runs as itself, and
+// anything else, such as the npm .cmd shims codex and pi install, runs
+// through cmd /c.
 func NativeProgram(name string, args ...string) ([]string, error) {
 	path, err := exec.LookPath(name)
 	if err != nil {
@@ -596,23 +647,42 @@ func NativeProgram(name string, args ...string) ([]string, error) {
 	if strings.EqualFold(filepath.Ext(path), ".exe") {
 		return append([]string{path}, args...), nil
 	}
-	return cmdProgram(name, args...)
+	return cmdProgram(path, args...)
 }
 
-// cmdProgram runs name with args through cmd /c, which exits with it. cmd
-// reads its command line itself, so an argument it would interpret is
-// refused.
-func cmdProgram(name string, args ...string) ([]string, error) {
-	for _, arg := range append([]string{name}, args...) {
+// cmdProgram runs the script at path with args through cmd /c, which exits
+// with it. cmd reads its command line itself, so an argument it would
+// interpret is refused. A path with a space in it is quoted on that line, and
+// once another argument is quoted too, cmd drops the path's opening quote and
+// runs the path's first word instead: such a path runs by its short name, and
+// one on a volume that keeps no short names is refused.
+func cmdProgram(path string, args ...string) ([]string, error) {
+	if strings.ContainsAny(path, " \t") {
+		long, err := windows.UTF16PtrFromString(path)
+		if err != nil {
+			return nil, fmt.Errorf("spawn: %s: %w", path, err)
+		}
+		buffer := make([]uint16, windows.MAX_LONG_PATH)
+		length, err := windows.GetShortPathName(long, &buffer[0], uint32(len(buffer)))
+		if err != nil {
+			return nil, fmt.Errorf("spawn: read the short name of %s: %w", path, err)
+		}
+		short := windows.UTF16ToString(buffer[:length])
+		if strings.ContainsAny(short, " \t") {
+			return nil, fmt.Errorf("spawn: %s has a space in its path and no short name without one, so cmd /c cannot start it by its path", path)
+		}
+		path = short
+	}
+	for _, arg := range append([]string{path}, args...) {
 		if arg == "" || strings.ContainsAny(arg, "\"&|<>^%!()\r\n") {
-			return nil, fmt.Errorf("spawn: %s's argument %q is one cmd would read as more than text", name, arg)
+			return nil, fmt.Errorf("spawn: %s's argument %q is one cmd would read as more than text", path, arg)
 		}
 	}
 	shell := os.Getenv("ComSpec")
 	if shell == "" {
 		shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
 	}
-	return append([]string{shell, "/c", name}, args...), nil
+	return append([]string{shell, "/c", path}, args...), nil
 }
 
 // inheritedSessionVariables name what a session marks its own processes with
@@ -636,7 +706,10 @@ var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
 // one, which win: the user's environment names the machine's installed home
 // and projects root, which for a second home on the machine are another's.
 // This block is how its credentials reach the harness at start, and the only
-// way they do.
+// way they do. A task's PATH begins with its codex guard folder, then the
+// guard folders the spawning process runs under, the one thing of its own
+// environment a terminal starts with: a rig in a goblin's terminal that
+// spawns a scratch home's goblin keeps the goblin's guard (codexguard).
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials auth.Result) []string {
 	names := map[string]string{}
@@ -670,12 +743,24 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	if s.ProjectsRoot != "" {
 		set(install.ProjectsRootVariable, s.ProjectsRoot)
 	}
+	own := ""
+	if id := launch.Env["CFO_TASK_ID"]; id != "" {
+		own = codexguard.Dir(s.StateDir, id)
+	}
+	if guards := codexguard.Chain(own, os.Getenv(codexguard.Variable)); guards != "" {
+		set(codexguard.Variable, guards)
+		path := guards
+		if userPath := values["PATH"]; userPath != "" {
+			path += string(os.PathListSeparator) + userPath
+		}
+		set(cmp.Or(names["PATH"], "PATH"), path)
+	}
 	env := make([]string, 0, len(values))
 	for upper, value := range values {
 		env = append(env, names[upper]+"="+value)
 	}
 	sort.Strings(env)
-	return env
+	return remoteaccess.LocalScrawlEnvironment(env)
 }
 
 // hasNativeVariable reports whether env, a native host environment, sets name

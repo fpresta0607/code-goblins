@@ -45,7 +45,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		registered, err := Register(stateDir, "", "session-1")
 		if err == nil {
 			record("registered " + registered)
@@ -62,7 +62,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	if err := windows.SetConsoleMode(windows.Handle(os.Stdin.Fd()), windows.ENABLE_VIRTUAL_TERMINAL_INPUT); err != nil {
 		os.Exit(2)
 	}
-	line, offer, swallowed := "", strings.HasPrefix(mode, "daybreak"), false
+	line, offer, hasPasteEnded := "", strings.HasPrefix(mode, "daybreak"), false
 	draw := func(isWorking bool) {
 		rows := []string{}
 		if offer {
@@ -99,7 +99,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		switch key {
 		case '\x1b':
 			// A key sent as a control sequence, such as End before Codex's
-			// submit, moves the cursor and leaves the line as it is.
+			// submit, ends a paste and leaves the line as it is.
 			if next, err := reader.Peek(min(1, reader.Buffered())); err == nil && len(next) == 1 && next[0] == '[' {
 				for {
 					final, err := reader.ReadByte()
@@ -110,6 +110,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 						break
 					}
 				}
+				hasPasteEnded = true
 				continue
 			}
 			record("escape")
@@ -126,8 +127,8 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				record("dialog-enter")
 				continue
 			}
-			if mode == "paste" && !swallowed {
-				swallowed = true
+			if mode == "paste" && !hasPasteEnded {
+				hasPasteEnded = true
 				record("paste-ended")
 				continue
 			}
@@ -185,7 +186,7 @@ func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("fixture registration = %q", lines)
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		record, err := host.ReadRecord(stateDir, "cfo")
 		if err != nil {
 			t.Fatal(err)

@@ -18,12 +18,14 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// Program and Window are the programs an update installs: the one program
-// the home runs as cfo.exe and goblins.exe, and the desktop window, which a
-// release ships from v0.4.0 on.
+// Program, Window and Hook are the programs an update installs: the one
+// program the home runs as cfo.exe and goblins.exe, the desktop window, which
+// a release ships from v0.4.0 on, and the hook program, cfo built as a
+// windowed program for the goblins' hooks.
 const (
 	Program = "cfo.exe"
 	Window  = "goblins-window.exe"
+	Hook    = "cfo-hook.exe"
 )
 
 // SignatureReader reads the Authenticode signature of the file at path as
@@ -35,10 +37,11 @@ type SignatureReader func(ctx context.Context, path string) (status, signer stri
 // matched the release's SHA256SUMS and, where the release names a publisher,
 // carried that publisher's valid signature.
 type Download struct {
-	// Program is cfo.exe, and Window the desktop window, or empty when the
-	// release ships none.
+	// Program is cfo.exe, and Window the desktop window and Hook the hook
+	// program, each empty when the release ships none.
 	Program string
 	Window  string
+	Hook    string
 	// Publisher is who the release says signed it, empty for an unsigned
 	// release.
 	Publisher string
@@ -92,7 +95,7 @@ func Fetch(ctx context.Context, client *http.Client, source Source, r Release, d
 		return Download{}, fmt.Errorf("release %s's SHA256SUMS lists no %s, so nothing was downloaded", r.Tag, Program)
 	}
 	checksums := map[string]string{}
-	for _, name := range []string{Program, Window} {
+	for _, name := range []string{Program, Window, Hook} {
 		_, listed := download.Sums[name]
 		if !listed {
 			continue
@@ -106,7 +109,7 @@ func Fetch(ctx context.Context, client *http.Client, source Source, r Release, d
 	if checking != nil {
 		checking()
 	}
-	for _, name := range []string{Program, Window} {
+	for _, name := range []string{Program, Window, Hook} {
 		want, listed := download.Sums[name]
 		if !listed {
 			continue
@@ -124,14 +127,17 @@ func Fetch(ctx context.Context, client *http.Client, source Source, r Release, d
 		if err := os.Rename(partial, path); err != nil {
 			return Download{}, err
 		}
-		if name == Program {
+		switch name {
+		case Program:
 			download.Program = path
-		} else {
+		case Window:
 			download.Window = path
+		default:
+			download.Hook = path
 		}
 	}
 	for name := range download.Sums {
-		if name != Program && name != Window {
+		if name != Program && name != Window && name != Hook {
 			delete(download.Sums, name)
 		}
 	}

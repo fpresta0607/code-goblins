@@ -37,17 +37,20 @@ import (
 // instead of denying or failing the request.
 func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// The goblin hooks run in a goblin's own Claude Code, which starts with
-	// them (install.GoblinHooks), and for a goblin alone: they sit above the
-	// checks that keep every other hook to the CFO.
+	// them (install.GoblinHooks: the key alarm runs inside the native hook
+	// after every tool call), its own Codex, whose launch carries its seal
+	// (nativehook.CodexGoblinArguments), and its own pi, whose extension
+	// does (install.GoblinPiExtension), and for a goblin alone: they sit
+	// above the checks that keep every other hook to the CFO.
 	switch name {
-	case "goblin-seal", "goblin-key-alarm":
+	case "goblin-seal", "goblin-seal-codex", "goblin-seal-pi", "goblin-key-alarm":
 		if os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
 			return 0
 		}
-		if name == "goblin-seal" {
-			return hookGoblinSeal(stdin, stderr)
+		if name == "goblin-key-alarm" {
+			return hookGoblinKeyAlarm(stdin)
 		}
-		return hookGoblinKeyAlarm(stdin)
+		return hookGoblinSeal(name, stdin, stdout, stderr)
 	}
 	// A goblin is never supervised by the CFO's hooks: it is the work being
 	// supervised. Until the hooks moved to user scope this held by accident

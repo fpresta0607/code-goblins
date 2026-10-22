@@ -39,10 +39,23 @@ test.describe("on a wide screen", () => {
     expect(new Set(tops).size).toBe(1);
     const paused = inProgress(page).getByRole("region", { name: "Paused", exact: true });
     await expect(paused.getByRole("heading", { name: /^Paused/ })).toHaveText("Paused1");
-    await expect(paused.getByRole("button", { name: "Resume paused-one" })).toBeVisible();
-    await expect(paused.getByRole("button", { name: "Stop paused-one" })).toBeVisible();
+    await expect(paused.getByText("paused-one")).toBeVisible();
+    await expect(paused.getByRole("button", { name: "Stop paused-one" })).toHaveCount(0);
     const lastWorking = (await inProgress(page).locator(".task-card-shell").filter({ hasText: "working-two" }).boundingBox())!;
     expect((await paused.boundingBox())!.y).toBeGreaterThan(lastWorking.y + lastWorking.height);
+  });
+
+  // The Overlord, 2026-10-16: "remove all pause, stop. buttons as well as
+  // edit and stop buttons from the Goblin Board cards". A card shows its
+  // goblin, project, status and pull request, and a click opens its panel;
+  // the actions live there alone.
+  test("no goblin card carries an action button, in any column", async ({ page }) => {
+    await open(page, [...BOARD, task("delivered-one", "done", { verified: true, merged: true, pr: "https://github.com/o/r/pull/9" })]);
+    for (const name of ["Tasks", "In progress", "Paused", "Completed"]) {
+      const column = page.getByRole("region", { name, exact: true });
+      await expect(column.locator(".task-card-shell").first()).toBeVisible();
+      await expect(column.getByRole("button", { name: /^(Start|Adjust|Remove|Pause|Resume|Stop|Update|Cancel the update of) / })).toHaveCount(0);
+    }
   });
 
   test("with nothing paused there is no divider", async ({ page }) => {
@@ -162,7 +175,8 @@ test("past ten goblins In progress still shows every card, with its paused tasks
   await page.setViewportSize({ width: 2400, height: 1100 });
   const working = Array.from({ length: 12 }, (_, index) => task("working-" + (index + 1), "working"));
   await open(page, [...working, task("paused-one", "paused")]);
-  await expect(inProgress(page).locator("[data-sort-id]")).toHaveCount(12);
+  // The working list's cards; the Paused group under it drags its own.
+  await expect(inProgress(page).locator(".task-cards.ranked").first().locator("[data-sort-id]")).toHaveCount(12);
   await expect(inProgress(page).locator(".pager")).toHaveCount(0);
   const last = (await inProgress(page).locator("[data-sort-id='working-12']").boundingBox())!;
   const paused = (await inProgress(page).getByRole("region", { name: "Paused", exact: true }).boundingBox())!;

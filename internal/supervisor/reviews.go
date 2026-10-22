@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -72,6 +74,13 @@ type Review struct {
 	// Link is the web link a goblin's wait gives as where the Overlord goes,
 	// the only link its card opens.
 	Link string `json:"link,omitempty"`
+	// Follows is the decision a goblin's wait on him that opens nothing
+	// follows, by its question's ID, which the goblin declared as it raised
+	// the wait (cfo notify --follows): the CFO's question for its task (cfo
+	// question --for) or the goblin's own with choices. The board shows only
+	// that question while it is open, and its answer closes the wait. A wait
+	// that declares none is its own card, whatever is open.
+	Follows string `json:"follows,omitempty"`
 	// Document is a delivered file, copied beside the Scrawl page that shows
 	// it, which is the item's page.
 	Document *ReviewDocument `json:"document,omitempty"`
@@ -129,6 +138,9 @@ func validReview(r Review) error {
 			return errors.New("a review's Scrawl page must be the absolute path of an HTML page, beside its link")
 		}
 	}
+	if r.Follows != "" && (r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") || r.Lavish != "" || r.Link != "" || len(r.Follows) < 8 || len(r.Follows) > 128 || strings.ContainsAny(r.Follows, "\x00\r\n")) {
+		return errors.New("only a goblin's wait that opens nothing follows a decision, named by its question's ID")
+	}
 	if r.Document != nil {
 		if len(r.ImageSums) > 0 || r.Link != "" {
 			return errors.New("a delivered file carries no images or link beside its Scrawl page")
@@ -144,7 +156,7 @@ func sameReview(a, b Review) bool {
 	if a.Document != nil || b.Document != nil {
 		return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Document != nil && b.Document != nil && *a.Document == *b.Document
 	}
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && slices.Equal(a.ImageSums, b.ImageSums)
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && a.Follows == b.Follows && slices.Equal(a.ImageSums, b.ImageSums)
 }
 
 // reviewImageDir holds one publication's copied images, named by position, or
@@ -176,12 +188,19 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
-// link, is polled by the supervisor for his feedback. While AFK mode is on a
-// goblin's item with a page is that goblin's question to the CFO instead,
-// which answers it in his place.
+// link, is polled by the supervisor for his feedback; a Scrawl link given
+// without its page is polled on the page lavish-axi serves there. While AFK
+// mode is on a goblin's item with a page is that goblin's question to the CFO
+// instead, which answers it in his place.
 func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
 	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
 		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
+	}
+	if lavish != "" && page == "" {
+		var err error
+		if page, err = servedPage(lavish); err != nil {
+			return err
+		}
 	}
 	if switched, err := afk.Read(h.State); taskID != "" && lavish != "" && err == nil && switched.On {
 		return askCFOOnPage(h, taskID, id, title, lavish, page, images)
@@ -193,11 +212,64 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 	}, nil)
 }
 
+// servedPage is the HTML page of the review session lavish-axi keeps at link,
+// whose address ends with /session/<key> on whichever of its addresses link
+// names, or "" for a link to no such session. A session that has ended is
+// refused: its card would open a page that says the review ended.
+func servedPage(link string) (string, error) {
+	session, found, err := (axi.Lavish{}).SessionAt(link)
+	if err != nil || !found {
+		return "", err
+	}
+	if session.Status == "ended" {
+		return "", EndedPage(link)
+	}
+	extension := strings.ToLower(filepath.Ext(session.File))
+	if !filepath.IsAbs(session.File) || filepath.Clean(session.File) != session.File || extension != ".html" && extension != ".htm" {
+		return "", nil
+	}
+	return session.File, nil
+}
+
+// RefuseEndedPage refuses a review of the HTML file page while the review
+// session lavish-axi keeps for it has ended, whoever ended it, as servedPage
+// refuses one given by its link: lavish-axi would open again, uninvited, a
+// page whose review an agent ended. lavish-axi keeps the file's real path, so
+// the session is found by the file it names, not by how page spells it, which
+// may be through a junction or by an 8.3 short name.
+func RefuseEndedPage(page string) error {
+	sessions, err := (axi.Lavish{}).Sessions()
+	if err != nil {
+		return err
+	}
+	given, err := os.Stat(page)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(sessions, func(session axi.PageSession) bool {
+		if session.Status != "ended" {
+			return false
+		}
+		kept, err := os.Stat(session.File)
+		return err == nil && os.SameFile(kept, given)
+	}) {
+		return EndedPage(page)
+	}
+	return nil
+}
+
+// EndedPage refuses a review of page, its Scrawl link or its HTML file, whose
+// review session has ended: its card would open a page that says so.
+func EndedPage(page string) error {
+	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with cfo review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
+}
+
 // askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
 // goblin's question while AFK mode is on, once for the item: a notify that
 // wakes the CFO with the item's title, the page's link and the choices the
 // page declares, and the question on the board, which is the CFO's to answer
-// and never waits on the Overlord. The item's images, which his card would
+// and never waits on the Overlord, though his own answer on the page, which
+// the supervisor watches, answers it too. The item's images, which his card would
 // show, are named for the CFO, which answers in his place; the goblin writes
 // no status line, as for any item.
 func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []string) error {
@@ -227,14 +299,45 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		return err
 	}
-	return SurfaceNotify(h.State, taskID, record, detail, link, nil)
+	return SurfaceNotify(h.State, taskID, record, detail, link, page, nil, nil)
+}
+
+// ErrPageHeld refuses an item whose page another reporter's open item
+// already shows: his answer on a page reaches the one reporter whose item
+// stands for it, so a second reporter's item would take it from the first.
+var ErrPageHeld = errors.New("another reporter's open item already shows that page")
+
+// refuseHeldPage refuses item r while another reporter's open item, the CFO's
+// or another goblin's, shows r's page. A reporter's own newer item for its
+// own page is its own. The caller holds the publish lock, so no other report
+// records the page between this check and r's record.
+func refuseHeldPage(stateDir string, r Review) error {
+	if r.LavishPage == "" {
+		return nil
+	}
+	reviews, err := reportedReviews(stateDir)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(reviews, func(held Review) bool {
+		return held.State == "open" && held.Task != r.Task && held.LavishPage != "" && pageKey(held.LavishPage) == pageKey(r.LavishPage)
+	})
+	if i < 0 {
+		return nil
+	}
+	reporter := "the CFO"
+	if reviews[i].Task != "" {
+		reporter = reviews[i].Task
+	}
+	return fmt.Errorf("%w: %s's item %s, and his answer on that page reaches %s, so there is nothing to publish", ErrPageHeld, reporter, reviews[i].ID, reporter)
 }
 
 // publishItem records r for its reporter, proven the way reviewReporter does.
 // stage fills in what r copies into dir and says whether it copied anything;
 // the copies move beside the item's record only once the item is new. placed,
 // when set, runs once they are in their own folder, before the item is
-// recorded, such as to open the page they hold.
+// recorded, such as to open the page they hold. A page another reporter's
+// open item shows is refused before anything is staged.
 func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool, error), placed func(r *Review, dir string) error) error {
 	identity, release, err := reviewReporter(h, r.Task)
 	if err != nil {
@@ -252,6 +355,9 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	}
 	defer unlock()
 	if err := reviewInboxRoom(h.State); err != nil {
+		return err
+	}
+	if err := refuseHeldPage(h.State, r); err != nil {
 		return err
 	}
 	staged := filepath.Join(h.State, "reviews", ".staged")
@@ -273,6 +379,11 @@ func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool,
 	if found {
 		if !sameReview(prior, r) {
 			return errors.New("review ID already used")
+		}
+		// Publishing a closed item again would show him nothing, so it is
+		// refused rather than reported published: another look is a new item.
+		if prior.State != "open" {
+			return fmt.Errorf("item %s is %s, so publishing it again would show him nothing; publish another look under a new --id", r.ID, prior.State)
 		}
 		return nil
 	}
@@ -673,7 +784,16 @@ func (s *Store) acceptReview(r Review) error {
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
 		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered, r.PageSettled = 0, "", "", "", false, nil
+		// A wait beside a file its goblin delivered opens that file, so it
+		// keeps its card whatever it declared.
+		if r.Follows != "" && slices.ContainsFunc(s.db.Reviews, func(other Review) bool { return other.State == "open" && other.Task == r.Task && other.Document != nil }) {
+			r.Follows = ""
+		}
 		s.db.Reviews = append(s.db.Reviews, r)
+		// A wait that follows a decision already answered was answered with it.
+		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == r.Follows }); r.Follows != "" && q >= 0 && isAnswered(s.db.Questions[q]) {
+			s.closeFollowUps(s.db.Questions[q], cmp.Or(s.db.Questions[q].AnsweredBy, "overlord"), time.Now().UTC())
+		}
 	case "withdrawn":
 		if i < 0 {
 			// Its publication still waits in the inbox while 128 are open.
@@ -1024,11 +1144,12 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // task is gone. It names the item waiting-<task>-<wake sequence>, which
 // holdsWait relies on.
 // why keeps the goblin's lines, so its card can show a table of values, and
-// link is the web link it gives as where he goes, if any. A wait on a page
-// the goblin already has open in an item is the page's next version, which
-// replaces that item rather than opening another.
-func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link string) error {
-	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link}
+// link is the web link it gives as where he goes, if any, and follows the ID
+// of the open decision the goblin declared the wait to be, if any. A wait on
+// a page the goblin already has open in an item is the page's next version,
+// which replaces that item rather than opening another.
+func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link, follows string) error {
+	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link, Follows: follows}
 	if page != "" {
 		reviews, err := reportedReviews(h.State)
 		if err != nil {
@@ -1062,6 +1183,9 @@ func publishVersion(h home.Home, r Review) error {
 		return err
 	}
 	defer unlock()
+	if err := refuseHeldPage(h.State, r); err != nil {
+		return err
+	}
 	return recordReview(h.State, r)
 }
 
@@ -1100,6 +1224,21 @@ func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
 	for i := range s.db.Reviews {
 		if r := &s.db.Reviews[i]; q.AsksPage != "" && r.State == "open" && r.Task == q.Task && r.Identity == q.Identity && r.Lavish == q.AsksPage && !r.CreatedAt.After(q.CreatedAt) {
 			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", by, "question", bounded(reason, 2000), time.Now().UTC()
+		}
+	}
+}
+
+// closeFollowUps closes, as answered by who at at, every open wait that
+// follows question q, which has been answered: the decision was what each
+// waited on, so none stays open behind it. The caller holds the store lock.
+func (s *Store) closeFollowUps(q Question, who string, at time.Time) {
+	reason := "You answered the decision it waited on, " + q.ID + "."
+	if who == "cfo" {
+		reason = "The CFO answered the decision it waited on, " + q.ID + "."
+	}
+	for i := range s.db.Reviews {
+		if r := &s.db.Reviews[i]; r.State == "open" && r.Follows == q.ID {
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", who, "question", reason, at
 		}
 	}
 }

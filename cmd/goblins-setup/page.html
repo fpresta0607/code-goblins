@@ -21,33 +21,41 @@
     --surface: linear-gradient(135deg, rgba(0, 229, 155, 0.05) 0%, rgba(3, 5, 10, 0.8) 50%, rgba(0, 140, 255, 0.03) 100%), #04060a;
   }
   * { box-sizing: border-box; }
+  /* A row the page hides stays hidden whatever display its rule gives it. */
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body {
     background: radial-gradient(ellipse at 0 0, rgba(0, 229, 155, 0.07), transparent 50%), radial-gradient(ellipse at 100% 0, rgba(0, 140, 255, 0.05), transparent 50%), var(--ground);
     color: var(--text);
-    font: 400 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    font: 400 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     user-select: none;
+    overflow: hidden;
   }
-  main { display: flex; flex-direction: column; gap: 22px; height: 100%; padding: 28px 32px 24px; }
-  header { display: flex; align-items: center; gap: 16px; }
-  .mark { width: 52px; height: 52px; flex: none; }
-  h1 { margin: 0; font: 600 22px/1.25 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; }
+  /* The window is 720 by 500 at every display scale, so every screen fits
+     its client area, about 705 by 463: the buttons stay at the bottom, and
+     only the middle scrolls, where text set larger than the window holds. */
+  main { display: flex; flex-direction: column; gap: 14px; height: 100%; padding: 18px 24px 16px; }
+  header { display: flex; align-items: center; gap: 14px; flex: none; }
+  .mark { width: 44px; height: 44px; flex: none; }
+  h1 { margin: 0; font: 600 20px/1.2 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; }
   #lead { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
-  .path { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; user-select: text; }
+  .content { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .path { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--text); overflow-wrap: anywhere; user-select: text; }
 
   .facts { display: grid; gap: 0; margin: 0; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
-  .facts div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 16px; padding: 12px 16px; }
+  .facts div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 14px; padding: 8px 14px; }
   .facts div + div { border-top: 1px solid var(--hairline); }
   .facts dt { color: var(--muted); }
   .facts dd { margin: 0; }
+  #dev-drive-note { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
   .choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
-  .choice input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--green); }
-  .choice small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
-  .note { display: flex; gap: 10px; margin: 0; padding: 10px 14px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(0, 229, 155, 0.06); color: #c9f2e2; }
-  .note::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; background: var(--green); }
+  .choice input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green); }
+  .choice small { display: block; margin-top: 1px; color: var(--muted); font-size: 12.5px; }
+  .note { display: flex; gap: 10px; margin: 0; padding: 8px 12px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(0, 229, 155, 0.06); color: #c9f2e2; }
+  .note::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--green); }
 
-  .steps { display: grid; gap: 14px; margin: 0; padding: 4px 0 0; list-style: none; }
+  .steps { display: grid; gap: 12px; margin: 0; padding: 4px 0 0; list-style: none; }
   .steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 14px; align-items: center; color: var(--muted); }
   .steps li.done, .steps li.now { color: var(--text); }
   .steps li.now .name { font-weight: 600; }
@@ -68,9 +76,11 @@
 
   #details { flex: 1; min-height: 72px; margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--hairline); border-radius: 10px; background: #070b10; color: #c3d0dc; font: 12.5px/1.5 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
-  footer { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+  footer { display: flex; align-items: center; gap: 10px; flex: none; }
   footer .push { flex: 1; }
-  button { min-height: 38px; padding: 0 20px; border: 1px solid var(--edge-strong); border-radius: 999px; background: rgba(3, 5, 10, 0.5); color: #dff7ee; font: 600 14px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+  /* 40 pixels tall, so a button's edges fall on whole pixels at 125 and 150
+     percent as well as at 100. */
+  button { min-height: 40px; padding: 0 22px; border: 1px solid var(--edge-strong); border-radius: 999px; background: rgba(3, 5, 10, 0.5); color: #dff7ee; font: 600 14px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; cursor: pointer; }
   button:hover { border-color: var(--green); background: rgba(0, 229, 155, 0.08); }
   button:focus-visible { outline: 3px solid #008cff; outline-offset: 2px; }
   button.primary { border-color: var(--green); background: var(--green); color: var(--ink); font-weight: 700; }
@@ -96,11 +106,12 @@
     </div>
   </header>
 
+  <div class="content">
   <section id="plan">
     <dl class="facts">
       <div><dt>Folder</dt><dd id="folder" class="path"></dd></div>
-      <div><dt>Adds</dt><dd>The cfo command line to your PATH, and Code Goblins to the Start menu and your desktop</dd></div>
-      <div><dt>Tools</dt><dd>Git, GitHub CLI, Claude Code and the others goblins use, where they are missing</dd></div>
+      <div><dt>Adds</dt><dd>cfo on your PATH, and Code Goblins in the Start menu and on your desktop</dd></div>
+      <div><dt>Tools</dt><dd>Git, GitHub CLI, Claude Code, no-mistakes and the rest, where missing</dd></div>
       <div><dt>At login</dt><dd><label class="choice"><input type="checkbox" id="start-at-login" checked><span>Start Code Goblins when I sign in<small>After a restart, your CFO and goblins come back by themselves.</small></span></label></dd></div>
       <div id="dev-drive-row" hidden><dt>Dev Drive</dt><dd id="dev-drive-offer" hidden><label class="choice"><input type="checkbox" id="dev-drive"><span>Put the goblins' worktrees and caches on a Dev Drive (optional)<small id="dev-drive-explain"></small></span></label></dd><dd id="dev-drive-note" hidden></dd></div>
     </dl>
@@ -116,6 +127,7 @@
   <p id="note" class="note"></p>
 
   <pre id="details" aria-label="Details"></pre>
+  </div>
 
   <footer>
     <button class="on-failure" id="show-details" type="button">Show details</button>
@@ -134,20 +146,23 @@
   let updating = false;
   let folder = "";
   let devDriveOffered = false;
+  let release = "";
 
   // setupPlan shows what the install will do before it starts: the folder,
-  // whether it updates Code Goblins already there, and a line about it.
+  // whether it updates Code Goblins already there, and a line about it, which
+  // takes the lead's place so the plan fits the window.
   function setupPlan(plan) {
     folder = plan.folder;
     updating = plan.update;
     text("folder", folder);
-    text("note", plan.note || "");
+    if (plan.note) text("lead", plan.note);
     text("title", updating ? "Update Code Goblins" : "Install Code Goblins");
     text("install", updating ? "Update" : "Install");
     document.getElementById("start-at-login").checked = plan.start_at_login;
     devDriveOffered = plan.dev_drive_offer;
-    text("dev-drive-explain", (plan.dev_drive_explain || "") + " Each step that needs you comes to the board's Command Center as its own item.");
+    text("dev-drive-explain", (plan.dev_drive_explain || "") + " Each step that needs you comes to the board's Command Center.");
     text("dev-drive-note", plan.dev_drive_note || "");
+    document.getElementById("dev-drive-note").title = plan.dev_drive_note || "";
     document.getElementById("dev-drive-offer").hidden = !devDriveOffered;
     document.getElementById("dev-drive-note").hidden = !plan.dev_drive_note;
     document.getElementById("dev-drive-row").hidden = !devDriveOffered && !plan.dev_drive_note;
@@ -156,12 +171,21 @@
   function setupStarted() {
     body.dataset.screen = "installing";
     body.classList.remove("showing-details");
+    release = "";
     text("title", updating ? "Updating Code Goblins" : "Installing Code Goblins");
     text("lead", (updating ? "In " : "Into ") + folder);
     for (const step of document.querySelectorAll(".steps li")) {
       step.className = "";
       step.querySelector(".doing").textContent = "";
     }
+  }
+
+  // setupRelease names the release the install puts in, once the setup has
+  // read it from the install script: the setup itself carries no release, so
+  // it is the same file from one release to the next.
+  function setupRelease(name) {
+    release = name;
+    text("title", updating ? "Updating Code Goblins to " + release : "Installing Code Goblins " + release);
   }
 
   // setupStep marks step number as the one under way and those before it
@@ -187,7 +211,7 @@
   function setupDone() {
     body.dataset.screen = "done";
     for (const step of document.querySelectorAll(".steps li")) step.className = "done";
-    text("title", updating ? "Code Goblins is up to date" : "Code Goblins is installed");
+    text("title", updating ? "Code Goblins is up to date" + (release ? " at " + release : "") : "Code Goblins" + (release ? " " + release : "") + " is installed");
     text("lead", "It is opening now. This window closes by itself.");
   }
 

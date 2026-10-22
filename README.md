@@ -25,6 +25,10 @@
 
 ## Why Code Goblins
 
+Use the board on your phone through optional, owner-only Tailscale access.
+Open **CFO → Task → Remote access** to set it up, copy its private link or turn
+it off. Everything runs locally until you enable it. See [phone access](docs/remote-access.md).
+
 Most coding-agent tools make you manage more agents. Code Goblins is built to do the opposite.
 
 You talk to one supervisor: the **CFO**. The CFO decomposes the objective, dispatches specialized **goblins** in parallel, gives each worker an isolated git worktree, watches for failures and blocked work, switches harnesses when necessary, runs the delivery pipeline, and brings decisions back to you only when human judgment is actually required.
@@ -122,7 +126,7 @@ A test that failed once inside a check that still ended green is named in the tr
 When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
-The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with what it tests or landed, folding a train that landed nothing into the train that retried it.
+The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with each of its pull requests and where it stands, folding a train that landed nothing into the train that retried it.
 Completed holds only finished trains that landed at least one pull request.
 Stopped or failed trains that landed nothing stay accessible under Train history, with their recorded reason.
 A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.
@@ -142,7 +146,7 @@ All other content is preserved.
 `cfo watch`, hooks, `cfo reap`, durable wake events, harness health, and explicit task states are designed around unattended operation. The system detects work that needs intervention and wakes the CFO instead of making the user stare at terminals.
 A goblin is judged stalled by evidence rather than by how long its turn has run: its harness's transcript writes and the processor use of the processes its harness started, so a long refactor, a long test run, or a goblin waiting on its own background job or monitor stays quiet, and the CFO hears about it once that evidence stops.
 A pane that shows a tool or a turn running, whichever harness drew it, keeps the goblin read as working until that evidence stops, and a goblin sitting at its prompt with nothing running, nothing asked and nothing reported wakes the CFO after three minutes as `goblin_idle`, read from its own screen and processes, so a Codex or pi goblin without its hooks wakes the same as a Claude Code one.
-One whose last reply asks the CFO something or offers it a choice, instead of asking with `cfo notify --blocked`, wakes it with that question quoted as `goblin_asks`, read from Claude Code's conversation, Codex's rollout or pi's screen, and the board shows it waiting on the CFO with the question.
+One whose last reply asks the CFO something or offers it a choice, instead of asking with `cfo notify --blocked`, wakes it with that question quoted as `goblin_asks`, read from Claude Code's conversation, Codex's rollout or pi's session, and the board shows it waiting on the CFO with the question.
 `cfo doctor` prints how many stale wakes the monitor raised and how many it held back, and why.
 
 ## Quick start
@@ -183,12 +187,13 @@ cd code-goblins
 ```
 
 It does everything the one-line install does, with the clone's build in place of the download.
-no-mistakes, the gate every goblin's work passes, comes from the release `install.ps1` pins, downloaded from its GitHub release page with a bounded retry and installed only when it matches that release's `checksums.txt`.
-Rerunning either install updates an older no-mistakes to the pinned release, once no gate is running.
+no-mistakes, the gate every goblin's work passes, is the build of its fork that `install.ps1` pins, which each release builds, signs and publishes beside its own programs; the install downloads it from its own release with a bounded retry, installs it only when it matches that release's `SHA256SUMS`, and checks that it takes what the fleet's gate gives it.
+`install.cmd -Dev` builds the same commit from source.
+Rerunning either install replaces a no-mistakes that cannot gate as the pinned build does, an older one or an upstream release, once no gate is running.
 
-A release says in its notes whether its programs are code-signed; until Code Goblins has a signing identity they are not, and the install checks each download against the release's `SHA256SUMS`.
+A release says in its notes whether its programs are code-signed; every release from v0.5.2 on is signed by SIQstack LLC, and the install checks each download against the release's `SHA256SUMS` and that publisher's signature.
 The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
-A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
+A signed `cfo.exe` saved from a browser names SIQstack LLC as its publisher, and SmartScreen can still stop it with "Windows protected your PC" until enough people have run it; Smart App Control, where it is on, blocks only the unsigned ones of v0.4.0 to v0.5.1.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
 
 Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
@@ -225,6 +230,7 @@ Tick **Remove these too**, or run `goblins uninstall --remove-work`, to remove t
 
 It leaves the tools the install fetched, which other programs may use, and names each one: Git, the GitHub CLI, Claude Code, Codex, pi, no-mistakes and the npm tools, with the skills, PATH entries and folders they came with.
 Tick **Remove these too**, or run `goblins uninstall --remove-tools`, to remove them with their own installers.
+no-mistakes then goes with its daemon stopped first and its startup task, and with `~\.no-mistakes` when the install made it; one that was there before stays yours.
 The install records what it fetched, so the uninstall removes exactly that and never a tool you had before.
 
 Each removal is read back, and the uninstall ends by checking that nothing of Code Goblins is left.
@@ -262,11 +268,11 @@ It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
 It starts in its remembered harness, in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
-A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
-A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
+A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume`, Codex with `codex resume` and pi with `pi --session`, and it registers itself as before.
+A conversation that cannot be resumed starts a new one, and so does a Claude Code one whose context is past 400K tokens, since CFO sessions stay small and a CFO compacts within that, or one in pi whose first reply never ended, since only then does pi write the session it resumes; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 `goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
-It always restarts it: a conversation it cannot resume, such as one in pi, one past 20 MB or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.
+It always restarts it: a conversation it cannot resume, such as one in pi that pi has not written yet, one whose context is past 400K tokens or one not recorded for the process its terminal runs, is left as it is, and the CFO starts again there on a new one, with the home's digest, as a closed CFO does, and `goblins resume` says why.
 It leaves the CFO running only when it could not start it again, such as when the CFO's program is not on its PATH.
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
@@ -308,7 +314,7 @@ A step you have answered leaves one line, a tick with the step's name and its an
 The agent you end on is remembered, so later runs skip what is already set up and go straight to the last screen; `goblins setup` asks again, and `goblins --harness codex` names the agent instead of asking.
 A CFO in any of the three is woken when a goblin finishes or asks: Claude Code by its own Stop hook, and Codex or pi by one line the supervisor types into the CFO's terminal while it sits idle at an empty prompt.
 So a Codex or pi CFO always starts in a native terminal, and the first prompt goblins gives it has it run `cfo register` and then what AGENTS.md says a CFO does at the start of a session.
-It has none of the hooks a Claude Code CFO has: nothing gives it the session digest, nothing guards its turns, and a closed pi CFO starts a new conversation.
+It has none of the hooks a Claude Code CFO has: nothing gives it the session digest and nothing guards its turns.
 Claude Code is the recommended one, the choice of agent says in a few words what each gets, and `cfo doctor` lists what the home's CFO goes without.
 Each starts on the model its own configuration names, so a Codex whose configured model the signed-in account cannot use fails its first turn and never registers: change the model with Codex's `/model`, then tell it to run `cfo register`.
 Without a terminal, `goblins --board` opens the board and brings back the remembered CFO when it is not running, continuing its saved conversation where the harness can resume it.
@@ -329,12 +335,13 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
-Install the native lifecycle hooks once for each harness you use (the install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
+The fleet's Claude Code and Codex sessions carry their native lifecycle hooks in their own launches, and the install writes pi's extension, so start the supervisor in its own terminal and open the URL it prints:
 
 ```powershell
-cfo hooks install claude   # repeat for codex or pi
-cfo serve                  # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
+cfo serve   # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
 ```
+
+`cfo hooks install claude` or `cfo hooks install codex` is only for Claude Code or Codex sessions the fleet did not start: it writes the hooks into the settings every session of that harness on the machine loads.
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
 An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
@@ -377,6 +384,8 @@ If Windows blocks the microphone, the note says so and where to turn it back on:
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a moment; then it gives its memory back.
 Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
 It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
+On a phone, with the board opened over [remote access](docs/remote-access.md), tap the microphone in the terminal's corner and speak, then tap it again: what you said is typed and sent, heard by the same speech model on your PC.
+A long press on a phone's terminal offers its own Paste.
 
 ### Opening, closing and restarting
 
@@ -394,7 +403,8 @@ A restart or a sign-out ends all of those processes, and Code Goblins brings the
 The supervisor then brings back what the restart ended, in this order:
 
 1. The registered CFO, in its terminal, on the conversation it last ran, resumed by that conversation's id: Claude Code with `--resume <session>`, Codex with `codex resume <session>`.
-   It never starts a fresh CFO in its place.
+   A conversation whose context is past 400K tokens, or one that cannot be resumed, is left as it is, and the CFO starts on a new one, as Restart the CFO does.
+   Either way its first instruction says the machine restarted and to carry on, so you type nothing into it.
 2. Each goblin that was working and had not finished, in its own session, with the same harness, model and effort, one at a time.
    Each waits for room as a start does: memory and commit both at the 5 GB mark on two readings in a row, a minute apart, and a free goblin slot.
 3. Each goblin that comes back is told in one line that the machine restarted and to continue where it left off.
@@ -403,9 +413,15 @@ Goblins that had finished, were paused or stopped, or were retired stay as they 
 While anything waits to come back nothing else starts by itself: queued starts, paused goblins' automatic resumes and `memory_ready` wait.
 A Start or Resume you press on the board, or a `cfo spawn` the CFO chooses, is still allowed.
 A goblin that cannot come back, such as one whose harness sign-in expired, stays stopped with the reason on its card, the CFO is told, and the other goblins still come back.
-A CFO whose conversation cannot be resumed stays closed with the reason, and **Reopen** on its bar tries its conversation again and starts it on a new one where that cannot be resumed.
+A CFO that cannot come back stays closed with the reason, and **Reopen** on its bar tries again.
 While this runs, one line at the top of the board says what is back and what waits, then what resumed, such as "Resumed the CFO and 6 goblins after a restart."; it is the same line in the desktop window and in the browser, and Dismiss puts it away.
 With Start at login off, the same happens the first time the supervisor starts after the restart, when you open the app or run `goblins`.
+
+The CFO's terminal can also end while the machine keeps running, as when Claude Code crashes or ends itself after an update.
+Then the supervisor brings the CFO back by itself within about ten seconds, on the harness it ran, on its conversation where that is small enough and on a new one where not, and its first instruction tells it why it is back, so it reads its digest and carries on with the fleet without you typing anything.
+Whenever the CFO starts again, by **Reopen**, **Restart**, `goblins` or after a restart, it gets the same kind of first instruction.
+A stop you asked for stays: your own exit from the CFO's harness, **Restart** and a harness switch, which start it again themselves, and the uninstall.
+A CFO that keeps ending soon after it starts stays closed at its third end in a row, each within ten minutes of its start, with no more than ten minutes between one end and the next start; one Command Center item then tells you so with **Reopen the CFO** as its one action, and so does one when the supervisor could not start the CFO at all, while a CFO it started that ended while starting is one more end in the row.
 
 Start at login is one setting wherever you change it: the switch under **Workspace** in the CFO's panel on the board, **Start at login** in the desktop window's tray menu, the box in the setup, or `cfo install --start-at-login off` or `on` in a terminal.
 The home keeps your choice, so an update never turns back on what you turned off, and `goblins uninstall` removes the entry.
@@ -418,6 +434,7 @@ The header switches between two views, one at a time, each with a contextual pan
   Real tasks sit in **Tasks**, **In progress** and **Completed**, side by side as a kanban; the layout button in the top bar switches to a stacked layout, one column under another, and your browser remembers the choice.
   An open panel leaves the kanban the width its three columns need whenever the window can hold both; in a window too narrow for that the board stacks and the layout button says why.
   Goblins stopped for memory, or by your own Pause, sit at the bottom of In progress, under a **Paused** divider, and keep their Resume and Stop.
+  Paused runs in the order its goblins resume: a goblin resuming now or one you clicked Resume on first, then **Next up**, then the others paused for memory in your In progress order, then those paused until a time, earliest first, then those waiting on another task, a pull request or a person.
   A goblin paused to wait on something, such as its pull request's merge train, stays among the working cards.
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.
@@ -425,7 +442,7 @@ The header switches between two views, one at a time, each with a contextual pan
   The CFO is pinned above the columns in a plain bar that says how many goblins it supervises, with its terminal icon. While something waits on you **Open Command Center** appears on the bar and glows, with how many items wait; the bar says none of what they are.
   While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
   A goblin's question waits on the CFO, who answers it or publishes the decision he needs from you.
-- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging a card or the canvas, zooming with the wheel where the pointer is, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence; Arrange lays the tree out to the canvas's shape, so the whole of it fits a narrow window. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message. Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) hangs on branches as baby goblins, each on a line of its own that lights end to end when you rest on it, which the chevron under its card folds to a count; the goblin's panel lists them under **What's working**, pressing one opens its own panel, where a sub-agent's work reads as a Claude Code terminal draws it, and the goblin's card names a child gone silent with its last line. None of it wakes the CFO.
+- **Orchestration** is the live family tree: the CFO above its goblins in progress, working or waiting, with their helpers, so a goblin leaves it the moment it finishes, pauses or retires. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging a card or the canvas, zooming with the wheel where the pointer is, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence; Arrange lays the tree out to the canvas's shape, so the whole of it fits a narrow window. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message. Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) hangs on branches as baby goblins, each on a line of its own that lights end to end when you rest on it, which the chevron under its card folds to a count; the goblin's panel lists them under **What's working**, pressing one opens its own panel, where a sub-agent's work reads as a Claude Code terminal draws it, and the goblin's card names a child gone silent with its last line. None of it wakes the CFO.
 
 <p align="center">
   <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in three repositories, a count of what runs under each goblin that runs anything, and the selected goblin's live native terminal in the right panel" width="900" />
@@ -433,11 +450,11 @@ The header switches between two views, one at a time, each with a contextual pan
 
 Every goblin gets a fun first name and a title that names its work, such as Vera - Voice Whisperer for long dictation, as soon as its task is queued, and keeps them when it starts.
 A live goblin's card, its car on a merge train, its card on the Orchestration canvas and its panel show that name beside its avatar, with its task in the tip while the pointer is on it and under its name in the panel, and the CFO calls it by that name.
-Each card shows that name, a queued task's included, or the task's short title once it has completed, and a muted line with its repo and status.
+Each card shows that name, a queued task's included, or the task's short title while it has no goblin, its status, and its project on a muted line under it, with GitHub's mark beside a project on GitHub, which opens its repository.
 The goblin's own words are in its panel.
 Each card carries the mark of the harness its goblin runs (Codex, Claude Code, pi, Kimi or a terminal for any other), and its tip names the harness, model and effort.
 The CFO's bar carries the mark of the harness the CFO runs, and its tip names the harness and its model.
-On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
+On a narrow screen the columns stack and a goblin's name and title and its project wrap onto more lines, so nothing scrolls sideways; a task with no goblin yet keeps its title to one line, shown in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first by when the work finished.
@@ -450,17 +467,24 @@ A task ended by Stop, or cleaned up without delivery, says **Stopped**, with whe
 Every Completed card leads with its PR title, or its task title without a PR, then repository and state together, then its PR link when present; task IDs and branch names are secondary detail.
 A number on each card shows its place, and stays in sight on hover, on focus and while the card is dragged.
 Drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
-A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks it turns the page and goes with it.
+A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks or Paused it turns the page and goes with it.
 On a touch screen, drag a card by its number.
+Paused cards drag too, with no numbers, and a drag among them changes the order the supervisor resumes them in; a drop against the resume order, such as a goblin paused until tomorrow above **Next up**, goes back and says why.
 **Alt+Up** or **Alt+Down** past the page's edge moves a card on and turns the page with it.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
 
 The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and the 5 GB next-start mark.
 When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
-A line also warns when the kernel's paged pool passes 4 GB: Windows holds that memory, no goblin can use it, and restarting the PC frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
-In the same box, under memory, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
+Under memory, **Kernel pools** shows the memory Windows holds for drivers, which no goblin can use and only a restart of the PC frees once a driver leaks it, on a bar marked at 7.5 GB, the line measured on this PC past which free memory can no longer hold more than one goblin at a time.
+Its fill turns red past the line, and its tip names each pool and the pool tags that grew most since you signed in.
+Past the line the CFO's header shows **Restart PC**, on the board on this PC only, never on your private board.
+It asks once, then tells the CFO, has every working goblin write its handoff and pause until the PC has restarted, ends the machine's heavy runs, waits for the CFO's turn to end and restarts Windows.
+An app with unsaved work asks you before it closes.
+After you sign in, the CFO and the goblins come back by themselves.
+A goblin that does not pause stops the restart: a few words beside the button say so, and the CFO tells you why.
+In the same box, under the pools, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
 Under disk, **CPU free** shows how much of this PC's performance cores sat idle since the last reading, on a bar marked at the quarter the fleet waits for before it starts a goblin by itself: amber under the mark.
 Hover, focus or hold its bar for the cores by kind, how busy each kind is and the two apps using the processor most.
 Last in the box, **GPU free** shows how free the busiest graphics adapter is, and its bar's tip names each adapter, how busy it is and the app using most of it.
@@ -481,12 +505,12 @@ When `cfo cleanup` retires a task, its row moves from Queued to Done with its de
 The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
 A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, and that report is there.
 Work the supervisor cannot start, such as a start that failed or a row that needs the CFO, wakes the CFO with an `idle` wake once it has waited 30 minutes with memory free and nothing started, naming each task and why, and again every 30 minutes it lasts.
-When the CFO's turn ends with no goblin at work while work that could run waits and memory is free, its turn is reopened with the next work named: Claude Code's Stop hook does it, and a Codex or pi CFO's native hook raises the wake the supervisor types into its terminal.
+When the CFO's turn ends with no goblin at work while work that could run waits and memory is free, its turn is reopened with the next work named: Claude Code's Stop hook does it, and for a Codex or pi CFO the supervisor raises the wake from the turn end its native hook reported and types it into its terminal.
 None of this needs a setting: every home does it.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
 A queued row waits while its title line carries `blocked-by:` what it waits for, with ` - why` after it, and the supervisor starts it by itself once every wait cleared: `until 2026-10-10T00:00Z` a time, `memory 12 GB` free memory and commit, a task id that task delivering, or a GitHub pull request URL that pull request merging.
 A wait the supervisor cannot read, such as a word that names no task, keeps the row waiting and says why on its card, and so does one that can never clear, such as a task that stopped without delivering or a pull request closed without merging.
-A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**, with no line added.
+A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10**, with no line added.
 The why after it stays on the row, and the board does not show it.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
@@ -502,7 +526,9 @@ On a PC of six performance cores that leaves you three, and it costs the goblins
 The fleet's own controls run one priority class above normal and never higher, so a steer, a pause or a look at a goblin's screen is not kept waiting behind the goblins' builds: the supervisor, each goblin terminal's host, and the short commands that talk to them.
 Their work is small, about a tenth of one core for the supervisor and a few thousandths for each host, and nothing a goblin runs is raised with them.
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
-A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
+A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync --locked` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
+That step installs only a project's lock with hashes, never versions resolved fresh from a package index, and a project with no lock gets no install step until it has one.
+Every goblin's pip and npm, and its uv where the project tracks no `uv.lock`, resolve only releases at least a week old, so a hijacked release is pulled before it reaches a goblin, and a goblin on any harness is stopped before its next command when an install leaves code that runs at every Python start, with the CFO told the file and its package.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
@@ -549,7 +575,7 @@ Under the 5 GB mark, Start and Resume say what they need on the card instead of 
 A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change, changed status report, new output on the goblin's screen, transcript write or processor use by its own processes, the supervisor raises one `progress_stalled` check wake to the CFO.
 Any of them resets it, and intentional pauses do not raise it.
-A goblin waiting by design, on a background shell, monitor or sub-agent of its own or on its run in the machine's heavy line, is raised only once that wait has shown nothing new for an hour, and the wake names the wait.
+A goblin waiting by design, on a background shell, monitor or sub-agent of its own or on its run in the machine's heavy line, is raised only once that wait has shown nothing new for an hour, and the wake names the wait; a run still waiting its turn in the heavy line shows something new each time the line moves.
 A goblin inside one long tool call whose child uses the processor, or whose screen fills with output, is working, and the clock a harness redraws by itself on its screen is not output.
 So is a goblin whose test run, started by a script in the background, runs cut off from its harness, as everything Git Bash starts in the background is: such a run is the goblin's by its terminal's mark or by the task's folders it works in or runs a program from, while a server, a browser or a machine service it left running never counts as its work.
 Every five seconds the supervisor also reads what each goblin and the CFO's own terminal started, and wakes the CFO once when one of those processes shows a window on the screen, when the same command starts again and again, or when a goblin rests after reporting done with something it started still running, which its done report names too.
@@ -561,6 +587,7 @@ An allowance pause that failed for the current task generation and reset waits f
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
 Under pipeline policy v6 the restarted run carries the task's launch selection, so it runs on the harness the goblin comes back on.
+Only a run holding gate commits it never pushed has its custody recovered before the restart; a run that had pushed its head, such as one paused on its pull request's CI, is restarted from the branch as the goblin left it, follow-up commits the goblin pushed since included.
 A memory pause interrupts no validation: the goblin's gate run keeps running, and Resume tells the goblin which run is still running, so it picks that run back up and starts no other.
 A run a pause could not abort is left to its goblin the same way, and never fails the Resume.
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
@@ -587,7 +614,7 @@ The whole crew:
 ### The goblin panel
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, its status, one plain sentence under it, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
-The status is the one place the panel says the task's state, and it is true: a resume or stop that did not finish reads **Resume failed** or **Stop failed** however the goblin last reported, a pause that did not finish shows what the goblin is doing, and a paused task reads **Paused**.
+The status is the one place the panel says the task's state, and it is true: a resume or stop that did not finish reads **Resume failed** or **Stop failed** however the goblin last reported, until a failed resume's goblin reports from the session it resumed into, which finishes the resume, a pause that did not finish shows what the goblin is doing, and a paused task reads **Paused**.
 The sentence under it never repeats the state: it is the goblin's latest report without its leading state word, in sentence case, with no semicolon chains, commit hashes, paths or links, and for a failure, what failed and what to do next with **Open the log**, which opens Activity.
 Under **Working** there is no sentence, at the Overlord's word on 2026-10-05; what it would say is the first thing under **Details**.
 A paused task has no sentence either, since its status already says why it waits and what resumes it.
@@ -600,7 +627,7 @@ When a session is retired, paused or stopped, its Terminal view shows that state
 An open terminal follows its task into retired history instead of losing the panel or trying to reconnect to a retired session.
 A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
-After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
+After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects once the resumed session is live, or once its goblin reports from the session the failed resume started, which finishes that resume.
 A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
 A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
@@ -610,7 +637,7 @@ The Task view shows **Workspace** with the repository, branch and exact working 
 For a queued task, **Save** sets the engine **Start** will use; for a paused task, **Save for Resume** sets its next session's engine.
 A running task's **Restart** acts at once, as the CFO's does: unchanged it restarts the goblin on its own harness, model and effort, and changed it switches onto the ones shown, interrupting the turn and any running gate step.
 The switch closes the old native terminal, keeps the task, worktree and branch, and passes `--force-dirty` so uncommitted work stays.
-A pending choice appears on the card and can be cancelled under Harness; the live values change after the switch completes.
+A pending choice appears under Harness, where it can be cancelled; the live values change after the switch completes.
 Pausing the task first makes its next **Resume** use the pending choice, and a choice that is no longer available when the turn ends is dropped with the reason on the card.
 A completed task shows its recorded harness, model and effort without controls, or **Engine not recorded** when an older record has no engine.
 Each connection is a card, as Claude lists its connectors: the service's own logo, bundled with the board, or its initial where the board has none, its name, one line on what it does, and one square button. **+** gives the task a repository service or a project MCP server it does not carry, and the check takes it back, as `cfo auth grant` and `cfo auth revoke` do, and the card changes at once.
@@ -626,7 +653,7 @@ Connections also lists **Browser logins**, the kept browser sessions the goblin'
 
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin draws in the interface your Claude Code `tui` setting names, as the CFO does, so in fullscreen its input line stays put and Claude Code offers its own jump to the bottom), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font (12 px on a phone), with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin draws in the interface your Claude Code `tui` setting names, as the CFO does, and Codex and pi goblins on their own full screens, so their input line and footer stay put while the wheel scrolls the transcript and each harness offers its own way back to the bottom), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 A program that draws inline, such as a PowerShell command on its Command Center card, keeps the line it waits on pinned at the bottom while you scroll its history, with **Jump to bottom** above it, and typing returns to the live end.
 Holding the right mouse button and turning the wheel zooms the text the same steps, and one saved size applies to every terminal on the board, kept per device.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
@@ -639,16 +666,17 @@ The Open window draws on its own window's grid and takes the terminal's size bac
 Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
-The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's terminal beside it and the keyboard in that terminal; a window too narrow for two columns shows the board with that terminal under it and leaves the keyboard alone.
+The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's terminal beside it and the keyboard in that terminal; a phone, or any window 40rem wide or less, shows the board alone and leaves the keyboard alone.
 That happens once: what you arrange afterwards is kept, and a browser that already keeps a panel width or a maximize choice is left as it is.
-That first open also starts a very quick tour, three steps in which the CFO points at its terminal, the board and the Command Center; **Escape** or the X skips it, it shows once, and the **?** in the top bar replays it.
+That first open also starts a very quick tour, three steps in which the CFO points at its terminal, the board and the Command Center; **Escape** or the X skips it, it shows once, and the **?** in the top bar replays it on any screen wider than a phone's.
 A terminal and the Task view both open beside the board, **Maximize** gives the panel the whole window and **Restore** brings the board back beside it, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A task's panel has **Back** in its corner, which returns the panel to the CFO's on the view it last showed, and the CFO's own panel has Close; **Escape** does the same as the button.
+On a phone a panel you open, a goblin's terminal or the CFO's among them, fills the screen below the top bar, and **Back** returns to the board; its terminal stays above the on-screen keyboard while you type, and the buttons that act on the PC (Open in terminal, Open in VS Code and Open folder) are left off.
 The panel's top row stays on one line however narrow you drag the panel: what it has no room for goes into a **More** menu, and at its narrowest the Task and Terminal switch shows its icons alone.
 A goblin still in Herdr stays live and sized to the panel while its view is open, focused or not, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom, and follows the panel as it changes size; a Herdr window shows it at the board's size, and closing the view hands the pane back its Herdr size; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
 A Claude Code pane with no scrollback of its own, such as Claude Code's fullscreen interface, scrolls its own transcript with the wheel instead, from the first turn and without piling up turns after the wheel stops, unless a review gate owns the goblin, when the board says to scroll it in Herdr; once it is scrolled up, a click on it jumps back to the bottom, as **Ctrl+End** does.
-**Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
+**Open in terminal** at the panel's top right, on the PC, opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 New native hosts explicitly request interactive Windows scheduling, so typing and dictated bursts remain responsive when their hidden console would otherwise be treated as background work.
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal, except a command's terminal on its Command Center card, which shows it only while you dictate.
@@ -662,6 +690,7 @@ The model starts loading as you press the keys and stays loaded for 30 minutes a
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
 Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.
+When the model answers no words for something you said, the CFO is told, and the sound is kept on this PC in the home's `state\dictation-no-words.wav` until the next such sound, so it can be played back to find out why.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 Hold **Shift** while selecting if the running program has taken the mouse.
 **Ctrl+C** copies selected text; without a selection it interrupts the running program.
@@ -710,7 +739,8 @@ The question reads as plain body text across a wide card: its first sentence is 
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
 Answers you give to several of the CFO's questions in one go reach the CFO as one message that lists each question and your answer in the order you gave them, and an answer to its only question goes at once.
-Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
+Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open review**, **Open the file** or **Open the link**), with **Skip** beside it.
+A wait its goblin declared to follow a decision open for you shows only as that decision's card, and answering the decision closes both.
 A card says each thing once: the goblin's name and title, such as Tad - Report Fixer, then the item's own title, never the task's title again.
 A card for a Scrawl page shows the page itself, live and scaled down, with one **Open review** button and no line that explains how to answer. A page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 When a goblin asks a question about its open review page, the Command Center shows one card, the page's: the question, the page and **Open review**.
@@ -722,7 +752,7 @@ A pick or a note you send just before **Send & End** is part of that one answer,
   <img src="docs/images/review-page.webp" alt="A Scrawl review page from the goblin streaming the billing export: its result, the numbers that matter and what was checked, a comment being written on the 190 MB figure, and the Conversation panel with the agent listening" width="900" />
 </p>
 
-Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
+A Scrawl card, a review given only its Scrawl link included, has no box for words, since you answer on its page; other items are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A file the CFO or a goblin hands you with `cfo deliver` opens as a Scrawl page that shows it: a picture inline, a PDF page by page and plain text as text, under the title it was given. What you write there goes back to whoever delivered it. The page offers **Download** only for a generated asset or a file you asked to keep.
 Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
 An item shows no toast and opens no dialog by itself.
@@ -757,6 +787,7 @@ Pick another choice or write your own and **Change answer** sends it, at any tim
 The goblin that asked gets it once, as a change from the old answer to the new one, and the CFO gets it for its own question or when that goblin has ended.
 A change made while the first answer is still on its way follows it, choosing the answer already chosen sends nothing, and a double click or a resend after a dropped connection sends it once.
 When the goblin's pull request already merged, one line says your change goes as a new instruction.
+A step card in **History** whose values are stored opens from its chevron to its steps, each value saying it is already stored and none shown, with nothing to change or delete one, and its **Something else?** still sends your words to whoever asked, or to the CFO once that goblin has ended.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of everything waiting on you, including a walkthrough a goblin asks you to watch, and a History of what you answered, cleared or ran; a goblin's own test runs stay off it.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
@@ -811,7 +842,8 @@ If the switch is refused, a red box in the dialog or under the CFO panel header 
 The message stays until you close it or try the switch again.
 The Code Goblins window always turns it, however it was opened, an update that restarted it included.
 A browser turns it when you started it from the desktop or from a terminal of your own, and keeps that after whatever opened it has closed and after it restarts itself.
-A board on another machine, or one reached through a proxy, cannot turn it, and neither can a browser another program can drive, such as one started with a debugging port.
+Your private board, on your phone, turns it off but not on: turn it on at the PC.
+Any other board on another machine, or one reached through a proxy, cannot turn it, and neither can a browser another program can drive, such as one started with a debugging port.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
 
@@ -839,7 +871,8 @@ When the CFO turned it on at your ask, your very first click or key offers it at
 Turning it off opens your report in a modal over the board, drawn with the board's own cards, icons and goblin faces.
 Close it there, or press Escape.
 Long rows wrap in full and the report scrolls on a phone as well as on the desktop.
-It opens with how long you were away and one line on whether anything needs you: **Nothing needs you**, or how many things do, one row each, a step only you can take or an item still waiting in your Command Center.
+It opens with how long you were away and whether anything needs you: **Nothing needs you**, or **Needs you** with how many, one row each, a step only you can take or an item still waiting in your Command Center.
+Each item still waiting there is drawn as the Command Center draws what waits: its lantern box, who asks in lantern and its **Answer** button.
 Under it, three tiles count what merged, what the CFO decided for you and the goblins still at work.
 **What changed** walks through the stretch by project: each goblin's work is one row in a few words, told by the CFO's title for it, with the goblin's face, what went live, a merge that did not land, before and after pictures where the goblin showed them, and its pull request numbers small beside it.
 **Decided for you** lists each question the CFO answered, yours and the goblins', with the answer taken and a pencil that opens History's **Change answer** card.
@@ -848,7 +881,7 @@ Under it, three tiles count what merged, what the CFO decided for you and the go
 **Record** keeps the rest of the report: who switched AFK on and off, what waited on you and was settled, goblins paused at a floor, lines the CFO settled or struck, and anything the report could not read.
 Tap any row and it opens a card with what it stood on: the goblin's own notes, the evidence and the pull request links.
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
-The report links to each waiting card in your Command Center.
+A click anywhere on a row still waiting in your Command Center closes the report and opens the Command Center on that item, with its usual controls to answer or clear it.
 Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
 The button beside the toggle opens your last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
@@ -959,13 +992,13 @@ cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo process-plan
 cfo drain
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>] [--follows <question-id> | --separate]
 cfo helper start <parent-id> --brief <file> [--title "<short title>"]
 cfo helper merge <parent-id>
-cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
+cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"] [--for <task-id>]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
-cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
+cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file> [--reopen]]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--download] [--task <id>]
 cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
@@ -985,7 +1018,7 @@ The helper works in a worktree of its own, on a branch cut from its parent's las
 While the parent reports it waits on its helper, the helper's progress counts as the parent's, so the parent draws no `progress_stalled` wake while its helper works.
 When it is done, the parent runs `cfo helper merge <its-id>`, which merges the helper's branch into its own with a merge commit and retires the helper; the parent stays the one who opens the pull request.
 Pausing or stopping a goblin pauses or stops its helper with it, and a helper paused with its parent comes back by itself once its parent runs again, when memory allows: its paused card says it resumes with its parent, and **Next** marks it when it is the next to come back.
-`cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent: in the family tree while its parent runs, and as a card under its parent's card while its parent is paused.
+`cfo fleet-view` names each helper's parent, and the board hangs each helper under its parent in the family tree while its parent runs; a helper that keeps working while its parent is paused, as one its parent waits on does, hangs under the CFO.
 
 <p align="center">
   <img src="docs/images/family-tree.webp" alt="The family tree on the Orchestration view: under the goblin streaming the billing export, its sub-agents, its helper goblin, a dev server, a test run and a silent background shell as baby goblins with their state, age and memory, and beside it the goblin's panel listing the same under What's working" width="900" />
@@ -998,8 +1031,9 @@ A cause the fleet meets while it works, outside the task at hand, becomes a GitH
 When an open `ops-root` issue already has the same root, matched by `--root <key>` such as a test's package and name, or else by its title, the command adds a dated comment with the new `--evidence` instead of a second issue.
 Every brief `cfo brief` writes says so in its Constraints.
 The fleet also files what its own signals name: each test a merge train saw fail once and pass on its second try, each red push run of a default branch by its workflow and failed jobs, and an error the supervisor meets again an hour after it first met it.
-The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds as a task of its own with a brief built from the issue and `Fixes #<number>` in its pull request, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
+The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds as a task of its own with a brief built from the issue, `Fixes #<number>` in its pull request and `mode: direct-PR` as its delivery, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
 On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
+It files only on a repository the fleet owns, the account `gh` works as or an organization `config/fleet.json` lists as `github_owners`: a checkout whose `origin` is another owner's, such as your fork kept with `origin` on the upstream, is refused with the remote of the checkout whose repository is yours, when one is, and so is a repository with issues turned off.
 
 ### Working beside teammates
 
@@ -1058,7 +1092,7 @@ A project with no GitHub repository simply has no tickets.
 The board shows the same.
 A task's card carries its ticket's number, which opens the issue: green while it is open, purple once its task merged, grey once it closed otherwise.
 Beside it sits the avatar of each teammate whose open pull request, branch or issue meets a live goblin's branch, ringed in amber, opening that work.
-A goblin's panel names the people of its project beside the project's name, each with a GitHub avatar and username, whoever is in the goblin's area first.
+A goblin's panel shows the active people of its project beside the project's name, those who committed to its default branch or opened a pull request in the last 30 days: up to five GitHub avatars, whoever is in the goblin's area first, then a +N that lists every one by their whole name.
 The people come from the same hourly read that decides whether a repository gets tickets, and the overlaps from the ten-minute pull request read below, so the board asks GitHub nothing of its own; a project only you work in shows neither.
 
 The same supervisor poll watches the health of the fleet's own pull requests: a goblin's wherever it is, and every open pull request in a watched repository the fleet owns, including teammates' and fork pull requests.
@@ -1112,6 +1146,7 @@ The home keeps them in its `bin`, or, where a build before `bin` set it up, such
 The journal of an earlier update that finished is history, whatever home it names.
 An unfinished update of this home is put back first by the next update, and only an unfinished one of another home, whose copies are its way back, stops an update.
 A `goblins-window.exe` beside the candidate follows it into the home beside `goblins.exe` once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
+So does a `cfo-hook.exe` beside it, the same `cfo` built as a program with no console for the goblins' hooks: they run it only while it is the home's `cfo.exe` build, and `cfo.exe` otherwise.
 An update that stops part way prints nothing to paste: the next update puts the previous build back first, and opening Code Goblins again starts the board when the update left it down.
 To recover by hand, when nothing else can, run the candidate's kept copy with the home and its state named, which works from any folder with both commands gone:
 

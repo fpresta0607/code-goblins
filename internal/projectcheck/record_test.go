@@ -10,6 +10,7 @@ import (
 // operating system's "cannot find the file specified" and nothing said what
 // that costs or what to do.
 func TestAMissingProjectRecordIsReportedWithWhereItBelongs(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 
@@ -29,6 +30,7 @@ func TestAMissingProjectRecordIsReportedWithWhereItBelongs(t *testing.T) {
 }
 
 func TestAValidProjectRecordPasses(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("project.json", `{"project":"northwind","verification":{"fast":[["go","vet","./..."]]}}`)
@@ -50,6 +52,7 @@ func TestAValidProjectRecordPasses(t *testing.T) {
 // `cfo verify` refuses a tier that names no command, so a record with no
 // verification command fails every tier.
 func TestARecordWithNoVerificationCommandIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("project.json", `{"project":"northwind"}`)
@@ -70,6 +73,7 @@ func TestARecordWithNoVerificationCommandIsReported(t *testing.T) {
 // A record the loader refuses steers nothing, and the loader's own words say
 // which field is wrong.
 func TestAnInvalidProjectRecordIsReportedWithTheLoadersReason(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("project.json", `{"project":"northwind","verfication":{}}`)
@@ -88,6 +92,7 @@ func TestAnInvalidProjectRecordIsReportedWithTheLoadersReason(t *testing.T) {
 // The record is found by the checkout's folder name, so one that names
 // another project describes the wrong one.
 func TestARecordNamingAnotherProjectIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("project.json", `{"project":"southwind"}`)
@@ -103,6 +108,7 @@ func TestARecordNamingAnotherProjectIsReported(t *testing.T) {
 // A verification tier that names a program this machine does not have fails
 // every `cfo verify` at that tier.
 func TestAVerificationTierNamingAMissingProgramIsReported(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, nil)
 	f.manifest("project.json", `{"project":"northwind","verification":{"fast":[["go","vet","./..."]],"full":[["nosuchtool","--all"]]}}`)

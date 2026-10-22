@@ -85,8 +85,10 @@ type launcherFixture struct {
 	screens []finalScreen
 	answer  int
 	// nativeArgs are the arguments each native start gave the harness, and
-	// resumeEnds makes a CFO started to resume a conversation end at once.
-	nativeArgs []string
+	// nativePrompts the first instruction each gave it; resumeEnds makes a
+	// CFO started to resume a conversation end at once.
+	nativeArgs    []string
+	nativePrompts []string
 	resumeEnds bool
 	// restarts counts goblins resume's restarts of a running CFO, which end
 	// with restartErr, or else restart it on restartSession, on a new
@@ -164,10 +166,11 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_ home.Home, project, harness string, args []string) error {
+		startNativeCFO: func(_ home.Home, project, harness string, args []string, prompt string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
 			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
+			f.nativePrompts = append(f.nativePrompts, prompt)
 			// A resumed CFO's terminal runs on, unless its harness could not
 			// resume the conversation and ended at once.
 			f.cfoTerminalRuns = len(args) == 0 || !f.resumeEnds
@@ -223,7 +226,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		},
 	}
 	// A goblin running these tests sits in a Herdr pane itself; each test
-	// says where it is and which session is the fleet's instead.
+	// says where it is and which session is the fleet's instead. Its user
+	// home, where Claude Code keeps its transcripts, is its own too.
+	t.Setenv("USERPROFILE", t.TempDir())
 	t.Setenv("HERDR_PANE_ID", "")
 	t.Setenv("HERDR_SESSION", "fixture-fleet")
 	return f
@@ -585,7 +590,6 @@ func TestGoblinsStartsNoSecondBoardWhenItsAddressIsInUse(t *testing.T) {
 	})
 
 	// Act
-	began := time.Now()
 	exit, stdout, stderr := f.launch()
 
 	// Assert
@@ -595,8 +599,8 @@ func TestGoblinsStartsNoSecondBoardWhenItsAddressIsInUse(t *testing.T) {
 	if want := "goblins: the board's address 127.0.0.1:4310 is in use by the Code Goblins fleet in C:\\Fleet (supervisor pid 4242), so no second one was started."; !strings.HasPrefix(stderr, want) {
 		t.Errorf("stderr = %q, want it to start %q", stderr, want)
 	}
-	if waited := time.Since(began); waited > 20*time.Second {
-		t.Errorf("goblins waited %s for a board that another fleet holds", waited)
+	if strings.Contains(stderr, "the supervisor did not start") {
+		t.Errorf("goblins waited for a board that another fleet holds: stderr = %q", stderr)
 	}
 }
 
@@ -736,10 +740,14 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 		}{{Phase: "working"}}}, "CFO supervising · 1 goblin working · 0 waiting on you"},
 		"a CFO the board misses": {launcherSnapshot{Registration: "no CFO has registered"}, "CFO not connected · 0 goblins working · 0 waiting on you"},
 		"a run already finished": {launcherSnapshot{Runs: []struct {
-			State string `json:"state"`
+			State             string `json:"state"`
+			CredentialRequest string `json:"credential_request"`
+			RemoteFix         string `json:"remote_fix"`
 		}{{State: "failed"}}}, "CFO supervising · 0 goblins working · 0 waiting on you"},
 		"a run the Overlord owes": {launcherSnapshot{Runs: []struct {
-			State string `json:"state"`
+			State             string `json:"state"`
+			CredentialRequest string `json:"credential_request"`
+			RemoteFix         string `json:"remote_fix"`
 		}{{State: "running"}}}, "CFO supervising · 0 goblins working · 1 waiting on you"},
 	} {
 		if got := statusLine(c.snapshot); got != c.want {
@@ -758,6 +766,7 @@ func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
 		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
 		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
 		"a page he sent a revision on waits on its goblin, not on him":                 {`{"reviews":[{"state":"open","revising_since":"2026-10-01T05:09:00Z"},{"state":"open"}]}`, 1},
+		"a terminal a card or a setting opened is no item of its own":                  {`{"runs":[{"state":"ready"},{"state":"running","credential_request":"c1"},{"state":"running","remote_fix":"tailscale"}]}`, 1},
 	} {
 		// Arrange
 		var snapshot launcherSnapshot

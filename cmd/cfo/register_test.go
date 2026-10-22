@@ -51,7 +51,7 @@ func TestSessionStartRegistersTheSessionThatHoldsTheHome(t *testing.T) {
 // must never take over the board's delivery target.
 func TestSessionStartNeverRegistersAReadOnlySession(t *testing.T) {
 	h := registerHome(t)
-	other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	other := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}

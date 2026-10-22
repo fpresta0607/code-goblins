@@ -3,8 +3,15 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 func TestReviewDecisionBudgetAndUnresolvedFindings(t *testing.T) {
@@ -132,6 +139,86 @@ func TestIdleLockIsReleasedOnUnreadableDatabase(t *testing.T) {
 	if release, err := r.Idle(context.Background()); err == nil {
 		release()
 		t.Fatal("missing database accepted as idle")
+	}
+}
+
+// sqliteRun answers a state query as sqlite3 does through execx.OSRunner:
+// with result and err once it has taken takes, and with its context's error
+// when that context ends first. It counts the time rather than waiting it, so
+// a read that takes minutes takes none in a test.
+type sqliteRun struct {
+	takes  time.Duration
+	result execx.Result
+	err    error
+}
+
+func (s sqliteRun) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return execx.Result{}, err
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < s.takes {
+		return execx.Result{}, context.DeadlineExceeded
+	}
+	return s.result, s.err
+}
+
+func stateRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// A read of the gate's database starts sqlite3, which a loaded machine can
+// take tens of seconds to start: a 5 s bound on each read failed `cfo
+// pipeline recover` twice on 2026-10-20 while sqlite3 was installed and the
+// database readable, and the same read passed once load dropped (#1286).
+func TestAStateReadSlowedByALoadedMachineIsAnswered(t *testing.T) {
+	// Arrange
+	answer := execx.Result{Stdout: []byte(`[{"branch":"fix/connections"}]`)}
+	reader := Reader{Root: stateRoot(t), Commands: sqliteRun{takes: 30 * time.Second, result: answer}}
+
+	// Act
+	branch, err := reader.RunBranch(context.Background(), "C:/project", "run")
+
+	// Assert
+	if err != nil || branch != "fix/connections" {
+		t.Fatalf("got %q, %v; want the slow read answered", branch, err)
+	}
+}
+
+// Each way a read of the gate's database can end says what ended it, so a
+// read the deadline ended never sends its reader to reinstall a sqlite3 that
+// is there (#1286).
+func TestAFailedStateReadNamesWhatEndedIt(t *testing.T) {
+	stopped, stop := context.WithCancel(context.Background())
+	stop()
+	for _, c := range []struct {
+		name string
+		ctx  context.Context
+		run  sqliteRun
+		want string
+	}{
+		{"sqlite3 never answers", context.Background(), sqliteRun{takes: time.Duration(math.MaxInt64)}, "state query timed out: sqlite3 gave no answer within 1m0s"},
+		{"its caller stopped the read", stopped, sqliteRun{}, "state query stopped: context canceled"},
+		{"sqlite3 is not installed", context.Background(), sqliteRun{err: &exec.Error{Name: "sqlite3", Err: exec.ErrNotFound}}, `could not run sqlite3: exec: "sqlite3": executable file not found`},
+		{"the database is locked", context.Background(), sqliteRun{result: execx.Result{ExitCode: 1, Stderr: []byte("Error: database is locked\n")}}, "sqlite3 exited with code 1: Error: database is locked"},
+		{"the database is not the gate's", context.Background(), sqliteRun{result: execx.Result{ExitCode: 1, Stderr: []byte("Parse error in 4th command line argument: no such table: runs\n")}}, "sqlite3 exited with code 1: Parse error in 4th command line argument: no such table: runs"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			reader := Reader{Root: stateRoot(t), Commands: c.run}
+
+			// Act
+			_, err := reader.RunBranch(c.ctx, "C:/project", "run")
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("got %v, want an error naming %q", err, c.want)
+			}
+		})
 	}
 }
 

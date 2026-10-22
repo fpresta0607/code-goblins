@@ -6,6 +6,7 @@ import { doneCards, expect, recordDoneCards, servePages, test, type Page, type R
 const CLICKS = "cred-1111111111111111";
 const INPUTS = "cred-2222222222222222";
 const WINDOW = "cred-3333333333333333";
+const REFERENCE_CARD = "cred-4444444444444444";
 
 interface Sent { path: string; token: string | null; body: Record<string, unknown> }
 
@@ -145,6 +146,61 @@ test("the window button asks for the goblin's own browser, then the card says it
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("link")).toHaveCount(0);
 });
 
+// The Overlord, 2026-10-21, of a plain field that refused a client ID: "this
+// is not a secret this is the client id, won't let me add it in command
+// center input, fix for future sessions". The warning stays, with one tap to
+// say the value is no secret and send it anyway.
+const KEY_REFUSAL = { status: 400, json: { error: "MADE_UP_ACCOUNT_REF looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field.", looks_like_key: true } };
+const REFERENCE = "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A";
+
+test("a plain value refused as a key keeps its warning and offers to send it anyway, saying it is no secret", async ({ page }) => {
+  // Arrange
+  const sent: Sent[] = [];
+  const answers = [KEY_REFUSAL, { status: 200, json: { id: REFERENCE_CARD, state: "open", saved: [], received: ["MADE_UP_ACCOUNT_REF"], replaced: [] } }];
+  await page.route("**/api/credentials/**", async (route: Route) => {
+    sent.push({ path: new URL(route.request().url()).pathname, token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() as Record<string, unknown> });
+    await route.fulfill(answers.shift()!);
+  });
+  const card = await openCard(page, REFERENCE_CARD);
+  const field = card.getByLabel("The account reference", { exact: true });
+  const row = card.locator('[data-credential-name="MADE_UP_ACCOUNT_REF"]');
+
+  // Act
+  await field.fill(REFERENCE);
+  await field.press("Enter");
+  await expect(row.getByRole("alert")).toContainText("looks like a key, and this field goes to the goblin");
+  await row.getByRole("button", { name: "It is not a secret: send it anyway" }).click();
+  await expect.poll(() => sent.length).toBe(2);
+
+  // Assert
+  expect(sent[0].body).toEqual({ id: REFERENCE_CARD, generation: "d".repeat(32), values: { MADE_UP_ACCOUNT_REF: REFERENCE }, replace: [] });
+  expect(sent[1].body).toEqual({ id: REFERENCE_CARD, generation: "d".repeat(32), values: { MADE_UP_ACCOUNT_REF: REFERENCE }, replace: [], not_secret: ["MADE_UP_ACCOUNT_REF"] });
+  await expect(row).toContainText("Sent");
+  await expect(row.getByRole("button", { name: "It is not a secret: send it anyway" })).toHaveCount(0);
+});
+
+test("a refusal that is not about a key offers no way past it, and typing again takes the offer away", async ({ page }) => {
+  // Arrange
+  const answers = [{ status: 400, json: { error: "MADE_UP_ACCOUNT_REF is empty." } }, KEY_REFUSAL];
+  await page.route("**/api/credentials/**", (route: Route) => route.fulfill(answers.shift()!));
+  const card = await openCard(page, REFERENCE_CARD);
+  const field = card.getByLabel("The account reference", { exact: true });
+  const row = card.locator('[data-credential-name="MADE_UP_ACCOUNT_REF"]');
+  const offer = row.getByRole("button", { name: "It is not a secret: send it anyway" });
+
+  // Act
+  await field.fill("anything");
+  await field.press("Enter");
+  await expect(row.getByRole("alert")).toContainText("is empty");
+
+  // Assert
+  await expect(offer).toHaveCount(0);
+  await field.press("Enter");
+  await expect(offer).toBeVisible();
+  await field.fill(REFERENCE + "x");
+  await expect(offer).toHaveCount(0);
+});
+
 for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }], ["on a phone", { width: 390, height: 844 }]] as const) {
   test(`each step card fits ${where} with nothing cut off`, async ({ page }, testInfo) => {
     // Arrange
@@ -166,3 +222,56 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
     }
   });
 }
+
+// The Overlord, 2026-10-17: "i sent a question from something else and it
+// said in yellow text your words goes to... it should complete as sent".
+test("his words from Something else? complete the step card as Sent, and History shows them with no warning", async ({ page }, testInfo) => {
+  // Arrange
+  await page.setViewportSize({ width: 1707, height: 1067 });
+  const sent = await answer(page);
+  const card = await openCard(page, INPUTS);
+  await recordDoneCards(page);
+
+  // Act
+  await card.locator(".card-actions").getByRole("button", { name: "Something else?" }).click();
+  const note = page.getByRole("dialog", { name: "Something else?" });
+  await note.getByLabel("Your note").fill("which plan?");
+  await note.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  await setCard(page, INPUTS, { state: "answered", reason: "which plan?", closed_at: "2026-10-14T23:45:00Z" });
+
+  // Assert
+  expect(sent[0]).toMatchObject({ path: "/api/credentials/close", body: { id: INPUTS, generation: "b".repeat(32), action: "answer", text: "which plan?" } });
+  await expect(note).toBeHidden();
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^SentYou wrote: which plan\?/));
+  await page.getByRole("button", { name: "Close the Command Center" }).click();
+  const menu = page.locator(".command-center-menu");
+  await menu.locator("> summary").click();
+  await expect(menu.getByRole("region", { name: "Waiting on you" }).locator(".inbox-list li").filter({ hasText: "for acme-shop" })).toHaveCount(0);
+  await menu.getByText("History").click();
+  const row = menu.locator(".inbox-history .inbox-list > li").filter({ hasText: "for acme-shop" });
+  await row.locator(".history-open").click();
+  await expect(row.locator(".history-mark")).toHaveAttribute("aria-label", "You wrote: which plan?");
+  await expect(row.locator(".history-detail")).toHaveText("You wrote: which plan?");
+  await expect(page.locator(".click-feedback, .signin-note, .credential-refusal, .message-note")).toHaveCount(0);
+  await menu.locator(".command-center-updates").screenshot({ path: testInfo.outputPath("step-card-answer-history.png") });
+});
+
+test("a refused answer from Something else? stays in his window in full, with his words, and no note on the card", async ({ page }) => {
+  // Arrange
+  const refusal = "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent.";
+  await page.route("**/api/credentials/close", (route) => route.fulfill({ status: 400, json: { error: refusal } }));
+  const card = await openCard(page, INPUTS);
+
+  // Act
+  await card.locator(".card-actions").getByRole("button", { name: "Something else?" }).click();
+  const note = page.getByRole("dialog", { name: "Something else?" });
+  await note.getByLabel("Your note").fill("which plan?");
+  await note.getByRole("button", { name: "Send", exact: true }).click();
+
+  // Assert
+  await expect(note.getByRole("status").filter({ hasText: refusal })).toHaveText(refusal);
+  await expect(note.getByLabel("Your note")).toHaveValue("which plan?");
+  await expect(note.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  await expect(card.locator(".click-feedback")).toHaveCount(0);
+});

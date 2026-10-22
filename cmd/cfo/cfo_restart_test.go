@@ -68,7 +68,7 @@ func TestGoblinsResumeSaysTheRestartedCFOStartedANewConversation(t *testing.T) {
 	f := newSessionFixture(t)
 	f.nativeCFO = supervisor.NativeCFOTerminal
 	f.restartSession = "a1b2c3d4-session"
-	f.restartFresh = "Its last conversation is 33 MB, past the 20 MB a CFO resumes, so the CFO starts a new one."
+	f.restartFresh = "Its last conversation holds 802K tokens of context, past the 400K a CFO resumes, so the CFO starts a new one."
 
 	// Act
 	exit, stdout, stderr := f.launch("resume")
@@ -114,6 +114,7 @@ func TestGoblinsResumeBringsBackAClosedCFO(t *testing.T) {
 	noResumeWait(t)
 	f := newSessionFixture(t)
 	recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+	claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
 
 	// Act
 	exit, _, stderr := f.launch("resume")
@@ -158,6 +159,7 @@ func fakeClaudeHome(t *testing.T) home.Home {
 	}
 	copyFile(t, self, filepath.Join(bin, "claude.exe"))
 	t.Setenv("PATH", bin)
+	t.Setenv("USERPROFILE", t.TempDir())
 	h := home.Home{Root: t.TempDir()}
 	h.State = filepath.Join(h.Root, "state")
 	return h
@@ -168,7 +170,7 @@ func fakeClaudeHome(t *testing.T) home.Home {
 // returns its terminal's record.
 func nativeCFORunning(t *testing.T, h home.Home, session string) host.Record {
 	t.Helper()
-	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
@@ -178,6 +180,9 @@ func nativeCFORunning(t *testing.T, h home.Home, session string) host.Record {
 		t.Fatal(err)
 	}
 	registerRestartCFO(t, h, record, "claude", session)
+	// A CFO at work has begun a turn, so Claude Code has written its
+	// transcript.
+	claudeTranscript(t, h.Root, session, 1<<10)
 	return record
 }
 
@@ -232,7 +237,7 @@ func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []strin
 	t.Helper()
 	hooks := "--settings\n" + filepath.Join(dir, "state", cfoSettingsFile)
 	isEmpty := false
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		raw, err := os.ReadFile(filepath.Join(dir, fakeClaudeArguments))
 		isEmpty = err == nil && len(raw) == 0
 		if err != nil || isEmpty {
@@ -249,7 +254,7 @@ func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []strin
 	if isEmpty {
 		t.Fatal("the CFO started with no arguments at all, want it to open with --settings and the file of its hooks")
 	}
-	t.Fatal("the CFO did not start again in native terminal cfo within 15s")
+	t.Fatal("the CFO did not start again in native terminal cfo within a minute")
 	return nil
 }
 
@@ -309,8 +314,8 @@ func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	if _, alive := proc.StartTime(before.ChildPID); alive {
 		t.Errorf("the CFO's earlier program, pid %d, still runs", before.ChildPID)
 	}
-	if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{"--resume", "a1b2c3d4-session"}) {
-		t.Errorf("the restarted CFO started with %q, want --resume and its conversation", got)
+	if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{"--resume", "a1b2c3d4-session", cfoBackPrompt("claude", restartedWhy, "")}) {
+		t.Errorf("the restarted CFO started with %q, want --resume and its conversation, then why it started again", got)
 	}
 	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		t.Error("native terminal cfo does not run after the restart")
@@ -342,8 +347,8 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 	if err != nil || fresh != "Its conversation a1b2c3d4-session could not be resumed, so the CFO starts a new one." || conversation.Session != "a1b2c3d4-session" {
 		t.Fatalf("restartCFO = %+v, %q, %v; want the conversation it could not resume named", conversation, fresh, err)
 	}
-	if got := waitForFakeClaudeArguments(t, h.Root, []string{"--resume", "a1b2c3d4-session"}); !slices.Equal(got, []string{""}) {
-		t.Errorf("the CFO started again with %q, want a new conversation", got)
+	if got := waitForFakeClaudeArguments(t, h.Root, []string{"--resume", "a1b2c3d4-session", cfoBackPrompt("claude", restartedWhy, "")}); !slices.Equal(got, []string{cfoBackPrompt("claude", restartedWhy, fresh)}) {
+		t.Errorf("the CFO started again with %q, want a new conversation, told why", got)
 	}
 	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		t.Error("no CFO runs in native terminal cfo after the restart")
@@ -355,8 +360,8 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 
 // The Overlord, 2026-10-09, after Restart the CFO refused with "The CFO could
 // not be restarted: Its last conversation is 33…": "this makes no sense".
-// Restart always restarts the CFO: a conversation past the size a CFO resumes
-// is left as it is, and the CFO starts again in its terminal on a new one,
+// Restart always restarts the CFO: a conversation past the context a CFO
+// resumes is left as it is, and the CFO starts again in its terminal on a new one,
 // which takes the home's digest as a CFO reopened after a close does, and
 // says why.
 func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
@@ -366,17 +371,7 @@ func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
 	t.Setenv("USERPROFILE", userHome)
 	before := nativeCFORunning(t, h, "large-session")
 	recordConversationOf(t, h.State, before, "claude", "large-session")
-	folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(h.Root, "-"))
-	if err := os.MkdirAll(folder, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	transcript := filepath.Join(folder, "large-session.jsonl")
-	if err := os.WriteFile(transcript, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Truncate(transcript, 33<<20); err != nil {
-		t.Fatal(err)
-	}
+	writeClaudeTranscript(t, h.Root, "large-session", requestLine(6, 2_300, 800_000, 4))
 	if err := os.Remove(filepath.Join(h.Root, fakeClaudeArguments)); err != nil {
 		t.Fatal(err)
 	}
@@ -385,14 +380,14 @@ func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
 	conversation, fresh, err := restartCFO(h, "")
 
 	// Assert
-	if err != nil || conversation.Session != "large-session" || fresh != "Its last conversation is 33 MB, past the 20 MB a CFO resumes, so the CFO starts a new one." {
+	if err != nil || conversation.Session != "large-session" || fresh != "Its last conversation holds 802K tokens of context, past the 400K a CFO resumes, so the CFO starts a new one." {
 		t.Fatalf("restartCFO = %+v, %q, %v; want the CFO restarted on a new conversation, with why", conversation, fresh, err)
 	}
 	if _, alive := proc.StartTime(before.ChildPID); alive {
 		t.Errorf("the CFO's earlier program, pid %d, still runs", before.ChildPID)
 	}
-	if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{""}) {
-		t.Errorf("the restarted CFO started with %q, want a new conversation", got)
+	if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{cfoBackPrompt("claude", restartedWhy, fresh)}) {
+		t.Errorf("the restarted CFO started with %q, want a new conversation, told why", got)
 	}
 	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		t.Error("native terminal cfo does not run after the restart")
@@ -450,8 +445,8 @@ func TestRestartCFONeverResumesAConversationNotOwnedByItsRunningHarness(t *testi
 			if _, alive := proc.StartTime(record.ChildPID); alive {
 				t.Errorf("the CFO's earlier program, pid %d, still runs", record.ChildPID)
 			}
-			if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{""}) {
-				t.Errorf("the restarted CFO started with %q, want a new conversation and never earlier-session", got)
+			if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{cfoBackPrompt("claude", restartedWhy, fresh)}) {
+				t.Errorf("the restarted CFO started with %q, want a new conversation, told why, and never earlier-session", got)
 			}
 		})
 	}

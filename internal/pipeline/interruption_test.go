@@ -29,6 +29,12 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 	if strings.Contains(command, "axi abort --run") {
 		runner.run.Status = "cancelled"
 	}
+	// no-mistakes recovers custody only from a run holding commits it never
+	// pushed: one whose head is its push binding is refused, as the gate's
+	// own tests of a pushed run's recovery hold.
+	if strings.Contains(command, "axi sync --recover") && runner.run.PushedHead != "" && runner.run.PushedHead == runner.run.Head {
+		return execx.Result{ExitCode: 1, Stdout: []byte("error: nothing was recovered: the live remote contains commits outside the persisted pipeline push binding; no files or refs were changed")}, nil
+	}
 	if strings.Contains(command, "axi run --intent") {
 		if runner.startRun {
 			runner.run.ID, runner.run.Status = "new-run", "running"
@@ -175,6 +181,47 @@ func TestRestartInterruptedChecksAcceptedRunAfterBoundedWaitExpires(t *testing.T
 				if strings.Count(strings.Join(runner.commands, "\n"), "axi run --intent") != 1 {
 					t.Fatal("retry restarted the replacement validation")
 				}
+			}
+		})
+	}
+}
+
+// A run that published its head holds nothing for custody recovery to
+// return, so its replacement starts from the branch as its goblin left it.
+// On 2026-10-17 cg-canvas-live-only was paused on the CI of the pull request
+// its gate had opened, with its goblin's one follow-up commit on it, and its
+// resume was refused with "nothing was recovered: the live remote contains
+// commits outside the persisted pipeline push binding".
+func TestRestartInterruptedRecoversOnlyARunHoldingUnpublishedCommits(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	for _, test := range []struct {
+		name, pushed  string
+		shouldRecover bool
+	}{
+		{"published its head", head, false},
+		{"moved past its push", strings.Repeat("b", 40), true},
+		{"never pushed", "", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: head, PushedHead: test.pushed, Intent: "Keep the gate fixes"}
+			runner := &interruptionRunner{run: prior, startRun: true}
+
+			// Act
+			err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("restart = %v, want the replacement started", err)
+			}
+			commands := strings.Join(runner.commands, "\n")
+			recovery, start := strings.Index(commands, "axi sync --recover"), strings.Index(commands, "axi run --intent Keep the gate fixes")
+			if start < 0 || (recovery >= 0) != test.shouldRecover || recovery > start {
+				t.Fatalf("commands:\n%s\nwant recovery %v before the replacement starts", commands, test.shouldRecover)
 			}
 		})
 	}

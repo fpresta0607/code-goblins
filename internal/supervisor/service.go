@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -36,6 +37,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/quota"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -50,6 +53,10 @@ type ProgressReader interface {
 }
 
 type Options struct {
+	RemoteAccess *remoteaccess.Manager
+	// Push sends the app badge's pushes to the push services browsers
+	// subscribe through; nil turns the app badge off.
+	Push           *http.Client
 	Example        bool
 	CFO            *CFOConnection
 	Gate           ProgressReader
@@ -98,11 +105,21 @@ type Options struct {
 	// machine; without it the board has no dictation of its own.
 	Dictation Dictation
 	// Dispatch is what a queued task's Start reads and runs; without it the
-	// board starts no goblin.
+	// board starts no goblin, and no CFO turn raises the idle wake.
 	Dispatch *Dispatch
+	// CompactCFO writes the compact checkpoint of a registered Codex or pi CFO
+	// as its compaction begins and, as it ends, queues the one wake that names
+	// it, as cfo hook pre-compact and the SessionStart digest do for a Claude
+	// CFO; without it a compaction does neither.
+	CompactCFO func(h home.Home, e nativehook.Event, now time.Time) error
 	// CI runs gh and git for the CI wakes; without it no CI is watched.
 	CI       execx.Runner
 	Progress execx.Runner
+	// Reads answers the git reads the board repeats while the files git
+	// reads for them are unchanged, and CI and Progress run through the same
+	// cache (readcache.Runner); without it every read of a task's worktree
+	// runs git.
+	Reads *readcache.Cache
 	// Defender reads what Microsoft Defender recorded since a time, for the
 	// wake that tells the CFO of each new detection and upload under the
 	// fleet's folders. It only reads.
@@ -151,6 +168,12 @@ type Options struct {
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes
+	// RestartWindows restarts Windows, the last step of the Overlord's
+	// Restart PC, and EndHeavyRuns ends every run in the machine's heavy
+	// line and names each; without RestartWindows the board restarts no PC
+	// (pc_restart.go).
+	RestartWindows func() error
+	EndHeavyRuns   func() ([]string, error)
 }
 
 type Service struct {
@@ -186,15 +209,16 @@ type Service struct {
 	// awaitedPulls holds the state the scheduler last read of each pull
 	// request a queued row waits on: OPEN, CLOSED or MERGED.
 	awaitedPulls map[string]string
-	// historyErr is what the last history refresh met, and cfoWakeErr and
-	// fleetErr what every typed CFO wake and every fleet wake reading met
-	// since the last recovery cycle; the loop reports them with its next
-	// recovery cycle. ciUnreadable is why each watched repository's CI
+	// historyErr is what the last history refresh met, and cfoWakeErr,
+	// fleetErr and pushErr what every typed CFO wake, every fleet wake
+	// reading and every app badge push met since the last recovery cycle; the
+	// loop reports them with its next recovery cycle. ciUnreadable is why each watched repository's CI
 	// cannot be read, as of the last fleet reading; publish joins it into
 	// whatever it publishes for as long as the failure lasts.
 	historyErr   error
 	cfoWakeErr   error
 	fleetErr     error
+	pushErr      error
 	ciUnreadable error
 	// errorLines holds when each line of the supervisor's own errors was last
 	// met, errorsUntold the new ones no wake has told the CFO of yet, and
@@ -253,6 +277,8 @@ type Service struct {
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
+	// pushMu guards the app badge's push keys and apps (pushFile).
+	pushMu sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
 	// starts guards starting, the task a Start is running cfo spawn for,
@@ -279,6 +305,15 @@ type Service struct {
 	// isCFOComingBack says the comeback is bringing the CFO back now; starts
 	// guards it too.
 	isCFOComingBack bool
+	// pcRestart is the restart of the PC the Overlord's Restart PC began,
+	// while it stops the fleet and after it stopped short; starts guards it
+	// (pc_restart.go).
+	pcRestart *PCRestart
+	// poolsKept is when the record of the kernel's pools last kept a
+	// sample, and poolGrowth the tags that grew most since the sign-in
+	// began as of that sample; mu guards both (kernel_pools.go).
+	poolsKept  time.Time
+	poolGrowth []PoolGrowth
 	// comeback takes one change to the comeback record at a time, and
 	// signedIn is when this sign-in began, read once.
 	comeback sync.Mutex
@@ -383,7 +418,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -523,12 +558,26 @@ func (s *Service) run(ctx context.Context) {
 		s.keepCFOAwake(ctx, cfoWakeEvery)
 	}()
 	defer func() { s.cancel(); <-awakeDone }()
+	backDone := make(chan struct{})
+	go func() {
+		defer close(backDone)
+		s.keepCFOBack(ctx, cfoBackEvery)
+	}()
+	defer func() { s.cancel(); <-backDone }()
 	fleetDone := make(chan struct{})
 	go func() {
 		defer close(fleetDone)
 		s.keepFleetWakes(ctx, fleetWatchEvery)
 	}()
 	defer func() { s.cancel(); <-fleetDone }()
+	pushDone := make(chan struct{})
+	go func() {
+		defer close(pushDone)
+		if s.Options.Push != nil {
+			s.keepPushing(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-pushDone }()
 	ticketsDone := make(chan struct{})
 	go func() {
 		defer close(ticketsDone)
@@ -704,9 +753,10 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
-	ingestErr := s.Store.Ingest()
+	events, ingestErr := s.Store.Ingest()
+	followErr := s.followNativeCFO(events)
 	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
-		s.publish(ingestErr)
+		s.publish(errors.Join(ingestErr, followErr))
 		return
 	}
 	wasNativeInboxFailing := s.isNativeInboxFailing
@@ -717,7 +767,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.nativeInboxRepair = nil
 	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
+	reconcileErr := errors.Join(ingestErr, followErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
@@ -746,9 +796,10 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
+		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
-		s.cfoWakeErr, s.fleetErr = nil, nil
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.pushErr)
+		s.cfoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
@@ -759,6 +810,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
+		reconcileErr = errors.Join(reconcileErr, finishTakenResumes(s.Store.Home.State))
+		reconcileErr = errors.Join(reconcileErr, handOverReplacedResumes(s.Store.Home.State))
 		reconcileErr = errors.Join(reconcileErr, s.reconcileTasks(time.Now()))
 	}
 	select {
@@ -929,7 +982,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if evaluationPending(d.Actions, task) {
 			continue
 		}
-		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}, now); err != nil {
 			return err
 		}
 	}
@@ -955,7 +1008,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if record, err := state.ReadLifecycle(s.Store.Home.State, task); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 			continue
 		}
-		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}, now); err != nil {
 			return err
 		}
 	}
@@ -1160,16 +1213,22 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return result, nil
 	}
 	result.PR = p.PR
-	if i := slices.IndexFunc(p.Steps, func(step pipeline.ProgressStep) bool {
-		return step.Status != "completed" && step.Status != "skipped" && step.Status != "pending"
-	}); i >= 0 {
-		result.GateStep = p.Steps[i].Name
-	}
-	for _, step := range p.Steps {
-		if step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed" {
-			result.Phase = "blocked"
-			result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
-			return result, nil
+	// A run that finished holds no step and waits on no decision: the step
+	// that failed it only says how it ended. On 2026-10-21 one cancelled the
+	// night before and one that failed on a fetch each held a goblin's card
+	// at Blocked over everything the goblin reported since.
+	if !p.IsTerminal() {
+		if i := slices.IndexFunc(p.Steps, func(step pipeline.ProgressStep) bool {
+			return step.Status != "completed" && step.Status != "skipped" && step.Status != "pending"
+		}); i >= 0 {
+			result.GateStep = p.Steps[i].Name
+		}
+		for _, step := range p.Steps {
+			if step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed" {
+				result.Phase = "blocked"
+				result.Reason = "Pipeline decision required at " + step.Name + "; use cfo pipeline respond"
+				return result, nil
+			}
 		}
 	}
 	if p.Ready(head) {
@@ -1215,6 +1274,25 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 		}
 	}
 	return nil
+}
+
+// boardTerminalControl is validateTerminalControl as the board's terminal
+// views say it. Its decision stands, and a refusal on a detached HEAD, which
+// no gate custody can be read for, names the commit in place of Git's failure
+// (#1015).
+func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta) error {
+	err := s.validateTerminalControl(ctx, meta)
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	if detached, detachedErr := s.Git.Detached(ctx, meta.Worktree); detachedErr != nil || !detached {
+		return err
+	}
+	head, headErr := s.Git.Head(ctx, meta.Worktree)
+	if headErr != nil {
+		return err
+	}
+	return fmt.Errorf("HEAD is detached at %s, and no gate custody can be read for a detached HEAD, so typing is held", head[:min(len(head), 12)])
 }
 
 func (s *Service) previewGit(meta state.TaskMeta) Git {
@@ -1315,6 +1393,9 @@ type Task struct {
 	// background shells and monitors, its jobs of processes with their
 	// memory, and its gate run.
 	Tree *fleettree.Tree `json:"tree,omitempty"`
+	// isBackAtWork marks a live goblin whose turn runs on a prompt it took
+	// after its latest done report, which no merge completes.
+	isBackAtWork bool
 	Evaluation
 }
 
@@ -1357,6 +1438,9 @@ type Snapshot struct {
 	// CFOConfigured says the home has a valid saved harness, even when no
 	// CFO has registered yet or its last start failed.
 	CFOConfigured bool `json:"cfo_configured"`
+	// waitCycles are the circles the goblins' standing waits on one another
+	// close, which tellWaitCycles names to the CFO.
+	waitCycles [][]string
 	// CFOStarting says native terminal cfo is up for a CFO not registered
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
@@ -1376,6 +1460,11 @@ type Snapshot struct {
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
 	CFOHarness string `json:"cfo_harness"`
+	// CFOSession is the session of the registered CFO, as Sessions keys it,
+	// which every surface reads the CFO's status from, and empty while no
+	// CFO is registered or its registration names no session: an older CFO's
+	// session, ended or not, never stands in for the CFO that runs.
+	CFOSession string `json:"cfo_session,omitempty"`
 	// CFOConversationLeft names the conversation the CFO could not resume
 	// when it last came back, and is empty when it came back on its own.
 	CFOConversationLeft string `json:"cfo_conversation_left"`
@@ -1393,6 +1482,9 @@ type Snapshot struct {
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
+	// PCRestart is the restart of the PC the Overlord's Restart PC began,
+	// absent when none runs or stopped short.
+	PCRestart *PCRestart `json:"pc_restart,omitempty"`
 	// Scheduling is what the scheduler started, resumed or found waiting at
 	// its last reading with memory free, for the meter's line; absent while
 	// memory is short or nothing schedules.
@@ -1411,8 +1503,8 @@ type Snapshot struct {
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
-	// Projects names who else works in each collaborative project on the
-	// board.
+	// Projects names each live GitHub project's repository on the board and
+	// the people active there.
 	Projects []ProjectPeople `json:"projects"`
 	// Release is a newer published release of Code Goblins, or any on a
 	// board built from a clone, for the board's banner.
@@ -1440,6 +1532,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	progress, sameAreas, hostedChecks, localReports, deploys, trees := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks), maps.Clone(s.localReports), maps.Clone(s.deploys), maps.Clone(s.trees)
 	out.Release = s.release
 	out.Scheduling = s.scheduling
+	poolGrowth := s.poolGrowth
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
@@ -1463,7 +1556,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		taskTickets, out.Projects = s.tickets.Shown()
 	}
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness, out.CFOSession = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness, cfo.session
 	if firstRun := s.Options.FirstRun; firstRun != nil && firstRun.SavedAgent != nil {
 		out.CFOConfigured = firstRun.SavedAgent() != ""
 	}
@@ -1473,6 +1566,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.CFOUpdate = s.cfoUpdateView(cfo.since)
 	}
 	out.Comeback = s.comebackView()
+	out.PCRestart = s.pcRestartView()
 	if view, issue := s.startAtLoginView(); issue != "" {
 		out.Issues = append(slices.Clone(out.Issues), issue)
 	} else {
@@ -1531,6 +1625,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		evaluation := d.Tasks[id]
 		node, linked := d.Sessions[d.TaskSessions[id]]
+		// A session of an earlier generation is no evidence of this one: a
+		// goblin switched off Pi, the one harness whose native hooks a home
+		// may have installed alone, onto one that reports none still named
+		// its Pi session, and its card read no evidence at all.
+		if linked && node.Generation != meta.SpawnGen {
+			node, linked = Session{}, false
+		}
 		runtime := s.runtimeEvidence(meta, node, out.At)
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
@@ -1547,10 +1648,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if !linked {
 			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
-		} else if node.Generation != meta.SpawnGen {
-			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
-		if linked && node.Generation == meta.SpawnGen && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
+		if linked && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
 			if runtime.working() {
 				evaluation.Phase, evaluation.Reason, evaluation.At = "working", "Native activity and runtime evidence agree", node.UpdatedAt
 			} else {
@@ -1561,17 +1660,43 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
+		// A goblin whose turn runs on a prompt it took after its latest report
+		// is at work on something that report does not say: a wait it
+		// reported, or a delivery it finished, no longer describes it. Two
+		// goblins sent new work each read Waiting on the other on 2026-10-16,
+		// and a delivered goblin resumed to look for more work stayed in
+		// Completed. Its native hooks prove the prompt.
+		isInTurn := linked && (node.Phase == "active" || node.Phase == "started")
+		isAtWork := isInTurn && node.PromptAt.Truncate(time.Second).After(reportedAt)
+		// A delivery is undone only by a prompt taken after it, which the
+		// goblin's own newer reports then describe, a working one included.
+		isBackAtWork := isInTurn && node.PromptAt.Truncate(time.Second).After(deliveredAt(lines, spawned))
+		if isBackAtWork && evaluation.Phase == "done" {
+			evaluation.Phase, evaluation.Reason = "working", "At work again after its delivery"
+			isGateHeld = evaluation.GateStep != ""
+		}
 		// A goblin's own newer report says what it is doing, unless a question
 		// or the gate holds it or its work already merged. A question asked
 		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
 		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
+		if isReported && phase == "waiting" && isAtWork {
+			isReported = false
+		}
 		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		// Answering or acknowledging a report does not resume its task. A
-		// standing dependency wait still survives a question asked beside it.
-		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
+		// A question or a failure the goblin reported is its state until the
+		// goblin takes a prompt after it, as an answer that reached it, a
+		// steer or an instruction an Enter submitted, and a failure also
+		// while its terminal shows its harness at work since. An answer on
+		// record or an acknowledgement resumes nothing, a hold its own turn
+		// is still finishing stays a hold, and the line stays in the goblin's
+		// history. A standing dependency wait still survives a question asked
+		// beside it.
+		kind := reportKind(report)
+		isPastReport := linked && node.PromptAt.Truncate(time.Second).After(reportedAt) || kind == "failed" && runtime.working() && !runtime.At.Before(reportedAt)
+		if !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") && !isPastReport {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
 		}
 		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
@@ -1597,7 +1722,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1753,6 +1878,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 	}
+	// A circle of waits counts only goblins still waiting once their pauses
+	// and stops are read: a stopped goblin's last wait waits on nothing.
+	out.waitCycles = breakWaitCycles(out.Tasks)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		if progress, exists := progress[task.ID]; exists && progress.Generation == task.Generation {
@@ -1774,7 +1902,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
-			memory.Floor, memory.Next = memoryFloor, memoryNext
+			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {
@@ -1859,7 +1987,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// before its cleanup. One still deploying, or whose deploy failed or
 		// was cancelled, stays In progress.
 		isDeployed := task.Deployment == nil || task.Deployment.State == "deployed"
-		if !task.Archived && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
+		if !task.Archived && !task.isBackAtWork && task.Report == "done" && task.Merged && isDeployed && !(task.Phase == "done" && task.Verified) {
 			task.Phase, task.Verified, task.Reason = "done", true, "Pull request merged"
 			if task.Deployment != nil {
 				task.Reason = "Pull request merged and deployed"

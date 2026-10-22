@@ -378,7 +378,7 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exit := run([]string{"doctor"}, &stdout, &stderr)
-	want := "PRESENTATION_UNAVAILABLE lavish-axi not found on PATH (requires >=0.1.79-codegoblins.3; install: npm install -g " + doctor.LavishRelease + ") - nonvisual work proceeds in plain text"
+	want := "PRESENTATION_UNAVAILABLE lavish-axi not found on PATH (requires >=0.1.79-codegoblins.17; install: npm install -g " + doctor.LavishRelease + ") - nonvisual work proceeds in plain text"
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 	}
@@ -479,7 +479,7 @@ func TestRunDoctorSaysWhatTheCFOsHarnessGets(t *testing.T) {
 	}{
 		{"a home that remembers none starts Claude Code", "", []string{"cfo harness: Claude Code (the best experience); its SessionStart hook registers it\n"}, 0},
 		{"Codex", "codex", []string{"cfo harness: Codex (woken by a typed line; no digest or guards); its first prompt runs cfo register\n", "  goes without: no turn-end guard and no pre-tool guards\n"}, 3},
-		{"pi", "pi", []string{"cfo harness: pi (woken by a typed line; no digest, guards or resume); its first prompt runs cfo register\n", "  goes without: a closed pi CFO starts a new conversation: it is not resumed\n"}, 4},
+		{"pi", "pi", []string{"cfo harness: pi (woken by a typed line; no digest or guards); its first prompt runs cfo register\n", "  goes without: no turn-end guard and no pre-tool guards\n"}, 3},
 		{"a harness no CFO runs in", "kimi", []string{"cfo harness: unreadable ("}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

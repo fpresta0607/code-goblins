@@ -156,6 +156,10 @@ func TestVerifyPRReadyRefusesARollupInWhichNoCheckRan(t *testing.T) {
 	for name, checks := range map[string]string{
 		"every check skipped":        `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"},{"__typename":"CheckRun","name":"plan","status":"COMPLETED","conclusion":"SKIPPED"}`,
 		"skipped and neutral checks": `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"},{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"NEUTRAL"}`,
+		// The workflows' draft job reads whether the pull request is a draft
+		// and tests nothing: on a draft it succeeds while every other job is
+		// skipped (#963).
+		"a draft's run, whose draft job succeeded": `{"__typename":"CheckRun","name":"draft state","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
@@ -169,6 +173,62 @@ func TestVerifyPRReadyRefusesARollupInWhichNoCheckRan(t *testing.T) {
 	}
 }
 
+// The workflows' draft job tests nothing, so how it concluded neither proves
+// a head nor refuses one: a read of the draft state that failed ran every job
+// all the same, and those passed (#963).
+func TestVerifyPRReadyPassesOverTheDraftStateCheck(t *testing.T) {
+	// Arrange
+	checks := `{"__typename":"CheckRun","name":"draft state","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}`
+
+	// Act
+	proof, err := verifyPRReady(context.Background(), "https://github.com/o/r/pull/1", proofRunner{stdout: readyPRView(checks)})
+
+	// Assert
+	if err != nil || proof.Checks != 1 {
+		t.Fatalf("proof=%+v err=%v, want the head proved by its one check that tested it", proof, err)
+	}
+}
+
 func readyPRView(checks string) string {
 	return `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"abc123","statusCheckRollup":[` + checks + `]}`
+}
+
+func TestVerifyPRReadyCountsARateLimitedDeployAsNotRunNeverAsFailed(t *testing.T) {
+	const (
+		passed  = `{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}`
+		failed  = `{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"}`
+		skipped = `{"__typename":"CheckRun","name":"e2e","status":"COMPLETED","conclusion":"SKIPPED"}`
+		// limited is the Vercel entry gh returned live for a head the host
+		// rate limited, but for the team's name: no description, only the
+		// target of its upgrade page for that limit (#1194).
+		limited = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"}`
+		broken  = `{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects/app/9xYzBuildFailed"}`
+	)
+	cases := []struct {
+		name   string
+		checks string
+		want   string
+	}{
+		{"a rate-limited deploy alone among passing checks passes", passed + "," + limited, ""},
+		{"a rate-limited deploy beside a real failure does not", passed + "," + failed + "," + limited, "lint concluded FAILURE"},
+		{"a failed deploy with another target does not", passed + "," + broken, "Vercel concluded FAILURE"},
+		{"only rate-limited and skipped checks do not", skipped + "," + limited, "no check ran on the PR's head, every one was skipped or neutral, and the host rate limited the deploy of Vercel"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			proof, err := verifyPRReady(context.Background(), "https://github.com/o/r/pull/1", proofRunner{stdout: readyPRView(tc.checks)})
+
+			// Assert
+			if tc.want != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("err=%v, want %q", err, tc.want)
+				}
+				return
+			}
+			if err != nil || proof.Checks != 1 || len(proof.RateLimited) != 1 || proof.RateLimited[0] != "Vercel" {
+				t.Fatalf("proof=%+v err=%v, want one green check and Vercel's deploy named rate limited", proof, err)
+			}
+		})
+	}
 }

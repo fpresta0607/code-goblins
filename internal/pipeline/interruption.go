@@ -14,13 +14,14 @@ import (
 )
 
 type InterruptedRun struct {
-	ID       string `json:"id"`
-	RepoID   string `json:"repo_id"`
-	Branch   string `json:"branch"`
-	Status   string `json:"status"`
-	Head     string `json:"head"`
-	Intent   string `json:"intent"`
-	Worktree string `json:"worktree"`
+	ID         string `json:"id"`
+	RepoID     string `json:"repo_id"`
+	Branch     string `json:"branch"`
+	Status     string `json:"status"`
+	Head       string `json:"head"`
+	PushedHead string `json:"pushed_head"`
+	Intent     string `json:"intent"`
+	Worktree   string `json:"worktree"`
 }
 
 // IsTerminal reports whether the run has finished, so nothing is left to
@@ -34,7 +35,7 @@ var gateCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
 func (reader Reader) Interruption(ctx context.Context, project, branch string) (InterruptedRun, error) {
 	var runs []InterruptedRun
-	query := `SELECT runs.id, runs.repo_id, runs.branch, runs.status, runs.head_sha AS head, COALESCE(runs.intent,'') AS intent, COALESCE(runs.worktree_dir,'') AS worktree FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`
+	query := `SELECT runs.id, runs.repo_id, runs.branch, runs.status, runs.head_sha AS head, COALESCE(runs.last_pushed_sha,'') AS pushed_head, COALESCE(runs.intent,'') AS intent, COALESCE(runs.worktree_dir,'') AS worktree FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`
 	if err := reader.query(ctx, query, &runs); err != nil {
 		return InterruptedRun{}, err
 	}
@@ -224,9 +225,15 @@ func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree s
 	}
 	defer handover.Close()
 	start := append(append(handover.Args, "--wait", "45s"), selected...)
-	result, err := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
-	if err != nil || result.ExitCode != 0 {
-		return fmt.Errorf("recover paused validation: %s", strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))
+	// Custody comes back only from a run holding commits it never pushed. A
+	// run that published its head left the branch to its goblin, and
+	// no-mistakes refuses to recover it, the more so once the goblin pushed
+	// its own follow-up commits over that head, as on 2026-10-17.
+	if current.PushedHead != current.Head {
+		result, err := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
+		if err != nil || result.ExitCode != 0 {
+			return fmt.Errorf("recover paused validation: %s", strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))
+		}
 	}
 	result, runErr := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: start})
 	current, err = reader.Interruption(bounded, project, prior.Branch)

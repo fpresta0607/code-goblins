@@ -38,7 +38,7 @@ func defaultProcessPlan(ctx context.Context, h home.Home) (processPlan, error) {
 	tree := &fleettree.Reader{Home: profile, Recorded: func(meta state.TaskMeta) string {
 		session, _ := fleettree.OwnedSession(h.State, meta)
 		return session
-	}, Owner: lifecycle.OwnerOf(h), InTurn: verify.RunsInTurn}
+	}, Owner: lifecycle.OwnerOf(h), InTurn: verify.RunsInTurn, HeavyLine: verify.MachineLine}
 	cfg := janitor.Config{
 		Home:            h,
 		Now:             now,

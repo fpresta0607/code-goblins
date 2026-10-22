@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -230,7 +231,7 @@ func TestReconciliationAfterSessionEndAndReadyUntilTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := event(t, h, "SessionStart", "ended", "", time.Now())
-	end := event(t, h, "SessionEnd", "ended", "turn", time.Now().Add(time.Millisecond))
+	end := event(t, h, "SessionEnd", "ended", "turn", time.Now().Add(time.Millisecond)) // stall-accepted: the event's timestamp, a millisecond after its start, which no wait compares with the clock.
 	if err := store.Accept(start); err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +309,7 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 		t.Fatal("duplicate controller admitted")
 	}
 	start := event(t, h, "SessionStart", "background", "", time.Now())
-	stop := event(t, h, "Stop", "background", "turn", time.Now().Add(time.Millisecond))
+	stop := event(t, h, "Stop", "background", "turn", time.Now().Add(time.Millisecond)) // stall-accepted: the event's timestamp, a millisecond after its start, which no wait compares with the clock.
 	for _, e := range []nativehook.Event{start, stop} {
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)
@@ -391,6 +392,55 @@ func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 	}
 }
 
+// A worktree on a detached HEAD, as a new task's starts, has no branch for a
+// gate's custody to be read on, so typing into its terminal stays held. The
+// board says so and names the commit, where it said Git's symbolic-ref
+// failure and woke the CFO each time (#1015).
+func TestBoardTerminalOnADetachedHeadHoldsTypingAndSaysWhy(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	gitFixture(t, meta.Worktree)
+	s := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	onBranch, onBranchErr := s.Git.Detached(context.Background(), meta.Worktree)
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = meta.Worktree
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v", out, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("checkout", "-q", "--detach", "HEAD")
+	commit := git("rev-parse", "HEAD")[:12]
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Act
+	detached, detachedErr := s.Git.Detached(context.Background(), meta.Worktree)
+	controlErr := s.boardTerminalControl(context.Background(), meta)
+	cancelledErr := s.boardTerminalControl(cancelled, meta)
+	details, detailErr := s.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
+
+	// Assert
+	if onBranch || onBranchErr != nil {
+		t.Errorf("Detached on a branch = %v, %v; want false", onBranch, onBranchErr)
+	}
+	if !detached || detachedErr != nil {
+		t.Errorf("Detached on a detached HEAD = %v, %v; want true", detached, detachedErr)
+	}
+	if controlErr == nil || !strings.HasPrefix(controlErr.Error(), "HEAD is detached at "+commit) {
+		t.Errorf("board terminal control = %v, want typing refused on HEAD is detached at %s", controlErr, commit)
+	}
+	if cancelledErr == nil || strings.HasPrefix(cancelledErr.Error(), "HEAD is detached") {
+		t.Errorf("cancelled board terminal control = %v, want the cancellation", cancelledErr)
+	}
+	if detailErr != nil || details.Branch != "detached at "+commit || slices.Contains(details.Notes, "Branch information is unavailable.") {
+		t.Errorf("workspace = %+v, %v; want detached at %s with no unavailable note", details, detailErr, commit)
+	}
+}
+
 func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 	tests := []struct {
 		name                 string
@@ -403,7 +453,10 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 	}{
 		{name: "settled current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "settled", wantPhase: "review"},
 		{name: "ended current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "ended", wantPhase: "review"},
-		{name: "prior generation session rejects matching evaluation", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "unknown"},
+		// A session of an earlier generation is no evidence of this one, such
+		// as the Pi session of a goblin since switched to a harness that has
+		// reported none yet, so the current generation's own evaluation stands.
+		{name: "prior generation session leaves the matching evaluation standing", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "done", wantVerified: true},
 		{name: "unlinked task rejects completed prior generation", evaluationGeneration: "g1", wantPhase: "unknown"},
 		{name: "matching generation retains completed evaluation", evaluationGeneration: "g2", linked: true, phase: "settled", wantPhase: "done", wantVerified: true},
 	}

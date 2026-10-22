@@ -381,7 +381,7 @@ func TestAFetchCarriesOnOnceASignInWindowAsSlowToGoAsOnThisMachineIsGone(t *test
 	if err := b.service.processBrowserSignIns(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for shown := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for shown := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if fetch := b.stored().Fetch; fetch != nil && fetch.State == "fetching" {
 			break
 		}
@@ -398,7 +398,7 @@ func TestAFetchCarriesOnOnceASignInWindowAsSlowToGoAsOnThisMachineIsGone(t *test
 	clock.Unlock()
 	select {
 	case <-looked:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the carried fetch never looked at the broker's clock while the window's Chrome closed")
 	}
 	release.Do(func() { close(released) })
@@ -511,7 +511,7 @@ func TestNoTaskBorrowsALoginWhileAFetchDrivesIt(t *testing.T) {
 		_, err := b.fetch()
 		done <- err
 	}()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		b.mu.Lock()
 		isReading := len(b.reads) == 1
 		b.mu.Unlock()

@@ -42,10 +42,13 @@ type LaunchSpec struct {
 	// and proof files land there, outside every checkout, and go with the
 	// task. The pane's TMP names the shared folder beside it, which the
 	// caller creates too.
-	Scratch         string
-	TurnEndedPath   string
-	Model           string
-	Effort          string
+	Scratch       string
+	TurnEndedPath string
+	Model         string
+	Effort        string
+	// PiExtensionPath is the path of the pi extension a goblin starts with,
+	// which holds its goblin seal (install.GoblinPiExtension), and empty for
+	// a launch that loads none. Only the pi adapter reads it.
 	PiExtensionPath string
 	// MCPConfig is the path of the goblin-safe MCP configuration (the
 	// token-authenticated subset of the project's .mcp.json), materialized
@@ -62,7 +65,11 @@ type LaunchSpec struct {
 	// starts none of them, as claude's --strict-mcp-config starts none of the
 	// operator's.
 	CodexMCPServers []string
-	Subagents       map[string]routing.ExecutionLane
+	// CodexHooks are the arguments that give a Codex launch its native
+	// session hooks (nativehook.CodexArguments), and empty for a launch that
+	// runs none. Only the codex adapter reads them.
+	CodexHooks []string
+	Subagents  map[string]routing.ExecutionLane
 }
 
 // Launch is a harness launch specification: the native terminal's host starts

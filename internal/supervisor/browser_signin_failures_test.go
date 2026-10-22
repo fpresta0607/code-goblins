@@ -375,7 +375,7 @@ func TestBrowserSignInWindowWhoseCloseFailsStaysFencedAndIsReportedOnce(t *testi
 func TestBrowserSignInWindowCancelledBehindTheBrokerLockStartsNothing(t *testing.T) {
 	service, chrome, _ := signInBoard(t)
 	clickSignIn(t, service)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond) // stall-accepted: the test means this context to run out while the tick waits on the lock.
 	defer cancel()
 	service.browsers.mu.Lock()
 	answer := make(chan error, 1)
@@ -388,7 +388,7 @@ func TestBrowserSignInWindowCancelledBehindTheBrokerLockStartsNothing(t *testing
 		if len(chrome.launches) != 0 {
 			t.Fatalf("launches = %d, want none after the keeper's context ended", len(chrome.launches))
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the cancelled tick did not return")
 	}
 }
