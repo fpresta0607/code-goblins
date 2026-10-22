@@ -694,6 +694,13 @@ It exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise.
 A machine with no runner installed is asked, finds no pipe, and says nothing, and trouble with a runner that is installed is said once an hour in `<state>\ci-runner\watch.log`.
 `cfo ci-runner status` says whether a job runs and how the last one ended.
 
+A hosted job moves to the desktop only once its desktop copy has matched it run after run, and the record of that is the parity record.
+The copies run in a mirror workflow of the repository's own, `desktop-mirror.yml`, which a CI run's completion starts and which reports on the default branch's head, never on a pull request's, so no copy waiting for the desktop holds a merge.
+Its run is titled `Desktop mirror of CI run <id>`, and its job `desktop-<name>` copies the job `<name>` of that CI run on the very merge the hosted job tested: the hosted job's log names it, `HEAD is now at <sha> Merge <head> into <base>`, and the copy's, `desktop mirror: Merge <head> into <base>`.
+`cfo ci-runner parity --repo <owner/name>` reads the mirror's newest finished runs and adds each pair it does not hold yet to `<state>\ci-runner\parity\<owner>-<name>.json`: both conclusions, pytest's counts from each log's summary line, the merge each tested, their times, and from the watcher's log of the desktop job's turn, found by the runner it named, how long the turn waited and what held the line.
+A pair matches when both copies tested the same merge, concluded the same and counted the same, and the desktop's run was not lost.
+It prints, for each job, how many runs in a row matched up to the newest, how many desktop runs were lost and the newest difference, and once 20 in a row matched, that the hosted job may retire, which stays the Supreme Overlord's decision.
+
 ## Before a push
 
 `cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.

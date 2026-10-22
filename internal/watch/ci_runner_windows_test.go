@@ -31,7 +31,7 @@ func TestRunStartsTheDesktopCIRunnerWatch(t *testing.T) {
 			_, err := Run(cfg)
 
 			// Assert
-			_, statErr := os.Stat(ciRunnerFolder(dir))
+			_, statErr := os.Stat(CIRunnerFolder(dir))
 			if err != nil || (every > 0) != (statErr == nil) {
 				t.Errorf("Run = %v, the runner's folder %v; want the watch started only when CIRunnerEvery is set", err, statErr)
 			}

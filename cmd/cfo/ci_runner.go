@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-const ciRunnerUsage = "usage: cfo ci-runner job | status"
+const ciRunnerUsage = "usage: cfo ci-runner job | status | parity --repo <owner/name>"
 
 // ciRunnerJobLimit bounds a job from the fleet's side, past the service's own
 // 30 minute limit and its cleanup, so a service that never answers cannot
@@ -23,8 +24,12 @@ const ciRunnerStatusLimit = 10 * time.Second
 const exitNoCIJob = 3
 
 // runCIRunner runs cfo ci-runner: job runs one job in this machine's desktop
-// CI runner for as long as this process lives, and status says what runs.
-func runCIRunner(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+// CI runner for as long as this process lives, status says what runs, and
+// parity keeps a repository's parity record (ci_runner_parity.go).
+func runCIRunner(args []string, stdout, stderr io.Writer, commands execx.Runner, runtime commandRuntime) int {
+	if len(args) > 0 && args[0] == "parity" {
+		return runCIRunnerParity(args[1:], stdout, stderr, commands, runtime)
+	}
 	if len(args) != 1 || args[0] != "job" && args[0] != "status" {
 		fmt.Fprintln(stderr, ciRunnerUsage)
 		return 2

@@ -129,9 +129,9 @@ func (w *ciRunnerWatch) watch(ctx context.Context, sleep func(context.Context, t
 	}
 }
 
-// ciRunnerFolder is where the watch logs, and each job's run logs, under the
-// home's state.
-func ciRunnerFolder(stateDir string) string {
+// CIRunnerFolder is where the watch logs, and each job's run logs, under the
+// home's state, and where cfo ci-runner parity keeps its records.
+func CIRunnerFolder(stateDir string) string {
 	return filepath.Join(stateDir, "ci-runner")
 }
 
