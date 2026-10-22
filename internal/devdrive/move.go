@@ -8,15 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // Move points h's worktrees, scratch and package caches at folder, which must
 // be on a Dev Drive of m that Windows does not distrust: it makes the three
-// folders, keeps folder to the account it runs as, SYSTEM and Administrators,
-// proves it can write there, and records the folder and when in the home's
-// config\dev-drive.json. Nothing is copied and no task loses anything:
+// folders, proves it can write there, and records the folder and when in the
+// home's config\dev-drive.json. Nothing is copied and no task loses anything:
 // a task made before keeps the folders its record names until it ends, and new
 // goblins start on the drive. Run again with the same folder it changes
 // nothing; it returns what it did, in a line for the person.
@@ -26,7 +24,7 @@ func Move(m Machine, h home.Home, folder string, now time.Time) (string, error) 
 	}
 	folder = filepath.Clean(folder)
 	if folder == filepath.VolumeName(folder)+`\` {
-		return "", fmt.Errorf("%s is a drive's root; the folder goes at a Dev Drive's root, such as D:\\CodeGoblins, and only it is kept to you, SYSTEM and Administrators", folder)
+		return "", fmt.Errorf("%s is a drive's root; the folder goes at a Dev Drive's root, such as D:\\CodeGoblins", folder)
 	}
 	if strings.EqualFold(h.DevDrive, folder) {
 		return "already moved: new goblins' worktrees, scratch and package caches are in " + folder + "; nothing changed", nil
@@ -53,11 +51,6 @@ func Move(m Machine, h home.Home, folder string, now time.Time) (string, error) 
 		if err := os.MkdirAll(filepath.Join(folder, sub), 0o755); err != nil {
 			return "", err
 		}
-	}
-	// A folder at a drive's root lets Authenticated Users modify it, so any
-	// second account could read and write every goblin's work there.
-	if err := access.Narrow(folder); err != nil {
-		return "", fmt.Errorf("keep %s to you, SYSTEM and Administrators, so nothing moved: %w", folder, err)
 	}
 	probe := filepath.Join(folder, home.ScratchDir, ".cfo-write-probe")
 	if err := os.WriteFile(probe, []byte("Code Goblins can write here\n"), 0o644); err != nil {
