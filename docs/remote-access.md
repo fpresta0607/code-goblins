@@ -20,6 +20,10 @@ owner account. No personal hostname, account or key is included in the build.
    open the link in its browser. Open the CFO terminal to control the existing
    session: on the phone a terminal fills the screen below the top bar and
    stays above the keyboard while you type, and **Back** returns to the board.
+   Swipe a terminal to scroll its history. Beside its microphone, **Paste**
+   types your phone's clipboard or adds its picture, **Add a picture** adds
+   one from your photos, and **Copy text** shows the terminal's text to select
+   and copy.
    To keep the board beside your apps, use Safari's **Share → Add to
    Home Screen** on an iPhone, or Chrome's menu **→ Add to Home screen** on
    Android: it becomes a Code Goblins app with the goblin icon. In that app,
