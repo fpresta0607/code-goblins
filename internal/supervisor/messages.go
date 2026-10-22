@@ -276,7 +276,7 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	}
 	remove := -1
 	if len(s.db.Actions) >= maxActions {
-		if remove = slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" }); remove < 0 {
+		if remove = slices.IndexFunc(s.db.Actions, isClosedHistory); remove < 0 {
 			return Action{}, errors.New("action queue is full. Resolve pending actions")
 		}
 	}
