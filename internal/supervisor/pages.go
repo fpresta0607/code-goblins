@@ -581,11 +581,11 @@ func pageWords(poll axi.PagePoll) string {
 }
 
 // chainedNotes is what he sent on a page in one answer, one note to a line in
-// the order he wrote them, each with what it is attached to, so a chained set
-// reads as the notes he left where he left them: a set is numbered, a lone
-// note on an element says which, and a lone note on the whole page, or his
-// pick of a choice the page declared, is his words alone. An answer kept
-// before notes were read has its prompts alone.
+// the order he wrote them, each with what it is attached to and the images he
+// attached to it, so a chained set reads as the notes he left where he left
+// them: a set is numbered, a lone note on an element says which, and a lone
+// note on the whole page, or his pick of a choice the page declared, is his
+// words alone. An answer kept before notes were read has its prompts alone.
 func chainedNotes(poll axi.PagePoll) string {
 	notes := poll.Notes
 	if len(notes) == 0 {
@@ -593,9 +593,9 @@ func chainedNotes(poll axi.PagePoll) string {
 	}
 	if len(notes) == 1 {
 		if on := noteOn(notes[0]); on != "" && notes[0].Tag != "choice" {
-			return "On " + on + ": " + notes[0].Prompt
+			return "On " + on + ": " + noteWords(notes[0])
 		}
-		return notes[0].Prompt
+		return noteWords(notes[0])
 	}
 	lines := make([]string, len(notes))
 	for i, note := range notes {
@@ -603,9 +603,25 @@ func chainedNotes(poll axi.PagePoll) string {
 		if on == "" {
 			on = "the whole page"
 		}
-		lines[i] = fmt.Sprintf("%d. On %s: %s", i+1, on, note.Prompt)
+		lines[i] = fmt.Sprintf("%d. On %s: %s", i+1, on, noteWords(note))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// noteWords is what he wrote in a note, followed by the local path of each
+// image he attached to it, which is all a note of images alone says.
+func noteWords(note axi.PageNote) string {
+	if len(note.Images) == 0 {
+		return note.Prompt
+	}
+	images := "his image " + note.Images[0]
+	if len(note.Images) > 1 {
+		images = "his images " + strings.Join(note.Images, ", ")
+	}
+	if note.Prompt == "" {
+		return images
+	}
+	return note.Prompt + " (" + images + ")"
 }
 
 // noteOn names what a note is attached to: a table cell by its row and
