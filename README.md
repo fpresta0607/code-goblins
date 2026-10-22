@@ -119,6 +119,7 @@ Landing green pull requests one at a time costs one CI run each, in a row, becau
 A merge train lands them with one run.
 It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch, so CI tests them together once.
 When that run is green, the train's pull request merges: main takes the commit CI tested, so its tree equals the train's, and GitHub marks each pull request that rode merged, with its own number in main's history.
+It merges only once main's deploy has finished successfully: while a workflow whose name says deploy still runs on main's push, or its newest run did not pass, the train waits and says what it waits on, so two deploys never overlap and a failed one is pinned to one change.
 A train that landed leaves nothing closed without merging on GitHub, and one that did not land its last run closes that run's pull request saying why, however often it was halved.
 A train's own pull request wears the `merge-train` label, which `.github/release.yml` leaves out of the notes GitHub writes for a release, so those list each pull request by its own number and never the train.
 When it is red, the failed checks run again once, because a check can fail by chance, and a run that passes on its second try lands with the check that failed once named in its record.

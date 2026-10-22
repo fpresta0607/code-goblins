@@ -127,6 +127,9 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 		return answer(slices.DeleteFunc(slices.Clone(f.open), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))
 	case args[0] == "api" && args[1] == "user":
 		return execx.Result{Stdout: []byte("fleet\n")}, nil
+	case args[0] == "run" && args[1] == "list":
+		// Main has no deploy run for a green train to wait on.
+		return execx.Result{Stdout: []byte("[]")}, nil
 	case args[0] == "pr" && args[1] == "create":
 		f.branch, f.trainURL = args[slices.Index(args, "--head")+1], "https://github.com/o/r/pull/900"
 		return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil

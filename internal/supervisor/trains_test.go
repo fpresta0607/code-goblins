@@ -167,6 +167,10 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 		p.labels = append(p.labels, args[2])
 		return execx.Result{}, nil
 	}
+	// Main has no deploy run for a green train to wait on.
+	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "run" && request.Args[1] == "list" {
+		return execx.Result{Stdout: []byte("[]")}, nil
+	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user" {
 		p.viewerReads++
 		if p.viewerTimeouts > 0 {
