@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -59,15 +60,17 @@ func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int 
 // startHookRefusal is what a goblin is told of a shell command that waits
 // because a Python environment of worktree, the folder its harness started
 // in, holds code that runs at every Python start and that no known
-// package ships, or empty when none does. The command is refused before
-// anything it starts can run Python, and so is every one after it until the
-// file is gone. The CFO is woken for each such file with the file and the
-// package that installed it, never its content, which the package wrote:
-// once while that wake waits for him, and again once he has acknowledged it
-// and the file is still there, as after a goblin reinstalls what he removed.
-// A file no package names yet while an install still writes is refused with
-// no wake, since its RECORD may yet name it. Environments that cannot be
-// read refuse too, without a wake, since what they hold is unknown.
+// package ships and that the CFO did not accept for the goblins of task's
+// project or of the fleet, or empty when none does. The command is refused
+// before anything it starts can run Python, and so is every one after it
+// until the file is gone or accepted. The CFO is woken for each such file
+// with the file and the package that installed it, never its content, which
+// the package wrote: once while that wake waits for him, and again once he
+// has acknowledged it and the file is still there, as after a goblin
+// reinstalls what he removed. A file no package names yet while an install
+// still writes is refused with no wake, since its RECORD may yet name it.
+// Environments that cannot be read refuse too, without a wake, since what
+// they hold is unknown, and so does a list of accepted hooks that cannot be.
 func startHookRefusal(worktree, task string) string {
 	if worktree == "" {
 		return ""
@@ -78,6 +81,15 @@ func startHookRefusal(worktree, task string) string {
 	}
 	if len(hooks) == 0 {
 		return ""
+	}
+	h, homeErr := home.Resolve()
+	if homeErr == nil {
+		if hooks, err = starthook.Unaccepted(h.State, taskProject(h.State, task), hooks); err != nil {
+			return "This command waits: the start hooks the CFO accepted could not be read (" + err.Error() + "). Run it again in a minute."
+		}
+		if len(hooks) == 0 {
+			return ""
+		}
 	}
 	named := make([]string, len(hooks))
 	for index, hook := range hooks {
@@ -90,14 +102,14 @@ func startHookRefusal(worktree, task string) string {
 	// A wake that could not be queued, as when another writer holds the
 	// queue past its lock's budget, leaves the CFO untold, so the goblin is
 	// asked to run the command again, which tries once more.
-	h, err := home.Resolve()
-	isTold := err == nil && state.ValidTaskID(task) == nil
+	isTold := homeErr == nil && state.ValidTaskID(task) == nil
 	for index, hook := range hooks {
 		if !isTold || hook.Installing {
 			continue
 		}
 		detail := task + " was stopped before its next shell command: " + named[index] + " runs at every Python start of its worktree, which is how a hijacked release reads what this account can reach." +
-			" Remove the file once you know its package is safe, and the goblin's commands run again; otherwise end the task. Python that the command which installed it started may already have run it."
+			" Once you know it is safe, accept it with cfo start-hook accept " + task + " <file>, adding --fleet to accept it for every project, or remove the file, and the goblin's commands run again; otherwise end the task." +
+			" Python that the command which installed it started may already have run it."
 		_, isNew, err := wake.AppendUnlessQueued(h.State, "start-hook "+task+" "+hook.Path+" "+hook.Package, "review", task, detail)
 		if err == nil && isNew {
 			_, err = wake.PublishEpisode(h.State)
@@ -109,6 +121,17 @@ func startHookRefusal(worktree, task string) string {
 		return stopped + " The CFO could not be told of it yet, so run the command again in a minute, which tells him; every shell command waits while it is there."
 	}
 	return stopped + " The CFO has been told. Every shell command waits while it is there, so end your turn and wait for his word."
+}
+
+// taskProject names task's project by its checkout's folder, as the start
+// hooks the CFO accepts for one project name it, or is empty when its record
+// names none.
+func taskProject(stateDir, task string) string {
+	meta, err := state.ReadTaskMeta(stateDir, task)
+	if err != nil || meta.Project == "" {
+		return ""
+	}
+	return filepath.Base(filepath.Clean(meta.Project))
 }
 
 // startHookPackage names the package a start hook came from.

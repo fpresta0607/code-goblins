@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
@@ -74,6 +75,9 @@ func (s Service) writeHome(report *reporter) error {
 		}
 		created = append(created, folder)
 	}
+	if err := s.narrowFolders(report); err != nil {
+		return err
+	}
 	// A checkout carries the contract itself, as files git tracks, so the
 	// install writes none of it there. The marker still goes in, untracked:
 	// a checkout an older build made the home is the home in use, and this
@@ -136,6 +140,50 @@ func (s Service) writeHome(report *reporter) error {
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
 		report.same("home", s.Root+" is set up")
+	}
+	return nil
+}
+
+// narrowFolders keeps the home, and the Dev Drive folder its worktrees,
+// scratch and caches moved to when they did, to the account the install runs
+// as, SYSTEM and Administrators. A folder made under a drive's root, as a
+// home CFO_HOME puts there or a Dev Drive folder is, lets Authenticated Users
+// modify it, so any second account on the machine could read and write the
+// fleet's records and every goblin's work. A Dev Drive that is not attached,
+// and what a narrowing could not change, are narrowed by the next install
+// that finds them.
+func (s Service) narrowFolders(report *reporter) error {
+	config, err := home.ReadDevDriveConfig(s.Root)
+	if err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	folders := []string{s.Root}
+	if config.Root != "" {
+		if _, err := os.Stat(config.Root); errors.Is(err, fs.ErrNotExist) {
+			report.same("access", config.Root+" is not there to narrow, as its Dev Drive is not attached")
+		} else {
+			folders = append(folders, config.Root)
+		}
+	}
+	for _, folder := range folders {
+		isNarrow, err := access.IsNarrow(folder)
+		if err != nil {
+			return fmt.Errorf("install: read who may open %s: %w", folder, err)
+		}
+		if isNarrow {
+			report.same("access", folder+"'s own access list admits only you, SYSTEM and Administrators")
+			continue
+		}
+		report.detail("narrowing " + folder + " and everything in it, which takes minutes for a folder holding many files")
+		var unchanged *access.Unchanged
+		switch err := access.Narrow(folder); {
+		case errors.As(err, &unchanged):
+			report.change("access", folder+" now open only to you, SYSTEM and Administrators, but "+unchanged.Error()+"; the next install tries them again, once an administrator lets you change their access")
+		case err != nil:
+			return fmt.Errorf("install: keep %s to you, SYSTEM and Administrators: %w", folder, err)
+		default:
+			report.change("access", folder+" and everything in it that takes its access from it now open only to you, SYSTEM and Administrators")
+		}
 	}
 	return nil
 }

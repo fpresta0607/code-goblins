@@ -48,6 +48,7 @@ func TestACommandThatActsAsTheCFOIsRefusedInAnotherAgentsSession(t *testing.T) {
 		{"reap", "--force", "19524"},
 		{"reap", "--force=g1"},
 		{"allowance-floor", "claude", "0"},
+		{"start-hook", "accept", "g1", `C:\worktree\.venv\Lib\site-packages\zope.interface-6.4-py3.12-nspkg.pth`},
 		{"auth", "grant", "g1", "--codex-credits"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

@@ -8,6 +8,8 @@ package starthook
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -36,6 +38,9 @@ type Hook struct {
 	// while an install has written a file and not yet the RECORD that names
 	// it.
 	Installing bool
+	// Digest is the SHA-256 of the file's content, in hex, or empty when it
+	// is a folder or could not be read, which no acceptance passes.
+	Digest string
 }
 
 // installQuiet is how long an environment's site-packages stays unchanged
@@ -222,14 +227,37 @@ func (e environment) siteHooks(site string, entries []os.DirEntry) ([]Hook, erro
 			}
 		}
 		if isHook {
-			hooks = append(hooks, Hook{Path: path})
+			hooks = append(hooks, Hook{Path: path, Digest: digest(data)})
 		}
 	}
 	for index := range hooks {
 		hooks[index].Package = e.owner(e.distributions, hooks[index].Path)
 		hooks[index].Installing = hooks[index].Package == "" && time.Since(e.modified) < installQuiet
+		if hooks[index].Digest == "" {
+			hooks[index].Digest = fileDigest(hooks[index].Path)
+		}
 	}
 	return hooks, nil
+}
+
+// digest is the SHA-256 of data, in hex.
+func digest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// fileDigest is the digest of the file at path, or empty when path is a
+// folder or cannot be read, which leaves its hook found all the same.
+func fileDigest(path string) string {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	data, err := fsx.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return digest(data)
 }
 
 // pathLine is the folder or archive a .pth file's path line adds to

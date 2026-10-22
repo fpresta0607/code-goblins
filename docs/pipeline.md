@@ -217,7 +217,7 @@ This is a cooperative driver guard, not an operating-system sandbox around direc
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
-For pipeline-owned recovery, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
+For pipeline-owned recovery that keeps the submitted head, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
 The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
 A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
 The driver accepts such a head only as a pure rebase: its first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
@@ -225,6 +225,10 @@ A gate fix commit or conflict resolution on the rebase, or content from a base n
 A run under `rebase.strategy: merge` integrates with a merge commit instead, which this proof does not cover, and is refused.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
+A recorded head that holds the gate's own commits, such as a rebase followed by review fixes, would lose them if the submitted head were kept, so it is recovered at the recorded head instead, and the refusal from the submitted head names that head.
+With the clean task branch at the recorded head, native status offers plain `sync --recover`; the driver requires the gate branch to still name the submitted head, runs that recovery, which returns custody without moving the local or gate branch, and requires the local head unchanged.
+It also requires the engine to have verified the recorded head when the run ended, as its crash recovery does, since native recovery first checks an unverified head against the gate branch and the head it then takes can move the task branch.
+The `custody_returned` alignment below then moves the gate branch and both database heads to the recorded head, since native recovery leaves the gate branch at the submitted head, which a rebased head never descends from, and the next run's push to the gate would be refused as a non-fast-forward.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
 Before a CFO-managed alignment, the driver stores the stale gate head under the immutable `refs/no-mistakes/recovery/<run>/gate` ref and verifies it again before moving the gate or database heads.
 That ref is durable CFO-swap evidence, so every `custody_returned` retry that finds it requires the stale commit and the native recovery anchor before accepting an aligned state.

@@ -124,6 +124,7 @@ commands:
   cfo pr train <project>   a merge train: merge every green pull request goblins finished onto main in queue order on a train branch, open a train PR, let CI test them together once, then merge the train PR, so main takes the commit CI tested and GitHub marks each PR that rode merged, and check main's tree equals the train's; a red run has its failed checks run again once and, red a second time, is halved until the PR that breaks it is found, every half that passes lands, and its goblin gets the failure; held (label hold), draft and conflicting PRs never ride; joins the train already running there, and waits until it is over
   cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <left|his|merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>] | strike --at <when> --reason "<why>" | settle --at <when> --how "<what became of it>"   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence; strike strikes a line it logged by mistake, and settle settles a line it left for him and saw to later, which is then never asked in the Command Center
   cfo allowance-floor [<claude|codex> <percent>]   say each provider's weekly allowance floor, the percent of its week the fleet keeps back (5 unless set), or set one in the home's config/fleet.json; 0 keeps none, so goblins run until the provider refuses
+  cfo start-hook accept <task-id> <file> [--fleet]   accept a start hook a goblin's seal stopped once you judged it safe: the file, by its name, its exact content and the distribution whose RECORD installs it, for the goblins of the task's project, or of every project with --fleet; their seals let it through at every install from then on and still stop it once any of the three differs
   cfo merge-local <id>
   cfo cleanup <id>   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag
   cfo worktree add <id> <name> [--ref <commit>] | remove <id> <name>   give a task an extra worktree, <id>-<name>, beside its own in the home, recorded on the task so cleanup removes it with the task, or return one early
@@ -627,6 +628,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDefender(args[1:], stdout, stderr, runtime)
 	case "allowance-floor":
 		return runAllowanceFloor(args[1:], stdout, stderr, runtime)
+	case "start-hook":
+		return runStartHook(args[1:], stdout, stderr, runtime)
 	case "home":
 		return runHome(args[1:], stdout, stderr)
 	case "pipeline":

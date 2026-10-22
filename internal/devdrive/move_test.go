@@ -67,6 +67,7 @@ func TestMoveRefusesWhatWouldNotBeFasterOrCouldLoseTrack(t *testing.T) {
 		says   string
 	}{
 		"a relative folder":            {devDriveAt(folder, Trusted), home.Home{Root: root}, "CodeGoblins", "not an absolute folder"},
+		"a drive's root":               {devDriveAt(folder, Trusted), home.Home{Root: root}, filepath.VolumeName(folder) + `\`, "is a drive's root"},
 		"a folder inside the home":     {devDriveAt(root, Trusted), home.Home{Root: root}, filepath.Join(root, "dd"), "inside the home"},
 		"a drive that is no Dev Drive": {plain, home.Home{Root: root}, folder, "not a Dev Drive"},
 		"an untrusted Dev Drive":       {devDriveAt(folder, Untrusted), home.Home{Root: root}, folder, "does not trust"},

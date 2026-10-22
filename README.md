@@ -530,7 +530,7 @@ Their work is small, about a tenth of one core for the supervisor and a few thou
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync --locked` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 That step installs only a project's lock with hashes, never versions resolved fresh from a package index, and a project with no lock gets no install step until it has one.
-Every goblin's pip and npm, and its uv where the project tracks no `uv.lock`, resolve only releases at least a week old, so a hijacked release is pulled before it reaches a goblin, and a goblin on any harness is stopped before its next command when an install leaves code that runs at every Python start, with the CFO told the file and its package.
+Every goblin's pip and npm, and its uv where the project tracks no `uv.lock`, resolve only releases at least a week old, so a hijacked release is pulled before it reaches a goblin, and a goblin on any harness is stopped before its next command when an install leaves code that runs at every Python start, with the CFO told the file and its package, until he removes the file or accepts it as safe.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
@@ -1187,6 +1187,7 @@ The fleet keeps it tidy on its own: a finished task's folder moves to `archive\f
 A folder that anything still in use points at, such as a backlog row, your directives, the memory, a live task's brief or an open Command Center item, stays where it is, and every move is listed in `data\archive\filed.md`.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
+It keeps the home, and its Dev Drive folder, open only to you, SYSTEM and Administrators, since a folder made under a drive's root lets any account on the machine modify it; the first install that narrows one walks everything in it, which takes minutes for a folder holding many files.
 A home that already held data before this layout is left exactly as it is: `cfo home migrate` shows, file by file, what laying it out would move, and proves nothing would be lost, ending with the plan's digest, and `cfo home migrate --apply --plan <digest>` makes exactly that plan after a full backup, refusing when the plan changed since.
 
 A private backup repository is optional.
@@ -1223,7 +1224,7 @@ Each step that needs you then arrives as its own Command Center item, one at a t
 
 1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
 2. **Trust the Dev Drive**, only when Windows does not trust it (administrator): `fsutil devdrv trust`, which is what turns performance mode on, and `fsutil devdrv query` to show it.
-3. **Move Code Goblins' worktrees, scratch and package caches**: `cfo dev-drive move --to D:\CodeGoblins`, which records it in `config\dev-drive.json` and restarts the board so it builds there too.
+3. **Move Code Goblins' worktrees, scratch and package caches**: `cfo dev-drive move --to D:\CodeGoblins`, which keeps the folder open only to you, SYSTEM and Administrators, as a folder at a drive's root would let any account on the machine modify it, records it in `config\dev-drive.json` and restarts the board so it builds there too.
 
 Nothing is copied: new goblins start on the Dev Drive, a goblin already started keeps its folders until it finishes, and the janitor removes the home's old package caches once nothing started before the move is running.
 If the drive is ever missing after a restart, an **Attach** item comes to the Command Center by itself.
