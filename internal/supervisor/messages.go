@@ -145,19 +145,20 @@ func handOverReplacedResumes(stateDir string) error {
 	return problems
 }
 
-// handOverReplacedResume gives the CFO, with their words, the board messages
-// task id's record keeps for a resume once a later start, such as a cfo
-// switch, has replaced the session that resume was for, since no resume of
-// that record runs again. The start publishes its session without the
-// lifecycle lock, so a message is kept for the replaced session both before
-// the start and while it runs. It works under the task's lifecycle lock, so a
-// message kept meanwhile is either handed on here or never kept, and a lock
-// held by a pause, resume or stop under way leaves the record to it for the
-// next reading. The messages are handed on before they leave the note, so a
+// handOverReplacedResume takes the board messages task id's record keeps for
+// a resume whose session a later start replaced out of its note once
+// HandOverReplacedNote has given them to the CFO. The start publishes its
+// session without the lifecycle lock, so a message is kept for the replaced
+// session both before the start and while it runs. It works under the task's
+// lifecycle lock, so a message kept meanwhile is either handed on here or
+// never kept. A lock held by a pause or stop under way leaves the record to
+// it, which hands the messages on before it writes its own record, and one
+// held by a resume, refused for a replaced session, leaves them for the next
+// reading. The messages are handed on before they leave the note, so a
 // hand-off that fails leaves them for the next reading, and what the note
 // held before them, such as an answer given while paused, stays.
 func handOverReplacedResume(stateDir, id string) (err error) {
-	if _, isReplaced, err := replacedResume(stateDir, id); err != nil || !isReplaced {
+	if _, _, isReplaced, err := replacedResume(stateDir, id); err != nil || !isReplaced {
 		return err
 	}
 	name := state.LifecycleLockName(id)
@@ -165,43 +166,67 @@ func handOverReplacedResume(stateDir, id string) (err error) {
 		return nil
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, name)) }()
-	record, isReplaced, err := replacedResume(stateDir, id)
+	record, meta, isReplaced, err := replacedResume(stateDir, id)
 	if err != nil || !isReplaced {
 		return err
 	}
-	why := id + "'s session was replaced by a later start while it was paused, so the resume the message was kept for never runs"
-	if record.Action == "resume" {
-		why = id + "'s session was replaced by a later start after its resume failed, so that resume never runs again; a message kept before it began at " + record.Started.UTC().Format(time.RFC3339) + " went with it, and one kept after it failed did not"
+	if err := HandOverReplacedNote(stateDir, meta, record); err != nil {
+		return err
 	}
-	before, messages := keptMessages(record.ResumeNote)
+	record.ResumeNote, _ = keptMessages(record.ResumeNote)
+	return state.WriteLifecycle(stateDir, record)
+}
+
+// HandOverReplacedNote gives the CFO, with their words, the board messages
+// record keeps for a resume once a later start, such as a cfo switch, has
+// replaced the session that resume was for, since no resume of that record
+// runs again. It takes no lock and writes nothing: its caller holds the
+// task's lifecycle lock and takes the messages out of the note, or writes its
+// own record over it, once they are handed on.
+func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle) error {
+	messages := replacedMessages(record, meta)
+	if len(messages) == 0 {
+		return nil
+	}
+	why := meta.ID + "'s session was replaced by a later start while it was paused, so the resume the message was kept for never runs"
+	if record.Action == "resume" {
+		why = meta.ID + "'s session was replaced by a later start after its resume failed, so that resume never runs again; a message kept before it began at " + record.Started.UTC().Format(time.RFC3339) + " went with it, and one kept after it failed did not"
+	}
 	for _, message := range messages {
-		if err := handToCFO(stateDir, id, why, message); err != nil {
+		if err := handToCFO(stateDir, meta.ID, why, message); err != nil {
 			return err
 		}
 	}
-	_, published := wake.PublishEpisode(stateDir)
-	record.ResumeNote = before
-	return errors.Join(published, state.WriteLifecycle(stateDir, record))
+	_, err := wake.PublishEpisode(stateDir)
+	return err
 }
 
-// replacedResume reads task id's lifecycle record and says whether it keeps
-// board messages for a resume a later start's session replaced: it waits for
-// a resume, as a paused goblin's or a failed resume's does, and is neither
-// the task's current session's nor its interrupted resume.
-func replacedResume(stateDir, id string) (state.Lifecycle, bool, error) {
+// replacedResume reads task id's lifecycle record and task metadata, and
+// says whether the record keeps board messages for a resume a later start's
+// session replaced.
+func replacedResume(stateDir, id string) (state.Lifecycle, state.TaskMeta, bool, error) {
+	var meta state.TaskMeta
 	record, err := state.ReadLifecycle(stateDir, id)
 	if errors.Is(err, os.ErrNotExist) {
-		return record, false, nil
+		return record, meta, false, nil
 	}
 	if err != nil || !waitsForResume(record) {
-		return record, false, err
+		return record, meta, false, err
 	}
-	meta, err := state.ReadTaskMeta(stateDir, id)
-	if err != nil {
-		return record, false, err
+	meta, err = state.ReadTaskMeta(stateDir, id)
+	return record, meta, err == nil && len(replacedMessages(record, meta)) > 0, err
+}
+
+// replacedMessages are the board messages record keeps for a resume a later
+// start's session replaced: record waits for a resume, as a paused goblin's
+// or a failed resume's does, and is neither meta's session's nor its
+// interrupted resume.
+func replacedMessages(record state.Lifecycle, meta state.TaskMeta) []string {
+	if !waitsForResume(record) || isCurrentRecord(record, meta) {
+		return nil
 	}
 	_, messages := keptMessages(record.ResumeNote)
-	return record, len(messages) > 0 && !isCurrentRecord(record, meta), nil
+	return messages
 }
 
 // isCurrentRecord says record is meta's goblin's own: meta's session's, or

@@ -49,6 +49,11 @@ type Operations struct {
 	Memory     func() (available, commit uint64, err error)
 	Admit      func() error
 	Notify     func(state.Lifecycle) error
+	// HandOver hands on what the task's record keeps for a resume that
+	// never runs, as a resume whose session a later start replaced, before
+	// the operation writes its own record over it; one that fails leaves
+	// the record as it was.
+	HandOver func(state.TaskMeta, state.Lifecycle) error
 }
 
 type Service struct {
@@ -173,6 +178,11 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 					return result, err
 				}
 			}
+		}
+	}
+	if service.Operations.HandOver != nil {
+		if err := service.Operations.HandOver(meta, prior); err != nil {
+			return result, err
 		}
 	}
 	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
