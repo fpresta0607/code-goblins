@@ -61,6 +61,12 @@ type Operations struct {
 	// nothing, so no instruction carries them. It runs and answers as
 	// HandOver does.
 	HandOverRelaunched func(state.Lifecycle) (bool, error)
+	// HandOverStopped hands on what the goblin's own record keeps for its
+	// resume once a stop ends the goblin before that resume runs, as the
+	// board messages kept for a paused goblin: the stop's record keeps no
+	// note, and no resume runs after it. It runs and answers as HandOver
+	// does.
+	HandOverStopped func(state.TaskMeta, state.Lifecycle) (bool, error)
 }
 
 type Service struct {
@@ -199,6 +205,15 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	// relaunch began is handed on here or never.
 	if isAlreadyRunning && service.Operations.HandOverRelaunched != nil {
 		isHanded, err := service.Operations.HandOverRelaunched(prior)
+		if !isHanded {
+			return result, err
+		}
+		handedOver = errors.Join(handedOver, err)
+	}
+	// A stop's record keeps no note and no resume runs after it, so what the
+	// goblin's own record keeps for its resume is handed on here or never.
+	if request.Action == "stop" && service.Operations.HandOverStopped != nil {
+		isHanded, err := service.Operations.HandOverStopped(meta, prior)
 		if !isHanded {
 			return result, err
 		}

@@ -487,6 +487,129 @@ func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCFO(t *testing.
 	}
 }
 
+// A stop of a paused goblin, or of one whose resume failed, ends it before the
+// resume its record keeps board messages for, so each goes to the CFO with its
+// words and why before the stop writes its own record, which keeps no note,
+// over the one that kept them; a failed resume's also names that resume's
+// start. Before, the stop's record dropped them, and they reached neither the
+// goblin nor the CFO (issue #1317).
+func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
+	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	kept := []string{"use the staging database", "and skip the migration"}
+	for _, tc := range []struct {
+		name   string
+		action string
+		phase  string
+		why    string
+	}{
+		{name: "a paused goblin", action: "pause", phase: "paused", why: "message not delivered: task-1 was stopped while it was paused, so the resume the message was kept for never runs"},
+		{name: "a goblin whose resume failed", action: "resume", phase: "failed", why: "message not delivered: task-1 was stopped after its resume failed, so that resume never runs again; a message kept before it began at " + started.Format(time.RFC3339) + " went with it, and one kept after it failed did not"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: tc.action + "-1", Action: tc.action, Phase: tc.phase, Started: started, Updated: started.Add(3 * time.Minute)}); err != nil {
+				t.Fatal(err)
+			}
+			keptForResume(t, store, meta, kept...)
+			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
+				Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
+				Archive: func(context.Context, state.TaskMeta, *state.Lifecycle) (lifecycle.Preservation, error) {
+					return lifecycle.Preservation{}, nil
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+				HandOver: func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+					return HandOverReplacedNote(h.State, current, prior)
+				},
+				HandOverStopped: func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+					return HandOverStoppedNote(h.State, current, prior)
+				},
+			}}
+
+			// Act
+			record, err := controller.Run(context.Background(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "stop-1", Action: "stop", Reason: "overlord"})
+
+			// Assert
+			if err != nil || record.Phase != "stopped" {
+				t.Fatalf("stop = %+v, %v; want it stopped", record, err)
+			}
+			told := toldCFO(t, h.State, meta.ID)
+			if len(told) != len(kept) {
+				t.Fatalf("the CFO was told %q, want each of %q once", told, kept)
+			}
+			for i, words := range kept {
+				if !strings.HasPrefix(told[i], tc.why) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
+					t.Fatalf("the CFO was told %q, want %q with why it was not delivered: %q", told[i], words, tc.why)
+				}
+			}
+		})
+	}
+}
+
+// A cleanup that retires a goblin before the resume its record keeps board
+// messages for hands each to the CFO with its words and why, and takes it out
+// of the note, so it is handed on once and what the note held before it, such
+// as an answer given while paused, stays: a paused goblin's, a failed
+// resume's, which also names that resume's start, and a record whose session a
+// later start replaced, as that is handed on. Before, the messages stayed in a
+// record no reading looks at once the task is retired (issue #1317).
+func TestRetiringAGoblinHandsTheMessagesKeptForItsResumeToTheCFO(t *testing.T) {
+	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	kept := []string{"use the staging database", "and skip the migration"}
+	answer := "Answered while paused: ship it."
+	for _, tc := range []struct {
+		name       string
+		action     string
+		phase      string
+		isReplaced bool
+		why        string
+	}{
+		{name: "a paused goblin", action: "pause", phase: "paused", why: "message not delivered: task-1 was retired by a cleanup while it was paused, so the resume the message was kept for never runs"},
+		{name: "a goblin whose resume failed", action: "resume", phase: "failed", why: "message not delivered: task-1 was retired by a cleanup after its resume failed, so that resume never runs again; a message kept before it began at " + started.Format(time.RFC3339) + " went with it, and one kept after it failed did not"},
+		{name: "a record whose session a later start replaced", action: "pause", phase: "paused", isReplaced: true, why: "message not delivered: task-1's session was replaced by a later start while it was paused, so the resume the message was kept for never runs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: tc.action + "-1", Action: tc.action, Phase: tc.phase, Started: started, Updated: started.Add(3 * time.Minute), ResumeNote: answer}); err != nil {
+				t.Fatal(err)
+			}
+			keptForResume(t, store, meta, kept...)
+			if tc.isReplaced {
+				switchSession(t, h.State, meta)
+			}
+			current, err := state.ReadTaskMeta(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			isHanded, err := HandOverRetiredNote(h.State, current)
+			again, againErr := HandOverRetiredNote(h.State, current)
+
+			// Assert
+			if !isHanded || err != nil || !again || againErr != nil {
+				t.Fatalf("hand-offs = %v, %v and %v, %v; want both to hand on with nothing met", isHanded, err, again, againErr)
+			}
+			told := toldCFO(t, h.State, meta.ID)
+			if len(told) != len(kept) {
+				t.Fatalf("the CFO was told %q, want each of %q once", told, kept)
+			}
+			for i, words := range kept {
+				if !strings.HasPrefix(told[i], tc.why) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
+					t.Fatalf("the CFO was told %q, want %q with why it was not delivered: %q", told[i], words, tc.why)
+				}
+			}
+			after, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil || after.ResumeNote != answer || after.Phase != tc.phase {
+				t.Fatalf("record = %+v, %v; want it %s with only %q left in its note", after, err, tc.phase, answer)
+			}
+		})
+	}
+}
+
 // keptForResume has the supervisor keep the Overlord's messages to meta's
 // paused goblin for its resume, in order.
 func keptForResume(t *testing.T, store *Store, meta state.TaskMeta, texts ...string) {

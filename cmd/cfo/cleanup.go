@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -100,6 +101,9 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 			return endLeftProcesses(ctx, h, meta)
 		},
 		ReleaseServices: defaultProjectServices(h, io.Discard).ReleaseTask,
+		HandOver: func(meta state.TaskMeta) (bool, error) {
+			return supervisor.HandOverRetiredNote(h.State, meta)
+		},
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {
