@@ -5,7 +5,7 @@ import { expect, test, type Page } from "./site";
 // little like copy email body or copy email that I could then send. Instead
 // of having to go to like this file. And if there is a folder, there should
 // be a link to the open the file explorer folder on my PC just to make
-// things easier." A card's message shows with Copy email, and each local
+// things easier." A card's message shows with Copy, and each local
 // path a card names is a link: File Explorer at its folder from the desktop
 // window, a copy of the path in a plain browser.
 
@@ -29,14 +29,14 @@ async function openCard(page: Page, name: string) {
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
 
 for (const c of CARDS) {
-  test(`Copy email on the ${c.kind} card puts its exact body on the clipboard`, async ({ page, context }) => {
+  test(`Copy on the ${c.kind} card puts its exact body on the clipboard`, async ({ page, context }) => {
     // Arrange
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const card = await openCard(page, c.open);
     const mail = card.getByRole("region", { name: "Message to send" });
 
     // Act
-    await mail.getByRole("button", { name: "Copy email" }).click();
+    await mail.getByRole("button", { name: "Copy", exact: true }).click();
 
     // Assert
     await expect(mail.getByRole("button", { name: "Copied" })).toBeVisible();

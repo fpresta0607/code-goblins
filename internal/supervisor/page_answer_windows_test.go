@@ -91,6 +91,63 @@ const (
 		"      rowLabel: Step two\n" +
 		"      columnLabel: WHEN\n" +
 		"next_step: Apply the requested changes.\n"
+	// His Send & End of a note on an element with an image he attached, as
+	// toon 2.3.1 prints it (#1236): the image's local path is in the note's
+	// attachments.
+	imageOnANote = "session:\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[1]:\n" +
+		"  - uid: h2\n" +
+		"    prompt: make it look like this\n" +
+		"    selector: h2\n" +
+		"    tag: h2\n" +
+		"    text: Pricing\n" +
+		"    attachments[1]{id,type,path,mime,bytes,width,height,name}:\n" +
+		"      aaaa.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\",image/png,1234,100,50,shot.png\n" +
+		"next_step: This was the last feedback before the user ended the session.\n"
+	// The same note with the image alone and no words.
+	imageWithoutWords = "session:\n" +
+		"  status: feedback\n" +
+		"  session_ended: true\n" +
+		"  ended_by: user\n" +
+		"prompts[1]:\n" +
+		"  - uid: h2\n" +
+		"    prompt: \"\"\n" +
+		"    selector: h2\n" +
+		"    tag: h2\n" +
+		"    text: Pricing\n" +
+		"    attachments[1]{id,type,path,mime,bytes,width,height,name}:\n" +
+		"      aaaa.png,image,\"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\",image/png,1234,100,50,shot.png\n" +
+		"next_step: This was the last feedback before the user ended the session.\n"
+	// His Send of a note on the whole page with two images, one he named and
+	// one he did not, which toon 2.3.1 prints as a list rather than a table.
+	imagesOnThePage = "session:\n" +
+		"  status: feedback\n" +
+		"prompts[1]:\n" +
+		"  - uid: \"\"\n" +
+		"    prompt: like these\n" +
+		"    selector: \"\"\n" +
+		"    tag: message\n" +
+		"    text: Freeform message\n" +
+		"    attachments[2]:\n" +
+		"      - id: aaaa.png\n" +
+		"        type: image\n" +
+		"        path: \"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\aaaa.png\"\n" +
+		"        mime: image/png\n" +
+		"        bytes: 1234\n" +
+		"        width: 100\n" +
+		"        height: 50\n" +
+		"        name: shot.png\n" +
+		"      - id: bbbb.png\n" +
+		"        type: image\n" +
+		"        path: \"C:\\\\work\\\\.lavish-axi\\\\attachments\\\\c42fd9a0de5ec55d\\\\bbbb.png\"\n" +
+		"        mime: image/png\n" +
+		"        bytes: 1234\n" +
+		"        width: 100\n" +
+		"        height: 50\n" +
+		"next_step: Apply the requested changes.\n"
 	scrawlWaiting        = "session:\n  status: waiting\n"
 	scrawlEnded          = "session:\n  status: ended\n  ended_by: user\n"
 	scrawlEndedByAnAgent = "session:\n  status: ended\n  ended_by: agent\n"
@@ -423,6 +480,54 @@ func TestAChainedSetOfNotesReachesItsGoblinOnceEachNoteWhereHePutIt(t *testing.T
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Answer != cell+"\n"+whole {
 		t.Errorf("the page's item = %+v, want it answered with the set", got)
+	}
+}
+
+// The images he attaches to a note reach its goblin with the note, each by
+// its local path, with his words or without, as his answer or as a revision,
+// and the CFO's wake that says the goblin has it holds them too. Before
+// #1236 the goblin got his words alone, or, for an image with no words, only
+// what the note was on.
+func TestANotesImagesReachItsGoblinEachByItsPath(t *testing.T) {
+	attachments := `C:\work\.lavish-axi\attachments\c42fd9a0de5ec55d\`
+	for name, test := range map[string]struct {
+		sent, did, note string
+	}{
+		"an image with his words":  {imageOnANote, "answered", `On the h2 "Pricing": make it look like this (his image ` + attachments + `aaaa.png)`},
+		"an image without words":   {imageWithoutWords, "answered", `On the h2 "Pricing": his image ` + attachments + `aaaa.png`},
+		"two images in a revision": {imagesOnThePage, "asked for a revision", "like these (his images " + attachments + "aaaa.png, " + attachments + "bbbb.png)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, goblin, connection, page := pageOfAGoblin(t, store)
+			scrawl := newScrawlPage(0)
+			scrawl.send(test.sent)
+			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Act
+			s.watchPages(ctx)
+			told := goblin.waitForLines(t, 1)
+			for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the CFO was never told he wrote on the page")
+				}
+			}
+			cancel()
+			s.pageWork.Wait()
+
+			// Assert
+			want := test.did + " on your review page " + page + ": " + test.note
+			if len(told) != 1 || !strings.Contains(told[0], want) {
+				t.Fatalf("the goblin got %q, want %q once", told, want)
+			}
+			images := strings.Count(test.note, attachments)
+			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "has it") || strings.Count(wakes[0].Detail, attachments) != images {
+				t.Fatalf("review wakes = %+v, want one saying the goblin has his note with its %d image path(s)", wakes, images)
+			}
+		})
 	}
 }
 

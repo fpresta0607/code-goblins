@@ -35,7 +35,7 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // The card for a step only he can take: its header says how, as the page to
 // open, or the goblin's own browser window to bring to him, and the asker's
 // steps, numbered in order, each local path they name a link that opens it,
-// and a message he sends himself, with Copy email. Its table has a row for
+// and a message he sends himself, with Copy. Its table has a row for
 // each input, by its label: a field to paste each secret into, with a check
 // once the value is in the
 // project's vault, and a field for each plain value, which goes back to the
