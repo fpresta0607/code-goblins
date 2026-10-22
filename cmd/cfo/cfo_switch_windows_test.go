@@ -44,7 +44,7 @@ func switchStandIns(t *testing.T, h home.Home) {
 	t.Setenv("CFO_STATE_OVERRIDE", h.State)
 	t.Setenv("CFO_PROJECTS_ROOT", filepath.Join(h.Root, "projects"))
 	t.Setenv("PATH", h.Root)
-	rules, err := json.Marshal([]standin.Rule{{Args: "--help", Stdout: "Options:\n  --tui-mode <mode>              TUI mode: regular or fullscreen\n"}, {Any: true, Hold: true}})
+	rules, err := json.Marshal([]standin.Rule{{Args: "--help", Stdout: "Options:\n      --no-daemon                Run without the shared background app-server\n  --tui-mode <mode>              TUI mode: regular or fullscreen\n"}, {Any: true, Hold: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	for index, harness := range []string{"codex", "pi", "codex"} {
 		want := harness + "-standin "
 		if harness == "codex" {
-			want += strings.Join(slices.Concat(codexHooks, cfoCompactArguments("codex"), []string{"-c", "tui.copy_on_select=always"}), " ") + " "
+			want += strings.Join(slices.Concat(codexHooks, cfoCompactArguments("codex"), []string{"-c", "tui.copy_on_select=always", "--no-daemon"}), " ") + " "
 		}
 		if harness == "pi" {
 			want += "--tui-mode fullscreen "
