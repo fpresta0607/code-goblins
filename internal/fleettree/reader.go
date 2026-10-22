@@ -76,6 +76,12 @@ type Reader struct {
 	gates        map[string]gateReading
 	usual        map[string]time.Duration
 	usualAt      time.Time
+
+	// messagesMu guards the conversations read as messages, by path, apart
+	// from mu, so a view's reads never wait on a tree's.
+	messagesMu   sync.Mutex
+	messageLogs  map[string]*messageLog
+	messageEpoch uint64
 }
 
 // Goblin is one goblin to read: its task record, the process its terminal

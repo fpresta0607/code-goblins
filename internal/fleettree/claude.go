@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -110,32 +111,42 @@ func (l *claudeLog) update() error {
 		*l = *newClaudeLog(l.path)
 	}
 	l.written = info.ModTime().UTC()
+	l.read, err = readOn(file, l.read, info.Size(), func(_ int64, lines [][]byte) {
+		for _, line := range lines {
+			l.entry(line)
+		}
+		l.stamp(lines)
+	})
+	return err
+}
+
+// readOn hands the whole entries written to file between offset and size to
+// each, a read's entries at a time with the offset of the first, and returns
+// the offset after the last entry handed. An entry still being written, with
+// no newline yet, is left for the next read.
+func readOn(file *os.File, offset, size int64, each func(start int64, lines [][]byte)) (int64, error) {
 	buffer := make([]byte, claudeReadChunk)
 	var carry []byte
-	for offset := l.read; offset < info.Size(); {
-		count, err := file.ReadAt(buffer[:min(int64(len(buffer)), info.Size()-offset)], offset)
+	for next := offset; next < size; {
+		count, err := file.ReadAt(buffer[:min(int64(len(buffer)), size-next)], next)
 		if err != nil && !errors.Is(err, io.EOF) {
-			return err
+			return offset, err
 		}
 		if count == 0 {
 			break
 		}
-		offset += int64(count)
+		next += int64(count)
 		data := append(carry, buffer[:count]...)
 		last := bytes.LastIndexByte(data, '\n')
 		if last < 0 {
 			carry = data
 			continue
 		}
-		lines := bytes.Split(data[:last], []byte("\n"))
-		for _, line := range lines {
-			l.entry(line)
-		}
-		l.stamp(lines)
-		l.read = offset - int64(len(data)-last-1)
+		each(offset, bytes.Split(data[:last], []byte("\n")))
+		offset = next - int64(len(data)-last-1)
 		carry = append([]byte(nil), data[last+1:]...)
 	}
-	return nil
+	return offset, nil
 }
 
 // stamp keeps the newest entry's own timestamp among lines, read from the
