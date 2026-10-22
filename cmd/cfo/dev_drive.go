@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -96,8 +98,20 @@ func runDevDriveMove(args []string, stdout, stderr io.Writer, runtime commandRun
 		return 1
 	}
 	fmt.Fprintln(stdout, moved)
+	// A folder at a drive's root lets Authenticated Users modify it, so any
+	// second account could read and write every goblin's work there. It is
+	// narrowed here rather than in devdrive, whose reads the setup links.
+	folder := filepath.Clean(*to)
+	isNarrow, narrowErr := access.IsNarrow(folder)
+	if narrowErr == nil && !isNarrow {
+		narrowErr = access.Narrow(folder)
+	}
 	if h.DevDrive == "" {
 		restartBoardOntoTheDrive(h, stdout)
+	}
+	if narrowErr != nil {
+		fmt.Fprintf(stderr, "cfo dev-drive move: %s is not yet kept to you, SYSTEM and Administrators (%v); the next cfo install or move narrows it again\n", folder, narrowErr)
+		return 1
 	}
 	return 0
 }
