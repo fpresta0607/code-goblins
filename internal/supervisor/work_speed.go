@@ -156,7 +156,7 @@ measuring:
 		} else if !isNew && pushed != prior.Pushed {
 			source = "push"
 		} else if !isNew && gate != prior.Gate {
-			source = "gate step"
+			source = "gate run change"
 		} else if report != prior.Report && !reportedAt.IsZero() && !reportedAt.After(now) && !reportedAt.Before(prior.At) {
 			source = "status report"
 		} else if screen != "" && prior.Screen != "" && screen != prior.Screen {
@@ -174,6 +174,15 @@ measuring:
 		}
 		if source != "" {
 			prior.At, prior.Source, prior.Woken = now, source, false
+		}
+		// A card reads its gate from the task's evaluation, which the end of
+		// a turn asks for and a turn at work does not: a decision its goblin
+		// answered mid-turn held the card at Blocked until the turn ended
+		// (#1305). A gate run that moved has it read again.
+		if !isNew && meta.Mode == "no-mistakes" && gate != prior.Gate {
+			if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("gate-%s-%d", meta.ID, now.UnixNano()), Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen}); err != nil {
+				problems = errors.Join(problems, fmt.Errorf("evaluation of %s after its gate run moved: %w", meta.ID, err))
+			}
 		}
 		prior.Head, prior.Pushed, prior.Gate, prior.Report = head, pushed, gate, report
 		if screen != "" {
@@ -223,7 +232,7 @@ measuring:
 		}
 		if now.Sub(prior.At) >= threshold && !prior.Woken && !(isWaiting && measured[helper]) && !isReportedElsewhere && !isStarved {
 			missing := bounded(strings.Join(unread[id], ", "), 400)
-			detail := fmt.Sprintf("progress_stalled: %s has shown no new commit, push, gate step, status report, screen output, transcript write or processor use by its own processes for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", id, prior.Seconds/60, prior.Source)
+			detail := fmt.Sprintf("progress_stalled: %s has shown no new commit, push, gate run change, status report, screen output, transcript write or processor use by its own processes for %d minutes; last progress: %s; next: inspect its work and decide whether it should pause", id, prior.Seconds/60, prior.Source)
 			if len(waits[id]) > 0 {
 				detail += "; it waits on " + bounded(strings.Join(waits[id], ", "), 400) + ", which has shown nothing new either"
 			}
@@ -340,12 +349,15 @@ func (s *Service) observeWork(ctx context.Context, meta state.TaskMeta, gate str
 		if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
 			return "", "", "", fmt.Errorf("gate progress for %s: %w", meta.ID, err)
 		}
+		// The whole run, as the task's evaluation reads it: a run that
+		// ended, or whose pull request merged, with no step changing moved
+		// on all the same.
 		if err == nil {
-			steps, err := json.Marshal(progress.Steps)
+			run, err := json.Marshal(progress)
 			if err != nil {
 				return "", "", "", err
 			}
-			gate = progress.RunID + ":" + string(steps)
+			gate = string(run)
 		}
 	}
 	return head, pushed, gate, nil

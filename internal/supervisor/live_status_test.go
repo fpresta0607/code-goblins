@@ -96,6 +96,100 @@ func TestAnEndedGateRunHoldsNoGoblinsCard(t *testing.T) {
 	}
 }
 
+// The Overlord asked for every card to show its goblin's real state and
+// follow it live. A card reads its gate from the task's evaluation, which the
+// end of a turn asks for and a turn at work does not, so a gate decision the
+// goblin answered mid-turn held its card at Blocked until the turn ended
+// (#1305). The progress watch's reading of a gate run that moved has the
+// evaluation read again while the turn runs, and a run that did not move
+// starts no evaluation.
+func TestAGateRunThatMovesMidTurnIsReadAgain(t *testing.T) {
+	parked := pipeline.Progress{RunID: "01JZTESTRUNOFTHISBRANCH00", Status: "running", Steps: []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: "review", Status: "awaiting_approval"}, {Name: "test", Status: "pending"}}}
+	answered := parked
+	answered.Steps = []pipeline.ProgressStep{{Name: "intent", Status: "completed"}, {Name: "review", Status: "fixing"}, {Name: "test", Status: "pending"}}
+	cancelled := parked
+	cancelled.Status = "cancelled"
+	for _, test := range []struct {
+		name         string
+		after        pipeline.Progress
+		wantQueued   int
+		wantPhase    string
+		wantGateStep string
+	}{
+		{"answered, its review fixing what it found", answered, 1, "review", "review"},
+		{"cancelled at the decision", cancelled, 1, "working", ""},
+		{"the decision still waiting", parked, 0, "blocked", "review"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the goblin's turn ends with its gate parked on a
+			// decision, which the progress watch reads.
+			store, h := atWorkFixture(t, "claude", "task-1")
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Mode = "no-mistakes"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			gitFixture(t, meta.Worktree)
+			gate := &fakeProgress{value: parked}
+			head := strings.Repeat("a", 40)
+			service := &Service{Store: store, Options: Options{Gate: gate, Progress: &progressGit{head: head, pushed: head}}}
+			drain := func() {
+				t.Helper()
+				for store.HasRunnable() {
+					if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			now := time.Now().UTC()
+			harnessHook(t, store, h, "claude", "task-1", "start", now.Add(-30*time.Minute))
+			harnessHook(t, store, h, "claude", "task-1", "prompt", now.Add(-30*time.Minute))
+			harnessHook(t, store, h, "claude", "task-1", "settle", now.Add(-20*time.Minute))
+			drain()
+			if err := service.checkFleet(t.Context(), now.Add(-20*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if got := snapshotTask(t, service, "task-1"); got.Phase != "blocked" || got.GateStep != "review" {
+				t.Fatalf("card reads phase %q at gate step %q (%s) before its turn, want blocked at review", got.Phase, got.GateStep, got.Reason)
+			}
+			// The goblin takes a prompt and works on, and its gate run moves
+			// or stays.
+			harnessHook(t, store, h, "claude", "task-1", "prompt", now.Add(-10*time.Minute))
+			harnessHook(t, store, h, "claude", "task-1", "tool", now.Add(-5*time.Minute))
+			seeTerminal(t, h, "task-1", monitor.HealthBusy)
+			gate.value = test.after
+
+			// Act: the progress watch's next reading, and the work it queued.
+			if err := service.checkFleet(t.Context(), now.Add(-time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			queued := 0
+			for _, action := range store.Snapshot().Actions {
+				if action.Kind == "evaluate" && action.Status == "queued" {
+					queued++
+				}
+			}
+			drain()
+			got := snapshotTask(t, service, "task-1")
+
+			// Assert
+			d := store.Snapshot()
+			if phase := d.Sessions[d.TaskSessions["task-1"]].Phase; phase != "active" {
+				t.Fatalf("the goblin's session reads %q, want its turn still running", phase)
+			}
+			if queued != test.wantQueued {
+				t.Errorf("the reading queued %d evaluations, want %d", queued, test.wantQueued)
+			}
+			if got.Phase != test.wantPhase || got.GateStep != test.wantGateStep {
+				t.Errorf("card reads phase %q at gate step %q (%s), want %q at %q", got.Phase, got.GateStep, got.Reason, test.wantPhase, test.wantGateStep)
+			}
+		})
+	}
+}
+
 // A goblin's question is its state while it waits on an answer: Waiting on
 // the CFO while the CFO owes one, and Blocked once answered until the answer
 // reaches the goblin, since an answer can be to stay held. Once the goblin
