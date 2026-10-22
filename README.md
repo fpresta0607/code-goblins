@@ -528,7 +528,7 @@ Their work is small, about a tenth of one core for the supervisor and a few thou
 A second click changes nothing, and a refusal goes to the CFO, never to a line on the board.
 A start ends once its goblin has its brief: the goblin installs its worktree's dependencies (`npm ci`, `uv sync --locked` and the like) in its own terminal as its first step, and its card says so, so a long install never holds up the next start or resume.
 That step installs only a project's lock with hashes, never versions resolved fresh from a package index, and a project with no lock gets no install step until it has one.
-Every goblin's pip and npm, and its uv where the project tracks no `uv.lock`, resolve only releases at least a week old, so a hijacked release is pulled before it reaches a goblin, and a goblin on any harness is stopped before its next command when an install leaves code that runs at every Python start, with the CFO told the file and its package.
+Every goblin's pip and npm, and its uv where the project tracks no `uv.lock`, resolve only releases at least a week old, so a hijacked release is pulled before it reaches a goblin, and a goblin on any harness is stopped before its next command when an install leaves code that runs at every Python start, with the CFO told the file and its package, until he removes the file or accepts it as safe.
 A Start or Resume, and each start or resume the supervisor makes by itself, that meets a `cfo spawn` the CFO runs by hand waits for that spawn's turn, which ends once its terminal runs; one that gives up after waiting 10 minutes tries once more as soon as the lock frees.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.

@@ -8,6 +8,8 @@ package starthook
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -36,6 +38,9 @@ type Hook struct {
 	// while an install has written a file and not yet the RECORD that names
 	// it.
 	Installing bool
+	// Digest is the SHA-256 of the file's content, in hex, or empty when it
+	// is a folder.
+	Digest string
 }
 
 // installQuiet is how long an environment's site-packages stays unchanged
@@ -228,8 +233,28 @@ func (e environment) siteHooks(site string, entries []os.DirEntry) ([]Hook, erro
 	for index := range hooks {
 		hooks[index].Package = e.owner(e.distributions, hooks[index].Path)
 		hooks[index].Installing = hooks[index].Package == "" && time.Since(e.modified) < installQuiet
+		digest, err := fileDigest(hooks[index].Path)
+		if err != nil {
+			return nil, err
+		}
+		hooks[index].Digest = digest
 	}
 	return hooks, nil
+}
+
+// fileDigest is the SHA-256 of the file at path, in hex, or empty when path
+// is a folder.
+func fileDigest(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return "", err
+	}
+	data, err := fsx.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // pathLine is the folder or archive a .pth file's path line adds to

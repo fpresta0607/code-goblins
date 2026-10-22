@@ -3,6 +3,8 @@ package starthook
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"net/url"
 	"os"
@@ -186,7 +188,9 @@ func TestFindTellsAPlantedStartHookFromTheOnesAnEnvironmentCarries(t *testing.T)
 				if err != nil {
 					t.Fatal(err)
 				}
-				hooks[index].Path = filepath.ToSlash(relative)
+				// TestUnacceptedLetsThroughOnlyTheStartHookTheCFOAccepted
+				// reads the digest.
+				hooks[index].Path, hooks[index].Digest = filepath.ToSlash(relative), ""
 			}
 			slices.SortFunc(hooks, func(a, b Hook) int { return strings.Compare(a.Path, b.Path) })
 			if !slices.Equal(hooks, test.want) {
@@ -243,9 +247,124 @@ func TestFindReadsAPathLineInTheANSICodePage(t *testing.T) {
 	hooks, err := Find(worktree)
 
 	// Assert
-	want := []Hook{{Path: filepath.Join(worktree, ".venv", "Lib", "site-packages", "extras_lib", "sitecustomize.py"), Package: "extras-1.0"}}
+	empty := sha256.Sum256(nil)
+	want := []Hook{{Path: filepath.Join(worktree, ".venv", "Lib", "site-packages", "extras_lib", "sitecustomize.py"), Package: "extras-1.0", Digest: hex.EncodeToString(empty[:])}}
 	if err != nil || !slices.Equal(hooks, want) {
 		t.Fatalf("hooks = %+v, %v, want %+v", hooks, err, want)
+	}
+}
+
+// nspkgFile and nspkgLine are the -nspkg.pth file setuptools writes for
+// zope.interface 6.4, which declares the namespace package zope, and its one
+// line.
+const (
+	nspkgFile = "zope.interface-6.4-py3.12-nspkg.pth"
+	nspkgLine = "import sys, types, os;p = os.path.join(sys._getframe(1).f_locals['sitedir'], *('zope',));importlib = __import__('importlib.util');__import__('importlib.machinery');m = sys.modules.setdefault('zope', importlib.util.module_from_spec(importlib.machinery.PathFinder.find_spec('zope', [os.path.dirname(p)])));m = m or sys.modules.setdefault('zope', types.ModuleType('zope'));mp = (m or []) and m.__dict__.setdefault('__path__',[]);(p not in mp) and mp.append(p)\n"
+)
+
+// A start hook no known package ships stops every goblin of a project that
+// locks the package that installs it, as the -nspkg.pth file setuptools
+// writes for a namespace package does. The CFO accepts one he judged safe,
+// for its project or for the fleet, by its file's name, its exact content and
+// the distribution whose RECORD installs it: that file passes in every later
+// environment, and one that differs in any of the three is still stopped.
+func TestUnacceptedLetsThroughOnlyTheStartHookTheCFOAccepted(t *testing.T) {
+	sum := sha256.Sum256([]byte(nspkgLine))
+	accepted := Acceptance{Project: "shop", File: nspkgFile, SHA256: hex.EncodeToString(sum[:]), Distribution: "zope.interface-6.4", Task: "shop-1", At: time.Now()}
+	zope := func(t *testing.T, site string) {
+		install(t, site, "zope.interface-6.4", map[string]string{nspkgFile: nspkgLine, "zope/interface/__init__.py": ""})
+	}
+	for _, test := range []struct {
+		name       string
+		acceptance func(Acceptance) Acceptance
+		project    string
+		arrange    func(t *testing.T, site string)
+		isPassed   bool
+	}{
+		{name: "accepted for its project", project: "shop", arrange: zope, isPassed: true},
+		{name: "accepted for its project, named in another case", project: "Shop", arrange: zope, isPassed: true},
+		{name: "accepted for the fleet, in another project", acceptance: func(a Acceptance) Acceptance { a.Project = ""; return a }, project: "garden", arrange: zope, isPassed: true},
+		{name: "accepted for another project", project: "garden", arrange: zope},
+		{name: "in a goblin whose project is unknown", arrange: zope},
+		{name: "its content changed", project: "shop", arrange: func(t *testing.T, site string) {
+			install(t, site, "zope.interface-6.4", map[string]string{nspkgFile: nspkgLine + stealerLine})
+		}},
+		{name: "the same content under another name", project: "shop", arrange: func(t *testing.T, site string) {
+			install(t, site, "zope.interface-6.4", map[string]string{"zz-nspkg.pth": nspkgLine})
+		}},
+		{name: "the same file from another release of its distribution", project: "shop", arrange: func(t *testing.T, site string) {
+			install(t, site, "zope.interface-6.5", map[string]string{nspkgFile: nspkgLine})
+		}},
+		{name: "the same file from another distribution", project: "shop", arrange: func(t *testing.T, site string) {
+			install(t, site, "tools-1.0", map[string]string{nspkgFile: nspkgLine})
+		}},
+		{name: "the same file that no installed distribution names, against an acceptance that names none", acceptance: func(a Acceptance) Acceptance { a.Distribution = ""; return a }, project: "shop", arrange: func(t *testing.T, site string) {
+			write(t, filepath.Join(site, nspkgFile), nspkgLine)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			worktree, stateDir := t.TempDir(), t.TempDir()
+			test.arrange(t, makeEnvironment(t, worktree, ".venv"))
+			settle(t, worktree)
+			acceptance := accepted
+			if test.acceptance != nil {
+				acceptance = test.acceptance(accepted)
+			}
+			if err := Accept(stateDir, acceptance); err != nil {
+				t.Fatal(err)
+			}
+			hooks, err := Find(worktree)
+			if err != nil || len(hooks) != 1 {
+				t.Fatalf("hooks = %+v, %v, want the one start hook", hooks, err)
+			}
+
+			// Act
+			stopped, err := Unaccepted(stateDir, test.project, hooks)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isPassed := len(stopped) == 0; isPassed != test.isPassed {
+				t.Fatalf("stopped = %+v, want it passed = %t", stopped, test.isPassed)
+			}
+		})
+	}
+}
+
+// With nothing accepted every start hook is stopped, and an acceptance list
+// that cannot be read lets none through.
+func TestUnacceptedStopsEveryStartHookWhileNothingAcceptedCanBeRead(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		list    string
+		isError bool
+	}{
+		{name: "nothing accepted yet"},
+		{name: "a list that is no JSON", list: "{accepted", isError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			worktree, stateDir := t.TempDir(), t.TempDir()
+			install(t, makeEnvironment(t, worktree, ".venv"), "zope.interface-6.4", map[string]string{nspkgFile: nspkgLine})
+			settle(t, worktree)
+			if test.list != "" {
+				write(t, filepath.Join(stateDir, acceptedFile), test.list)
+			}
+			hooks, err := Find(worktree)
+			if err != nil || len(hooks) != 1 {
+				t.Fatalf("hooks = %+v, %v, want the one start hook", hooks, err)
+			}
+
+			// Act
+			stopped, err := Unaccepted(stateDir, "shop", hooks)
+
+			// Assert
+			if (err != nil) != test.isError || !test.isError && !slices.Equal(stopped, hooks) {
+				t.Fatalf("stopped = %+v, %v, want every hook stopped and an error = %t", stopped, err, test.isError)
+			}
+		})
 	}
 }
 
