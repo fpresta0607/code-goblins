@@ -46,3 +46,40 @@ test("a paste key is spent by the paste it started", () => {
 
   assert.equal(clipboardInput(paste(""), "claude"), null);
 });
+
+// A paste that holds a picture and no text, on a board at hostname.
+const pastePicture = (hostname: string) => {
+  Object.assign(globalThis, { location: { hostname } });
+  const picture = new File([new Uint8Array([137, 80, 78, 71])], "screenshot.png", { type: "image/png" });
+  return { event: { clipboardData: { getData: () => "", files: [picture] } } as unknown as ClipboardEvent, picture };
+};
+
+for (const hostname of ["pc.example.ts.net", "192.168.1.20"]) {
+  test("a picture pasted on a board opened on another device, at " + hostname + ", is handed on whole, with or without Ctrl+V", () => {
+    for (const isKey of [true, false]) {
+      // Arrange
+      const { event, picture } = pastePicture(hostname);
+      if (isKey) press("v", { ctrlKey: true });
+
+      // Act
+      const input = clipboardInput(event, "claude");
+
+      // Assert
+      assert.deepEqual(input, { image: picture });
+    }
+  });
+}
+
+for (const hostname of ["127.0.0.1", "localhost", "[::1]"]) {
+  test("a picture pasted with Ctrl+V on this PC's own board, at " + hostname + ", sends only the image key, as before", () => {
+    // Arrange
+    const { event } = pastePicture(hostname);
+    press("v", { ctrlKey: true });
+
+    // Act
+    const input = clipboardInput(event, "claude");
+
+    // Assert
+    assert.deepEqual(input, { key: "\x1bv" });
+  });
+}
