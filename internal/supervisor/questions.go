@@ -1158,12 +1158,20 @@ func (s *Store) admitQuestion(q Question) error {
 		// were not cleared. An answer nobody confirmed (uncertain) is closed
 		// history like a failed one, which he cannot clear, so it goes in
 		// turn. A pending question is never dropped, nor one whose page is
-		// still watched, as an item's is not.
+		// still watched, as an item's is not, nor one whose answer he changed
+		// while that change is queued or running: until it is handed over the
+		// question keeps the status of the answer before it, and the change
+		// needs the question to reach whoever acts on it.
 		isWatched := func(old Question) bool {
 			return old.AsksPageFile != "" && old.PageSettled == nil && s.taskStands(old.Task)
 		}
+		isChanging := func(old Question) bool {
+			return slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+				return a.Kind == "answer_change" && a.QuestionID == old.ID && (a.Status == "queued" || a.Status == "running")
+			})
+		}
 		index := slices.IndexFunc(s.db.Questions, func(old Question) bool {
-			return (old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed" || old.Status == "uncertain") && !isWatched(old)
+			return (old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed" || old.Status == "uncertain") && !isWatched(old) && !isChanging(old)
 		})
 		if index < 0 {
 			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" && !isWatched(old) })
