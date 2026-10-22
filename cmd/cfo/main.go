@@ -103,6 +103,7 @@ commands:
   cfo gate turns [--json]  show which cfo gate test, cfo gate prepush and cfo gate turn runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait, or with --json the same as one JSON object of fixed keys, for the board
   cfo ci-runner job     run one CI job in this machine's desktop CI runner, as the watcher starts it in a turn at the lowest priority. It says the job's progress on standard error and its outcome on standard output, exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise, and ending it ends the job
   cfo ci-runner status  say whether this machine's desktop CI runner runs a job, and how its last one ended
+  cfo ci-runner parity --repo <owner/name> [--workflow <file>.yml] [--runs <1 to 100>]   add to the repository's parity record each job its desktop mirror workflow (desktop-mirror.yml unless --workflow says otherwise) ran beside the hosted job it copies, from the mirror's newest 30 finished runs unless --runs says otherwise: both conclusions, pytest counts, the merge each tested, their times and the desktop turn's wait. It says for each job how many runs in a row matched, and that its hosted copy may retire, his decision, after 20
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -656,7 +657,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "gate":
 		return runGate(args[1:], stdout, stderr, runtime)
 	case "ci-runner":
-		return runCIRunner(args[1:], stdout, stderr, runtime)
+		return runCIRunner(args[1:], stdout, stderr, execx.OSRunner{}, runtime)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":
