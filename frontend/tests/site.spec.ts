@@ -1,4 +1,4 @@
-import { expect, ORIGIN, roomForATest, test, type Response } from "./site";
+import { expect, openBoardPastFirstRun, ORIGIN, roomForATest, test, type Response } from "./site";
 
 // A page a test loads comes from files the test answers itself. Nothing is
 // taken from a server, so a connection the machine refuses, which once left a
@@ -65,4 +65,31 @@ test("in CI, which runs nothing else, a test never waits", async () => {
 test.describe("with no memory free", () => {
   test.use({ room: { ...quick, free: () => 0 } });
   test.fail("a test does not start", async () => {});
+});
+
+// A loaded runner delivered a first-run board's first snapshot only after the
+// test had clicked Board, and the board's first-run page then took the place of
+// the board the test had asked for (#1348). Here the snapshot comes once Board
+// is clicked, or a second after the page asks for it while nothing clicks.
+test("a first-run board whose first snapshot comes late still opens on the board", async ({ page }) => {
+  // Arrange
+  const snapshot = { instance: "late-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, tasks: [{ id: "polish-settings", title: "Polish settings", project: "example", phase: "queued", brief: true, verified: false }] };
+  let pressBoard!: () => void;
+  const boardPressed = new Promise<void>((resolve) => { pressBoard = resolve; });
+  await page.exposeFunction("pressedBoard", () => pressBoard());
+  await page.addInitScript(() => addEventListener("click", (event) => {
+    if ((event.target as Element).closest("button")?.textContent === "Board") (window as unknown as { pressedBoard: () => void }).pressedBoard();
+  }, true));
+  await page.route("**/api/**", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/events") return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
+    await Promise.race([boardPressed, new Promise((resolve) => setTimeout(resolve, 1000))]);
+    await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
+  });
+
+  // Act
+  await openBoardPastFirstRun(page);
+
+  // Assert
+  await expect(page.getByRole("region", { name: "Tasks", exact: true })).toContainText("Polish settings");
+  await expect(page.getByRole("main", { name: "First run" })).toHaveCount(0);
 });

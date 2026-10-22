@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openBoardPastFirstRun, test, type Page } from "./site";
 
 const GB = 2 ** 30;
 const tasks = [
@@ -29,8 +29,7 @@ async function tasksColumn(page: Page, memory: object, scheduling: object | null
       await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
     }
   });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await openBoardPastFirstRun(page);
   await page.evaluate(() => document.fonts.ready);
   const column = page.getByRole("region", { name: "Tasks", exact: true });
   await expect(column.getByRole("group", { name: "Memory" })).toBeVisible();
