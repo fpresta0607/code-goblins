@@ -17,18 +17,26 @@ import (
 // for live tasks: so the messages went with the paused record and reached
 // neither the goblin nor the CFO. Each now hands them to the CFO with their
 // words before it writes over or leaves the record that kept them (issue
-// #1317).
+// #1317). A pause of a goblin whose resume failed writes its own record over
+// the failed resume's the same way, so it hands them on too (issue #1382).
 
-// HandOverStoppedNote gives the CFO, with their words, the board messages
-// meta's goblin's own record keeps for its resume once a stop ends the goblin
-// before that resume runs. A record whose session a later start replaced is
+// HandOverEndedNote gives the CFO, with their words, the board messages
+// meta's goblin's own record keeps for its resume once a stop or a pause, as
+// action names, writes its own record over it before that resume runs: a
+// stop's of a paused goblin or of one whose resume failed, and a pause's of one
+// whose resume failed, which never runs again once the pause's record
+// replaces it. A record whose session a later start replaced is
 // HandOverReplacedNote's. It takes no lock and writes nothing: its caller
 // holds the task's lifecycle lock and writes its own record over this one
 // once they are handed on. It says whether each is on the CFO's notify wake,
 // so a wake episode that fails to publish after them is said without handing
 // them on twice.
-func HandOverStoppedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle) (isHanded bool, err error) {
-	return handOverEndedNote(stateDir, meta, record, "was stopped")
+func HandOverEndedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle, action string) (isHanded bool, err error) {
+	ended := "was stopped"
+	if action == "pause" {
+		ended = "was paused"
+	}
+	return handOverOwnNote(stateDir, meta, record, ended)
 }
 
 // HandOverRetiredNote gives the CFO, with their words, the board messages
@@ -56,7 +64,7 @@ func HandOverRetiredNote(stateDir string, meta state.TaskMeta) (isRetirable bool
 	}
 	var isHanded bool
 	if isCurrentRecord(record, meta) {
-		isHanded, err = handOverEndedNote(stateDir, meta, record, "was retired by a cleanup")
+		isHanded, err = handOverOwnNote(stateDir, meta, record, "was retired by a cleanup")
 	} else {
 		isHanded, err = HandOverReplacedNote(stateDir, meta, record)
 	}
@@ -70,11 +78,11 @@ func HandOverRetiredNote(stateDir string, meta state.TaskMeta) (isRetirable bool
 	return true, nil
 }
 
-// handOverEndedNote gives the CFO, with their words, the board messages
+// handOverOwnNote gives the CFO, with their words, the board messages
 // meta's goblin's own record keeps for its resume once the goblin ended, as
 // ended says, before that resume ran: a paused goblin's, or a failed
 // resume's, which carried only the messages kept before it began.
-func handOverEndedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle, ended string) (isHanded bool, err error) {
+func handOverOwnNote(stateDir string, meta state.TaskMeta, record state.Lifecycle, ended string) (isHanded bool, err error) {
 	_, messages := keptMessages(record.ResumeNote)
 	if !waitsForResume(record) || !isCurrentRecord(record, meta) || len(messages) == 0 {
 		return true, nil

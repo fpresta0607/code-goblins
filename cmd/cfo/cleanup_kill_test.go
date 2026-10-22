@@ -124,8 +124,8 @@ func TestAKillOfAPausedGoblinHandsItsKeptMessagesToTheCFOOnce(t *testing.T) {
 		HandOver: func(meta state.TaskMeta, prior state.Lifecycle) (bool, error) {
 			return supervisor.HandOverReplacedNote(h.State, meta, prior)
 		},
-		HandOverStopped: func(meta state.TaskMeta, prior state.Lifecycle) (bool, error) {
-			return supervisor.HandOverStoppedNote(h.State, meta, prior)
+		HandOverEnded: func(meta state.TaskMeta, prior state.Lifecycle, action string) (bool, error) {
+			return supervisor.HandOverEndedNote(h.State, meta, prior, action)
 		},
 	}}
 

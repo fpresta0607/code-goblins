@@ -794,43 +794,56 @@ func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testin
 
 // A stop ends a paused goblin before the resume its own record keeps board
 // messages for, and the stop's record keeps no note, so the stop hands that
-// record to HandOverStopped before it writes its own record over it (issue
-// #1317): a hand-off that hands nothing on refuses the stop, with nothing
-// stopped and the record as it was, and what one that handed them on met
-// after them is named. A resume carries the note, so it hands nothing on.
-func TestAStopHandsOnItsGoblinsOwnRecordBeforeOverwritingIt(t *testing.T) {
+// record to HandOverEnded before it writes its own record over it (issue
+// #1317). So does a pause of a goblin whose resume failed, whose record
+// replaces the failed resume's, so that resume never runs again (issue
+// #1382). A hand-off that hands nothing on refuses the operation, with
+// nothing stopped and the record as it was, and what one that handed them on
+// met after them is named. A resume carries the note, so it hands nothing on.
+func TestAStopOrPauseHandsOnItsGoblinsOwnRecordBeforeOverwritingIt(t *testing.T) {
 	queueFailure := errors.New("the wake queue cannot be written")
 	publishFailure := errors.New("the wake episode cannot be published")
+	note := "Message from the Overlord, typed on the board: use the staging database"
+	paused := state.Lifecycle{Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: note, NoticeSent: true}
+	failedResume := state.Lifecycle{Operation: "resume-1", Action: "resume", Phase: "failed", ResumeNote: note, NoticeSent: true}
 	for _, tc := range []struct {
 		name     string
+		prior    state.Lifecycle
 		action   string
 		isHanded bool
 		failure  error
 		phase    string
 	}{
-		{name: "a stop", action: "stop", isHanded: true, phase: "stopped"},
-		{name: "a stop whose hand-off fails", action: "stop", failure: queueFailure},
-		{name: "a stop whose hand-off fails after the messages", action: "stop", isHanded: true, failure: publishFailure, phase: "stopped"},
-		{name: "a resume", action: "resume", phase: "running"},
+		{name: "a stop of a paused goblin", prior: paused, action: "stop", isHanded: true, phase: "stopped"},
+		{name: "a stop whose hand-off fails", prior: paused, action: "stop", failure: queueFailure},
+		{name: "a stop whose hand-off fails after the messages", prior: paused, action: "stop", isHanded: true, failure: publishFailure, phase: "stopped"},
+		{name: "a stop of a goblin whose resume failed", prior: failedResume, action: "stop", isHanded: true, phase: "stopped"},
+		{name: "a pause of a goblin whose resume failed", prior: failedResume, action: "pause", isHanded: true, phase: "paused"},
+		{name: "a pause whose hand-off fails", prior: failedResume, action: "pause", failure: queueFailure},
+		{name: "a pause whose hand-off fails after the messages", prior: failedResume, action: "pause", isHanded: true, failure: publishFailure, phase: "paused"},
+		{name: "a resume of a paused goblin", prior: paused, action: "resume", phase: "running"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			service, meta := lifecycleFixture(t)
-			if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: "Message from the Overlord, typed on the board: use the staging database", NoticeSent: true}); err != nil {
+			prior := tc.prior
+			prior.ID, prior.Generation, prior.RequestGeneration = meta.ID, meta.SpawnGen, meta.SpawnGen
+			if err := state.WriteLifecycle(service.StateDir, prior); err != nil {
 				t.Fatal(err)
 			}
-			paused, err := state.ReadLifecycle(service.StateDir, meta.ID)
+			kept, err := state.ReadLifecycle(service.StateDir, meta.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var handed, recorded []state.Lifecycle
 			var handedMeta state.TaskMeta
-			service.Operations.HandOverStopped = func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+			var actions []string
+			service.Operations.HandOverEnded = func(current state.TaskMeta, prior state.Lifecycle, action string) (bool, error) {
 				onDisk, err := state.ReadLifecycle(service.StateDir, meta.ID)
 				if err != nil {
 					t.Error(err)
 				}
-				handedMeta, handed, recorded = current, append(handed, prior), append(recorded, onDisk)
+				handedMeta, handed, recorded, actions = current, append(handed, prior), append(recorded, onDisk), append(actions, action)
 				return tc.isHanded, tc.failure
 			}
 			isStopped := false
@@ -844,23 +857,23 @@ func TestAStopHandsOnItsGoblinsOwnRecordBeforeOverwritingIt(t *testing.T) {
 			after, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
 
 			// Assert
-			if tc.action != "stop" {
+			if tc.action == "resume" {
 				if len(handed) != 0 || err != nil || readErr != nil || after.Phase != tc.phase {
 					t.Fatalf("%s = %+v, %v, handed over %+v; want it %s with nothing handed over", tc.action, after, errors.Join(err, readErr), handed, tc.phase)
 				}
 				return
 			}
-			if len(handed) != 1 || !reflect.DeepEqual(handed[0], paused) || !reflect.DeepEqual(recorded[0], paused) || handedMeta.SpawnGen != meta.SpawnGen {
-				t.Fatalf("handed over %+v for session %q while the record read %+v, want %+v handed over once for %q before it was overwritten", handed, handedMeta.SpawnGen, recorded, paused, meta.SpawnGen)
+			if len(handed) != 1 || !reflect.DeepEqual(handed[0], kept) || !reflect.DeepEqual(recorded[0], kept) || handedMeta.SpawnGen != meta.SpawnGen || actions[0] != tc.action {
+				t.Fatalf("handed over %+v for session %q and %q while the record read %+v, want %+v handed over once for %q and %q before it was overwritten", handed, handedMeta.SpawnGen, actions, recorded, kept, meta.SpawnGen, tc.action)
 			}
 			if !tc.isHanded {
-				if !errors.Is(err, tc.failure) || isStopped || readErr != nil || !reflect.DeepEqual(after, paused) {
-					t.Fatalf("stop = %+v, %v, stopped %v, record %+v, %v; want it refused with nothing stopped and the record as it was", record, err, isStopped, after, readErr)
+				if !errors.Is(err, tc.failure) || isStopped || readErr != nil || !reflect.DeepEqual(after, kept) {
+					t.Fatalf("%s = %+v, %v, stopped %v, record %+v, %v; want it refused with nothing stopped and the record as it was", tc.action, record, err, isStopped, after, readErr)
 				}
 				return
 			}
-			if err != nil || readErr != nil || after.Action != "stop" || after.Phase != tc.phase || after.ResumeNote != "" || !isStopped {
-				t.Fatalf("stop = %+v, %v, record %+v, %v; want it stopped with no note kept", record, err, after, readErr)
+			if err != nil || readErr != nil || after.Action != tc.action || after.Phase != tc.phase || after.ResumeNote != "" || !isStopped {
+				t.Fatalf("%s = %+v, %v, record %+v, %v; want it %s with no note kept", tc.action, record, err, after, readErr, tc.phase)
 			}
 			if isNamed := slices.Contains(after.Problems, publishFailure.Error()); isNamed != (tc.failure != nil) {
 				t.Fatalf("problems = %q, want %q named only when the hand-off met it", after.Problems, publishFailure)

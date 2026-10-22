@@ -522,8 +522,8 @@ func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
 				HandOver: func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
 					return HandOverReplacedNote(h.State, current, prior)
 				},
-				HandOverStopped: func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
-					return HandOverStoppedNote(h.State, current, prior)
+				HandOverEnded: func(current state.TaskMeta, prior state.Lifecycle, action string) (bool, error) {
+					return HandOverEndedNote(h.State, current, prior, action)
 				},
 			}}
 
@@ -544,6 +544,56 @@ func TestAStopOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A pause of a goblin whose resume failed writes its own record over the failed
+// resume's, so that resume never runs again: each board message kept for it
+// goes to the CFO with its words, why and that resume's start before the
+// pause's record replaces it. Before, the pause's record kept no note and its
+// later resume told the goblin nothing of them (issue #1382).
+func TestAPauseOfAGoblinWhoseResumeFailedHandsItsKeptMessagesToTheCFO(t *testing.T) {
+	// Arrange
+	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	kept := []string{"use the staging database", "and skip the migration"}
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	meta.ResumeOperation = "resume-1"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: meta.ResumeOperation, Action: "resume", Phase: "failed", Started: started, Updated: started.Add(3 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	keptForResume(t, store, meta, kept...)
+	controller := lifecycle.Service{StateDir: h.State, PrepareWait: 10 * time.Millisecond, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
+		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
+		Stop:    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
+		Notify:  func(state.Lifecycle) error { return nil },
+		HandOver: func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+			return HandOverReplacedNote(h.State, current, prior)
+		},
+		HandOverEnded: func(current state.TaskMeta, prior state.Lifecycle, action string) (bool, error) {
+			return HandOverEndedNote(h.State, current, prior, action)
+		},
+	}}
+
+	// Act
+	record, err := controller.Run(context.Background(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "memory"})
+
+	// Assert
+	if err != nil || record.Phase != "paused" {
+		t.Fatalf("pause = %+v, %v; want it paused", record, err)
+	}
+	told := toldCFO(t, h.State, meta.ID)
+	if len(told) != len(kept) {
+		t.Fatalf("the CFO was told %q, want each of %q once", told, kept)
+	}
+	why := "message not delivered: task-1 was paused after its resume failed, so that resume never runs again; a message kept before it began at " + started.Format(time.RFC3339) + " went with it, and one kept after it failed did not"
+	for i, words := range kept {
+		if !strings.HasPrefix(told[i], why) || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
+			t.Fatalf("the CFO was told %q, want %q with why it was not delivered: %q", told[i], words, why)
+		}
 	}
 }
 
