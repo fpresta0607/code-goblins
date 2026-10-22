@@ -11,12 +11,69 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
-	registry := DefaultRegistry()
-	adapter, err := registry.Get(Codex)
+// codexHelp is the shape of Codex CLI 0.160.0's --help, which lists
+// --no-daemon on codex and on codex resume; codexHelpBeforeNoDaemon is the
+// same help from a Codex that has no such option.
+const (
+	codexHelp = `Codex CLI
+
+Usage: codex [OPTIONS] [PROMPT]
+       codex [OPTIONS] <COMMAND> [ARGS]
+
+Commands:
+  exec    Run Codex non-interactively
+  resume  Resume a previous interactive session
+
+Arguments:
+  [PROMPT]
+          Optional user prompt to start the session
+
+Options:
+  -c, --config <key=value>
+          Override a configuration value that would otherwise be loaded from ~/.codex/config.toml
+      --no-daemon
+          Run without the shared background app-server, even while one is already running
+  -h, --help
+          Print help
+`
+	codexHelpBeforeNoDaemon = `Codex CLI
+
+Usage: codex [OPTIONS] [PROMPT]
+       codex [OPTIONS] <COMMAND> [ARGS]
+
+Commands:
+  exec    Run Codex non-interactively
+  resume  Resume a previous interactive session
+
+Arguments:
+  [PROMPT]
+          Optional user prompt to start the session
+
+Options:
+  -c, --config <key=value>
+          Override a configuration value that would otherwise be loaded from ~/.codex/config.toml
+  -h, --help
+          Print help
+`
+)
+
+// validatedCodex is the Codex adapter validated against a codex whose --help
+// prints help.
+func validatedCodex(t *testing.T, help string) Adapter {
+	t.Helper()
+	adapter, err := DefaultRegistry().Get(Codex)
 	if err != nil {
 		t.Fatalf("Get(Codex): %v", err)
 	}
+	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) { return execx.Result{Stdout: []byte(help)}, nil }}
+	if err := adapter.Validate(context.Background(), runner); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	return adapter
+}
+
+func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
+	adapter := validatedCodex(t, codexHelp)
 
 	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
 	if err != nil {
@@ -66,11 +123,11 @@ func TestCodexValidateChecksExecutable(t *testing.T) {
 	if err := adapter.Validate(context.Background(), runner); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	assertRequests(t, runner.requests, []execx.Request{{Name: "codex", Args: []string{"--version"}}})
+	assertRequests(t, runner.requests, []execx.Request{{Name: "codex", Args: []string{"--help"}}})
 }
 
 func TestCodexMaxEffortForAstra(t *testing.T) {
-	adapter, _ := DefaultRegistry().Get(Codex)
+	adapter := validatedCodex(t, codexHelp)
 	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "max"})
 	if err != nil {
 		t.Fatal(err)
@@ -124,23 +181,93 @@ func TestCodexStartsWithItsAnimationsOff(t *testing.T) {
 // program, or by the terminal's proof value, and a process under the shared
 // server has neither: on 2026-10-16 a CFO's registration was refused for
 // hours while every cfo command it ran descended from a shared app-server an
-// earlier session had left running. The installed Codex CLI takes --no-daemon,
-// which runs it without the shared background server even while one is
-// already running, so each launch keeps its own server under its own
-// terminal.
+// earlier session had left running. Codex CLI 0.160.0 lists --no-daemon in
+// its help, which runs it without the shared background server even while
+// one is already running, so each launch keeps its own server under its own
+// terminal. A Codex whose help does not list it would refuse it at its
+// command line, so it is given none, and neither is one never validated.
 func TestCodexStartsWithoutTheSharedBackgroundServer(t *testing.T) {
-	adapter, err := DefaultRegistry().Get(Codex)
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, test := range []struct {
+		name         string
+		help         string
+		isValidated  bool
+		wantNoDaemon bool
+	}{
+		{"listed", codexHelp, true, true},
+		{"not listed", codexHelpBeforeNoDaemon, true, false},
+		{"not validated", "", false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			adapter, err := DefaultRegistry().Get(Codex)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.isValidated {
+				adapter = validatedCodex(t, test.help)
+			}
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "xhigh"})
+			// Act
+			launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "xhigh"})
 
-	if err != nil {
-		t.Fatal(err)
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isFirst := len(launch.Args) > 0 && launch.Args[0] == "--no-daemon"; isFirst != test.wantNoDaemon {
+				t.Errorf("Args = %q, want --no-daemon first: %v", launch.Args, test.wantNoDaemon)
+			}
+			if !test.wantNoDaemon && slices.Contains(launch.Args, "--no-daemon") {
+				t.Errorf("Args = %q, want no --no-daemon", launch.Args)
+			}
+		})
 	}
-	if !slices.Contains(launch.Args, "--no-daemon") {
-		t.Errorf("Args = %q, want Codex started without the shared background server", launch.Args)
+}
+
+// The CFO's Codex is asked the same help as a goblin's, so it starts without
+// the shared background server exactly where a goblin's would.
+func TestCodexNoDaemonArgsFollowTheHelpOfTheCodexOnPath(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		help string
+		want []string
+	}{
+		{"listed", codexHelp, []string{"--no-daemon"}},
+		{"not listed", codexHelpBeforeNoDaemon, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) { return execx.Result{Stdout: []byte(test.help)}, nil }}
+
+			// Act
+			got, err := CodexNoDaemonArgs(context.Background(), runner)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("CodexNoDaemonArgs: %v", err)
+			}
+			if !equalStrings(got, test.want) {
+				t.Errorf("CodexNoDaemonArgs = %q, want %q", got, test.want)
+			}
+			assertRequests(t, runner.requests, []execx.Request{{Name: "codex", Args: []string{"--help"}}})
+		})
+	}
+}
+
+// A codex that does not answer its help is not started with arguments guessed
+// for it: the CFO's start reports why instead.
+func TestCodexNoDaemonArgsRefuseACodexThatDoesNotAnswerItsHelp(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
+		return execx.Result{ExitCode: 1, Stderr: []byte("Cannot find module")}, nil
+	}}
+
+	// Act
+	got, err := CodexNoDaemonArgs(context.Background(), runner)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "Cannot find module") {
+		t.Fatalf("CodexNoDaemonArgs = %q, %v; want the failed help reported", got, err)
 	}
 }
 

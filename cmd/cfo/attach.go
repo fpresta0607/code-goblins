@@ -258,15 +258,9 @@ func cfoBackPrompt(harness, why, fresh string) string {
 // as the ones that resume a conversation, and its first instruction, prompt,
 // last. With none, a harness the supervisor wakes by typing starts with the
 // first prompt that registers it, and a Claude Code CFO waits for the
-// Overlord, as on a home's first start. Codex runs without the shared
-// background server, which would otherwise leave the cfo commands its harness
-// runs under a detached process an earlier session had started, where no
-// custody check can prove them (2026-10-16).
+// Overlord, as on a home's first start.
 func cfoStartArguments(harness string, args []string, prompt string) []string {
 	args = slices.Clone(args)
-	if harness == "codex" {
-		args = append(args, "--no-daemon")
-	}
 	if prompt == "" && supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
 		prompt = cfoFirstPrompt
 	}
@@ -281,10 +275,18 @@ func cfoStartArguments(harness string, args []string, prompt string) []string {
 // the input line and footer on the bottom rows while the transcript scrolls
 // above them: Codex's alternate screen, copying what a drag selects when the
 // button is released, and pi's fullscreen mode where its help offers it.
+// Codex also runs without the shared background server where its help lists
+// --no-daemon, as a Codex goblin does, which would otherwise leave the cfo
+// commands its harness runs under a detached process an earlier session had
+// started, where no custody check can prove them (2026-10-16).
 func cfoScreenArguments(agent string) ([]string, error) {
 	switch agent {
 	case "codex":
-		return []string{"-c", "tui.copy_on_select=always"}, nil
+		noDaemon, err := harness.CodexNoDaemonArgs(context.Background(), execx.OSRunner{})
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{"-c", "tui.copy_on_select=always"}, noDaemon...), nil
 	case "pi":
 		return harness.PiScreenArgs(context.Background(), execx.OSRunner{})
 	}

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -168,18 +169,24 @@ var (
 	bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
-type codexAdapter struct{}
+type codexAdapter struct {
+	isNoDaemonAdvertised atomic.Bool
+}
 
-func (codexAdapter) Kind() Kind {
+func (*codexAdapter) Kind() Kind {
 	return Codex
 }
 
-func (codexAdapter) Validate(ctx context.Context, runner execx.Runner) error {
-	_, err := validateExecutable(ctx, runner, "codex", "--version")
-	return err
+func (adapter *codexAdapter) Validate(ctx context.Context, runner execx.Runner) error {
+	result, err := validateExecutable(ctx, runner, "codex", "--help")
+	if err != nil {
+		return err
+	}
+	adapter.isNoDaemonAdvertised.Store(optionAdvertised(string(result.Stdout), "--no-daemon"))
+	return nil
 }
 
-func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
+func (adapter *codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	launch, err := buildBase(spec)
 	if err != nil {
 		return Launch{}, err
@@ -206,8 +213,12 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// terminal's proof value. On 2026-10-16 a CFO's registration was refused
 	// for hours because its cfo commands descended from a shared app-server
 	// an earlier session had left. --no-daemon keeps each launch on its own
-	// server, under its own terminal, even while another one runs.
-	launch.Args = []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always"}
+	// server, under its own terminal, even while another one runs; a Codex
+	// whose help does not list it would refuse it, so it is given none.
+	if adapter.isNoDaemonAdvertised.Load() {
+		launch.Args = append(launch.Args, "--no-daemon")
+	}
+	launch.Args = append(launch.Args, "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always")
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
@@ -232,10 +243,25 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	return configureSubagents(launch, Codex, spec)
 }
 
+// CodexNoDaemonArgs are the arguments that start the codex on PATH without
+// the shared background server, as a Codex goblin starts: --no-daemon where
+// its help lists it, read from its help as Validate reads it, and none where
+// it does not.
+func CodexNoDaemonArgs(ctx context.Context, runner execx.Runner) ([]string, error) {
+	result, err := validateExecutable(ctx, runner, "codex", "--help")
+	if err != nil {
+		return nil, err
+	}
+	if !optionAdvertised(string(result.Stdout), "--no-daemon") {
+		return nil, nil
+	}
+	return []string{"--no-daemon"}, nil
+}
+
 // Control resumes Codex through its resume subcommand, which is why
 // ResumeArgs lead the argument list: `codex resume --last` continues the most
 // recent recorded session without the picker.
-func (codexAdapter) Control() Control {
+func (*codexAdapter) Control() Control {
 	return Control{
 		StopKeys:    []string{"escape"},
 		StopCommand: "/quit",
