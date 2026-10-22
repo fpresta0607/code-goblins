@@ -26,6 +26,13 @@ function heldNames(error: unknown): string[] {
   return strings(cause.existing);
 }
 
+// Whether the board refused a plain value for its shape, a key's, which he can
+// answer by saying it is no secret.
+function looksLikeKey(error: unknown): boolean {
+  const cause = error instanceof Error && typeof error.cause === "object" && error.cause !== null ? object(error.cause) : {};
+  return cause.looks_like_key === true;
+}
+
 // Text as a cell shows it: a long one wraps after each separator, never
 // inside a word.
 const wrappable = (text: string, separator: string) => text.split(separator).map((part, place, parts) => <Fragment key={place}>{part}{place < parts.length - 1 && <>{separator}<wbr /></>}</Fragment>);
@@ -46,6 +53,8 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // are in the tips. Below the table the cfo auth store lines have Copy and Run
 // to type them in a terminal on this PC instead. Values are typed only on the
 // board on this PC; a board opened from another machine shows the commands. A
+// plain value the board refuses as a key shows its refusal with a button to send
+// it anyway once he says it is no secret. A
 // secret is kept by the card, never in its field or the page's markup, until
 // its row's save sends it once; the board answers with names, and the row's
 // field empties after every answer. A stored value is replaced only once he
@@ -62,6 +71,9 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
   // Why the board refused a row's value, shown under its field until he
   // pastes again.
   const [refusals, setRefusals] = useState<Record<string, string>>({});
+  // The plain fields whose value the board refused as a key, which he can send
+  // anyway by saying it is no secret.
+  const [keyShaped, setKeyShaped] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -133,16 +145,18 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     finally { setIsFetching(false); }
   };
   // A plain value goes to the goblin when he presses Enter or Send.
-  const sendPlain = async (name: string) => {
+  const sendPlain = async (name: string, isNotSecret = false) => {
     const value = (plainValues[name] || "").trim();
     if (!value || storing.includes(name)) return;
-    setStoring((prior) => [...prior, name]); showFeedback(""); setRefusals((prior) => ({ ...prior, [name]: "" }));
+    setStoring((prior) => [...prior, name]); showFeedback(""); setRefusals((prior) => ({ ...prior, [name]: "" })); setKeyShaped((prior) => prior.filter((candidate) => candidate !== name));
     try {
-      const answer = object(await call("/api/credentials/save", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, values: { [name]: value }, replace: [] }) }));
+      const answer = object(await call("/api/credentials/save", undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, values: { [name]: value }, replace: [], ...(isNotSecret ? { not_secret: [name] } : {}) }) }));
       setAnswered((prior) => [...prior, ...strings(answer.received)]);
       setPlainValues((prior) => { const rest = { ...prior }; delete rest[name]; return rest; });
-    } catch (failure: unknown) { setRefusals((prior) => ({ ...prior, [name]: message(failure) })); }
-    finally { setStoring((prior) => prior.filter((candidate) => candidate !== name)); }
+    } catch (failure: unknown) {
+      setRefusals((prior) => ({ ...prior, [name]: message(failure) }));
+      if (looksLikeKey(failure)) setKeyShaped((prior) => [...prior, name]);
+    } finally { setStoring((prior) => prior.filter((candidate) => candidate !== name)); }
   };
   // Done, Dismiss and the window button each post once and wait for the
   // board, whose snapshot then closes the card or shows the window.
@@ -223,11 +237,12 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
             {!open ? <span className="muted">Not sent</span>
               : !local ? <span className="credential-pill"><Icon name="lock" />Type it on your PC</span>
               : <input className="credential-input plain-input" type="text" value={plainValues[name] || ""} placeholder="Type it here" disabled={!connected || storing.includes(name)} autoComplete="off" spellCheck={false} aria-label={inputLabel(request, name)}
-                onChange={(event) => { const next = event.currentTarget.value; setPlainValues((prior) => ({ ...prior, [name]: next })); setRefusals((prior) => ({ ...prior, [name]: "" })); }}
+                onChange={(event) => { const next = event.currentTarget.value; setPlainValues((prior) => ({ ...prior, [name]: next })); setRefusals((prior) => ({ ...prior, [name]: "" })); setKeyShaped((prior) => prior.filter((candidate) => candidate !== name)); }}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendPlain(name); } }} />}
             {open && local && <button type="button" className="icon-button raised credential-store" aria-label={"Send " + inputLabel(request, name)} data-tip={"Send it to " + asker} disabled={!connected || !(plainValues[name] || "").trim() || storing.includes(name)} onClick={() => void sendPlain(name)}><Icon name="send" /></button>}
           </div>}
           {refusals[name] && <p className="credential-refusal" role="alert"><Icon name="warning" />{refusals[name]}</p>}
+          {refusals[name] && keyShaped.includes(name) && <button type="button" className="raised pill-link credential-not-secret" disabled={!connected || storing.includes(name)} onClick={() => void sendPlain(name, true)}>It is not a secret: send it anyway</button>}
         </td>
       </tr>)}{request.names.map((name) => {
         const value = values[name] || "";

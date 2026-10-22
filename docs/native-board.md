@@ -1977,7 +1977,7 @@ cfo auth request --project acme-shop --task shop-signup --why "Connect the tests
 cfo auth request --project acme-shop --task shop-signup --why "Sign in to the shop in my browser" --link https://shop.example.com/login --window --wait
 ```
 
-- A secret NAME goes into the vault as above, and a `--plain` NAME is a value that goes back to the asker: the card gives it a plain field, refuses anything shaped like a key in it, keeps it in the board's record for the asker's wait and never in the snapshot, which names it under `received` once it arrived.
+- A secret NAME goes into the vault as above, and a `--plain` NAME is a value that goes back to the asker: the card gives it a plain field, refuses anything shaped like a key in it unless the NAME ends in `_ID` and the value is at most 20 letters and digits, an identifier such as an OAuth client ID, or he says on the card it is no secret (`not_secret` in the save), keeps it in the board's record for the asker's wait and never in the snapshot, which names it under `received` once it arrived.
 - Each input may carry a label of a few words, at most 60 characters, which the card shows above its name and its heading uses.
 - A card that asks for no input has a Done button, `POST /api/credentials/close` with `"action": "done"`, and its heading is what it is for.
 - `--message-file <file>` puts a message he sends himself on the card, such as an email, read once when the card is filed: the file's optional `To:` line (an email address, or an https page with no credentials, query or fragment) and `Subject:` line, a blank line, then a body of at most 4000 characters.

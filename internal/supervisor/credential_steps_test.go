@@ -115,6 +115,88 @@ func TestStepCardRefusesAKeyInAPlainField(t *testing.T) {
 	}
 }
 
+// A plain field whose name says it is an ID takes a short identifier, such as
+// an OAuth client ID, without a warning, while a long token shape, a key's
+// prefix or a field not named as an ID still reads as a key, and the refusal
+// says so, so the card can offer him to say the value is no secret.
+func TestStepCardSendsAnIdentifierInAnIDFieldAndWarnsOfAKeyElsewhere(t *testing.T) {
+	for name, c := range map[string]struct {
+		field, value string
+		isRefused    bool
+	}{
+		"a mixed case client ID in an ID field":    {"MADE_UP_CLIENT_ID", "k7Qx9L" + "m2Vb4Rt8Nc", false},
+		"twenty letters and digits in an ID field": {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0", false},
+		"twenty one characters in an ID field":     {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0K", true},
+		"a key's prefix in an ID field":            {"MADE_UP_CLIENT_ID", "ghp" + "_Qx9Lm2Vb4" + "Rt8Nc6Y", true},
+		"a short identifier in a field not an ID":  {"MADE_UP_ACCOUNT_REF", "k7Qx9L" + "m2Vb4Rt8Nc", true},
+		"a long token in an ID field":              {"MADE_UP_CLIENT_ID", "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{c.field} })
+
+			// Act
+			response := b.post(b.handler, b.body(map[string]string{c.field: c.value}), nil)
+
+			// Assert
+			if c.isRefused {
+				if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"looks_like_key":true`) {
+					t.Fatalf("save = %d %s, want it refused as a key", response.Code, response.Body)
+				}
+				if strings.Contains(response.Body.String(), c.value) {
+					t.Fatal("the refusal repeats the value")
+				}
+				if request := b.stored(); len(request.Values) != 0 {
+					t.Fatalf("request = %+v, want nothing received", request)
+				}
+				return
+			}
+			if response.Code != http.StatusOK {
+				t.Fatalf("save = %d %s, want the identifier sent", response.Code, response.Body)
+			}
+			if request := b.stored(); request.Values[c.field] != c.value || !slices.Contains(request.Received, c.field) {
+				t.Fatalf("request = %+v, want %s received", request, c.field)
+			}
+		})
+	}
+}
+
+// He can say a value is no secret, which sends it to the goblin though it is
+// shaped like a key, for that field alone.
+func TestStepCardSendsAKeyShapedPlainValueHeSaysIsNoSecret(t *testing.T) {
+	// Arrange
+	b := stepCard(t, func(r *CredentialRequest) { r.Plain = []string{"MADE_UP_ACCOUNT_REF", "MADE_UP_OTHER_REF"} })
+	value := "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A"
+	notSecret := func(names ...string) string {
+		data, err := json.Marshal(struct {
+			ID         string            `json:"id"`
+			Generation string            `json:"generation"`
+			Values     map[string]string `json:"values"`
+			NotSecret  []string          `json:"not_secret"`
+		}{b.request.ID, b.request.Generation, map[string]string{"MADE_UP_ACCOUNT_REF": value}, names})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	// Act
+	refused := b.post(b.handler, notSecret(), nil)
+	forAnother := b.post(b.handler, notSecret("MADE_UP_OTHER_REF"), nil)
+	sent := b.post(b.handler, notSecret("MADE_UP_ACCOUNT_REF"), nil)
+
+	// Assert
+	if refused.Code != http.StatusBadRequest || forAnother.Code != http.StatusBadRequest {
+		t.Fatalf("without his word for the field: %d and %d, want both refused", refused.Code, forAnother.Code)
+	}
+	if sent.Code != http.StatusOK {
+		t.Fatalf("with his word: %d %s, want it sent", sent.Code, sent.Body)
+	}
+	if request := b.stored(); request.Values["MADE_UP_ACCOUNT_REF"] != value || !slices.Contains(request.Received, "MADE_UP_ACCOUNT_REF") {
+		t.Fatalf("request = %+v, want the value received", request)
+	}
+}
+
 // A card of clicks alone closes on his Done, and tells the CFO. A card that
 // asks for a value closes when the value arrives, not on a Done.
 func TestStepCardWithNoInputsClosesOnDone(t *testing.T) {

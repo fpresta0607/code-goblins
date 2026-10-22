@@ -28,6 +28,12 @@ const cards: Record<string, unknown>[] = [
     state: "open", created_at: "2026-10-14T23:41:00Z", expires_at: "2026-10-15T23:41:00Z",
   },
   {
+    id: "cred-4444444444444444", generation: "d".repeat(32), identity: "a".repeat(64), by: "goblin", task: "shop-signup", project: "acme-ledger",
+    names: [], plain: ["MADE_UP_ACCOUNT_REF"], labels: { MADE_UP_ACCOUNT_REF: "The account reference" },
+    why: "Connect the tests to the new account", link: "https://shop.example.com/settings/api", steps: ["Copy the account reference"],
+    state: "open", created_at: "2026-10-14T23:43:00Z", expires_at: "2026-10-15T23:43:00Z",
+  },
+  {
     id: "cred-3333333333333333", generation: "c".repeat(32), identity: "a".repeat(64), by: "goblin", task: "shop-signup", project: "acme-shop",
     names: [], why: "Sign in to the shop in my browser", link: "https://shop.example.com/login", window: true,
     steps: ["Sign in with your password or passkey", "Press Done once the dashboard shows"],
