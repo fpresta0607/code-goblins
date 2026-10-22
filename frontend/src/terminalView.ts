@@ -3,12 +3,13 @@ import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
 import { attachDictatedInput } from "./dictated-input";
-import { clipboardInput, terminalKey } from "./terminal-keys";
+import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize, parseUnread } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
+import { attachTouchScroll, terminalText } from "./terminal-touch";
 
 export const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 export const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -22,6 +23,8 @@ const RESIZE_SETTLE_MS = 120;
 const READY_FALLBACK_MS = 600;
 // Keys that only change the next key send nothing of their own.
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
+// The mouse modes in which xterm hands the wheel to the program.
+const WHEEL_MOUSE_MODES = new Set(["vt200", "drag", "any"]);
 
 export interface ViewEvents {
   // The screen is whole: the history replayed and the repaint after it drawn.
@@ -33,6 +36,9 @@ export interface ViewEvents {
   // lets it through, and null means it is not dictation's.
   dictate: (event: KeyboardEvent) => boolean | null;
   harness: () => string;
+  // A picture pasted on another device, to put on this PC's clipboard before
+  // the harness's image key is pressed.
+  image: (picture: File) => void;
   // While he reads the history, where it ends, the top of the panel's last
   // row in px from the panel's top, which Jump to bottom sits above; null at
   // the live end.
@@ -93,6 +99,7 @@ export class TerminalView {
   private isCursorShown = true;
   private readonly stopFollowing: () => void;
   private readonly stopZooming: () => void;
+  private readonly stopSwiping: () => void;
   private readonly detachDictatedInput: () => void;
 
   constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
@@ -143,6 +150,7 @@ export class TerminalView {
     // wheel, is this one's too.
     this.stopFollowing = followFontSize((size) => this.setFont(size));
     this.stopZooming = attachZoomGesture(this.element, window, () => this.term.options.fontSize ?? DEFAULT_FONT_SIZE, (size) => { this.setFont(size); this.events.font(size); });
+    this.stopSwiping = attachTouchScroll(this.element, () => this.cell().height, (lines, at) => this.swipe(lines, at));
   }
 
   get ready(): boolean { return this.isReady; }
@@ -178,6 +186,17 @@ export class TerminalView {
     if (this.isSendable()) this.term.input("\r", true);
   }
 
+  // pressImageKey presses the key the harness attaches this PC's clipboard
+  // image on, once a picture is there.
+  pressImageKey(): void {
+    if (this.isSendable()) this.term.input(imageKey(this.events.harness()), true);
+  }
+
+  // text is what the terminal shows and holds above, as plain text.
+  text(): string {
+    return terminalText(this.term);
+  }
+
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
   // xterm scrolls from the position its viewport last drew, which it brings
   // up to a resize only on its next frame, so a jump in between lands short
@@ -201,6 +220,7 @@ export class TerminalView {
     cancelAnimationFrame(this.pinFrame);
     this.stopFollowing();
     this.stopZooming();
+    this.stopSwiping();
     this.detachDictatedInput();
     this.pin.dispose();
     clearTimeout(this.settle);
@@ -340,6 +360,16 @@ export class TerminalView {
     return screen ? { width: screen.width / this.term.cols, height: screen.height / this.term.rows } : { width: 0, height: 0 };
   }
 
+  // swipe scrolls by a finger's lines as the wheel does: a program that takes
+  // the wheel, by the mouse or on the alternate screen, gets a turn of it a
+  // line, and otherwise the terminal's own history scrolls.
+  private swipe(lines: number, at: { clientX: number; clientY: number }): void {
+    const screen = this.term.element?.querySelector(".xterm-screen");
+    if (!screen) return;
+    if (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) && this.term.buffer.active.type === "normal") { this.term.scrollLines(lines); return; }
+    for (let turn = 0; turn < Math.abs(lines); turn++) screen.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: at.clientX, clientY: at.clientY, bubbles: true, cancelable: true }));
+  }
+
   private key(event: KeyboardEvent): boolean {
     // Escape and every other key belong to the terminal, never the panel.
     event.stopPropagation();
@@ -392,6 +422,7 @@ export class TerminalView {
     event.stopImmediatePropagation();
     const input = clipboardInput(event, this.events.harness());
     if (input && "text" in input) this.paste(input.text);
+    else if (input && "image" in input) this.events.image(input.image);
     else if (input && this.isSendable()) this.term.input(input.key, true);
   };
 
