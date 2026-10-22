@@ -22,7 +22,8 @@ const acceptedFile = "accepted-start-hooks.json"
 // SHA-256 SHA256, from the distribution whose RECORD installs it. It passes in
 // every environment of those goblins at every install, while a file that
 // differs from it in any of the three, as one a later release or another
-// package writes does, is still stopped.
+// package writes does, is still stopped. It pins that file alone, never a
+// module one of its lines imports, which stays the distribution's to change.
 type Acceptance struct {
 	// Project names the project whose goblins it passes for, by its
 	// checkout's folder, or is empty for every project's.

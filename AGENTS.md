@@ -497,6 +497,7 @@ Decide from the package and the file: once you know it is safe, accept it with `
 Accepting is for a file you cannot remove without breaking its package, such as the `-nspkg.pth` file setuptools writes for a package that declares a namespace package, which a project that locks that package installs at every spawn.
 It accepts the file by its name, its exact content and the distribution whose `RECORD` installs it, such as `zope.interface-6.4`, for every goblin of the task's project, or of every project with `--fleet`, recorded in `state\accepted-start-hooks.json`.
 Their seals let that file through in every later environment, and still stop one whose content, name or distribution differs, as one a later release or another package writes does.
+It pins that file alone and no module its lines import, so accept a file whose lines import only the standard library, as a `-nspkg.pth` file's do, or one whose imported module you judged too.
 It refuses a file no installed distribution names and a folder, which has no one content, and only you accept: a goblin or a gate agent is refused it.
 The command that installed the file may have started Python already, which nothing before a shell call can stop.
 Codex runs a Codex goblin's hook only once the Overlord has trusted it in a Codex goblin's `/hooks`, as it runs the goblin's other hooks: until he has, each Codex start says it started without trusting its hooks, and nothing checks before that goblin's commands.

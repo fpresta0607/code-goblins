@@ -301,6 +301,12 @@ func TestUnacceptedLetsThroughOnlyTheStartHookTheCFOAccepted(t *testing.T) {
 		{name: "the same file that no installed distribution names, against an acceptance that names none", acceptance: func(a Acceptance) Acceptance { a.Distribution = ""; return a }, project: "shop", arrange: func(t *testing.T, site string) {
 			write(t, filepath.Join(site, nspkgFile), nspkgLine)
 		}},
+		{name: "a folder, against an acceptance that names no content", acceptance: func(a Acceptance) Acceptance {
+			a.File, a.SHA256, a.Distribution = "usercustomize", "", "tune-1.0"
+			return a
+		}, project: "shop", arrange: func(t *testing.T, site string) {
+			install(t, site, "tune-1.0", map[string]string{"usercustomize/__init__.py": "import os"})
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

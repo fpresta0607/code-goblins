@@ -103,6 +103,32 @@ func TestTheCFOAcceptsAStartHookHeJudgedSafeAndAChangedOneIsStillStopped(t *test
 	}
 }
 
+// A list of accepted start hooks the seal cannot read lets none through, an
+// accepted one included, so the seal never fails open.
+func TestGoblinSealStopsAnAcceptedStartHookWhileTheAcceptedListCannotBeRead(t *testing.T) {
+	// Arrange
+	stateDir := goblinHookHome(t)
+	worktree := t.TempDir()
+	recordGoblin(t, stateDir, "shop-1", filepath.Join(t.TempDir(), "shop"), worktree)
+	planted := plantNamespaceHook(t, worktree, namespaceLine)
+	t.Setenv(harness.RoleVariable, "")
+	var stdout, stderr bytes.Buffer
+	if exit := runWithRuntime([]string{"start-hook", "accept", "shop-1", planted}, &stdout, &stderr, commandRuntime{resolveHome: home.Resolve}); exit != 0 {
+		t.Fatalf("accept = %d, stderr = %q, want the file accepted", exit, stderr.String())
+	}
+	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
+	writeTestFile(t, filepath.Join(stateDir, "accepted-start-hooks.json"), "{accepted")
+	stderr.Reset()
+
+	// Act
+	exit := runHook("goblin-seal", shellCall(t, "uv sync --locked"), &stdout, &stderr)
+
+	// Assert
+	if exit != 2 || !strings.Contains(stderr.String(), "the start hooks the CFO accepted could not be read") {
+		t.Fatalf("seal = %d, stderr = %q, want the goblin stopped", exit, stderr.String())
+	}
+}
+
 // A start hook is the CFO's to accept, and only one a goblin's seal stops
 // with the distribution that installs it named: the command refuses a goblin
 // and a gate agent, a task it has no record of, a file the seal does not

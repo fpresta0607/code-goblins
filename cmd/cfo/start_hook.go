@@ -92,12 +92,12 @@ func runStartHook(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprintf(stderr, "cfo start-hook: %s's record names no project to accept it for; accept it for every project with --fleet\n", task)
 		return 1
 	}
-	hook := hooks[at]
-	acceptance := starthook.Acceptance{Project: project, File: filepath.Base(hook.Path), SHA256: hook.Digest, Distribution: hook.Package, Task: task, At: time.Now().UTC()}
-	whose := "for " + project + "'s goblins"
+	scope, whose := project, "for "+project+"'s goblins"
 	if *isFleet {
-		acceptance.Project, whose = "", "for every project's goblins"
+		scope, whose = "", "for every project's goblins"
 	}
+	hook := hooks[at]
+	acceptance := starthook.Acceptance{Project: scope, File: filepath.Base(hook.Path), SHA256: hook.Digest, Distribution: hook.Package, Task: task, At: time.Now().UTC()}
 	if err := starthook.Accept(h.State, acceptance); err != nil {
 		fmt.Fprintf(stderr, "cfo start-hook: %v\n", err)
 		return 1
