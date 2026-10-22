@@ -589,7 +589,7 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 				t.Fatalf("gate branch moved from %s to %s", submitted, gate)
 			}
 			if !test.isRecovered {
-				if err == nil || !strings.Contains(err.Error(), "neither an ancestor of the submitted head nor the gate's rebase") || runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted {
+				if err == nil || !strings.Contains(err.Error(), "neither an ancestor of the submitted head nor the gate's rebase") || !strings.Contains(err.Error(), "at the recorded head "+recorded) || runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted {
 					t.Fatalf("unsafe recovery: error=%v native recovered=%t anchor=%q heads=%q", err, runner.isRecovered, anchored, heads)
 				}
 				return
@@ -605,6 +605,167 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 			}
 			if strings.TrimSpace(string(heads)) != submitted+" "+submitted {
 				t.Fatalf("recorded heads %q, want both at %s", heads, submitted)
+			}
+		})
+	}
+}
+
+// recordedHeadRunner runs git and sqlite3 for real and stands in for the
+// no-mistakes engine after a restart ended a run whose recorded head it had
+// verified: it offers plain sync --recover only while the task branch holds
+// that head, and its recovery anchors the head and stamps custody returned
+// without moving the gate branch.
+type recordedHeadRunner struct {
+	database, work, run string
+	recoveries          int
+}
+
+func (r *recordedHeadRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name != "no-mistakes" {
+		return execx.OSRunner{}.Run(ctx, request)
+	}
+	row, err := exec.Command("sqlite3", "-separator", " ", r.database, "SELECT head_sha, submitted_head_sha, COALESCE(custody_returned_at,0) FROM runs WHERE id="+sqlString(r.run)).Output()
+	if err != nil {
+		return execx.Result{}, err
+	}
+	fields := strings.Fields(string(row))
+	if len(fields) != 3 {
+		return execx.Result{}, fmt.Errorf("run row %q", row)
+	}
+	recorded, submitted, isReturned := fields[0], fields[1], fields[2] != "0"
+	local, err := exec.Command("git", "-C", r.work, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return execx.Result{}, err
+	}
+	head := strings.TrimSpace(string(local))
+	switch strings.Join(request.Args, " ") {
+	case "axi sync --recover":
+		if isReturned || head != recorded {
+			return execx.Result{ExitCode: 1, Stdout: []byte("safety: blocked_recover_manual_reconciliation\n")}, nil
+		}
+		if out, err := exec.Command("git", "-C", r.work, "update-ref", "refs/no-mistakes/recover/"+r.run, recorded).CombinedOutput(); err != nil {
+			return execx.Result{}, fmt.Errorf("anchor: %s %w", out, err)
+		}
+		if out, err := exec.Command("sqlite3", r.database, "UPDATE runs SET custody_returned_at=1 WHERE id="+sqlString(r.run)).CombinedOutput(); err != nil {
+			return execx.Result{}, fmt.Errorf("stamp: %s %w", out, err)
+		}
+		r.recoveries++
+		return execx.Result{Stdout: []byte("custody returned\n")}, nil
+	case "axi sync --check":
+		state, safety, action := "pipeline_owned", "blocked_recover_manual_reconciliation", "no-mistakes axi status"
+		if isReturned {
+			state, safety, action = "custody_returned", "custody_returned", `no-mistakes axi run --intent "<what the user set out to accomplish>"`
+		} else if head == recorded {
+			safety, action = "blocked_pipeline_owned_recoverable", "no-mistakes axi sync --recover"
+		}
+		return execx.Result{Stdout: []byte("branch_sync:\n  state: " + state + "\n  safety: " + safety + "\n  local:\n    head: " + head + "\n    clean: true\n  pipeline:\n    run: \"" + r.run + "\"\n    submitted_head: " + submitted + "\n    current_head: " + recorded + "\n  next_action:\n    command: '" + action + "'\n")}, nil
+	}
+	return execx.Result{}, errors.New("unexpected command: " + recoveryRequestCommand(request))
+}
+
+func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing.T) {
+	for _, tool := range []string{"git", "sqlite3"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " CLI not available")
+		}
+	}
+	const (
+		run    = "01M5ETWV3A84P1PRMGVTQWQ1DW"
+		repo   = "ab81b9a3460e"
+		branch = "fix/gate-rebase-recovery"
+	)
+	for _, test := range []struct {
+		name          string
+		isGateMoved   bool
+		isRecoverable bool
+	}{
+		{name: "gate branch at the submitted head", isRecoverable: true},
+		{name: "gate branch moved off the submitted head", isGateMoved: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the gate rebased the submitted head onto a newer main and
+			// added a review fix commit, a restart ended the run, and the task
+			// branch was put at the recorded head while the gate branch kept the
+			// submitted head.
+			work := filepath.Join(t.TempDir(), "work")
+			runPipelineGit(t, filepath.Dir(work), "init", "--quiet", "--initial-branch=main", work)
+			for _, setting := range [][2]string{{"user.name", "Pipeline Test"}, {"user.email", "pipeline@example.com"}, {"core.autocrlf", "false"}, {"commit.gpgsign", "false"}} {
+				runPipelineGit(t, work, "config", setting[0], setting[1])
+			}
+			commit := func(file, content string) string {
+				if err := os.WriteFile(filepath.Join(work, file), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				runPipelineGit(t, work, "add", file)
+				runPipelineGit(t, work, "commit", "--quiet", "-m", file)
+				return runPipelineGit(t, work, "rev-parse", "HEAD")
+			}
+			commit("base.txt", "base\n")
+			runPipelineGit(t, work, "switch", "--quiet", "-c", branch)
+			submitted := commit("feature.txt", "feature\n")
+			runPipelineGit(t, work, "switch", "--quiet", "main")
+			upstream := commit("upstream.txt", "upstream\n")
+			runPipelineGit(t, work, "switch", "--quiet", branch)
+			runPipelineGit(t, work, "rebase", "--quiet", "main")
+			recorded := commit("review-fix.txt", "review fix\n")
+
+			root := t.TempDir()
+			database := filepath.Join(root, "state.sqlite")
+			bare := filepath.Join(root, "repos", repo+".git")
+			runPipelineGit(t, root, "init", "--quiet", "--bare", bare)
+			gate := submitted
+			if test.isGateMoved {
+				gate = upstream
+			}
+			runPipelineGit(t, work, "push", "--quiet", bare, gate+":refs/heads/"+branch, submitted+":refs/fixture/submitted", recorded+":refs/fixture/run", upstream+":refs/remotes/origin/main")
+			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,created_at INTEGER,updated_at INTEGER);
+INSERT INTO repos VALUES(` + sqlString(repo) + `,` + sqlString(filepath.ToSlash(work)) + `);
+INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(recorded) + `,` + sqlString(submitted) + `,NULL,NULL,1,1);`
+			if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
+			}
+			runner := &recordedHeadRunner{database: database, work: work, run: run}
+			reader := Reader{Root: root, Commands: runner}
+
+			// Act
+			result, err := reader.RecoverKeepLocal(context.Background(), work, work, branch, nil)
+
+			// Assert
+			row, queryErr := exec.Command("sqlite3", database, "SELECT head_sha||' '||submitted_head_sha||' '||COALESCE(custody_returned_at,0) FROM runs").Output()
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if local := runPipelineGit(t, work, "rev-parse", "HEAD"); local != recorded {
+				t.Fatalf("local head moved from %s to %s", recorded, local)
+			}
+			if !test.isRecoverable {
+				if err == nil || runner.recoveries != 0 || strings.TrimSpace(string(row)) != recorded+" "+submitted+" 0" {
+					t.Fatalf("unsafe recovery: error=%v native recoveries=%d run=%q", err, runner.recoveries, row)
+				}
+				if moved := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); moved != upstream {
+					t.Fatalf("gate branch moved from %s to %s", upstream, moved)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("recover: %v", err)
+			}
+			if result.RunID != run || result.Head != recorded || runner.recoveries != 1 {
+				t.Fatalf("result: %+v native recoveries=%d", result, runner.recoveries)
+			}
+			if aligned := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); aligned != recorded {
+				t.Fatalf("gate branch at %s, want the recorded head %s", aligned, recorded)
+			}
+			if anchored := runPipelineGit(t, bare, "rev-parse", "refs/no-mistakes/recovery/"+run+"/gate"); anchored != submitted {
+				t.Fatalf("stale gate head anchored at %s, want %s", anchored, submitted)
+			}
+			if strings.TrimSpace(string(row)) != recorded+" "+recorded+" 1" {
+				t.Fatalf("run %q, want both heads at %s with custody returned", row, recorded)
+			}
+			commit("follow-up.txt", "follow-up\n")
+			if out, err := exec.Command("git", "-C", work, "push", "--dry-run", "--porcelain", bare, branch+":refs/heads/"+branch).CombinedOutput(); err != nil {
+				t.Fatalf("the next run's push to the gate is refused: %s %v", out, err)
 			}
 		})
 	}

@@ -42,22 +42,32 @@ type recoverySync struct {
 		SubmittedHead string `yaml:"submitted_head"`
 		CurrentHead   string `yaml:"current_head"`
 	} `yaml:"pipeline"`
+	NextAction struct {
+		Command string `yaml:"command"`
+	} `yaml:"next_action"`
 }
 
 func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch string, env []string) (RecoveryResult, error) {
-	var runs []recoveryRecord
-	query := `SELECT runs.id AS run_id, runs.repo_id, runs.branch, runs.status, runs.head_sha AS recorded_head, COALESCE(runs.submitted_head_sha,'') AS submitted_head, COALESCE(runs.last_pushed_sha,'') AS pushed_head, COALESCE(runs.custody_returned_at,0) AS custody_returned_at FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`
-	if err := r.query(ctx, query, &runs); err != nil {
+	run, err := r.latestRecoveryRun(ctx, project, branch)
+	if err != nil {
 		return RecoveryResult{}, err
 	}
-	if len(runs) != 1 {
-		return RecoveryResult{}, errors.New("pipeline: exactly one latest run is required for custody recovery")
+	status, output, err := r.readRecoverySync(ctx, worktree, env)
+	if err == nil && status.recoverableAtRecordedHead(run) {
+		if err := r.returnCustodyAtRecordedHead(ctx, worktree, branch, env, run); err != nil {
+			return RecoveryResult{}, err
+		}
+		returned, err := r.latestRecoveryRun(ctx, project, branch)
+		if err != nil {
+			return RecoveryResult{}, err
+		}
+		if returned.RunID != run.RunID {
+			return RecoveryResult{}, errors.New("pipeline: another run took the branch during custody recovery")
+		}
+		run = returned
+		status, output, err = r.readRecoverySync(ctx, worktree, env)
 	}
-	run := runs[0]
-	if run.Branch != branch || run.RecordedHead == "" || run.SubmittedHead == "" || run.PushedHead != "" || run.Status != "failed" && run.Status != "cancelled" {
-		return RecoveryResult{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
-	}
-	if status, output, err := r.readRecoverySync(ctx, worktree, env); err == nil {
+	if err == nil {
 		switch {
 		case status.recoverableUserOwned(run):
 			return r.alignReturned(ctx, worktree, branch, env, run, status, output, false)
@@ -88,7 +98,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 			return RecoveryResult{}, err
 		}
 		if !safe {
-			return RecoveryResult{}, errors.New("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base")
+			return RecoveryResult{}, fmt.Errorf("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base; to keep the gate's commits, put the clean task branch at the recorded head %s and recover again", run.RecordedHead)
 		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
@@ -106,7 +116,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	}
 
 	native, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover", "--keep-local"}})
-	output := append(append([]byte(nil), native.Stdout...), native.Stderr...)
+	output = append(append([]byte(nil), native.Stdout...), native.Stderr...)
 	if err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: native custody recovery failed: %w", err)
 	}
@@ -123,6 +133,48 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		return RecoveryResult{}, err
 	}
 	return RecoveryResult{RunID: run.RunID, Head: run.SubmittedHead, NativeOutput: output}, nil
+}
+
+func (r Reader) latestRecoveryRun(ctx context.Context, project, branch string) (recoveryRecord, error) {
+	var runs []recoveryRecord
+	query := `SELECT runs.id AS run_id, runs.repo_id, runs.branch, runs.status, runs.head_sha AS recorded_head, COALESCE(runs.submitted_head_sha,'') AS submitted_head, COALESCE(runs.last_pushed_sha,'') AS pushed_head, COALESCE(runs.custody_returned_at,0) AS custody_returned_at FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(` + sqlString(filepath.ToSlash(project)) + `) AND runs.branch=` + sqlString(branch) + ` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`
+	if err := r.query(ctx, query, &runs); err != nil {
+		return recoveryRecord{}, err
+	}
+	if len(runs) != 1 {
+		return recoveryRecord{}, errors.New("pipeline: exactly one latest run is required for custody recovery")
+	}
+	run := runs[0]
+	if run.Branch != branch || run.RecordedHead == "" || run.SubmittedHead == "" || run.PushedHead != "" || run.Status != "failed" && run.Status != "cancelled" {
+		return recoveryRecord{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
+	}
+	return run, nil
+}
+
+// returnCustodyAtRecordedHead has the native engine return custody at the
+// recorded head the task branch holds. Native recovery leaves the gate branch
+// at the submitted head, which a head the gate rebased never descends from, so
+// the next run's push would be refused until the caller aligns the gate branch.
+func (r Reader) returnCustodyAtRecordedHead(ctx context.Context, worktree, branch string, env []string, run recoveryRecord) error {
+	if err := r.requireCleanHead(ctx, worktree, run.RecordedHead); err != nil {
+		return err
+	}
+	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
+	if err := r.requireRef(ctx, bare, "refs/heads/"+branch, run.SubmittedHead); err != nil {
+		return fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
+	}
+	native, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
+	if err != nil {
+		return fmt.Errorf("pipeline: native custody recovery failed: %w", err)
+	}
+	if native.ExitCode != 0 {
+		output := append(append([]byte(nil), native.Stdout...), native.Stderr...)
+		return fmt.Errorf("pipeline: native custody recovery exited %d: %s", native.ExitCode, strings.TrimSpace(string(output)))
+	}
+	if err := r.requireCleanHead(ctx, worktree, run.RecordedHead); err != nil {
+		return fmt.Errorf("pipeline: native recovery changed the task branch: %w", err)
+	}
+	return nil
 }
 
 func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env []string, run recoveryRecord, status recoverySync, output []byte, custodyReturned bool) (RecoveryResult, error) {
@@ -311,6 +363,13 @@ func (s recoverySync) custodyReturned(run recoveryRecord, exactLocal bool) bool 
 
 func (s recoverySync) recoverableCustodyReturned(run recoveryRecord) bool {
 	return s.custodyReturned(run, false)
+}
+
+// recoverableAtRecordedHead reports a failed or cancelled run holding pipeline
+// commits that the clean task branch already has at its recorded head, where
+// native recovery returns custody without moving the branch.
+func (s recoverySync) recoverableAtRecordedHead(run recoveryRecord) bool {
+	return s.State == "pipeline_owned" && s.Safety == "blocked_pipeline_owned_recoverable" && s.NextAction.Command == "no-mistakes axi sync --recover" && s.Local.Clean && s.Local.Head == run.RecordedHead && s.Pipeline.Run == run.RunID && s.Pipeline.SubmittedHead == run.SubmittedHead && s.Pipeline.CurrentHead == run.RecordedHead && run.RecordedHead != run.SubmittedHead && run.CustodyReturnedAt == 0
 }
 
 func (r Reader) requireCleanHead(ctx context.Context, worktree, want string) error {
