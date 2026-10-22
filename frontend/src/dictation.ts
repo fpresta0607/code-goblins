@@ -64,7 +64,9 @@ export function dictationProblem(error: string): string {
 // problem is a note for the Overlord, about his microphone or a dictation
 // that heard nothing, and failed is a dictation whose words could not be had,
 // which goes to the CFO rather than onto the board.
-export interface DictationEvents { heard: (text: string) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void }
+// heard's isSent says the dictation was stopped to send its words, as a
+// second tap of a touch screen's microphone does.
+export interface DictationEvents { heard: (text: string, isSent: boolean) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void }
 
 // A Capture is one hold's use of the microphone: its track, which the
 // recognizer listens to, how loud it is right now, which the voice bubble's
@@ -119,6 +121,8 @@ interface Hold {
   since: number;
   // When the keys went down, as performance.now() tells time.
   pressed: number;
+  // Whether it was stopped to send its words.
+  isSent: boolean;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -156,7 +160,7 @@ export class Dictation {
   // recorded, as far back as the microphone was open.
   start(at = performance.now()): void {
     if (this.hold) return;
-    const hold: Hold = { recognizer: new (this.recognition())(), phrases: [], text: null, isListening: false, since: 0, pressed: at };
+    const hold: Hold = { recognizer: new (this.recognition())(), phrases: [], text: null, isListening: false, since: 0, pressed: at, isSent: false };
     this.attend(hold);
     this.pending.add(hold);
     this.hold = this.latest = hold;
@@ -236,7 +240,7 @@ export class Dictation {
     for (const prior of this.pending) {
       if (prior.text === null) break;
       this.pending.delete(prior);
-      if (prior.text) this.events.heard(prior.text);
+      if (prior.text) this.events.heard(prior.text, prior.isSent);
     }
   }
 
@@ -276,13 +280,20 @@ export class Dictation {
     return this.capture?.level() ?? 0;
   }
 
+  // isListening says whether a dictation listens now, from its start to its
+  // stop.
+  get isListening(): boolean {
+    return this.hold !== null;
+  }
+
   // stop ends the listening at once: the bubble goes idle and the hold hands
   // the microphone back. The recognizer has what was said by then and its
   // words are typed in capture order, so the next dictation can start
-  // meanwhile.
-  stop(): void {
+  // meanwhile; with isSent they are sent once typed.
+  stop(isSent = false): void {
     const hold = this.hold;
     if (!hold) return;
+    hold.isSent = isSent;
     this.hold = null;
     this.events.listening(false);
     // Released before anything recorded, as before the microphone opened:

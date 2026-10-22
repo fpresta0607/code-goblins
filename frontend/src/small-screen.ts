@@ -2,3 +2,8 @@
 // and an open panel take the screen in turn, and terminals start at a phone's
 // font size. styles.css writes the same 40rem in its media queries.
 export const SMALL_SCREEN = "(max-width: 40rem)";
+
+// A screen worked by touch, where nothing can be held down with ease, so a
+// microphone is tapped to start and tapped again to send. styles.css writes
+// the same query.
+export const TOUCH_SCREEN = "(pointer: coarse)";
