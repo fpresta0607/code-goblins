@@ -592,6 +592,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
 - **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and for a Codex or pi CFO the supervisor queues the wake from the turn end its native hook reported and types it into its terminal.
   The same next work reopens a turn at most once every 30 minutes.
+  It never names a task the supervisor is starting already, which has no task record until its spawn has its worktree.
   Read `cfo fleet-view` first, since the scheduler may already be starting it, then start or resume what has not started, or park a row that must not start.
 
 ## Pausing and automatic resume
