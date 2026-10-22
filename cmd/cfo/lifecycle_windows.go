@@ -144,6 +144,9 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		HandOver: func(meta state.TaskMeta, prior state.Lifecycle) (bool, error) {
 			return supervisor.HandOverReplacedNote(h.State, meta, prior)
 		},
+		HandOverRelaunched: func(prior state.Lifecycle) (bool, error) {
+			return supervisor.HandOverRelaunchedNote(h.State, prior)
+		},
 	}}
 	return service.Run(ctx, request)
 }
