@@ -23,6 +23,9 @@ func Move(m Machine, h home.Home, folder string, now time.Time) (string, error) 
 		return "", fmt.Errorf("%s is not an absolute folder", folder)
 	}
 	folder = filepath.Clean(folder)
+	if folder == filepath.VolumeName(folder)+`\` {
+		return "", fmt.Errorf("%s is a drive's root; the folder goes at a Dev Drive's root, such as D:\\CodeGoblins", folder)
+	}
 	if strings.EqualFold(h.DevDrive, folder) {
 		return "already moved: new goblins' worktrees, scratch and package caches are in " + folder + "; nothing changed", nil
 	}

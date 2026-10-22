@@ -28,6 +28,9 @@ config/
 # The marker of a checkout an older build made the CFO home, which install and
 # update write so this build takes it for the home in use.
 /.cfo-home
+# What a narrowing of such a home left with its access, which the next install
+# narrows again.
+/.cfo-narrowing-unfinished
 # A go build in the clone, and what an older install.cmd -Dev built there:
 # both names and the desktop window, and a copy still running moved aside.
 /goblins.exe
