@@ -157,7 +157,7 @@ type Registry struct {
 func DefaultRegistry() Registry {
 	return Registry{Adapters: map[Kind]Adapter{
 		Claude: claudeAdapter{},
-		Codex:  codexAdapter{},
+		Codex:  &codexAdapter{},
 		Pi:     &piAdapter{},
 	}}
 }

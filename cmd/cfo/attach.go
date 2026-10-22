@@ -275,10 +275,18 @@ func cfoStartArguments(harness string, args []string, prompt string) []string {
 // the input line and footer on the bottom rows while the transcript scrolls
 // above them: Codex's alternate screen, copying what a drag selects when the
 // button is released, and pi's fullscreen mode where its help offers it.
+// Codex also runs without the shared background server where its help lists
+// --no-daemon, as a Codex goblin does, which would otherwise leave the cfo
+// commands its harness runs under a detached process an earlier session had
+// started, where no custody check can prove them (2026-10-16).
 func cfoScreenArguments(agent string) ([]string, error) {
 	switch agent {
 	case "codex":
-		return []string{"-c", "tui.copy_on_select=always"}, nil
+		noDaemon, err := harness.CodexNoDaemonArgs(context.Background(), execx.OSRunner{})
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{"-c", "tui.copy_on_select=always"}, noDaemon...), nil
 	case "pi":
 		return harness.PiScreenArgs(context.Background(), execx.OSRunner{})
 	}

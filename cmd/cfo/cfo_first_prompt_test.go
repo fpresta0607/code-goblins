@@ -48,6 +48,71 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 	}
 }
 
+// A Codex CFO is started without the shared background server too, where the
+// help of the codex on PATH lists --no-daemon, as a Codex goblin is, so every
+// cfo command its harness runs has the CFO's own terminal above it and not a
+// detached app-server left behind by an earlier session. On 2026-10-16 that
+// ancestry was what refused this session's registration for hours. A codex
+// whose help does not list it would refuse it at its command line, so it is
+// given none.
+func TestACodexCFOStartsWithoutTheSharedBackgroundServer(t *testing.T) {
+	const listed = `Usage: codex [OPTIONS] [PROMPT]
+
+Options:
+  -c, --config <key=value>
+          Override a configuration value
+      --no-daemon
+          Run without the shared background app-server, even while one is already running
+  -h, --help
+          Print help
+`
+	const notListed = `Usage: codex [OPTIONS] [PROMPT]
+
+Options:
+  -c, --config <key=value>
+          Override a configuration value
+  -h, --help
+          Print help
+`
+	for _, test := range []struct {
+		name, help string
+		want       []string
+	}{
+		{"listed", listed, []string{"-c", "tui.copy_on_select=always", "--no-daemon"}},
+		{"not listed", notListed, []string{"-c", "tui.copy_on_select=always"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			harnessHelpOnPath(t, "codex", test.help)
+
+			// Act
+			got, err := cfoScreenArguments("codex")
+
+			// Assert
+			if err != nil {
+				t.Fatalf("cfoScreenArguments(codex): %v", err)
+			}
+			if !slices.Equal(got, test.want) {
+				t.Errorf("cfoScreenArguments(codex) = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// harnessHelpOnPath puts a stand-in for agent alone on PATH, which prints help
+// when asked for its --help.
+func harnessHelpOnPath(t *testing.T, agent, help string) {
+	t.Helper()
+	bin := t.TempDir()
+	standin.RemoveAtCleanup(t, bin)
+	standin.Put(t, filepath.Join(bin, agent+".exe"))
+	t.Setenv("PATH", bin)
+	for _, variable := range standin.Env("", standin.Rule{Args: "--help", Stdout: help}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
+}
+
 // A CFO started again is told it is the home's CFO, why it started again and
 // why it is on a new conversation, and to take up the fleet's work without
 // waiting for the Overlord. Claude Code's SessionStart hook has registered it;
@@ -88,8 +153,8 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 // given no mode, so it draws the only way it can.
 func TestACodexOrPiCFODrawsOnItsHarnesssOwnFullScreen(t *testing.T) {
 	for _, test := range []struct {
-		name, harness, piHelp string
-		want                  []string
+		name, harness, help string
+		want                []string
 	}{
 		{"Codex", "codex", "", []string{"-c", "tui.copy_on_select=always"}},
 		{"pi offering fullscreen", "pi", "Options:\n  --tui-mode <mode>              TUI mode: regular (default) or fullscreen\n", []string{"--tui-mode", "fullscreen"}},
@@ -97,14 +162,7 @@ func TestACodexOrPiCFODrawsOnItsHarnesssOwnFullScreen(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			bin := t.TempDir()
-			standin.RemoveAtCleanup(t, bin)
-			standin.Put(t, filepath.Join(bin, "pi.exe"))
-			t.Setenv("PATH", bin)
-			for _, variable := range standin.Env("", standin.Rule{Args: "--help", Stdout: test.piHelp}) {
-				name, value, _ := strings.Cut(variable, "=")
-				t.Setenv(name, value)
-			}
+			harnessHelpOnPath(t, test.harness, test.help)
 
 			// Act
 			got, err := cfoScreenArguments(test.harness)

@@ -590,7 +590,7 @@ func TestANativeCFOStartsTheHarnessTheLauncherFindsNotTheOneOnTheUsersPath(t *te
 	launcher, users, project := t.TempDir(), t.TempDir(), t.TempDir()
 	ran := filepath.Join(t.TempDir(), "ran.txt")
 	for dir, whose := range map[string]string{launcher: "launcher", users: "user"} {
-		if err := os.WriteFile(filepath.Join(dir, "codex.cmd"), []byte("@echo "+whose+"> \""+ran+"\"\r\n"), 0o700); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "codex.cmd"), []byte("@if \"%~1\"==\"--help\" exit /b 0\r\n@echo "+whose+"> \""+ran+"\"\r\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
