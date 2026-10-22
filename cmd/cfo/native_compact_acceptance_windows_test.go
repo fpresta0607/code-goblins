@@ -331,7 +331,7 @@ func (p *wakeProof) startCompactCFO(t *testing.T) host.Record {
 	var args []string
 	switch p.cfo {
 	case "codex":
-		args, err = spawn.NativeProgram("codex", slices.Concat([]string{"--no-daemon"}, screen, []string{"--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "-m", proofModel("codex"), prompt})...)
+		args, err = spawn.NativeProgram("codex", slices.Concat(screen, []string{"--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "-m", proofModel("codex"), prompt})...)
 	case "pi":
 		args, err = spawn.NativeProgram("pi", slices.Concat([]string{"--approve"}, screen, []string{prompt})...)
 	}
