@@ -48,6 +48,9 @@ async function open(page: Page): Promise<Connection[]> {
     connections.push(connection);
     if (connections.length === 1) connection.ready();
   });
+  // He chose the Terminal view, which a session then opens on, and which
+  // this spec is about.
+  await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
   await page.goto("/");
   const board = page.getByRole("button", { name: "Board", exact: true });
   if (await board.isVisible()) await board.click();

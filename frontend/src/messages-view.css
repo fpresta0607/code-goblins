@@ -3,6 +3,8 @@
    deck, so the two take the one size. Every size in the list is in em of the
    text size he chooses, so his size scales the whole conversation. */
 .messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border-top: 1px solid var(--glass-border); }
+/* The conversation over the message box, with what floats over it. */
+.conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* The page scrolls itself and holds its place by its own anchor
    (MessagesView), so the browser's anchoring stays out of it. */
 .conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 14px; color: #e3ecef; line-height: 1.55; }
@@ -70,7 +72,8 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
 .message-compaction > .disclosure > summary { margin: 0 auto; }
 .message-notice, .message-interrupt { align-self: center; max-width: 46em; margin: 0; color: var(--muted); font-size: .9375em; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
 .message-notice { position: relative; width: 100%; padding: 0 40px; }
-.message-interrupt { font-style: italic; }
+.message-interrupt { display: flex; align-items: center; gap: .375em; font-style: italic; }
+.message-interrupt > .icon { width: 1.1em; height: 1.1em; }
 .message-pictures { display: flex; flex-wrap: wrap; gap: .5em; }
 .message-pictures img { max-width: min(100%, 24em); max-height: 18em; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; object-fit: contain; }
 /* Copy shows on a message he points at or moves into, and always on a touch
@@ -79,7 +82,7 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
 .message-copy .icon { width: 16px; height: 16px; }
 :is(.message, .message-compaction, .message-notice):is(:hover, :focus-within) .message-copy { opacity: 1; }
 :is(.message-reply, .message-compaction, .message-notice) > .message-copy { position: absolute; top: 0; right: 0; z-index: 1; border: 1px solid var(--glass-border); background: var(--hero-surface); }
-.message-reply > .message-copy:first-child + * { padding-right: 40px; }
+.message-reply > .message-copy:first-child + * { min-height: 32px; padding-right: 40px; }
 @media (pointer: coarse) { .message-copy { opacity: 1; } }
 .message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: rgba(3, 5, 10, 0.92); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; }
 .message-jump .icon { width: 16px; height: 16px; }

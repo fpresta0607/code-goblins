@@ -44,6 +44,9 @@ async function open(page: Page, changes: object, answer: (socket: WebSocketRoute
     views.push(socket.url());
     answer(socket);
   });
+  // He chose the Terminal view, which a session then opens on, and which
+  // this spec is about.
+  await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
   await page.goto("/");
   const board = page.getByRole("button", { name: "Board", exact: true });
   if (await board.isVisible()) await board.click();

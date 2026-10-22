@@ -632,7 +632,8 @@ While a session is resuming or stopping, its terminal slot reads **Resuming sess
 After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects once the resumed session is live, or once its goblin reports from the session the failed resume started, which finishes that resume.
 A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
 A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
-A Claude Code session's pill has **Messages** first: its conversation as messages, read only, with each tool call as one row that unfolds, **Copy** on each message, **Jump to latest**, and its own text size on **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**.
+A Claude Code session's pill has **Messages** first, which its panel opens on until you choose **Terminal**: its conversation as messages, with each tool call as one row that unfolds, **Copy** on each message, **Jump to latest**, and its own text size on **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**.
+Under it is the message box, which types what you send into the session's terminal, keeps your draft, offers **Stop** while it works, and says **Answer in the terminal** when Claude Code asks something only its terminal shows.
 It lies in the terminal's own box, so switching between the two never resizes the terminal.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
@@ -764,7 +765,7 @@ Only an open Command Center item that asks you something alerts you: a question 
 A goblin blocked, failed or done is said on its card, never as an alert, and routine progress never alerts.
 A pause or stop that the CFO or you asked for is never shown as a failure: a stop that did not finish reads **Stop did not finish** on its card, a pause that did not finish shows what the goblin is doing, and the CFO hears of either.
 A goblin whose pause did not finish but whose terminal has ended since is paused, in the Paused section, and resumes.
-A goblin paused, resuming or starting has a message box in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+A goblin paused, resuming or starting has a message box, under its messages or, without a Messages view, in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
 The CFO has none: while it is off or restarting, its Terminal view only says so.
 Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
 A message kept for a paused goblin's resume has a delete button until the resume carries it.

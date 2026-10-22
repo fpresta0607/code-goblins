@@ -193,6 +193,42 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	}
 }
 
+// A harness that waits on an answer at a screen of its own, which only its
+// terminal takes, asks: a dialog it is known to draw, or Claude Code's list
+// of numbered choices with one focused while no composer, footer or turn
+// shows. The permission prompt is Claude Code 2.1.302's, recorded in a native
+// terminal on 2026-10-17. A numbered prompt or reply above a waiting
+// composer, and a turn, never ask.
+func TestAHarnessAsksAtItsOwnScreenOnlyWhileItsChoicesWaitWithNoComposer(t *testing.T) {
+	permission := []string{"❯ Create a file named nine.txt containing the word nine.", "", "● Write(nine.txt)", "", strings.Repeat("─", 56), " Create file", " nine.txt", strings.Repeat("╌", 56), "  1 nine", strings.Repeat("╌", 56),
+		" Do you want to create nine.txt?", " ❯ 1. Yes", "   2. Yes, and switch to accept edits (auto-approve file", "      edits and common file commands) for this session", "      (shift+tab)", "   3. No", ""}
+	composer := []string{strings.Repeat("─", 56), "❯ ", strings.Repeat("─", 56), "  ⏵⏵ auto mode on (shift+tab to cycle)"}
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		asks   bool
+	}{
+		"Claude Code's permission prompt":              {Claude, permission, true},
+		"its prompt with the focus on No":              {Claude, []string{" Do you want to create nine.txt?", "   1. Yes", "   2. Yes, and switch to accept edits", " ❯ 3. No"}, true},
+		"its prompt where no Unicode is drawn":         {Claude, []string{" Do you want to proceed?", " > 1. Yes", "   2. No"}, true},
+		"its trust dialog":                             {Claude, []string{" Do you trust the files in this folder?", " > No, exit", "   Yes, I trust this folder"}, true},
+		"a numbered prompt above the waiting composer": {Claude, append([]string{"❯ 1. Fix the bug", "  2. Then test it", ""}, composer...), false},
+		"a reply's numbered list above the composer":   {Claude, append([]string{"● Next:", "  1. Read the file", "  2. Fix it"}, composer...), false},
+		"a turn over the list":                         {Claude, append([]string{"✽ Pondering… (esc to interrupt)"}, permission...), false},
+		"a lone focused line":                          {Claude, []string{" ❯ 1. Yes"}, false},
+		"Codex's update prompt":                        {Codex, []string{"Update available!", "› 1. Update now", "  2. Skip"}, true},
+		"a list Codex is not known to ask on":          {Codex, []string{"› 1. Yes", "  2. No"}, false},
+		"nothing":                                      {Claude, nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if asks := screens.IsAsking(test.screen); asks != test.asks {
+				t.Errorf("%q asks %v; want %v", test.screen, asks, test.asks)
+			}
+		})
+	}
+}
+
 // Claude Code's footer names the session's permission mode, which a CFO the
 // Overlord opens chooses for itself, so its composer reads as ready, and its
 // turn as working, in every mode. The rows are Claude Code 2.1.302's, read

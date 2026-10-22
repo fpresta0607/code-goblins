@@ -154,18 +154,19 @@ const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => n
   element.scrollTop = top;
 }), top);
 
-test("a Claude Code session's pill offers Messages, Terminal and Task and still opens on its terminal, and a Codex goblin's keeps two", async ({ page }) => {
+test("a Claude Code session's pill offers Messages, Terminal and Task and opens on Messages, and a Codex goblin's keeps two and opens on its terminal", async ({ page }) => {
   await open(page);
 
   await openCfo(page);
   await expect.poll(() => views(page)).toEqual(["Messages", "Terminal", "Task"]);
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
   await openGoblin(page);
   await expect.poll(() => views(page)).toEqual(["Messages", "Terminal", "Task"]);
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
   await page.locator(".task-board .task-card-shell").filter({ hasText: "A Codex task" }).locator(".task-card").click();
 
   await expect.poll(() => views(page)).toEqual(["Terminal", "Task"]);
+  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".messages-view")).toHaveCount(0);
 });
 
@@ -197,7 +198,7 @@ test("the Messages view draws the conversation as the session recorded it, under
   await expect(talk.locator(".message-prompt.slash .message-output")).toHaveText("Total cost: $0.12");
   await expect(talk.locator(".message-prompt.shell .message-bubble")).toHaveText("!git status");
   await expect(talk.locator(".message-compaction summary")).toHaveText("Compacted automatically");
-  await expect(talk.locator(".message-interrupt")).toHaveText("[Request interrupted by user]");
+  await expect(talk.locator(".message-interrupt")).toHaveText("Interrupted");
   await expect(talk.locator(".message-notice")).toHaveText("Background command finished");
 });
 
@@ -508,6 +509,7 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
   test(`switching ${who}'s views sends the terminal no resize, beside the board and maximized`, async ({ page }) => {
     const board = await open(page);
     await choose(page);
+    await view(page, "Terminal").click();
     await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));

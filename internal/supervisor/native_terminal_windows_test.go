@@ -145,6 +145,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
+		case line == "permission":
+			// Claude Code's permission prompt, drawn in its composer's place.
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
 		case line == "update installed":
 			footer = "✓ Update installed · Restart to update"
 			drawComposer("", false)
@@ -897,6 +900,69 @@ func TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead(t *testing
 	v.waitFor(t, `{"type":"unread","unread":false}`)
 	if lines := terminal.waitForLines(t, 2); !slices.Contains(lines, "started the tool") {
 		t.Fatalf("the program never came back from its tool; it recorded %q", lines)
+	}
+}
+
+// A view is told when the harness waits on an answer at a screen of its own,
+// as Claude Code's permission prompt, which only its terminal takes, and told
+// again once it is back at its composer: read from the terminal's screen once
+// its output pauses.
+func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.waitFor(t, `{"type":"screen","asking":false}`)
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+	v.send(t, websocket.MessageBinary, "harness\r")
+
+	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, back) > strings.LastIndex(screen, asking) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the harness was back at its composer")
+		}
+	}
+}
+
+// A view of a terminal whose harness's screens the relay does not know is
+// told nothing of its screen.
+func TestANativeViewOfAnUnknownHarnessIsToldNothingOfItsScreen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "unknown"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+
+	v.waitFor(t, "nine.txt")
+	time.Sleep(time.Second)
+	if v.shows(`"type":"screen"`) {
+		t.Fatal("the view was told of a screen whose harness the relay does not know")
 	}
 }
 

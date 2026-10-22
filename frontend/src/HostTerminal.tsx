@@ -8,6 +8,7 @@ import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { heldNotice, isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
+import { offerLink } from "./terminal-link";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
@@ -25,8 +26,10 @@ const MAX_RETRIES = 5;
 // terminal the CFO runs in. A terminal that ended says how in place of
 // Reconnect. hasMicrophone is false for a command's terminal on its card,
 // which shows the voice bubble only while the dictation keys are held.
-// reportAs names the terminal in what it reports to the CFO.
-export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean }) {
+// reportAs names the terminal in what it reports to the CFO. link, when set,
+// is the terminal deck's key it offers its link by (terminal-link.ts), so the
+// Messages view's box types through this terminal's own view.
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -60,6 +63,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // Whether a key he typed was not sent, since the view had no connection
   // then, until a new connection is whole.
   const [isUnsent, setUnsent] = useState(false);
+  // Whether the harness waits on an answer at a screen of its own.
+  const [isAsking, setAsking] = useState(false);
   const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
   const dictate = dictation.key;
   // What a touch tool or a pasted picture met, for a moment, and the
@@ -116,6 +121,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setHistoryEnd(null);
         setUnread(view.unread);
         setHeldWhy(view.held);
+        setAsking(view.asking);
         setUnsent(false);
         setReconnecting(false);
         setClosedWhy("");
@@ -150,6 +156,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       unread: (unread) => { if (current.current === view) setUnread(unread); },
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
+      asking: (asking) => { if (current.current === view) setAsking(asking); },
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -162,6 +169,16 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     };
   }, [query, instance, visible, attempt, dictate]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
+  useEffect(() => {
+    if (!link) return;
+    offerLink(link, {
+      phase, closedWhy, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, isAsking,
+      send: (text) => !!current.current && current.current.paste(text) && current.current.enter(),
+      escape: () => !!current.current?.escape(),
+      focus: () => current.current?.focus(),
+    });
+    return () => offerLink(link, null);
+  }, [link, phase, closedWhy, reconnecting, visible, isUnread, heldWhy, isAsking]);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}

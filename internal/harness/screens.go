@@ -51,6 +51,11 @@ type Screens struct {
 	// blank.
 	Empty         *regexp.Regexp
 	RuledComposer bool
+	// Choice matches the focused row of a list of numbered choices the
+	// harness draws in its composer's place while it waits on an answer only
+	// its terminal takes, as Claude Code draws a permission prompt, and
+	// Choices any other row of that list.
+	Choice, Choices *regexp.Regexp
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -102,6 +107,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Claude Code 2.1.288 encloses its bare prompt between rules.
 			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
 			RuledComposer: true,
+			// Claude Code 2.1.302 asks permission for a call under its
+			// diff, as in "Do you want to create nine.txt?", over
+			// "❯ 1. Yes", "  2. Yes, and switch to accept edits ..." and
+			// "  3. No", with no composer or footer under them; its focus
+			// mark is > where its terminal draws no Unicode.
+			Choice:  regexp.MustCompile(`^\s*[❯>] \d+\. \S`),
+			Choices: regexp.MustCompile(`^\s{2,}\d+\. \S`),
 		}, true
 	case Codex:
 		return Screens{
@@ -207,6 +219,25 @@ func (s Screens) IsIdleAtEmptyComposer(screen []string) bool {
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
+}
+
+// IsAsking reports whether screen shows the harness waiting on an answer at
+// a screen of its own, which only its terminal takes: a dialog it is known to
+// draw, or a list of numbered choices with one focused, while no turn runs
+// and neither its composer nor the footer under it shows. A prompt the
+// conversation shows that numbers its lines is not a list: the composer
+// waits under it.
+func (s Screens) IsAsking(screen []string) bool {
+	if _, dialog := s.Dialog(screen); dialog {
+		return true
+	}
+	if s.Choice == nil || s.IsWorking(screen) || anyRow(screen, s.Ready) {
+		return false
+	}
+	if _, composer := ruledComposer(screen); composer {
+		return false
+	}
+	return anyRow(screen, s.Choice) && anyRow(screen, s.Choices)
 }
 
 // IsStarting reports whether screen shows the harness turning a submitted

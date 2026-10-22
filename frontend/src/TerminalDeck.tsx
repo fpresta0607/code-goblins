@@ -8,10 +8,11 @@ import { AgentTerminal } from "./agent-terminal";
 import { EndedSession } from "./ended-session";
 import { sessionEnd } from "./session-end";
 import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrder";
-import { MessageBox } from "./message-box";
+import { Composer } from "./composer";
 import { takesMessages } from "./messages";
+import { messagesQuery } from "./session-messages";
 import { taskStatus } from "./task-status";
-import { terminalOf } from "./task-words";
+import { goblinName, terminalOf } from "./task-words";
 
 // The terminal deck: every terminal the Overlord opens stays mounted and live
 // while the board is open, so a switch only shows another terminal, with no
@@ -22,10 +23,15 @@ import { terminalOf } from "./task-words";
 // goblin's (the Overlord, 2026-10-13). A goblin's slot whose terminal cannot
 // take typing now, a goblin paused, resuming or starting, has a message box
 // under what it shows, so what he writes is queued and delivered once (the
-// Overlord, 2026-10-08). The CFO's slot has none: while no CFO runs, closed
-// or restarting, it only says so (the Overlord, 2026-10-09).
-export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connected, focus, onOwner }: {
-  snapshot: Snapshot; task?: Task; node?: Session; child?: TreeNode; cfo: boolean; shown: boolean; connected: boolean; focus: number; onOwner?: () => void;
+// Overlord, 2026-10-08), unless its session has a Messages view, whose box
+// does that. The CFO's slot has none: while no CFO runs, closed or
+// restarting, it only says so (the Overlord, 2026-10-09). Each native
+// terminal offers its link by its key (terminal-link.ts), so a Messages
+// view's box types through it. behind lays the shown terminal out unseen,
+// behind its session's Messages view in the same box, so it takes its size
+// before it is first seen and a switch to it resizes nothing.
+export function TerminalDeck({ snapshot, task, node, child, cfo, shown, behind = false, connected, focus, onOwner }: {
+  snapshot: Snapshot; task?: Task; node?: Session; child?: TreeNode; cfo: boolean; shown: boolean; behind?: boolean; connected: boolean; focus: number; onOwner?: () => void;
 }) {
   const owner = !!task && (!!task.generation || !!sessionEnd(task)) && (!node || ownsTaskSession(node, task));
   const key = cfo ? CFO_KEY : owner && !child ? task.id : "";
@@ -40,8 +46,9 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
   if (next.length !== live.length || next.some((entry, index) => entry !== live[index])) setLive(next);
   const idle = idleView(task, node, task && taskStatus(task, snapshot).text);
   const slot = (key: string, here: boolean, view: ReactNode) => <div className="deck-slot" key={key} hidden={!here}>{view}</div>;
-  const messaging = (key: string, here: boolean, view: ReactNode, to: Task) => <div className="deck-slot with-messages" key={key} hidden={!here}>{view}<MessageBox snapshot={snapshot} task={to} /></div>;
-  return <div className="terminal-deck" hidden={!shown}>
+  const messaging = (key: string, here: boolean, view: ReactNode, to: Task) => messagesQuery(snapshot, to) ? slot(key, here, view)
+    : <div className="deck-slot with-messages" key={key} hidden={!here}>{view}<Composer snapshot={snapshot} task={to} name={goblinName(to)} terminal={to.id} /></div>;
+  return <div className={"terminal-deck" + (behind ? " behind" : "")} hidden={!shown}>
     <div className="deck-stage">
       {live.map((entry) => {
         const here = shown && entry === key;
@@ -49,7 +56,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
         if (entry === CFO_KEY) {
           const view = cfoView(snapshot);
           if (view.kind === "empty") return slot(entry, here, <TerminalEmpty text={view.text} />);
-          return slot(entry, here, view.kind === "host" ? <HostTerminal query={view.query} harness={snapshot.sessions.filter((session) => session.role === "cfo" && session.host_id === snapshot.cfo_terminal).at(-1)?.harness || ""} label="CFO terminal" reportAs="the CFO's terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+          return slot(entry, here, view.kind === "host" ? <HostTerminal query={view.query} harness={snapshot.sessions.filter((session) => session.role === "cfo" && session.host_id === snapshot.cfo_terminal).at(-1)?.harness || ""} label="CFO terminal" reportAs="the CFO's terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} link={entry} />
             : <NativeTerminal harness={snapshot.cfo_harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
         }
         const each = snapshot.tasks.find((candidate) => candidate.id === entry);
@@ -63,7 +70,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, connecte
         const view = goblinView(each);
         if (view.kind === "empty") return takesMessages(each) ? messaging(entry, here, <TerminalEmpty text={view.text} />, each) : slot(entry, here, <TerminalEmpty text={view.text} />);
         return slot(entry, here, view.kind === "host"
-          ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+          ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} link={entry} />
           : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} harness={each.harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
       })}
       {shown && child && task && <div className="deck-slot"><AgentTerminal key={task.id + " " + child.id} task={task} child={child} visible={connected} /></div>}

@@ -1,0 +1,28 @@
+/* The message box at the foot of a session's messages, or of a terminal slot
+   that cannot take typing now: an amber card while the harness asks in its
+   terminal, a working line with Stop, his latest messages to a goblin with no
+   live terminal, then the box he writes in with its microphone, his recent
+   dictations, what keeps a message from the terminal, and Send. */
+.composer { position: relative; display: grid; gap: 8px; padding: 10px 14px 12px; border-top: 1px solid var(--glass-border); }
+.deck-slot.with-messages { flex-direction: column; }
+.deck-slot.with-messages > .composer { background: #071015; }
+.composer-asking { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f6dcb6; }
+.composer-asking > .icon { width: 20px; height: 20px; color: var(--amber); }
+.composer-asking > p { flex: 1; min-width: 0; margin: 0; color: var(--amber); font-weight: 800; }
+.composer-working { display: flex; align-items: center; gap: 10px; margin: 0; color: rgb(215, 119, 87); font-weight: 700; }
+.composer-working > .labelled-button { margin-left: auto; }
+.composer-spinner { width: 14px; height: 14px; border: 2px solid rgba(215, 119, 87, .35); border-top-color: rgb(215, 119, 87); border-radius: 50%; animation: terminal-spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .composer-spinner { animation-duration: 2.4s; } }
+.composer-sent { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.composer-sent > li { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.composer-sent-text { flex: 1; min-width: 0; color: #d8e9e2; overflow-wrap: anywhere; white-space: pre-wrap; }
+.composer-sent-state { flex: none; color: var(--muted); font-size: .875rem; }
+.composer-sent .icon-button { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
+.composer-sent .icon-button .icon { width: 18px; height: 18px; }
+.composer-box { position: relative; display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
+.composer-box:focus-within { border-color: var(--mint); }
+.composer textarea { width: 100%; min-height: 2.75em; max-height: 12em; padding: 0; border: 0; background: none; color: #edf4f3; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.composer textarea:focus-visible { outline: none; }
+.composer-tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.composer-note { flex: 1; min-width: 0; margin: 0; color: #f1c598; font-size: .9375rem; overflow-wrap: anywhere; }
+.composer-box > .voice-recent { right: 0; bottom: calc(100% + 8px); }

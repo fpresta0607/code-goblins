@@ -63,6 +63,9 @@ test("on an iPhone over the private board a goblin's terminal draws and takes ty
     });
   });
   await servePages(page.context(), PRIVATE);
+  // He chose the Terminal view, which a session then opens on, and which
+  // this spec is about.
+  await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
   await page.goto(PRIVATE + "/");
   const board = page.getByRole("button", { name: "Board", exact: true });
   if (await board.isVisible()) await board.click();
