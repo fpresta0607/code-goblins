@@ -1003,3 +1003,49 @@ func TestADoneReportMadeBeforeItsGoblinsRestartStillRides(t *testing.T) {
 		})
 	}
 }
+
+func TestTrainRepositoryLetsALoneRiderLandOnItsOwnRunOnlyWhereTheManifestSaysSo(t *testing.T) {
+	cases := map[string]struct {
+		manifest  string
+		isLanding bool
+		isRefused bool
+	}{
+		"no manifest":                    {},
+		"a manifest that leaves it off":  {manifest: `{"project": "app"}`},
+		"a manifest that turns it on":    {manifest: `{"project": "app", "trains": {"land_lone_rider_on_its_run": true}}`, isLanding: true},
+		"a manifest that cannot be read": {manifest: `{"project": "app", "trains": {"land_every_rider": true}}`, isRefused: true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			project := newTrainProject(t)
+			data := t.TempDir()
+			if c.manifest != "" {
+				dir := filepath.Join(data, "projects", filepath.Base(project.checkout))
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "project.json"), []byte(c.manifest), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			repository, err := TrainRepository(context.Background(), project, data, project.checkout)
+
+			// Assert
+			if c.isRefused {
+				if err == nil {
+					t.Fatalf("repository = %+v, want a manifest it cannot read refused", repository)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if repository.Slug != "o/r" || repository.Base != "main" || repository.LandsLoneRider != c.isLanding {
+				t.Fatalf("repository = %+v, want o/r's main with LandsLoneRider %v", repository, c.isLanding)
+			}
+		})
+	}
+}

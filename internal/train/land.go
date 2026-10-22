@@ -13,8 +13,9 @@ import (
 // land takes a green run to the base by merging the train's own pull
 // request, pinned to the head CI tested: the base takes that commit, so its
 // tree is the run's, and GitHub marks each rider merged, since the base then
-// holds its head. It checks both, and tests the waiting half next if a red
-// run left one.
+// holds its head. A run that stands on its one rider's own CI run merges
+// that rider's pull request, pinned to its head, instead. It checks both,
+// and tests the waiting half next if a red run left one.
 //
 // Before the merge it rechecks every rider: one closed, turned into a draft,
 // labelled hold or moved to another head since it rode must not land as it
@@ -53,20 +54,11 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		}
 	}
 	if riders := t.carsIn(CarRiding); len(riders) > 0 {
-		// A run an older build pushed names no pull request, and its pull
-		// request still says it is never merged: it is told what it is before
-		// it merges.
-		if run := t.openRun(); run != nil && run.PR == "" {
-			if err := e.describe(ctx, t); err != nil {
+		if run := t.openRun(); run != nil && run.OwnRun != "" {
+			if err := e.mergeOwnRun(ctx, t, t.Cars[riders[0]], *run); err != nil {
 				return err
 			}
-			run.PR = t.PR
-			if err := e.save(t); err != nil {
-				return err
-			}
-		}
-		e.wear(ctx, *t)
-		if err := e.mergeTrain(ctx, t, riders); err != nil {
+		} else if err := e.landTrainRun(ctx, t, riders); err != nil {
 			return err
 		}
 		matches, landed, err := e.holdsTheRun(ctx, *t)
@@ -99,6 +91,23 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		t.Cars[i].State = CarRiding
 	}
 	return e.rebuild(ctx, t, fmt.Sprintf("the green half landed; next on the new %s: %s", t.Base, t.numbers(t.carsIn(CarRiding))))
+}
+
+// landTrainRun merges the train's own pull request for the run CI passed on.
+// A run an older build pushed names no pull request, and its pull request
+// still says it is never merged: it is told what it is before it merges.
+func (e Engine) landTrainRun(ctx context.Context, t *Train, riders []int) error {
+	if run := t.openRun(); run != nil && run.PR == "" {
+		if err := e.describe(ctx, t); err != nil {
+			return err
+		}
+		run.PR = t.PR
+		if err := e.save(t); err != nil {
+			return err
+		}
+	}
+	e.wear(ctx, *t)
+	return e.mergeTrain(ctx, t, riders)
 }
 
 // recheck reads the riders as GitHub has them now and returns each one that

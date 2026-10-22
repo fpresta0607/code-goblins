@@ -89,6 +89,17 @@ type Hygiene struct {
 	DeadCode        []Command `json:"dead_code,omitempty"`
 	AggressiveClean bool      `json:"aggressive_clean,omitempty"`
 }
+
+// Trains is how the project's merge trains land its pull requests.
+type Trains struct {
+	// LandLoneRiderOnItsRun lets a train of one pull request land it on its
+	// own green CI run, with no train run, when that run tested its head
+	// merged onto the base as it is now (train.Repository.LandsLoneRider).
+	// It holds only where a pull request's own run starts every job a
+	// train's run would, so a project whose workflows test less on a pull
+	// request's own run leaves it off.
+	LandLoneRiderOnItsRun bool `json:"land_lone_rider_on_its_run,omitempty"`
+}
 type Lane struct {
 	Harness string `json:"harness"`
 	Model   string `json:"model,omitempty"`
@@ -112,6 +123,7 @@ type Manifest struct {
 	Verification Verification      `json:"verification,omitempty"`
 	Security     Security          `json:"security,omitempty"`
 	Hygiene      Hygiene           `json:"hygiene,omitempty"`
+	Trains       Trains            `json:"trains,omitzero"`
 	Routing      Routing           `json:"routing,omitempty"`
 	Budgets      map[string]Budget `json:"budgets,omitempty"`
 }

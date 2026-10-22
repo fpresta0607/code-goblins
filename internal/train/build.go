@@ -51,7 +51,10 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 // It records the run it built before it pushes it to the train's branch,
 // then opens the train's pull request, which wears the train's label from
 // then on, or retitles it for a later run. A pull request that merged took
-// its run to the base, so the run after it gets one of its own.
+// its run to the base, so the run after it gets one of its own. A train of
+// one rider whose own CI run tested the tree that would land pushes nothing,
+// where its repository allows it, and stands on that run instead
+// (own_run.go).
 func (e Engine) build(ctx context.Context, t *Train) error {
 	base, err := e.baseSHA(ctx, *t)
 	if err != nil {
@@ -93,6 +96,12 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	riders := t.carsIn(CarRiding)
 	if len(riders) == 0 {
 		return nil
+	}
+	if t.LandsLoneRider && len(riders) == 1 {
+		car := t.Cars[riders[0]]
+		if proof, merge, isProven := e.ownRun(ctx, *t, car, base); isProven {
+			return e.standOnOwnRun(t, car, base, merge, proof)
+		}
 	}
 	if t.hasMerged() {
 		t.PR = ""

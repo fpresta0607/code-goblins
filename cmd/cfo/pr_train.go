@@ -50,7 +50,7 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		return 1
 	}
 	ctx := context.Background()
-	repository, err := supervisor.TrainRepository(ctx, commands, checkout)
+	repository, err := supervisor.TrainRepository(ctx, commands, h.Data, checkout)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo pr train: %v\n", err)
 		return 1

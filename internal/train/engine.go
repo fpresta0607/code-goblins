@@ -46,10 +46,17 @@ var (
 // Repository is where a train runs: the GitHub repository as owner/name, a
 // local clone of it whose origin is that repository, and the branch pull
 // requests merge into.
+//
+// LandsLoneRider lets a train of one pull request land it on its own CI run
+// when that run tested the tree that would land (own_run.go). It holds only
+// where a pull request's own run starts every job a train's run would: a
+// repository whose workflows test less on a pull request's own run, as
+// code-goblins' do, leaves it off.
 type Repository struct {
-	Slug     string
-	Checkout string
-	Base     string
+	Slug           string
+	Checkout       string
+	Base           string
+	LandsLoneRider bool
 }
 
 // Engine builds trains and takes them a step at a time. Every git command
@@ -101,13 +108,14 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 	now := e.Now().UTC()
 	stamp := now.Format("20060102-150405")
 	t := Train{
-		ID:         filepath.Base(repo.Slug) + "-" + stamp,
-		Repository: repo.Slug,
-		Checkout:   repo.Checkout,
-		Base:       repo.Base,
-		Branch:     BranchPrefix + stamp,
-		State:      StateTesting,
-		Started:    now,
+		ID:             filepath.Base(repo.Slug) + "-" + stamp,
+		Repository:     repo.Slug,
+		Checkout:       repo.Checkout,
+		Base:           repo.Base,
+		Branch:         BranchPrefix + stamp,
+		State:          StateTesting,
+		LandsLoneRider: repo.LandsLoneRider,
+		Started:        now,
 	}
 	for _, car := range riders {
 		car.State = CarRiding
@@ -122,7 +130,11 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 		}
 		return t, err
 	}
-	if !t.IsFinished() {
+	switch run := t.openRun(); {
+	case t.IsFinished():
+	case run != nil && run.OwnRun != "":
+		e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s lands %s on its own CI run (%s), which tested it merged onto %s at %s, the tree that lands, so no train run tests it again; hold other merges to %s until it lands", t.Repository, t.ID, t.numbers(t.carsIn(CarRiding)), run.OwnRun, t.Base, short(t.BaseSHA), t.Base))
+	default:
 		e.tellCFO(ctx, fmt.Sprintf("merge_train: %s started train %s with %s onto %s, testing them together in one CI run (%s); hold other merges to %s until it lands", t.Repository, t.ID, t.numbers(t.carsIn(CarRiding)), t.Base, t.PR, t.Base))
 	}
 	return t, nil
@@ -182,7 +194,7 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 
 // step takes the train's next step from what its record says.
 func (e Engine) step(ctx context.Context, t *Train) error {
-	if t.Landing {
+	if run := t.openRun(); t.Landing || run != nil && run.OwnRun != "" {
 		return e.land(ctx, t)
 	}
 	if t.Head == "" || t.PR == "" {
