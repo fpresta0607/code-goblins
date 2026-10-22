@@ -13,7 +13,9 @@ export default defineConfig({
   // The tests load the board and their fixture pages from a build, which
   // tests/site.ts answers from files: there is no web server, and baseURL is
   // only the origin the pages are given, on a port nothing is fetched from.
-  globalSetup: "./tests/build-site.ts",
+  // Then the run opens the system fonts the terminal draws harness screens
+  // in, so no test's first screen waits while a runner reads their files.
+  globalSetup: ["./tests/build-site.ts", "./tests/system-fonts.ts"],
   use: {
     baseURL: ORIGIN,
     viewport: { width: 1440, height: 1200 },
