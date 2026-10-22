@@ -610,6 +610,76 @@ func TestRetiringAGoblinHandsTheMessagesKeptForItsResumeToTheCFO(t *testing.T) {
 	}
 }
 
+// A cleanup retires a goblin whose lifecycle record cannot be read, a force
+// archive's above all, with a warning that no message kept for its resume was
+// handed to the CFO, and leaves the record as it was. Before, such a record
+// refused every cleanup, so the task could not be retired without editing its
+// state by hand.
+func TestRetiringAGoblinWhoseRecordCannotBeReadGoesOnWithAWarning(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		record string
+	}{
+		{name: "a malformed record", record: "{"},
+		{name: "another task's record", record: `{"id":"task-2"}`},
+		{name: "a record of no known action", record: `{"id":"task-1"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			_, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			path := state.LifecyclePath(h.State, meta.ID)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tc.record), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			isRetirable, err := HandOverRetiredNote(h.State, meta)
+
+			// Assert
+			warning := "the lifecycle record of task-1 cannot be read, so no message kept for its resume was handed to the CFO: "
+			if !isRetirable || err == nil || !strings.HasPrefix(err.Error(), warning) {
+				t.Fatalf("hand-off = %v, %v; want the cleanup to go on with a warning that starts %q", isRetirable, err, warning)
+			}
+			if told := toldCFO(t, h.State, meta.ID); len(told) != 0 {
+				t.Fatalf("the CFO was told %q, want nothing", told)
+			}
+			if after, err := os.ReadFile(path); err != nil || string(after) != tc.record {
+				t.Fatalf("record = %q, %v; want it as it was, %q", after, err, tc.record)
+			}
+		})
+	}
+}
+
+// A cleanup goes on once the messages a retired goblin's record keeps are on
+// the CFO's notify wake, though their wake episode then fails to publish, with
+// a warning that says they went to the CFO and what the publish met.
+func TestRetiringAGoblinSaysItsKeptMessagesWentToTheCFOWhenTheirWakeFailsToPublish(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	atPhase(t, h.State, meta, "pause", "paused")
+	keptForResume(t, store, meta, "use the staging database")
+	if err := os.Mkdir(filepath.Join(h.State, ".watcher-down"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	isRetirable, err := HandOverRetiredNote(h.State, meta)
+
+	// Assert
+	warning := "the messages kept for its resume went to the CFO, but "
+	if !isRetirable || err == nil || !strings.HasPrefix(err.Error(), warning) {
+		t.Fatalf("hand-off = %v, %v; want the cleanup to go on with a warning that starts %q", isRetirable, err, warning)
+	}
+	if told := toldCFO(t, h.State, meta.ID); len(told) != 1 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") {
+		t.Fatalf("the CFO was told %q, want the message once", told)
+	}
+}
+
 // keptForResume has the supervisor keep the Overlord's messages to meta's
 // paused goblin for its resume, in order.
 func keptForResume(t *testing.T, store *Store, meta state.TaskMeta, texts ...string) {

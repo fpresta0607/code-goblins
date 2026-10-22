@@ -822,27 +822,34 @@ func TestForceArchiveStillRefusesAnUnresolvableWorktree(t *testing.T) {
 // A cleanup hands on what the task's record keeps for a resume the retired
 // task never runs, as the board messages kept for a paused goblin, once every
 // guard has passed and before anything changes, on each way it retires a
-// task: a cleanup a guard refuses hands nothing on, a hand-off that hands
-// nothing on refuses the cleanup with the task as it was, and what one that
-// handed it on met after it is said (issue #1317).
+// task: a cleanup a guard refuses hands nothing on, a hand-off that says the
+// cleanup may not go on refuses it with the task as it was, and what one that
+// lets it go on met, such as a record it could not read, is a warning (issue
+// #1317).
 func TestCleanupHandsOnTheResumeOfTheTaskItRetiresBeforeChangingAnything(t *testing.T) {
 	queueFailure := errors.New("the wake queue cannot be written")
-	publishFailure := errors.New("the wake episode cannot be published")
+	publishFailure := errors.New("the messages kept for its resume went to the CFO, but the wake episode cannot be published")
+	unreadable := errors.New("the lifecycle record of g1 cannot be read, so no message kept for its resume was handed to the CFO: unexpected end of JSON input")
+	forceArchive := func(f *cleanupFixture) { f.service.ForceArchive = true }
+	emptyFolder := func(f *cleanupFixture) { f.git.top = f.project }
 	for _, tc := range []struct {
-		name      string
-		setup     func(*cleanupFixture)
-		isHanded  bool
-		failure   error
-		wantCalls int
-		want      string
-		wantErr   string
+		name        string
+		setup       func(*cleanupFixture)
+		isRetirable bool
+		failure     error
+		wantCalls   int
+		want        string
+		wantErr     string
 	}{
-		{name: "a cleanup", isHanded: true, wantCalls: 1, want: "cleaned g1 worktree="},
-		{name: "a force archive", setup: func(f *cleanupFixture) { f.service.ForceArchive = true }, isHanded: true, wantCalls: 1, want: "force-archived g1"},
-		{name: "a cleanup of an empty folder", setup: func(f *cleanupFixture) { f.git.top = f.project }, isHanded: true, wantCalls: 1, want: "removed the empty folder"},
-		{name: "a cleanup a guard refuses", setup: func(f *cleanupFixture) { f.runner.gitStatus = " M main.go\n" }, isHanded: true, wantErr: "uncommitted or untracked changes"},
+		{name: "a cleanup", isRetirable: true, wantCalls: 1, want: "cleaned g1 worktree="},
+		{name: "a force archive", setup: forceArchive, isRetirable: true, wantCalls: 1, want: "force-archived g1"},
+		{name: "a cleanup of an empty folder", setup: emptyFolder, isRetirable: true, wantCalls: 1, want: "removed the empty folder"},
+		{name: "a cleanup a guard refuses", setup: func(f *cleanupFixture) { f.runner.gitStatus = " M main.go\n" }, isRetirable: true, wantErr: "uncommitted or untracked changes"},
 		{name: "a hand-off that hands nothing on", failure: queueFailure, wantCalls: 1, wantErr: "the messages kept for the resume of g1 could not be handed to the CFO, so nothing was removed: " + queueFailure.Error()},
-		{name: "a hand-off that fails after the messages", isHanded: true, failure: publishFailure, wantCalls: 1, want: "\nwarning: the messages kept for its resume went to the CFO, but " + publishFailure.Error()},
+		{name: "a hand-off that fails after the messages", isRetirable: true, failure: publishFailure, wantCalls: 1, want: "cleaned g1 worktree="},
+		{name: "a cleanup of a task whose record cannot be read", isRetirable: true, failure: unreadable, wantCalls: 1, want: "cleaned g1 worktree="},
+		{name: "a force archive of a task whose record cannot be read", setup: forceArchive, isRetirable: true, failure: unreadable, wantCalls: 1, want: "force-archived g1"},
+		{name: "a cleanup of an empty folder whose record cannot be read", setup: emptyFolder, isRetirable: true, failure: unreadable, wantCalls: 1, want: "removed the empty folder"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -857,7 +864,7 @@ func TestCleanupHandsOnTheResumeOfTheTaskItRetiresBeforeChangingAnything(t *test
 					t.Errorf("handed on with the task record %v, tabs closed %v, worktrees returned %v; want it before anything changed", metaErr, fixture.runner.tabClosed, fixture.git.returned)
 				}
 				handed = append(handed, meta.ID)
-				return tc.isHanded, tc.failure
+				return tc.isRetirable, tc.failure
 			}
 
 			// Act
@@ -877,8 +884,8 @@ func TestCleanupHandsOnTheResumeOfTheTaskItRetiresBeforeChangingAnything(t *test
 			if err != nil || !strings.Contains(result.Output, tc.want) {
 				t.Fatalf("Cleanup = %q, %v; want it to retire the task and say %q", result.Output, err, tc.want)
 			}
-			if isWarned := strings.Contains(result.Output, "went to the CFO, but"); isWarned != (tc.failure != nil) {
-				t.Fatalf("output = %q; want what the hand-off met said only when it met something", result.Output)
+			if tc.failure != nil && !strings.Contains(result.Output, "\nwarning: "+tc.failure.Error()) || tc.failure == nil && strings.Contains(result.Output, "warning:") {
+				t.Fatalf("output = %q; want what the hand-off met said as a warning only when it met something", result.Output)
 			}
 			if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("task record after the cleanup: %v, want it retired", err)

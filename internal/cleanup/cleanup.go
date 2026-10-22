@@ -69,9 +69,10 @@ type Service struct {
 	// HandOver hands on what the task's lifecycle record keeps for a resume
 	// the retired task never runs, as the board messages kept for a paused
 	// goblin, once every guard has passed and before anything changes, and
-	// says whether it did: one that did not refuses the cleanup with nothing
-	// changed, and what one that did met after it is named in the output.
-	// Nil hands nothing on.
+	// says whether the cleanup may go on: one that says not refuses the
+	// cleanup with nothing changed, and the error of one that goes on, such
+	// as a record it could not read or what it met after handing them on, is
+	// a warning in the output. Nil hands nothing on.
 	HandOver func(meta state.TaskMeta) (bool, error)
 }
 
@@ -313,18 +314,18 @@ func (s Service) holdTask(id string) (release func() error, err error) {
 }
 
 // handOver hands on what the task's record keeps for a resume the retired
-// task never runs, and says what one that handed it on met after it. One that
-// handed nothing on refuses the cleanup, before anything changed.
+// task never runs, and says as a warning what one that lets the cleanup go on
+// met. One that does not refuses the cleanup, before anything changed.
 func (s Service) handOver(meta state.TaskMeta) (string, error) {
 	if s.HandOver == nil {
 		return "", nil
 	}
-	isHanded, err := s.HandOver(meta)
-	if !isHanded {
+	isRetirable, err := s.HandOver(meta)
+	if !isRetirable {
 		return "", fmt.Errorf("cleanup: the messages kept for the resume of %s could not be handed to the CFO, so nothing was removed: %w", meta.ID, err)
 	}
 	if err != nil {
-		return "\nwarning: the messages kept for its resume went to the CFO, but " + err.Error(), nil
+		return "\nwarning: " + err.Error(), nil
 	}
 	return "", nil
 }
