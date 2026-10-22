@@ -14,8 +14,8 @@ const snapshot = {
 };
 
 // open plays the supervisor: its stream, a terminal view of each that closes
-// as the supervisor closes one that did not answer, and the report the board
-// gives the CFO.
+// as the supervisor closes one whose host did not answer, to be tried again,
+// and the report the board gives the CFO once its tries are spent.
 async function open(page: Page) {
   const reports: { where: string; text: string }[] = [];
   await holdStream(page, snapshot);
@@ -24,7 +24,7 @@ async function open(page: Page) {
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     const query = new URL(socket.url()).searchParams;
     const name = query.get("cfo") ? "the CFO" : "this task";
-    socket.close({ code: 1008, reason: `The terminal of ${name} did not answer.` });
+    socket.close({ code: 1013, reason: `The terminal of ${name} did not answer.` });
   });
   await page.goto("/");
   return reports;
@@ -33,7 +33,7 @@ async function open(page: Page) {
 test("a terminal that did not answer is named to the CFO, its own and a goblin's", async ({ page }) => {
   // Arrange: the board opens on the CFO's terminal.
   const reports = await open(page);
-  await expect.poll(() => reports.map((report) => report.where)).toContain("the CFO's terminal");
+  await expect.poll(() => reports.map((report) => report.where), { timeout: 20_000 }).toContain("the CFO's terminal");
 
   // Act: he opens the goblin's terminal.
   const boardTab = page.getByRole("button", { name: "Board", exact: true });
@@ -41,6 +41,6 @@ test("a terminal that did not answer is named to the CFO, its own and a goblin's
   await page.locator(".task-board .task-card-shell").filter({ hasText: "Zora" }).locator(".task-card").click();
 
   // Assert
-  await expect.poll(() => reports).toContainEqual({ where: "the terminal of Zora - Invoice Imp (nw-invoice-export)", text: "The terminal of this task did not answer." });
+  await expect.poll(() => reports, { timeout: 20_000 }).toContainEqual({ where: "the terminal of Zora - Invoice Imp (nw-invoice-export)", text: "The terminal of this task did not answer." });
   expect(reports.map((report) => report.where)).not.toContain("a goblin's terminal");
 });

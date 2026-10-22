@@ -47,6 +47,9 @@ type nativeRelay struct {
 	// unread tells the view whether key presses sit unread in the terminal's
 	// input, while the view has not been told that yet.
 	unread []byte
+	// held tells the view whether typing is held, and why, while the view has
+	// not been told that yet.
+	held []byte
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -56,6 +59,21 @@ type nativeRelay struct {
 type relaySize struct {
 	at      int64
 	message []byte
+}
+
+// heldNotice tells a view whether typing is held, by custody, and why: a gate
+// that owns the task, or a worktree on a detached HEAD. An empty reason says
+// typing is no longer held.
+func heldNotice(custody error) []byte {
+	notice := struct {
+		Type   string `json:"type"`
+		Reason string `json:"reason"`
+	}{Type: "held"}
+	if custody != nil {
+		notice.Reason = custody.Error()
+	}
+	data, _ := json.Marshal(notice)
+	return data
 }
 
 func (r *nativeRelay) signal() {
@@ -101,7 +119,13 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // waits on a slow window and no byte is dropped from a view that stays. The
 // view is bound to its terminal once, when it connects, by the host's own
 // pipe, so a key costs no check and starts no process; what it is bound to is
-// checked again on every tick. A resize under custody is ignored.
+// checked again on every tick. While custody holds typing, as a gate that
+// owns the task does, the view stays open and live: it is told
+// `{"type":"held","reason":"..."}` when it opens and whenever that changes,
+// an empty reason once typing is free, and its typing and resizes are
+// dropped. xterm sends input by itself, a focus report or a reply to a query
+// the replayed history holds, so closing the view on input under custody
+// closed every view of a task a gate owned as it opened (#1304).
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -152,9 +176,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusNormalClosure, "No terminal is running for "+binding.name+".")
 		return
 	}
+	// A host that did not answer may be starting or busy, so the view tries
+	// again, as the board does for a view that may come back.
 	terminal, err := host.Watch(record)
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, "The terminal of "+binding.name+" did not answer.")
+		_ = view.Close(websocket.StatusTryAgainLater, "The terminal of "+binding.name+" did not answer.")
 		return
 	}
 	defer terminal.Close()
@@ -172,6 +198,9 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History()))}
+	if custody != nil {
+		relay.held = heldNotice(custody)
+	}
 	h.mu.Lock()
 	if h.relays[binding.key] == nil {
 		h.relays[binding.key] = map[*nativeRelay]struct{}{}
@@ -220,8 +249,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history, unread := relay.history, relay.unread
-			relay.history, relay.unread = nil, nil
+			history, unread, held := relay.history, relay.unread, relay.held
+			relay.history, relay.unread, relay.held = nil, nil, nil
 			var size, output []byte
 			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
 				size = relay.sizes[0].message
@@ -241,14 +270,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.sent += int64(n)
 			}
 			closing := relay.closing
-			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil {
+			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil || held != nil {
 				closing = nil
 			}
 			relay.mu.Unlock()
 			for _, message := range []struct {
 				kind websocket.MessageType
 				data []byte
-			}{{websocket.MessageText, history}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}} {
+			}{{websocket.MessageText, history}, {websocket.MessageText, held}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}} {
 				if message.data == nil {
 					continue
 				}
@@ -263,7 +292,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closing.Code, closing.Reason)
 				return
 			}
-			if history == nil && size == nil && output == nil && unread == nil {
+			if history == nil && size == nil && output == nil && unread == nil && held == nil {
 				select {
 				case <-relay.wake:
 				case <-ctx.Done():
@@ -291,8 +320,15 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				mu.Lock()
+				isChanged := (custody == nil) != (refused == nil) || custody != nil && custody.Error() != refused.Error()
 				custody = refused
 				mu.Unlock()
+				if isChanged {
+					relay.mu.Lock()
+					relay.held = heldNotice(refused)
+					relay.mu.Unlock()
+					relay.signal()
+				}
 			}
 		}
 	}()
@@ -340,8 +376,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		refused := custody
 		mu.Unlock()
 		if refused != nil {
-			_ = view.Close(websocket.StatusPolicyViolation, closeReason(refused.Error()))
-			return
+			continue
 		}
 		if terminal.Input(data) != nil {
 			_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")

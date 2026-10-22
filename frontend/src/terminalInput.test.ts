@@ -1,6 +1,6 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, CLICK_JUMP_WAIT_MS, clickJumper, clickJumps, endStep, fittedFontSize, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, CLICK_JUMP_WAIT_MS, clickJumper, clickJumps, endStep, fittedFontSize, heldNotice, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("while the panel is dragged the screen keeps its grid, scaled whole into the panel", () => {
   assert.equal(previewScale({ width: 600, height: 900 }, { width: 1200, height: 900 }), 0.5, "a narrower panel shrinks it by width");
@@ -381,6 +381,16 @@ test("a refused input explains itself in plain words", () => {
     ["Native terminal identity changed. Select the current session; input was discarded.", "Native terminal identity changed. Select the current session; input was discarded."],
   ];
   for (const [raw, plain] of cases) assert.equal(typingHeldReason(raw), plain, raw);
+});
+
+test("typing held over a live screen explains itself in plain words, with no Reconnect to ask for", () => {
+  const cases: [string, string][] = [
+    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so typing is paused. The screen stays live."],
+    ["pipeline custody has not been returned; use cfo pipeline recover", "The review gate owns this goblin's work right now, so typing is paused. The screen stays live."],
+    ["HEAD is detached at 0123456789ab, and no gate custody can be read for a detached HEAD, so typing is held", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held until it is on a branch."],
+    ["pipeline: native custody status check failed", "Typing is paused: pipeline: native custody status check failed"],
+  ];
+  for (const [raw, plain] of cases) assert.equal(heldNotice(raw), plain, raw);
 });
 
 test("only a detached HEAD's hold is told on the terminal without waking the CFO", () => {

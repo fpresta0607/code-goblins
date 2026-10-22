@@ -111,6 +111,20 @@ export function parseUnread(text: string): boolean | null {
   }
 }
 
+// The relay says why typing is held while custody holds it, as a gate that
+// owns the task does, and an empty reason once it is free; the screen stays
+// live either way.
+export function parseHeld(text: string): string | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null) return null;
+    const { type, reason } = value as Record<string, unknown>;
+    return type === "held" && typeof reason === "string" ? reason : null;
+  } catch {
+    return null;
+  }
+}
+
 export function usableSize(cols: number, rows: number): boolean {
   return cols >= MIN_COLS && rows >= MIN_ROWS;
 }
