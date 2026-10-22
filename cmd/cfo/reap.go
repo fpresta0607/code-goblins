@@ -19,6 +19,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/reap"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -192,6 +194,9 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 				ForceArchive: forceArchive,
 
 				LeaveRunningTerminals: true,
+				HandOver: func(meta state.TaskMeta) (bool, error) {
+					return supervisor.HandOverRetiredNote(h.State, meta)
+				},
 			}.Cleanup(ctx, id)
 			return err
 		},

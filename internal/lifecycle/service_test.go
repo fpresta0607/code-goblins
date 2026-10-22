@@ -792,6 +792,83 @@ func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testin
 	}
 }
 
+// A stop ends a paused goblin before the resume its own record keeps board
+// messages for, and the stop's record keeps no note, so the stop hands that
+// record to HandOverStopped before it writes its own record over it (issue
+// #1317): a hand-off that hands nothing on refuses the stop, with nothing
+// stopped and the record as it was, and what one that handed them on met
+// after them is named. A resume carries the note, so it hands nothing on.
+func TestAStopHandsOnItsGoblinsOwnRecordBeforeOverwritingIt(t *testing.T) {
+	queueFailure := errors.New("the wake queue cannot be written")
+	publishFailure := errors.New("the wake episode cannot be published")
+	for _, tc := range []struct {
+		name     string
+		action   string
+		isHanded bool
+		failure  error
+		phase    string
+	}{
+		{name: "a stop", action: "stop", isHanded: true, phase: "stopped"},
+		{name: "a stop whose hand-off fails", action: "stop", failure: queueFailure},
+		{name: "a stop whose hand-off fails after the messages", action: "stop", isHanded: true, failure: publishFailure, phase: "stopped"},
+		{name: "a resume", action: "resume", phase: "running"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: "Message from the Overlord, typed on the board: use the staging database", NoticeSent: true}); err != nil {
+				t.Fatal(err)
+			}
+			paused, err := state.ReadLifecycle(service.StateDir, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var handed, recorded []state.Lifecycle
+			var handedMeta state.TaskMeta
+			service.Operations.HandOverStopped = func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+				onDisk, err := state.ReadLifecycle(service.StateDir, meta.ID)
+				if err != nil {
+					t.Error(err)
+				}
+				handedMeta, handed, recorded = current, append(handed, prior), append(recorded, onDisk)
+				return tc.isHanded, tc.failure
+			}
+			isStopped := false
+			service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+				isStopped = true
+				return []string{"fixture process"}, nil
+			}
+
+			// Act
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: tc.action + "-2", Action: tc.action, Reason: "overlord"})
+			after, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+
+			// Assert
+			if tc.action != "stop" {
+				if len(handed) != 0 || err != nil || readErr != nil || after.Phase != tc.phase {
+					t.Fatalf("%s = %+v, %v, handed over %+v; want it %s with nothing handed over", tc.action, after, errors.Join(err, readErr), handed, tc.phase)
+				}
+				return
+			}
+			if len(handed) != 1 || !reflect.DeepEqual(handed[0], paused) || !reflect.DeepEqual(recorded[0], paused) || handedMeta.SpawnGen != meta.SpawnGen {
+				t.Fatalf("handed over %+v for session %q while the record read %+v, want %+v handed over once for %q before it was overwritten", handed, handedMeta.SpawnGen, recorded, paused, meta.SpawnGen)
+			}
+			if !tc.isHanded {
+				if !errors.Is(err, tc.failure) || isStopped || readErr != nil || !reflect.DeepEqual(after, paused) {
+					t.Fatalf("stop = %+v, %v, stopped %v, record %+v, %v; want it refused with nothing stopped and the record as it was", record, err, isStopped, after, readErr)
+				}
+				return
+			}
+			if err != nil || readErr != nil || after.Action != "stop" || after.Phase != tc.phase || after.ResumeNote != "" || !isStopped {
+				t.Fatalf("stop = %+v, %v, record %+v, %v; want it stopped with no note kept", record, err, after, readErr)
+			}
+			if isNamed := slices.Contains(after.Problems, publishFailure.Error()); isNamed != (tc.failure != nil) {
+				t.Fatalf("problems = %q, want %q named only when the hand-off met it", after.Problems, publishFailure)
+			}
+		})
+	}
+}
+
 func TestResumeRecoversAnInterruptedController(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming", Session: "original-session"}); err != nil {
