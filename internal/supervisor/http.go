@@ -44,7 +44,10 @@ type HTTP struct {
 	terminalSlots chan struct{}
 	// nativeSlots bounds the native terminal views open at once: the board
 	// keeps every goblin terminal it opened live, so it is far above Herdr's.
-	nativeSlots  chan struct{}
+	nativeSlots chan struct{}
+	// messageSlots bounds the message views streaming at once, which the
+	// board keeps live as it keeps its terminals.
+	messageSlots chan struct{}
 	terminals    map[string]*terminalLease
 	openTerminal func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
 	terminalTick time.Duration
@@ -83,7 +86,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +146,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.nativeTerminal(w, r)
 	case r.URL.Path == "/api/terminal/image" && r.Method == "POST":
 		h.pasteTerminalImage(w, r)
+	case r.URL.Path == "/api/messages" && r.Method == "GET":
+		h.messages(w, r)
 	case r.URL.Path == "/api/workspace" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
