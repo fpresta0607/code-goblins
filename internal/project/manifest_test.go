@@ -112,3 +112,24 @@ func TestReuseTakesAPassForADayUnlessItSaysOtherwise(t *testing.T) {
 		t.Errorf("MaxAge = %s; want 24h", age)
 	}
 }
+
+func TestManifestReadsWhetherATrainLandsALoneRiderOnItsOwnRun(t *testing.T) {
+	cases := map[string]struct {
+		text      string
+		isLanding bool
+	}{
+		"left out":  {text: `{"project":"p"}`},
+		"turned on": {text: `{"project":"p","trains":{"land_lone_rider_on_its_run":true}}`, isLanding: true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, err := loadText(t, c.text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.Trains.LandLoneRiderOnItsRun != c.isLanding {
+				t.Fatalf("LandLoneRiderOnItsRun = %v, want %v", m.Trains.LandLoneRiderOnItsRun, c.isLanding)
+			}
+		})
+	}
+}
