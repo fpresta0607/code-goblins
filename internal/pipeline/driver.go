@@ -38,6 +38,17 @@ func DefaultRoot() (string, error) {
 	return filepath.Join(dir, ".no-mistakes"), nil
 }
 
+// stateQueryTimeout bounds one read of the gate's database, so a wedged
+// sqlite3 cannot hold a command forever. A read takes tens of milliseconds on
+// an idle machine, but each one starts sqlite3, and a loaded machine has been
+// measured to take tens of seconds to start a program: a 5 s bound failed
+// `cfo pipeline recover` twice on 2026-10-20 while sqlite3 was installed and
+// the database readable (#1286).
+const stateQueryTimeout = time.Minute
+
+// query reads the gate's database through sqlite3 into target. A read that
+// fails says what ended it: the bound, its caller, sqlite3 failing to run,
+// or sqlite3's own refusal in its words.
 func (r Reader) query(ctx context.Context, sql string, target interface{}) error {
 	path := filepath.Join(r.Root, "state.sqlite")
 	if _, err := os.Stat(path); err != nil {
@@ -46,11 +57,18 @@ func (r Reader) query(ctx context.Context, sql string, target interface{}) error
 	if r.Commands == nil {
 		return errors.New("pipeline: command runner required")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, stateQueryTimeout)
 	defer cancel()
-	result, err := r.Commands.Run(ctx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", path, sql}})
-	if err != nil || result.ExitCode != 0 {
-		return errors.New("pipeline: state query failed; sqlite3 and a readable compatible database are required")
+	result, err := r.Commands.Run(queryCtx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", path, sql}})
+	switch {
+	case err != nil && ctx.Err() != nil:
+		return fmt.Errorf("pipeline: state query stopped: %w", ctx.Err())
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("pipeline: state query timed out: sqlite3 gave no answer within %s", stateQueryTimeout)
+	case err != nil:
+		return fmt.Errorf("pipeline: state query failed: could not run sqlite3: %w", err)
+	case result.ExitCode != 0:
+		return fmt.Errorf("pipeline: state query failed: sqlite3 exited with code %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
 	if strings.TrimSpace(string(result.Stdout)) == "" {
 		return json.Unmarshal([]byte("[]"), target)
