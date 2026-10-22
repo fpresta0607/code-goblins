@@ -650,3 +650,49 @@ func TestAResentGoblinMessageUnderItsIDReturnsTheFirstAction(t *testing.T) {
 		})
 	}
 }
+
+// A new action is never refused because deliveries nobody confirmed fill the
+// action bound: with every held action uncertain, a message, a clear and a
+// delete each take the place of the oldest one no longer watched for a late
+// take, and one still watched stays.
+func TestFullActionQueueDropsTheOldestUnconfirmedDelivery(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action Action
+	}{
+		{"a message to the CFO", Action{ID: "new-action", Kind: "message", Text: "Hold the merge until I say."}},
+		{"a clear of a closed question", Action{ID: "new-action", Kind: "question_clear", QuestionID: "question-1", Generation: strings.Repeat("c", 64)}},
+		{"a delete of a kept message", Action{ID: "new-action", Kind: "message_withdraw", TaskID: "task-1", Text: "use the staging database"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: overlordWords + "use the staging database"}); err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now().UTC().Add(-time.Hour)
+			store.mu.Lock()
+			store.db.Questions = append(store.db.Questions, Question{ID: "question-1", Identity: strings.Repeat("c", 64), Text: "Ship it?", Status: "failed", CreatedAt: start})
+			for i := range maxActions {
+				store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("unconfirmed-%03d", i), Kind: "cfo_answer", Text: "Yes", Status: "uncertain", CreatedAt: start.Add(time.Duration(i) * time.Second)})
+			}
+			store.db.Actions[0].Awaiting = &Awaiting{Host: "cfo-host", Since: start, QuietSince: start}
+			store.mu.Unlock()
+
+			// Act
+			queued, err := store.Queue(tc.action)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a new action beside %d unconfirmed ones = %v, want it queued", maxActions, err)
+			}
+			got := store.Snapshot().Actions
+			if len(got) != maxActions || got[0].ID != "unconfirmed-000" || got[len(got)-1].ID != queued.ID {
+				t.Fatalf("held %d actions, first %s, last %s; want %d with the watched one kept and the new one last", len(got), got[0].ID, got[len(got)-1].ID, maxActions)
+			}
+			if slices.ContainsFunc(got, func(a Action) bool { return a.ID == "unconfirmed-001" }) {
+				t.Fatal("unconfirmed-001 was kept; want the oldest unconfirmed action no longer watched dropped")
+			}
+		})
+	}
+}

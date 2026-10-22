@@ -165,7 +165,8 @@ Transient persistence failures retain the inbox record and roll memory back to t
 The next cycles retry the save, and the board reports a persistence failure only once saves have kept failing for 30 seconds; other errors still show at once.
 Malformed records leave a bounded diagnostic and do not wedge subsequent valid work.
 An interrupted evaluation is safe to replay; an interrupted external delivery becomes uncertain and is not resent automatically.
-Uncertain actions remain visible for operator inspection and can eventually exhaust action capacity if left unresolved.
+Uncertain actions remain visible for operator inspection until the action bound needs their place.
+A full bound makes room by dropping its oldest succeeded, failed or unconfirmed (`uncertain`) action no longer watched for a late take, so only queued and running actions and deliveries still watched can fill it.
 
 ## Board and orchestration
 

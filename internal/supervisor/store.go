@@ -564,6 +564,16 @@ func (s *Store) lookup(a Action) (Action, bool, error) {
 	return Action{}, false, nil
 }
 
+// isClosedHistory reports whether a can roll out of a full action bound to
+// make room for a new action: it succeeded, failed, or was never confirmed
+// (uncertain) and is no longer watched for a late take. Nothing resolves an
+// unconfirmed delivery, so held for good it would fill the bound and refuse
+// every new action. Queued and running work stays, and so does a delivery
+// still watched, which a late take may yet confirm.
+func isClosedHistory(a Action) bool {
+	return a.Status == "succeeded" || a.Status == "failed" || a.Status == "uncertain" && a.Awaiting == nil
+}
+
 func (s *Store) queue(a Action) (Action, error) {
 	if existing, found, err := s.lookup(a); err != nil || found {
 		return existing, err
@@ -662,14 +672,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		}
 	}
 	if len(s.db.Actions) >= maxActions {
-		// Terminal actions can roll out; pending and uncertain intent stays.
-		remove := -1
-		for i, old := range s.db.Actions {
-			if old.Status == "succeeded" || old.Status == "failed" {
-				remove = i
-				break
-			}
-		}
+		remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
 		if remove < 0 {
 			return Action{}, errors.New("action queue is full; resolve pending actions")
 		}
@@ -781,7 +784,7 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		}
 	}
 	if len(s.db.Actions) >= maxActions {
-		remove := slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" })
+		remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
 		if remove < 0 {
 			return Action{}, errors.New("action queue is full; resolve pending actions")
 		}
