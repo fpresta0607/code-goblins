@@ -131,6 +131,8 @@ test("the Board's terminal and task views each follow their own choice; Orchestr
   assert.equal(maximizedView("Board", "task"), "task", "the Board's task view follows the task choice");
   assert.equal(maximizedView("Orchestration", "terminal"), "task", "an Orchestration terminal follows the task choice");
   assert.equal(maximizedView("Orchestration", "task"), "task");
+  assert.equal(maximizedView("Board", "messages"), "terminal", "the Messages view shares the terminal's box, so its choice");
+  assert.equal(maximizedView("Orchestration", "messages"), "task");
 });
 
 test("a browser's first open is one that records none and keeps no panel layout", () => {

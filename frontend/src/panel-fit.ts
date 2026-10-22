@@ -1,4 +1,4 @@
-// The panel's top row holds the Task and Terminal switch, its controls and
+// The panel's top row holds the switch between its views, its controls and
 // its corner button, Close or Back, on one line whatever the panel's width.
 // This is the pure step of fitting it.
 

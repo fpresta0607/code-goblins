@@ -12,25 +12,26 @@ import { PanelMore } from "./panel-more";
 // controls with the highest stay.
 export interface PanelControl { id: string; name: string; label: string; icon: IconName; importance: number; onPress: () => void }
 
-// The importance of every control of the row, written once. The Task and
-// Terminal switch and the corner button, Close or Back, are not controls:
-// they always show. A control that joins the row takes its place here.
+// The importance of every control of the row, written once. The views'
+// switch and the corner button, Close or Back, are not controls: they always
+// show. A control that joins the row takes its place here.
 export const PANEL_IMPORTANCE = { maximize: 20, window: 10 } as const;
 
-const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "terminal", name: "Terminal", icon: "terminal" }, { id: "task", name: "Task", icon: "task" }];
+const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "messages", name: "Messages", icon: "comment" }, { id: "terminal", name: "Terminal", icon: "terminal" }, { id: "task", name: "Task", icon: "task" }];
 // A control's width, an icon button's in styles.css, and the row's gap there.
 const CONTROL = 44;
 const GAP = 8;
 
 // The top row of every panel, on one line at any width the panel can take:
-// the Task and Terminal switch, when the panel has both views, then the
-// controls, then corner, the Close or Back button. Nothing in it overlaps or
+// the switch between the views the panel has (views), Messages, Terminal and
+// Task in that order, when it has more than one, then the controls, then
+// corner, the Close or Back button. Nothing in it overlaps or
 // is cut: the controls the row cannot hold at full size go into More, the
 // least important first, and at the narrowest widths the switch shows its
 // icons without its words (see rowFit). notice is drawn under the row's end,
 // such as what a press of Open in terminal met.
-export function PanelRow({ view, onView, controls, corner, notice }: {
-  view?: PanelView; onView?: (view: PanelView) => void; controls: PanelControl[]; corner: ReactNode; notice?: ReactNode;
+export function PanelRow({ view, views = [], onView, controls, corner, notice }: {
+  view?: PanelView; views?: PanelView[]; onView?: (view: PanelView) => void; controls: PanelControl[]; corner: ReactNode; notice?: ReactNode;
 }) {
   const row = useRef<HTMLDivElement>(null);
   const cornerBox = useRef<HTMLDivElement>(null);
@@ -38,7 +39,8 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
   const icons = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ shown: controls.length, hasWords: true });
   const count = controls.length;
-  const hasSwitch = !!view;
+  const switched = VIEWS.filter(({ id }) => views.includes(id));
+  const hasSwitch = !!view && switched.length > 1;
   useLayoutEffect(() => {
     const measure = () => {
       if (!row.current || !cornerBox.current) return;
@@ -53,14 +55,14 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
     const observer = new ResizeObserver(() => flushSync(measure));
     for (const box of [row.current, cornerBox.current, words.current]) if (box) observer.observe(box);
     return () => observer.disconnect();
-  }, [count, hasSwitch]);
+  }, [count, hasSwitch, switched.length]);
   const kept = new Set([...controls].sort((a, b) => b.importance - a.importance).slice(0, fit.shown).map((control) => control.id));
   const pill = (hasWords: boolean, measured?: typeof words) => <div ref={measured} className={"panel-pill" + (hasWords ? "" : " icons")} role={measured ? undefined : "group"} aria-label={measured ? undefined : "Panel view"}>
-    {VIEWS.map(({ id, name, icon }) => <button key={id} aria-pressed={view === id} {...(hasWords ? {} : { "aria-label": name, "data-tip": name })} onClick={() => onView?.(id)}><Icon name={icon} />{hasWords && name}</button>)}
+    {switched.map(({ id, name, icon }) => <button key={id} aria-pressed={view === id} {...(hasWords ? {} : { "aria-label": name, "data-tip": name })} onClick={() => onView?.(id)}><Icon name={icon} />{hasWords && name}</button>)}
   </div>;
   return <div ref={row} className="panel-top">
     <span />
-    {view ? pill(fit.hasWords) : <span />}
+    {hasSwitch ? pill(fit.hasWords) : <span />}
     <div className="panel-controls">
       {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} onClick={control.onPress}><Icon name={control.icon} /></button>)}
       {kept.size < count && <PanelMore controls={controls.filter((control) => !kept.has(control.id)).sort((a, b) => b.importance - a.importance)} />}
@@ -69,6 +71,6 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
     </div>
     {/* The switch in both its forms, out of sight and taking no room, so the
         row knows how wide each is whichever one it shows. */}
-    {view && <div className="panel-measure" aria-hidden="true" inert>{pill(true, words)}{pill(false, icons)}</div>}
+    {hasSwitch && <div className="panel-measure" aria-hidden="true" inert>{pill(true, words)}{pill(false, icons)}</div>}
   </div>;
 }

@@ -54,6 +54,13 @@ async function open(page: Page, changes: object, answer: (socket: WebSocketRoute
 
 // The shown terminal slot, and the terminal drawn in it, if any.
 const slot = (page: Page) => page.locator(".terminal-deck .deck-slot:not([hidden])");
+// Open in terminal, in the panel's row or, where the row has no room for it
+// beside a Claude Code session's three views, in its More menu.
+async function openInTerminal(page: Page) {
+  const more = page.locator(".panel-top").getByRole("button", { name: "More", exact: true });
+  if (await more.count()) await more.click();
+  return page.getByRole("button", { name: "Open in Windows Terminal", exact: true }).or(page.getByRole("menuitem", { name: "Open in terminal", exact: true }));
+}
 const drawnTerminal = (page: Page) => slot(page).locator(".terminal-view:not(.staged) .xterm");
 
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -70,7 +77,7 @@ test("a goblin that did not come back after the restart says it has no terminal,
   await expect(slot(page).locator(".xterm")).toHaveCount(0);
   await expect(slot(page).locator(".xterm-cursor, .xterm-cursor-layer")).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
+  await expect(await openInTerminal(page)).toHaveCount(0);
   expect(views).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("no-terminal-host.png") });
 
@@ -107,6 +114,6 @@ test("a goblin whose host runs still shows its terminal", async ({ page }, testI
   await expect(drawnTerminal(page)).toBeVisible();
   await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
   await expect(slot(page).getByText(/No terminal/)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toBeVisible();
+  await expect(await openInTerminal(page)).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("live-terminal-host.png") });
 });

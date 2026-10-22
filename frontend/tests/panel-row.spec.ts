@@ -134,6 +134,20 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         expect(report.problems).toEqual([]);
         expect(report.shown).toContain("Back to the CFO");
       });
+
+      // A Claude Code session's switch has a third view, Messages.
+      test(`at ${width} px a Claude Code goblin's panel keeps Back and its three views apart, each view`, async ({ page }) => {
+        await open(page, width, [], [...BOARD, task("claude-one", "working", { harness: "claude", backend: "native" })]);
+        await page.locator(".task-board .task-card").filter({ hasText: "claude-one" }).click();
+        await expect(page.locator("#panel-title")).toHaveText("claude-one");
+        for (const view of ["Messages", "Terminal", "Task"]) {
+          await pane(page).locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
+          await expect(pane(page).locator(".panel-pill").getByRole("button", { name: view, exact: true })).toHaveAttribute("aria-pressed", "true");
+          const report = await page.evaluate(rowReport);
+          expect(report.problems, view).toEqual([]);
+          for (const essential of ["Messages", "Terminal", "Task", "Back to the CFO"]) expect(report.shown, view).toContain(essential);
+        }
+      });
     }
 
     // At 360 px the switch cannot keep its words beside Back, so it shows its

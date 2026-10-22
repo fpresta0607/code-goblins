@@ -1,3 +1,4 @@
+import type { PanelView } from "./GoblinPanel";
 import type { Session, Snapshot, Task } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
 
@@ -80,13 +81,15 @@ export function keepLive(open: string[], key: string, herdr: (key: string) => bo
 }
 
 // The panel opens beside the board and is maximized per view: the Board's
-// terminal view and its task view each keep the Overlord's last choice.
+// terminal view and its task view each keep the Overlord's last choice. The
+// Messages view shares the terminal's box, so it follows the terminal's
+// choice and a switch between the two never resizes the terminal.
 // Orchestration follows the task view's choice, so its graph, where goblins
 // are picked, stays beside the panel.
 export const MAXIMIZED_KEYS = { task: "cfo-pane-maximized", terminal: "cfo-terminal-maximized" } as const;
 
-export function maximizedView(workspace: "Board" | "Orchestration", panel: "task" | "terminal"): "task" | "terminal" {
-  return workspace === "Board" ? panel : "task";
+export function maximizedView(workspace: "Board" | "Orchestration", panel: PanelView): "task" | "terminal" {
+  return workspace === "Board" && panel !== "task" ? "terminal" : "task";
 }
 
 export function maximizedFor(stored: string | null): boolean {
