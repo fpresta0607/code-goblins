@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/clipboard"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -59,6 +60,8 @@ type HTTP struct {
 	folderPickerMu  sync.Mutex
 	// openWindow starts a Windows Terminal window running a program.
 	openWindow func(ctx context.Context, program string, args ...string) error
+	// putImage puts a PNG picture on this PC's clipboard.
+	putImage func(picture []byte) error
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
@@ -80,7 +83,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +141,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openTerminalWindow(w, r)
 	case r.URL.Path == "/api/terminal/native" && r.Method == "GET":
 		h.nativeTerminal(w, r)
+	case r.URL.Path == "/api/terminal/image" && r.Method == "POST":
+		h.pasteTerminalImage(w, r)
 	case r.URL.Path == "/api/workspace" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()

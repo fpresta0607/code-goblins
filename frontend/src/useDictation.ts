@@ -92,6 +92,17 @@ export function useDictation(type: (text: string, isSent: boolean) => void, inst
       following.current = false;
     }
   }, []);
+  // While it listens the screen is held awake. A dictation ends when the page
+  // is hidden, and speaking touches nothing, so a phone's own idle timer
+  // locked the screen mid-dictation and ended it where it was (the Overlord,
+  // 2026-10-22, "it only records like the first few sentences", "It's like a
+  // timer or something").
+  useEffect(() => {
+    if (!listening || !("wakeLock" in navigator)) return;
+    let isDone = false, lock: WakeLockSentinel | null = null;
+    navigator.wakeLock.request("screen").then((held) => { if (isDone) void held.release(); else lock = held; }, () => undefined);
+    return () => { isDone = true; void lock?.release(); };
+  }, [listening]);
   useEffect(() => {
     const stop = () => dictation.current?.stop();
     const release = (event: KeyboardEvent) => { if (dictationKey(event)?.action === "stop") stop(); };

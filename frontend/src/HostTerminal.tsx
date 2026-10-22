@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { reportToCfo } from "./api";
+import { message, reportToCfo } from "./api";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { Icon } from "./Icon";
+import { putImage } from "./terminal-image";
+import { TerminalTextSheet } from "./terminal-text-sheet";
+import { TerminalTouchTools } from "./terminal-touch-tools";
 import { heldNotice, isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
@@ -58,6 +62,18 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const [isUnsent, setUnsent] = useState(false);
   const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
   const dictate = dictation.key;
+  // What a touch tool or a pasted picture met, for a moment, and the
+  // terminal's text while it is laid out to select.
+  const [feedback, showFeedback] = useClickFeedback();
+  const [textSheet, setTextSheet] = useState<string | null>(null);
+  // A picture reaches the harness as a desktop paste's does: on this PC's
+  // clipboard, then the harness's image key.
+  const addImage = useCallback((picture: Blob) => {
+    showFeedback("Adding the picture");
+    putImage(picture, instance).then(() => { showFeedback(""); current.current?.pressImageKey(); }, (error: unknown) => showFeedback(message(error)));
+  }, [instance, showFeedback]);
+  const addImageValue = useRef(addImage);
+  useEffect(() => { addImageValue.current = addImage; }, [addImage]);
   useEffect(() => {
     shownValue.current = shown;
     for (const view of [current.current, staged.current]) {
@@ -129,6 +145,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       font: storeFontSize,
       dictate,
       harness: () => harnessValue.current,
+      image: (picture) => addImageValue.current(picture),
       reading: (end) => { if (current.current === view) setHistoryEnd(end); },
       unread: (unread) => { if (current.current === view) setUnread(unread); },
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
@@ -155,7 +172,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     {phase !== "connecting" && isUnsent && <span className="terminal-state terminal-unsent" role="status"><span className="status-dot" />{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</span>}
     {phase === "live" && isUnread && !isUnsent && !heldWhy && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
-    {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />}
-    {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
+    {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}
+    {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }}
+      tools={<TerminalTouchTools events={{ text: (text) => current.current?.paste(text), image: addImage, copy: () => setTextSheet(current.current?.text() ?? ""), problem: showFeedback }} />} />}
+    {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

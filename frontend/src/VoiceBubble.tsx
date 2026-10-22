@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { spoken } from "./dictation";
 import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
@@ -23,8 +23,9 @@ const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "
 // where the browser has one. On a touch screen, where nothing is held down
 // with ease, the bubble is the dictation itself: onTap is told of each tap,
 // the first to start listening and the next to stop and send what was said
-// (the Overlord, 2026-10-21, "Can't hold on my phone screen").
-export function VoiceBubble({ listening, level, model, onPaste, onTap }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void; onTap: (at: number) => void }) {
+// (the Overlord, 2026-10-21, "Can't hold on my phone screen"). There tools,
+// a terminal's touch tools, sit beside it.
+export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void; onTap: (at: number) => void; tools?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const messages = useVoice();
   // Read on every render, as the hint is, so a choice made in one pane shows
@@ -92,6 +93,7 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap }: { liste
       <p className="voice-footer">Hold Ctrl+Shift+Space, speak, release. {browser ? "Heard by this browser's speech recognition, which sends your voice to the browser's maker." : "Heard by " + engine + ": what you say never leaves it."}</p>
       {browserOffered() && <p className="voice-empty"><label><input type="checkbox" checked={browser} onChange={(event) => { setUsesBrowser(event.target.checked); chosen((count) => count + 1); }} /> Use this browser's speech recognition instead</label></p>}
     </section>}
+    {isTouch && tools}
     {isTouch ? <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
       aria-label={listening ? "Stop and send" : "Dictate"} aria-pressed={listening} data-tip={tip}
       onPointerDown={(event) => event.preventDefault()} onClick={(event) => { dismiss(); onTap(event.timeStamp); }}>
