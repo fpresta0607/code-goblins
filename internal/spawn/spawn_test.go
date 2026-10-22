@@ -1542,6 +1542,36 @@ func TestNotifyInstructionOpensADirectPullRequestAsADraftUntilItsHeadIsFinal(t *
 	}
 }
 
+// A push while a ready pull request's CI runs cancels that run after it
+// billed its minutes, so every goblin whose pull request is ready while it
+// still works, its gate's or its own, pushes a later round once, whole, and
+// only once that CI has ended.
+func TestNotifyInstructionTellsAGoblinNeverToPushWhileItsPullRequestsCIRuns(t *testing.T) {
+	// Arrange
+	for _, test := range []struct {
+		name   string
+		meta   state.TaskMeta
+		isTold bool
+	}{
+		{"a direct-PR goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "direct-PR"}, true},
+		{"a gated goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "no-mistakes"}, true},
+		{"a local-only goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "local-only"}, false},
+		{"a helper", state.TaskMeta{ID: "task-7-h1", Kind: "ship", Mode: "no-mistakes", Parent: "task-7"}, false},
+		{"a scout", state.TaskMeta{ID: "task-7", Kind: "scout", Mode: "no-mistakes"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			instruction := notifyInstruction(test.meta)
+
+			// Assert
+			isTold := strings.Contains(instruction, "only once") && strings.Contains(instruction, "CI has ended, since a push while it runs cancels it after it billed its minutes")
+			if isTold != test.isTold {
+				t.Errorf("told never to push while its CI runs = %v, want %v:\n%s", isTold, test.isTold, instruction)
+			}
+		})
+	}
+}
+
 // A goblin's pull request names its task's ticket, which the supervisor
 // opens after the goblin starts and names in the goblin's tasktmp folder.
 func TestNotifyInstructionTellsAShipGoblinWhereItsTicketIsNamed(t *testing.T) {
