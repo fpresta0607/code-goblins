@@ -384,6 +384,8 @@ If Windows blocks the microphone, the note says so and where to turn it back on:
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a moment; then it gives its memory back.
 Two dictations in a row are typed with a space between them, and a click on the microphone in the terminal's corner lists your recent dictations.
 It works the same in a browser tab, and the terminal panel under [Board and Orchestration](#board-and-orchestration) says more.
+On a phone, with the board opened over [remote access](docs/remote-access.md), tap the microphone in the terminal's corner and speak, then tap it again: what you said is typed and sent, heard by the same speech model on your PC.
+A long press on a phone's terminal offers its own Paste.
 
 ### Opening, closing and restarting
 

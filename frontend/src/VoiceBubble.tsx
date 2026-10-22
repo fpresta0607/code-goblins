@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { spoken } from "./dictation";
 import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
+import { TOUCH_SCREEN } from "./small-screen";
 import { VOICE_HINT_KEY } from "./voice";
 import { VoiceBars } from "./voice-bars";
 import { refreshDictations, useVoice } from "./useVoice";
@@ -19,8 +20,11 @@ const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "
 // first visit explains the shortcut once. model is the speech model
 // the supervisor runs on this PC, which the bubble names as what listens; the
 // list's foot says so too and offers the browser's own speech recognition
-// where the browser has one.
-export function VoiceBubble({ listening, level, model, onPaste }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void }) {
+// where the browser has one. On a touch screen, where nothing is held down
+// with ease, the bubble is the dictation itself: onTap is told of each tap,
+// the first to start listening and the next to stop and send what was said
+// (the Overlord, 2026-10-21, "Can't hold on my phone screen").
+export function VoiceBubble({ listening, level, model, onPaste, onTap }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void; onTap: (at: number) => void }) {
   const [open, setOpen] = useState(false);
   const messages = useVoice();
   // Read on every render, as the hint is, so a choice made in one pane shows
@@ -57,14 +61,16 @@ export function VoiceBubble({ listening, level, model, onPaste }: { listening: b
     refreshDictations();
     setOpen(true);
   };
-  const tip = listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
+  const isTouch = matchMedia(TOUCH_SCREEN).matches;
+  const tip = isTouch ? (listening ? "Listening with " + engine + " · tap to send" : "Tap to dictate")
+    : listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
   // A page served over plain HTTP, such as across the tailnet, has no clipboard.
   const clipboard = !!navigator.clipboard;
   // Escape closes the list from the bubble or from inside it.
   return <div className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
     {hint && !open && <div className="voice-card voice-hint" role="note">
       <p className="voice-card-title">Speak into this terminal</p>
-      <p>Hold Ctrl+Shift+Space and speak.</p>
+      <p>{isTouch ? "Tap the microphone and speak, then tap it again to send." : "Hold Ctrl+Shift+Space and speak."}</p>
       <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
     </div>}
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
@@ -86,10 +92,14 @@ export function VoiceBubble({ listening, level, model, onPaste }: { listening: b
       <p className="voice-footer">Hold Ctrl+Shift+Space, speak, release. {browser ? "Heard by this browser's speech recognition, which sends your voice to the browser's maker." : "Heard by " + engine + ": what you say never leaves it."}</p>
       {browserOffered() && <p className="voice-empty"><label><input type="checkbox" checked={browser} onChange={(event) => { setUsesBrowser(event.target.checked); chosen((count) => count + 1); }} /> Use this browser's speech recognition instead</label></p>}
     </section>}
-    <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
+    {isTouch ? <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
+      aria-label={listening ? "Stop and send" : "Dictate"} aria-pressed={listening} data-tip={tip}
+      onPointerDown={(event) => event.preventDefault()} onClick={(event) => { dismiss(); onTap(event.timeStamp); }}>
+      {listening ? <VoiceBars level={level} /> : <Icon name="mic" />}
+    </button> : <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
       aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} onClick={toggle}>
       {listening ? <VoiceBars level={level} /> : <Icon name="mic" />}
-    </button>
+    </button>}
     {listening && <span className="sr-only" role="status">Listening with {engine}</span>}
   </div>;
 }

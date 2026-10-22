@@ -214,3 +214,49 @@ func TestThePhoneReadsTheMachinesItCanConnectTo(t *testing.T) {
 		t.Errorf("GET /api/remote/machines = %d %s, want %s", w.Code, w.Body, want)
 	}
 }
+
+// The Overlord's phone dictates on the PC's own speech engine through his
+// private board: the gate admitted the request as his login, so its sound
+// crosses his tailnet to this PC alone. Another login is refused by the gate.
+func TestPrivateBoardDictatesOnThisPCsEngine(t *testing.T) {
+	for _, tc := range []struct {
+		name, login string
+		code, heard int
+	}{
+		{"his own login", "owner@example.com", 200, 1},
+		{"another login", "someone@example.com", 403, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			manager := &remoteaccess.Manager{State: h.State, Target: "http://127.0.0.1:4310", Commands: &remoteCommands{}}
+			if _, err := manager.Enable(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			speech := &fakeSpeech{text: "why is everything double printing"}
+			board := NewHTTP(&Service{Store: store, Instance: "instance", Options: Options{RemoteAccess: manager, Dictation: speech}}, "127.0.0.1:4310", nil)
+			t.Cleanup(board.dictationWork.Wait)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			gate := remoteaccess.NewGate(ctx, manager, board)
+			r := httptest.NewRequest("POST", "https://pc.example.ts.net:4311/api/dictation", strings.NewReader("RIFF-sound"))
+			r.RemoteAddr = "127.0.0.1:55432"
+			r.Header.Set("Origin", "https://pc.example.ts.net:4311")
+			r.Header.Set("Tailscale-User-Login", tc.login)
+			r.Header.Set("Content-Type", "audio/wav")
+			r.Header.Set("X-CFO-Token", "instance")
+			w := httptest.NewRecorder()
+
+			// Act
+			gate.ServeHTTP(w, r)
+
+			// Assert
+			if w.Code != tc.code || speech.heard() != tc.heard {
+				t.Fatalf("answered %d %s, and the engine heard %d sounds", w.Code, w.Body, speech.heard())
+			}
+			if tc.code == 200 && !strings.Contains(w.Body.String(), "double printing") {
+				t.Fatalf("the words were not answered: %s", w.Body)
+			}
+		})
+	}
+}
