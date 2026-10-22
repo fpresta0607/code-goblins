@@ -1295,7 +1295,7 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 A Claude Code session's panel has a third view, Messages, first on its pill: Messages, Terminal and Task, design A of the Overlord's choice on 2026-10-22.
 The CFO has it while it runs Claude Code in a native terminal, and a goblin while it runs Claude Code, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
-A Codex or pi session, the CFO in Herdr, a stopped or retired goblin and a baby goblin keep the Terminal and Task views alone.
+A Codex or pi session, the CFO in Herdr and a stopped or retired goblin keep the Terminal and Task views alone, and a baby goblin its terminal alone.
 The panel still opens on its Terminal view, and Messages is a tap away.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
 A prompt sits on the right in a bubble under who it is from: You, CFO for the CFO's brief or line, or Command Center answer for his answer from the Command Center.
