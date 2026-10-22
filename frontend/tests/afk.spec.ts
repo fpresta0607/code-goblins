@@ -429,9 +429,15 @@ test("the report's green primary button walks through every pending decision and
 test.describe("AFK report layout", () => {
   let directory = "";
   let html = "";
+  // A CI runner starts with empty Go caches, so its first go command fetches
+  // the module's requirements and builds every package the fixture imports:
+  // 37 s on run 39538873531, past the 30 s a hook has by default. The hook
+  // waits as long as the build may take, and 30 s more for the rest of it.
+  const FIXTURE_BUILD_MS = 120_000;
   test.beforeAll(async () => {
+    test.setTimeout(FIXTURE_BUILD_MS + 30_000);
     directory = await mkdtemp(join(tmpdir(), "afk-report-"));
-    execFileSync("go", ["test", "./internal/afk", "-run", "^TestReturnModalFixture$", "-count=1"], { cwd: "..", env: { ...process.env, AFK_PROOF_DIR: directory }, windowsHide: true, timeout: 120_000 });
+    execFileSync("go", ["test", "./internal/afk", "-run", "^TestReturnModalFixture$", "-count=1"], { cwd: "..", env: { ...process.env, AFK_PROOF_DIR: directory }, windowsHide: true, timeout: FIXTURE_BUILD_MS });
     html = await readFile(join(directory, "report.html"), "utf8");
   });
   test.afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });

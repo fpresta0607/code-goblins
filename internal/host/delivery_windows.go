@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 )
 
@@ -15,8 +16,10 @@ var ErrNoDelivery = errors.New("host: this terminal's host was started by an old
 
 // deliveryTimeout bounds the wait for the host to write one part. A write
 // into a terminal whose program has stopped reading can block once its input
-// buffer is full, and then the part is unconfirmed, not lost.
-const deliveryTimeout = 10 * time.Second
+// buffer is full, and then the part is unconfirmed, not lost. Only time the
+// machine ran spends it (awake), since a pause of the whole machine stops the
+// host too.
+var deliveryTimeout = 10 * time.Second
 
 // Delivery types into a terminal and learns, part by part, that its host
 // wrote each into the terminal's input.
@@ -44,8 +47,9 @@ func (d *Delivery) Write(p []byte) error {
 	if err := d.client.send(frameInput, p); err != nil {
 		return fmt.Errorf("host: send the input: %w", err)
 	}
-	_ = d.client.pipe.SetReadDeadline(time.Now().Add(deliveryTimeout))
+	lift := awake.Deadline(d.client.pipe.SetReadDeadline, deliveryTimeout)
 	kind, payload, err := readFrame(d.client.pipe)
+	lift()
 	if err != nil {
 		return fmt.Errorf("host: no confirmation that the terminal took the input: %w", err)
 	}

@@ -38,12 +38,18 @@ const (
 	errorPipeBusy           = syscall.Errno(231)
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
-	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the work that waits on the loop or the allowance,
-	// and runReplyTimeout how long cfo run-request waits for the answer.
-	runReadTimeout    = 10 * time.Second
+	// runRequestTimeout bounds the work that waits on the loop or the
+	// allowance.
 	runRequestTimeout = 20 * time.Second
-	runReplyTimeout   = 30 * time.Second
+)
+
+// runReadTimeout bounds how long a client takes to send its request, and
+// runReplyTimeout how long cfo run-request waits for the answer. Only time
+// the machine ran spends either (awake), since a pause of the whole machine
+// stops the other side too.
+var (
+	runReadTimeout  = 10 * time.Second
+	runReplyTimeout = 30 * time.Second
 )
 
 // runPipeName is the supervisor's pipe for run requests, one per state
@@ -152,13 +158,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
 	defer pipe.Close()
 	var reply pipeReply
+	reading, cancelReading := awake.WithTimeout(context.Background(), runReadTimeout)
+	defer cancelReading()
 	expired := make(chan struct{})
-	timer := time.AfterFunc(runReadTimeout, func() {
+	stopExpiry := context.AfterFunc(reading, func() {
 		_ = syscall.CancelIoEx(handle, nil)
 		close(expired)
 	})
 	line, err := bufio.NewReader(io.LimitReader(pipe, maxRunRequest)).ReadBytes('\n')
-	if !timer.Stop() {
+	if !stopExpiry() {
 		<-expired
 		return
 	}
@@ -245,7 +253,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
 	// larger than the pipe's buffer waits in Write for its reader, so the write
 	// is bounded against a client that never reads.
-	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
+	replyCtx, cancel := awake.WithTimeout(ctx, runReplyTimeout)
 	defer cancel()
 	closed := make(chan struct{})
 	stopClose := context.AfterFunc(replyCtx, func() {
@@ -323,10 +331,20 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	defer pipe.Close()
 	// The command goes only to the supervisor of this home: the process that
 	// holds its watch lock. A pipe of that name served by anything else is a
-	// squatter, and it never sees the request.
+	// squatter, and it never sees the request. The server is read through
+	// Control, since File.Fd takes the pipe off the runtime's I/O completion
+	// port, where the deadline on the answer does nothing.
 	var server uint32
-	if ok, _, callErr := procGetNamedPipeServerProcessID.Call(pipe.Fd(), uintptr(unsafe.Pointer(&server))); ok == 0 {
-		return pipeReply{}, fmt.Errorf("the run request pipe's server could not be identified: %w", callErr)
+	var identified uintptr
+	var callErr error
+	raw, err := pipe.SyscallConn()
+	if err == nil {
+		err = raw.Control(func(handle uintptr) {
+			identified, _, callErr = procGetNamedPipeServerProcessID.Call(handle, uintptr(unsafe.Pointer(&server)))
+		})
+	}
+	if err != nil || identified == 0 {
+		return pipeReply{}, fmt.Errorf("the run request pipe's server could not be identified: %w", errors.Join(err, callErr))
 	}
 	if !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
 		return pipeReply{}, fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
@@ -334,9 +352,8 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	// The answer may take as long as the request's work, and the margin
 	// runReplyTimeout leaves past runRequestTimeout.
 	answerWait := requestTimeout(req) + runReplyTimeout - runRequestTimeout
-	if err := pipe.SetDeadline(time.Now().Add(answerWait)); err != nil {
-		return pipeReply{}, err
-	}
+	lift := awake.Deadline(pipe.SetDeadline, answerWait)
+	defer lift()
 	data, err := json.Marshal(req)
 	if err != nil {
 		return pipeReply{}, err

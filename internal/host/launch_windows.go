@@ -2,6 +2,7 @@ package host
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/priority"
@@ -31,7 +33,9 @@ func Arguments(stateDir string, spec Spec) []string {
 }
 
 // launchTimeout bounds how long a new host takes to record itself, and a
-// launch looks for that record through readLaunchRecord.
+// launch looks for that record through readLaunchRecord. Only time the
+// machine ran spends launchTimeout (awake), since a pause of the whole
+// machine stops the host too.
 var (
 	launchTimeout    = 15 * time.Second
 	readLaunchRecord = ReadRecord
@@ -92,7 +96,9 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
-	for deadline := time.Now().Add(launchTimeout); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+	launching, cancelLaunching := awake.WithTimeout(context.Background(), launchTimeout)
+	defer cancelLaunching()
+	for ; launching.Err() == nil; time.Sleep(25 * time.Millisecond) {
 		if record, err := readLaunchRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
 			record.Contained = contained
 			return record, nil

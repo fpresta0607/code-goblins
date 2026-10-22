@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"sync"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 // Client is one viewer of a host's terminal.
@@ -98,7 +100,7 @@ func dial(record Record, greeting hello) (*Client, hello, error) {
 	if err != nil {
 		return nil, hello{}, err
 	}
-	lift := awakeDeadline(pipe.SetDeadline, handshakeTimeout)
+	lift := awake.Deadline(pipe.SetDeadline, handshakeTimeout)
 	defer lift()
 	if err := writeHello(pipe, greeting); err != nil {
 		pipe.Close()

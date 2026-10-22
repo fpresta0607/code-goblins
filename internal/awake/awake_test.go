@@ -191,3 +191,51 @@ func TestAContextMadeFromATimeoutRunsOutWithIt(t *testing.T) {
 		t.Errorf("the child's Err() = %v, Cause = %v, want context.DeadlineExceeded", child.Err(), context.Cause(child))
 	}
 }
+
+// A deadline falls once its timeout has run, and no sooner, and lifting it
+// lifts it.
+func TestADeadlineFallsOnceItsTimeoutHasRunAndLiftingItLiftsIt(t *testing.T) {
+	// Arrange
+	const timeout = 200 * time.Millisecond
+	set := make(chan time.Time, 2)
+	began := time.Now()
+
+	// Act
+	lift := Deadline(func(deadline time.Time) error {
+		set <- deadline
+		return nil
+	}, timeout)
+	var fell time.Time
+	select {
+	case fell = <-set:
+	case <-time.After(time.Minute):
+		t.Fatal("the deadline did not fall within a minute")
+	}
+	lift()
+
+	// Assert
+	if fell.Sub(began) < timeout {
+		t.Errorf("the deadline fell %s after it was set, before its timeout of %s", fell.Sub(began), timeout)
+	}
+	if lifted := <-set; !lifted.IsZero() {
+		t.Errorf("lift set the deadline to %s, want it lifted", lifted)
+	}
+}
+
+// A deadline lifted before its timeout has run never falls.
+func TestADeadlineLiftedInTimeNeverFalls(t *testing.T) {
+	// Arrange
+	var set []time.Time
+	lift := Deadline(func(deadline time.Time) error {
+		set = append(set, deadline)
+		return nil
+	}, time.Minute)
+
+	// Act
+	lift()
+
+	// Assert
+	if len(set) != 1 || !set[0].IsZero() {
+		t.Errorf("the deadline was set to %v, want it only lifted", set)
+	}
+}
