@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -531,6 +532,75 @@ func TestMessagePictureIsReadBackByItsID(t *testing.T) {
 			}
 			if err != nil || mediaType != "image/png" || string(data) != tc.want {
 				t.Errorf("MessagePicture(%q) = %s %q, %v; want image/png %q", tc.id, mediaType, data, err, tc.want)
+			}
+		})
+	}
+}
+
+// A conversation longer than one read's chunk is read across the chunks'
+// edges, each entry whole and at its own offset, so a picture past them is
+// read back from its own entry.
+func TestMessagesReadAcrossTheChunksOfALongConversation(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	long := strings.Repeat("x", claudeReadChunk/3)
+	var entries []any
+	for i := range 4 {
+		entries = append(entries, prompted("u"+strconv.Itoa(i), long))
+	}
+	entries = append(entries, prompted("u4", []object{imageBlock([]byte("past the chunk")), textBlock("and this")}))
+	path := conversation(t, home, entries...)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+	mediaType, data, pictureErr := reader.MessagePicture(path, "1")
+
+	// Assert
+	if err != nil || len(page.Messages) != 5 || page.Messages[4].ID != "u4" || page.Messages[4].Text != "and this" || len([]rune(page.Messages[0].Text)) != messageTextLimit {
+		t.Fatalf("MessagePage = %d messages, %v; want five, the last with its picture", len(page.Messages), err)
+	}
+	if pictureErr != nil || mediaType != "image/png" || string(data) != "past the chunk" {
+		t.Errorf("MessagePicture = %s %q, %v; want the picture past the chunk", mediaType, data, pictureErr)
+	}
+}
+
+// A conversation no view asked for in five minutes is let go, by the next
+// ask for any conversation or by the tree's own pass, and a view that asks
+// again reads it anew.
+func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		letsGo  func(reader *Reader, other string)
+		isAnew  bool
+		elapsed time.Duration
+	}{
+		{"asked for within five minutes", func(reader *Reader, other string) { reader.Forget(nil) }, false, 4 * time.Minute},
+		{"by the tree's own pass", func(reader *Reader, other string) { reader.Forget(nil) }, true, 6 * time.Minute},
+		{"by an ask for another", func(reader *Reader, other string) { _, _, _ = reader.MessagePage(other, -1) }, true, 6 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := conversation(t, home, prompted("u1", []object{imageBlock([]byte("a screenshot")), textBlock("first")}))
+			other := filepath.Join(home, "other.jsonl")
+			writeLines(t, other, at, prompted("v1", "elsewhere"))
+			now := at
+			reader := Reader{Home: home, Now: func() time.Time { return now }}
+			_, cursor, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			now = now.Add(tc.elapsed)
+			tc.letsGo(&reader, other)
+			_, _, pictureErr := reader.MessagePicture(path, "1")
+			_, _, isAnew, err := reader.MessagesSince(path, cursor)
+
+			// Assert
+			if errors.Is(pictureErr, ErrNoRecord) != tc.isAnew || err != nil || isAnew != tc.isAnew {
+				t.Errorf("after %s: picture %v, MessagesSince anew %t, %v; want let go %t", tc.elapsed, pictureErr, isAnew, err, tc.isAnew)
 			}
 		})
 	}

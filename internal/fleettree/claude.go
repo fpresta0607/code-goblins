@@ -125,7 +125,10 @@ func (l *claudeLog) update() error {
 // the offset after the last entry handed. An entry still being written, with
 // no newline yet, is left for the next read.
 func readOn(file *os.File, offset, size int64, each func(start int64, lines [][]byte)) (int64, error) {
-	buffer := make([]byte, claudeReadChunk)
+	if offset >= size {
+		return offset, nil
+	}
+	buffer := make([]byte, min(claudeReadChunk, size-offset))
 	var carry []byte
 	for next := offset; next < size; {
 		count, err := file.ReadAt(buffer[:min(int64(len(buffer)), size-next)], next)

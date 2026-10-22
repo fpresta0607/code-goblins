@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -78,10 +79,11 @@ type Reader struct {
 	usualAt      time.Time
 
 	// messagesMu guards the conversations read as messages, by path, apart
-	// from mu, so a view's reads never wait on a tree's.
+	// from mu, so a view's reads never wait on a tree's, and messageEpoch
+	// counts their reads.
 	messagesMu   sync.Mutex
 	messageLogs  map[string]*messageLog
-	messageEpoch uint64
+	messageEpoch atomic.Uint64
 }
 
 // Goblin is one goblin to read: its task record, the process its terminal
@@ -451,6 +453,15 @@ func (r *Reader) Forget(live map[string]bool) {
 			delete(r.gates, task)
 		}
 	}
+	// A conversation no view reads any more goes too, though nothing asks
+	// for another.
+	now := time.Now()
+	if r.Now != nil {
+		now = r.Now()
+	}
+	r.messagesMu.Lock()
+	r.forgetIdleMessages(now)
+	r.messagesMu.Unlock()
 }
 
 // claudeProcessSession is the conversation the running Claude Code process
@@ -912,6 +923,14 @@ func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
 			return session, nil
 		}
 	}
+	return KeptSession(stateDir, meta)
+}
+
+// KeptSession is the conversation the board kept in stateDir as the one the
+// goblin's own running harness proved, for meta's generation and harness, or
+// empty when it kept none. A record that cannot be read is an error, never
+// taken as none.
+func KeptSession(stateDir string, meta state.TaskMeta) (string, error) {
 	kept, err := state.ReadConversation(stateDir, meta.ID)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil

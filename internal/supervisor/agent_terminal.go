@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"bytes"
-	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
-	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -111,17 +109,6 @@ func (h *HTTP) streamChild(w http.ResponseWriter, r *http.Request, meta state.Ta
 	}
 }
 
-// messagesBinding is the session a request for messages names: a task's
-// goblin of the generation it names, or the CFO in the terminal it names.
-// current says whether that session still runs, and names its conversation
-// as the session knows it: the task's generation, the CFO's session. locate
-// is that conversation's transcript, empty while Claude Code has written
-// none.
-type messagesBinding struct {
-	current func() (string, error)
-	locate  func(ctx context.Context, current string) string
-}
-
 // messagesRefused is why a request names no session whose messages the
 // board reads, with the status it answers.
 type messagesRefused struct {
@@ -133,31 +120,35 @@ func (refused messagesRefused) Error() string { return refused.reason }
 
 var claudeOnly = messagesRefused{404, "Messages are read from Claude Code sessions only."}
 
-// bindMessages binds a request to the session its query names.
-func (h *HTTP) bindMessages(query url.Values) (messagesBinding, error) {
-	stateDir, tree := h.Service.Store.Home.State, h.Service.Options.Tree
+// messagesLocator finds the transcript of the session a request for messages
+// names, a task's goblin of the generation it names or the CFO in the
+// terminal it names, while that session runs: empty while Claude Code has
+// written none, and messagesRefused once the session no longer runs. It reads
+// no process and parses no store file, since a view's stream asks again as
+// often as a terminal view's binding is checked.
+func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error) {
+	stateDir, home := h.Service.Store.Home.State, h.Service.Options.Tree.Home
 	if want := query.Get("cfo"); want != "" {
-		return messagesBinding{current: func() (string, error) {
+		return func() (string, error) {
 			cfo := readCFOState(stateDir)
-			harness, session, _ := strings.Cut(cfo.session, "/")
 			switch {
 			case cfo.terminal == "":
 				return "", messagesRefused{404, "No CFO is running in a native terminal."}
 			case cfo.terminal != want:
 				return "", messagesRefused{409, "The CFO runs in another terminal now. Open the CFO again."}
-			case harness != "claude":
+			case cfo.harness != "" && cfo.harness != "claude":
 				return "", claudeOnly
 			}
-			return session, nil
-		}, locate: func(_ context.Context, session string) string {
-			return fleettree.SessionTranscript(tree.Home, "claude", session)
-		}}, nil
+			// A CFO still starting has registered no session yet.
+			_, session, _ := strings.Cut(cfo.session, "/")
+			return fleettree.SessionTranscript(home, "claude", session), nil
+		}, nil
 	}
 	task, generation := query.Get("task"), query.Get("generation")
 	if state.ValidTaskID(task) != nil || generation == "" {
-		return messagesBinding{}, messagesRefused{400, "Select a task's current session or the CFO."}
+		return nil, messagesRefused{400, "Select a task's current session or the CFO."}
 	}
-	return messagesBinding{current: func() (string, error) {
+	return func() (string, error) {
 		meta, err := state.ReadTaskMeta(stateDir, task)
 		switch {
 		case err != nil:
@@ -167,20 +158,17 @@ func (h *HTTP) bindMessages(query url.Values) (messagesBinding, error) {
 		case meta.Harness != "claude":
 			return "", claudeOnly
 		}
-		return generation, nil
-	}, locate: func(ctx context.Context, _ string) string {
-		// The goblin's own conversation, chosen as the board's read of its
-		// tree chooses it (readTrees).
-		meta, err := state.ReadTaskMeta(stateDir, task)
-		if err != nil {
-			return ""
+		// The conversation the board recorded for the generation, else the
+		// one its read of the goblin's tree proved the running harness in
+		// and kept (keepConversation), as fleettree.OwnedSession reads them.
+		session := h.Service.Store.recordedSession(meta)
+		if session == "" {
+			if session, err = fleettree.KeptSession(stateDir, meta); err != nil {
+				return "", err
+			}
 		}
-		goblin := fleettree.Goblin{Meta: meta}
-		if record, err := host.ReadRecord(stateDir, meta.ID); meta.Backend == "native" && err == nil {
-			goblin.HarnessPID, goblin.HarnessStarted = record.ChildPID, record.ChildStart
-		}
-		return tree.Conversation(ctx, goblin)
-	}}, nil
+		return fleettree.SessionTranscript(home, "claude", session), nil
+	}, nil
 }
 
 // messages answers a Claude Code session's messages for the board's message
@@ -209,17 +197,16 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 503, "Messages cannot be read")
 		return
 	}
-	binding, err := h.bindMessages(query)
+	locate, err := h.messagesLocator(query)
 	if err != nil {
 		messagesError(w, err)
 		return
 	}
-	current, err := binding.current()
+	path, err := locate()
 	if err != nil {
 		messagesError(w, err)
 		return
 	}
-	path := binding.locate(r.Context(), current)
 	switch {
 	case query.Has("picture"):
 		mediaType, data, err := h.Service.Options.Tree.MessagePicture(path, query.Get("picture"))
@@ -230,7 +217,7 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", mediaType)
 		_, _ = w.Write(data)
 	case query.Get("stream") == "1":
-		h.streamMessages(w, r, binding, current, path)
+		h.streamMessages(w, r, locate, path)
 	default:
 		page, _, err := h.messagePage(path, before)
 		if err != nil {
@@ -259,18 +246,21 @@ func messagesError(w http.ResponseWriter, err error) {
 	case errors.Is(err, fleettree.ErrNoRecord):
 		apiError(w, 404, "No such picture is kept")
 	default:
-		apiError(w, 503, "The session's messages cannot be read")
+		apiError(w, 503, unreadMessages)
 	}
 }
+
+const unreadMessages = "The session's messages cannot be read"
 
 // streamMessages streams a session's messages: a page event with its newest
 // page, then a messages event with each message that began or changed, read
 // every half second, which a view puts in place of the one with the same id
 // or adds by its seq. A page event again replaces everything the view holds:
 // the session moved to another conversation, or its conversation was
-// replaced. The session is checked as often as a terminal view's, and an
-// unavailable event says why it no longer runs before the stream ends.
-func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, binding messagesBinding, current, path string) {
+// replaced. The session is located again as often as a terminal view's
+// binding is checked, and an unavailable event says why it no longer runs, or
+// cannot be read, before the stream ends.
+func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (string, error), path string) {
 	select {
 	case h.messageSlots <- struct{}{}:
 		defer func() { <-h.messageSlots }()
@@ -301,7 +291,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, binding me
 	page := func() bool {
 		messages, now, err := h.messagePage(path, -1)
 		if err != nil {
-			send("unavailable", "The session's messages can no longer be read")
+			send("unavailable", unreadMessages)
 			return false
 		}
 		cursor = now
@@ -324,16 +314,16 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, binding me
 		case <-end.C:
 			return
 		case <-check.C:
-			now, err := binding.current()
+			located, err := locate()
 			if err != nil {
-				send("unavailable", err.Error())
+				reason, refused := unreadMessages, messagesRefused{}
+				if errors.As(err, &refused) {
+					reason = refused.reason
+				}
+				send("unavailable", reason)
 				return
 			}
-			if now == current && path != "" {
-				continue
-			}
-			current = now
-			if located := binding.locate(r.Context(), now); located != path {
+			if located != path {
 				path = located
 				if !page() {
 					return
@@ -346,7 +336,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, binding me
 			messages, now, isAnew, err := h.Service.Options.Tree.MessagesSince(path, cursor)
 			switch {
 			case err != nil:
-				send("unavailable", "The session's messages can no longer be read")
+				send("unavailable", unreadMessages)
 				return
 			case isAnew:
 				if !page() {

@@ -1247,15 +1247,16 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 ### A session read as messages
 
 The supervisor reads a Claude Code session as one list of messages, the first part of the message view the Overlord chose for the panel on 2026-10-22, and nothing on the board shows it yet.
-`GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board's read of its tree finds (`fleettree.Reader.Conversation`), and `?cfo=TERMINAL&token=TOKEN` reads the CFO registered in that native terminal, from the conversation it registered with.
+`GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?cfo=TERMINAL&token=TOKEN` reads the CFO registered in that native terminal, from the conversation it registered with.
+Finding it reads no process and parses no store file, so a goblin's conversation shows once a read of its tree, every fifteen seconds, has kept it.
 It reads Claude Code sessions alone: a Codex or pi session is refused with 404 and keeps its Terminal and Task views.
 The board's token comes in the query, as a terminal view's does, since a browser's event stream cannot send a header, and a request without it is refused with 403.
 An unknown task is refused with 404, a task that restarted or was replaced since the board named its generation with 409, and the CFO in another terminal than the one named with 409.
 Like a terminal view, and unlike a baby goblin's terminal, it is served over Remote access too, since it shows what the session's terminal already shows.
 Without `stream` it answers a page, the newest 50 messages or with `before=SEQ` the 50 before that message, as `{"messages":[...],"more":true}`, `more` saying older messages come before the page's first; a session whose harness has written nothing yet has none.
 With `stream=1` it answers server-sent events: a `page` event with the newest page, then a `messages` event with each message that began or changed since, read every half second, each in full, which a view puts in place of the one with the same `id` or adds by its `seq`.
-A later `page` event replaces everything a view holds: the CFO moved to another conversation, as `/clear` moves it, or the conversation was replaced.
-The session is checked as often as a terminal view's binding, and once it no longer runs an `unavailable` event says why and the stream ends.
+A later `page` event replaces everything a view holds: the session moved to another conversation, as `/clear` moves it, or the conversation was replaced.
+The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names.
 
@@ -1267,11 +1268,12 @@ It is `notice` for Claude Code's notice that a background task or sub-agent ende
 A `reply` is one answer, its `blocks` grouped by the id Claude Code gives the answer, since it writes each block as an entry of its own: `text`, `thinking` where Claude Code recorded its words, since most is recorded empty and shows nothing, and `call`.
 A call names its `tool`, what it was called on and its `state`: `running` until its result is written, then `done`, `failed`, `denied` when a permission rule or auto mode refused it, or `interrupted`.
 Its `result` is the first 4,000 characters of what came back, an edit's `edit` its added and removed line counts with its diff, a sub-agent's `agent` its node in the goblin's tree, whose own output `GET /api/tasks/<id>/agent` serves, and a picture it returned is among its `pictures`.
-A result too large for the conversation, which Claude Code saves to a file in the conversation's `tool-results` folder, reads from that file, with `spilled` its size; a file named anywhere else is not read, and the preview the conversation holds stands.
+A result too large for the conversation, which Claude Code saves to a file in the conversation's `tool-results` folder, reads from that file, with `spilled` its size; a file named anywhere else, or reached through a link or junction, is not read, and the preview the conversation holds stands.
 A `compaction` carries its `trigger`, auto or manual, and the summary Claude Code goes on from, and an `interrupt` the notice Claude Code records where the Overlord stopped it.
 A sub-agent's own entries, and what Claude Code records for its model alone, its requests, hook notes, caveats and a skill's expanded prompt, show nothing.
 The reader reads a conversation on from where it last stopped, as the tree's reader does, and passes over an entry still being written until its line ends.
-It keeps up to eight conversations, each for fifteen minutes after a view last asked for it, apart from the trees it reads, so a view's read never waits on a tree's.
+It keeps each conversation for five minutes after a view last asked for it, which an open view does twice a second, so it keeps every conversation a view shows and lets the rest go at the next ask or the next read of the fleet's trees.
+Each conversation is read under a lock of its own, apart from the trees, so a view's read never waits on a tree's, nor on a first read of another view's long conversation.
 
 ### Harness updates
 

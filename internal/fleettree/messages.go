@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -152,14 +154,18 @@ type MessageCursor struct {
 }
 
 // messageLog is one Claude Code conversation read as messages, kept between
-// reads so each read parses only the entries written since the last.
+// reads so each read parses only the entries written since the last. asked,
+// when a reader last asked for it, is guarded by the Reader's messagesMu, and
+// everything else by mu, so a first read of a long conversation holds up no
+// other conversation's.
 type messageLog struct {
-	path string
-	read int64
-	// epoch tells this read of the conversation from any earlier one, and
-	// asked is when a reader last asked for it.
-	epoch uint64
+	path  string
 	asked time.Time
+
+	mu   sync.Mutex
+	read int64
+	// epoch tells this read of the conversation from any earlier one.
+	epoch uint64
 	// messages are the conversation's messages, and changed the revision at
 	// which each last changed; revision counts every change.
 	messages []Message
@@ -184,8 +190,11 @@ type pictureAt struct {
 	block, part int
 }
 
-func newMessageLog(path string, epoch uint64) *messageLog {
-	return &messageLog{path: path, epoch: epoch, replies: map[string]int{}, calls: map[string]blockAt{}, pictures: map[string]pictureAt{}}
+// reset starts the log over as the read epoch of its conversation.
+func (l *messageLog) reset(epoch uint64) {
+	l.read, l.epoch = 0, epoch
+	l.messages, l.changed, l.revision = nil, nil, 0
+	l.replies, l.calls, l.pictures = map[string]int{}, map[string]blockAt{}, map[string]pictureAt{}
 }
 
 // messageEntry is the part of a Claude Code transcript entry the message
@@ -244,6 +253,7 @@ var apiRequest = []byte(`{"type":"api-request`)
 
 // update parses the entries written since the last read. A conversation that
 // shrank was replaced, and is read again from its start as a read of its own.
+// The caller holds l.mu.
 func (l *messageLog) update(epoch func() uint64) error {
 	file, err := fsx.Open(l.path)
 	if err != nil {
@@ -255,9 +265,7 @@ func (l *messageLog) update(epoch func() uint64) error {
 		return err
 	}
 	if info.Size() < l.read {
-		asked := l.asked
-		*l = *newMessageLog(l.path, epoch())
-		l.asked = asked
+		l.reset(epoch())
 	}
 	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
 		for _, line := range lines {
@@ -593,19 +601,32 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 
 // spilled is the start of a result Claude Code saved to a file of its own,
 // as spill, a match of persisted, names it, and the result's size: read from
-// the file when it is in this conversation's own tool-results folder, where
-// Claude Code keeps them, else the preview the conversation holds.
+// the file when it is a regular file directly in this conversation's own
+// tool-results folder, where Claude Code keeps them, reached through no link
+// or junction, else the preview the conversation holds.
 func (l *messageLog) spilled(spill []string, outcome toolOutcome) (string, int64) {
 	preview, size := bounded(spill[4], resultLimit), outcome.PersistedOutputSize
 	if size == 0 {
 		value, _ := strconv.ParseFloat(spill[1], 64)
 		size = int64(value * sizeUnits[spill[2]])
 	}
-	path := cmp.Or(outcome.PersistedOutputPath, strings.TrimSpace(spill[3]))
-	if !strings.EqualFold(filepath.Dir(filepath.Clean(path)), filepath.Join(strings.TrimSuffix(l.path, filepath.Ext(l.path)), "tool-results")) {
+	path := filepath.Clean(cmp.Or(outcome.PersistedOutputPath, strings.TrimSpace(spill[3])))
+	session := strings.TrimSuffix(l.path, filepath.Ext(l.path))
+	if !strings.EqualFold(filepath.Dir(path), filepath.Join(session, "tool-results")) {
 		return preview, size
 	}
-	file, err := fsx.Open(path)
+	root, err := os.OpenRoot(session)
+	if err != nil {
+		return preview, size
+	}
+	defer root.Close()
+	// root refuses a link or junction that leads out of the conversation's
+	// folder, and Lstat reports a link to a file as no regular file.
+	name := filepath.Join("tool-results", filepath.Base(path))
+	if info, err := root.Lstat(name); err != nil || !info.Mode().IsRegular() {
+		return preview, size
+	}
+	file, err := root.Open(name)
 	if err != nil {
 		return preview, size
 	}
@@ -690,53 +711,54 @@ func shared(message Message) Message {
 	return message
 }
 
-// messageLogIdle is how long a conversation no reader asked for is kept, and
-// messageLogsKept how many are kept at most: an open view asks twice a
-// second, and a stream lasts ten minutes.
-const (
-	messageLogIdle  = 15 * time.Minute
-	messageLogsKept = 8
-)
+// messageLogIdle is how long a conversation no reader asked for is kept: an
+// open view asks twice a second, and a view's stream is renewed within
+// seconds of its tenth minute, so every conversation a view shows is kept,
+// and only those.
+const messageLogIdle = 5 * time.Minute
 
-// messageLog finds the log of the conversation at path, read on to its end.
-// The caller holds r.messagesMu.
+// messageLog is the log of the conversation at path, read on to its end, with
+// its mu held for the caller to unlock.
 func (r *Reader) messageLog(path string) (*messageLog, error) {
 	now := time.Now()
 	if r.Now != nil {
 		now = r.Now()
 	}
-	epoch := func() uint64 {
-		r.messageEpoch++
-		return r.messageEpoch
-	}
+	epoch := func() uint64 { return r.messageEpoch.Add(1) }
+	r.messagesMu.Lock()
 	if r.messageLogs == nil {
 		r.messageLogs = map[string]*messageLog{}
 	}
 	log := r.messageLogs[path]
 	if log == nil {
-		log = newMessageLog(path, epoch())
+		log = &messageLog{path: path}
+		log.reset(epoch())
 		r.messageLogs[path] = log
 	}
 	log.asked = now
-	for kept, other := range r.messageLogs {
-		if now.Sub(other.asked) > messageLogIdle {
-			delete(r.messageLogs, kept)
-		}
-	}
-	for len(r.messageLogs) > messageLogsKept {
-		oldest := ""
-		for kept, other := range r.messageLogs {
-			if oldest == "" || other.asked.Before(r.messageLogs[oldest].asked) {
-				oldest = kept
-			}
-		}
-		delete(r.messageLogs, oldest)
-	}
+	r.forgetIdleMessages(now)
+	r.messagesMu.Unlock()
+	log.mu.Lock()
 	if err := log.update(epoch); err != nil {
-		delete(r.messageLogs, path)
+		log.mu.Unlock()
+		r.messagesMu.Lock()
+		if r.messageLogs[path] == log {
+			delete(r.messageLogs, path)
+		}
+		r.messagesMu.Unlock()
 		return nil, err
 	}
 	return log, nil
+}
+
+// forgetIdleMessages drops the conversations no reader asked for in
+// messageLogIdle. The caller holds r.messagesMu.
+func (r *Reader) forgetIdleMessages(now time.Time) {
+	for path, log := range r.messageLogs {
+		if now.Sub(log.asked) > messageLogIdle {
+			delete(r.messageLogs, path)
+		}
+	}
 }
 
 // MessagePage reads the Claude Code conversation at path on from where the
@@ -744,12 +766,11 @@ func (r *Reader) messageLog(path string) (*messageLog, error) {
 // or its newest page for a negative before, with where the reader then
 // stands.
 func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCursor, error) {
-	r.messagesMu.Lock()
-	defer r.messagesMu.Unlock()
 	log, err := r.messageLog(path)
 	if err != nil {
 		return MessagePage{}, MessageCursor{}, err
 	}
+	defer log.mu.Unlock()
 	return log.page(before), MessageCursor{log.epoch, log.revision}, nil
 }
 
@@ -759,12 +780,11 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 // one replaced is, so nothing a page before it held still stands: the
 // reader takes a page again.
 func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, now MessageCursor, isAnew bool, err error) {
-	r.messagesMu.Lock()
-	defer r.messagesMu.Unlock()
 	log, err := r.messageLog(path)
 	if err != nil {
 		return nil, MessageCursor{}, false, err
 	}
+	defer log.mu.Unlock()
 	now = MessageCursor{log.epoch, log.revision}
 	if cursor.epoch != log.epoch {
 		return nil, now, true, nil
@@ -783,12 +803,13 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
 	r.messagesMu.Lock()
 	log := r.messageLogs[path]
-	var at pictureAt
-	isKept := false
-	if log != nil {
-		at, isKept = log.pictures[id]
-	}
 	r.messagesMu.Unlock()
+	if log == nil {
+		return "", nil, ErrNoRecord
+	}
+	log.mu.Lock()
+	at, isKept := log.pictures[id]
+	log.mu.Unlock()
 	if !isKept {
 		return "", nil, ErrNoRecord
 	}
