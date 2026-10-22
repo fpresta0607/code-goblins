@@ -16,7 +16,6 @@ var (
 	closeWindowStation      = user32.NewProc("CloseWindowStation")
 	getClipboardData        = user32.NewProc("GetClipboardData")
 	clipboardSequence       = user32.NewProc("GetClipboardSequenceNumber")
-	countClipboardFormats   = user32.NewProc("CountClipboardFormats")
 	globalSize              = kernel32.NewProc("GlobalSize")
 )
 
@@ -25,8 +24,10 @@ const stationAllAccess = 0x37f // WINSTA_ALL_ACCESS
 // privateClipboard moves this test's process to a window station of its own,
 // which holds a clipboard of its own, until the test ends: a run at a desk
 // never touches the clipboard of the one sitting there. Each window station
-// counts its own clipboard's changes, so a clipboard that holds nothing and
-// counts differently from the one before the move is not the desk's.
+// counts its own clipboard's changes, so a clipboard that counts differently
+// from the one before the move is not the desk's. The station is this logon's
+// own one for programs with no desk, which keeps what an earlier run put on
+// its clipboard.
 func privateClipboard(t *testing.T) {
 	t.Helper()
 	desk, _, _ := clipboardSequence.Call()
@@ -50,9 +51,8 @@ func privateClipboard(t *testing.T) {
 		}
 		closeWindowStation.Call(station)
 	})
-	own, _, _ := clipboardSequence.Call()
-	if held, _, _ := countClipboardFormats.Call(); own == desk || held != 0 {
-		t.Fatalf("the clipboard after the move counts %d changes against the desk's %d and holds %d formats, so it may be the desk's; nothing was put on it", own, desk, held)
+	if own, _, _ := clipboardSequence.Call(); own == desk {
+		t.Fatalf("the clipboard after the move counts %d changes, as the desk's does, so it may be the desk's; nothing was put on it", own)
 	}
 }
 
