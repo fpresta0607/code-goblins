@@ -14,7 +14,8 @@ export default defineConfig({
   // tests/site.ts answers from files: there is no web server, and baseURL is
   // only the origin the pages are given, on a port nothing is fetched from.
   // Then the run opens the system fonts the terminal draws harness screens
-  // in, so no test's first screen waits while a runner reads their files.
+  // in and an unstyled page is drawn in, so no test's first screen or page
+  // waits while a runner reads their files.
   globalSetup: ["./tests/build-site.ts", "./tests/system-fonts.ts"],
   use: {
     baseURL: ORIGIN,

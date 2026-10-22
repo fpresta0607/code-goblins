@@ -1,4 +1,5 @@
 import { expect, test, ORIGIN, type Page } from "./site";
+import { systemFonts } from "./system-fonts";
 
 // The Overlord, 2026-10-14 about 22:40Z, of a Scrawl page's card in the
 // Command Center: "Takes a few seconds for the preview to actually show ...
@@ -33,6 +34,25 @@ test("a glimmer shows in the frame while the page loads and gives way once it ha
   release();
   await expect(dialog.locator(".page-preview").getByRole("status")).toHaveCount(0);
   await expect(dialog.locator(".page-preview iframe")).toHaveAttribute("src", "/api/reviews/waiting-cg-loader-1/preview");
+});
+
+// A browser just started on a CI runner stops for seconds the first time it
+// draws text in a system font the runner never read from its disk (#1264).
+// The glimmer gives way only once the frame's page is drawn, so on 2026-10-22
+// the first heading in the runner's default bold font held it past its wait
+// (#1330). The run opens the fonts that page is drawn in before its first test
+// (tests/system-fonts.ts).
+test("the page the preview shows is drawn only in system fonts the run opened before its first test", async ({ page }) => {
+  // Arrange: the fonts the run opened before its first test.
+  const opened: string[] = JSON.parse(process.env.BOARD_TEST_FONTS ?? "[]");
+
+  // Act: lay the page out as the frame does.
+  await page.setContent(PAGE);
+  const drawnWith = await systemFonts(page, "body *");
+
+  // Assert
+  expect(drawnWith.length, "the fonts the page was drawn with were read").toBeGreaterThan(0);
+  expect(drawnWith.filter((font) => !opened.includes(font))).toEqual([]);
 });
 
 test("a page that cannot be shown says so in two words instead of animating forever", async ({ page }) => {
