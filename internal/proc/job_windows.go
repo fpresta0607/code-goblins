@@ -290,29 +290,41 @@ func EndJob(ctx context.Context, job windows.Handle) (ended, spared []Entry, err
 // read, but the machine services and what runs under them, until none else
 // is left, within endJobFor or ctx's deadline, and returns the processes it
 // ended and the services it spared. A failure returns the services last
-// seen with it.
+// seen with it. It reads the job again only once each process it ended has
+// exited: on a machine whose cores other work fills, those exits take a
+// while, and each read of the machine's processes can take seconds, so a
+// read begun before they were done found them still there and the next
+// began past the bound, which then named them as outliving it (issue 1275).
 func endEachBut(ctx context.Context, job windows.Handle, members []Entry, services map[int]Service) (ended, spared []Entry, err error) {
 	ctx, cancel := awake.WithTimeout(ctx, endJobFor)
 	defer cancel()
 	seen := servicesIn(members, services)
 	for {
 		var rest []int
+		var exits []windows.Handle
 		for _, member := range members {
 			if services[member.PID] != NoService {
 				continue
 			}
-			if endJobMember(job, member) && !slices.Contains(ended, member) {
-				ended = append(ended, member)
+			if process, isEnded := endJobMember(job, member); isEnded {
+				exits = append(exits, process)
+				if !slices.Contains(ended, member) {
+					ended = append(ended, member)
+				}
 			}
 			rest = append(rest, member.PID)
 		}
 		if len(rest) == 0 {
 			return ended, members, nil
 		}
-		select {
-		case <-ctx.Done():
-			return ended, seen, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running: %w", rest, ctx.Err())
-		case <-time.After(50 * time.Millisecond):
+		// While a member it could not end is left, or an exit it asked for
+		// is not done, it reads again until the bound ends.
+		if hasEachExited := awaitExits(ctx, exits); !hasEachExited || len(exits) < len(rest) {
+			select {
+			case <-ctx.Done():
+				return ended, seen, fmt.Errorf("proc: the job's processes %v outlived it beside the machine services it keeps running: %w", rest, ctx.Err())
+			case <-time.After(50 * time.Millisecond):
+			}
 		}
 		if members, err = jobEntries([]syscall.Handle{syscall.Handle(job)}); err != nil {
 			return ended, seen, err
@@ -338,22 +350,42 @@ func servicesIn(members []Entry, services map[int]Service) []Entry {
 
 // endJobMember ends member if it is still in job and still the process that
 // started when member did, so a reused ID never ends another process, and
-// reports whether it ended it.
-func endJobMember(job windows.Handle, member Entry) bool {
-	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(member.PID))
+// reports whether it ended it, with the process to wait on for its exit,
+// which the caller closes.
+func endJobMember(job windows.Handle, member Entry) (windows.Handle, bool) {
+	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(member.PID))
 	if err != nil {
-		return false
+		return 0, false
 	}
-	defer windows.CloseHandle(process)
 	var isMember int32
-	if ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok == 0 || isMember == 0 {
-		return false
-	}
 	var creation, exit, kernel, user windows.Filetime
-	if err := windows.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil || !time.Unix(0, creation.Nanoseconds()).UTC().Equal(member.Start) {
-		return false
+	if ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember))); ok == 0 || isMember == 0 ||
+		windows.GetProcessTimes(process, &creation, &exit, &kernel, &user) != nil || !time.Unix(0, creation.Nanoseconds()).UTC().Equal(member.Start) ||
+		terminateMember(process) != nil {
+		windows.CloseHandle(process)
+		return 0, false
 	}
-	return windows.TerminateProcess(process, 1) == nil
+	return process, true
+}
+
+// awaitExits waits until each of processes has exited or ctx has ended,
+// closes them, and reports whether each has exited.
+func awaitExits(ctx context.Context, processes []windows.Handle) bool {
+	hasEachExited := true
+	for _, process := range processes {
+		event, err := windows.WaitForSingleObject(process, 0)
+		for err == nil && event == uint32(windows.WAIT_TIMEOUT) && ctx.Err() == nil {
+			event, err = windows.WaitForSingleObject(process, 50)
+		}
+		hasEachExited = hasEachExited && err == nil && event == windows.WAIT_OBJECT_0
+		windows.CloseHandle(process)
+	}
+	return hasEachExited
+}
+
+// terminateMember ends a job's member by its handle. A test stands in for it.
+var terminateMember = func(process windows.Handle) error {
+	return windows.TerminateProcess(process, 1)
 }
 
 // endingWait is how long a holder that refused a handle is given to show an
