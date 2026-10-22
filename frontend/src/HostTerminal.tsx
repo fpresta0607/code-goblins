@@ -172,13 +172,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, closedWhy, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, isAsking,
+      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, isAsking,
       send: (text) => !!current.current && current.current.paste(text) && current.current.enter(),
       escape: () => !!current.current?.escape(),
-      focus: () => current.current?.focus(),
     });
     return () => offerLink(link, null);
-  }, [link, phase, closedWhy, reconnecting, visible, isUnread, heldWhy, isAsking]);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, isAsking]);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}

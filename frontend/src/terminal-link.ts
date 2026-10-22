@@ -7,9 +7,7 @@ import { useSyncExternalStore } from "react";
 // reconnect, which replaces the view, changes nothing for it.
 export interface TerminalLink {
   phase: "connecting" | "live" | "closed";
-  // Why the view closed, while it is closed, and whether it is
-  // reconnecting.
-  closedWhy: string;
+  // Whether the view is reconnecting.
   isReconnecting: boolean;
   // Whether typed keys sit unread in a busy program's input, why typing is
   // held, and whether the harness waits on an answer at a screen of its own.
@@ -20,7 +18,6 @@ export interface TerminalLink {
   // sent; escape presses Escape.
   send: (text: string) => boolean;
   escape: () => boolean;
-  focus: () => void;
 }
 
 const links = new Map<string, TerminalLink>();

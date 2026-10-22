@@ -32,7 +32,10 @@ const relayMessage = 256 << 10
 
 // screenSettle is how long a terminal's output pauses before its relay reads
 // the screen, to tell its views whether the harness waits on an answer there.
-// A turn's spinner draws more often than this, so a turn costs no read.
+// A turn's spinner draws more often than this, so a turn costs no read, but
+// while a view was last told the harness waits, the screen is read this long
+// after the first output that follows, pause or not, so the view learns soon
+// that the answer was given and a turn runs.
 const screenSettle = 300 * time.Millisecond
 
 // nativeRelay is one view's side of a native terminal: the output read from
@@ -57,10 +60,12 @@ type nativeRelay struct {
 	// not been told that yet.
 	held []byte
 	// screen tells the view whether the harness waits on an answer at a
-	// screen of its own, while the view has not been told that yet, and
-	// asking is what the view was last told.
-	screen []byte
-	asking *bool
+	// screen of its own, while the view has not been told that yet, asking is
+	// what the view was last told, and looking says a read of the screen is
+	// due.
+	screen  []byte
+	asking  *bool
+	looking bool
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -138,7 +143,8 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // the replayed history holds, so closing the view on input under custody
 // closed every view of a task a gate owned as it opened (#1304). For a
 // harness whose screens it knows, the relay reads the terminal's screen once
-// its output pauses, and tells the view as
+// its output pauses, or soon after output follows a screen that asked, and
+// tells the view as
 // `{"type":"screen","asking":true}` when the harness waits on an answer at a
 // screen of its own, which only its terminal takes, as Claude Code's
 // permission prompt, and with false once it no longer does.
@@ -217,8 +223,17 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	if custody != nil {
 		relay.held = heldNotice(custody)
 	}
-	screens, readsScreen := harness.NativeScreens(harness.Kind(binding.harness))
 	look := time.AfterFunc(time.Hour, func() {
+		relay.mu.Lock()
+		relay.looking = false
+		relay.mu.Unlock()
+		if binding.harness == nil {
+			return
+		}
+		screens, readable := harness.NativeScreens(harness.Kind(binding.harness()))
+		if !readable {
+			return
+		}
 		rows, err := host.ReadScreen(record)
 		if err != nil {
 			return
@@ -269,7 +284,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			default:
 				relay.pending = append(relay.pending, event.Output...)
 				relay.received += int64(len(event.Output))
-				if readsScreen {
+				if !relay.looking || relay.asking == nil || !*relay.asking {
+					relay.looking = true
 					look.Reset(screenSettle)
 				}
 			}
@@ -430,11 +446,12 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 // localOnly, when set, is why a view opens only on the board's own page on
 // this PC: a terminal where values are typed, or one that mends remote
 // access, which only this PC does. isLaunching, when set, says the terminal's host may not run
-// yet because its goblin starts or resumes now. harness is the harness the
-// terminal runs, whose screens the relay reads, empty for a run item's.
+// yet because its goblin starts or resumes now. harness, when set, returns the
+// harness the terminal runs at the moment, whose screens the relay reads: for
+// the CFO, the one it registered as. A run item's terminal has none.
 type nativeBinding struct {
 	id, name, dir, key string
-	harness            string
+	harness            func() string
 	localOnly          string
 	check              func(ctx context.Context) (custody, err error)
 	isLaunching        func() bool
@@ -465,15 +482,16 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	// A view of the CFO names the terminal it expects the CFO in, so a CFO
 	// that moved is opened again rather than shown in a view of another.
 	if want := query.Get("cfo"); want != "" {
-		cfo := readCFOState(s.Store.Home.State)
-		id := cfo.terminal
+		id := readCFOState(s.Store.Home.State).terminal
 		if id == "" {
 			return nativeBinding{}, terminalEnded("The CFO does not run in a native terminal.")
 		}
 		if id != want {
 			return nativeBinding{}, terminalEnded("The CFO runs in another terminal now. Open the CFO again.")
 		}
-		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, harness: cfo.harness, check: func(context.Context) (error, error) {
+		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, harness: func() string {
+			return readCFOState(s.Store.Home.State).harness
+		}, check: func(context.Context) (error, error) {
 			if readCFOState(s.Store.Home.State).terminal != id {
 				return nil, terminalEnded("The CFO no longer runs in this terminal. Open the CFO again.")
 			}
@@ -485,7 +503,7 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	if err != nil {
 		return nativeBinding{}, err
 	}
-	return nativeBinding{id: meta.ID, name: "this task", dir: s.Store.Home.State, key: meta.ID, harness: meta.Harness, check: func(ctx context.Context) (error, error) {
+	return nativeBinding{id: meta.ID, name: "this task", dir: s.Store.Home.State, key: meta.ID, harness: func() string { return meta.Harness }, check: func(ctx context.Context) (error, error) {
 		current, err := s.nativeTask(selection)
 		if err != nil {
 			return nil, err

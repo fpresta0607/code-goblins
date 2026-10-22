@@ -17,7 +17,7 @@ import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
 import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
-import { CFO_KEY, MAXIMIZED_KEYS, cfoView, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
+import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { missingPageAction, unsentComment, updateAction } from "./boardUpdate";
 import { boardPage, usePageMissing } from "./board-page";
@@ -107,7 +107,8 @@ export function App() {
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
-  // A panel opens on its terminal, in either view.
+  // A panel opens on the view this browser keeps (openingView), in either
+  // workspace view.
   const [panelView, setPanelView] = useState<PanelView>(openingView);
   const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
@@ -304,17 +305,16 @@ export function App() {
   const messagesShown = showsPanel && !train && shownView === "messages";
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
   if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
-  // The view he chooses on the pill, Messages or Terminal, is the one a
-  // session opens on from then on.
+  // The view he chooses on the pill of a session that has both Messages and
+  // Terminal, one of the two, is the one a session opens on from then on.
   const chooseView = (next: PanelView) => {
     setPanelView(next);
-    if (next !== "task") store(PANEL_VIEW_KEY, next);
+    if (next !== "task" && views.includes("messages")) store(PANEL_VIEW_KEY, next);
   };
   // The session's own terminal, by the terminal deck's key, and whether its
   // harness works, which the box's working line shows.
   const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
   const isWorking = ["busy", "working", "active"].includes((cfoShown ? snapshot && liveCfoSession(snapshot)?.runtime?.state : task?.runtime?.state) || "");
-  const cfoTerminal = snapshot && cfoShown ? cfoView(snapshot) : undefined;
   if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
@@ -440,7 +440,7 @@ export function App() {
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
             box={<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
-              focus={messagesShown ? boxFocus : 0} off={cfoTerminal?.kind === "empty" ? cfoTerminal.text : ""}
+              focus={messagesShown ? boxFocus : 0}
               onAnswer={() => { setPanelView("terminal"); setSwitchFocus((prior) => prior + 1); }} />} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus}

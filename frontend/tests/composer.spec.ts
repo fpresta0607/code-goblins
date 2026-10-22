@@ -134,17 +134,21 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
-test("a busy program, a reconnecting terminal and typing a gate holds each say so beside the box, and his draft stays, never sent late", async ({ page }) => {
+test("a busy program, a reconnecting terminal and typing a gate holds each say so beside the box and hold Send, and his draft stays, never sent late", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   const note = box(page).locator(".composer-note");
+  await field(page).fill("merge it");
 
   relay.say({ type: "unread", unread: true });
   await expect(note).toHaveText("Program busy. Typed keys are waiting.");
+  await expect(send(page)).toBeDisabled();
+  await field(page).press("Enter");
   relay.say({ type: "unread", unread: false });
   await expect(note).toHaveText("");
+  await expect(send(page)).toBeEnabled();
+  await expect(field(page)).toHaveValue("merge it");
   relay.say({ type: "held", reason: "pipeline owns this task" });
-  await field(page).fill("merge it");
   await expect(note).not.toHaveText("");
   await expect(send(page)).toBeDisabled();
   relay.say({ type: "held", reason: "" });
@@ -156,9 +160,10 @@ test("a busy program, a reconnecting terminal and typing a gate holds each say s
   relay.drop();
   await expect(page.locator(".terminal-reconnecting")).toHaveCount(1);
   const before = typed(relay);
+  expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
 
-  await expect(note).toHaveText(/^Not sent\. The terminal is (reconnecting|connecting)\.$/);
+  await expect(note).toHaveText("Not sent. The terminal is reconnecting.");
   await expect(field(page)).toHaveValue("merge it");
   await page.waitForTimeout(1500);
   expect(typed(relay)).toBe(before);
@@ -234,6 +239,20 @@ test("a session opens on its Messages view, then on the view he last chose, and 
   await card(page, NAME).click();
 
   await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+});
+
+test("Terminal chosen on a session with no Messages view leaves a Claude Code session opening on Messages", async ({ page }) => {
+  await open(page, snapshot({}, { title: "Swipes scroll the phone terminal; Codex", harness: "codex", model: "gpt-5.5" }));
+  await card(page, NAME).click();
+  await expect(page.locator("#panel-title")).toHaveText(NAME);
+  await expect(view(page, "Messages")).toHaveCount(0);
+
+  await view(page, "Task").click();
+  await view(page, "Terminal").click();
+  await card(page, "Ivy - Window Painter").click();
+
+  await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
+  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the terminal behind the messages takes its size unseen, so a switch to it asks for none", async ({ page }) => {

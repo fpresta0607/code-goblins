@@ -41,14 +41,13 @@ function storeDraft(key: string, text: string): void {
 // takes typing now, one paused, resuming or starting, gets what he sends as a
 // message action, delivered once whatever it is doing, and the box lists his
 // latest with where each is, and those a paused goblin's resume will carry,
-// each of which can be deleted. off says why the box takes nothing, as with
-// no CFO running. Its microphone, held or tapped on a touch screen, and
-// Ctrl+Shift+Space in the box dictate into it, and the board's recent
-// dictations are a tap away.
-export function Composer({ snapshot, task, name, terminal, isWorking = false, focus = 0, onAnswer, off = "" }: {
+// each of which can be deleted. Its microphone, held or tapped on a touch
+// screen, and Ctrl+Shift+Space in the box dictate into it, and the board's
+// recent dictations are a tap away.
+export function Composer({ snapshot, task, name, terminal, isWorking = false, focus = 0, onAnswer }: {
   snapshot: Snapshot; task?: Task; name: string;
   // terminal is the terminal deck's key of the session's terminal.
-  terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void; off?: string;
+  terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void;
 }) {
   const queues = !!task && takesMessages(task);
   const link = useTerminalLink(terminal);
@@ -57,8 +56,9 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   const [draft, setDraft] = useState(() => storedDraft(draftKey));
   useEffect(() => storeDraft(draftKey, draft), [draftKey, draft]);
   const [isSending, setSending] = useState(false);
-  // Whether the last Send found no terminal to type into.
-  const [isUnsent, setUnsent] = useState(false);
+  // Why the last Send found no terminal to type into, until the draft
+  // changes.
+  const [unsent, setUnsent] = useState("");
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [, setEngine] = useState(0);
   // The kept message whose delete is on its way.
@@ -70,18 +70,20 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   useEffect(() => { if (focus) field.current?.focus(); }, [focus]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
-    setUnsent(false);
+    setUnsent("");
     sendID.current = "";
   };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const held = live?.held ? heldNotice(live.held) : "";
   const isAsking = !!live?.isAsking;
+  const isUnread = !!live?.isUnread;
+  const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const send = async () => {
     const text = draft.trim();
-    if (!text || off || isSending || held || isAsking) return;
+    if (!text || isSending || held || isAsking || isUnread) return;
     if (!task || !queues) {
-      if (live?.send(text)) { setDraft(""); setUnsent(false); } else setUnsent(true);
+      if (live?.send(text)) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();
@@ -120,8 +122,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
-  const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
-  const note = off || held || (isUnsent ? unsentWhy : "") || (live?.isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
+  const note = held || unsent || (isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
   const sent = task && queues ? messagesTo(snapshot, task.id).slice(-SHOWN) : [];
   const kept = queues ? task?.lifecycle?.kept_messages ?? [] : [];
   return <section className="composer" aria-label={"Messages to " + name}>
@@ -146,13 +147,13 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     <div className="composer-box">
       {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { write((prior) => appendDictation(prior, text)); setRecentOpen(false); field.current?.focus(); }}
         onClose={() => setRecentOpen(false)} onEngine={() => setEngine((count) => count + 1)} />}
-      <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={2} value={draft} disabled={!!off || isSending}
+      <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={2} value={draft} disabled={isSending}
         onChange={(event) => { const value = event.target.value; write(() => value); }} onKeyDown={keys} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
       <div className="composer-tools">
-        <DictationButton dictation={dictation} disabled={!!off} />
+        <DictationButton dictation={dictation} />
         <button type="button" className="icon-button" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
         <p className="composer-note" role="status">{note}</p>
-        <button type="button" className="primary send-decision" disabled={!!off || isSending || !draft.trim() || !!held || isAsking} onClick={() => void send()}>
+        <button type="button" className="primary send-decision" disabled={isSending || !draft.trim() || !!held || isAsking || isUnread} onClick={() => void send()}>
           <Icon name={isSending ? "clock" : "send"} />{isSending ? "Sending" : "Send"}
         </button>
       </div>
