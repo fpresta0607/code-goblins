@@ -5,8 +5,11 @@
 package access
 
 import (
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -23,17 +26,85 @@ const (
 // stands for.
 const fileAllAccess = 0x1F01FF
 
+// TreeSetNamedSecurityInfoW's TREE_SEC_INFO_SET, which hands the new list on
+// to what the object holds by each entry's own inheritance, and the
+// PROG_INVOKE_SETTING ProgressInvokeOnError, which calls back only for an
+// object it could not change.
+const (
+	treeSecInfoSet        = 1
+	progressInvokeOnError = 3
+)
+
+// shownUnchanged is how many of the objects Limit could not change its error
+// names.
+const shownUnchanged = 3
+
+var treeSetNamedSecurityInfo = windows.NewLazySystemDLL("advapi32.dll").NewProc("TreeSetNamedSecurityInfoW")
+
+// Windows keeps a callback for as long as the program runs and has room for
+// a fixed number of them, so every walk shares one, which counts into
+// unchanged while walking is held.
+var (
+	walking  sync.Mutex
+	callback = sync.OnceValue(func() uintptr {
+		return syscall.NewCallback(func(object *uint16, status uint32, _ *uint32, _ uintptr, _ int32) uintptr {
+			if status == 0 {
+				return 0
+			}
+			unchanged.count++
+			if len(unchanged.paths) < shownUnchanged {
+				unchanged.paths = append(unchanged.paths, windows.UTF16PtrToString(object)+": "+syscall.Errno(status).Error())
+			}
+			return 0
+		})
+	})
+	unchanged struct {
+		count int
+		paths []string
+	}
+)
+
 // Limit gives path, and everything made in it, to the accounts sids name
 // alone, each with full control: its access list names no one else and
 // inherits nothing from the folder above it. Windows hands the new list on
 // to everything already in path that takes its access from its folder, and
-// never through a link to what the link points at.
+// never through a link to what the link points at. Anything in path whose
+// list could not be changed, such as a file another account owns that does
+// not let this one change its list, makes it return an *Unchanged naming
+// the first few; the rest is changed all the same.
 func Limit(path string, sids ...string) error {
 	dacl, err := fullControl(sids)
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	walking.Lock()
+	defer walking.Unlock()
+	unchanged.count, unchanged.paths = 0, nil
+	status, _, _ := treeSetNamedSecurityInfo.Call(uintptr(unsafe.Pointer(name)), uintptr(windows.SE_FILE_OBJECT), uintptr(windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION), 0, 0, uintptr(unsafe.Pointer(dacl)), 0, treeSecInfoSet, callback(), progressInvokeOnError, 0)
+	if status != 0 {
+		return fmt.Errorf("set the access list of %s: %w", path, syscall.Errno(status))
+	}
+	if unchanged.count > 0 {
+		return &Unchanged{Count: unchanged.count, Examples: unchanged.paths}
+	}
+	return nil
+}
+
+// Unchanged is Limit's error when it changed a folder's list but left some
+// of what the folder holds with the access it had.
+type Unchanged struct {
+	// Count is how many files and folders kept their access.
+	Count int
+	// Examples name the first few, each with why.
+	Examples []string
+}
+
+func (u *Unchanged) Error() string {
+	return fmt.Sprintf("%d of the files and folders in it kept their access, such as %s", u.Count, strings.Join(u.Examples, "; "))
 }
 
 // Narrow limits path to SYSTEM, Administrators and the account this process

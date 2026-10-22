@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/access/accesstest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -56,7 +58,7 @@ func TestInstallKeepsTheHomeAndItsDevDriveFolderToTheOwnerSystemAndAdministrator
 	if !strings.Contains(output, "now open only to you, SYSTEM and Administrators") {
 		t.Errorf("the install does not say it narrowed the folders:\n%s", output)
 	}
-	if again := f.install(); !strings.Contains(again, "open only to you, SYSTEM and Administrators") || strings.Contains(again, "now open only") {
+	if again := f.install(); !strings.Contains(again, "own access list admits only you, SYSTEM and Administrators") || strings.Contains(again, "now open only") {
 		t.Errorf("a second install does not say the folders were already narrowed:\n%s", again)
 	}
 }
@@ -80,5 +82,33 @@ func TestInstallWithItsDevDriveDetachedNarrowsTheHomeAndSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(output, detached+" is not there to narrow") {
 		t.Errorf("the install does not say the Dev Drive folder was not there:\n%s", output)
+	}
+}
+
+// A file in the home the install may not narrow is named, and the install
+// narrows the rest and finishes.
+func TestInstallThatCannotNarrowAFolderInTheHomeNamesItAndFinishes(t *testing.T) {
+	if windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("an elevated administrator may change any list here")
+	}
+	// Arrange
+	f := homeUnderADriveRoot(t)
+	stuck := filepath.Join(f.root, home.WorktreesDir, "stuck")
+	writeFile(t, filepath.Join(stuck, "main.go"), "package main")
+	writeFile(t, filepath.Join(f.root, home.CachesDir, "module.zip"), "module")
+	accesstest.Unchangeable(t, filepath.Dir(f.root), stuck)
+
+	// Act
+	output := f.install()
+
+	// Assert
+	if !strings.Contains(output, "but 1 of the files and folders in it kept their access, such as "+stuck+": ") {
+		t.Errorf("the install does not name the folder it could not narrow:\n%s", output)
+	}
+	if sids, _ := accesstest.Allowed(t, filepath.Join(f.root, home.CachesDir, "module.zip")); !slices.Equal(sids, accesstest.Narrowed(t)) {
+		t.Errorf("the rest of the home allows %v, want only %v", sids, accesstest.Narrowed(t))
+	}
+	if !primary(f.root) {
+		t.Error("the install did not finish setting up the home")
 	}
 }

@@ -1242,7 +1242,7 @@ Relay (X/Discord), tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses a
 A source checkout is never a home: the code-goblins repository holds source only.
 The home is local and private by default, and nothing in it is pushed anywhere.
 `cfo install` keeps the home, and the Dev Drive folder its worktrees, scratch and caches moved to, open only to the account it runs as, SYSTEM and Administrators, and so does `cfo dev-drive move` for the folder it makes: a folder made under a drive's root lets Authenticated Users modify it, so any second account on the machine could read and write the fleet's records and every goblin's work.
-The first install that narrows a folder walks everything in it, which takes minutes for a folder holding hundreds of thousands of files, and an install that finds it narrowed reads only the folder itself.
+The first install that narrows a folder walks everything in it, which takes minutes for a folder holding hundreds of thousands of files, and an install that finds it narrowed reads only the folder itself. A file or folder in it whose list the install may not change, such as one an elevated program made, keeps its access, and the install names the first few and finishes.
 It is laid out the same way on every machine:
 
 | Path | What it holds |

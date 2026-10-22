@@ -1,11 +1,15 @@
 package access_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/access/accesstest"
@@ -102,5 +106,34 @@ func TestIsNarrowRefusesAFolderThatLetsAnotherAccountIn(t *testing.T) {
 	// Assert
 	if err != nil || isNarrow {
 		t.Errorf("IsNarrow = %v, %v; want a folder that also lets Authenticated Users in read as not narrow", isNarrow, err)
+	}
+}
+
+// A folder this account may not change the list of is named, and the rest
+// is changed all the same.
+func TestNarrowNamesWhatItCouldNotChangeAndChangesTheRest(t *testing.T) {
+	if windows.GetCurrentProcessToken().IsElevated() {
+		t.Skip("an elevated administrator may change any list here")
+	}
+	// Arrange
+	parent := t.TempDir()
+	folder := filepath.Join(parent, "CodeGoblins")
+	for _, name := range []string{"a", "stuck", "z"} {
+		writeFile(t, filepath.Join(folder, name, "main.go"))
+	}
+	accesstest.Unchangeable(t, parent, filepath.Join(folder, "stuck"))
+
+	// Act
+	err := access.Narrow(folder)
+
+	// Assert
+	var unchanged *access.Unchanged
+	if !errors.As(err, &unchanged) || unchanged.Count != 1 || len(unchanged.Examples) != 1 || !strings.HasPrefix(unchanged.Examples[0], filepath.Join(folder, "stuck")+": ") {
+		t.Fatalf("Narrow = %v, want it to name the one folder whose list it could not change", err)
+	}
+	for _, name := range []string{"a", "z"} {
+		if sids, _ := accesstest.Allowed(t, filepath.Join(folder, name, "main.go")); !slices.Equal(sids, accesstest.Narrowed(t)) {
+			t.Errorf("%s allows %v, want only %v", name, sids, accesstest.Narrowed(t))
+		}
 	}
 }

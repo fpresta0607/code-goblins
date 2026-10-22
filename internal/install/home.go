@@ -169,14 +169,19 @@ func (s Service) narrowFolders(report *reporter) error {
 			return fmt.Errorf("install: read who may open %s: %w", folder, err)
 		}
 		if isNarrow {
-			report.same("access", folder+" is open only to you, SYSTEM and Administrators")
+			report.same("access", folder+"'s own access list admits only you, SYSTEM and Administrators")
 			continue
 		}
 		report.detail("narrowing " + folder + " and everything in it, which takes minutes for a folder holding many files")
-		if err := access.Narrow(folder); err != nil {
+		var unchanged *access.Unchanged
+		switch err := access.Narrow(folder); {
+		case errors.As(err, &unchanged):
+			report.change("access", folder+" now open only to you, SYSTEM and Administrators, but "+unchanged.Error()+"; an administrator can make each take its access from its folder")
+		case err != nil:
 			return fmt.Errorf("install: keep %s to you, SYSTEM and Administrators: %w", folder, err)
+		default:
+			report.change("access", folder+" and everything in it now open only to you, SYSTEM and Administrators")
 		}
-		report.change("access", folder+" and everything in it now open only to you, SYSTEM and Administrators")
 	}
 	return nil
 }

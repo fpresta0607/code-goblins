@@ -34,7 +34,24 @@ func Self(t *testing.T) string {
 func DriveRootLike(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;" + Self(t) + ")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;" + AuthenticatedUsers + ")")
+	SetList(t, dir, "D:(A;OICI;FA;;;"+Self(t)+")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;"+AuthenticatedUsers+")", true)
+	return dir
+}
+
+// Unchangeable makes dir's folder sub one this account may not change the
+// access list of, unless it runs elevated: dir grants it nothing of its own,
+// and sub lets its owner only read it.
+func Unchangeable(t *testing.T, dir, sub string) {
+	t.Helper()
+	SetList(t, dir, "D:(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;"+AuthenticatedUsers+")", true)
+	SetList(t, sub, "D:(A;OICI;FR;;;S-1-3-4)", false)
+}
+
+// SetList gives path the access list sddl describes, keeping what it
+// inherits from its folder unless isProtected.
+func SetList(t *testing.T, path, sddl string, isProtected bool) {
+	t.Helper()
+	descriptor, err := windows.SecurityDescriptorFromString(sddl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,10 +59,13 @@ func DriveRootLike(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+	information := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.UNPROTECTED_DACL_SECURITY_INFORMATION)
+	if isProtected {
+		information = windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, information, nil, nil, dacl, nil); err != nil {
 		t.Fatal(err)
 	}
-	return dir
 }
 
 // Allowed is every SID path's access list allows anything, sorted, and
