@@ -150,14 +150,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
 		case strings.HasPrefix(line, "turn for "):
 			// A turn whose spinner redraws its line every 100 ms, as Claude
-			// Code's does, so its output never pauses while it lasts.
+			// Code's does, so its output never pauses while it lasts. It
+			// draws as many frames as fill its length, so a stall only makes
+			// it longer.
 			lasts, err := time.ParseDuration(strings.TrimPrefix(line, "turn for "))
 			if err != nil {
 				record("turn error: " + err.Error())
 				continue
 			}
 			drawComposer("", true)
-			for frame, end := 0, time.Now().Add(lasts); time.Now().Before(end); frame++ {
+			for frame := range int(lasts / (100 * time.Millisecond)) {
 				time.Sleep(100 * time.Millisecond)
 				fmt.Print("\x1b[H" + string([]rune("·✢✳✶✻✽")[frame%6]))
 			}
@@ -979,6 +981,7 @@ func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
 	opened := time.Now()
 	second.waitFor(t, `{"type":"screen","asking":true}`)
 
+	// stall-accepted: it times the view's notice against its opening, and the read it rules out comes 300 ms after the history's output pauses, too short for a longer bound to tell apart.
 	if waited := time.Since(opened); waited >= screenSettle/2 {
 		t.Errorf("the view was told the harness asks %v after its history began, want it told as it opens, well before the %v its output's pause takes", waited, screenSettle)
 	}
