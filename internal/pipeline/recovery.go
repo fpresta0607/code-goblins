@@ -163,6 +163,18 @@ func (r Reader) returnCustodyAtRecordedHead(ctx context.Context, worktree, branc
 	if err := r.requireRef(ctx, bare, "refs/heads/"+branch, run.SubmittedHead); err != nil {
 		return fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
 	}
+	// Native recovery verifies an unverified head against the gate branch
+	// first, and the head it then takes can fast-forward or replace the branch.
+	var verified []struct {
+		At int64 `json:"terminal_head_verified_at"`
+	}
+	query := `SELECT COALESCE(terminal_head_verified_at,0) AS terminal_head_verified_at FROM runs WHERE id=` + sqlString(run.RunID) + ` AND head_sha=` + sqlString(run.RecordedHead)
+	if err := r.query(ctx, query, &verified); err != nil {
+		return err
+	}
+	if len(verified) != 1 || verified[0].At == 0 {
+		return errors.New("pipeline: the engine never verified the run's recorded head, and native recovery of an unverified head can move the task branch")
+	}
 	native, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
 	if err != nil {
 		return fmt.Errorf("pipeline: native custody recovery failed: %w", err)

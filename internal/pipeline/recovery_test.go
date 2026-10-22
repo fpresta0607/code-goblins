@@ -677,10 +677,12 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 	for _, test := range []struct {
 		name          string
 		isGateMoved   bool
+		isUnverified  bool
 		isRecoverable bool
 	}{
 		{name: "gate branch at the submitted head", isRecoverable: true},
 		{name: "gate branch moved off the submitted head", isGateMoved: true},
+		{name: "recorded head the engine never verified", isUnverified: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: the gate rebased the submitted head onto a newer main and
@@ -718,10 +720,14 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 				gate = upstream
 			}
 			runPipelineGit(t, work, "push", "--quiet", bare, gate+":refs/heads/"+branch, submitted+":refs/fixture/submitted", recorded+":refs/fixture/run", upstream+":refs/remotes/origin/main")
+			verifiedAt := "1"
+			if test.isUnverified {
+				verifiedAt = "NULL"
+			}
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,created_at INTEGER,updated_at INTEGER);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,terminal_head_verified_at INTEGER,created_at INTEGER,updated_at INTEGER);
 INSERT INTO repos VALUES(` + sqlString(repo) + `,` + sqlString(filepath.ToSlash(work)) + `);
-INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(recorded) + `,` + sqlString(submitted) + `,NULL,NULL,1,1);`
+INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(recorded) + `,` + sqlString(submitted) + `,NULL,NULL,` + verifiedAt + `,1,1);`
 			if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
@@ -743,8 +749,8 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 				if err == nil || runner.recoveries != 0 || strings.TrimSpace(string(row)) != recorded+" "+submitted+" 0" {
 					t.Fatalf("unsafe recovery: error=%v native recoveries=%d run=%q", err, runner.recoveries, row)
 				}
-				if moved := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); moved != upstream {
-					t.Fatalf("gate branch moved from %s to %s", upstream, moved)
+				if moved := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); moved != gate {
+					t.Fatalf("gate branch moved from %s to %s", gate, moved)
 				}
 				return
 			}
