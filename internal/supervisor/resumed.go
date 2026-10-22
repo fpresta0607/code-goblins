@@ -19,7 +19,10 @@ import (
 // Overlord's messages for a resume that never came. A goblin that reports
 // from the session its resume started, after the resume was recorded failed,
 // has resumed, so its record is finished as running, and each board message
-// kept for that resume goes to the CFO, since nothing types it now.
+// kept for that resume goes to the CFO, since nothing types it now. A Resume
+// that finds the terminal that resume started already up relaunches nothing,
+// so it hands each such message to the CFO the same way before it writes its
+// own record over the failed one (issue #1281).
 
 // finishTakenResumes finishes as running each failed resume whose goblin has
 // reported from the session the resume started.
@@ -65,6 +68,30 @@ func finishTakenResume(stateDir, id string) (err error) {
 		return errors.Join(published, err)
 	}
 	return errors.Join(published, state.AppendStatus(stateDir, id, "lifecycle-running: "+state.NormalizeStatusDetail(record.Reason+"; its goblin reported from the session this resume started, so it resumed")))
+}
+
+// HandOverRelaunchedNote gives the CFO, with their words, the board messages
+// a failed resume's record keeps once a Resume finds the terminal that
+// resume's relaunch started already up: that Resume relaunches nothing and
+// finishes the task as running, so nothing types them now. A resume cut short
+// kept none after its relaunch began, so it hands nothing on. It takes no
+// lock and writes nothing: its caller holds the task's lifecycle lock and
+// writes its own record over this one once they are handed on. It says
+// whether each is on the CFO's notify wake, so a wake episode that fails to
+// publish after them is said without handing them on twice.
+func HandOverRelaunchedNote(stateDir string, record state.Lifecycle) (isHanded bool, err error) {
+	_, messages := keptMessages(record.ResumeNote)
+	if !waitsForResume(record) || len(messages) == 0 {
+		return true, nil
+	}
+	why := record.ID + "'s failed resume was finished as running because a Resume found the terminal it started already up; a message kept before that resume began at " + record.Started.UTC().Format(time.RFC3339) + " went with it, and one kept after it failed did not"
+	for _, message := range messages {
+		if err := handToCFO(stateDir, record.ID, why, message); err != nil {
+			return false, err
+		}
+	}
+	_, err = wake.PublishEpisode(stateDir)
+	return true, err
 }
 
 // takenResume reads task id's lifecycle record and says whether it is a
