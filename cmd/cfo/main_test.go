@@ -219,6 +219,13 @@ func TestMain(m *testing.M) {
 	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
 		os.Exit(runFakeClaude())
 	}
+	// A goblin seal a test starts as Codex's shell or pi's extension does
+	// runs this binary, under its own name, as the home's cfo.exe. It comes
+	// after every stand-in above, so a stand-in session's cfo.exe, which runs
+	// hooks too, still acts only on its scratch home.
+	if len(os.Args) > 1 && os.Args[1] == "hook" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	// HERDR_PANE_ID and CFO_HOST_ID are unset too: a hook under test must
 	// never register this machine's real Herdr pane or native terminal as a
 	// test home's CFO. NO_MISTAKES_GATE is unset because every hook does

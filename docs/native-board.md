@@ -68,10 +68,10 @@ Restarting with the same CFO home recovers durable events, evaluations, actions,
 
 Every session the fleet starts carries its native session hooks in its own launch, so a Claude Code, Codex or Pi goblin reports its session, its parent, its prompts, its turns and its end the same way, and nothing global is written.
 A Claude Code goblin's settings file, `state/goblin-claude-settings.json`, and the Claude CFO's, `state/cfo-claude-settings.json`, run `cfo native-hook claude` for SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd, SubagentStart and SubagentStop, beside their other hooks; neither `~/.claude/settings.json` nor any other file every Claude Code session on the machine loads gets them, since the Overlord's own sessions outside the fleet would run them too, as one once took the CFO's lock.
-A Codex goblin's launch, and the Codex CFO's, pass `--enable hooks` and one `-c hooks.<event>=...` override for each of those events and Interrupt, PreCompact and PostCompact, running `cfo native-hook codex` directly, rather than writing `~/.codex/hooks.json`.
+A Codex goblin's launch, and the Codex CFO's, pass `--enable hooks` and one `-c hooks.<event>=...` override for each of those events and Interrupt, PreCompact and PostCompact, running `cfo native-hook codex` directly, rather than writing `~/.codex/hooks.json`; a goblin's also passes its goblin seal, a `hooks.PreToolUse` override for Bash ([The seal and the key alarm](#the-seal-and-the-key-alarm)).
 Codex keys a hook's trust by where it is defined, the same `<session-flags>/config.toml` for every launch, and by what it runs, so the Overlord trusts them once, in a Codex goblin's `/hooks`, for every Codex session of the home; until he does, each Codex start reports that it started without trusting its hooks, and its hooks do not run.
 A home whose paths would need quoting, such as one under a profile whose name has a space, cannot write the direct command into a `-c` override, so its Codex goblins start without per-launch hooks, which the start's output says, and the board reads them from their terminals; its Codex CFO starts without them too, and `cfo hooks install codex` writes them for it with its helper.
-Pi takes its hooks from its extension, `~/.pi/agent/extensions/cfo-native.ts`, which `cfo hooks install pi` writes.
+Pi takes its hooks from its extension, `~/.pi/agent/extensions/cfo-native.ts`, which `cfo hooks install pi` writes; a pi goblin starts with its goblin seal's extension as well.
 Run `cfo hooks check claude`, `cfo hooks check codex`, or `cfo hooks check pi` to inspect the installed capability contract.
 Run `cfo hooks install <harness>` to add the corresponding native lifecycle integration for sessions the fleet did not start; for Claude Code and Codex the fleet's own launches need none.
 The verified minimum contracts are Claude Code 2.1.278, Codex 0.154.0, and Pi 0.85.1.
@@ -2114,6 +2114,13 @@ The key alarm runs after every tool call, inside the goblin's native hook (`cfo 
 It matches each kind of secret key by its prefix and its length, and most kinds by their mix of letters and digits too, so a commit hash, a UUID, a publishable key or a masked key never wakes it, though a long name that starts like a key can.
 A Bash, PowerShell or Monitor call starts the hook program twice, the seal before it and the native hook after it, any other call once, and an ordinary call in a worktree with no Python environment reads no file.
 The native hook and the alarm were two hook entries, a third process after every call; one process runs both now, the native hook still held to its own three seconds and the alarm to Claude Code's default of ten minutes, a part past its limit left unfinished as Claude Code would have ended it.
+
+A Codex or pi goblin runs the same seal, and no key alarm yet (#1366).
+A Codex goblin's launch carries it as a `hooks.PreToolUse` override matching Bash, the name Codex gives a shell command and an `exec_command` call alike, which runs `cfo hook goblin-seal-codex` with the home's `cfo.exe` under Codex's own limit for a hook, as Claude Code's is for its seal.
+Codex runs it only once the Overlord has trusted it in a Codex goblin's `/hooks`, as it runs the goblin's other hooks, and a home whose paths would need quoting starts its Codex goblins without it, which the start's output says.
+A pi goblin starts with `--extension state\goblin-pi-extension.ts`, written anew at each spawn and switch, beside the native extension every pi session loads: its `tool_call` handler runs `cfo hook goblin-seal-pi` with the home's hook program before each bash call, the one pi tool that runs a command, and blocks the call with the seal's reason.
+Both seals look in the folder their session started in, which their payload names, and answer with exit 0 and the refusal as JSON on stdout: Codex runs a hook in the session's Windows PowerShell, which ends with 1 for every exit code but 0, so the exit 2 Claude Code reads never reaches it.
+The pi extension blocks the call too when the seal cannot start or answer within the native hooks' 30 seconds, as pi blocks a call whose handler throws.
 
 ### Logins in a goblin's Connections
 

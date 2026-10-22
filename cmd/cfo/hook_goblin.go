@@ -26,14 +26,22 @@ const goblinSealRefusal = "A key fetch is reading in your login's browser now, s
 // reads in the browser its task holds, so nothing the page shows reaches its
 // transcript. Every other command passes, and so does a browser command when
 // the goblin's home or task cannot be read, since no fetch can seal a
-// browser no task holds. A seal that cannot be read refuses.
-func hookGoblinSeal(stdin io.Reader, stderr io.Writer) int {
+// browser no task holds. A seal that cannot be read refuses. name is the
+// seal the goblin's harness runs: Claude Code's goblin-seal names the folder
+// it started in and reads a refusal on stderr, and Codex's goblin-seal-codex
+// and pi's goblin-seal-pi name their session's folder in the payload and
+// read one on stdout.
+func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	payload, ok := claudehook.ReadPayload(stdin)
 	if !ok {
 		return 0
 	}
-	if refusal := startHookRefusal(os.Getenv("CLAUDE_PROJECT_DIR"), os.Getenv("CFO_TASK_ID")); refusal != "" {
-		return claudehook.DenyPreTool(stderr, refusal)
+	worktree, deny := payload.Cwd, func(message string) int { return claudehook.DenyPreToolOnStdout(stdout, message) }
+	if name == "goblin-seal" {
+		worktree, deny = os.Getenv("CLAUDE_PROJECT_DIR"), func(message string) int { return claudehook.DenyPreTool(stderr, message) }
+	}
+	if refusal := startHookRefusal(worktree, os.Getenv("CFO_TASK_ID")); refusal != "" {
+		return deny(refusal)
 	}
 	if !strings.Contains(strings.ToLower(payload.Command), "chrome-devtools-axi") {
 		return 0
@@ -45,12 +53,12 @@ func hookGoblinSeal(stdin io.Reader, stderr io.Writer) int {
 	if isSealed, _ := browserlogin.Sealed(h.State, os.Getenv("CFO_TASK_ID"), time.Now()); !isSealed {
 		return 0
 	}
-	return claudehook.DenyPreTool(stderr, goblinSealRefusal)
+	return deny(goblinSealRefusal)
 }
 
 // startHookRefusal is what a goblin is told of a shell command that waits
-// because a Python environment of worktree, the folder its Claude Code
-// started in, holds code that runs at every Python start and that no known
+// because a Python environment of worktree, the folder its harness started
+// in, holds code that runs at every Python start and that no known
 // package ships, or empty when none does. The command is refused before
 // anything it starts can run Python, and so is every one after it until the
 // file is gone. The CFO is woken for each such file with the file and the

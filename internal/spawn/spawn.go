@@ -429,6 +429,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: %w", err))
 	}
+	piExtension, err := s.goblinPiExtension(req.Harness)
+	if err != nil {
+		return fail(result, fmt.Errorf("spawn: %w", err))
+	}
 	codexHooks, hooksNotice := s.codexHooks(req.Harness)
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       req.BriefPath,
@@ -436,6 +440,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		Scratch:         scratch,
 		Model:           req.Model,
 		Effort:          req.Effort,
+		PiExtensionPath: piExtension,
 		MCPConfig:       provision.MCPConfig,
 		Settings:        settings,
 		CodexMCPServers: codexServers,

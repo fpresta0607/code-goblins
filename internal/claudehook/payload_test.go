@@ -16,6 +16,19 @@ func TestReadPayloadPreToolUse(t *testing.T) {
 	}
 }
 
+// Codex writes the payload Claude Code does, with the folder its session
+// started in, which is where a Codex goblin's seal looks for its worktree.
+func TestReadPayloadKeepsTheSessionFolderCodexNames(t *testing.T) {
+	p, ok := ReadPayload(strings.NewReader(`{"session_id":"s5","cwd":"D:\\worktrees\\pd-keys","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"uv run pytest"},"turn_id":"t1"}`))
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	want := Payload{SessionID: "s5", Cwd: `D:\worktrees\pd-keys`, ToolName: "Bash", Command: "uv run pytest"}
+	if p != want {
+		t.Errorf("ReadPayload = %+v, want %+v", p, want)
+	}
+}
+
 func TestReadPayloadPostToolUseKeepsTheCallAndItsResponse(t *testing.T) {
 	p, ok := ReadPayload(strings.NewReader(`{"session_id":"s4","tool_name":"Read","tool_use_id":"toolu_1","tool_response":{"file":{"content":"line one\nline two"}}}`))
 	if !ok {
