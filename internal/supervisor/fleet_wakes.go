@@ -1153,8 +1153,8 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		goblin := goblinOf[pr.URL]
 		// A pull request a train takes is never next to land with no train
 		// to test it, since one alone rides a train of its own once it waited
-		// loneRiderWait, and one no train takes is next once its goblin
-		// reported it done.
+		// as long as ridesAlone asks, and one no train takes is next once its
+		// goblin reported it done.
 		isNextToLand := func() bool {
 			if !pr.IsCrossRepository && isFleets(pr) {
 				return false
