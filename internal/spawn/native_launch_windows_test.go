@@ -892,7 +892,7 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
 			}
 			cooldown := map[string]string{"PIP_UPLOADED_PRIOR_TO": "", "UV_EXCLUDE_NEWER": "", "npm_config_before": ""}
-			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship", TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7")}, nil, "") + cooldownInstruction(cooldown) + credentialsInstruction(f.project, auth.Grant{}); written != instruction+"\n" {
+			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship", Mode: meta.Mode, TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7")}, nil, "") + cooldownInstruction(cooldown) + credentialsInstruction(f.project, auth.Grant{}); written != instruction+"\n" {
 				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
