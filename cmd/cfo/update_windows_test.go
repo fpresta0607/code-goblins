@@ -1387,19 +1387,26 @@ func TestThePreflightJudgesARecordWrittenWithinTheGrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var writeErr error
-	written := make(chan struct{})
-	go func() {
-		defer close(written)
-		time.Sleep(60 * time.Millisecond)
-		writeErr = os.WriteFile(filepath.Join(h.State, ".watch.lock"), record, 0o600)
-	}()
+	// The holder finishes writing its record once the preflight has read it
+	// empty, never after a fixed time: a writer that a loaded runner ran late
+	// landed past the grace's 150 ms (#1391).
+	var firstErr, writeErr error
+	reads := 0
+	read := readWatchLock
+	readWatchLock = func(dir, name string) (*lock.Info, error) {
+		holder, err := read(dir, name)
+		if reads++; reads == 1 {
+			firstErr = err
+			writeErr = os.WriteFile(filepath.Join(h.State, ".watch.lock"), record, 0o600)
+		}
+		return holder, err
+	}
+	t.Cleanup(func() { readWatchLock = read })
 
 	err = unprovedSupervisor(h)
-	<-written
 
-	if writeErr != nil {
-		t.Fatal(writeErr)
+	if firstErr == nil || writeErr != nil {
+		t.Fatalf("the premise failed: the first read found %v, want the empty record refused, and the write failed with %v", firstErr, writeErr)
 	}
 	if err == nil || !strings.Contains(err.Error(), "another-host") {
 		t.Fatalf("the preflight returned %v, want a refusal naming the supervisor on another-host", err)
