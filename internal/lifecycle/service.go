@@ -61,12 +61,13 @@ type Operations struct {
 	// nothing, so no instruction carries them. It runs and answers as
 	// HandOver does.
 	HandOverRelaunched func(state.Lifecycle) (bool, error)
-	// HandOverStopped hands on what the goblin's own record keeps for its
-	// resume once a stop ends the goblin before that resume runs, as the
-	// board messages kept for a paused goblin: the stop's record keeps no
-	// note, and no resume runs after it. It runs and answers as HandOver
-	// does.
-	HandOverStopped func(state.TaskMeta, state.Lifecycle) (bool, error)
+	// HandOverEnded hands on what the goblin's own record keeps for its
+	// resume once a stop or a pause, as the action names, writes its own
+	// record over it before that resume runs, as the board messages kept for
+	// a paused goblin: the stop's record keeps no note and no resume runs
+	// after it, and a pause over a failed resume's record replaces the
+	// resume it waited for. It runs and answers as HandOver does.
+	HandOverEnded func(meta state.TaskMeta, prior state.Lifecycle, action string) (bool, error)
 }
 
 type Service struct {
@@ -210,10 +211,13 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		}
 		handedOver = errors.Join(handedOver, err)
 	}
-	// A stop's record keeps no note and no resume runs after it, so what the
-	// goblin's own record keeps for its resume is handed on here or never.
-	if request.Action == "stop" && service.Operations.HandOverStopped != nil {
-		isHanded, err := service.Operations.HandOverStopped(meta, prior)
+	// A stop's record keeps no note and no resume runs after it, and a pause
+	// reaches here over its goblin's own record waiting for a resume only when
+	// that record is a failed resume, since a paused goblin is paused again in
+	// place above: the pause's record replaces it, so that resume never runs
+	// again. What the record keeps for its resume is handed on here or never.
+	if request.Action != "resume" && service.Operations.HandOverEnded != nil {
+		isHanded, err := service.Operations.HandOverEnded(meta, prior, request.Action)
 		if !isHanded {
 			return result, err
 		}
