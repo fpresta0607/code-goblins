@@ -6,6 +6,7 @@ import { doneCards, expect, recordDoneCards, servePages, test, type Page, type R
 const CLICKS = "cred-1111111111111111";
 const INPUTS = "cred-2222222222222222";
 const WINDOW = "cred-3333333333333333";
+const REFERENCE_CARD = "cred-4444444444444444";
 
 interface Sent { path: string; token: string | null; body: Record<string, unknown> }
 
@@ -143,6 +144,61 @@ test("the window button asks for the goblin's own browser, then the card says it
   await expect(card.locator(".step-window")).toContainText("The browser window is open on your screen. Take the step there, then press Done.");
   await expect(card.locator(".step-window .primary")).toBeDisabled();
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("link")).toHaveCount(0);
+});
+
+// The Overlord, 2026-10-21, of a plain field that refused a client ID: "this
+// is not a secret this is the client id, won't let me add it in command
+// center input, fix for future sessions". The warning stays, with one tap to
+// say the value is no secret and send it anyway.
+const KEY_REFUSAL = { status: 400, json: { error: "MADE_UP_ACCOUNT_REF looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field.", looks_like_key: true } };
+const REFERENCE = "Zk3Qx9Lm2Vb7" + "Nc4Rt8Wy1Hs5" + "Jd6Fg0A";
+
+test("a plain value refused as a key keeps its warning and offers to send it anyway, saying it is no secret", async ({ page }) => {
+  // Arrange
+  const sent: Sent[] = [];
+  const answers = [KEY_REFUSAL, { status: 200, json: { id: REFERENCE_CARD, state: "open", saved: [], received: ["MADE_UP_ACCOUNT_REF"], replaced: [] } }];
+  await page.route("**/api/credentials/**", async (route: Route) => {
+    sent.push({ path: new URL(route.request().url()).pathname, token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() as Record<string, unknown> });
+    await route.fulfill(answers.shift()!);
+  });
+  const card = await openCard(page, REFERENCE_CARD);
+  const field = card.getByLabel("The account reference", { exact: true });
+  const row = card.locator('[data-credential-name="MADE_UP_ACCOUNT_REF"]');
+
+  // Act
+  await field.fill(REFERENCE);
+  await field.press("Enter");
+  await expect(row.getByRole("alert")).toContainText("looks like a key, and this field goes to the goblin");
+  await row.getByRole("button", { name: "It is not a secret: send it anyway" }).click();
+  await expect.poll(() => sent.length).toBe(2);
+
+  // Assert
+  expect(sent[0].body).toEqual({ id: REFERENCE_CARD, generation: "d".repeat(32), values: { MADE_UP_ACCOUNT_REF: REFERENCE }, replace: [] });
+  expect(sent[1].body).toEqual({ id: REFERENCE_CARD, generation: "d".repeat(32), values: { MADE_UP_ACCOUNT_REF: REFERENCE }, replace: [], not_secret: ["MADE_UP_ACCOUNT_REF"] });
+  await expect(row).toContainText("Sent");
+  await expect(row.getByRole("button", { name: "It is not a secret: send it anyway" })).toHaveCount(0);
+});
+
+test("a refusal that is not about a key offers no way past it, and typing again takes the offer away", async ({ page }) => {
+  // Arrange
+  const answers = [{ status: 400, json: { error: "MADE_UP_ACCOUNT_REF is empty." } }, KEY_REFUSAL];
+  await page.route("**/api/credentials/**", (route: Route) => route.fulfill(answers.shift()!));
+  const card = await openCard(page, REFERENCE_CARD);
+  const field = card.getByLabel("The account reference", { exact: true });
+  const row = card.locator('[data-credential-name="MADE_UP_ACCOUNT_REF"]');
+  const offer = row.getByRole("button", { name: "It is not a secret: send it anyway" });
+
+  // Act
+  await field.fill("anything");
+  await field.press("Enter");
+  await expect(row.getByRole("alert")).toContainText("is empty");
+
+  // Assert
+  await expect(offer).toHaveCount(0);
+  await field.press("Enter");
+  await expect(offer).toBeVisible();
+  await field.fill(REFERENCE + "x");
+  await expect(offer).toHaveCount(0);
 });
 
 for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }], ["on a phone", { width: 390, height: 844 }]] as const) {

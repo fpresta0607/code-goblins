@@ -77,3 +77,31 @@ func TestSecretShapeRefusesValues(t *testing.T) {
 		}
 	}
 }
+
+// A field named as an ID takes the identifiers services show openly, and only
+// those: a longer value, one with a key's prefix or whole shape, or a field
+// not named as an ID reads as a key.
+func TestPlainIdentifierTakesShortIdentifiersInIDFieldsOnly(t *testing.T) {
+	for name, c := range map[string]struct {
+		field, value string
+		want         bool
+	}{
+		"a mixed case client ID":             {"MADE_UP_CLIENT_ID", "k7Qx9L" + "m2Vb4Rt8Nc", true},
+		"a lower case field name":            {"made_up_client_id", "k7Qx9L" + "m2Vb4Rt8Nc", true},
+		"a field named ID":                   {"ID", "k7Qx9L" + "m2Vb4Rt8Nc", true},
+		"twenty letters and digits":          {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0", true},
+		"twenty one letters and digits":      {"MADE_UP_CLIENT_ID", "A1b2C3d4E5" + "f6G7h8I9j0K", false},
+		"an empty value":                     {"MADE_UP_CLIENT_ID", "", false},
+		"an AWS access key ID's shape":       {"MADE_UP_KEY_ID", "AKIA" + "ABCDEFGHIJKLMNOP", false},
+		"a key's prefix":                     {"MADE_UP_CLIENT_ID", "eyJ" + "hbGciOiJ" + "IUzI1", false},
+		"a hyphenated value":                 {"MADE_UP_CLIENT_ID", "k7Qx9-Lm2Vb4-Rt8N", false},
+		"a field not named as an ID":         {"MADE_UP_TOKEN", "k7Qx9L" + "m2Vb4Rt8Nc", false},
+		"a field whose name only ends in ID": {"MADE_UP_VALID", "k7Qx9L" + "m2Vb4Rt8Nc", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := PlainIdentifier(c.field, c.value); got != c.want {
+				t.Errorf("PlainIdentifier(%q, %q) = %v, want %v", c.field, c.value, got, c.want)
+			}
+		})
+	}
+}

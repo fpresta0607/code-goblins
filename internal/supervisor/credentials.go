@@ -552,7 +552,10 @@ type credentialSave struct {
 	Generation string            `json:"generation"`
 	Values     map[string]string `json:"values"`
 	Replace    []string          `json:"replace"`
-	isFetched  bool
+	// NotSecret names the plain fields whose values he says are no secret,
+	// so a value shaped like a key goes to the goblin anyway.
+	NotSecret []string `json:"not_secret"`
+	isFetched bool
 }
 
 // credentialOutcome is a save's answer: names and states, never a value.
@@ -570,6 +573,9 @@ type credentialRefusal struct {
 	status   int
 	Message  string   `json:"error"`
 	Existing []string `json:"existing,omitempty"`
+	// LooksLikeKey says a plain value was refused for its shape, so the card
+	// can offer him to say it is no secret.
+	LooksLikeKey bool `json:"looks_like_key,omitempty"`
 }
 
 func (r credentialRefusal) Error() string { return r.Message }
@@ -705,8 +711,8 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, name+" holds a line break or a tab. Type it as one line. Nothing was sent.")
 		case slices.ContainsFunc(strings.Fields(value), func(word string) bool {
 			return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
-		}):
-			return refuse(http.StatusBadRequest, name+" looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field.")
+		}) && !slices.Contains(input.NotSecret, name) && !auth.PlainIdentifier(name, strings.TrimSpace(value)):
+			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field."}
 		}
 	}
 	for _, name := range names {
