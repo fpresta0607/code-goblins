@@ -1,9 +1,12 @@
 package lock
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +51,42 @@ func TestAcquireNamedOwnerWithinEndsAtItsWaitWhileTheRecordIsHeld(t *testing.T) 
 	// stall-accepted: it times the acquire, and the wait it rules out, the 5 s a read of a held record waits by default, is too short for a bound past a stall to tell apart.
 	if waited > wait+2*time.Second {
 		t.Errorf("the acquire waited %s while the record was held, want it to give up near its wait of %s: %v", waited, wait, err)
+	}
+}
+
+// A pause between two looks that runs past the wait, as one can on a loaded
+// machine, leaves the next look no time, and that look ends with the
+// deadline: the acquire still returns the holder's ErrHeld. On a CI runner
+// (#1393) TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait got
+// "context deadline exceeded".
+func TestAPauseThatRunsPastTheWaitStillReturnsTheHoldersErrHeld(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	holder := exec.Command("ping", "-n", "30", "127.0.0.1")
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
+	if _, err := AcquireNamedOwner(dir, ".wake-queue.lock", holder.Process.Pid, "wake"); err != nil {
+		t.Fatal(err)
+	}
+	const wait = 300 * time.Millisecond
+	pauses := 0
+	sleep = func(pause time.Duration) {
+		pauses++
+		time.Sleep(pause + wait)
+	}
+	t.Cleanup(func() { sleep = time.Sleep })
+
+	// Act
+	_, err := AcquireNamedOwnerWithin(dir, ".wake-queue.lock", os.Getpid(), "wake", wait)
+
+	// Assert
+	if pauses == 0 {
+		t.Fatalf("the premise failed: the acquire never paused between two looks (%v)", err)
+	}
+	if !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), fmt.Sprintf("pid %d", holder.Process.Pid)) {
+		t.Fatalf("AcquireNamedOwnerWithin after a pause past its wait = %v, want the ErrHeld of the holder, pid %d", err, holder.Process.Pid)
 	}
 }
 
