@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
@@ -30,8 +32,14 @@ const (
 )
 
 // TrainRepository reads the GitHub repository a checkout's origin is and its
-// default branch, as the CI poll reads them, for a merge train.
-func TrainRepository(ctx context.Context, runner execx.Runner, checkout string) (train.Repository, error) {
+// default branch, as the CI poll reads them, for a merge train, and whether
+// the project's manifest under dataDir lets a train of one pull request land
+// it on its own CI run. A project with no manifest does not.
+func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout string) (train.Repository, error) {
+	manifest, _, err := project.LoadForCheckout(dataDir, checkout)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return train.Repository{}, fmt.Errorf("merge train: read the project manifest of %s: %w", checkout, err)
+	}
 	origin, err := runOutput(ctx, runner, checkout, "git", "config", "--get", "remote.origin.url")
 	if err != nil {
 		return train.Repository{}, fmt.Errorf("merge train: read the origin of %s: %w", checkout, err)
@@ -44,7 +52,7 @@ func TrainRepository(ctx context.Context, runner execx.Runner, checkout string) 
 	if err != nil {
 		return train.Repository{}, err
 	}
-	return train.Repository{Slug: remote[1], Checkout: checkout, Base: base}, nil
+	return train.Repository{Slug: remote[1], Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun}, nil
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
@@ -113,7 +121,7 @@ func doneReports(lines []string, spawned time.Time) (done, reported map[string]t
 // moments before and the next poll read it again.
 func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, open []train.PullRequest) error {
 	stateDir := s.Store.Home.State
-	repository, err := TrainRepository(ctx, runner, repo)
+	repository, err := TrainRepository(ctx, runner, s.Store.Home.Data, repo)
 	if err != nil {
 		return w.failing("train repository:"+repo, err)
 	}

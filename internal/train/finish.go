@@ -87,6 +87,11 @@ func (e Engine) summary(t Train) string {
 	}
 	if landed := t.carsIn(CarLanded); len(landed) > 0 {
 		parts = append(parts, fmt.Sprintf("landed %s in %d CI run(s)", t.numbers(landed), t.Runs))
+		for _, run := range t.History {
+			if run.OwnRun != "" && run.Result == RunLanded {
+				parts = append(parts, fmt.Sprintf("#%d landed on its own CI run (%s), which tested the tree that landed, with no train run", run.Riders[0], run.OwnRun))
+			}
+		}
 	} else {
 		parts = append(parts, "nothing landed")
 	}
