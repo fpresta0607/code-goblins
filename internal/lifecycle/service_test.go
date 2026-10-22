@@ -717,6 +717,81 @@ func TestStopNeverArchivesWhileProcessesCouldNotBeStopped(t *testing.T) {
 	}
 }
 
+// A board message kept for a paused goblin's resume rides on its record, and
+// once a cfo switch replaced that session no resume of the record runs again.
+// A pause or stop of the later session hands on what the record keeps before
+// it writes its own record over it, so the message is never dropped (issue
+// #1280); a hand-off that fails refuses the operation, with nothing stopped
+// and the record as it was. One that handed the messages on and failed after
+// them, as a wake episode that is not published, lets the operation go on,
+// since a retry would hand them on twice, and names what it met.
+func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testing.T) {
+	queueFailure := errors.New("the wake queue cannot be written")
+	publishFailure := errors.New("the wake episode cannot be published")
+	for _, tc := range []struct {
+		name     string
+		action   string
+		isHanded bool
+		failure  error
+		phase    string
+	}{
+		{name: "a pause", action: "pause", isHanded: true, phase: "paused"},
+		{name: "a stop", action: "stop", isHanded: true, phase: "stopped"},
+		{name: "a pause whose hand-off fails", action: "pause", failure: queueFailure},
+		{name: "a stop whose hand-off fails", action: "stop", failure: queueFailure},
+		{name: "a pause whose hand-off fails after the messages", action: "pause", isHanded: true, failure: publishFailure, phase: "paused"},
+		{name: "a stop whose hand-off fails after the messages", action: "stop", isHanded: true, failure: publishFailure, phase: "stopped"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: "generation-0", RequestGeneration: "generation-0", Operation: "pause-0", Action: "pause", Phase: "paused", ResumeNote: "Message from the Overlord, typed on the board: use the staging database", NoticeSent: true}); err != nil {
+				t.Fatal(err)
+			}
+			replaced, err := state.ReadLifecycle(service.StateDir, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var handed, recorded []state.Lifecycle
+			var handedMeta state.TaskMeta
+			service.Operations.HandOver = func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
+				onDisk, err := state.ReadLifecycle(service.StateDir, meta.ID)
+				if err != nil {
+					t.Error(err)
+				}
+				handedMeta, handed, recorded = current, append(handed, prior), append(recorded, onDisk)
+				return tc.isHanded, tc.failure
+			}
+			isStopped := false
+			service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+				isStopped = true
+				return []string{"fixture process"}, nil
+			}
+
+			// Act
+			record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: tc.action + "-1", Action: tc.action, Reason: "overlord"})
+			after, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+
+			// Assert
+			if len(handed) != 1 || !reflect.DeepEqual(handed[0], replaced) || !reflect.DeepEqual(recorded[0], replaced) || handedMeta.SpawnGen != meta.SpawnGen {
+				t.Fatalf("handed over %+v for session %q while the record read %+v, want %+v handed over once for %q before it was overwritten", handed, handedMeta.SpawnGen, recorded, replaced, meta.SpawnGen)
+			}
+			if !tc.isHanded {
+				if !errors.Is(err, tc.failure) || isStopped || readErr != nil || !reflect.DeepEqual(after, replaced) {
+					t.Fatalf("%s = %+v, %v, stopped %v, record %+v, %v; want it refused with nothing stopped and the record as it was", tc.action, record, err, isStopped, after, readErr)
+				}
+				return
+			}
+			if err != nil || readErr != nil || after.Generation != meta.SpawnGen || after.Action != tc.action || after.Phase != tc.phase || !isStopped {
+				t.Fatalf("%s = %+v, %v, record %+v, %v; want it %s in the later session", tc.action, record, err, after, readErr, tc.phase)
+			}
+			if isNamed := slices.Contains(after.Problems, publishFailure.Error()); isNamed != (tc.failure != nil) {
+				t.Fatalf("problems = %q, want %q named only when the hand-off met it", after.Problems, publishFailure)
+			}
+		})
+	}
+}
+
 func TestResumeRecoversAnInterruptedController(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	if err := state.WriteLifecycle(service.StateDir, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming", Session: "original-session"}); err != nil {

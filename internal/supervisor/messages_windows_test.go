@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // The Overlord, 2026-10-08: "message queued to chief no matter whats running
@@ -183,6 +187,234 @@ func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 				t.Fatalf("message = %+v, resume note %q, typed %q, want it typed once into its terminal and not kept", action, record.ResumeNote, typed)
 			}
 		})
+	}
+}
+
+// switchSession publishes a new session for meta's task as a cfo switch does
+// once it has stopped the old harness: a new generation, and no resume.
+func switchSession(t *testing.T, stateDir string, meta state.TaskMeta) {
+	t.Helper()
+	meta.SpawnGen, meta.ResumeOperation = "g2", ""
+	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// toldCFO is what task's notify wakes tell the CFO.
+func toldCFO(t *testing.T, stateDir, task string) []string {
+	t.Helper()
+	pending, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told []string
+	for _, entry := range pending {
+		if entry.Kind == "notify" && entry.Key == task {
+			told = append(told, entry.Detail)
+		}
+	}
+	return told
+}
+
+// A message kept for a resume goes to the CFO with its words once a later
+// start, such as a cfo switch run to rescue the goblin, replaces the session
+// that resume was for, since no resume of that record runs again: one kept
+// before the switch, and one kept while it runs, holding the task's metadata
+// lock but not its lifecycle lock until it publishes the new session. The
+// supervisor's next recovery reading hands each on once, and an answer given
+// while paused stays in the note. A message kept for a resume of the current
+// session stays kept (issue #1280).
+func TestAMessageKeptForAResumeGoesToTheCFOOnceALaterStartReplacesItsSession(t *testing.T) {
+	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	paused := state.Lifecycle{ID: "task-1", Generation: "g1", RequestGeneration: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", Started: started, Updated: started}
+	failed := state.Lifecycle{ID: "task-1", Generation: "g1", RequestGeneration: "g1", Operation: "resume-1", Action: "resume", Phase: "failed", Started: started, Updated: started.Add(3 * time.Minute)}
+	answer := "The Overlord answered your question: use the blue one"
+	for _, tc := range []struct {
+		name     string
+		record   state.Lifecycle
+		answered string
+		when     string
+		why      string
+	}{
+		{name: "kept for a paused goblin before the switch", record: paused, when: "before", why: "while it was paused"},
+		{name: "kept for a paused goblin while the switch runs", record: paused, when: "during", why: "while it was paused"},
+		{name: "kept for a failed resume before the switch", record: failed, when: "before", why: "a message kept before it began at " + started.Format(time.RFC3339)},
+		{name: "kept for a failed resume while the switch runs", record: failed, when: "during", why: "a message kept before it began at " + started.Format(time.RFC3339)},
+		{name: "kept after an answer given while paused", record: paused, answered: answer, when: "before", why: "while it was paused"},
+		{name: "kept for a paused goblin no later start replaced", record: paused, when: "never"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			record := tc.record
+			record.ResumeNote = tc.answered
+			if err := state.WriteLifecycle(h.State, record); err != nil {
+				t.Fatal(err)
+			}
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+
+			// Act
+			switch tc.when {
+			case "before":
+				keptForResume(t, store, meta, "use the staging database")
+				switchSession(t, h.State, meta)
+			case "during":
+				metadataLock := state.MetadataLockName(meta.ID)
+				if _, err := lock.AcquireExclusiveNamed(h.State, metadataLock); err != nil {
+					t.Fatal(err)
+				}
+				keptForResume(t, store, meta, "use the staging database")
+				switchSession(t, h.State, meta)
+				if err := lock.ReleaseExclusiveNamed(h.State, metadataLock); err != nil {
+					t.Fatal(err)
+				}
+			case "never":
+				keptForResume(t, store, meta, "use the staging database")
+			}
+			service.cycle(context.Background(), true)
+			service.cycle(context.Background(), true)
+
+			// Assert
+			told := toldCFO(t, h.State, meta.ID)
+			after, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.when == "never" {
+				if len(told) != 0 || after.ResumeNote != fromOverlord("use the staging database") {
+					t.Fatalf("the CFO was told %q and the resume note is %q, want the message still kept for its resume", told, after.ResumeNote)
+				}
+				return
+			}
+			if len(told) != 1 || !strings.HasPrefix(told[0], "message not delivered: task-1's session was replaced by a later start") || !strings.Contains(told[0], tc.why) || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") {
+				t.Fatalf("the CFO was told %q, want the message once with its words and %q", told, tc.why)
+			}
+			if after.ResumeNote != tc.answered || after.Phase != tc.record.Phase || after.Generation != "g1" {
+				t.Fatalf("record = %+v, want it as it was with only the message taken out of its note", after)
+			}
+		})
+	}
+}
+
+// A pause, resume or stop under way holds the task's lifecycle lock and owns
+// its record, so a message kept for a resume whose session a later start
+// replaced is left to it: a pause or stop hands it on before it writes its
+// own record, and a resume, refused for the replaced session, leaves it for a
+// later reading, which hands it on once the lock is free.
+func TestAMessageKeptForAReplacedResumeHeldByALifecycleOperationIsLeftToIt(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	atPhase(t, h.State, meta, "pause", "paused")
+	keptForResume(t, store, meta, "use the staging database")
+	switchSession(t, h.State, meta)
+	name := state.LifecycleLockName(meta.ID)
+	if _, err := lock.AcquireExclusiveNamed(h.State, name); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	held := handOverReplacedResumes(h.State)
+	heldRecord, heldErr := state.ReadLifecycle(h.State, meta.ID)
+	heldTold := toldCFO(t, h.State, meta.ID)
+	if err := lock.ReleaseExclusiveNamed(h.State, name); err != nil {
+		t.Fatal(err)
+	}
+	freed := handOverReplacedResumes(h.State)
+
+	// Assert
+	if held != nil || heldErr != nil || heldRecord.ResumeNote != fromOverlord("use the staging database") || len(heldTold) != 0 {
+		t.Errorf("under the lock: %v, record %+v, %v, the CFO told %q; want the message left kept", held, heldRecord, heldErr, heldTold)
+	}
+	record, err := state.ReadLifecycle(h.State, meta.ID)
+	if told := toldCFO(t, h.State, meta.ID); freed != nil || err != nil || record.ResumeNote != "" || len(told) != 1 {
+		t.Errorf("once the lock is free: %v, record %+v, %v, the CFO told %q; want the message handed on once", freed, record, err, told)
+	}
+}
+
+// A pause or stop of the later session hands on what a replaced session's
+// record keeps through HandOverReplacedNote before it writes its own record
+// over it: the CFO is told each board message once, with its words, and the
+// record is left for the caller to overwrite. The current session's record
+// keeps its messages for its own resume, so the CFO is told nothing.
+func TestHandingOnAReplacedSessionsNoteTellsTheCFOEachMessageOnce(t *testing.T) {
+	kept := []string{"use the staging database", "and skip the migration"}
+	for _, tc := range []struct {
+		name       string
+		isReplaced bool
+		want       []string
+	}{
+		{name: "a record whose session a later start replaced", isReplaced: true, want: kept},
+		{name: "the current session's record", isReplaced: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			atPhase(t, h.State, meta, "pause", "paused")
+			keptForResume(t, store, meta, kept...)
+			if tc.isReplaced {
+				switchSession(t, h.State, meta)
+			}
+			current, err := state.ReadTaskMeta(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			isHanded, err := HandOverReplacedNote(h.State, current, record)
+
+			// Assert
+			told := toldCFO(t, h.State, meta.ID)
+			if !isHanded || err != nil || len(told) != len(tc.want) {
+				t.Fatalf("hand-off = %v, %v, the CFO was told %q, want each of %q once", isHanded, err, told, tc.want)
+			}
+			for i, words := range tc.want {
+				if !strings.HasPrefix(told[i], "message not delivered: task-1's session was replaced by a later start while it was paused") || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
+					t.Fatalf("the CFO was told %q, want %q with why it was not delivered", told[i], words)
+				}
+			}
+			after, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil || after.ResumeNote != fromOverlord(kept[0])+"\n"+fromOverlord(kept[1]) {
+				t.Fatalf("resume note = %q, %v, want both messages still in it", after.ResumeNote, err)
+			}
+		})
+	}
+}
+
+// A wake episode that fails to publish once the messages a replaced session's
+// record keeps are on the CFO's notify wake is said, but the messages leave
+// the note all the same, so the next pass tells the CFO nothing more: before,
+// each pass told the CFO the same messages again until a publish went
+// through.
+func TestAReplacedSessionsMessagesGoToTheCFOOnceWhenTheirWakeFailsToPublish(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	atPhase(t, h.State, meta, "pause", "paused")
+	keptForResume(t, store, meta, "use the staging database", "and skip the migration")
+	switchSession(t, h.State, meta)
+	if err := os.Mkdir(filepath.Join(h.State, ".watcher-down"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	first := handOverReplacedResumes(h.State)
+	record, readErr := state.ReadLifecycle(h.State, meta.ID)
+	second := handOverReplacedResumes(h.State)
+
+	// Assert
+	if first == nil || readErr != nil || record.ResumeNote != "" {
+		t.Fatalf("first pass = %v, record %+v, %v; want the failed publish said and the messages out of the note", first, record, readErr)
+	}
+	told := toldCFO(t, h.State, meta.ID)
+	if second != nil || len(told) != 2 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") || !strings.HasSuffix(told[1], "The Overlord wrote: and skip the migration") {
+		t.Fatalf("second pass = %v, the CFO was told %q, want each message once", second, told)
 	}
 }
 

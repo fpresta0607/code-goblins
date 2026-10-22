@@ -526,6 +526,8 @@ One that waits ten minutes, or whose goblin ends or stops first, goes to the CFO
 Each message shows under the box with where it is: Queued, Kept for resume, Sent or With the CFO.
 A message a paused goblin's resume will carry shows Kept for resume, read from its resume note, which the task's lifecycle names in `kept_messages` and which outlasts the message's own action, and it leaves the list once a resume carried it.
 A failed resume that the supervisor finishes as running once its goblin reports carried only the messages kept before it began, so each message kept for it goes to the CFO with its words and the resume's start.
+A message kept for a resume whose session a later start, such as a `cfo switch`, then replaced, whether kept before that start or while it ran, goes to the CFO with its words within a minute, since no resume of that record runs again, and a failed resume's also names that resume's start.
+A pause or stop of the later session that comes first hands such messages to the CFO before it writes its own record over the one that kept them.
 Such a message has a delete button, which sends a `message_withdraw` action naming the goblin and the message's words through `POST /api/actions`: the supervisor takes it out of the resume note under the goblin's lifecycle lock, so the resume never carries it, and the message leaves the list.
 A message typed into its terminal, carried by a resume or unknown is refused.
 The board's own clicks show at once: a Start, Pause, Resume or Stop draws its task as Starting, Pausing, Resuming or Stopping in the frame it is clicked, until a snapshot from the revision the supervisor answered with shows the task, and a double click sends one request.
