@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -130,10 +131,19 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 }
 
 // startableQueued names the queued tasks a Start could start at reading, in
-// queue order.
+// queue order, leaving out each whose queued lock a live process holds: the
+// supervisor holds it for a start's whole run, and cfo spawn writes the task
+// record planStart reads only once the worktree exists, so the lock is what
+// the CFO's turn-end guard, which runs apart from cfo serve, can see of the
+// start. A record that cannot be read yet, as while it is written, reads as
+// held.
 func startableQueued(h home.Home, finished *finishedWork, reading rowReading) []string {
 	var queued []string
 	for _, id := range queuedCandidates(h) {
+		holder, err := lock.ReadNamed(h.State, ".queued-"+id+".lock")
+		if !errors.Is(err, os.ErrNotExist) && (err != nil || holder.Alive()) {
+			continue
+		}
 		if _, err := planStart(h, id, finished, reading); err == nil {
 			queued = append(queued, id)
 		}
