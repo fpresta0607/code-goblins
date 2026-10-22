@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1009,10 +1010,12 @@ func TestTrainRepositoryLetsALoneRiderLandOnItsOwnRunOnlyWhereTheManifestSaysSo(
 		manifest  string
 		isLanding bool
 		isRefused bool
+		// wait is the lone rider wait it reads, loneRiderWait when unset.
+		wait time.Duration
 	}{
 		"no manifest":                    {},
 		"a manifest that leaves it off":  {manifest: `{"project": "app"}`},
-		"a manifest that turns it on":    {manifest: `{"project": "app", "trains": {"land_lone_rider_on_its_run": true}}`, isLanding: true},
+		"a manifest that turns it on":    {manifest: `{"project": "app", "trains": {"land_lone_rider_on_its_run": true, "lone_rider_wait_minutes": 30}}`, isLanding: true, wait: 30 * time.Minute},
 		"a manifest that cannot be read": {manifest: `{"project": "app", "trains": {"land_every_rider": true}}`, isRefused: true},
 	}
 	for name, c := range cases {
@@ -1043,8 +1046,80 @@ func TestTrainRepositoryLetsALoneRiderLandOnItsOwnRunOnlyWhereTheManifestSaysSo(
 			if err != nil {
 				t.Fatal(err)
 			}
-			if repository.Slug != "o/r" || repository.Base != "main" || repository.LandsLoneRider != c.isLanding {
-				t.Fatalf("repository = %+v, want o/r's main with LandsLoneRider %v", repository, c.isLanding)
+			wait := cmp.Or(c.wait, loneRiderWait)
+			if repository.Slug != "o/r" || repository.Base != "main" || repository.LandsLoneRider != c.isLanding || repository.LoneRiderWait != wait {
+				t.Fatalf("repository = %+v, want o/r's main with LandsLoneRider %v and LoneRiderWait %s", repository, c.isLanding, wait)
+			}
+		})
+	}
+}
+
+func TestALoneRiderRidesOnceItWaitedItsProjectsWaitOrSoonerWhenItCanLandOnItsOwnRun(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		waited, wait   time.Duration
+		standsOnOwnRun bool
+		isRiding       bool
+		isAsked        bool
+	}{
+		{name: "waited less than the shortest wait", waited: 5 * time.Minute, wait: 30 * time.Minute, standsOnOwnRun: true},
+		{name: "waited the shortest wait and lands on its own run", waited: 15 * time.Minute, wait: 30 * time.Minute, standsOnOwnRun: true, isRiding: true, isAsked: true},
+		{name: "waited the shortest wait and needs a train run", waited: 15 * time.Minute, wait: 30 * time.Minute, isAsked: true},
+		{name: "waited its project's wait", waited: 31 * time.Minute, wait: 30 * time.Minute, isRiding: true},
+		{name: "waited a project's wait shorter than the default", waited: 6 * time.Minute, wait: 5 * time.Minute, isRiding: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			car := train.Car{URL: "https://github.com/o/r/pull/21"}
+			goblins := []train.Goblin{{Task: "g21", Done: map[string]time.Time{car.URL: time.Now().Add(-test.waited)}}}
+			isAsked := false
+
+			// Act
+			isRiding := ridesAlone(goblins, car, test.wait, func() bool { isAsked = true; return test.standsOnOwnRun })
+
+			// Assert
+			if isRiding != test.isRiding || isAsked != test.isAsked {
+				t.Fatalf("rides = %v, asked GitHub = %v; want %v and %v", isRiding, isAsked, test.isRiding, test.isAsked)
+			}
+		})
+	}
+}
+
+func TestALoneRiderThatCannotLandOnItsOwnRunWaitsItsProjectsWaitBeforeATrainRun(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		waited   time.Duration
+		isRiding bool
+	}{
+		{name: "before the project's wait", waited: 15 * time.Minute},
+		{name: "after the project's wait", waited: 31 * time.Minute, isRiding: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			project := newTrainProject(t)
+			lone := project.pull(21)
+			dir := filepath.Join(h.Data, "projects", filepath.Base(project.checkout))
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			manifest := `{"project": "app", "trains": {"land_lone_rider_on_its_run": true, "lone_rider_wait_minutes": 30}}`
+			if err := os.WriteFile(filepath.Join(dir, "project.json"), []byte(manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reportDone(t, h, "g21", project.checkout)
+			writeFile(t, state.StatusPath(h.State, "g21"), time.Now().Add(-test.waited).UTC().Format(time.RFC3339)+" done: PR "+lone.URL+"\n")
+
+			// Act
+			err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{lone})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			trains, err := train.List(h.State)
+			if err != nil || (len(trains) == 1) != test.isRiding || test.isRiding && project.created != 1 {
+				t.Fatalf("trains = %+v, %v, train pull requests opened %d: want a train run %v", trains, err, project.created, test.isRiding)
 			}
 		})
 	}

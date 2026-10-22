@@ -903,6 +903,7 @@ The label never stops a train: one that could not be put on reaches you as a `me
 Another repository that asks GitHub for a release's notes leaves the label out in a `.github/release.yml` of its own.
 
 The supervisor runs trains by itself: on its GitHub poll, when two or more green pull requests goblins finished wait on one default branch, or one has waited alone 10 minutes since its goblin first reported it done, it starts a train, and it takes each running train a step on every poll, also once the goblins of its repository have left.
+A project's manifest can make one alone wait longer for a second to share a train run with, `"trains": {"lone_rider_wait_minutes": 30}`, up to 240; one that can land on its own CI run still rides after 10 minutes, since that costs no run and a second would save nothing.
 A train that ends on a poll's step reads the open pull requests again and starts the next train on that same poll, so a pull request reported done while a train ran rides as soon as that train is over.
 `cfo pr train` joins the train already running in the project and waits until it is over.
 Each train records every CI run it starts, with the pull requests it tested and how it ended.

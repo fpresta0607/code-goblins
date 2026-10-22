@@ -288,3 +288,42 @@ func TestALoneRiderGitHubRefusesToMergeLandsNothingAndIsTriedAgain(t *testing.T)
 		t.Fatalf("train = %s, merged %v: want it landed on the next step", landed.State, gh.merged)
 	}
 }
+
+func TestStandsOnOwnRunSaysWhetherALoneRiderWouldLandWithNoTrainRun(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		isOptedOut bool
+		arrange    func(s *scratch)
+		isStanding bool
+	}{
+		"its own run tested today's main": {isStanding: true},
+		"its repository leaves it off":    {isOptedOut: true},
+		"main moved past its merge ref":   {arrange: func(s *scratch) { s.advanceMain("other.txt", "other\n") }},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := newScratch(t)
+			gh := newFakeGitHub(s)
+			pr := provenRider(s, gh, 5)
+			if c.arrange != nil {
+				c.arrange(s)
+			}
+			repo := landsLoneRider(s)
+			repo.LandsLoneRider = !c.isOptedOut
+			riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+
+			// Act
+			isStanding := s.engine(gh).StandsOnOwnRun(context.Background(), repo, riders[0])
+
+			// Assert
+			if isStanding != c.isStanding {
+				t.Fatalf("stands on its own run = %v, want %v", isStanding, c.isStanding)
+			}
+			if trains, _ := List(s.state); len(trains) != 0 || gh.created != 0 {
+				t.Fatalf("trains %+v, opened %d: want nothing started by the question", trains, gh.created)
+			}
+		})
+	}
+}

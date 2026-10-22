@@ -52,11 +52,15 @@ var (
 // where a pull request's own run starts every job a train's run would: a
 // repository whose workflows test less on a pull request's own run, as
 // code-goblins' do, leaves it off.
+//
+// LoneRiderWait is how long one finished pull request waits for a second to
+// share a train run with before it rides alone, which the supervisor reads.
 type Repository struct {
 	Slug           string
 	Checkout       string
 	Base           string
 	LandsLoneRider bool
+	LoneRiderWait  time.Duration
 }
 
 // Engine builds trains and takes them a step at a time. Every git command

@@ -25,16 +25,18 @@ const trainsShownFor = 6 * time.Hour
 
 // minimumRiders is how many green goblin pull requests waiting on one base
 // start a train by themselves, and loneRiderWait how long after its goblin
-// reported it done one alone waits for a second before it rides alone.
+// reported it done one alone waits for a second before it rides alone,
+// unless its project's manifest says otherwise (ridesAlone).
 const (
 	minimumRiders = 2
 	loneRiderWait = 10 * time.Minute
 )
 
 // TrainRepository reads the GitHub repository a checkout's origin is and its
-// default branch, as the CI poll reads them, for a merge train, and whether
-// the project's manifest under dataDir lets a train of one pull request land
-// it on its own CI run. A project with no manifest does not.
+// default branch, as the CI poll reads them, for a merge train, and from the
+// project's manifest under dataDir whether a train of one pull request may
+// land it on its own CI run and how long one waits alone for a second. A
+// project with no manifest does not, and waits loneRiderWait.
 func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout string) (train.Repository, error) {
 	manifest, _, err := project.LoadForCheckout(dataDir, checkout)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -52,7 +54,11 @@ func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout
 	if err != nil {
 		return train.Repository{}, err
 	}
-	return train.Repository{Slug: remote[1], Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun}, nil
+	wait := loneRiderWait
+	if minutes := manifest.Trains.LoneRiderWaitMinutes; minutes > 0 {
+		wait = time.Duration(minutes) * time.Minute
+	}
+	return train.Repository{Slug: remote[1], Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun, LoneRiderWait: wait}, nil
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
@@ -109,10 +115,11 @@ func doneReports(lines []string, spawned time.Time) (done, reported map[string]t
 
 // runTrain takes the merge train running on repo a step, or starts one when
 // at least minimumRiders goblins' finished pull requests wait green on its
-// default branch, or one has waited loneRiderWait alone. open is the pull
-// request list the poll read, nil when it could not be read: a running train
-// still takes its step, and none starts. A train that ends on its step starts
-// the next one on the same poll, from the open pull requests read again.
+// default branch, or one waited alone as long as ridesAlone asks. open is
+// the pull request list the poll read, nil when it could not be read: a
+// running train still takes its step, and none starts. A train that ends on
+// its step starts the next one on the same poll, from the open pull requests
+// read again.
 // A step, a start cut short, a read of the repository or a read of the
 // account gh works as that fails is tried again on the next poll, and
 // returned only once it failed failingPasses polls in a row. On 2026-10-10
@@ -146,7 +153,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 		trains, listErr = train.List(stateDir)
 	}
 	goblins := TrainGoblins(stateDir, repo)
-	if done := doneAndOpen(goblins, open); len(done) == 0 || len(done) < minimumRiders && !hasWaitedAlone(goblins, done[0]) {
+	if done := doneAndOpen(goblins, open); len(done) == 0 || len(done) < minimumRiders && !hasWaitedAlone(goblins, done[0], min(loneRiderWait, repository.LoneRiderWait)) {
 		return listErr
 	}
 	viewer, err := runOutput(ctx, runner, repo, "gh", "api", "user", "--jq", ".login")
@@ -155,7 +162,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	}
 	delete(w.Failing, "train viewer:"+repo)
 	riders, _ := train.Riders(open, repository.Base, viewer, goblins, trains)
-	if len(riders) == 0 || len(riders) < minimumRiders && !hasWaitedAlone(goblins, riders[0].URL) {
+	if len(riders) == 0 || len(riders) < minimumRiders && !ridesAlone(goblins, riders[0], repository.LoneRiderWait, func() bool { return engine.StandsOnOwnRun(ctx, repository, riders[0]) }) {
 		return listErr
 	}
 	started, err := engine.Start(ctx, repository, riders)
@@ -211,13 +218,28 @@ func openPullRequests(ctx context.Context, runner execx.Runner, repo string) ([]
 	return open, nil
 }
 
+// ridesAlone says whether car, the one finished pull request that would
+// ride, rides alone now: once it waited its repository's wait for a second
+// to share a train run with, and before that once it waited loneRiderWait
+// when it would land on its own CI run, which costs no run, so a second
+// would save nothing. standsOnOwnRun asks GitHub, so only then.
+func ridesAlone(goblins []train.Goblin, car train.Car, wait time.Duration, standsOnOwnRun func() bool) bool {
+	switch {
+	case hasWaitedAlone(goblins, car.URL, wait):
+		return true
+	case hasWaitedAlone(goblins, car.URL, loneRiderWait):
+		return standsOnOwnRun()
+	}
+	return false
+}
+
 // hasWaitedAlone says whether url, the one pull request that would ride, was
-// first reported done loneRiderWait ago: a second may never come, and on
-// 2026-10-14 #842 waited 22 minutes for one after the train before it (#852).
-func hasWaitedAlone(goblins []train.Goblin, url string) bool {
+// first reported done wait ago: a second may never come, and on 2026-10-14
+// #842 waited 22 minutes for one after the train before it (#852).
+func hasWaitedAlone(goblins []train.Goblin, url string, wait time.Duration) bool {
 	return slices.ContainsFunc(goblins, func(goblin train.Goblin) bool {
 		done, isDone := goblin.Done[url]
-		return isDone && time.Since(done) >= loneRiderWait
+		return isDone && time.Since(done) >= wait
 	})
 }
 

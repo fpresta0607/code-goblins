@@ -91,6 +91,23 @@ func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proo
 	return strings.Join(pages, ", "), merge, true
 }
 
+// StandsOnOwnRun says whether car, riding a train alone onto repo's base as
+// it is now, would land on its own CI run with no train run, where repo
+// allows that: a lone rider that would costs nothing to land, so it need not
+// wait for a second to share a train run with.
+func (e Engine) StandsOnOwnRun(ctx context.Context, repo Repository, car Car) bool {
+	if !repo.LandsLoneRider {
+		return false
+	}
+	t := Train{Repository: repo.Slug, Checkout: repo.Checkout, Base: repo.Base}
+	base, err := e.baseSHA(ctx, t)
+	if err != nil {
+		return false
+	}
+	_, _, isProven := e.ownRun(ctx, t, car, base)
+	return isProven
+}
+
 // checkedOut reads the merge commit of pull request number that workflow
 // run id checked out, from the log of the first of its jobs that passed and
 // fetched one, among the first maxJobsRead.
