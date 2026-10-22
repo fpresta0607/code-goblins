@@ -3,6 +3,7 @@ package clipboard
 import (
 	"bytes"
 	"runtime"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -10,27 +11,28 @@ import (
 )
 
 var (
-	createWindowStation     = user32.NewProc("CreateWindowStationW")
-	getProcessWindowStation = user32.NewProc("GetProcessWindowStation")
-	setProcessWindowStation = user32.NewProc("SetProcessWindowStation")
-	closeWindowStation      = user32.NewProc("CloseWindowStation")
-	getClipboardData        = user32.NewProc("GetClipboardData")
-	clipboardSequence       = user32.NewProc("GetClipboardSequenceNumber")
-	globalSize              = kernel32.NewProc("GlobalSize")
+	createWindowStation      = user32.NewProc("CreateWindowStationW")
+	getProcessWindowStation  = user32.NewProc("GetProcessWindowStation")
+	setProcessWindowStation  = user32.NewProc("SetProcessWindowStation")
+	closeWindowStation       = user32.NewProc("CloseWindowStation")
+	getClipboardData         = user32.NewProc("GetClipboardData")
+	getUserObjectInformation = user32.NewProc("GetUserObjectInformationW")
+	globalSize               = kernel32.NewProc("GlobalSize")
 )
 
-const stationAllAccess = 0x37f // WINSTA_ALL_ACCESS
+const (
+	stationAllAccess = 0x37f // WINSTA_ALL_ACCESS
+	objectName       = 2     // UOI_NAME
+)
 
-// privateClipboard moves this test's process to a window station of its own,
-// which holds a clipboard of its own, until the test ends: a run at a desk
-// never touches the clipboard of the one sitting there. Each window station
-// counts its own clipboard's changes, so a clipboard that counts differently
-// from the one before the move is not the desk's. The station is this logon's
-// own one for programs with no desk, which keeps what an earlier run put on
-// its clipboard.
+// privateClipboard moves this test's process out of WinSta0, the window
+// station a desk's clipboard belongs to, until the test ends, so a run at a
+// desk never touches the clipboard of the one sitting there. Every window
+// station holds a clipboard of its own. The one it moves to is this logon's
+// own for programs with no desk, which keeps what an earlier run put on its
+// clipboard, and a run with no desk, as on a CI runner, may be in it already.
 func privateClipboard(t *testing.T) {
 	t.Helper()
-	desk, _, _ := clipboardSequence.Call()
 	original, _, err := getProcessWindowStation.Call()
 	if original == 0 {
 		t.Fatalf("read this process's window station: %v", err)
@@ -51,9 +53,24 @@ func privateClipboard(t *testing.T) {
 		}
 		closeWindowStation.Call(station)
 	})
-	if own, _, _ := clipboardSequence.Call(); own == desk {
-		t.Fatalf("the clipboard after the move counts %d changes, as the desk's does, so it may be the desk's; nothing was put on it", own)
+	current, _, err := getProcessWindowStation.Call()
+	if current == 0 {
+		t.Fatalf("read this process's window station after the move: %v", err)
 	}
+	if name := stationName(t, current); strings.EqualFold(name, "WinSta0") {
+		t.Fatalf("this process is in %s, the desk's window station, after the move, so nothing was put on its clipboard", name)
+	}
+}
+
+// stationName is a window station's name.
+func stationName(t *testing.T, station uintptr) string {
+	t.Helper()
+	name := make([]uint16, 256)
+	var needed uint32
+	if read, _, err := getUserObjectInformation.Call(station, objectName, uintptr(unsafe.Pointer(&name[0])), uintptr(len(name)*2), uintptr(unsafe.Pointer(&needed))); read == 0 {
+		t.Fatalf("read a window station's name: %v", err)
+	}
+	return windows.UTF16ToString(name)
 }
 
 // clipboardHolds reads what the clipboard holds in a format, as long as its
