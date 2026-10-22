@@ -69,13 +69,30 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+	// starts are the harness starts the stand-ins recorded. A start probes
+	// its harness with --help before its terminal starts it, so the probe is
+	// recorded first and is no sign the harness has started: a switch made
+	// before that start ends the first CFO's terminal before its start is
+	// recorded (#1384).
+	starts := func() ([]string, error) {
 		arguments, err := os.ReadFile(filepath.Join(h.Root, "switch-arguments.txt"))
-		if err == nil && len(arguments) > 0 {
+		if err != nil {
+			return nil, err
+		}
+		var lines []string
+		for _, line := range strings.Split(strings.TrimSpace(string(arguments)), "\r\n") {
+			if line != "" && !strings.HasSuffix(line, "-standin --help") {
+				lines = append(lines, line)
+			}
+		}
+		return lines, nil
+	}
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+		if lines, err := starts(); err == nil && len(lines) > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the initial CFO recorded no arguments within a minute")
+			t.Fatal("the initial CFO's harness did not start within a minute")
 		}
 	}
 	before, err := host.ReadRecord(h.State, supervisor.NativeCFOTerminal)
@@ -152,15 +169,9 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 		}
 		before = after
 	}
-	arguments, err := os.ReadFile(filepath.Join(h.Root, "switch-arguments.txt"))
+	lines, err := starts()
 	if err != nil {
 		t.Fatal(err)
-	}
-	var lines []string
-	for _, line := range strings.Split(strings.TrimSpace(string(arguments)), "\r\n") {
-		if !strings.HasSuffix(line, "-standin --help") {
-			lines = append(lines, line)
-		}
 	}
 	if len(lines) != 3 {
 		t.Fatalf("harness starts = %q, want three", lines)
