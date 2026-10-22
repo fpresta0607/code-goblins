@@ -316,4 +316,19 @@ test.describe("dictation into the box", () => {
 
     await expect(field(page)).toHaveValue("check the phone spec");
   });
+
+  test("Escape closes the recent dictations, leaving the panel open and the keyboard on Recent messages", async ({ page }) => {
+    await open(page);
+    await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
+    await openGoblin(page);
+    const recent = box(page).getByRole("button", { name: "Recent messages" });
+    await recent.click();
+    await expect(page.getByRole("dialog", { name: "Recent messages" })).toBeVisible();
+
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByRole("dialog", { name: "Recent messages" })).toHaveCount(0);
+    await expect(page.locator("#panel-title")).toHaveText(NAME);
+    await expect(recent).toBeFocused();
+  });
 });

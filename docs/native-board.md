@@ -768,9 +768,10 @@ A size under 20 columns or 5 rows, measured while a panel was hidden, or over 10
 A host tells a viewer sizes only when its handshake asks for them; for a host started before hosts told sizes, the relay tells every view the size each of its own resizes gave the terminal, at the end of the output it had read by then.
 A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
 A view is told when key presses have sat unread in the terminal's input, as `{"type":"unread","unread":true}`, and with `false` once the program has read them.
-For a harness whose screens the supervisor knows, the CFO's being the one it registered as by the time of the read, the relay reads the terminal's screen once its output has paused for 300 ms, which a turn's spinner never lets it, and tells the view as `{"type":"screen","asking":true}` when the harness waits on an answer at a screen of its own, which only its terminal takes, and with `false` once it no longer does.
+For a harness whose screens the supervisor knows, the CFO's being the one it registered as by the time of the read, the relay reads the terminal's screen as a view opens and once its output has paused for 300 ms, which a turn's spinner never lets it, and tells the view as `{"type":"screen","asking":true}` when the harness waits on an answer at a screen of its own, which only its terminal takes, and with `false` once it no longer does.
+For Claude Code that is a dialog the supervisor knows while no turn, composer or footer shows, or a list of numbered choices with one focused, as its permission prompt draws, while none of them shows under the list (`Screens.IsAsking` in `internal/harness/screens.go`).
+What the conversation shows above decides nothing: a dialog's words a diff quotes have the composer waiting under them, and a mode a reply names lies above a list that asks.
 While the view was last told `true`, the screen is read 300 ms after the first output that follows, pause or not, so the turn an answer starts clears the card at once.
-For Claude Code that is a dialog the supervisor knows, or a list of numbered choices with one focused, as its permission prompt draws, while no turn runs and neither its composer nor the footer under it shows (`Screens.IsAsking` in `internal/harness/screens.go`).
 A busy program takes a key only once it is free, as Claude Code does while it starts a tool and a shell does while a command runs, and until then nothing on its screen shows the key was pressed.
 The board's terminal says so once a key has waited a second, and for at least a second, with the note Program busy. Typed keys are waiting. in its top left corner, so a key is not pressed a second time: on a screen where a key switches something on and off, as Enter does on a row of Claude Code's permissions screen, the second press undoes the first, which is how an Enter the Overlord pressed there on 9 October 2026 approved nothing.
 A view opened while keys wait is told so first and shows the note once it is whole.
@@ -1342,7 +1343,8 @@ A goblin paused, resuming or starting has no terminal that takes typing, and its
 While no CFO runs the CFO has no Messages view, and so no box, as its Terminal view has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Recent messages beside the microphone lists the board's recent dictations, each with Copy and Paste into the message.
 His draft is kept per session in this tab (`cfo-draft:` and the task's id, or `cfo`, in its session storage), so a switch of view or session, a reconnect and a reload, as an update makes, all find it.
-Shift+Escape leaves the box for the pill.
+In the Messages view Shift+Escape leaves the box for the pill, as it leaves the messages.
+Escape closes Recent messages while it is open, from its button or from inside it, and puts the keyboard back on its button.
 
 ### Harness updates
 

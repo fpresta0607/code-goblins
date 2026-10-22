@@ -223,21 +223,32 @@ func (s Screens) IsWorking(screen []string) bool {
 
 // IsAsking reports whether screen shows the harness waiting on an answer at
 // a screen of its own, which only its terminal takes: a dialog it is known to
-// draw, or a list of numbered choices with one focused, while no turn runs
-// and neither its composer nor the footer under it shows. A prompt the
-// conversation shows that numbers its lines is not a list: the composer
-// waits under it.
+// draw while no row shows a turn, the composer's footer or a ruled composer,
+// or a list of numbered choices with one focused and another on screen while
+// no row under the last focused one shows any of them. What the conversation
+// shows decides nothing: a dialog's words a diff quotes, or a numbered prompt,
+// has the composer waiting under it, and a mode a reply names lies above a
+// list that asks.
 func (s Screens) IsAsking(screen []string) bool {
-	if _, dialog := s.Dialog(screen); dialog {
+	if _, dialog := s.Dialog(screen); dialog && !s.showsComposerOrTurn(screen) {
 		return true
 	}
-	if s.Choice == nil || s.IsWorking(screen) || anyRow(screen, s.Ready) {
+	if s.Choice == nil {
 		return false
 	}
-	if _, composer := ruledComposer(screen); composer {
-		return false
+	for i := len(screen) - 1; i >= 0; i-- {
+		if s.Choice.MatchString(screen[i]) {
+			return !s.showsComposerOrTurn(screen[i+1:]) && anyRow(screen, s.Choices)
+		}
 	}
-	return anyRow(screen, s.Choice) && anyRow(screen, s.Choices)
+	return false
+}
+
+// showsComposerOrTurn reports whether rows show a turn, the composer's footer
+// or a ruled composer.
+func (s Screens) showsComposerOrTurn(rows []string) bool {
+	_, composer := ruledComposer(rows)
+	return composer || s.IsWorking(rows) || anyRow(rows, s.Ready)
 }
 
 // IsStarting reports whether screen shows the harness turning a submitted

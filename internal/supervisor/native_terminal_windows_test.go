@@ -955,6 +955,35 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	}
 }
 
+// A view that opens while the harness already asks at a screen of its own,
+// with nothing more drawn, is told so as it opens, sooner than a read once
+// its history's output has paused would tell it.
+func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	first := openNativeView(t, server, viewQuery)
+	first.waitFor(t, "program ready")
+	first.send(t, websocket.MessageBinary, "permission\r")
+	first.waitFor(t, `{"type":"screen","asking":true}`)
+
+	second := openNativeView(t, server, viewQuery)
+	second.waitFor(t, `{"type":"history"`)
+	opened := time.Now()
+	second.waitFor(t, `{"type":"screen","asking":true}`)
+
+	if waited := time.Since(opened); waited >= screenSettle/2 {
+		t.Errorf("the view was told the harness asks %v after its history began, want it told as it opens, well before the %v its output's pause takes", waited, screenSettle)
+	}
+}
+
 // A view of the CFO's terminal opened while the CFO starts, before it
 // registers, is told when the harness it registers as asks at a screen of its
 // own: the relay reads the screens of the CFO's harness as it is when it
@@ -1195,7 +1224,8 @@ func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *tes
 	h, server := nativeBoard(t, "direct")
 	h.terminalWindow = 16
 	after := make(chan struct{})
-	oldHost(t, h, 2, after)
+	// Two views, and the screen read each one's relay makes as it opens.
+	oldHost(t, h, 4, after)
 	watching := openNativeView(t, server, viewQuery)
 	watching.ackAll()
 	held := openNativeView(t, server, viewQuery)

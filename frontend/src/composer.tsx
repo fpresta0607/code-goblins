@@ -67,6 +67,8 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   // so a send retried after its answer was lost is the same message.
   const sendID = useRef("");
   const field = useRef<HTMLTextAreaElement>(null);
+  const recent = useRef<HTMLButtonElement>(null);
+  const closeRecent = () => { setRecentOpen(false); recent.current?.focus(); };
   useEffect(() => { if (focus) field.current?.focus(); }, [focus]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
@@ -113,13 +115,6 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   };
   const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (dictation.key(event.nativeEvent) !== null) return;
-    // Shift+Escape leaves the box for the panel's views, as it leaves a
-    // terminal.
-    if (event.shiftKey && event.key === "Escape") {
-      event.preventDefault();
-      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
-      return;
-    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
   const note = held || unsent || (isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
@@ -144,14 +139,14 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
         </li>;
       })}
     </ol>}
-    <div className="composer-box">
+    <div className="composer-box" onKeyDown={(event) => { if (isRecentOpen && event.key === "Escape") { event.stopPropagation(); closeRecent(); } }}>
       {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { write((prior) => appendDictation(prior, text)); setRecentOpen(false); field.current?.focus(); }}
-        onClose={() => setRecentOpen(false)} onEngine={() => setEngine((count) => count + 1)} />}
+        onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
       <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={2} value={draft} disabled={isSending}
         onChange={(event) => { const value = event.target.value; write(() => value); }} onKeyDown={keys} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
       <div className="composer-tools">
         <DictationButton dictation={dictation} />
-        <button type="button" className="icon-button" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
+        <button ref={recent} type="button" className="icon-button" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
         <p className="composer-note" role="status">{note}</p>
         <button type="button" className="primary send-decision" disabled={isSending || !draft.trim() || !!held || isAsking || isUnread} onClick={() => void send()}>
           <Icon name={isSending ? "clock" : "send"} />{isSending ? "Sending" : "Send"}

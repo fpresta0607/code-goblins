@@ -31,8 +31,9 @@ const (
 const relayMessage = 256 << 10
 
 // screenSettle is how long a terminal's output pauses before its relay reads
-// the screen, to tell its views whether the harness waits on an answer there.
-// A turn's spinner draws more often than this, so a turn costs no read, but
+// the screen, to tell its views whether the harness waits on an answer there,
+// which it reads too as a view opens. A turn's spinner draws more often than
+// this, so a turn costs no read, but
 // while a view was last told the harness waits, the screen is read this long
 // after the first output that follows, pause or not, so the view learns soon
 // that the answer was given and a turn runs.
@@ -142,9 +143,9 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // dropped. xterm sends input by itself, a focus report or a reply to a query
 // the replayed history holds, so closing the view on input under custody
 // closed every view of a task a gate owned as it opened (#1304). For a
-// harness whose screens it knows, the relay reads the terminal's screen once
-// its output pauses, or soon after output follows a screen that asked, and
-// tells the view as
+// harness whose screens it knows, the relay reads the terminal's screen as
+// the view opens, once its output pauses, and soon after output follows a
+// screen that asked, and tells the view as
 // `{"type":"screen","asking":true}` when the harness waits on an answer at a
 // screen of its own, which only its terminal takes, as Claude Code's
 // permission prompt, and with false once it no longer does.
@@ -219,11 +220,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History()))}
+	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true}
 	if custody != nil {
 		relay.held = heldNotice(custody)
 	}
-	look := time.AfterFunc(time.Hour, func() {
+	look := time.AfterFunc(0, func() {
 		relay.mu.Lock()
 		relay.looking = false
 		relay.mu.Unlock()
@@ -247,7 +248,6 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		relay.mu.Unlock()
 		relay.signal()
 	})
-	look.Stop()
 	defer look.Stop()
 	h.mu.Lock()
 	if h.relays[binding.key] == nil {

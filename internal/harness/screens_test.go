@@ -198,11 +198,16 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 // of numbered choices with one focused while no composer, footer or turn
 // shows. The permission prompt is Claude Code 2.1.302's, recorded in a native
 // terminal on 2026-10-17. A numbered prompt or reply above a waiting
-// composer, and a turn, never ask.
+// composer, a dialog's words a diff quotes above it, and a turn under a list
+// never ask, and a mode a reply names above a list never stops it asking. The
+// quoting diff and the reply are made up.
 func TestAHarnessAsksAtItsOwnScreenOnlyWhileItsChoicesWaitWithNoComposer(t *testing.T) {
 	permission := []string{"❯ Create a file named nine.txt containing the word nine.", "", "● Write(nine.txt)", "", strings.Repeat("─", 56), " Create file", " nine.txt", strings.Repeat("╌", 56), "  1 nine", strings.Repeat("╌", 56),
 		" Do you want to create nine.txt?", " ❯ 1. Yes", "   2. Yes, and switch to accept edits (auto-approve file", "      edits and common file commands) for this session", "      (shift+tab)", "   3. No", ""}
 	composer := []string{strings.Repeat("─", 56), "❯ ", strings.Repeat("─", 56), "  ⏵⏵ auto mode on (shift+tab to cycle)"}
+	quoted := []string{"● Update(internal/harness/screens.go)", "  ⎿  Updated internal/harness/screens.go with 1 addition", `      84    Markers: []string{"Is this a project you created or one you trust?", "Do you trust the files in this folder?"},`, "",
+		strings.Repeat("─", 56), "❯ ", strings.Repeat("─", 56), "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	named := []string{"● This session runs with manual mode on, so each write asks first.", "", "● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}
 	for name, test := range map[string]struct {
 		kind   Kind
 		screen []string
@@ -214,7 +219,9 @@ func TestAHarnessAsksAtItsOwnScreenOnlyWhileItsChoicesWaitWithNoComposer(t *test
 		"its trust dialog":                             {Claude, []string{" Do you trust the files in this folder?", " > No, exit", "   Yes, I trust this folder"}, true},
 		"a numbered prompt above the waiting composer": {Claude, append([]string{"❯ 1. Fix the bug", "  2. Then test it", ""}, composer...), false},
 		"a reply's numbered list above the composer":   {Claude, append([]string{"● Next:", "  1. Read the file", "  2. Fix it"}, composer...), false},
-		"a turn over the list":                         {Claude, append([]string{"✽ Pondering… (esc to interrupt)"}, permission...), false},
+		"a turn under the list":                        {Claude, append(append([]string{}, permission...), "✽ Pondering… (esc to interrupt)"), false},
+		"a quoted trust dialog above the composer":     {Claude, quoted, false},
+		"a mode a reply names above its prompt":        {Claude, named, true},
 		"a lone focused line":                          {Claude, []string{" ❯ 1. Yes"}, false},
 		"Codex's update prompt":                        {Codex, []string{"Update available!", "› 1. Update now", "  2. Skip"}, true},
 		"a list Codex is not known to ask on":          {Codex, []string{"› 1. Yes", "  2. No"}, false},
