@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { expect, test, type Page } from "./site";
+import { systemFonts } from "./system-fonts";
 
 // The Overlord, 2026-10-17: "when you scroll on like Pi and Codex terminals, it
 // um it doesn't keep like the bottom banner", "Codex terminals have like that
@@ -203,3 +204,31 @@ for (const { name, harness, idle, choices, inputLine, footer, asks } of HARNESSE
     });
   }
 }
+
+// What stopped the browser in #1202 was the first test on a CI runner to draw
+// a Claude Code screen opening the system fonts its symbols are drawn in, on
+// the page's main thread, from files the runner had never read (#1264). The
+// run opens them before its first test (tests/system-fonts.ts), so each font a
+// harness screen is drawn in must be one it opened.
+test("every system font a harness screen is drawn in is opened before the run's first test", async ({ context }) => {
+  // Six screens, each in a page of its own.
+  test.slow();
+
+  // Arrange: the fonts the run opened before its first test.
+  const opened: string[] = JSON.parse(process.env.BOARD_TEST_FONTS ?? "[]");
+
+  // Act: draw each recorded harness screen in the board's terminal.
+  const drawnWith = new Set<string>();
+  for (const name of readdirSync(new URL("./fixtures/harness-screens/", import.meta.url))) {
+    const page = await context.newPage();
+    await replay(page, recording(name.replace(/\.json$/, "")));
+    await page.goto("/tests/fixtures/terminal-geometry.html");
+    await drawn(page);
+    for (const font of await systemFonts(page, ".terminal-view:not(.staged) .xterm-rows > div")) drawnWith.add(font);
+    await page.close();
+  }
+
+  // Assert
+  expect(drawnWith.size, "the fonts the screens were drawn with were read").toBeGreaterThan(0);
+  expect([...drawnWith].filter((font) => !opened.includes(font))).toEqual([]);
+});
