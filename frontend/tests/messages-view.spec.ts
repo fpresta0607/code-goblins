@@ -120,6 +120,7 @@ const list = (page: Page, name: string) => page.getByRole("log", { name: "Messag
 const send = (page: Page, type: string, data: unknown) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-stream", { detail })), { type, data });
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
 const streams = (page: Page) => page.evaluate(() => (window as unknown as { messageStreams: unknown[] }).messageStreams.length);
+const olderPage = (url: URL) => url.pathname === "/api/messages" && url.searchParams.has("before");
 
 async function openCfo(page: Page) {
   await page.keyboard.press("Control+Alt+1");
@@ -268,6 +269,14 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
 
 test("older messages are read a page at a time as he reads up, and his place is kept", async ({ page }) => {
   const board = await open(page);
+  // The older page waits until his place is measured, so the place is the
+  // one he read before it arrived.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(olderPage, async (route) => {
+    await held;
+    await route.fallback();
+  });
   await openCfo(page);
   await view(page, "Messages").click();
   const talk = list(page, "CFO");
@@ -276,6 +285,7 @@ test("older messages are read a page at a time as he reads up, and his place is 
 
   await scrollTo(talk, 0);
   const before = await offset(talk, "m50");
+  release();
 
   await expect(talk.locator("[data-message]")).toHaveCount(100);
   expect(board.older).toEqual(["50"]);
@@ -284,6 +294,35 @@ test("older messages are read a page at a time as he reads up, and his place is 
   await page.waitForTimeout(300);
   expect(board.older, "no page is asked for once none is older").toEqual(["50"]);
   await expect(talk.locator("[data-message]").first()).toHaveText(/Question 0/);
+});
+
+test("an older page that fails to arrive goes to the CFO and is asked for again on his next approach to the top five seconds later", async ({ page }) => {
+  await page.clock.install();
+  const board = await open(page);
+  let failures = 0;
+  await page.route(olderPage, async (route) => {
+    if (failures) return route.fallback();
+    failures++;
+    await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
+  });
+  await openCfo(page);
+  await view(page, "Messages").click();
+  const talk = list(page, "CFO");
+  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/cfo/report");
+
+  await scrollTo(talk, 0);
+  await reported;
+  await scrollTo(talk, 300);
+  await scrollTo(talk, 0);
+  await page.waitForTimeout(300);
+  expect(board.older, "no page is asked for again sooner than five seconds after the failure").toEqual([]);
+  await page.clock.fastForward(5000);
+  await scrollTo(talk, 300);
+
+  await expect(talk.locator("[data-message]")).toHaveCount(100);
+  expect(failures).toBe(1);
+  expect(board.older).toEqual(["50"]);
 });
 
 test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the pill and Escape goes back", async ({ page }) => {
@@ -323,6 +362,10 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   await last.hover();
   await last.getByRole("button", { name: "Copy" }).click();
   await expect.poll(() => clipboard(page)).toBe("That matches. Running the phone spec now.");
+  const compaction = talk.locator(".message-compaction");
+  await compaction.hover();
+  await compaction.getByRole("button", { name: "Copy" }).click();
+  await expect.poll(() => clipboard(page)).toBe("The work so far: the swipe fix.");
   await talk.locator(".message-reply").last().locator(".message-words p").click({ clickCount: 3 });
 
   expect(await page.evaluate(() => getSelection()?.toString().trim())).toBe("That matches. Running the phone spec now.");

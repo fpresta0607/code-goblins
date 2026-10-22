@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { copyText as copyToClipboard } from "./clipboard";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
@@ -18,8 +18,8 @@ const FROM: Record<PromptSource, string> = { overlord: "You", cfo: "CFO", answer
 // with what it printed; a reply on the left, under the session's name where
 // a run of replies begins, its text, its thinking folded and its calls; a
 // compaction folded to its summary; an interrupt as Claude Code noted it.
-// Each prompt and reply has a Copy of its words.
-export function MessageRow({ message, name, isFirstReply, task, picture, onChild }: {
+// Each prompt, reply with text, notice and compaction has a Copy of its words.
+export const MessageRow = memo(function MessageRow({ message, name, isFirstReply, task, picture, onChild }: {
   message: SessionMessage; name: string; isFirstReply: boolean; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -28,6 +28,7 @@ export function MessageRow({ message, name, isFirstReply, task, picture, onChild
     onClick={() => copyToClipboard(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {})}><Icon name={copied ? "check" : "copy"} /></button>;
   if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}>{message.text}</p>;
   if (message.kind === "compaction") return <div className="message-compaction" data-message={message.id}>
+    {copy}
     <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"}><MessageText text={message.text} /></Disclosure>
   </div>;
   if (message.kind === "reply") return <article className="message message-reply" data-message={message.id}>
@@ -37,7 +38,7 @@ export function MessageRow({ message, name, isFirstReply, task, picture, onChild
       : block.kind === "thinking" ? block.text && <Disclosure key={at} kind="disclosure-line message-thinking" title="Thinking"><MessageText text={block.text} /></Disclosure>
         : <MessageCall key={at} call={block} task={task} picture={picture} onChild={onChild} />)}
   </article>;
-  if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{message.text}</p>;
+  if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
   return <article className={"message message-prompt " + message.source} data-message={message.id}>
     <header className="message-from">{copy}{FROM[message.source]}{message.queued && <span className="message-queued">Queued</span>}</header>
@@ -45,4 +46,4 @@ export function MessageRow({ message, name, isFirstReply, task, picture, onChild
     {message.text && <div className="message-bubble">{command ? <code>{(message.source === "shell" ? "!" : "") + message.text}</code> : <MessageText text={message.text} />}</div>}
     {(message.output || message.errors) && <pre className="message-output">{[message.output, message.errors].filter(Boolean).join("\n")}</pre>}
   </article>;
-}
+});

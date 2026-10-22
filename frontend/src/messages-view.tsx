@@ -14,6 +14,12 @@ const AT_END_PX = 24;
 // The page of messages before the first one held is read once he reads up
 // this close to the list's top, so it is there before he reaches it.
 const OLDER_WITHIN_PX = 600;
+// An older page that failed to arrive is asked for again on his next
+// approach to the top once this long has passed since it failed.
+const OLDER_RETRY_MS = 5000;
+// Once this many older pages in a row fail to arrive, none is asked for
+// until the stream reconnects.
+const OLDER_TRIES = 3;
 const UNREAD = "The session's messages cannot be read";
 
 // A Claude Code session's messages, read only: the supervisor's stream of
@@ -48,9 +54,13 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
   // how far its top lies below the list's, which stays put.
   const following = useRef(true);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
-  // Whether an older page is on its way, or failed to arrive, which leaves
-  // the rest unread until he reconnects rather than asking again and again.
+  // Whether an older page is on its way, and how many failed to arrive in a
+  // row and when the last did: his next approach to the top asks again once
+  // OLDER_RETRY_MS have passed, until OLDER_TRIES have failed, which leaves
+  // the rest unread until the stream's next page, the first a reconnect sends.
   const readingOlder = useRef(false);
+  const olderFailures = useRef({ count: 0, at: 0 });
+  const onChildValue = useRef(onChild);
   const address = useCallback((extra: Record<string, string>) => {
     const params = new URLSearchParams(query);
     params.set("token", instance);
@@ -81,7 +91,7 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
       reportToCfo(where, "Invalid messages stream");
     };
     stream.addEventListener("page", (event: MessageEvent<string>) => {
-      try { const page = parsePage(JSON.parse(event.data)); take((prior) => pageMessages(prior, page)); } catch { invalid(); }
+      try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
       try { const changed = parseMessages(JSON.parse(event.data)); take((prior) => ({ ...prior, messages: changeMessages(prior.messages, changed) })); } catch { invalid(); }
@@ -114,14 +124,20 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
 
   const readOlder = useCallback(() => {
     const first = heldValue.current.messages[0];
-    if (readingOlder.current || !heldValue.current.more || !first) return;
+    const failed = olderFailures.current;
+    if (readingOlder.current || !heldValue.current.more || !first || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
     readingOlder.current = true;
     request(address({ before: String(first.seq) })).then((value) => {
       const page = parsePage(value);
+      readingOlder.current = false;
+      olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
       setHeld((prior) => prior.messages[0]?.id === first.id ? olderMessages(prior, page) : prior);
+    }).catch((error: unknown) => {
       readingOlder.current = false;
-    }).catch((error: unknown) => reportToCfo(where, errorText(error)));
+      olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
+      reportToCfo(where, errorText(error));
+    });
   }, [address, where]);
 
   // remember notes where he reads after he scrolls, and reads the older page
@@ -197,11 +213,14 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
       zoom(size);
     }
   };
-  const picture = (id: string) => address({ picture: id });
+  const picture = useCallback((id: string) => address({ picture: id }), [address]);
+  useEffect(() => { onChildValue.current = onChild; }, [onChild]);
+  const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
   return <section className="messages-view" hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
       <div ref={items} className="conversation-items">
-        {held.messages.map((message, at) => <MessageRow key={message.id} message={message} name={name} isFirstReply={message.kind === "reply" && held.messages[at - 1]?.kind !== "reply"} task={task} picture={picture} onChild={onChild} />)}
+        {held.messages.map((message, at) => <MessageRow key={message.id} message={message} name={name} isFirstReply={message.kind === "reply" && held.messages[at - 1]?.kind !== "reply"}
+          task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
       </div>
     </div>
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the messages</p></div>}

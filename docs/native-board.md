@@ -945,6 +945,7 @@ The panel's top row is one line at every width the panel can take, 360 px at its
 Nothing in the row overlaps or is cut, and nothing in it is drawn smaller to fit: an icon button stays 44 px square.
 The switch and the corner button always show; a control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else; a choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
 The switch gives up its words only when the row cannot hold them even with every control in More, and then shows its icons, each named by its tip and its accessible name; with its icons the row holds as many controls as fit again.
+With a Claude Code session's three views, a panel too narrow for all of it holds Open in terminal and Maximize in More, so the views keep their words.
 The row is `PanelRow` in `frontend/src/panel-row.tsx`, used by every panel, and what fits is `rowFit` in `frontend/src/panel-fit.ts`.
 A control is a `PanelControl` (an id, a name for its tip and its menu item, an accessible name, an icon, an importance and what a press does); its importance is written beside the others in `PANEL_IMPORTANCE`, the highest staying in the row longest, and `App.tsx` builds the list.
 Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
@@ -1305,11 +1306,12 @@ A call's row has the mark of its outcome, its tool and what it was called on, an
 What came back, an edit's diff and its pictures fold under the row.
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, and an interrupt and a background task's notice are a quiet line.
-Each prompt and reply has Copy, which copies its words as written, and its text can be selected.
+Each prompt, reply with text, notice and compaction has Copy, which copies its words as written, and its text can be selected.
 The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
 At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
 Jump to latest, at the list's foot while he reads up, returns to the end.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
+A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
 Shift+Escape leaves the messages for the pill, as it leaves a terminal, and Escape does what the corner button does.
