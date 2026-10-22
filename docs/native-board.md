@@ -483,7 +483,7 @@ Either one takes the focus itself, so keys he was typing press neither button, a
 A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
 When AFK mode turns off nothing opens over the board: the stretch becomes his page of it, one card in his Command Center ([AFK mode](#afk-mode)).
 See [AFK mode in the README](../README.md#afk-mode) for what the page shows.
-Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first.
+Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first, and for a Claude Code session a [Messages view](#the-messages-view) before them.
 The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
 The turn-on question focuses Cancel, and a switch that cannot be read shows off with a tip saying that a press resets it.
 The [README](../README.md#afk-mode) describes the switch's loading and refusal displays.
@@ -517,6 +517,7 @@ A caret only ever opens or closes what it stands before: the same test names eve
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board and Orchestration both open a goblin, and the CFO, on its Terminal view; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
+A Claude Code session's Messages view stays mounted too, from its first showing while its panel shows the session.
 Typing happens in the terminal itself.
 Where a goblin's terminal cannot take typing, for a goblin paused, resuming or starting, the Terminal view has a message box under what it shows instead: Send or Enter sends a `message` action through `POST /api/actions` with the task's id, and the supervisor delivers it once whatever the goblin is doing.
 The CFO's Terminal view has no message box: while no CFO runs, closed or between the two terminals of a restart, it shows only why it has no terminal (the Overlord, 2026-10-09: "when cfo is off no message box should exist").
@@ -923,7 +924,7 @@ Every native terminal the Overlord opens stays live while the board is open, one
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
 Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
-A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; every view opens beside the board until it is maximized, the Board's terminal view and its Task view each keeping the last choice and the Orchestration view following the Task view's so its graph stays beside the panel, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden, the panel filling the screen on its own once opened on a small screen (below).
+A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; every view opens beside the board until it is maximized, the Board's terminal view, with the Messages view that shares its box, and its Task view each keeping the last choice and the Orchestration view following the Task view's so its graph stays beside the panel, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden, the panel filling the screen on its own once opened on a small screen (below).
 The first open of the board in a browser, which is one that records no first open (`cfo-first-open` in its local storage) and keeps neither a panel width nor a maximize choice, arranges the panel once: with a CFO running it shows the Board with the CFO selected, its panel on the Terminal view beside the board at the default width, not maximized, and the keyboard in that terminal.
 With no CFO running in a home that has not chosen one, the first-run page comes first, and Start lands on the same view.
 On a small screen (40rem or less) an open panel fills the screen, so the first open there opens no panel and shows the board alone, with the keyboard and the scroll left where they are; between that and 1410 px the two sit side by side with the board stacked, since its three columns need 961 px beside the panel.
@@ -940,10 +941,10 @@ On a small screen (40rem or less), such as a phone over remote access or the boa
 The top bar there is the brand with the Command Center and the connection beside it, and the view switch under them while no panel is open; the tour, the layout button and Open CFO are left off, as are the controls that act on the PC: Open in terminal, Open in VS Code and Open folder.
 The panel is held to the visual viewport, which the on-screen keyboard shrinks while the layout viewport stays as it was, so when the keyboard opens the terminal shrinks to the room above it, sends its new rows to the goblin's terminal and keeps its input line and footer in sight, and takes the room back when the keyboard closes; when Safari moves the visual viewport down the page to keep the focused field in sight, the panel moves with it.
 `frontend/tests/phone-terminal.spec.ts` checks this at 390 by 844 and 360 by 800, with the keyboard played by a visual viewport the test shrinks.
-The panel's top row is one line at every width the panel can take, 360 px at its narrowest: the Task and Terminal switch, when the panel has both views, then its controls (Open in terminal and Maximize or Restore today, neither on a small screen), then the corner button, Close or Back.
+The panel's top row is one line at every width the panel can take, 360 px at its narrowest: the switch between the panel's views, Messages, Terminal and Task in that order, when it has more than one, then its controls (Open in terminal and Maximize or Restore today, neither on a small screen), then the corner button, Close or Back.
 Nothing in the row overlaps or is cut, and nothing in it is drawn smaller to fit: an icon button stays 44 px square.
 The switch and the corner button always show; a control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else; a choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
-The switch gives up its words, Task and Terminal, only when the row cannot hold them even with every control in More, and then shows its two icons, each named by its tip and its accessible name; with its icons the row holds as many controls as fit again.
+The switch gives up its words only when the row cannot hold them even with every control in More, and then shows its icons, each named by its tip and its accessible name; with its icons the row holds as many controls as fit again.
 The row is `PanelRow` in `frontend/src/panel-row.tsx`, used by every panel, and what fits is `rowFit` in `frontend/src/panel-fit.ts`.
 A control is a `PanelControl` (an id, a name for its tip and its menu item, an accessible name, an icon, an importance and what a press does); its importance is written beside the others in `PANEL_IMPORTANCE`, the highest staying in the row longest, and `App.tsx` builds the list.
 Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
@@ -1260,7 +1261,7 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 
 ### A session read as messages
 
-The supervisor reads a Claude Code session as one list of messages, the first part of the message view the Overlord chose for the panel on 2026-10-22, and nothing on the board shows it yet.
+The supervisor reads a Claude Code session as one list of messages, the first part of the message view the Overlord chose for the panel on 2026-10-22, which the board's [Messages view](#the-messages-view) shows.
 `GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?cfo=TERMINAL&token=TOKEN` reads the CFO registered in that native terminal, from the conversation it registered with.
 Finding it reads no process and parses no store file, so a goblin's conversation shows once a read of its tree, every fifteen seconds, has kept it.
 It reads Claude Code sessions alone: a Codex or pi session is refused with 404 and keeps its Terminal and Task views.
@@ -1288,6 +1289,36 @@ A sub-agent's own entries, and what Claude Code records for its model alone, its
 The reader reads a conversation on from where it last stopped, as the tree's reader does, and passes over an entry still being written until its line ends.
 It keeps each conversation for five minutes after a view last asked for it, which an open view does twice a second, so it keeps every conversation a view shows and lets the rest go at the next ask or the next read of the fleet's trees.
 Each conversation is read under a lock of its own, apart from the trees, so a view's read never waits on a tree's, nor on a first read of another view's long conversation.
+
+### The Messages view
+
+A Claude Code session's panel has a third view, Messages, first on its pill: Messages, Terminal and Task, design A of the Overlord's choice on 2026-10-22.
+The CFO has it while it runs Claude Code in a native terminal, and a goblin while it runs Claude Code, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
+A Codex or pi session, the CFO in Herdr, a stopped or retired goblin and a baby goblin keep the Terminal and Task views alone.
+The panel still opens on its Terminal view, and Messages is a tap away.
+The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
+A prompt sits on the right in a bubble under who it is from: You, CFO for the CFO's brief or line, or Command Center answer for his answer from the Command Center.
+Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
+A reply sits on the left, under the session's name where a run of replies begins.
+Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its code blocks as written and its headings in bold, its thinking folded under Thinking, and each call as one row.
+A call's row has the mark of its outcome, its tool and what it was called on, and at its end Running, Failed, Denied or Interrupted while it is not done, or an edit's added and removed lines.
+What came back, an edit's diff and its pictures fold under the row.
+A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
+A compaction is folded to its summary, and an interrupt and a background task's notice are a quiet line.
+Each prompt and reply has Copy, which copies its words as written, and its text can be selected.
+The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
+At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
+Jump to latest, at the list's foot while he reads up, returns to the end.
+The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
+Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
+The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
+Shift+Escape leaves the messages for the pill, as it leaves a terminal, and Escape does what the corner button does.
+The view lies where the terminal deck lies, under the Terminal view's compact header, in the same flex and under the same rule, and it follows the Terminal view's Maximize choice, so its box is the terminal's.
+A switch between the views therefore never asks the terminal for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
+It stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
+A stream that drops reconnects by itself and says Reconnecting meanwhile.
+A stream the supervisor ends says why, and one that drops five times, or that the supervisor refuses, says the messages cannot be read, each with Reconnect.
+What the board could not parse goes to the CFO.
 
 ### Harness updates
 

@@ -40,6 +40,9 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TrainPanel } from "./train-panel";
 import { SMALL_SCREEN } from "./small-screen";
 import { useVisualViewport } from "./use-visual-viewport";
+import { MessagesView } from "./messages-view";
+import { messagesQuery } from "./session-messages";
+import { goblinName } from "./task-words";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -110,6 +113,8 @@ export function App() {
   const [resizing, setResizing] = useState(false);
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
+  // The session whose Messages view was last shown, which stays mounted.
+  const [messagesOpened, setMessagesOpened] = useState("");
   const [switchFocus, setSwitchFocus] = useState(0);
   const [compact, setCompact] = useState(() => matchMedia(SMALL_SCREEN).matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
@@ -193,7 +198,9 @@ export function App() {
   const effects = useActivity(snapshot, connected);
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   // A goblin opens on its Terminal view, unless the caller asks for a view
-  // (an alert opens the Task view, where its reason is).
+  // (an alert opens the Task view, where its reason is), so a Claude Code
+  // session's Messages view is a tap away until the box to write in it
+  // arrives.
   const select = (next: Selection, source: HTMLElement, panel: PanelView = "terminal") => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
@@ -260,11 +267,23 @@ export function App() {
   };
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || !!train || cfoOpen);
+  // The session whose messages the panel shows: the CFO's, or a task's own
+  // session, never a child's (messagesQuery).
+  const messagesSource = !snapshot || !showsPanel || train || child ? ""
+    : cfoShown ? messagesQuery(snapshot)
+      : selected && task && (!selectedSession || ownsTaskSession(selectedSession, task)) ? messagesQuery(snapshot, task) : "";
+  const views = panelViews(selected ? task : undefined, selected ? selectedSession : undefined, !!messagesSource);
   // A queued task has no terminal yet, so its panel shows its Task view.
-  // A baby goblin's panel is its terminal alone.
-  const shownView: PanelView = child ? "terminal" : panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
+  // A baby goblin's panel is its terminal alone, and a session with no
+  // Messages view shows its terminal in that view's place.
+  const shownView: PanelView = child ? "terminal" : views.includes(panelView) ? panelView : panelView === "messages" && views.includes("terminal") ? "terminal" : "task";
   const terminalShown = showsPanel && !train && shownView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
+  // A session's Messages view stays mounted from its first showing while
+  // its panel shows the session, so a switch back to it reads nothing again
+  // and finds the place he read.
+  const messagesShown = showsPanel && !train && shownView === "messages";
+  if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
   if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
@@ -382,8 +401,11 @@ export function App() {
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} views={views} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
+        {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
+          name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
+          onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} />}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
           <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
             onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
