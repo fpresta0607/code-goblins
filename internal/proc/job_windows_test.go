@@ -210,16 +210,18 @@ func TestEndJobMemberEndsOnlyTheProcessItListed(t *testing.T) {
 	reused.Start = reused.Start.Add(-time.Second)
 
 	// Act
-	isEnded := endJobMember(job, reused)
+	_, isEnded := endJobMember(job, reused)
 
 	// Assert
 	// stall-accepted: the process is meant to be left running, so running out is the passing path and a stall only makes the wait longer.
 	if event, err := windows.WaitForSingleObject(process, 500); isEnded || err != nil || event != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatalf("ended = %v, wait = %d, %v; want a process that started at another time left running", isEnded, event, err)
 	}
-	if !endJobMember(job, members[0]) {
+	ended, isEnded := endJobMember(job, members[0])
+	if !isEnded {
 		t.Fatal("the process the job listed was not ended")
 	}
+	windows.CloseHandle(ended)
 }
 
 // While a process exits, Windows can count it in its job and no longer list
