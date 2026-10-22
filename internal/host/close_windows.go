@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -17,7 +19,9 @@ import (
 // only that host: a terminal its id names that another host runs is left
 // alone. A zero record launched nothing, and a host that has ended has
 // nothing left to close; a running host that does not answer, as one under
-// load can be busy, is dialed again for at most answerWait.
+// load can be busy, is dialed again for at most answerWait. Only time the
+// machine ran spends answerWait and closeEndWait (awake), since a pause of the
+// whole machine stops the host too.
 func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	if launched.HostPID == 0 {
 		return nil
@@ -32,7 +36,8 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	if still, err := recorded(); err != nil || !still {
 		return err
 	}
-	deadline := time.Now().Add(answerWait)
+	answering, cancelAnswering := awake.WithTimeout(context.Background(), answerWait)
+	defer cancelAnswering()
 	client, err := Dial(launched)
 	for err != nil {
 		if !Running(launched) {
@@ -41,7 +46,7 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 		if still, readErr := recorded(); readErr == nil && !still {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if answering.Err() != nil {
 			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", launched.ID, launched.HostPID, err)
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -56,7 +61,9 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	if closeErr != nil && !pipeClosing(closeErr) {
 		return closeErr
 	}
-	for deadline := time.Now().Add(closeEndWait); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	ending, cancelEnding := awake.WithTimeout(context.Background(), closeEndWait)
+	defer cancelEnding()
+	for ; ending.Err() == nil; time.Sleep(100 * time.Millisecond) {
 		// A host that took the request removes its record as it ends. After
 		// a refused request the record proves nothing, since a host removes
 		// it while winding down and another can replace it: only this host's
