@@ -515,7 +515,7 @@ A wait the supervisor cannot read, such as a word that names no task, keeps the 
 A blocked task has no Start button or Next up mark, and its status says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10**, with no line added.
 The why after it stays on the row, and the board does not show it.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
-It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
+It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its panel once its session is up.
 A task the supervisor starts leaves Tasks at once and reads **Starting** until its goblin is at work: your Start puts it at the top of In progress, and one the supervisor starts by itself, a production defect included, joins the bottom, so your order above it stands.
 A start that fails reads **Start failed** in red and waits in Tasks for its next Start, with why behind its panel's Details, and the CFO is told.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
@@ -670,10 +670,10 @@ A board view draws every piece of output at the size it was written for.
 The Open window draws on its own window's grid and takes the terminal's size back with its next key.
 Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
-**Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
-The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's terminal beside it and the keyboard in that terminal; a phone, or any window 40rem wide or less, shows the board alone and leaves the keyboard alone.
+**Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch shows the session on the view its panel opens on and hands that view the keyboard: its message box, or its terminal.
+The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's panel beside it and the keyboard in its message box, or in its terminal without a **Messages** view; a phone, or any window 40rem wide or less, shows the board alone and leaves the keyboard alone.
 That happens once: what you arrange afterwards is kept, and a browser that already keeps a panel width or a maximize choice is left as it is.
-That first open also starts a very quick tour, three steps in which the CFO points at its terminal, the board and the Command Center; **Escape** or the X skips it, it shows once, and the **?** in the top bar replays it on any screen wider than a phone's.
+That first open also starts a very quick tour, three steps in which the CFO points at its panel, the board and the Command Center; **Escape** or the X skips it, it shows once, and the **?** in the top bar replays it on any screen wider than a phone's.
 A terminal and the Task view both open beside the board, **Maximize** gives the panel the whole window and **Restore** brings the board back beside it, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A task's panel has **Back** in its corner, which returns the panel to the CFO's on the view it last showed, and the CFO's own panel has Close; **Escape** does the same as the button.
@@ -694,7 +694,7 @@ What you say is recognised by a speech model the supervisor runs on this PC, so 
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
-Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.
+Click the bubble for the board's recent dictations, newest first, each with **Copy** and **Paste into this terminal**, or **Recent messages** beside a message box's microphone for the same list with **Paste into the message**; they are kept on this PC only.
 When the model answers no words for something you said, the CFO is told, and the sound is kept on this PC in the home's `state\dictation-no-words.wav` until the next such sound, so it can be played back to find out why.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 Hold **Shift** while selecting if the running program has taken the mouse.
