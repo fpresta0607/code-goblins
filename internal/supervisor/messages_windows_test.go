@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -365,12 +367,12 @@ func TestHandingOnAReplacedSessionsNoteTellsTheCFOEachMessageOnce(t *testing.T) 
 			}
 
 			// Act
-			err = HandOverReplacedNote(h.State, current, record)
+			isHanded, err := HandOverReplacedNote(h.State, current, record)
 
 			// Assert
 			told := toldCFO(t, h.State, meta.ID)
-			if err != nil || len(told) != len(tc.want) {
-				t.Fatalf("hand-off = %v, the CFO was told %q, want each of %q once", err, told, tc.want)
+			if !isHanded || err != nil || len(told) != len(tc.want) {
+				t.Fatalf("hand-off = %v, %v, the CFO was told %q, want each of %q once", isHanded, err, told, tc.want)
 			}
 			for i, words := range tc.want {
 				if !strings.HasPrefix(told[i], "message not delivered: task-1's session was replaced by a later start while it was paused") || !strings.HasSuffix(told[i], "The Overlord wrote: "+words) {
@@ -382,6 +384,37 @@ func TestHandingOnAReplacedSessionsNoteTellsTheCFOEachMessageOnce(t *testing.T) 
 				t.Fatalf("resume note = %q, %v, want both messages still in it", after.ResumeNote, err)
 			}
 		})
+	}
+}
+
+// A wake episode that fails to publish once the messages a replaced session's
+// record keeps are on the CFO's notify wake is said, but the messages leave
+// the note all the same, so the next pass tells the CFO nothing more: before,
+// each pass told the CFO the same messages again until a publish went
+// through.
+func TestAReplacedSessionsMessagesGoToTheCFOOnceWhenTheirWakeFailsToPublish(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	atPhase(t, h.State, meta, "pause", "paused")
+	keptForResume(t, store, meta, "use the staging database", "and skip the migration")
+	switchSession(t, h.State, meta)
+	if err := os.Mkdir(filepath.Join(h.State, ".watcher-down"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	first := handOverReplacedResumes(h.State)
+	record, readErr := state.ReadLifecycle(h.State, meta.ID)
+	second := handOverReplacedResumes(h.State)
+
+	// Assert
+	if first == nil || readErr != nil || record.ResumeNote != "" {
+		t.Fatalf("first pass = %v, record %+v, %v; want the failed publish said and the messages out of the note", first, record, readErr)
+	}
+	told := toldCFO(t, h.State, meta.ID)
+	if second != nil || len(told) != 2 || !strings.HasSuffix(told[0], "The Overlord wrote: use the staging database") || !strings.HasSuffix(told[1], "The Overlord wrote: and skip the migration") {
+		t.Fatalf("second pass = %v, the CFO was told %q, want each message once", second, told)
 	}
 }
 

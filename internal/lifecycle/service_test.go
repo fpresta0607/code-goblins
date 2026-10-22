@@ -722,19 +722,25 @@ func TestStopNeverArchivesWhileProcessesCouldNotBeStopped(t *testing.T) {
 // A pause or stop of the later session hands on what the record keeps before
 // it writes its own record over it, so the message is never dropped (issue
 // #1280); a hand-off that fails refuses the operation, with nothing stopped
-// and the record as it was.
+// and the record as it was. One that handed the messages on and failed after
+// them, as a wake episode that is not published, lets the operation go on,
+// since a retry would hand them on twice, and names what it met.
 func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testing.T) {
-	handOverFailure := errors.New("the wake queue cannot be written")
+	queueFailure := errors.New("the wake queue cannot be written")
+	publishFailure := errors.New("the wake episode cannot be published")
 	for _, tc := range []struct {
-		name    string
-		action  string
-		failure error
-		phase   string
+		name     string
+		action   string
+		isHanded bool
+		failure  error
+		phase    string
 	}{
-		{name: "a pause", action: "pause", phase: "paused"},
-		{name: "a stop", action: "stop", phase: "stopped"},
-		{name: "a pause whose hand-off fails", action: "pause", failure: handOverFailure},
-		{name: "a stop whose hand-off fails", action: "stop", failure: handOverFailure},
+		{name: "a pause", action: "pause", isHanded: true, phase: "paused"},
+		{name: "a stop", action: "stop", isHanded: true, phase: "stopped"},
+		{name: "a pause whose hand-off fails", action: "pause", failure: queueFailure},
+		{name: "a stop whose hand-off fails", action: "stop", failure: queueFailure},
+		{name: "a pause whose hand-off fails after the messages", action: "pause", isHanded: true, failure: publishFailure, phase: "paused"},
+		{name: "a stop whose hand-off fails after the messages", action: "stop", isHanded: true, failure: publishFailure, phase: "stopped"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -748,13 +754,13 @@ func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testin
 			}
 			var handed, recorded []state.Lifecycle
 			var handedMeta state.TaskMeta
-			service.Operations.HandOver = func(current state.TaskMeta, prior state.Lifecycle) error {
+			service.Operations.HandOver = func(current state.TaskMeta, prior state.Lifecycle) (bool, error) {
 				onDisk, err := state.ReadLifecycle(service.StateDir, meta.ID)
 				if err != nil {
 					t.Error(err)
 				}
 				handedMeta, handed, recorded = current, append(handed, prior), append(recorded, onDisk)
-				return tc.failure
+				return tc.isHanded, tc.failure
 			}
 			isStopped := false
 			service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
@@ -770,7 +776,7 @@ func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testin
 			if len(handed) != 1 || !reflect.DeepEqual(handed[0], replaced) || !reflect.DeepEqual(recorded[0], replaced) || handedMeta.SpawnGen != meta.SpawnGen {
 				t.Fatalf("handed over %+v for session %q while the record read %+v, want %+v handed over once for %q before it was overwritten", handed, handedMeta.SpawnGen, recorded, replaced, meta.SpawnGen)
 			}
-			if tc.failure != nil {
+			if !tc.isHanded {
 				if !errors.Is(err, tc.failure) || isStopped || readErr != nil || !reflect.DeepEqual(after, replaced) {
 					t.Fatalf("%s = %+v, %v, stopped %v, record %+v, %v; want it refused with nothing stopped and the record as it was", tc.action, record, err, isStopped, after, readErr)
 				}
@@ -778,6 +784,9 @@ func TestAPauseOrStopHandsOnAReplacedSessionsRecordBeforeOverwritingIt(t *testin
 			}
 			if err != nil || readErr != nil || after.Generation != meta.SpawnGen || after.Action != tc.action || after.Phase != tc.phase || !isStopped {
 				t.Fatalf("%s = %+v, %v, record %+v, %v; want it %s in the later session", tc.action, record, err, after, readErr, tc.phase)
+			}
+			if isNamed := slices.Contains(after.Problems, publishFailure.Error()); isNamed != (tc.failure != nil) {
+				t.Fatalf("problems = %q, want %q named only when the hand-off met it", after.Problems, publishFailure)
 			}
 		})
 	}

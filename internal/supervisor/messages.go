@@ -170,11 +170,12 @@ func handOverReplacedResume(stateDir, id string) (err error) {
 	if err != nil || !isReplaced {
 		return err
 	}
-	if err := HandOverReplacedNote(stateDir, meta, record); err != nil {
+	isHanded, err := HandOverReplacedNote(stateDir, meta, record)
+	if !isHanded {
 		return err
 	}
 	record.ResumeNote, _ = keptMessages(record.ResumeNote)
-	return state.WriteLifecycle(stateDir, record)
+	return errors.Join(err, state.WriteLifecycle(stateDir, record))
 }
 
 // HandOverReplacedNote gives the CFO, with their words, the board messages
@@ -182,11 +183,13 @@ func handOverReplacedResume(stateDir, id string) (err error) {
 // replaced the session that resume was for, since no resume of that record
 // runs again. It takes no lock and writes nothing: its caller holds the
 // task's lifecycle lock and takes the messages out of the note, or writes its
-// own record over it, once they are handed on.
-func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle) error {
+// own record over it, once they are handed on. It says whether each is on the
+// CFO's notify wake, so a wake episode that fails to publish after them is
+// said without handing them on twice.
+func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle) (isHanded bool, err error) {
 	messages := replacedMessages(record, meta)
 	if len(messages) == 0 {
-		return nil
+		return true, nil
 	}
 	why := meta.ID + "'s session was replaced by a later start while it was paused, so the resume the message was kept for never runs"
 	if record.Action == "resume" {
@@ -194,11 +197,11 @@ func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lif
 	}
 	for _, message := range messages {
 		if err := handToCFO(stateDir, meta.ID, why, message); err != nil {
-			return err
+			return false, err
 		}
 	}
-	_, err := wake.PublishEpisode(stateDir)
-	return err
+	_, err = wake.PublishEpisode(stateDir)
+	return true, err
 }
 
 // replacedResume reads task id's lifecycle record and task metadata, and
