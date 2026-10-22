@@ -20,7 +20,8 @@ var notTheCFO = supervisor.NotTheCFO
 // resume, kill, cleanup, supersede, backlog, a reap that acts), landing its
 // work (pr, merge-local, deploy), acknowledging the wake queue (a drain that
 // acknowledges), setting the weekly allowance floor every goblin pauses at
-// (an allowance-floor that names one) and authorizing a task to spend paid
+// (an allowance-floor that names one), accepting a Python start hook a
+// goblin's seal stopped (start-hook) and authorizing a task to spend paid
 // Codex credits (an auth grant --codex-credits). Reading the fleet is anyone's:
 // fleet-view, peek, runtime, tickets, a drain that only prints, a reap that
 // only reports, an allowance-floor that only says the floors, and
@@ -40,7 +41,7 @@ func actsAsCFO(args []string) bool {
 		})
 	}
 	switch args[0] {
-	case "brief", "spawn", "send", "switch", "title", "pause", "resume", "kill", "cleanup", "supersede", "backlog", "pr", "merge-local", "deploy":
+	case "brief", "spawn", "send", "switch", "title", "pause", "resume", "kill", "cleanup", "supersede", "backlog", "pr", "merge-local", "deploy", "start-hook":
 		return true
 	case "drain":
 		return hasFlag("ack-through", "recovery-generation", "ack-blocking")
@@ -76,5 +77,5 @@ func refuseAnotherAgentsSession(args []string, resolveHome func() (home.Home, er
 	if why == nil {
 		return ""
 	}
-	return fmt.Sprintf("cfo %s: %s. Dispatching, steering, stopping and landing a goblin's work, acknowledging the fleet's wakes, setting its allowance floor and authorizing paid Codex credits are the CFO's alone, so nothing was done. Ask the CFO, or run goblins in a terminal to start it or show it.", args[0], why)
+	return fmt.Sprintf("cfo %s: %s. Dispatching, steering, stopping and landing a goblin's work, acknowledging the fleet's wakes, setting its allowance floor, accepting a Python start hook and authorizing paid Codex credits are the CFO's alone, so nothing was done. Ask the CFO, or run goblins in a terminal to start it or show it.", args[0], why)
 }

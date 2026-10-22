@@ -30,6 +30,7 @@ var staysAtNormal = map[string]string{
 	"dev-drive":         "reads and sets up drives",
 	"defender":          "reads Microsoft Defender's own records, which takes seconds",
 	"allowance-floor":   "sets one number nothing waits on",
+	"start-hook":        "records one accepted file nothing waits on",
 	"home":              "hashes and moves a whole home",
 	"pipeline":          "starts and answers gate runs, which are work",
 	"afk":               "a switch and a log nothing waits on",
