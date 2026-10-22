@@ -1,7 +1,8 @@
 // Package claudehook is the transport layer every `cfo hook <name>`
-// subcommand builds on: it decodes Claude Code's hook JSON from stdin and
-// owns the three hook output contracts (PreToolUse deny, Stop block,
-// informational allow).
+// subcommand builds on: it decodes Claude Code's hook JSON from stdin, and
+// the Claude-shaped JSON Codex writes, and owns the hook output contracts
+// (PreToolUse deny, on stderr for Claude Code and on stdout for Codex, Stop
+// block, informational allow).
 package claudehook
 
 import (
@@ -14,7 +15,11 @@ import (
 // subcommand's stdin. It ports upstream's jq-based field extraction across
 // the PreToolUse, SessionStart, and Stop hook events into one shared shape.
 type Payload struct {
-	SessionID      string
+	SessionID string
+	// Cwd is the session's working folder: the one a Codex session started
+	// in, as the goblin seal's pi extension names its session's too, and the
+	// one Claude Code's shell is in now.
+	Cwd            string
 	Source         string
 	ToolName       string
 	Command        string
@@ -31,6 +36,7 @@ type Payload struct {
 // since it is the only nested field callers need (tool_input.command).
 type rawPayload struct {
 	SessionID           string          `json:"session_id"`
+	Cwd                 string          `json:"cwd"`
 	Source              string          `json:"source"`
 	ToolName            string          `json:"tool_name"`
 	ToolInput           json.RawMessage `json:"tool_input"`
@@ -77,6 +83,7 @@ func ReadPayload(r io.Reader) (Payload, bool) {
 
 	p := Payload{
 		SessionID:    raw.SessionID,
+		Cwd:          raw.Cwd,
 		Source:       raw.Source,
 		ToolName:     raw.ToolName,
 		ToolUseID:    raw.ToolUseID,

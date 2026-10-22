@@ -352,7 +352,7 @@ A goblin runs `cfo auth fetch <request> --task <its id>`, or he presses **Fetch 
 The supervisor reads the keys from the page in its own code and stores them straight into the vault, and the goblin hears the names stored and nothing else.
 When the page asks for a sign-in, his sign-in card comes to the Command Center, he signs in himself in a window that opens only on his click, and the fetch carries on by itself.
 Never sign in to his accounts, never type or read his passwords or codes, and never reveal or read a key in a browser a goblin drives: a key in a transcript is a key to roll.
-A Claude Code goblin's own hooks refuse its browser commands while a fetch reads in its browser, and wake you when any of its tool output holds something shaped like a secret key.
+A goblin's own hooks refuse its browser commands while a fetch reads in its browser, and a Claude Code goblin's wake you when any of its tool output holds something shaped like a secret key, which a Codex or pi goblin's do not yet (#1366).
 That wake names the goblin, the tool and the kind of key, and the key is to be rolled if it is real.
 A provider with no recipe gets one by pull request: its hosts, key page and signed-in pattern first, then the keys it reads, which a Claude Code goblin finds by borrowing the signed-in browser while they are masked.
 His first real fetch is his own, after the install.
@@ -486,13 +486,15 @@ A lock a goblin writes under the terminal's cutoff records it too, and a `uv syn
 
 ### Code that runs at every Python start
 
-A Claude Code goblin's own hook looks at the Python environments of its worktree before each Bash, PowerShell or Monitor call: each folder at its root that holds `pyvenv.cfg`, and the `.venv` of each folder one or two levels below its root, such as `services/api/.venv`, though never under a dot folder or `node_modules`.
+Every goblin's own hook looks at the Python environments of its worktree before each command it runs: a Claude Code goblin's before each Bash, PowerShell or Monitor call, a Codex goblin's before each shell command and `exec_command` call, and a pi goblin's before each bash call.
+It looks in each folder at the worktree's root that holds `pyvenv.cfg`, and the `.venv` of each folder one or two levels below its root, such as `services/api/.venv`, though never under a dot folder or `node_modules`.
 An executable line of a `.pth` file in its `site-packages` or, on Windows, in the environment's own folder, where a wheel's data files land, or a `sitecustomize` or `usercustomize` module there or in a folder or zip archive a `.pth` path line adds, found as Python finds it, runs at every Python start whether or not its package is ever imported, which is how the hijacked release of 2026-10-21 ran a stealer that could read everything the Overlord's account can.
 The ones an environment carries with no release hijacked pass, each only from what makes it: uv's and virtualenv's own `_virtualenv.pth` in an environment its `pyvenv.cfg` says uv or virtualenv made, the start hooks setuptools, pywin32, coverage and pytest-cov before 7.0 ship from those packages, and any line of a project installed editable from a folder of the worktree, as setuptools, meson-python and scikit-build-core write one.
 Any other refuses the call before it runs and every call after it until the file is gone, and wakes you, kind `review`, keyed by the goblin, naming the file and the package whose `RECORD` installed it, never what the file says: once while that wake waits for you, and again once you have acknowledged it and the file is still there.
 A file no package names yet while the environment's `site-packages` changed within the last minute, as while an install still writes, refuses the call with no wake, and wakes you once the install has ended if no package names it then.
 Decide from the package: remove the file once you know it is safe and the goblin's commands run again, or end the task.
-The command that installed the file may have started Python already, which nothing before a shell call can stop, and Codex and pi goblins have no such hook.
+The command that installed the file may have started Python already, which nothing before a shell call can stop.
+Codex runs a Codex goblin's hook only once the Overlord has trusted it in a Codex goblin's `/hooks`, as it runs the goblin's other hooks: until he has, each Codex start says it started without trusting its hooks, and nothing checks before that goblin's commands.
 
 ## Project local services
 

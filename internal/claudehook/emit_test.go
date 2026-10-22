@@ -60,6 +60,43 @@ func TestDenyPreToolEscapesMessage(t *testing.T) {
 	}
 }
 
+// Codex reads a hook's refusal as JSON on stdout from a hook that exits 0,
+// since the session's PowerShell it runs the hook in ends with 1 for every
+// other exit code; the reason comes back whole, quotes and line breaks too.
+func TestDenyPreToolOnStdoutEnvelope(t *testing.T) {
+	for _, message := range []string{"blocked: reason", "quote \" and newline \n end"} {
+		t.Run(message, func(t *testing.T) {
+			// Arrange
+			var buf bytes.Buffer
+
+			// Act
+			code := DenyPreToolOnStdout(&buf, message)
+
+			// Assert
+			if code != 0 {
+				t.Errorf("DenyPreToolOnStdout return = %d, want 0", code)
+			}
+			trimmed := strings.TrimRight(buf.String(), "\n")
+			if strings.Count(trimmed, "\n") != 0 {
+				t.Fatalf("stdout is not exactly one line: %q", buf.String())
+			}
+			var envelope struct {
+				HookSpecificOutput struct {
+					HookEventName            string `json:"hookEventName"`
+					PermissionDecision       string `json:"permissionDecision"`
+					PermissionDecisionReason string `json:"permissionDecisionReason"`
+				} `json:"hookSpecificOutput"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+				t.Fatalf("stdout line is not valid JSON: %v", err)
+			}
+			if got := envelope.HookSpecificOutput; got.HookEventName != "PreToolUse" || got.PermissionDecision != "deny" || got.PermissionDecisionReason != message {
+				t.Errorf("hookSpecificOutput = %+v, want a PreToolUse deny with reason %q", got, message)
+			}
+		})
+	}
+}
+
 func TestBlockStopWritesBannerVerbatim(t *testing.T) {
 	var buf bytes.Buffer
 	banner := "Stop blocked: the CFO must review before ending the turn."

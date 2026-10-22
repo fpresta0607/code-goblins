@@ -157,6 +157,106 @@ func TestGoblinSealStopsAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
 	}
 }
 
+// sessionShellCall is the payload a Codex goblin's seal, or a pi goblin's,
+// gets before tool runs command: the folder its session started in, cwd,
+// and the call, as Codex writes it and as the pi extension does.
+func sessionShellCall(t *testing.T, cwd, tool, command string) *strings.Reader {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"session_id": "s1", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": map[string]string{"command": command}, "tool_use_id": "call_1", "turn_id": "turn_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.NewReader(string(data))
+}
+
+// sealRefusals are the refusals a Codex or pi seal wrote on stdout, one
+// reason a line.
+func sealRefusals(t *testing.T, stdout string) []string {
+	t.Helper()
+	var reasons []string
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		var answer struct {
+			HookSpecificOutput struct {
+				HookEventName            string `json:"hookEventName"`
+				PermissionDecision       string `json:"permissionDecision"`
+				PermissionDecisionReason string `json:"permissionDecisionReason"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal([]byte(line), &answer); err != nil || answer.HookSpecificOutput.HookEventName != "PreToolUse" || answer.HookSpecificOutput.PermissionDecision != "deny" {
+			t.Fatalf("stdout line %q is no PreToolUse refusal (%v)", line, err)
+		}
+		reasons = append(reasons, answer.HookSpecificOutput.PermissionDecisionReason)
+	}
+	return reasons
+}
+
+// A Codex or pi goblin is stopped as a Claude Code goblin is, before its
+// next shell command and every one after it until the planted file is gone,
+// with the CFO woken with the file and its package once while that wake
+// waits for him and again once he has acknowledged it. Its seal looks in the
+// folder its session names, never CLAUDE_PROJECT_DIR, and answers with exit
+// 0 and its refusal on stdout, the one answer Codex's shell passes on.
+func TestCodexAndPiGoblinSealsStopAGoblinBeforePythonRunsAPlantedStartHook(t *testing.T) {
+	for _, test := range []struct{ hook, tool string }{
+		{"goblin-seal-codex", "Bash"},
+		{"goblin-seal-pi", "bash"},
+	} {
+		t.Run(test.hook, func(t *testing.T) {
+			// Arrange
+			stateDir := goblinHookHome(t)
+			worktree := t.TempDir()
+			planted := plantStartHook(t, worktree, "litellm_init.pth,sha256=AAAA,90\n")
+			var stdout, stderr, afterOutput bytes.Buffer
+			call := func(command string, output *bytes.Buffer) int {
+				return runHook(test.hook, sessionShellCall(t, worktree, test.tool, command), output, &stderr)
+			}
+
+			// Act
+			exits := []int{call(`.venv\Scripts\python.exe -m pytest`, &stdout), call("git status", &stdout)}
+			first, err := wake.Pending(stateDir)
+			if err != nil || len(first) == 0 {
+				t.Fatalf("wakes = %+v, %v, want the CFO woken", first, err)
+			}
+			if err := wake.AckThrough(stateDir, first[len(first)-1].Seq); err != nil {
+				t.Fatal(err)
+			}
+			exits = append(exits, call("uv sync --locked", &stdout))
+			again, err := wake.Pending(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(planted); err != nil {
+				t.Fatal(err)
+			}
+			exits = append(exits, call(`.venv\Scripts\python.exe -m pytest`, &afterOutput))
+
+			// Assert
+			for index, exit := range exits {
+				if exit != 0 {
+					t.Fatalf("command %d exit = %d, want 0, the only exit Codex's shell passes on", index+1, exit)
+				}
+			}
+			if stderr.Len() != 0 || afterOutput.Len() != 0 {
+				t.Fatalf("stderr = %q, output once the file is gone = %q, want the refusals on stdout and the last command let through", stderr.String(), afterOutput.String())
+			}
+			refusals := sealRefusals(t, stdout.String())
+			for _, refusal := range refusals {
+				if !strings.Contains(refusal, "Stopped before Python could start") || !strings.Contains(refusal, "litellm_init.pth, from litellm-1.107.0,") {
+					t.Fatalf("refusal = %q, want the planted file and its package named", refusal)
+				}
+			}
+			if len(refusals) != 3 {
+				t.Fatalf("refusals = %q, want one for each command while the file was there", refusals)
+			}
+			for name, wakes := range map[string][]wake.Record{"before he acknowledged it": first, "after he acknowledged it": again} {
+				if len(wakes) != 1 || wakes[0].Kind != "review" || wakes[0].Key != "pd-keys" || !strings.Contains(wakes[0].Detail, "pd-keys was stopped before its next shell command: "+planted+", from litellm-1.107.0,") || strings.Contains(wakes[0].Detail, "subprocess") {
+					t.Fatalf("wakes %s = %+v, want one naming the file and its package, never its code", name, wakes)
+				}
+			}
+		})
+	}
+}
+
 // Claude Code's Monitor tool runs a command in the background as Bash runs
 // one, such as a goblin's test run it watches, so a planted start hook
 // stops it before it runs as it stops a shell command.

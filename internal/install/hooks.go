@@ -173,6 +173,36 @@ func GoblinSettings(root, stateDir string) ([]byte, error) {
 	return file.render()
 }
 
+// GoblinPiExtension is the pi extension a pi goblin starts with, beside the
+// native one every pi session of the machine loads: its goblin seal, which
+// runs program, the home's hook program (HookCommand), as cfo hook
+// goblin-seal-pi before each bash call, the one pi tool that runs a command,
+// and blocks the call with the reason the seal gives on stdout. A seal that
+// cannot run or answer within the native hooks' limit blocks the call too,
+// as pi blocks one whose handler throws, since the seal refuses what it
+// cannot read. It is plain JavaScript, which pi loads as it loads
+// TypeScript, so a test runs it in Node as it is.
+func GoblinPiExtension(program string) string {
+	exe, _ := json.Marshal(program)
+	return `// Code Goblins goblin seal, written anew at each pi goblin's launch
+import { spawnSync } from "node:child_process";
+export default function (pi) {
+  pi.on("tool_call", (event, ctx) => {
+    if (event.toolName !== "bash") return;
+    const result = spawnSync(` + string(exe) + `, ["hook", "goblin-seal-pi"], {
+      input: JSON.stringify({cwd: ctx.cwd, tool_name: "bash", tool_input: {command: event.input.command}}),
+      encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(nativehook.TimeoutSeconds*1000) + `,
+    });
+    if (result.error || result.status !== 0) {
+      return {block: true, reason: "This command waits: the check cfo makes before each command could not run (" + (result.error ? result.error.message : "exit " + result.status) + "). Run it again in a minute."};
+    }
+    const answer = result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput : undefined;
+    if (answer && answer.permissionDecision === "deny") return {block: true, reason: answer.permissionDecisionReason};
+  });
+}
+`
+}
+
 // UserHooks is the `cfo hook <name>` of every CFO hook entry the settings file
 // at path holds, which an install by a build before 2026-10 wrote there and
 // every Claude Code session of the user runs. A missing file holds none.
