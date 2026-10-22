@@ -730,6 +730,43 @@ func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
 	}
 }
 
+// A goblin switched to Codex or pi takes that harness's goblin seal in its
+// new launch, as a spawn's does, so it is still stopped before a shell
+// command while its worktree holds a start hook no known package ships. The
+// build is refused here, so nothing starts.
+func TestSwitchStartsTheNewHarnessWithItsGoblinSeal(t *testing.T) {
+	for _, kind := range []harness.Kind{harness.Codex, harness.Pi} {
+		t.Run(string(kind), func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixtureOf(t, harness.Claude, harness.Control{StopCommand: "/exit"})
+			specs := []harness.LaunchSpec{}
+			f.service.Harness.Adapters[kind] = nativeAdapter{kind: kind, specs: &specs, buildErr: errors.New("nothing starts in this test")}
+
+			// Act
+			_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Harness: kind, ForceDirty: true})
+
+			// Assert
+			if err == nil || len(specs) != 1 {
+				t.Fatalf("Switch = %v with %d builds, want the one refused build", err, len(specs))
+			}
+			seal := strings.Join(specs[0].CodexHooks, " ")
+			if kind == harness.Pi {
+				if specs[0].PiExtensionPath != filepath.Join(f.stateDir, goblinPiExtensionFile) {
+					t.Fatalf("PiExtensionPath = %q, want the home's goblin pi extension", specs[0].PiExtensionPath)
+				}
+				written, err := os.ReadFile(specs[0].PiExtensionPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seal = string(written)
+			}
+			if want := "goblin-seal-" + string(kind); !strings.Contains(seal, want) {
+				t.Fatalf("the %s launch's seal is %q, want it to run %s", kind, seal, want)
+			}
+		})
+	}
+}
+
 // A relaunch plans the task's MCP configuration again from the project's
 // .mcp.json and hands over the file under the task's temporary directory it
 // will write, and no other: a .mcp.json in the worktree is the project's own

@@ -326,6 +326,21 @@ func CodexArguments(executable, home, state string) ([]string, error) {
 	return args, nil
 }
 
+// CodexGoblinArguments are a Codex goblin's CodexArguments with its goblin
+// seal, which a Claude Code goblin's settings run before each command
+// (install.GoblinHooks): a PreToolUse override for Bash, the name Codex gives
+// a shell command and an exec_command call alike, running cfo hook
+// goblin-seal-codex directly with Codex's own limit for a hook, as Claude
+// Code's is for the seal. The Codex CFO's launch carries no seal, as the
+// Claude Code CFO's settings carry none.
+func CodexGoblinArguments(executable, home, state string) ([]string, error) {
+	args, err := CodexArguments(executable, home, state)
+	if err != nil {
+		return nil, err
+	}
+	return append(args, "-c", "hooks.PreToolUse=[{matcher='Bash',hooks=[{type='command',command='"+filepath.ToSlash(executable)+" hook goblin-seal-codex'}]}]"), nil
+}
+
 // ownsCommand reports whether a hook command is one Install wrote for harness
 // under configDir: the helper's, or cfo run directly for harness from any
 // place it was installed, so a reinstall after the binary moved replaces it.

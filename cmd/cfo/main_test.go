@@ -165,9 +165,9 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "codex-guard" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
-	// A native hook a test starts as a harness does runs this binary as the
-	// home's cfo.exe.
-	if len(os.Args) > 1 && os.Args[1] == "native-hook" {
+	// A native hook or a goblin seal a test starts as a harness does runs
+	// this binary as the home's cfo.exe.
+	if len(os.Args) > 1 && (os.Args[1] == "native-hook" || os.Args[1] == "hook") {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	treetest.Run()
