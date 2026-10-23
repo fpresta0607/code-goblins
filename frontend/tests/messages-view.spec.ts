@@ -1,9 +1,10 @@
 import { expect, test, type Locator, type Page } from "./site";
 
-// The Overlord chose design A on 2026-10-22: a Claude Code session's pill
-// reads Messages, Terminal and Task, and its Messages view shows the session's
-// conversation as the supervisor reads it (GET /api/messages), in the box the
-// terminal fills, so switching between them never resizes the terminal. The
+// The Overlord chose design A on 2026-10-22, and two tabs that evening: a
+// Claude Code session's pill reads Terminal and Task, and its Terminal view
+// shows the session's conversation as the supervisor reads it (GET
+// /api/messages), in the box the terminal fills, so switching views never
+// resizes the terminal. The
 // supervisor is played here: the board's snapshot and each session's message
 // stream on held streams, older pages and pictures from routes, and the
 // terminal's relay, which counts the sizes the board asks for. Every
@@ -154,15 +155,16 @@ const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => n
   element.scrollTop = top;
 }), top);
 
-test("a Claude Code session's pill offers Messages, Terminal and Task and opens on Messages, and a Codex goblin's keeps two and opens on its terminal", async ({ page }) => {
+test("a Claude Code session's pill offers Terminal and Task and its Terminal view shows its messages, and a Codex goblin's shows its terminal", async ({ page }) => {
   await open(page);
 
   await openCfo(page);
-  await expect.poll(() => views(page)).toEqual(["Messages", "Terminal", "Task"]);
-  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => views(page)).toEqual(["Terminal", "Task"]);
+  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+  await expect(list(page, "CFO")).toBeVisible();
   await openGoblin(page);
-  await expect.poll(() => views(page)).toEqual(["Messages", "Terminal", "Task"]);
-  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => views(page)).toEqual(["Terminal", "Task"]);
+  await expect(list(page, "Zeke - Touch Wrangler")).toBeVisible();
   await page.locator(".task-board .task-card-shell").filter({ hasText: "A Codex task" }).locator(".task-card").click();
 
   await expect.poll(() => views(page)).toEqual(["Terminal", "Task"]);
@@ -174,7 +176,7 @@ test("the Messages view draws the conversation as the session recorded it, under
   await open(page);
   await openGoblin(page);
 
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
 
   const talk = list(page, "Zeke - Touch Wrangler");
   await expect(talk).toBeVisible();
@@ -205,7 +207,7 @@ test("the Messages view draws the conversation as the session recorded it, under
 test("a call's result, an edit's diff and thinking unfold under their rows", async ({ page }) => {
   await open(page);
   await openGoblin(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "Zeke - Touch Wrangler");
 
   await talk.locator(".message-call").filter({ hasText: "Read" }).filter({ hasText: "terminalView.ts" }).locator("summary").click();
@@ -221,7 +223,7 @@ test("a call's result, an edit's diff and thinking unfold under their rows", asy
 test("a baby goblin's row opens that baby goblin's own terminal", async ({ page }) => {
   await open(page);
   await openGoblin(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const row = list(page, "Zeke - Touch Wrangler").locator(".message-baby");
   await expect(row).toContainText("Zeke Jr. - ");
   await expect(row).toContainText("Explore · Find the touch handlers");
@@ -234,7 +236,7 @@ test("a baby goblin's row opens that baby goblin's own terminal", async ({ page 
 test("a message that changes takes its place, and a new one shows at the end he reads", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
@@ -250,7 +252,7 @@ test("a message that changes takes its place, and a new one shows at the end he 
 test("reading up, new and changed messages move nothing, and Jump to latest returns to the end", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const { end } = await scroll(talk);
@@ -279,7 +281,7 @@ test("older messages are read a page at a time as he reads up, and his place is 
     await route.fallback();
   });
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   expect(board.older, "nothing older is read while he reads the end").toEqual([]);
@@ -307,7 +309,7 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
     await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
   });
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/cfo/report");
@@ -329,7 +331,7 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
 test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the pill and Escape goes back", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   await talk.focus();
@@ -340,7 +342,7 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await page.keyboard.press("Shift+PageDown");
   await expect.poll(async () => (await scroll(talk)).top).toBeGreaterThan(top - 50);
   await page.keyboard.press("Shift+Escape");
-  await expect(view(page, "Messages")).toBeFocused();
+  await expect(view(page, "Terminal")).toBeFocused();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
   await talk.focus();
   await page.keyboard.press("Escape");
@@ -352,7 +354,7 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await open(page);
   await openGoblin(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "Zeke - Touch Wrangler");
   const command = talk.locator(".message-prompt.shell");
 
@@ -393,7 +395,7 @@ test.describe("on a phone's touch screen", () => {
   test("Copy, always shown, covers no word or call state of a reply, and lies beside a reply's name", async ({ page }) => {
     await open(page);
     await openGoblin(page);
-    await view(page, "Messages").click();
+    await view(page, "Terminal").click();
     const talk = list(page, "Zeke - Touch Wrangler");
     await expect(talk.locator("[data-message]")).toHaveCount(11);
 
@@ -423,7 +425,7 @@ test.describe("on a phone's touch screen", () => {
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const size = () => talk.evaluate((element) => getComputedStyle(element).fontSize);
@@ -445,7 +447,7 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
   expect(await page.evaluate(() => localStorage.getItem("cfo-terminal-font-size")), "the terminals keep their own size").toBeNull();
   await page.reload();
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   await expect.poll(size).toBe("18px");
   await talk.focus();
   await page.keyboard.press("Control+0");
@@ -456,7 +458,7 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
 test("a stream the supervisor ends says why, and Reconnect reads the messages again", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   await expect(list(page, "CFO").locator("[data-message]")).toHaveCount(50);
 
   await send(page, "unavailable", "The CFO runs in another terminal now. Open the CFO again.");
@@ -468,10 +470,10 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
   expect(await streams(page)).toBe(2);
 });
 
-test("switching back to the Messages view finds the place he read and reads nothing again", async ({ page }) => {
+test("switching back to the Terminal view's messages finds the place he read and reads nothing again", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const { end } = await scroll(talk);
@@ -479,26 +481,25 @@ test("switching back to the Messages view finds the place he read and reads noth
   const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
   const before = await offset(talk, read);
 
-  await view(page, "Terminal").click();
   await view(page, "Task").click();
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
 
   await expect(talk).toBeVisible();
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
   expect(await streams(page)).toBe(1);
 });
 
-test("Back from a goblin's panel returns to the CFO's Messages view", async ({ page }) => {
+test("Back from a goblin's panel returns to the CFO's messages", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
+  await view(page, "Terminal").click();
   await expect(list(page, "CFO").locator("[data-message]")).toHaveCount(50);
   await openGoblin(page);
 
   await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
 
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
+  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
   await expect(list(page, "CFO")).toBeVisible();
 });
 
@@ -518,10 +519,10 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel" }).click();
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
-      for (const name of ["Messages", "Task", "Terminal", "Messages", "Terminal", "Task", "Messages", "Terminal"]) {
+      for (const name of ["Task", "Terminal", "Task", "Terminal"]) {
         await view(page, name).click();
         await page.waitForTimeout(300);
-        if (name === "Messages") expect(await page.locator(".messages-view").boundingBox(), "the Messages view takes the terminal's box").toEqual(deck);
+        if (name === "Terminal") expect(await page.locator(".messages-view").boundingBox(), "the messages take the terminal's box").toEqual(deck);
       }
 
       expect(board.resizes.slice(asked), `${isMaximized ? "maximized" : "beside the board"}, the switches sent no resize`).toEqual([]);

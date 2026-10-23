@@ -121,15 +121,19 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 // Every test waits for room before it starts. A test's own context has its
 // pages served, with hadTour passed to servePages; a test that opens another
 // context serves that one itself.
-export const test = base.extend<{ room: Room; paced: void; hadTour: boolean }>({
+export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
+  // The stepped in project's runs draw each fixture's terminal stepped into a
+  // Messages view's place (tests/fixtures/stepped-in.tsx).
+  isSteppedIn: [false, { option: true }],
   paced: [async ({ room }, use) => {
     await roomForATest(room);
     await use();
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
-  context: async ({ context, hadTour }, use) => {
+  context: async ({ context, hadTour, isSteppedIn }, use) => {
     await servePages(context, ORIGIN, hadTour);
+    if (isSteppedIn) await context.addInitScript(() => sessionStorage.setItem("fixture-stepped-in", "true"));
     await use(context);
   },
 });
