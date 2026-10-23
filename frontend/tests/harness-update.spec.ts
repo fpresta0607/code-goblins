@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-07, looking at Claude Code's "Update installed ·
 // Restart to update" in the CFO's terminal: "there should be an easy update
@@ -37,6 +37,7 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 async function openGoblinPanel(page: Page) {
   await card(page).locator(".task-card").click();
   await expect(header(page).locator("#panel-title")).toHaveText("Export invoices as CSV");
+  await openTaskList(page);
 }
 
 async function openCfoPanel(page: Page) {

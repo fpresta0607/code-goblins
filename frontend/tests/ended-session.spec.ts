@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 import { parseSnapshot, type Snapshot } from "../src/types";
 
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
@@ -346,6 +346,7 @@ for (const backend of ["native", "herdr"] as const) {
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
     expect(await connections()).toEqual([]);
 
+    await openTaskList(page);
     await panel.getByRole("button", { name: "Resume Terminal fixes and handoff" }).click();
     await expect.poll(() => requests).toEqual([expect.objectContaining({ task: "input-proof", generation: "s2-9d41", revision: "q7", action: "resume" })]);
     await publish({ ...snapshot, revision: 2, tasks: [{ ...snapshot.tasks[0], phase: "resuming" }] });

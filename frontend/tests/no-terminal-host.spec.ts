@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page, type WebSocketRoute } from "./site";
+import { expect, holdStream, openTaskList, type Page, test, type WebSocketRoute } from "./site";
 
 // Issue 1218, 2026-10-20: a goblin whose terminal's host did not come back
 // after a PC restart showed a black pane with a cursor in its Terminal tab,
@@ -83,6 +83,7 @@ test("a goblin that did not come back after the restart says it has no terminal,
 
   // Act: he turns to its Task view and opens Harness, as the words say.
   await page.route("**/api/engines", (route) => route.fulfill({ json: ENGINES }));
+  await openTaskList(page);
   await page.locator(".goblin-panel summary").filter({ hasText: "Harness" }).click();
 
   // Assert: Restart, which brings it back, and Stop, which retires it.

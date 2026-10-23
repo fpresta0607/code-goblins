@@ -410,7 +410,7 @@ export class TerminalView {
     const down = event.type === "keydown";
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+      if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return false;
     }
     const shortcut = terminalKey(event, this.term, this.copy);

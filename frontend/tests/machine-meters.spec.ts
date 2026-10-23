@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 
 const GB = 2 ** 30;
 const since = "2026-10-05T12:00:00Z";
@@ -82,6 +82,7 @@ test.describe("in the Overlord's window, 1707 px wide", () => {
         const column = await board(page, { processors, gpu });
         if (beside !== "as the board opens") {
           await page.keyboard.press("Control+Alt+1");
+          await openTaskList(page);
           await expect(page.locator(".context-pane")).toBeVisible();
         }
 

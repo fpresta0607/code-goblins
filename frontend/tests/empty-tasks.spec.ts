@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { expect, type Locator, openTaskList, type Page, test } from "./site";
 
 const GB = 2 ** 30;
 const snapshot = {
@@ -67,6 +67,7 @@ test("the CFO's Task view lists an empty queue the same way", async ({ page }) =
   // Arrange
   await board(page);
   await page.keyboard.press("Control+Alt+1");
+  await openTaskList(page);
   const queue = page.getByRole("region", { name: "Queued tasks", exact: true });
 
   // Act

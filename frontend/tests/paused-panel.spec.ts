@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 import { caret, nativeMarkers } from "./caret";
 
 // The Overlord, 2026-10-09 about 13:50Z, with a screenshot of Bernie's paused
@@ -67,6 +67,7 @@ async function select(page: Page, name: string) {
   if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: name }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(name);
+  await openTaskList(page);
 }
 
 const panel = (page: Page) => page.locator(".goblin-panel");

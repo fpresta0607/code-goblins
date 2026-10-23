@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // Tickets and people on the board: a task's ticket and the avatars of
 // teammates whose work meets its branch on its card, and the people of its
@@ -45,6 +45,7 @@ async function open(page: Page) {
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
 async function openPanel(page: Page, title: string) {
   await card(page, title).locator(".task-card").click();
+  await openTaskList(page);
   return page.locator(".panel-header");
 }
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);

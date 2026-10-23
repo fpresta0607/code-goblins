@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The DOM renderer makes terminal output observable in headless screenshots.
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
@@ -156,6 +156,7 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
   // Act
   await page.reload();
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await openTaskList(page);
 
   // Assert
   await expect(board(page)).toBeVisible();

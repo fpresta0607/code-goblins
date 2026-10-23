@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-17, of Frank's terminal header (his task's long
 // description, Waiting on the CFO, and VS Code and folder on a row of their
@@ -70,6 +70,7 @@ test("the Task view still names the task and holds VS Code, the folder, the tick
   await openTerminal(page, FRANK);
 
   // Act
+  await openTaskList(page);
   const header = page.locator(".panel-header");
 
   // Assert
@@ -85,6 +86,7 @@ test("the Task view of a goblin waiting on another goblin still links to that go
   await openTerminal(page, { ...FRANK, phase: "waiting", waiting_on: WANDA.id });
 
   // Act
+  await openTaskList(page);
 
   // Assert
   await expect(page.locator(".panel-header .panel-status").getByRole("button", { name: "Open Wanda - Map Maker, which this goblin is waiting on" })).toBeVisible();

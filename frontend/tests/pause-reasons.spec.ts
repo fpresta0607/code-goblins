@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The board's part of automatic resume, as approved on its Scrawl page: each
 // paused card says Paused and why, Next sits on the card the order for a free
@@ -45,6 +45,7 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 async function select(page: Page, id: string) {
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
+  await openTaskList(page);
 }
 
 for (const width of [1440, 390]) {

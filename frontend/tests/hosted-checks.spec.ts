@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 
 // A live goblin's hosted checks and its change's newest cfo gate test run
 // beside its pull request in its panel, and never on its card (the Overlord,
@@ -37,6 +37,7 @@ async function open(page: Page) {
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
 async function openPanel(page: Page, title: string) {
   await card(page, title).locator(".task-card").click();
+  await openTaskList(page);
   return page.locator(".panel-header");
 }
 
@@ -100,6 +101,7 @@ test("the panel shows the checks beside its pull request", async ({ page }) => {
   await open(page);
 
   await card(page, "Export the audit trail").locator(".task-card").click();
+  await openTaskList(page);
   const header = page.locator(".panel-header");
 
   await expect(header.locator(".hosted-checks")).toHaveText(["Checks passed", "Approved"]);

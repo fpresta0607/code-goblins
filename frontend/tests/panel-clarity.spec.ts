@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 import { events } from "./panel-states";
 
 // The task panel says each thing once, in plain words: one true status in its
@@ -35,6 +35,7 @@ async function select(page: Page, title: string) {
   if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: title }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(title);
+  await openTaskList(page);
 }
 
 // What a person reads in the panel below its title: the hidden terminal and

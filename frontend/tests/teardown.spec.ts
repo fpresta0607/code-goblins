@@ -1,4 +1,4 @@
-import { expect, openBoardPastFirstRun, test } from "./site";
+import { expect, openBoardPastFirstRun, openTaskList, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 // The Overlord, 2026-10-08: "everything error wise goes to cfo". A card says
@@ -25,6 +25,7 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
     await expect(card).toBeVisible();
     await expect(card.getByText(/Windows is still closing/)).toHaveCount(0);
     await card.click();
+    await openTaskList(page);
     const details = page.locator(".lifecycle-panel");
     // The panel names the process behind Details. Working has no line under
     // it (the Overlord, 2026-10-05), so there the sentence is the first thing

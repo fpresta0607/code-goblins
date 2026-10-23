@@ -1,4 +1,4 @@
-import { expect, openBoardPastFirstRun, test } from "./site";
+import { expect, openBoardPastFirstRun, openTaskList, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 // Tall enough for a first page of most of the queue and a short final page
@@ -27,6 +27,7 @@ test("the CFO queue can turn to its short final page without a render loop", asy
   });
   await openBoardPastFirstRun(page);
   await page.keyboard.press("Control+Alt+1");
+  await openTaskList(page);
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
   await page.evaluate(() => document.fonts.ready);
   await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "832px"; });

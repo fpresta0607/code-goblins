@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // Every goblin goes by its fun name and title, with its avatar, on its card,
 // a queued task's card in Tasks included, on the merge train, on the
@@ -105,6 +105,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(page.locator("#panel-title")).toHaveText("Jerry - Code Designer");
       // Its Terminal view names the task by its id, its Task view by its title.
       await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
+      await openTaskList(page);
       await expect(page.locator(".panel-goblin-task")).toHaveText("Say why a billing sync fails");
     });
 

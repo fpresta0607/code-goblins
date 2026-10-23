@@ -417,7 +417,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     };
     element.addEventListener("pointerdown", startCopy);
     pastElement.addEventListener("pointerdown", startCopy);
-    const focusPill = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+    const focusTopRow = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
     // Ctrl+Plus, Ctrl+Minus and Ctrl+0 choose the text size a sized pane is
     // drawn at, and choosing it takes the pane's size.
     const zoom = (event: KeyboardEvent) => {
@@ -442,7 +442,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       if (dictated !== null) return dictated;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") focusPill();
+        if (event.type === "keydown") focusTopRow();
         return false;
       }
       const shortcut = terminalKey(event, term, copy);
@@ -464,7 +464,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       if (shortcut !== null) return shortcut;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") focusPill();
+        if (event.type === "keydown") focusTopRow();
         return false;
       }
       const page = event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown");
