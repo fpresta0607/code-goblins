@@ -59,8 +59,6 @@ func TestTheComebackBringsTheCFOBackOnItsConversationOrANewOneAndTellsItWhy(t *t
 				t.Fatal(err)
 			}
 			recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
-			userHome := t.TempDir()
-			t.Setenv("USERPROFILE", userHome)
 			if tc.isTooLarge {
 				writeClaudeTranscript(t, f.home.Root, "a1b2c3d4-session", requestLine(6, 2_300, 800_000, 4))
 			} else if !tc.isUnwritten {

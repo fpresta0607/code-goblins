@@ -228,7 +228,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 	// A goblin running these tests sits in a Herdr pane itself; each test
 	// says where it is and which session is the fleet's instead. Its user
 	// home, where Claude Code keeps its transcripts, is its own too.
-	t.Setenv("USERPROFILE", t.TempDir())
+	useTranscriptHome(t, dir)
 	t.Setenv("HERDR_PANE_ID", "")
 	t.Setenv("HERDR_SESSION", "fixture-fleet")
 	return f
