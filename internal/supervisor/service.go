@@ -208,7 +208,9 @@ type Service struct {
 	pullRequests map[string]pullRequestState
 	// awaitedPulls holds the state the scheduler last read of each pull
 	// request a queued row waits on: OPEN, CLOSED or MERGED.
-	awaitedPulls map[string]string
+	awaitedPulls  map[string]string
+	rootStarts    map[rootStart]rootStartReading
+	isReadingRoot bool
 	// historyErr is what the last history refresh met, and cfoWakeErr,
 	// fleetErr and pushErr what every typed CFO wake, every fleet wake
 	// reading and every app badge push met since the last recovery cycle; the

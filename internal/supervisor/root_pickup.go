@@ -28,7 +28,8 @@ type RootIssues struct {
 	// Repository names the GitHub repository a checkout's origin is.
 	Repository func(ctx context.Context, checkout string) (string, error)
 	// OpenRoots reads a repository's open ops-root issues.
-	OpenRoots func(ctx context.Context, repository string) ([]tickets.OpenRoot, error)
+	OpenRoots  func(ctx context.Context, repository string) ([]tickets.OpenRoot, error)
+	IssueState func(ctx context.Context, repository string, number int) (string, error)
 }
 
 const (
