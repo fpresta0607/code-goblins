@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -43,6 +45,7 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 		return execx.Result{Stdout: []byte(account + "\n")}, nil
 	}
 	method, path := "GET", ""
+	fields := map[string]string{}
 	for i := 1; i < len(req.Args); i++ {
 		switch req.Args[i] {
 		case "--method":
@@ -50,6 +53,8 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 			method = req.Args[i]
 		case "-f":
 			i++
+			key, value, _ := strings.Cut(req.Args[i], "=")
+			fields[key] = value
 		default:
 			path = req.Args[i]
 		}
@@ -68,6 +73,16 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 	case method == "POST":
 		f.writes = append(f.writes, path)
 		if strings.HasSuffix(path, "/issues") {
+			opened, err := json.Marshal([]struct {
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+				Body   string `json:"body"`
+				URL    string `json:"html_url"`
+			}{{42, fields["title"], fields["body"], "https://github.com/acme/widgets/issues/42"}})
+			if err != nil {
+				return execx.Result{}, err
+			}
+			f.open = string(opened)
 			return execx.Result{Stdout: []byte(`{"number":42,"html_url":"https://github.com/acme/widgets/issues/42"}`)}, nil
 		}
 		return execx.Result{Stdout: []byte(`{}`)}, nil
@@ -166,6 +181,59 @@ func TestIssueFileCommentsOnTheOpenIssueOfTheSameRoot(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "commented on #7") || strings.Join(gh.writes, " ") != "repos/acme/widgets/issues/7/comments" {
 		t.Fatalf("stdout = %q, writes = %v, want one comment on 7", stdout.String(), gh.writes)
+	}
+}
+
+func TestIssueFileSharesAManualTestRootWithAutomaticSightings(t *testing.T) {
+	for _, isOpen := range []bool{true, false} {
+		t.Run(fmt.Sprintf("manual root open=%t", isOpen), func(t *testing.T) {
+			// Arrange: file by hand through the command and keep the issue GitHub
+			// would return, including its prose marker, for the automatic sighting.
+			gh := &issueGH{}
+			runtime, _ := issueRuntime(t, gh)
+			var stdout, stderr strings.Builder
+			code := runIssue([]string{"file", "--project", "widgets", "--title", "native host ends before it serves in TestNativeHost", "--body-file", writeBody(t, "`TestNativeHost` in `cmd/cfo` fails before the host serves.")}, &stdout, &stderr, runtime)
+			if code != 0 {
+				t.Fatalf("manual filing exit = %d: %s", code, stderr.String())
+			}
+			if !strings.Contains(gh.open, "ops-root: native host ends before it serves in testnativehost") {
+				t.Fatalf("manual issue = %s, want its prose root marker", gh.open)
+			}
+			if !isOpen {
+				// GitHub's state=open listing excludes the issue once it closes.
+				gh.open = "[]"
+			}
+			gh.writes = nil
+
+			// Act
+			root := tickets.FailedOnceRoot("go (cmd-cfo): github.com/acme/widgets/cmd/cfo TestNativeHost", "run 9")
+			filed, err := fileRoot(context.Background(), runtime, "widgets", root, time.Now())
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "repos/acme/widgets/labels repos/acme/widgets/issues"
+			if isOpen {
+				want = "repos/acme/widgets/issues/42/comments"
+			}
+			if filed.IsRecurrence != isOpen || strings.Join(gh.writes, " ") != want {
+				t.Fatalf("filed = %+v, writes = %v, want %s", filed, gh.writes, want)
+			}
+		})
+	}
+}
+
+func TestIssueFileHelpNamesTheAutomaticTestRootFormat(t *testing.T) {
+	// Arrange
+	var stdout, stderr strings.Builder
+
+	// Act
+	runIssue([]string{"file", "--help"}, &stdout, &stderr, commandRuntime{})
+
+	// Assert
+	if !strings.Contains(stderr.String(), "test:<package> <name>") {
+		t.Fatalf("help = %q, want the automatic test identity", stderr.String())
 	}
 }
 

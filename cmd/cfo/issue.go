@@ -36,7 +36,7 @@ func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	projectName := fs.String("project", "", "the project whose repository the root issue belongs to")
 	title := fs.String("title", "", "what goes wrong, in one line")
 	bodyFile := fs.String("body-file", "", "a file holding what happens, why and when it is done")
-	rootKey := fs.String("root", "", "the cause a recurrence is matched by, such as a test's package and name; the title by default")
+	rootKey := fs.String("root", "", "the cause a recurrence is matched by; for tests use test:<package> <name> with the full package, matching automatic sightings; the title by default")
 	var evidence []string
 	fs.Func("evidence", "what this sighting saw, such as a run's address; repeat for more", func(value string) error {
 		if value = strings.TrimSpace(value); value != "" {

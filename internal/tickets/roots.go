@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // RootLabel is on every issue filed for a root issue the fleet met while it
@@ -71,13 +73,59 @@ type OpenRoot struct {
 	Association string
 }
 
-// matches says the open issue is the one root belongs to: its marker names
-// root's key, or, filed by hand without one, its title is root's.
-func (o OpenRoot) matches(root Root) bool {
-	if o.Key != "" {
-		return o.Key == root.RootKey()
+// matches keeps an explicit test key authoritative, but also recognizes a
+// manual report whose title names the test and whose text pairs it with one
+// package. Merely mentioning a package elsewhere does not identify the test.
+func (o OpenRoot) matches(root Root, repository string) bool {
+	if o.Key != "" && o.Key == root.RootKey() {
+		return true
 	}
-	return strings.EqualFold(strings.Join(strings.Fields(o.Title), " "), strings.Join(strings.Fields(root.Title), " "))
+	if o.Key == "" && strings.EqualFold(strings.Join(strings.Fields(o.Title), " "), strings.Join(strings.Fields(root.Title), " ")) {
+		return true
+	}
+	if strings.HasPrefix(o.Key, "test:") {
+		return false
+	}
+	test, isTest := strings.CutPrefix(root.RootKey(), "test:")
+	identity := strings.Fields(test)
+	if !isTest || len(identity) != 2 || !slices.Contains(rootIdentifiers(o.Title), identity[1]) {
+		return false
+	}
+	packagePath, isRepositoryPackage := strings.CutPrefix(identity[0], "github.com/"+strings.ToLower(repository)+"/")
+	words := rootIdentifiers(o.Title + "\n" + o.Body)
+	hasMatch := false
+	for index, word := range words {
+		if word != identity[1] {
+			continue
+		}
+		var packages []string
+		if index > 0 && strings.Contains(words[index-1], "/") {
+			packages = append(packages, words[index-1])
+		}
+		if index+1 < len(words) && strings.Contains(words[index+1], "/") {
+			packages = append(packages, words[index+1])
+		}
+		if index+2 < len(words) && words[index+1] == "in" && strings.Contains(words[index+2], "/") {
+			packages = append(packages, words[index+2])
+		}
+		for _, named := range packages {
+			if named != identity[0] && !(isRepositoryPackage && named == packagePath) {
+				return false
+			}
+			hasMatch = true
+		}
+	}
+	return hasMatch
+}
+
+func rootIdentifiers(text string) []string {
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("_./-", r)
+	})
+	for index, word := range words {
+		words[index] = strings.TrimSuffix(word, ".")
+	}
+	return words
 }
 
 // FileRoot files root on repository, owner/name: it reads the open issues
@@ -94,7 +142,7 @@ func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now 
 		return FiledRoot{}, err
 	}
 	for _, issue := range open {
-		if !issue.matches(root) {
+		if !issue.matches(root, repository) {
 			continue
 		}
 		seen := strings.TrimSpace(root.Evidence)
