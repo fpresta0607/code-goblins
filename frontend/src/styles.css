@@ -1377,9 +1377,13 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* The stage is the box under the panel's header that a session's Messages
    view and its terminal share: the Messages view lies over the terminal
    deck, which stays laid out unseen behind it, so the terminal has its size
-   before it is first seen and a switch between the two resizes nothing. */
+   before it is first seen and a step between the two resizes nothing. The
+   terminal stepped into the messages' place has a bar floating over its top
+   edge that takes none of its height. */
 .panel-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
+.stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
+.stepped-in-bar > button { pointer-events: auto; }
 .terminal-deck { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--glass-border); background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }

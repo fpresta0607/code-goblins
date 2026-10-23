@@ -7,7 +7,7 @@ import { putImage } from "./terminal-image";
 import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { heldNotice, isDetachedHold } from "./terminalInput";
-import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
+import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
 import { offerLink } from "./terminal-link";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
@@ -63,8 +63,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // Whether a key he typed was not sent, since the view had no connection
   // then, until a new connection is whole.
   const [isUnsent, setUnsent] = useState(false);
-  // Whether the harness waits on an answer at a screen of its own.
-  const [isAsking, setAsking] = useState(false);
+  // What the view was last told of the harness's screen.
+  const [screen, setScreen] = useState<ScreenState | null>(null);
   const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
   const dictate = dictation.key;
   // What a touch tool or a pasted picture met, for a moment, and the
@@ -121,7 +121,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setHistoryEnd(null);
         setUnread(view.unread);
         setHeldWhy(view.held);
-        setAsking(view.asking);
+        setScreen(view.screen);
         setUnsent(false);
         setReconnecting(false);
         setClosedWhy("");
@@ -156,7 +156,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       unread: (unread) => { if (current.current === view) setUnread(unread); },
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
-      asking: (asking) => { if (current.current === view) setAsking(asking); },
+      screen: (state) => { if (current.current === view) setScreen(state); },
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -172,12 +172,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, isAsking,
+      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, screen,
       send: (text) => !!current.current && current.current.paste(text) && current.current.enter(),
       escape: () => !!current.current?.escape(),
     });
     return () => offerLink(link, null);
-  }, [link, phase, reconnecting, visible, isUnread, heldWhy, isAsking]);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen]);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
