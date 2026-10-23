@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -38,6 +39,9 @@ type Operations struct {
 	// reason to keep it running.
 	Helpers func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Prepare func(context.Context, state.TaskMeta, string) error
+	// Handoff is the handoff of a goblin that wrote none by its pause's
+	// deadline, as its task stands before the stop (HandoffWriter).
+	Handoff func(context.Context, state.TaskMeta) []byte
 	// Withdraw tells a goblin whose pause failed while it ran that it is
 	// not paused, taking back the instruction Prepare typed.
 	Withdraw   func(context.Context, state.TaskMeta) error
@@ -331,7 +335,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 				result.HandoffSaved = true
 			}
 			if !result.HandoffSaved {
-				result.Problems = append(result.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
+				service.writeHandoff(ctx, meta, &result)
 			}
 		}
 		result.Stopped, err = service.Operations.Stop(ctx, meta, &result)
@@ -401,6 +405,38 @@ func (service Service) hasRelaunched(meta state.TaskMeta) bool {
 // and by rename so a partly written file never counts.
 func PauseInstruction(handoff string) string {
 	return "Pause requested. You have five seconds to reach a stopping point: finish the step in hand, then push your branch if its mode allows. As your very last action, write your handoff to " + handoff + ".partial and rename it to " + handoff + "; that file ends the wait, and your session and processes stop right after it appears. Retain all work and never bypass a gate."
+}
+
+// writeHandoff writes the handoff of record's goblin, which wrote none by its
+// pause's deadline, before the stop ends the runs it names, and says so in
+// record's problems. A handoff the goblin published meanwhile is its own and
+// is never replaced.
+func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) {
+	if service.Operations.Handoff == nil {
+		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
+		return
+	}
+	note := service.Operations.Handoff(ctx, meta)
+	file, err := fsx.CreateNewContext(ctx, record.Handoff, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		if info, statErr := os.Stat(record.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			record.HandoffSaved = true
+			return
+		}
+	}
+	if err == nil {
+		_, err = file.Write(note)
+		err = errors.Join(err, file.Close())
+		if err != nil {
+			err = errors.Join(err, os.Remove(record.Handoff))
+		}
+	}
+	if err != nil {
+		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed, and the handoff the pause wrote for the goblin was not saved: "+err.Error())
+		return
+	}
+	record.HandoffSaved = true
+	record.Problems = append(record.Problems, "the goblin wrote no handoff by its stopping-point deadline, so the pause wrote one for it from the task's record")
 }
 
 // PAUSE_WITHDRAWAL takes back a PauseInstruction whose pause failed while the
